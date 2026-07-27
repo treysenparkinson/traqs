@@ -67,6 +67,43 @@ function hoursElapsedMinusPauses(isoStart, isoEnd, events) {
   return Math.max(0, Math.round((netMs / 3600000) * 100) / 100);
 }
 
+// pausedMsFromEvents' counterpart for the PERSISTED lunch/break rows in
+// payhours.json (shape `{ eventType, timestamp }`) rather than the
+// activeClockIn.events cache (`{ type, ts }`). `rows` must already be scoped to
+// ONE person; only rows whose timestamp falls inside [startIso, endIso] count,
+// so events belonging to a different shift on the same day are excluded. A
+// range still open at endIso (e.g. a lunchStart with no lunchEnd) is closed at
+// endIso. Tombstoned (deletedAt) rows are ignored.
+function pausedMsFromRows(rows, startIso, endIso) {
+  const startMs = new Date(startIso).getTime();
+  const endMs = new Date(endIso).getTime();
+  const inWindow = (Array.isArray(rows) ? rows : [])
+    .filter(r => r && r.eventType && r.timestamp && !r.deletedAt)
+    .map(r => ({ type: r.eventType, t: new Date(r.timestamp).getTime() }))
+    .filter(r => !Number.isNaN(r.t) && r.t >= startMs && r.t <= endMs)
+    .sort((a, b) => a.t - b.t);
+  let paused = 0, lunchOpen = null, breakOpen = null;
+  for (const ev of inWindow) {
+    if (ev.type === "lunchStart") lunchOpen = ev.t;
+    else if (ev.type === "lunchEnd" && lunchOpen != null) { paused += Math.max(0, ev.t - lunchOpen); lunchOpen = null; }
+    else if (ev.type === "breakStart") breakOpen = ev.t;
+    else if (ev.type === "breakEnd" && breakOpen != null) { paused += Math.max(0, ev.t - breakOpen); breakOpen = null; }
+  }
+  if (lunchOpen != null) paused += Math.max(0, endMs - lunchOpen);
+  if (breakOpen != null) paused += Math.max(0, endMs - breakOpen);
+  return paused;
+}
+
+// Net paid hours for a completed punch, subtracting the lunch/break rows that
+// fall within its [clockIn, clockOut] window. `personRows` is the full set of
+// this person's payhours rows. Used whenever a punch's times OR its lunch/break
+// events change, so `hours` on the entry always matches the day timeline.
+function netHoursForPunch(clockIn, clockOut, personRows) {
+  const grossMs = new Date(clockOut) - new Date(clockIn);
+  const netMs = grossMs - pausedMsFromRows(personRows, clockIn, clockOut);
+  return Math.max(0, Math.round((netMs / 3600000) * 100) / 100);
+}
+
 // Stamp entity-array writes so timeclock's server-side mutations (clock
 // state on people, logged hours on tasks, punches on the clock log) advance
 // lastModifiedAt and propagate through /sync. Re-reads the previous version
@@ -184,7 +221,11 @@ export async function handler(event) {
       // Both are payroll-grade PII, scoped the same.
       const key = (dataset === "productionhours" || dataset === "jobsessions") ? prodKey : payKey;
       const data = await readJson(key);
-      const entries = Array.isArray(data) ? data : [];
+      // Drop tombstones: a deleted lunch/break row is kept in S3 (with
+      // `deletedAt`) so the /sync delta can evict it from caching clients, but
+      // the GET is the "live" view — a client hydrating from it must not see a
+      // deleted punch. (The sync path already evicts tombstones in db/sync.js.)
+      const entries = (Array.isArray(data) ? data : []).filter(e => e && !e.deletedAt);
       // Admin: optional personId filter. Non-admin: force-filter to self,
       // regardless of what `personId` they asked for.
       const scopeId = member.isAdmin ? personId : member.personId;
@@ -304,11 +345,15 @@ export async function handler(event) {
         if (!existing) return err(404, "Entry not found");
         if (existing.confirmed) return err(409, "This entry is in a confirmed timesheet. Re-open the timesheet to edit it.");
 
+        // Recompute NET of this person's lunch/break rows that fall inside the
+        // (possibly new) window — a bare hoursElapsed would silently drop the
+        // lunch deduction whenever an admin nudges the in/out times.
+        const editPersonRows = log.filter(r => String(r.personId) === String(existing.personId));
         let found = false;
         log = log.map(e => {
           if (e.id !== entryId) return e;
           found = true;
-          const hours = hoursElapsed(clockIn, clockOut);
+          const hours = netHoursForPunch(clockIn, clockOut, editPersonRows);
           return { ...e, clockIn, clockOut, hours, date: clockIn.slice(0, 10) };
         });
 
@@ -343,6 +388,194 @@ export async function handler(event) {
         try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save people"); }
 
         return json(200, { ok: true, activeClockIn: people[personIdx].activeClockIn });
+      }
+    }
+
+    // ── Admin Edit / Add / Delete a lunch or break punch (Bearer, admin) ──────
+    // Individual lunch/break events are stored as their own rows in payhours.json
+    // (`{ eventType, timestamp }`). These three actions let an admin correct a
+    // forgotten or mis-punched lunch/break — edit its time, add one that was
+    // missed, or remove a stray one — and always re-derive the affected shift's
+    // `hours` so payroll stays consistent with the timeline.
+    //
+    // Two homes for an event:
+    //   • COMPLETED shift — the event sits inside a clocked-out punch; that
+    //     entry's `hours` is recomputed net of lunch/break.
+    //   • OPEN shift (still clocked in) — LUNCH is editable here too (the common
+    //     "forgot to punch back from lunch" fix). The persisted rows are the
+    //     record; after mutating them we rebuild the person's
+    //     activeClockIn.events (the cache the live pay timer reads) from their
+    //     live lunch rows so the running total stays correct. BREAK on an open
+    //     shift is still refused: the lightweight "on break" status also writes
+    //     break rows that never enter activeClockIn.events, so we can't safely
+    //     reconcile them — edit breaks after clock-out.
+    //
+    // A confirmed timesheet is always locked (re-open it first).
+    if (action === "adminEditEvent" || action === "adminAddEvent" || action === "adminDeleteEvent") {
+      let _me;
+      try { _me = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+      if (!_me.isAdmin) return err(403, "Admin only");
+
+      const EVENT_TYPES = new Set(["lunchStart", "lunchEnd", "breakStart", "breakEnd"]);
+      const isLunch = (t) => t === "lunchStart" || t === "lunchEnd";
+
+      let log;
+      try { log = await readJson(payKey) ?? []; } catch { return err(500, "Failed to read timeclock"); }
+      let people;
+      try { people = await readJson(peopleKey) ?? []; } catch { people = []; }
+
+      // The completed, non-deleted punch (for this person) whose window contains
+      // tsMs — the event "belongs" to it and its hours must be re-derived.
+      const ownerPunch = (personId, tsMs) => log.find(e =>
+        !e.eventType && !e.deletedAt && e.clockIn && e.clockOut &&
+        String(e.personId) === String(personId) &&
+        new Date(e.clockIn).getTime() <= tsMs && tsMs <= new Date(e.clockOut).getTime());
+
+      // The person's open-shift clock-in (ms), or null if not clocked in; and a
+      // test for "this timestamp lands on the live shift" (at/after that clock-in).
+      const openClockInMs = (personId) => {
+        const ci = people.find(x => String(x.id) === String(personId))?.activeClockIn?.clockIn;
+        return ci ? new Date(ci).getTime() : null;
+      };
+      const onOpenShift = (personId, tsMs) => { const m = openClockInMs(personId); return m != null && tsMs >= m; };
+
+      // Recompute + persist hours for a set of owning punches from the CURRENT
+      // (already-mutated) `log`, then write once. Returns the updated entries.
+      const recomputeOwners = (ownerIds) => {
+        const ids = new Set(ownerIds.filter(Boolean));
+        if (ids.size === 0) return [];
+        const updated = [];
+        log = log.map(e => {
+          if (!ids.has(e.id)) return e;
+          const rows = log.filter(r => String(r.personId) === String(e.personId));
+          const hours = netHoursForPunch(e.clockIn, e.clockOut, rows);
+          const next = { ...e, hours };
+          updated.push(next);
+          return next;
+        });
+        return updated;
+      };
+
+      // Rebuild the LUNCH portion of a clocked-in person's activeClockIn.events
+      // from their live lunch rows in the CURRENT (mutated) `log`, so the live
+      // pay timer (which reads activeClockIn.events) matches the edited log.
+      // Non-lunch events already on the cache (kiosk/admin breaks that DO pause
+      // pay) are preserved untouched. Reads people FRESH so a concurrent change
+      // to a different person isn't clobbered. Returns the updated activeClockIn.
+      const syncOpenShiftLunch = async (personId) => {
+        let fresh;
+        try { fresh = await readJson(peopleKey) ?? []; } catch { return null; }
+        const idx = fresh.findIndex(x => String(x.id) === String(personId));
+        if (idx === -1) return null;
+        const p = fresh[idx];
+        const ci = p?.activeClockIn?.clockIn;
+        if (!ci) return null;
+        const ciMs = new Date(ci).getTime();
+        const lunch = log
+          .filter(r => r.eventType && !r.deletedAt && isLunch(r.eventType) && String(r.personId) === String(personId))
+          .map(r => ({ type: r.eventType, ts: r.timestamp, t: new Date(r.timestamp).getTime() }))
+          .filter(r => !Number.isNaN(r.t) && r.t >= ciMs)
+          .sort((a, b) => a.t - b.t)
+          .map(r => ({ type: r.type, ts: r.ts }));
+        const nonLunch = (p.activeClockIn.events || []).filter(ev => ev && !isLunch(ev.type));
+        const events = [...nonLunch, ...lunch].sort((a, b) => new Date(a.ts) - new Date(b.ts));
+        fresh[idx] = { ...p, activeClockIn: { ...p.activeClockIn, events } };
+        try { await writeStampedArray(peopleKey, fresh); } catch { return null; }
+        return fresh[idx].activeClockIn;
+      };
+
+      // ── Edit an existing lunch/break row's time ──────────────────────────
+      if (action === "adminEditEvent") {
+        const { eventId, timestamp } = body;
+        if (!eventId || !timestamp) return err(400, "Missing eventId or timestamp");
+        if (!validTs(timestamp)) return err(400, "Invalid timestamp");
+
+        const row = log.find(e => e.id === eventId && e.eventType && !e.deletedAt);
+        if (!row) return err(404, "Event not found");
+        const oldMs = new Date(row.timestamp).getTime();
+        const newMs = new Date(timestamp).getTime();
+        const pid = row.personId;
+        const openOld = onOpenShift(pid, oldMs);
+        const openNew = onOpenShift(pid, newMs);
+
+        if (openOld || openNew) {
+          // Open (live) shift — lunch only, and it must stay within the shift.
+          if (!isLunch(row.eventType)) return err(409, "Breaks on an in-progress shift can be edited after clock-out.");
+          if (!(openOld && openNew)) return err(409, "Keep the lunch within the same shift.");
+          if (newMs > Date.now() + 60000) return err(400, "Lunch time can't be in the future.");
+          log = log.map(e => (e.id === eventId ? { ...e, timestamp, date: timestamp.slice(0, 10) } : e));
+          try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
+          const activeClockIn = await syncOpenShiftLunch(pid);
+          return json(200, { ok: true, event: log.find(e => e.id === eventId), entries: [], activeClockIn });
+        }
+
+        const oldOwner = ownerPunch(pid, oldMs);
+        if (oldOwner?.confirmed) return err(409, "This entry is in a confirmed timesheet. Re-open the timesheet to edit it.");
+        log = log.map(e => (e.id === eventId ? { ...e, timestamp, date: timestamp.slice(0, 10) } : e));
+        const newOwner = ownerPunch(pid, newMs); // resolved against the mutated log
+        if (newOwner?.confirmed) return err(409, "That time falls inside a confirmed timesheet. Re-open it first.");
+
+        const entries = recomputeOwners([oldOwner?.id, newOwner?.id]);
+        try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
+        return json(200, { ok: true, event: log.find(e => e.id === eventId), entries });
+      }
+
+      // ── Add a lunch/break row that was missed ────────────────────────────
+      if (action === "adminAddEvent") {
+        const { personId, eventType, timestamp } = body;
+        if (!personId || !eventType || !timestamp) return err(400, "Missing personId, eventType, or timestamp");
+        if (!EVENT_TYPES.has(eventType)) return err(400, "Invalid eventType");
+        if (!validTs(timestamp)) return err(400, "Invalid timestamp");
+        const tsMs = new Date(timestamp).getTime();
+
+        if (onOpenShift(personId, tsMs)) {
+          if (!isLunch(eventType)) return err(409, "Breaks on an in-progress shift can be added after clock-out.");
+          if (tsMs > Date.now() + 60000) return err(400, "Lunch time can't be in the future.");
+          const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(personId), date: timestamp.slice(0, 10), eventType, timestamp };
+          log.push(evt);
+          try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
+          const activeClockIn = await syncOpenShiftLunch(personId);
+          return json(200, { ok: true, event: evt, entries: [], activeClockIn });
+        }
+
+        const owner = ownerPunch(personId, tsMs);
+        if (!owner) return err(409, "That time isn't inside a completed clock in/out for this person.");
+        if (owner.confirmed) return err(409, "This entry is in a confirmed timesheet. Re-open the timesheet to edit it.");
+
+        const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(personId), date: timestamp.slice(0, 10), eventType, timestamp };
+        log.push(evt);
+        const entries = recomputeOwners([owner.id]);
+        try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
+        return json(200, { ok: true, event: evt, entries });
+      }
+
+      // ── Delete a stray lunch/break row ───────────────────────────────────
+      if (action === "adminDeleteEvent") {
+        const { eventId } = body;
+        if (!eventId) return err(400, "Missing eventId");
+        const row = log.find(e => e.id === eventId && e.eventType && !e.deletedAt);
+        if (!row) return err(404, "Event not found");
+        const tsMs = new Date(row.timestamp).getTime();
+        const pid = row.personId;
+        const stamp = new Date().toISOString();
+
+        if (onOpenShift(pid, tsMs)) {
+          if (!isLunch(row.eventType)) return err(409, "Breaks on an in-progress shift can be edited after clock-out.");
+          log = log.map(e => (e.id === eventId ? { ...e, deletedAt: stamp } : e));
+          try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
+          const activeClockIn = await syncOpenShiftLunch(pid);
+          return json(200, { ok: true, eventId, entries: [], activeClockIn });
+        }
+
+        const owner = ownerPunch(pid, tsMs);
+        if (owner?.confirmed) return err(409, "This entry is in a confirmed timesheet. Re-open the timesheet to edit it.");
+
+        // Tombstone (keep with deletedAt) so /sync evicts it from every client;
+        // the GET already filters tombstones out of the live view.
+        log = log.map(e => (e.id === eventId ? { ...e, deletedAt: stamp } : e));
+        const entries = recomputeOwners([owner?.id]);
+        try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
+        return json(200, { ok: true, eventId, entries });
       }
     }
 

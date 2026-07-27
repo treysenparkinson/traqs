@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, UL_LOGO_WHITE } from "./logo.js";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme } from "./push.js";
 import { HexColorPicker } from "react-colorful";
@@ -3590,8 +3590,11 @@ Extraction rules:
   const [tsConfirmOpen, setTsConfirmOpen] = useState(false); // "Confirm Time Sheet" popup (admin)
   const [tsConfirmRange, setTsConfirmRange] = useState(null); // { start, end } draft date range for the confirm popup
   const [tsConfirmSaving, setTsConfirmSaving] = useState(false);
-  const [tsPersonEditModal, setTsPersonEditModal] = useState(null); // { person, draftEntries } | null
+  const [tsPersonEditModal, setTsPersonEditModal] = useState(null); // { person, sessions:[{id,clockIn,clockOut,confirmed,events:[{id,eventType,timestamp,_new,_deleted}]}], activeEntry, addMenuFor, saving } | null
   const [tsExpandedPersons, setTsExpandedPersons] = useState({}); // { [personId]: bool }
+  const [pastLogsOpen, setPastLogsOpen] = useState(false); // "Past Logs" modal (admin) — historical clock logs by pay period
+  const [pastLogsOffset, setPastLogsOffset] = useState(-1); // pay-period offset shown in Past Logs (0 = current, -1 = previous)
+  const [pastLogsExpanded, setPastLogsExpanded] = useState({}); // { [personId]: bool } within Past Logs
   const [sinceEdit, setSinceEdit] = useState(null); // { personId, value } — inline "Since" clock-in time editor (live board)
   const [sinceSaving, setSinceSaving] = useState(false);
   const sinceCancelRef = useRef(false); // set on Escape so the unmount-blur doesn't also commit
@@ -12307,7 +12310,8 @@ ${jobsCtx || "No jobs found."}`;
     // ── Day timeline builder — used for event log display ─────────────────────
     // allDayEntries: all timeclock records for a person+date (clock entries + event entries)
     // Returns array of { kind:"single"|"range", label, color, ts?, start?, end? }
-    const buildDayTimeline = (allDayEntries) => {
+    const buildDayTimeline = (allDayEntriesRaw) => {
+      const allDayEntries = allDayEntriesRaw.filter(e => !e.deletedAt); // never surface tombstoned punches
       const clockEntry = allDayEntries.find(e => e.clockIn && !e.eventType);
       const evts = allDayEntries.filter(e => e.eventType).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
       if (!clockEntry && evts.length === 0) return [];
@@ -12716,89 +12720,236 @@ ${jobsCtx || "No jobs found."}`;
 
     const openPersonEditModal = (person) => {
       const thirtyAgo = (() => { const d = new Date(TD + "T00:00:00"); d.setDate(d.getDate() - 29); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
-      const entries = timeclock
-        .filter(e => e.personId === person.id && e.date >= thirtyAgo && !e.eventType)
+      const all = timeclock.filter(e => e.personId === person.id && e.date >= thirtyAgo && !e.deletedAt);
+      const eventRows = all.filter(e => e.eventType && e.timestamp);
+      // Completed sessions (a punch entry with clock-in/out) — each gets its own
+      // lunch/break punches attached: the event rows whose timestamp lands inside
+      // the shift window. Everything here is fully editable (in, lunch out/in,
+      // break out/in, out) so an admin can fix whatever was forgotten.
+      const sessions = all
+        .filter(e => !e.eventType && e.clockIn)
         .sort((a, b) => b.clockIn.localeCompare(a.clockIn))
-        .map(e => ({ ...e })); // shallow clone for draft
-      // The currently-open session lives on person.activeClockIn (not yet in the
-      // timeclock log), so surface it as an editable row — this is what lets an
-      // admin fix a late/forgotten clock-in WHILE the worker is still clocked in.
+        .map(e => {
+          const ciMs = new Date(e.clockIn).getTime();
+          const coMs = e.clockOut ? new Date(e.clockOut).getTime() : Date.now();
+          const events = eventRows
+            .filter(ev => { const t = new Date(ev.timestamp).getTime(); return !Number.isNaN(t) && t >= ciMs && t <= coMs; })
+            .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+            .map(ev => ({ id: ev.id, eventType: ev.eventType, timestamp: ev.timestamp, origTimestamp: ev.timestamp }));
+          return { id: e.id, personId: e.personId, date: e.date, clockIn: e.clockIn, clockOut: e.clockOut || "", confirmed: !!e.confirmed, origClockIn: e.clockIn, origClockOut: e.clockOut || "", events };
+        });
+      // The currently-open shift lives on person.activeClockIn (no punch entry
+      // yet). Its start time AND its lunch punches are editable in place — that's
+      // the "forgot to punch back from lunch" fix while still on the clock. Lunch
+      // punches come from the persisted rows (ts on/after clock-in) so they carry
+      // ids the edit/delete actions need; break punches are shown read-only (the
+      // backend edits those only after clock-out) and drive the live pause math.
       const ac = person.activeClockIn?.clockIn;
-      const activeEntry = ac ? { id: "__active__", personId: person.id, date: ac.slice(0, 10), clockIn: ac, clockOut: null, _active: true } : null;
-      setTsPersonEditModal({ person, draftEntries: activeEntry ? [activeEntry, ...entries] : entries, saving: false });
+      let activeEntry = null;
+      if (ac) {
+        const acMs = new Date(ac).getTime();
+        const lunchEvents = eventRows
+          .filter(ev => (ev.eventType === "lunchStart" || ev.eventType === "lunchEnd"))
+          .filter(ev => { const t = new Date(ev.timestamp).getTime(); return !Number.isNaN(t) && t >= acMs; })
+          .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+          .map(ev => ({ id: ev.id, eventType: ev.eventType, timestamp: ev.timestamp, origTimestamp: ev.timestamp }));
+        const breakEvents = (person.activeClockIn.events || [])
+          .filter(ev => ev && (ev.type === "breakStart" || ev.type === "breakEnd") && ev.ts)
+          .map(ev => ({ eventType: ev.type, timestamp: ev.ts }));
+        activeEntry = { id: "__active__", personId: person.id, date: ac.slice(0, 10), clockIn: ac, origClockIn: ac, _active: true, events: lunchEvents, breakEvents };
+      }
+      setTsPersonEditModal({ person, sessions, activeEntry, saving: false });
     };
 
     const renderPersonEditModal = () => {
       if (!tsPersonEditModal) return null;
-      const { person, draftEntries, saving } = tsPersonEditModal;
-      const setDraft = (id, field, value) => {
-        setTsPersonEditModal(m => ({
-          ...m,
-          draftEntries: m.draftEntries.map(e => e.id === id ? { ...e, [field]: value } : e),
-        }));
+      const { person, sessions, activeEntry, saving, addMenuFor } = tsPersonEditModal;
+
+      // datetime-local <-> ISO. The input shows LOCAL wall-clock time (matching
+      // the board's fmtTime); fromLocal parses it back to a UTC ISO string.
+      const toLocal = (iso) => {
+        if (!iso) return "";
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return "";
+        return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
       };
-      const toLocal = iso => iso ? iso.slice(0, 16) : "";
-      const fromLocal = local => local ? new Date(local).toISOString() : "";
-      const computeHours = (ci, co) => {
-        if (!ci || !co) return 0;
-        return Math.max(0, Math.round(((new Date(co) - new Date(ci)) / 3600000) * 100) / 100);
+      const fromLocal = (local) => local ? new Date(local).toISOString() : "";
+
+      // Lunch/break punch metadata. lunchStart = went to lunch ("Lunch Out"),
+      // lunchEnd = came back ("Lunch In"); same for breaks.
+      const EVENT_META = {
+        lunchStart: { label: "Lunch Out", color: "#f59e0b" },
+        lunchEnd:   { label: "Lunch In",  color: "#f59e0b" },
+        breakStart: { label: "Break Out", color: "#8b5cf6" },
+        breakEnd:   { label: "Break In",  color: "#8b5cf6" },
       };
-      // Net running time for the open session given a (possibly edited) clockIn —
-      // subtracts closed AND still-open lunch/break pauses, matching the backend's
-      // hoursElapsedMinusPauses used on clock-out.
-      const activeHours = (clockInIso) => clockState({ ...(person.activeClockIn || {}), clockIn: clockInIso }).runningMs / 3600000;
-      // Hours shown for a row. Completed entries store hours already NET of lunch,
-      // so use that while the row is untouched; once the admin edits the times we
-      // recompute live from the raw span (the backend restamps on save). The open
-      // session is always net-of-lunch via activeHours.
-      const rowHours = (e) => {
-        if (e._active) return activeHours(e.clockIn);
-        const orig = timeclock.find(o => o.id === e.id);
-        const unchanged = orig && orig.clockIn === e.clockIn && orig.clockOut === e.clockOut;
-        if (unchanged && typeof orig.hours === "number") return orig.hours;
-        return computeHours(e.clockIn, e.clockOut);
+      const ADD_CHOICES = [
+        { type: "lunchStart", label: "Lunch out" },
+        { type: "lunchEnd", label: "Lunch in" },
+        { type: "breakStart", label: "Break out" },
+        { type: "breakEnd", label: "Break in" },
+      ];
+
+      // Client mirror of the backend's net-hours math (gross minus paired
+      // lunch/break pauses within the window) so the day/shift totals update live
+      // as the admin edits, before the save round-trip restamps them.
+      const pausedMs = (events, startIso, endIso) => {
+        const startMs = new Date(startIso).getTime(), endMs = new Date(endIso).getTime();
+        const inWin = (events || [])
+          .filter(ev => ev && !ev._deleted && ev.timestamp)
+          .map(ev => ({ type: ev.eventType, t: new Date(ev.timestamp).getTime() }))
+          .filter(ev => !Number.isNaN(ev.t) && ev.t >= startMs && ev.t <= endMs)
+          .sort((a, b) => a.t - b.t);
+        let paused = 0, lo = null, bo = null;
+        for (const ev of inWin) {
+          if (ev.type === "lunchStart") lo = ev.t;
+          else if (ev.type === "lunchEnd" && lo != null) { paused += Math.max(0, ev.t - lo); lo = null; }
+          else if (ev.type === "breakStart") bo = ev.t;
+          else if (ev.type === "breakEnd" && bo != null) { paused += Math.max(0, ev.t - bo); bo = null; }
+        }
+        if (lo != null) paused += Math.max(0, endMs - lo);
+        if (bo != null) paused += Math.max(0, endMs - bo);
+        return paused;
+      };
+      const sessionNetHours = (s) => {
+        if (!s.clockIn || !s.clockOut) return 0;
+        const grossMs = new Date(s.clockOut) - new Date(s.clockIn);
+        return Math.max(0, Math.round(((grossMs - pausedMs(s.events, s.clockIn, s.clockOut)) / 3600000) * 100) / 100);
+      };
+      // Live net hours for the open shift from the DRAFT (edited) lunch punches +
+      // the read-only break pauses, clamped at "now" — so the running total
+      // updates as the admin edits lunch, before the save round-trip.
+      const activeNetHours = (entry) => {
+        if (!entry?.clockIn) return 0;
+        const nowIso = new Date().toISOString();
+        const grossMs = new Date(nowIso) - new Date(entry.clockIn);
+        const evs = [...(entry.events || []), ...(entry.breakEvents || [])];
+        return Math.max(0, Math.round(((grossMs - pausedMs(evs, entry.clockIn, nowIso)) / 3600000) * 100) / 100);
       };
 
-      // Group by date for display
-      const byDate = [];
-      draftEntries.forEach(e => {
-        const last = byDate[byDate.length - 1];
-        if (last && last.date === e.date) last.entries.push(e);
-        else byDate.push({ date: e.date, entries: [e] });
+      // ── Draft mutators ────────────────────────────────────────────────────
+      const patchSession = (sid, patch) => setTsPersonEditModal(m => ({ ...m, sessions: m.sessions.map(s => s.id === sid ? { ...s, ...patch } : s) }));
+      const patchEvent = (sid, evId, patch) => setTsPersonEditModal(m => ({ ...m, sessions: m.sessions.map(s => s.id !== sid ? s : { ...s, events: s.events.map(ev => ev.id === evId ? { ...ev, ...patch } : ev) }) }));
+      const removeEvent = (sid, evId) => setTsPersonEditModal(m => ({ ...m, sessions: m.sessions.map(s => {
+        if (s.id !== sid) return s;
+        const target = s.events.find(ev => ev.id === evId);
+        // A brand-new (never-saved) punch is dropped outright; a persisted one is
+        // flagged for deletion so Save can tombstone it server-side.
+        return { ...s, events: target?._new ? s.events.filter(ev => ev.id !== evId) : s.events.map(ev => ev.id === evId ? { ...ev, _deleted: true } : ev) };
+      }) }));
+      const addEvent = (sid, eventType) => setTsPersonEditModal(m => ({ ...m, addMenuFor: null, sessions: m.sessions.map(s => {
+        if (s.id !== sid) return s;
+        const ci = new Date(s.clockIn).getTime();
+        const co = s.clockOut ? new Date(s.clockOut).getTime() : Date.now();
+        const mid = new Date(ci + (co - ci) / 2).toISOString(); // default to mid-shift so it lands in-window
+        const tmpId = `new_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        return { ...s, events: [...s.events, { id: tmpId, eventType, timestamp: mid, origTimestamp: null, _new: true }].sort((a, b) => a.timestamp.localeCompare(b.timestamp)) };
+      }) }));
+
+      // ── Open-shift lunch mutators (mirror the session ones, on activeEntry) ──
+      const patchActiveEvent = (evId, patch) => setTsPersonEditModal(m => ({ ...m, activeEntry: { ...m.activeEntry, events: m.activeEntry.events.map(ev => ev.id === evId ? { ...ev, ...patch } : ev) } }));
+      const removeActiveEvent = (evId) => setTsPersonEditModal(m => {
+        const target = m.activeEntry.events.find(ev => ev.id === evId);
+        return { ...m, activeEntry: { ...m.activeEntry, events: target?._new ? m.activeEntry.events.filter(ev => ev.id !== evId) : m.activeEntry.events.map(ev => ev.id === evId ? { ...ev, _deleted: true } : ev) } };
       });
+      const addActiveEvent = (eventType) => setTsPersonEditModal(m => {
+        const startMs = new Date(m.activeEntry.clockIn).getTime();
+        const mid = new Date(startMs + (Date.now() - startMs) / 2).toISOString(); // default to mid-shift so far
+        const tmpId = `new_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        return { ...m, addMenuFor: null, activeEntry: { ...m.activeEntry, events: [...m.activeEntry.events, { id: tmpId, eventType, timestamp: mid, origTimestamp: null, _new: true }].sort((a, b) => a.timestamp.localeCompare(b.timestamp)) } };
+      });
+      const ACTIVE_ADD_CHOICES = ADD_CHOICES.filter(c => c.type === "lunchStart" || c.type === "lunchEnd");
+
+      // Group [active + sessions] by date for display (active is newest first).
+      const rows = [...(activeEntry ? [activeEntry] : []), ...sessions];
+      const byDate = [];
+      rows.forEach(r => {
+        const last = byDate[byDate.length - 1];
+        if (last && last.date === r.date) last.items.push(r);
+        else byDate.push({ date: r.date, items: [r] });
+      });
+      const dayTotal = (items) => items.reduce((s, it) => s + (it._active ? activeNetHours(it) : sessionNetHours(it)), 0);
 
       const saveAll = async () => {
         setTsPersonEditModal(m => ({ ...m, saving: true }));
-        const original = timeclock.filter(e => e.personId === person.id);
-        const changed = draftEntries.filter(d => {
-          if (d._active) return false; // open session is saved separately (below)
-          const orig = original.find(o => o.id === d.id);
-          return orig && (orig.clockIn !== d.clockIn || orig.clockOut !== d.clockOut);
-        });
-        // Open-session start-time edit — only if it actually changed.
-        const activeDraft = draftEntries.find(d => d._active);
-        const activeChanged = activeDraft && person.activeClockIn?.clockIn && activeDraft.clockIn && activeDraft.clockIn !== person.activeClockIn.clockIn;
+        const errors = [];
+        // The open shift's activeClockIn (start time + synced lunch events) may be
+        // updated by several calls; keep the latest so people[] lands once, right.
+        let latestActive = null;
         try {
-          const results = await Promise.all(
-            changed.map(d => adminEditEntryAction({ entryId: d.id, clockIn: d.clockIn, clockOut: d.clockOut || new Date().toISOString() }, getToken, orgCode))
-          );
-          const updatedEntries = results.filter(r => r.ok).map(r => r.entry);
-          if (updatedEntries.length > 0) {
-            setTimeclock(tc => tc.map(e => { const u = updatedEntries.find(x => x.id === e.id); return u || e; }));
+          // Sequential throughout — each admin action is a read-modify-write on
+          // payhours.json, so parallel calls could clobber each other.
+          // 1) Open-shift START time first: it defines the live window that the
+          //    open-shift lunch edits (step 4) must fall inside.
+          if (activeEntry && activeEntry.clockIn !== activeEntry.origClockIn) {
+            const r = await adminEditActiveClockInAction({ personId: person.id, clockIn: activeEntry.clockIn }, getToken, orgCode);
+            if (r.ok) latestActive = r.activeClockIn;
+            else errors.push(r.error || "Couldn't update the clock-in time");
           }
-          if (activeChanged) {
-            const r = await adminEditActiveClockInAction({ personId: person.id, clockIn: activeDraft.clockIn }, getToken, orgCode);
-            if (r.ok) {
-              setPeople(pp => pp.map(p => p.id === person.id ? { ...p, activeClockIn: r.activeClockIn } : p));
-            } else {
-              alert(r.error || "Failed to update clock-in time");
-              setTsPersonEditModal(m => ({ ...m, saving: false }));
-              return;
+          // 2) Completed-shift in/out edits (they redefine each punch's window).
+          for (const s of sessions) {
+            if (s.confirmed) continue;
+            const inOutChanged = s.clockIn !== s.origClockIn || (s.clockOut || "") !== (s.origClockOut || "");
+            if (inOutChanged && s.clockIn && s.clockOut) {
+              const r = await adminEditEntryAction({ entryId: s.id, clockIn: s.clockIn, clockOut: s.clockOut }, getToken, orgCode);
+              if (!r.ok) errors.push(r.error || `Couldn't update the ${fmtDayHeader(s.date)} shift`);
             }
           }
+          // 3) Completed-shift lunch/break punches.
+          for (const s of sessions) {
+            if (s.confirmed) continue;
+            for (const ev of s.events) {
+              if (ev._new && !ev._deleted) {
+                const r = await adminAddEventAction({ personId: person.id, eventType: ev.eventType, timestamp: ev.timestamp }, getToken, orgCode);
+                if (!r.ok) errors.push(r.error || `Couldn't add ${EVENT_META[ev.eventType]?.label || "punch"}`);
+              } else if (ev._deleted && !ev._new) {
+                const r = await adminDeleteEventAction({ eventId: ev.id }, getToken, orgCode);
+                if (!r.ok) errors.push(r.error || "Couldn't delete a punch");
+              } else if (!ev._new && !ev._deleted && ev.timestamp !== ev.origTimestamp) {
+                const r = await adminEditEventAction({ eventId: ev.id, timestamp: ev.timestamp }, getToken, orgCode);
+                if (!r.ok) errors.push(r.error || `Couldn't update ${EVENT_META[ev.eventType]?.label || "punch"}`);
+              }
+            }
+          }
+          // 4) Open-shift lunch punches — same actions; the backend re-syncs
+          //    activeClockIn.events and returns it so the live timer stays right.
+          if (activeEntry) {
+            for (const ev of activeEntry.events) {
+              let r = null;
+              if (ev._new && !ev._deleted) {
+                r = await adminAddEventAction({ personId: person.id, eventType: ev.eventType, timestamp: ev.timestamp }, getToken, orgCode);
+                if (!r.ok) errors.push(r.error || `Couldn't add ${EVENT_META[ev.eventType]?.label || "lunch"}`);
+              } else if (ev._deleted && !ev._new) {
+                r = await adminDeleteEventAction({ eventId: ev.id }, getToken, orgCode);
+                if (!r.ok) errors.push(r.error || "Couldn't delete a lunch punch");
+              } else if (!ev._new && !ev._deleted && ev.timestamp !== ev.origTimestamp) {
+                r = await adminEditEventAction({ eventId: ev.id, timestamp: ev.timestamp }, getToken, orgCode);
+                if (!r.ok) errors.push(r.error || `Couldn't update ${EVENT_META[ev.eventType]?.label || "lunch"}`);
+              }
+              if (r?.ok && r.activeClockIn) latestActive = r.activeClockIn;
+            }
+          }
+          if (latestActive) setPeople(pp => pp.map(p => p.id === person.id ? { ...p, activeClockIn: latestActive } : p));
+          // Re-pull so hours + events reflect the server's recomputed truth
+          // (also lands via real-time on other devices).
+          try { const fresh = await fetchTimeclock(getToken, orgCode); if (Array.isArray(fresh)) setTimeclock(fresh); } catch { /* real-time will reconcile */ }
+          if (errors.length) { alert(errors.join("\n")); setTsPersonEditModal(m => ({ ...m, saving: false })); return; }
           setTsPersonEditModal(null);
         } catch { alert("Network error"); setTsPersonEditModal(m => ({ ...m, saving: false })); }
       };
+
+      // A single editable punch row: colored label, time input, optional delete.
+      const punchRow = ({ key, label, color, value, onChange, onDelete, locked }) => (
+        <div key={key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: T.card, borderRadius: T.radiusXs, border: `1px solid ${T.border}` }}>
+          <span style={{ width: 78, flexShrink: 0, fontSize: 10.5, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", color }}>{label}</span>
+          {locked
+            ? <span style={{ flex: 1, fontFamily: T.mono, fontSize: 12.5, color: T.text }}>{value ? fmtTime(value) : "—"}</span>
+            : <input type="datetime-local" value={toLocal(value)} onChange={ev => onChange(fromLocal(ev.target.value))} style={{ flex: 1, minWidth: 0, colorScheme: T.colorScheme, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none" }} />}
+          {onDelete && !locked
+            ? <button onClick={onDelete} title="Delete this punch" style={{ width: 26, height: 26, flexShrink: 0, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+            : <span style={{ width: 26, flexShrink: 0 }} />}
+        </div>
+      );
 
       return createPortal(
         <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10015, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflow: "auto" }} onClick={() => setTsPersonEditModal(null)}>
@@ -12812,80 +12963,94 @@ ${jobsCtx || "No jobs found."}`;
             </div>
 
             {/* Body */}
-            <div style={{ maxHeight: "60vh", overflowY: "auto", padding: "16px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
-              {draftEntries.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: 24 }}>No entries in the last 30 days.</div>}
-              {byDate.map(({ date, entries }) => (
+            <div style={{ maxHeight: "62vh", overflowY: "auto", padding: "16px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
+              {byDate.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: 24 }}>No entries in the last 30 days.</div>}
+              {byDate.map(({ date, items }) => (
                 <div key={date}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
                     <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>{fmtDayHeader(date)}</span>
                     <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, fontFamily: T.mono }} title="Day total — all sessions, net of lunch/breaks">
-                      {entries.reduce((s, en) => s + rowHours(en), 0).toFixed(2)}h{entries.some(en => en._active) ? " · running" : ""}
+                      {dayTotal(items).toFixed(2)}h{items.some(it => it._active) ? " · running" : ""}
                     </span>
                   </div>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {entries.map(e => {
-                      const hrs = rowHours(e);
-                      if (e._active) {
-                        // Open session — still clocked in. Only the start time is editable;
-                        // the "Out" side shows a live "On the clock" state instead of an input.
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    {items.map(it => {
+                      if (it._active) {
+                        // Open (live) shift — start time AND lunch punches editable;
+                        // break punches are read-only until clock-out. Merge both,
+                        // ordered by time, so the timeline reads naturally.
+                        const lunchRows = (it.events || []).filter(ev => !ev._deleted && ev.timestamp).map(ev => ({ ...ev, _lock: false }));
+                        const breakRows = (it.breakEvents || []).filter(ev => ev.timestamp).map((ev, i) => ({ ...ev, id: `brk_${i}`, _lock: true }));
+                        const evRows = [...lunchRows, ...breakRows].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
                         return (
-                          <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: "#10b98110", borderRadius: T.radiusSm, border: `1px solid #10b98155`, flexWrap: "wrap" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, flexWrap: "wrap" }}>
-                              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                                <span style={{ fontSize: 10, color: T.textDim, fontWeight: 600, textTransform: "uppercase" }}>In</span>
-                                <input
-                                  type="datetime-local"
-                                  value={toLocal(e.clockIn)}
-                                  onChange={ev => setDraft(e.id, "clockIn", fromLocal(ev.target.value))}
-                                  style={{ colorScheme: T.colorScheme, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none" }}
-                                />
-                              </div>
-                              <span style={{ color: T.textDim, fontSize: 13, marginTop: 14 }}>→</span>
-                              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                                <span style={{ fontSize: 10, color: T.textDim, fontWeight: 600, textTransform: "uppercase" }}>Out</span>
-                                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: T.radiusXs, background: "#10b98118", color: "#10b981", fontSize: 12, fontWeight: 600, marginTop: 1 }}>
-                                  <span style={{ width: 6, height: 6, borderRadius: 3, background: "#10b981" }} />On the clock
-                                </span>
-                              </div>
+                          <div key={it.id} style={{ background: "#10b98110", borderRadius: T.radiusSm, border: `1px solid #10b98155`, padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, color: "#10b981" }}><span style={{ width: 6, height: 6, borderRadius: 3, background: "#10b981" }} />On the clock</span>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", fontFamily: T.mono }}>{activeNetHours(it).toFixed(2)}h</span>
                             </div>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: "#10b981", fontFamily: T.mono, minWidth: 48, textAlign: "right" }}>{hrs.toFixed(2)}h</div>
+                            {punchRow({ key: "in", label: "In", color: "#10b981", value: it.clockIn, onChange: v => setTsPersonEditModal(m => ({ ...m, activeEntry: { ...m.activeEntry, clockIn: v } })) })}
+                            {evRows.map(ev => punchRow({
+                              key: ev.id,
+                              label: EVENT_META[ev.eventType]?.label || ev.eventType,
+                              color: EVENT_META[ev.eventType]?.color || T.textDim,
+                              value: ev.timestamp,
+                              onChange: ev._lock ? undefined : (v => patchActiveEvent(ev.id, { timestamp: v })),
+                              onDelete: ev._lock ? undefined : (() => removeActiveEvent(ev.id)),
+                              locked: ev._lock,
+                            }))}
+                            <div style={{ position: "relative", paddingLeft: 2 }}>
+                              <button onClick={() => setTsPersonEditModal(m => ({ ...m, addMenuFor: m.addMenuFor === it.id ? null : it.id }))} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: T.radiusPill, border: `1px dashed ${T.border}`, background: "none", color: T.textDim, fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                Add lunch punch
+                              </button>
+                              {addMenuFor === it.id && (
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                                  {ACTIVE_ADD_CHOICES.map(c => (
+                                    <button key={c.type} onClick={() => addActiveEvent(c.type)} style={{ padding: "5px 11px", borderRadius: T.radiusPill, border: `1px solid ${(EVENT_META[c.type]?.color || T.accent)}55`, background: (EVENT_META[c.type]?.color || T.accent) + "12", color: EVENT_META[c.type]?.color || T.accent, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>{c.label}</button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 10.5, color: T.textDim, paddingLeft: 2 }}>Break punches become editable after clock-out.</div>
                           </div>
                         );
                       }
-                      if (e.confirmed) {
-                        // Confirmed punches are locked — re-open the timesheet (Confirm Time Sheet) to edit.
-                        return (
-                          <div key={e.id} title="Confirmed timesheet — re-open it to edit" style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, flexWrap: "wrap", opacity: 0.85 }}>
-                            <div style={{ flex: 1, minWidth: 0, fontFamily: T.mono, fontSize: 12, color: T.text }}>{fmtTime(e.clockIn)} <span style={{ color: T.textDim }}>→</span> {fmtTime(e.clockOut)}</div>
-                            <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: T.radiusXs, background: "#10b98115", color: "#10b981", fontSize: 11, fontWeight: 600 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Confirmed</span>
-                            <div style={{ fontSize: 13, fontWeight: 700, color: T.accent, fontFamily: T.mono, minWidth: 48, textAlign: "right" }}>{hrs.toFixed(2)}h</div>
-                          </div>
-                        );
-                      }
+                      const locked = it.confirmed;
+                      const canAdd = !locked && !!it.clockOut;
                       return (
-                        <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, flexWrap: "wrap" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, flexWrap: "wrap" }}>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                              <span style={{ fontSize: 10, color: T.textDim, fontWeight: 600, textTransform: "uppercase" }}>In</span>
-                              <input
-                                type="datetime-local"
-                                value={toLocal(e.clockIn)}
-                                onChange={ev => setDraft(e.id, "clockIn", fromLocal(ev.target.value))}
-                                style={{ colorScheme: T.colorScheme, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none" }}
-                              />
-                            </div>
-                            <span style={{ color: T.textDim, fontSize: 13, marginTop: 14 }}>→</span>
-                            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                              <span style={{ fontSize: 10, color: T.textDim, fontWeight: 600, textTransform: "uppercase" }}>Out</span>
-                              <input
-                                type="datetime-local"
-                                value={toLocal(e.clockOut)}
-                                onChange={ev => setDraft(e.id, "clockOut", fromLocal(ev.target.value))}
-                                style={{ colorScheme: T.colorScheme, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none" }}
-                              />
-                            </div>
+                        <div key={it.id} style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
+                            {locked
+                              ? <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600, color: "#10b981" }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Confirmed — re-open to edit</span>
+                              : <span style={{ fontSize: 10.5, color: T.textDim }}>Shift</span>}
+                            <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{sessionNetHours(it).toFixed(2)}h</span>
                           </div>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: T.accent, fontFamily: T.mono, minWidth: 48, textAlign: "right" }}>{hrs.toFixed(2)}h</div>
+                          {punchRow({ key: "in", label: "In", color: "#10b981", value: it.clockIn, onChange: v => patchSession(it.id, { clockIn: v }), locked })}
+                          {it.events.filter(ev => !ev._deleted).map(ev => punchRow({
+                            key: ev.id,
+                            label: EVENT_META[ev.eventType]?.label || ev.eventType,
+                            color: EVENT_META[ev.eventType]?.color || T.textDim,
+                            value: ev.timestamp,
+                            onChange: v => patchEvent(it.id, ev.id, { timestamp: v }),
+                            onDelete: () => removeEvent(it.id, ev.id),
+                            locked,
+                          }))}
+                          {punchRow({ key: "out", label: "Out", color: "#ef4444", value: it.clockOut, onChange: v => patchSession(it.id, { clockOut: v }), locked })}
+                          {canAdd && (
+                            <div style={{ position: "relative", paddingLeft: 2 }}>
+                              <button onClick={() => setTsPersonEditModal(m => ({ ...m, addMenuFor: m.addMenuFor === it.id ? null : it.id }))} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: T.radiusPill, border: `1px dashed ${T.border}`, background: "none", color: T.textDim, fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                Add punch
+                              </button>
+                              {addMenuFor === it.id && (
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                                  {ADD_CHOICES.map(c => (
+                                    <button key={c.type} onClick={() => addEvent(it.id, c.type)} style={{ padding: "5px 11px", borderRadius: T.radiusPill, border: `1px solid ${(EVENT_META[c.type]?.color || T.accent)}55`, background: (EVENT_META[c.type]?.color || T.accent) + "12", color: EVENT_META[c.type]?.color || T.accent, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>{c.label}</button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -12896,7 +13061,7 @@ ${jobsCtx || "No jobs found."}`;
 
             {/* Footer */}
             <div style={{ padding: "16px 24px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
-              <button onClick={() => setTsPersonEditModal(null)} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+              <button onClick={() => setTsPersonEditModal(null)} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
               <button onClick={saveAll} disabled={saving} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", fontFamily: T.font, opacity: saving ? 0.7 : 1 }}>
                 {saving ? "Saving…" : "Save Changes"}
               </button>
@@ -12911,6 +13076,138 @@ ${jobsCtx || "No jobs found."}`;
     const ppNow = getActivePeriod(TD);
     const myPeriodHrs = timeclock.filter(e => e.personId === loggedInUser.id && e.date >= ppNow.start && e.date <= ppNow.end).reduce((s, e) => s + (e.hours||0), 0);
     const myTodayHrs = timeclock.filter(e => e.personId === loggedInUser.id && e.date === TD).reduce((s, e) => s + (e.hours||0), 0);
+
+    // ── Log timeline helpers (shared by the live Team Status board + Past Logs) ─
+    // Dates (newest first) within [start,end] that have any punch/event for this
+    // person, PLUS today if they're currently clocked in — the open shift has no
+    // completed punch yet, so without this today never appears on the log. The
+    // live board passes the current pay period, so older periods drop off on
+    // their own once `ppNow` advances (each period starts a clean slate); Past
+    // Logs passes any historical period.
+    const logDatesInRange = (personId, start, end) => {
+      const set = new Set(
+        timeclock
+          .filter(e => e.personId === personId && !e.deletedAt && e.date >= start && e.date <= end && (e.clockIn || e.eventType))
+          .map(e => e.date)
+      );
+      const person = people.find(p => String(p.id) === String(personId));
+      if (person?.activeClockIn?.clockIn && TD >= start && TD <= end) set.add(TD);
+      return [...set].sort((a, b) => b.localeCompare(a));
+    };
+    // timeclock rows for one person+date, with the OPEN shift injected on today
+    // so an in-progress clock-in (no completed punch yet) still renders on the
+    // timeline. buildDayTimeline tolerates a clock entry with no clockOut.
+    const dayTimelineRows = (personId, date) => {
+      const rows = timeclock.filter(x => x.personId === personId && x.date === date && !x.deletedAt);
+      if (date === TD) {
+        const person = people.find(p => String(p.id) === String(personId));
+        const ac = person?.activeClockIn?.clockIn;
+        if (ac && !rows.some(r => !r.eventType && r.clockIn && !r.clockOut)) {
+          rows.push({ id: "__open__", personId, date, clockIn: ac });
+        }
+      }
+      return rows;
+    };
+    // Net stored hours for a person across [start,end], plus the live running
+    // total when they're on the clock and today is in range.
+    const periodHoursFor = (personId, start, end, runningMs = 0) => {
+      const base = timeclock
+        .filter(e => e.personId === personId && !e.eventType && !e.deletedAt && e.date >= start && e.date <= end)
+        .reduce((s, e) => s + (e.hours || 0), 0);
+      return base + (runningMs > 0 && TD >= start && TD <= end ? runningMs / 3600000 : 0);
+    };
+    // A single day's timeline rendered as compact "IN: 7:02 AM · LUNCH: 12–12:30"
+    // lines — shared markup for the live board and the Past Logs modal.
+    const renderTimelineLines = (personId, date) => {
+      const tl = buildDayTimeline(dayTimelineRows(personId, date));
+      return tl.map((ln, li) => (
+        <span key={li}>
+          <span style={{ color: ln.color, fontWeight: 700 }}>{ln.label}</span>
+          <span style={{ color: T.text }}>: {ln.kind === "single" ? fmtTime(ln.ts) : `${fmtTime(ln.start)}${ln.end ? ` – ${fmtTime(ln.end)}` : " (active)"}`}</span>
+        </span>
+      ));
+    };
+
+    // ── Past Logs modal (admin) ───────────────────────────────────────────────
+    // The full historical record: pick a pay period, then every worker's clock
+    // in/out + lunch/break punches for it. Read-only — the live board handles the
+    // current period, this is the archive. The data is never deleted (payroll),
+    // it just moves out of the live view as periods roll over.
+    const renderPastLogsModal = () => {
+      if (!pastLogsOpen) return null;
+      const period = getActivePeriodAtOffset(TD, pastLogsOffset);
+      const isCurrent = pastLogsOffset === 0;
+      const staff = people.filter(p => p.payType !== "salary");
+      return createPortal(
+        <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10015, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflow: "auto" }} onClick={() => setPastLogsOpen(false)}>
+          <div style={{ background: T.card, borderRadius: 16, width: "100%", maxWidth: 620, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", animation: "slideUp 0.22s ease-out", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
+            {/* Header */}
+            <div style={{ padding: "18px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
+              <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Past Logs</span>
+              <button onClick={() => setPastLogsOpen(false)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 20, cursor: "pointer", lineHeight: 1, padding: "0 2px" }}>✕</button>
+            </div>
+
+            {/* Pay-period selector */}
+            <div style={{ padding: "14px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
+              <button onClick={() => setPastLogsOffset(o => o - 1)} title="Older pay period" style={{ width: 38, height: 38, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.text, fontSize: 20, cursor: "pointer", fontFamily: T.font }}>‹</button>
+              <div style={{ flex: 1, textAlign: "center" }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>{isCurrent ? "Current pay period" : "Pay period"}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{fmtDate(period.start)} – {fmtDate(period.end)}</div>
+              </div>
+              <button onClick={() => setPastLogsOffset(o => Math.min(0, o + 1))} disabled={isCurrent} title="Newer pay period" style={{ width: 38, height: 38, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: isCurrent ? T.textDim : T.text, fontSize: 20, cursor: isCurrent ? "default" : "pointer", opacity: isCurrent ? 0.4 : 1, fontFamily: T.font }}>›</button>
+              <button onClick={() => setPastLogsOffset(0)} style={{ padding: "8px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}40`, background: T.accent + "10", color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Current</button>
+            </div>
+
+            {/* Body — people + their logs */}
+            <div style={{ maxHeight: "62vh", overflowY: "auto", padding: "14px 24px", display: "flex", flexDirection: "column", gap: 10 }}>
+              {staff.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: 24 }}>No hourly employees.</div>}
+              {staff.map(p => {
+                const cs = effectiveClockState(p);
+                const dates = logDatesInRange(p.id, period.start, period.end);
+                const periodH = periodHoursFor(p.id, period.start, period.end, cs.runningMs);
+                const isExp = !!pastLogsExpanded[p.id];
+                return (
+                  <div key={p.id} style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                    <div onClick={() => setPastLogsExpanded(prev => ({ ...prev, [p.id]: !prev[p.id] }))} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", cursor: "pointer" }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isExp ? "rotate(90deg)" : "none", transition: "transform 0.15s", flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
+                      <span style={{ fontSize: 14, fontWeight: 600, color: T.text, flex: 1 }}>{p.name}</span>
+                      <span style={{ fontSize: 11, color: T.textDim }}>{dates.length} day{dates.length === 1 ? "" : "s"}</span>
+                      <span style={{ fontSize: 16, fontWeight: 700, color: periodH > 0 ? T.accent : T.textDim, fontFamily: T.mono, minWidth: 56, textAlign: "right" }}>{periodH.toFixed(1)}h</span>
+                    </div>
+                    {isExp && (
+                      <div style={{ padding: "0 14px 12px", borderTop: `1px solid ${T.border}` }}>
+                        {dates.length === 0 ? (
+                          <div style={{ fontSize: 12, color: T.textDim, padding: "10px 0" }}>No clock activity this period.</div>
+                        ) : dates.map(date => {
+                          const dayEnts = timeclock.filter(x => x.personId === p.id && x.date === date && !x.eventType && !x.deletedAt);
+                          const openToday = date === TD && !!p.activeClockIn?.clockIn;
+                          const dayTot = dayEnts.reduce((s, e) => s + (e.hours || 0), 0) + (openToday ? cs.runningMs / 3600000 : 0);
+                          return (
+                            <div key={date} style={{ paddingTop: 10 }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: openToday ? "#10b981" : T.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
+                                <span>{fmtDayHeader(date)}{openToday ? " · on the clock" : ""}</span>
+                                <span style={{ fontFamily: T.mono, color: openToday ? "#10b981" : T.accent }}>{dayTot > 0 ? dayTot.toFixed(2) + "h" : "—"}</span>
+                              </div>
+                              <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "6px 10px", background: T.card, borderRadius: T.radiusXs, fontSize: 12 }}>
+                                <div style={{ fontFamily: T.mono, display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
+                                  {renderTimelineLines(p.id, date)}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>,
+        document.body
+      );
+    };
 
     // ── Job clock helpers ─────────────────────────────────────────────────────
     const openStartJobPicker = () => {
@@ -13345,9 +13642,16 @@ ${jobsCtx || "No jobs found."}`;
           {renderPersonEditModal()}
           {renderStartJobPicker()}
           {mobileSettingsPanel()}
+          {renderPastLogsModal()}
 
           {/* Header */}
           <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0, background: T.surface }}>
+            {isAdmin && (
+              <button onClick={() => { setPastLogsOffset(-1); setPastLogsOpen(true); }} title="Browse past pay-period logs" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 11px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
+                Past Logs
+              </button>
+            )}
             <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Time Clock</span>
             {isAdmin && (
               <button onClick={openSettings} style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: T.radiusPill, border: `1px solid ${tsSettingsOpen ? T.accent : T.border}`, background: tsSettingsOpen ? T.accent + "15" : "none", cursor: "pointer", color: tsSettingsOpen ? T.accent : T.textDim, transition: "all 0.15s" }}>
@@ -13488,8 +13792,7 @@ ${jobsCtx || "No jobs found."}`;
                         const todayH = timeclock.filter(e => e.personId === p.id && e.date === TD).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
                         const periodH = timeclock.filter(e => e.personId === p.id && e.date >= ppNow.start && e.date <= ppNow.end).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
                         const isExp = !!tsExpandedPersons[p.id];
-                        const thirtyAgo = (() => { const d = new Date(TD + "T00:00:00"); d.setDate(d.getDate() - 29); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
-                        const recentEntries = timeclock.filter(e => e.personId === p.id && e.date >= thirtyAgo && !e.eventType).sort((a, b) => b.clockIn.localeCompare(a.clockIn));
+                        const logDates = logDatesInRange(p.id, ppNow.start, ppNow.end);
                         return (
                           <div key={p.id} className="tq-frost" style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${clocked ? pillColor + "30" : T.borderLight}`, overflow: "hidden" }}>
                             <div onClick={() => setTsExpandedPersons(prev => ({ ...prev, [p.id]: !prev[p.id] }))} style={{ padding: "14px 16px", cursor: "pointer" }}>
@@ -13529,17 +13832,20 @@ ${jobsCtx || "No jobs found."}`;
                             <div style={{ display: "flex", gap: 8, padding: "0 14px 12px" }} onClick={e => e.stopPropagation()}>
                               <button onClick={() => openPersonEditModal(p)} style={{ flex: 1, padding: "10px 0", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Edit Entries</button>
                             </div>
-                            {isExp && recentEntries.length > 0 && (
+                            {isExp && (
                               <div style={{ padding: "8px 14px 14px", borderTop: `1px solid ${T.border}20` }}>
-                                {recentEntries.slice(0, 10).map(e => {
-                                  const tl = buildDayTimeline(timeclock.filter(x => x.personId === p.id && x.date === e.date));
+                                {logDates.length === 0 && <div style={{ fontSize: 12, color: T.textDim, padding: "4px 0" }}>No activity this pay period.</div>}
+                                {logDates.map(date => {
+                                  const dayEntries = timeclock.filter(x => x.personId === p.id && x.date === date && !x.eventType && !x.deletedAt);
+                                  const openToday = date === TD && !!p.activeClockIn?.clockIn;
+                                  const dayH = dayEntries.reduce((s, en) => s + (en.hours || 0), 0) + (openToday ? ms / 3600000 : 0);
                                   return (
-                                    <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "7px 0", borderBottom: `1px solid ${T.border}10`, fontSize: 12 }}>
-                                      <span style={{ color: T.textDim, fontSize: 11, minWidth: 38, paddingTop: 1 }}>{e.date.slice(5)}</span>
+                                    <div key={date} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "7px 0", borderBottom: `1px solid ${T.border}10`, fontSize: 12 }}>
+                                      <span style={{ color: openToday ? "#10b981" : T.textDim, fontSize: 11, fontWeight: openToday ? 700 : 400, minWidth: 40, paddingTop: 1 }}>{date === TD ? "Today" : date.slice(5)}</span>
                                       <div style={{ fontFamily: T.mono, display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
-                                        {tl.map((ln, li) => <span key={li}><span style={{ color: ln.color, fontWeight: 700 }}>{ln.label}</span><span style={{ color: T.text }}>: {ln.kind === "single" ? fmtTime(ln.ts) : `${fmtTime(ln.start)}${ln.end ? ` – ${fmtTime(ln.end)}` : " (active)"}`}</span></span>)}
+                                        {renderTimelineLines(p.id, date)}
                                       </div>
-                                      <span style={{ fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{e.clockOut ? (e.hours||0).toFixed(2)+"h" : "—"}</span>
+                                      <span style={{ fontWeight: 700, color: openToday ? "#10b981" : T.accent, fontFamily: T.mono }}>{dayH > 0 ? dayH.toFixed(2) + "h" : "—"}</span>
                                     </div>
                                   );
                                 })}
@@ -13798,17 +14104,24 @@ ${jobsCtx || "No jobs found."}`;
         {renderPersonEditModal()}
         {renderStartJobPicker()}
         {renderConfirmModal()}
-        {/* Export Hours + Confirm Time Sheet — admin only, top-right of the page */}
+        {renderPastLogsModal()}
+        {/* Past Logs (top-left) · Export Hours + Confirm Time Sheet (top-right) — admin only */}
         {isAdmin && (
-          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-            <button onClick={openHoursExport} title="Export pay-period hours for payroll" style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}55`, background: T.accent + "12", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              Export Hours
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <button onClick={() => { setPastLogsOffset(-1); setPastLogsOpen(true); }} title="Browse past pay-period logs" style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
+              Past Logs
             </button>
-            <button onClick={openConfirm} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 8px ${T.accent}40` }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-              Confirm Time Sheet
-            </button>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              <button onClick={openHoursExport} title="Export pay-period hours for payroll" style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}55`, background: T.accent + "12", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Export Hours
+              </button>
+              <button onClick={openConfirm} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 8px ${T.accent}40` }}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                Confirm Time Sheet
+              </button>
+            </div>
           </div>
         )}
         {/* Time Clock Settings — centered popup, opened from the sidebar's Time Settings item.
@@ -13969,16 +14282,7 @@ ${jobsCtx || "No jobs found."}`;
                         const isExpanded = !!tsExpandedPersons[p.id];
                         const toggleExpand = () => setTsExpandedPersons(prev => ({ ...prev, [p.id]: !prev[p.id] }));
 
-                        const thirtyAgo = (() => { const d = new Date(TD + "T00:00:00"); d.setDate(d.getDate() - 29); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
-                        const personEntries = timeclock
-                          .filter(e => e.personId === p.id && e.date >= thirtyAgo && !e.eventType)
-                          .sort((a, b) => b.clockIn.localeCompare(a.clockIn));
-                        const entryByDate = [];
-                        personEntries.forEach(e => {
-                          const last = entryByDate[entryByDate.length - 1];
-                          if (last && last.date === e.date) last.entries.push(e);
-                          else entryByDate.push({ date: e.date, entries: [e] });
-                        });
+                        const logDates = logDatesInRange(p.id, ppNow.start, ppNow.end);
 
                         return (
                           <Fragment key={p.id}>
@@ -14074,30 +14378,26 @@ ${jobsCtx || "No jobs found."}`;
                             {isExpanded && (
                               <tr style={{ borderBottom: `1px solid ${T.border}20` }}>
                                 <td colSpan={9} style={{ padding: "0 16px 14px 40px", background: T.accent + "05" }}>
-                                  {personEntries.length === 0 ? (
-                                    <div style={{ fontSize: 12, color: T.textDim, padding: "10px 0" }}>No entries in the last 30 days.</div>
+                                  {logDates.length === 0 ? (
+                                    <div style={{ fontSize: 12, color: T.textDim, padding: "10px 0" }}>No activity this pay period.</div>
                                   ) : (
                                     <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingTop: 10 }}>
-                                      {entryByDate.map(({ date, entries: dayEnts }) => {
-                                        const dayTotal = dayEnts.reduce((s, e) => s + (e.hours || 0), 0);
+                                      {logDates.map(date => {
+                                        const dayEnts = timeclock.filter(x => x.personId === p.id && x.date === date && !x.eventType && !x.deletedAt);
+                                        const openToday = date === TD && !!p.activeClockIn?.clockIn;
+                                        const dayTot = dayEnts.reduce((s, e) => s + (e.hours || 0), 0) + (openToday ? ms / 3600000 : 0);
                                         return (
                                           <div key={date}>
-                                            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
-                                              <span>{fmtDayHeader(date)}</span>
-                                              <span style={{ fontFamily: T.mono, color: T.accent }}>{dayTotal.toFixed(2)}h</span>
+                                            <div style={{ fontSize: 11, fontWeight: 700, color: openToday ? "#10b981" : T.textDim, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, display: "flex", justifyContent: "space-between" }}>
+                                              <span>{fmtDayHeader(date)}{openToday ? " · on the clock" : ""}</span>
+                                              <span style={{ fontFamily: T.mono, color: openToday ? "#10b981" : T.accent }}>{dayTot > 0 ? dayTot.toFixed(2) + "h" : "—"}</span>
                                             </div>
-                                            {dayEnts.map(e => {
-                                              const tl = buildDayTimeline(timeclock.filter(x => x.personId === p.id && x.date === e.date));
-                                              return (
-                                                <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "5px 10px", background: T.surface, borderRadius: T.radiusXs, marginBottom: 3, fontSize: 12 }}>
-                                                  <div style={{ fontFamily: T.mono, display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
-                                                    {tl.map((ln, li) => <span key={li}><span style={{ color: ln.color, fontWeight: 700 }}>{ln.label}</span><span style={{ color: T.text }}>: {ln.kind === "single" ? fmtTime(ln.ts) : `${fmtTime(ln.start)}${ln.end ? ` – ${fmtTime(ln.end)}` : " (active)"}`}</span></span>)}
-                                                  </div>
-                                                  <span style={{ fontWeight: 600, color: T.accent, fontFamily: T.mono }}>{e.clockOut ? (e.hours || 0).toFixed(2) + "h" : "—"}</span>
-                                                  <button onClick={() => openPersonEditModal(p)} style={{ padding: "2px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, cursor: "pointer", fontFamily: T.font }}>Edit</button>
-                                                </div>
-                                              );
-                                            })}
+                                            <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "5px 10px", background: T.surface, borderRadius: T.radiusXs, fontSize: 12 }}>
+                                              <div style={{ fontFamily: T.mono, display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
+                                                {renderTimelineLines(p.id, date)}
+                                              </div>
+                                              <button onClick={() => openPersonEditModal(p)} style={{ padding: "2px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, cursor: "pointer", fontFamily: T.font }}>Edit</button>
+                                            </div>
                                           </div>
                                         );
                                       })}
