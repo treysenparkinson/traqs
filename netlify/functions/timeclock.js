@@ -1048,7 +1048,12 @@ export async function handler(event) {
       let committed;
       try {
         committed = await mutatePersonFresh(peopleKey, plPId, (fresh) => {
-          if (!fresh.activeClockIn) { const e = new Error("Not currently clocked in"); e.status = 409; throw e; }
+          // 400 (not 409): the iOS app treats 409 as a benign "already in the target
+          // state" and silently resyncs — but "not currently clocked in" is a REAL
+          // failure where the lunch punch does nothing. Returning a distinct status
+          // makes the app surface the error and revert the optimistic punch instead of
+          // dropping the lunch with no warning.
+          if (!fresh.activeClockIn) { const e = new Error("Not currently clocked in"); e.status = 400; throw e; }
           const events = fresh.activeClockIn.events || [];
           const lastLunch = [...events].reverse().find(ev => ev.type === "lunchStart" || ev.type === "lunchEnd");
           if (starting && lastLunch?.type === "lunchStart") { const e = new Error("Already on lunch"); e.status = 409; throw e; }
