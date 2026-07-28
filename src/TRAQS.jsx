@@ -3913,6 +3913,7 @@ Extraction rules:
   const [detailSecClosed, setDetailSecClosed] = useState({ notes: true, att: true, analytics: true }); // View Details right-sidebar sections collapsed by key (Information open by default)
   const [pinnedThreads, setPinnedThreads] = useState(() => { try { return JSON.parse(localStorage.getItem("tq_pinned_threads") || "[]"); } catch { return []; } });
   const [threadCtxMenu, setThreadCtxMenu] = useState(null);
+  const [dmCtxMenu, setDmCtxMenu] = useState(null);
   const [confirmClearChat, setConfirmClearChat] = useState(null); // { threadKey, label, isGroup, groupId }
 
   // Load messages + groups on mount
@@ -8241,7 +8242,7 @@ ${jobsCtx || "No jobs found."}`;
             <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Jobs</h3>
             <div style={{ display: "flex", alignItems: "center", gap: 6, position: "relative" }}>
               <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
-              {jobSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>{selJobs.size === activeTasks.length ? "None" : "All"}</Btn>}
+              {jobSelectMode && <button onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "7px 14px", fontSize: 13, fontFamily: T.font, fontWeight: 600, cursor: "pointer", borderRadius: T.radiusPill, background: brandGrad(T.accent), border: "none", outline: "none", color: T.accentText, whiteSpace: "nowrap", flexShrink: 0 }}>{selJobs.size === activeTasks.length ? "None" : "All"}</button>}
               <Tip label="Filter">
               <button onClick={e => { e.stopPropagation(); setTaskFilterOpen(p => !p); }} style={{ width: 34, height: 34, borderRadius: T.radiusPill, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
@@ -9100,7 +9101,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
           {can("manageClients") && <Btn size="sm" variant={clientSelectMode ? "primary" : "ghost"} onClick={() => { setClientSelectMode(m => !m); setSelClients(new Set()); }}>{clientSelectMode ? "Done" : "Select"}</Btn>}
-          {can("manageClients") && clientSelectMode && <Btn size="sm" variant="ghost" onClick={() => setSelClients(selClients.size === filteredClients.length ? new Set() : new Set(filteredClients.map(c => c.id)))}>{selClients.size === filteredClients.length ? "None" : "All"}</Btn>}
+          {can("manageClients") && clientSelectMode && <button onClick={() => setSelClients(selClients.size === filteredClients.length ? new Set() : new Set(filteredClients.map(c => c.id)))} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "7px 14px", fontSize: 13, fontFamily: T.font, fontWeight: 600, cursor: "pointer", borderRadius: T.radiusPill, background: brandGrad(T.accent), border: "none", outline: "none", color: T.accentText, whiteSpace: "nowrap", flexShrink: 0 }}>{selClients.size === filteredClients.length ? "None" : "All"}</button>}
           {can("manageClients") && !clientSelectMode && <Btn size="sm" onClick={() => setClientModal({ id: null, name: "", contact: "", email: "", phone: "", color: COLORS[Math.floor(Math.random() * 10)], notes: "" })}>+ Add</Btn>}
         </div>
       </div>
@@ -9647,9 +9648,9 @@ ${jobsCtx || "No jobs found."}`;
           {/* Sliding "All / None" — same animation + style as the Jobs page Select toggle. */}
           <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;padding:7px 14px;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${brandGrad(T.accent)};border:none;color:${T.accentText};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:hover{filter:brightness(1.08);}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
           <div style={{ display: "flex", alignItems: "center", overflow: "hidden", maxWidth: barSelectMode ? 90 : 0, opacity: barSelectMode ? 1 : 0, transform: barSelectMode ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: barSelectMode ? "auto" : "none", marginRight: barSelectMode ? 0 : -6 }}>
-            <Btn size="sm" onClick={() => { const allIds = new Set(); rowList.forEach(r => { if (r.type === "person") (r.bars || []).forEach(b => { if (b.type === "task") allIds.add(b.id); }); }); setSelBars(selBars.size === allIds.size && allIds.size > 0 ? new Set() : allIds); }}>
+            <button className="subtle-all-btn" onClick={() => { const allIds = new Set(); rowList.forEach(r => { if (r.type === "person") (r.bars || []).forEach(b => { if (b.type === "task") allIds.add(b.id); }); }); setSelBars(selBars.size === allIds.size && allIds.size > 0 ? new Set() : allIds); }}>
               {(() => { const allIds = new Set(); rowList.forEach(r => { if (r.type === "person") (r.bars || []).forEach(b => { if (b.type === "task") allIds.add(b.id); }); }); return selBars.size === allIds.size && allIds.size > 0 ? "None" : "All"; })()}
-            </Btn>
+            </button>
           </div>
           {/* Selected count + Delete — slide/collapse with the same animation as the All toggle,
               expanding once at least one bar is selected and retracting when selection clears / Done. */}
@@ -15302,9 +15303,8 @@ ${jobsCtx || "No jobs found."}`;
       markThreadRead(threadKey);
     };
 
-    const renderThread = (threadKey, title, latest, unread, icon) => {
+    const renderThread = (threadKey, title, latest, unread, icon, pinned) => {
       const isActive = chatThread?.threadKey === threadKey;
-      const ts = latest ? new Date(latest.timestamp).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : null;
       return <div key={threadKey} onClick={() => {
         const t = threadMap[threadKey];
         if (threadKey.startsWith("group:")) {
@@ -15317,56 +15317,58 @@ ${jobsCtx || "No jobs found."}`;
           const gId = threadKey.replace("group:", "");
           openThread(threadKey, title, "group", null, null, null, gId);
         }
-      }} style={{ display: "flex", gap: 10, padding: "10px 14px", cursor: "pointer", alignItems: "flex-start", background: isActive ? T.accent + "15" : "transparent", borderLeft: `3px solid ${isActive ? T.accent : "transparent"}`, transition: "all 0.15s" }} onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = "transparent"; }}>
-        <div style={{ width: 36, height: 36, borderRadius: 18, background: isActive ? T.accent + "30" : T.surface, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: isActive ? T.accent : T.textSec }}>{icon}</div>
+      }} style={{ display: "flex", alignItems: "center", gap: 11, padding: "11px 16px", margin: "5px 10px", cursor: "pointer", borderRadius: T.radiusPill, background: isActive ? brandGrad(T.accent) : T.card, border: `1px solid ${isActive ? "transparent" : T.border}`, color: isActive ? T.accentText : T.text, boxShadow: isActive ? `0 6px 18px -5px ${hexA(T.accent, 0.55)}` : "none", transition: "all 0.15s" }} onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = T.card; }}>
+        <span style={{ lineHeight: 0, flexShrink: 0, display: "flex", color: isActive ? T.accentText : T.textSec }}>{icon}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 4 }}>
-            <span style={{ fontSize: 13, fontWeight: unread ? 700 : 500, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
-            {ts && <span style={{ fontSize: 10, color: T.textDim, flexShrink: 0 }}>{ts}</span>}
-          </div>
-          {latest && <div style={{ fontSize: 12, color: T.textDim, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {String(latest.authorId) === String(loggedInUser?.id) ? "You" : latest.authorName}: {latest.text || (latest.attachments?.length ? "Attachment" : "")}
-          </div>}
+          <div style={{ fontSize: 14, fontWeight: unread ? 700 : 600, color: isActive ? T.accentText : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</div>
+          {latest && <div style={{ fontSize: 12, marginTop: 2, color: isActive ? hexA(T.accentText, 0.75) : T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(latest.authorId) === String(loggedInUser?.id) ? "You" : latest.authorName}: {latest.text || (latest.attachments?.length ? "Attachment" : "")}</div>}
         </div>
-        {unread > 0 && <div style={{ width: 20, height: 20, borderRadius: 10, background: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accentText, flexShrink: 0, marginTop: 8 }}>{unread > 9 ? "9+" : unread}</div>}
+        {pinned && <span style={{ lineHeight: 0, flexShrink: 0, color: isActive ? T.accentText : T.textDim }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="17" x2="12" y2="21"/><path d="M9 3h6l-1 6 3 3H7l3-3z"/></svg></span>}
+        {unread > 0 && <div style={{ minWidth: 20, height: 20, padding: "0 6px", boxSizing: "border-box", borderRadius: 10, background: isActive ? "rgba(255,255,255,0.28)" : T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accentText, flexShrink: 0 }}>{unread > 9 ? "9+" : unread}</div>}
       </div>;
     };
 
     const showList = !isMobile || !chatThread;
     const showChat = !isMobile || !!chatThread;
 
+    // Combined conversation list — groups + direct messages together, newest activity on top.
+    // Avatar chip: the person's uploaded image, else their initial on the color they picked.
+    const avatarChip = (p, size) => { const col = (p && p.color) || T.accent; return <div style={{ width: size, height: size, borderRadius: "50%", overflow: "hidden", background: col, display: "flex", alignItems: "center", justifyContent: "center", fontSize: Math.round(size * 0.42), fontWeight: 800, color: accentText(col), flexShrink: 0 }}>{p && p.avatar ? <img src={p.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : ((p && p.name) || "?").charAt(0).toUpperCase()}</div>; };
+    // Group chip: a small stack of the (other) members' avatars.
+    const groupChip = (g) => { const members = (g.memberIds || []).filter(id => String(id) !== String(loggedInUser?.id)).map(id => people.find(p => String(p.id) === String(id))).filter(Boolean); if (members.length <= 1) return avatarChip(members[0], 38); return <div style={{ position: "relative", width: 38, height: 38, flexShrink: 0 }}><div style={{ position: "absolute", right: 0, bottom: 0, borderRadius: "50%", border: `2px solid ${T.card}` }}>{avatarChip(members[1], 23)}</div><div style={{ position: "absolute", left: 0, top: 0, borderRadius: "50%", border: `2px solid ${T.card}` }}>{avatarChip(members[0], 23)}</div></div>; };
+    const convoThreads = [
+      ...myGroups.map(g => { const tk = `group:${g.id}`; const latest = messages.filter(m => m.threadKey === tk).sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0]; const names = (g.memberIds || []).filter(id => String(id) !== String(loggedInUser?.id)).map(id => people.find(p => String(p.id) === String(id))?.name).filter(Boolean).join(", "); return { kind: "group", threadKey: tk, title: names || g.name, latest, group: g }; }),
+      ...dmThreads.map(t => { const otherId = String(t.threadKey).slice(3).split("_").find(id => String(id) !== String(loggedInUser?.id)); const person = people.find(p => String(p.id) === String(otherId)); return { kind: "dm", threadKey: t.threadKey, title: getThreadTitle(t.threadKey, "dm"), latest: t.latest, group: null, person }; }),
+    ].sort((a, b) => {
+      const ap = (a.kind === "group" ? pinnedGroups.includes(a.group.id) : pinnedThreads.includes(a.threadKey)) ? 0 : 1;
+      const bp = (b.kind === "group" ? pinnedGroups.includes(b.group.id) : pinnedThreads.includes(b.threadKey)) ? 0 : 1;
+      return ap - bp || (b.latest?.timestamp || "").localeCompare(a.latest?.timestamp || "");
+    });
+    const isPinnedConvo = (t) => t.kind === "group" ? pinnedGroups.includes(t.group.id) : pinnedThreads.includes(t.threadKey);
+    const renderConvo = (t) => t.kind === "group"
+      ? <div key={t.threadKey} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setGroupCtxMenu({ x: e.clientX, y: e.clientY, groupId: t.group.id, groupName: t.group.name }); }}>{renderThread(t.threadKey, t.title, t.latest, unreadCount(t.threadKey), groupChip(t.group), isPinnedConvo(t))}</div>
+      : <div key={t.threadKey} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setDmCtxMenu({ x: e.clientX, y: e.clientY, threadKey: t.threadKey, title: t.title }); }}>{renderThread(t.threadKey, t.title, t.latest, unreadCount(t.threadKey), avatarChip(t.person, 38), isPinnedConvo(t))}</div>;
+    const pinnedConvos = convoThreads.filter(isPinnedConvo);
+    const unpinnedConvos = convoThreads.filter(t => !isPinnedConvo(t));
+
     return <div style={{ display: "flex", flex: 1, minHeight: 0, height: "100%", overflow: "hidden" }}>
       {/* ─── Thread list ─── */}
-      {showList && <div style={{ width: isMobile ? "100%" : 280, flexShrink: 0, height: "100%", borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column", minHeight: 0, overflowY: "auto", overflowX: "hidden", background: T.surface }}>
-        {/* Groups header */}
-        <div style={{ padding: "14px 14px 6px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Groups</span>
-          {loggedInUser && <Tip label="New group"><button onClick={() => setNewGroupModal(true)} style={{ height: 36, display: "flex", alignItems: "center", padding: "0 14px", background: brandGrad(T.accent), border: "none", color: T.accentText, borderRadius: T.radiusPill, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, whiteSpace: "nowrap" }}>+ New Chat</button></Tip>}
+      {showList && <div className="tq-frost" style={{ width: isMobile ? "100%" : 280, flexShrink: 0, height: "100%", borderRight: `1px solid ${T.glassBorder}`, display: "flex", flexDirection: "column", minHeight: 0, overflowY: "auto", overflowX: "hidden", background: hexA(T.surface, 0.55), backdropFilter: "blur(28px) saturate(1.4)", WebkitBackdropFilter: "blur(28px) saturate(1.4)" }}>
+        {/* Header */}
+        <div style={{ padding: "19px 14px 36px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, gap: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Messages</span>
+          {loggedInUser && <Tip label="New group"><button onClick={() => setNewGroupModal(true)} style={{ height: 34, display: "flex", alignItems: "center", padding: "0 14px", background: brandGrad(T.accent), border: "none", color: T.accentText, borderRadius: T.radiusPill, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, flexShrink: 0, whiteSpace: "nowrap" }}>+ New Chat</button></Tip>}
         </div>
-        {myGroups.length === 0 && <div style={{ padding: "6px 14px 10px", fontSize: 12, color: T.textDim }}>No groups yet</div>}
-        {myGroups.slice().sort((a, b) => {
-          const ap = pinnedGroups.includes(a.id) ? 0 : 1;
-          const bp = pinnedGroups.includes(b.id) ? 0 : 1;
-          return ap - bp || a.name.localeCompare(b.name);
-        }).map(g => {
-          const tk = `group:${g.id}`;
-          const latest = messages.filter(m => m.threadKey === tk).sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0];
-          const isPinned = pinnedGroups.includes(g.id);
-          return <div key={g.id} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setGroupCtxMenu({ x: e.clientX, y: e.clientY, groupId: g.id, groupName: g.name }); }}>
-            {renderThread(tk, g.name, latest, unreadCount(tk), <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>)}
-          </div>;
-        })}
-        {/* Direct messages (includes time-off requests routed to admins) */}
-        {dmThreads.length > 0 && <>
-          <div style={{ padding: "10px 14px 6px", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Direct Messages</span>
+        {convoThreads.length === 0 && <div style={{ padding: "6px 14px 10px", fontSize: 12, color: T.textDim }}>No conversations yet</div>}
+        {pinnedConvos.length > 0 && <>
+          <div style={{ padding: "0 20px 4px", display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+            <span style={{ lineHeight: 0, color: T.textDim }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="17" x2="12" y2="21"/><path d="M9 3h6l-1 6 3 3H7l3-3z"/></svg></span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em" }}>Pinned</span>
           </div>
-          {dmThreads.map(t => {
-            const title = getThreadTitle(t.threadKey, "dm");
-            const icon = <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>;
-            return <div key={t.threadKey}>{renderThread(t.threadKey, title, t.latest, unreadCount(t.threadKey), icon)}</div>;
-          })}
+          {pinnedConvos.map(renderConvo)}
+          <div style={{ height: 1, background: T.border, margin: "10px 16px 6px", flexShrink: 0 }} />
         </>}
+        {unpinnedConvos.map(renderConvo)}
         {/* Job threads */}
         {jobThreads.length > 0 && <>
           <div style={{ padding: "10px 14px 6px", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
@@ -15402,23 +15404,15 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         ) : (<>
           {/* Chat header */}
-          <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
-            {isMobile && <button onClick={() => setChatThread(null)} style={{ background: "none", border: "none", color: T.textSec, fontSize: 20, cursor: "pointer", padding: "0 6px 0 0", lineHeight: 1 }}>‹</button>}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{chatThread.title}</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 4 }}>
-                <span style={{ fontSize: 11, color: T.textDim, marginRight: 2 }}>
-                  {chatThread.scope === "group" ? "Members:" : "Participants:"}
-                </span>
-                {chatThread.participants.slice(0, 8).map(p => (
-                  <div key={p.id} title={p.name} style={{ width: 20, height: 20, borderRadius: 10, background: T.systemBg || T.surfaceSolid || T.surface, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: accentText(T.systemBg || T.surfaceSolid || T.surface), flexShrink: 0 }}>{p.name[0]}</div>
-                ))}
-                {chatThread.participants.length > 8 && <span style={{ fontSize: 11, color: T.textDim }}>+{chatThread.participants.length - 8}</span>}
-              </div>
-            </div>
+          <div style={{ padding: "16px 18px", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, position: "relative" }}>
+            {isMobile && <button onClick={() => setChatThread(null)} style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", color: T.textSec, fontSize: 22, cursor: "pointer", padding: "0 6px", lineHeight: 1 }}>‹</button>}
+            {chatThread.scope === "group"
+              ? groupChip(groups.find(g => g.id === chatThread.groupId) || { memberIds: (chatThread.participants || []).map(p => p.id) })
+              : avatarChip((chatThread.participants || []).find(p => String(p.id) !== String(loggedInUser?.id)) || (chatThread.participants || [])[0], 42)}
+            <div style={{ fontSize: 26, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "70%", minWidth: 0 }}>{chatThread.title}</div>
           </div>
           {/* Messages */}
-          <div ref={chatScrollRef} style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "12px 0" }}>
+          <div ref={chatScrollRef} style={{ flex: 1, minHeight: 0, overflow: "auto", padding: "12px 0", maskImage: "linear-gradient(to bottom, transparent 0, #000 56px)", WebkitMaskImage: "linear-gradient(to bottom, transparent 0, #000 56px)" }}>
             {threadMessages.length === 0 && (
               <div style={{ textAlign: "center", padding: "40px 20px", color: T.textDim }}>
                 <div style={{ display: "flex", justifyContent: "center", marginBottom: 12, opacity: 0.5 }}><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
@@ -21472,6 +21466,28 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </div>}</FadeOnClose>
 
+    {/* ─── Direct message context menu ─── */}
+    <FadeOnClose open={!!dmCtxMenu}>{dmCtxMenu && <div onClick={() => setDmCtxMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 9998 }}>
+      <div onClick={e => e.stopPropagation()} className="anim-ctx" style={{ position: "fixed", left: Math.min(dmCtxMenu.x, window.innerWidth - 220), top: Math.min(dmCtxMenu.y, window.innerHeight - 140), zIndex: 9999, minWidth: 210, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7)", fontFamily: T.font }}>
+        <div style={{ padding: "10px 16px 8px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{dmCtxMenu.title}</div>
+        </div>
+        <CtxMenuItem icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="17" x2="12" y2="21"/><path d="M9 3h6l-1 6 3 3H7l3-3z"/></svg>} label={pinnedThreads.includes(dmCtxMenu.threadKey) ? "Unpin from Top" : "Pin to Top"} sub={pinnedThreads.includes(dmCtxMenu.threadKey) ? "Remove from pinned" : "Keep at top of list"} onClick={() => {
+          const updated = pinnedThreads.includes(dmCtxMenu.threadKey)
+            ? pinnedThreads.filter(tk => tk !== dmCtxMenu.threadKey)
+            : [...pinnedThreads, dmCtxMenu.threadKey];
+          setPinnedThreads(updated);
+          localStorage.setItem("tq_pinned_threads", JSON.stringify(updated));
+          setDmCtxMenu(null);
+        }} animIdx={0} />
+        <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
+        <div onClick={() => { setConfirmClearChat({ threadKey: dmCtxMenu.threadKey, label: dmCtxMenu.title, isGroup: false }); setDmCtxMenu(null); }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", animation: "toolDrop 0.14s 38ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+          <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
+          <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete Conversation</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Delete all messages in this chat</div></div>
+        </div>
+      </div>
+    </div>}</FadeOnClose>
+
     {/* Shared context menu */}
     <FadeOnClose open={!!ctxMenu}>{ctxMenu && (() => {
       const spaceBelow = window.innerHeight - ctxMenu.y - 12;
@@ -22301,7 +22317,7 @@ ${jobsCtx || "No jobs found."}`;
 
     {/* ── New Group Modal ───────────────────────────────────────────────────── */}
     {newGroupModal && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
-      <div className="anim-modal" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: T.radiusMd, padding: 28, width: "100%", maxWidth: 420, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
+      <div className="anim-modal" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: T.radiusHero, padding: 28, width: "100%", maxWidth: 420, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
         <h3 style={{ margin: "0 0 6px", fontSize: 18, fontWeight: 700, color: T.text }}>New Group</h3>
         <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textDim }}>Create a group for team messaging</p>
         <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Group Name</label>
@@ -22325,7 +22341,7 @@ ${jobsCtx || "No jobs found."}`;
 
     {/* ── Edit Group Modal ──────────────────────────────────────────────────── */}
     {editGroupModal && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <div className="anim-modal" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: T.radiusMd, padding: 28, width: "100%", maxWidth: 420, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
+      <div className="anim-modal" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: T.radiusHero, padding: 28, width: "100%", maxWidth: 420, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Edit Group</h3>
           <button onClick={() => setEditGroupModal(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", padding: 4, lineHeight: 1 }}>✕</button>
