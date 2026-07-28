@@ -5262,7 +5262,7 @@ Extraction rules:
     // Group changes by person for the preview modal
     const groupedByPerson = people.map(p => ({
       person: p,
-      changes: changes.filter(c => c.personId === p.id)
+      changes: changes.filter(c => String(c.personId) === String(p.id))
     })).filter(g => g.changes.length > 0);
 
     return { newTasks, changes, groupedByPerson };
@@ -12637,7 +12637,7 @@ ${jobsCtx || "No jobs found."}`;
     // ── My time log — last 30 days, grouped by date, newest first ────────────
     const thirtyDaysAgo = (() => { const d = new Date(TD + "T00:00:00"); d.setDate(d.getDate() - 29); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
     const myEntries = timeclock
-      .filter(e => e.personId === loggedInUser.id && e.date >= thirtyDaysAgo && !e.eventType)
+      .filter(e => String(e.personId) === String(loggedInUser.id) && e.date >= thirtyDaysAgo && !e.eventType)
       .sort((a, b) => b.date.localeCompare(a.date) || b.clockIn.localeCompare(a.clockIn));
 
     const byDate = [];
@@ -12810,7 +12810,7 @@ ${jobsCtx || "No jobs found."}`;
 
     const openPersonEditModal = (person) => {
       const thirtyAgo = (() => { const d = new Date(TD + "T00:00:00"); d.setDate(d.getDate() - 29); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; })();
-      const all = timeclock.filter(e => e.personId === person.id && e.date >= thirtyAgo && !e.deletedAt);
+      const all = timeclock.filter(e => String(e.personId) === String(person.id) && e.date >= thirtyAgo && !e.deletedAt);
       const eventRows = all.filter(e => e.eventType && e.timestamp);
       // Completed sessions (a punch entry with clock-in/out) — each gets its own
       // lunch/break punches attached: the event rows whose timestamp lands inside
@@ -13178,8 +13178,8 @@ ${jobsCtx || "No jobs found."}`;
 
     // ── My Clock Section (everyone sees this) ─────────────────────────────────
     const ppNow = getActivePeriod(TD);
-    const myPeriodHrs = timeclock.filter(e => e.personId === loggedInUser.id && e.date >= ppNow.start && e.date <= ppNow.end).reduce((s, e) => s + (e.hours||0), 0);
-    const myTodayHrs = timeclock.filter(e => e.personId === loggedInUser.id && e.date === TD).reduce((s, e) => s + (e.hours||0), 0);
+    const myPeriodHrs = timeclock.filter(e => String(e.personId) === String(loggedInUser.id) && e.date >= ppNow.start && e.date <= ppNow.end).reduce((s, e) => s + (e.hours||0), 0);
+    const myTodayHrs = timeclock.filter(e => String(e.personId) === String(loggedInUser.id) && e.date === TD).reduce((s, e) => s + (e.hours||0), 0);
 
     // ── Log timeline helpers (shared by the live Team Status board + Past Logs) ─
     // Dates (newest first) within [start,end] that have any punch/event for this
@@ -13191,7 +13191,7 @@ ${jobsCtx || "No jobs found."}`;
     const logDatesInRange = (personId, start, end) => {
       const set = new Set(
         timeclock
-          .filter(e => e.personId === personId && !e.deletedAt && e.date >= start && e.date <= end && (e.clockIn || e.eventType))
+          .filter(e => String(e.personId) === String(personId) && !e.deletedAt && e.date >= start && e.date <= end && (e.clockIn || e.eventType))
           .map(e => e.date)
       );
       const person = people.find(p => String(p.id) === String(personId));
@@ -13202,7 +13202,7 @@ ${jobsCtx || "No jobs found."}`;
     // so an in-progress clock-in (no completed punch yet) still renders on the
     // timeline. buildDayTimeline tolerates a clock entry with no clockOut.
     const dayTimelineRows = (personId, date) => {
-      const rows = timeclock.filter(x => x.personId === personId && x.date === date && !x.deletedAt);
+      const rows = timeclock.filter(x => String(x.personId) === String(personId) && x.date === date && !x.deletedAt);
       if (date === TD) {
         const person = people.find(p => String(p.id) === String(personId));
         const ac = person?.activeClockIn?.clockIn;
@@ -13216,7 +13216,7 @@ ${jobsCtx || "No jobs found."}`;
     // total when they're on the clock and today is in range.
     const periodHoursFor = (personId, start, end, runningMs = 0) => {
       const base = timeclock
-        .filter(e => e.personId === personId && !e.eventType && !e.deletedAt && e.date >= start && e.date <= end)
+        .filter(e => String(e.personId) === String(personId) && !e.eventType && !e.deletedAt && e.date >= start && e.date <= end)
         .reduce((s, e) => s + (e.hours || 0), 0);
       return base + (runningMs > 0 && TD >= start && TD <= end ? runningMs / 3600000 : 0);
     };
@@ -13284,7 +13284,7 @@ ${jobsCtx || "No jobs found."}`;
                         {dates.length === 0 ? (
                           <div style={{ fontSize: 12, color: T.textDim, padding: "10px 0" }}>No clock activity this period.</div>
                         ) : dates.map(date => {
-                          const dayEnts = timeclock.filter(x => x.personId === p.id && x.date === date && !x.eventType && !x.deletedAt);
+                          const dayEnts = timeclock.filter(x => String(x.personId) === String(p.id) && x.date === date && !x.eventType && !x.deletedAt);
                           const openToday = date === TD && !!p.activeClockIn?.clockIn;
                           const dayTot = dayEnts.reduce((s, e) => s + (e.hours || 0), 0) + (openToday ? cs.runningMs / 3600000 : 0);
                           return (
@@ -13893,8 +13893,8 @@ ${jobsCtx || "No jobs found."}`;
                         const pillColor = elColor(ui.color || T.textDim);
                         const ms = cs.runningMs;
                         const eh = Math.floor(ms/3600000), em = Math.floor((ms%3600000)/60000);
-                        const todayH = timeclock.filter(e => e.personId === p.id && e.date === TD).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
-                        const periodH = timeclock.filter(e => e.personId === p.id && e.date >= ppNow.start && e.date <= ppNow.end).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
+                        const todayH = timeclock.filter(e => String(e.personId) === String(p.id) && e.date === TD).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
+                        const periodH = timeclock.filter(e => String(e.personId) === String(p.id) && e.date >= ppNow.start && e.date <= ppNow.end).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
                         const isExp = !!tsExpandedPersons[p.id];
                         const logDates = logDatesInRange(p.id, ppNow.start, ppNow.end);
                         return (
@@ -13940,7 +13940,7 @@ ${jobsCtx || "No jobs found."}`;
                               <div style={{ padding: "8px 14px 14px", borderTop: `1px solid ${T.border}20` }}>
                                 {logDates.length === 0 && <div style={{ fontSize: 12, color: T.textDim, padding: "4px 0" }}>No activity this pay period.</div>}
                                 {logDates.map(date => {
-                                  const dayEntries = timeclock.filter(x => x.personId === p.id && x.date === date && !x.eventType && !x.deletedAt);
+                                  const dayEntries = timeclock.filter(x => String(x.personId) === String(p.id) && x.date === date && !x.eventType && !x.deletedAt);
                                   const openToday = date === TD && !!p.activeClockIn?.clockIn;
                                   const dayH = dayEntries.reduce((s, en) => s + (en.hours || 0), 0) + (openToday ? ms / 3600000 : 0);
                                   return (
@@ -13971,7 +13971,7 @@ ${jobsCtx || "No jobs found."}`;
                         <button onClick={() => setTsPeriodDays(0)} style={{ padding: "8px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}40`, background: T.accent + "10", color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Now</button>
                       </div>
                       {people.filter(p => p.payType !== "salary").map(person => {
-                        const pEntries = periodEntries.filter(e => e.personId === person.id && !e.eventType).sort((a, b) => b.date.localeCompare(a.date) || b.clockIn.localeCompare(a.clockIn));
+                        const pEntries = periodEntries.filter(e => String(e.personId) === String(person.id) && !e.eventType).sort((a, b) => b.date.localeCompare(a.date) || b.clockIn.localeCompare(a.clockIn));
                         const pTotal = pEntries.reduce((s, e) => s + (e.hours||0), 0);
                         const isExpTS = !!tsExpandedPersons["ts_" + person.id];
                         return (
@@ -13985,7 +13985,7 @@ ${jobsCtx || "No jobs found."}`;
                             {isExpTS && (
                               <div style={{ padding: "0 16px 14px", borderTop: `1px solid ${T.border}` }}>
                                 {pEntries.length === 0 ? <div style={{ fontSize: 12, color: T.textDim, padding: "8px 0" }}>No entries this period.</div> : pEntries.map(e => {
-                                  const tl = buildDayTimeline(timeclock.filter(x => x.personId === person.id && x.date === e.date));
+                                  const tl = buildDayTimeline(timeclock.filter(x => String(x.personId) === String(person.id) && x.date === e.date));
                                   return (
                                     <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "7px 0", borderBottom: `1px solid ${T.border}10`, fontSize: 12 }}>
                                       <span style={{ color: T.textDim, minWidth: 40, paddingTop: 1 }}>{e.date.slice(5)}</span>
@@ -14042,7 +14042,7 @@ ${jobsCtx || "No jobs found."}`;
                         <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{dayTotal.toFixed(2)}h</span>
                       </div>
                       {entries.map(e => {
-                        const tl = buildDayTimeline(timeclock.filter(x => x.personId === loggedInUser.id && x.date === e.date));
+                        const tl = buildDayTimeline(timeclock.filter(x => String(x.personId) === String(loggedInUser.id) && x.date === e.date));
                         return (
                           <div key={e.id} style={{ background: T.card, borderRadius: T.radiusXs, border: `1px solid ${T.borderLight}`, padding: "10px 14px", marginBottom: 5 }}>
                             <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: (e.jobRefs||[]).length > 0 ? 5 : 0 }}>
@@ -14381,8 +14381,8 @@ ${jobsCtx || "No jobs found."}`;
                         const pillColor = elColor(ui.color || T.textDim);
                         const ms = cs.runningMs;
                         const eh = Math.floor(ms/3600000), em = Math.floor((ms%3600000)/60000);
-                        const todayH = timeclock.filter(e => e.personId === p.id && e.date === TD).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
-                        const periodH = timeclock.filter(e => e.personId === p.id && e.date >= ppNow.start && e.date <= ppNow.end).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
+                        const todayH = timeclock.filter(e => String(e.personId) === String(p.id) && e.date === TD).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
+                        const periodH = timeclock.filter(e => String(e.personId) === String(p.id) && e.date >= ppNow.start && e.date <= ppNow.end).reduce((s, e) => s + (e.hours||0), 0) + (clocked ? ms/3600000 : 0);
                         const isExpanded = !!tsExpandedPersons[p.id];
                         const toggleExpand = () => setTsExpandedPersons(prev => ({ ...prev, [p.id]: !prev[p.id] }));
 
@@ -14418,7 +14418,7 @@ ${jobsCtx || "No jobs found."}`;
                                 </div>
                               </td>
                               <td style={{ padding: "10px 10px", fontSize: 12, color: T.textDim, fontFamily: T.mono }}>
-                                {!clocked ? "—" : (isAdmin && sinceEdit?.personId === p.id) ? (
+                                {!clocked ? "—" : (isAdmin && String(sinceEdit?.personId) === String(p.id)) ? (
                                   <input
                                     type="time"
                                     autoFocus
@@ -14487,7 +14487,7 @@ ${jobsCtx || "No jobs found."}`;
                                   ) : (
                                     <div style={{ display: "flex", flexDirection: "column", gap: 10, paddingTop: 10 }}>
                                       {logDates.map(date => {
-                                        const dayEnts = timeclock.filter(x => x.personId === p.id && x.date === date && !x.eventType && !x.deletedAt);
+                                        const dayEnts = timeclock.filter(x => String(x.personId) === String(p.id) && x.date === date && !x.eventType && !x.deletedAt);
                                         const openToday = date === TD && !!p.activeClockIn?.clockIn;
                                         const dayTot = dayEnts.reduce((s, e) => s + (e.hours || 0), 0) + (openToday ? ms / 3600000 : 0);
                                         return (
@@ -14530,7 +14530,7 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                   {periodEntries.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: "24px 0" }}>No entries for this period.</div>}
                   {people.map(person => {
-                    const pEntries = periodEntries.filter(e => e.personId === person.id && !e.eventType).sort((a, b) => b.date.localeCompare(a.date) || b.clockIn.localeCompare(a.clockIn));
+                    const pEntries = periodEntries.filter(e => String(e.personId) === String(person.id) && !e.eventType).sort((a, b) => b.date.localeCompare(a.date) || b.clockIn.localeCompare(a.clockIn));
                     if (pEntries.length === 0) return null;
                     // Group by date
                     const pByDate = [];
@@ -14541,7 +14541,7 @@ ${jobsCtx || "No jobs found."}`;
                     });
                     const totalH = pEntries.reduce((s, e) => s + (e.hours||0), 0);
                     const isCurrPeriod = viewPeriod.start === ppNow.start && viewPeriod.end === ppNow.end;
-                    const currPeriodH = isCurrPeriod ? totalH : timeclock.filter(e => e.personId === person.id && e.date >= ppNow.start && e.date <= ppNow.end && !e.eventType).reduce((s, e) => s + (e.hours||0), 0);
+                    const currPeriodH = isCurrPeriod ? totalH : timeclock.filter(e => String(e.personId) === String(person.id) && e.date >= ppNow.start && e.date <= ppNow.end && !e.eventType).reduce((s, e) => s + (e.hours||0), 0);
                     return (
                       <div key={person.id} style={{ marginBottom: 20, background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, overflow: "hidden" }}>
                         <div style={{ padding: "10px 16px", background: T.card, borderBottom: `1px solid ${T.border}` }}>
@@ -14582,7 +14582,7 @@ ${jobsCtx || "No jobs found."}`;
                                     </div>
                                   );
                                 }
-                                const tl5 = buildDayTimeline(timeclock.filter(x => x.personId === e.personId && x.date === e.date));
+                                const tl5 = buildDayTimeline(timeclock.filter(x => String(x.personId) === String(e.personId) && x.date === e.date));
                                 return (
                                   <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "7px 16px 7px 28px", borderTop: `1px solid ${T.border}15`, fontSize: 12 }}>
                                     <div style={{ fontFamily: T.mono, display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
@@ -14690,7 +14690,7 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                   <div style={{ padding: "0 16px" }}>
                     {entries.map((e, i) => {
-                      const tl6 = buildDayTimeline(timeclock.filter(x => x.personId === loggedInUser.id && x.date === e.date));
+                      const tl6 = buildDayTimeline(timeclock.filter(x => String(x.personId) === String(loggedInUser.id) && x.date === e.date));
                       return (
                         <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 0", borderBottom: i < entries.length - 1 ? `1px solid ${T.border}` : "none", fontSize: 13 }}>
                           <div style={{ width: 7, height: 7, borderRadius: 4, background: T.accent, flexShrink: 0, marginTop: 4 }} />
