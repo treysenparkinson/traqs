@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, UL_LOGO_WHITE } from "./logo.js";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme } from "./push.js";
 import { HexColorPicker } from "react-colorful";
@@ -4252,6 +4252,55 @@ Extraction rules:
     if (!orgCode) return;
     saveOrgSettings(orgSettings, getTokenRef.current, orgCode).catch(e => console.warn("saveOrgSettings failed:", e));
   }, [orgSettings]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Per-account settings sync (appearance + personal view prefs) ────────────
+  // Theme, colors, background, presets, sidebar mode, and job-list layout live in
+  // a per-user S3 blob keyed to the signed-in email, so the SAME account looks and
+  // behaves identically on every machine. localStorage still holds a fast-paint
+  // cache (applied instantly on load); the server copy wins once it arrives. The
+  // first machine to sync (server empty) seeds the account from its local values.
+  // (bgImageHistory — the recent-uploads cache — stays device-local to keep the
+  // synced blob well under the function payload limit; the CURRENT background in
+  // customTheme.bgImage still syncs.)
+  const userSettingsLoadedRef = useRef(false);
+  const lastSyncedUserSettingsRef = useRef(null);
+  useEffect(() => {
+    if (!orgCode) return;
+    let cancelled = false;
+    fetchUserSettings(getToken, orgCode)
+      .then(remote => {
+        if (cancelled || !remote || typeof remote !== "object") return;
+        const keys = Object.keys(remote).filter(k => k !== "lastModifiedAt");
+        if (keys.length === 0) return; // nothing saved yet — this machine will seed it below
+        if (remote.themeMode != null) setThemeMode(remote.themeMode);
+        if (remote.customTheme && typeof remote.customTheme === "object") setCustomTheme(ct => ({ ...ct, ...remote.customTheme }));
+        if (Array.isArray(remote.themePresets)) setThemePresets(remote.themePresets);
+        if (remote.sidebarMode != null) setSidebarMode(remote.sidebarMode);
+        if (Array.isArray(remote.colOrder) && remote.colOrder.length) setColOrder(remote.colOrder);
+        if (remote.colLabels && typeof remote.colLabels === "object") setColLabels(remote.colLabels);
+        if (remote.groupColPref && typeof remote.groupColPref === "object") setGroupColPref(remote.groupColPref);
+        if (Array.isArray(remote.statusOpts) && remote.statusOpts.length) setStatusOpts(remote.statusOpts);
+        if (Array.isArray(remote.priOpts) && remote.priOpts.length) setPriOpts(remote.priOpts);
+      })
+      .catch(e => console.warn("fetchUserSettings failed:", e))
+      .finally(() => { if (!cancelled) userSettingsLoadedRef.current = true; });
+    return () => { cancelled = true; };
+  }, [orgCode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    // Gate on the initial load so default state can never clobber the account
+    // before we've read it (same guard the tasks/orgSettings loads use).
+    if (!userSettingsLoadedRef.current || !orgCode) return;
+    const bundle = { themeMode, customTheme, themePresets, sidebarMode, colOrder, colLabels, groupColPref, statusOpts, priOpts };
+    const snapshot = JSON.stringify(bundle);
+    if (snapshot === lastSyncedUserSettingsRef.current) return; // unchanged since last sync/load
+    const t = setTimeout(() => {
+      saveUserSettings(bundle, getTokenRef.current, orgCode)
+        .then(() => { lastSyncedUserSettingsRef.current = snapshot; })
+        .catch(e => console.warn("saveUserSettings failed:", e));
+    }, 900);
+    return () => clearTimeout(t);
+  }, [themeMode, customTheme, themePresets, sidebarMode, colOrder, colLabels, groupColPref, statusOpts, priOpts, orgCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Live sync: IndexedDB rehydrate bus + Ably realtime ──────────────────────
   // Keep the sync context fresh so Ably handlers can call deltaSync() with no args.

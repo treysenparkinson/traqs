@@ -127,6 +127,26 @@ export async function saveOrgSettings(settings, getToken, orgCode) {
   return res.json();
 }
 
+// ─── User Settings (per-account appearance + personal view prefs) ─────────────
+// Keyed server-side by the signed-in user's email, so the same account carries
+// its theme/colors/background/layout to every machine.
+export async function fetchUserSettings(getToken, orgCode) {
+  const res = await fetch(`${BASE}/user-settings`, { headers: await authReadHeaders(getToken, orgCode) });
+  if (!res.ok) throw new Error(`fetchUserSettings failed: ${res.status}`);
+  return res.json(); // returns {} if the user has no saved settings yet
+}
+
+export async function saveUserSettings(settings, getToken, orgCode) {
+  const headers = await authHeaders(getToken, orgCode);
+  const res = await fetch(`${BASE}/user-settings`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) throw new Error(`saveUserSettings failed: ${res.status}`);
+  return res.json();
+}
+
 // ─── Org ─────────────────────────────────────────────────────────────────────
 export async function fetchOrgConfig(code) {
   const res = await fetch(`${BASE}/org?code=${encodeURIComponent(code)}`);
