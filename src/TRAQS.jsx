@@ -7999,7 +7999,7 @@ ${jobsCtx || "No jobs found."}`;
         <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.01em" }}>Approval Queue</h2>
         <div style={{ position: "relative", flex: 1, maxWidth: 320, minWidth: 160 }}>
           <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input value={approvalSearch} onChange={e => setApprovalSearch(e.target.value)} placeholder="Search approvals…" style={{ width: "100%", padding: "8px 28px 8px 30px", borderRadius: T.radiusPill, border: `1px solid ${approvalSearch ? T.accent + "88" : T.border}`, background: approvalSearch ? T.accent + "10" : T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+          <input value={approvalSearch} onChange={e => setApprovalSearch(e.target.value)} placeholder="Search approvals…" style={{ width: "100%", padding: "8px 28px 8px 30px", borderRadius: T.radiusPill, border: `1px solid ${approvalSearch ? T.accent + "88" : T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
           {approvalSearch && <button onClick={() => setApprovalSearch("")} title="Clear" style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", width: 18, height: 18, borderRadius: "50%", border: "none", background: T.border, color: T.text, fontSize: 12, lineHeight: 1, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>×</button>}
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
@@ -8238,13 +8238,13 @@ ${jobsCtx || "No jobs found."}`;
               clientOpts={clients.map(c => ({ id: c.id, label: c.name, color: elColor(c.color) }))}
               columnOpts={[...colOrder.map(id => STD_COL_DEFS.find(c => c.id === id)).filter(c => c && isColGroupable(c.id)).map(c => ({ id: c.id, label: c.label })), ...customCols.filter(c => isColGroupable("_cc_" + c.id)).map(c => ({ id: "_cc_" + c.id, label: c.label }))]} />
             {/* Search jobs — kept expanded on the Jobs page */}
-            <div className="icon-btn-glow" onClick={e => e.stopPropagation()} style={{ order: 1, display: "flex", alignItems: "center", height: 34, width: taskSearchOpen || taskSearchQ ? 220 : 34, borderRadius: T.radiusPill, border: `1px solid ${taskSearchQ ? T.accent+"88" : T.border}`, background: taskSearchQ ? T.accent+"15" : T.surface, overflow: "hidden", transition: "width 0.26s cubic-bezier(0.22,1,0.36,1), box-shadow 0.22s ease-out, filter 0.22s ease-out, border-color 0.18s, background 0.18s", flexShrink: 0 }}>
-              <button onClick={() => document.getElementById("taskSearchInput")?.focus()} title="Search jobs" style={{ width: 34, height: 34, padding: 0, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: taskSearchQ ? T.accent : T.textSec, flexShrink: 0 }}>
+            <div onClick={e => { e.stopPropagation(); document.getElementById("taskSearchInput")?.focus(); }} style={{ order: 1, display: "flex", alignItems: "center", height: 34, width: taskSearchOpen || taskSearchQ ? 220 : 34, borderRadius: T.radiusPill, border: `1px solid ${taskSearchQ ? T.accent+"88" : T.border}`, background: T.surface, overflow: "hidden", cursor: "text", transition: "width 0.26s cubic-bezier(0.22,1,0.36,1), border-color 0.18s", flexShrink: 0 }}>
+              <span style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: taskSearchQ ? T.accent : T.textSec, flexShrink: 0, pointerEvents: "none" }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-              </button>
+              </span>
               {(taskSearchOpen || taskSearchQ) && <>
                 <input id="taskSearchInput" value={taskSearchQ} onChange={e => setTaskSearchQ(e.target.value)} placeholder="Search jobs…" style={{ flex: 1, minWidth: 0, padding: "0 8px 0 2px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font }} />
-                {taskSearchQ && <button onClick={() => { setTaskSearchQ(""); document.getElementById("taskSearchInput")?.focus(); }} style={{ width: 22, height: 22, marginRight: 3, padding: 0, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 1 }}>×</button>}
+                {taskSearchQ && <button onClick={e => { e.stopPropagation(); setTaskSearchQ(""); document.getElementById("taskSearchInput")?.focus(); }} style={{ width: 22, height: 22, marginRight: 3, padding: 0, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 1 }}>×</button>}
               </>}
             </div>
             {/* Alignment — single cycling toggle */}
@@ -9335,6 +9335,26 @@ ${jobsCtx || "No jobs found."}`;
   const [tEnd, setTEnd] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth() + 1, 0)); });
   const [tMode, setTMode] = useState("month");
   const [scheduleHighlightId, setScheduleHighlightId] = useState(null);
+  // Jump to a job on the Schedule from anywhere (e.g. the Jobs-list right-click).
+  // Switches to the schedule, centers the visible window on the job's dates (or
+  // today if it's unscheduled), then flashes a highlight on every bar of that job.
+  const goToScheduleJob = (jobId) => {
+    if (!jobId) return;
+    const job = tasks.find(t => t.id === jobId);
+    setView("schedule");
+    const nDays = Math.max(1, diffD(tStart, tEnd) + 1);
+    const anchorStart = job && job.start ? job.start : TD;
+    const anchorEnd = job && job.end ? job.end : anchorStart;
+    const barMid = addD(anchorStart, Math.floor((diffD(anchorStart, anchorEnd) + 1) / 2));
+    const newStart = addD(barMid, -Math.floor(nDays / 2));
+    setTStart(newStart);
+    setTEnd(addD(newStart, nDays - 1));
+    setScheduleHighlightId(null);
+    setTimeout(() => {
+      setScheduleHighlightId(jobId);
+      setTimeout(() => setScheduleHighlightId(null), 4000);
+    }, 80);
+  };
   const [tCollapsed, setTCollapsed] = useState({});
   const teamRef = useRef(null);
   const teamContainerRef = useRef(null);
@@ -9462,18 +9482,34 @@ ${jobsCtx || "No jobs found."}`;
             (panel.subs || []).forEach(op => {
               if (!(op.team || []).includes(pid)) return;
               if (op.status === "Finished") return;
-              if (!op.start || !op.end || _visualEnd(op) < tStart || op.start > tEnd) return;
+              // An assigned op with no dates is real work you can log against but can't
+              // be placed on the timeline — pin it to today as an "unscheduled" bar so
+              // it still shows instead of vanishing off the schedule.
+              const undated = !op.start || !op.end;
+              if (undated) { if (TD < tStart || TD > tEnd) return; }
+              else if (_visualEnd(op) < tStart || op.start > tEnd) return;
+              const bStart = undated ? TD : op.start;
+              const bEnd = undated ? TD : op.end;
               const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
               const tc = panel.color || "#94a3b8";
               const opPersonName = (() => { const pp = people.find(x => x.id === (op.team || [])[0]); return pp ? pp.name : null; })();
-              bars.push({ type: "task", id: op.id, start: op.start, end: op.end, title: `${panel.title} · ${op.title}${opPersonName ? ` · ${opPersonName}` : ""}`, color: elColor(tc), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, jobCreatedAt: job.createdAt || null, task: { ...op, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
+              bars.push({ type: "task", id: op.id, start: bStart, end: bEnd, title: `${panel.title} · ${op.title}${opPersonName ? ` · ${opPersonName}` : ""}`, color: elColor(tc), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, jobCreatedAt: job.createdAt || null, unscheduled: undated, task: { ...op, start: bStart, end: bEnd, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
             });
-            // Panel with no sub-ops: render the panel itself so it appears on the schedule
-            if ((panel.subs || []).length === 0 && (panel.team || []).includes(pid) && panel.start && panel.end && panel.status !== "Finished") {
-              if (_visualEnd(panel) >= tStart && panel.start <= tEnd) {
+            // Panel-level assignment: render the panel itself when the user is on the
+            // panel's team but NOT on any of its ops — covers panels with no ops AND
+            // panels whose ops belong to other people (matches what iOS surfaces and
+            // lets you log time against). Undated panels are pinned to today.
+            const onPanelTeam = (panel.team || []).includes(pid);
+            const onAnyOp = (panel.subs || []).some(op => (op.team || []).includes(pid));
+            if (onPanelTeam && !onAnyOp && panel.status !== "Finished") {
+              const pUndated = !panel.start || !panel.end;
+              const pInView = pUndated ? (TD >= tStart && TD <= tEnd) : (_visualEnd(panel) >= tStart && panel.start <= tEnd);
+              if (pInView) {
+                const pStart = pUndated ? TD : panel.start;
+                const pEnd = pUndated ? TD : panel.end;
                 const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
                 const tc = panel.color || "#94a3b8";
-                bars.push({ type: "task", id: panel.id, start: panel.start, end: panel.end, title: `${job.title} · ${panel.title}`, color: elColor(tc), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: panel.status, jobCreatedAt: job.createdAt || null, task: { ...panel, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
+                bars.push({ type: "task", id: panel.id, start: pStart, end: pEnd, title: `${job.title} · ${panel.title}`, color: elColor(tc), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: panel.status, jobCreatedAt: job.createdAt || null, unscheduled: pUndated, task: { ...panel, start: pStart, end: pEnd, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
               }
             }
           });
@@ -9482,10 +9518,14 @@ ${jobsCtx || "No jobs found."}`;
           (job.subs || []).forEach(sub => {
             if (!(sub.team || []).includes(pid)) return;
             if (sub.status === "Finished") return;
-            if (!sub.start || !sub.end || _visualEnd(sub) < tStart || sub.start > tEnd) return;
+            const undated = !sub.start || !sub.end;
+            if (undated) { if (TD < tStart || TD > tEnd) return; }
+            else if (_visualEnd(sub) < tStart || sub.start > tEnd) return;
+            const bStart = undated ? TD : sub.start;
+            const bEnd = undated ? TD : sub.end;
             const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
             const tc = sub.color || "#94a3b8";
-            bars.push({ type: "task", id: sub.id, start: sub.start, end: sub.end, title: `${job.title} · ${sub.title}`, color: elColor(tc), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: sub.status, jobCreatedAt: job.createdAt || null, task: { ...sub, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
+            bars.push({ type: "task", id: sub.id, start: bStart, end: bEnd, title: `${job.title} · ${sub.title}`, color: elColor(tc), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: sub.status, jobCreatedAt: job.createdAt || null, unscheduled: undated, task: { ...sub, start: bStart, end: bEnd, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
           });
         }
       });
@@ -9752,13 +9792,13 @@ ${jobsCtx || "No jobs found."}`;
             </div></FadeOnClose>
           </div>
           {/* Inline expanding search — sits right of the Schedule filter button */}
-          <div className="icon-btn-glow" onClick={e => e.stopPropagation()} style={{ display: "flex", alignItems: "center", height: 34, width: scheduleSearchOpen || scheduleSearchQ ? 220 : 34, borderRadius: T.radiusPill, border: `1px solid ${scheduleSearchQ ? T.accent+"88" : T.border}`, background: scheduleSearchQ ? T.accent+"15" : T.surface, overflow: "hidden", transition: "width 0.26s cubic-bezier(0.22,1,0.36,1), box-shadow 0.22s ease-out, filter 0.22s ease-out, border-color 0.18s, background 0.18s", flexShrink: 0 }}>
-            <button onClick={() => { const next = !scheduleSearchOpen; setScheduleSearchOpen(next); if (next) setTimeout(() => document.getElementById("scheduleSearchInput")?.focus(), 50); }} title="Search jobs" style={{ width: 34, height: 34, padding: 0, border: "none", background: "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: scheduleSearchQ ? T.accent : T.textSec, flexShrink: 0 }}>
+          <div onClick={e => { e.stopPropagation(); if (!scheduleSearchOpen) setScheduleSearchOpen(true); setTimeout(() => document.getElementById("scheduleSearchInput")?.focus(), 50); }} style={{ display: "flex", alignItems: "center", height: 34, width: scheduleSearchOpen || scheduleSearchQ ? 220 : 34, borderRadius: T.radiusPill, border: `1px solid ${scheduleSearchQ ? T.accent+"88" : T.border}`, background: T.surface, overflow: "hidden", cursor: (scheduleSearchOpen || scheduleSearchQ) ? "text" : "pointer", transition: "width 0.26s cubic-bezier(0.22,1,0.36,1), border-color 0.18s", flexShrink: 0 }}>
+            <span style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: scheduleSearchQ ? T.accent : T.textSec, flexShrink: 0, pointerEvents: "none" }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            </button>
+            </span>
             {(scheduleSearchOpen || scheduleSearchQ) && <>
               <input id="scheduleSearchInput" value={scheduleSearchQ} onChange={e => setScheduleSearchQ(e.target.value)} onBlur={() => { if (!scheduleSearchQ) setScheduleSearchOpen(false); }} placeholder="Search jobs…" style={{ flex: 1, minWidth: 0, padding: "0 8px 0 2px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font }} />
-              {scheduleSearchQ && <button onClick={() => { setScheduleSearchQ(""); setScheduleSearchOpen(false); }} style={{ width: 22, height: 22, marginRight: 3, padding: 0, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 1 }}>×</button>}
+              {scheduleSearchQ && <button onClick={e => { e.stopPropagation(); setScheduleSearchQ(""); setScheduleSearchOpen(false); }} style={{ width: 22, height: 22, marginRight: 3, padding: 0, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 1 }}>×</button>}
             </>}
           </div>
           {/* Separator + Today */}
@@ -11271,7 +11311,7 @@ ${jobsCtx || "No jobs found."}`;
                   let _workedRemainingBudget = _workedCellsTotal;
                   const bc = bar.color;
                   const iconColor = accentText(bc);
-                  const isHighlighted = !isPto && bar.task?.id === scheduleHighlightId;
+                  const isHighlighted = !isPto && scheduleHighlightId != null && (bar.task?.id === scheduleHighlightId || bar.task?.pid === scheduleHighlightId || bar.task?.grandPid === scheduleHighlightId);
                   const isDraggingThis = teamDragInfo?.barId === bar.id;
                   const isMultiDragging = !isDraggingThis && !!(teamDragInfo?.multiDragIds?.has(bar.id));
                   const dragTx = (isDraggingThis || isMultiDragging) ? (teamDragInfo.translateX || 0) : 0;
@@ -11303,7 +11343,7 @@ ${jobsCtx || "No jobs found."}`;
                   return [<div key={barKey}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, height: rH - 8, boxSizing: "border-box", borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${bc}` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : `1.5px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
+                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, height: rH - 8, boxSizing: "border-box", borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${bc}` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : bar.unscheduled ? `1.5px dashed ${accentText(bc)}` : `1.5px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
                     onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
                     {!isPto && ws && ws.workedFraction > 0 && _wFirst > 0 && (() => {
                       const _segWorked = Math.max(0, Math.min(_workedRemainingBudget, _wFirst));
@@ -12923,6 +12963,12 @@ ${jobsCtx || "No jobs found."}`;
       const saveAll = async () => {
         setTsPersonEditModal(m => ({ ...m, saving: true }));
         const errors = [];
+        // Resolve the person id robustly. `person.id` is the norm, but if it's ever
+        // undefined (a malformed person/record), fall back to a completed entry's
+        // personId — which the sessions already carry — or the open shift's. Without
+        // this, add-event posts `personId: undefined`, JSON.stringify drops the key,
+        // and the server rejects it as "Missing personId, eventType, or timestamp".
+        const resolvedPid = person?.id ?? sessions.find(s => s.personId)?.personId ?? activeEntry?.personId;
         // The open shift's activeClockIn (start time + synced lunch events) may be
         // updated by several calls; keep the latest so people[] lands once, right.
         let latestActive = null;
@@ -12932,7 +12978,7 @@ ${jobsCtx || "No jobs found."}`;
           // 1) Open-shift START time first: it defines the live window that the
           //    open-shift lunch edits (step 4) must fall inside.
           if (activeEntry && activeEntry.clockIn !== activeEntry.origClockIn) {
-            const r = await adminEditActiveClockInAction({ personId: person.id, clockIn: activeEntry.clockIn }, getToken, orgCode);
+            const r = await adminEditActiveClockInAction({ personId: resolvedPid, clockIn: activeEntry.clockIn }, getToken, orgCode);
             if (r.ok) latestActive = r.activeClockIn;
             else errors.push(r.error || "Couldn't update the clock-in time");
           }
@@ -12950,7 +12996,11 @@ ${jobsCtx || "No jobs found."}`;
             if (s.confirmed) continue;
             for (const ev of s.events) {
               if (ev._new && !ev._deleted) {
-                const r = await adminAddEventAction({ personId: person.id, eventType: ev.eventType, timestamp: ev.timestamp }, getToken, orgCode);
+                if (!resolvedPid || !ev.eventType || !ev.timestamp) {
+                  errors.push(`Couldn't add a ${EVENT_META[ev.eventType]?.label || "punch"} — missing ${!resolvedPid ? "person" : !ev.eventType ? "type" : "time"}. Set a time on the punch and try again.`);
+                  continue;
+                }
+                const r = await adminAddEventAction({ personId: resolvedPid, eventType: ev.eventType, timestamp: ev.timestamp }, getToken, orgCode);
                 if (!r.ok) errors.push(r.error || `Couldn't add ${EVENT_META[ev.eventType]?.label || "punch"}`);
               } else if (ev._deleted && !ev._new) {
                 const r = await adminDeleteEventAction({ eventId: ev.id }, getToken, orgCode);
@@ -12967,7 +13017,11 @@ ${jobsCtx || "No jobs found."}`;
             for (const ev of activeEntry.events) {
               let r = null;
               if (ev._new && !ev._deleted) {
-                r = await adminAddEventAction({ personId: person.id, eventType: ev.eventType, timestamp: ev.timestamp }, getToken, orgCode);
+                if (!resolvedPid || !ev.eventType || !ev.timestamp) {
+                  errors.push(`Couldn't add a ${EVENT_META[ev.eventType]?.label || "lunch"} — missing ${!resolvedPid ? "person" : !ev.eventType ? "type" : "time"}. Set a time on the punch and try again.`);
+                  continue;
+                }
+                r = await adminAddEventAction({ personId: resolvedPid, eventType: ev.eventType, timestamp: ev.timestamp }, getToken, orgCode);
                 if (!r.ok) errors.push(r.error || `Couldn't add ${EVENT_META[ev.eventType]?.label || "lunch"}`);
               } else if (ev._deleted && !ev._new) {
                 r = await adminDeleteEventAction({ eventId: ev.id }, getToken, orgCode);
@@ -21631,6 +21685,8 @@ ${jobsCtx || "No jobs found."}`;
         }
         openDetail(target); setCtxMenu(null);
       }} animIdx={ci()} />
+      {/* Take me to schedule — jump to this job on the schedule and highlight it */}
+      <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="12" cy="15" r="2"/></svg>} label="Take me to schedule" sub="Jump to this job on the schedule" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } setCtxMenu(null); if (job) goToScheduleJob(job.id); }} animIdx={ci()} />
       {/* Add/Edit Dependencies — ops with sibling ops */}
       {isOp && (() => { let panel = null, parentJobId = null; for (const job of tasks) { for (const pnl of (job.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { panel = pnl; parentJobId = job.id; break; } } if (panel) break; } return panel && (panel.subs||[]).length >= 2 ? <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>} label="Add/Edit Dependencies" sub="Manage dependency links between sub-ops" onClick={() => { setCtxMenu(null); setDepsModal({ item: it, panelSubs: panel.subs||[], panelId: panel.id, jobId: parentJobId, panelTitle: panel.title, depsMode: panel.depsMode||"unlocked" }); }} animIdx={ci()} /> : null; })()}
       {/* Reschedule */}
