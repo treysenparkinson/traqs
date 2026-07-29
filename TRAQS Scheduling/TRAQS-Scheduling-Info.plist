@@ -2,12 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSCameraUsageDescription</key>
-	<string>TRAQS uses the camera so you can attach a photo of a finished panel when you clock out.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>TRAQS lets you attach a photo of a finished panel from your library when you clock out.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>TRAQS saves message photos to your library when you tap Save on an attachment.</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
