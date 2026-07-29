@@ -640,6 +640,10 @@ class AppState {
         // canonical activeClockIn — grace-guarded so a very recent optimistic
         // pay tap still wins.
         reconcilePayClock()
+
+        // Warm the Stats datasets in the background (concurrently) so the Stats
+        // tab is already populated by the time it's opened — no on-open wait.
+        warmStatsData()
     }
 
     // MARK: - Jobs
@@ -1270,6 +1274,21 @@ class AppState {
         guard let api else { return }
         if let sessions = try? await api.fetchJobSessions(personId: personId) {
             withoutAnimation { jobSessions = sessions }
+        }
+    }
+
+    /// Warm the Stats-page datasets (timeclock + job sessions) so the Stats tab
+    /// is instant. Fire-and-forget: the two pulls write DIFFERENT arrays, so they
+    /// run CONCURRENTLY (one combined settle instead of staggered spurts). Scope
+    /// is org-wide for admins (a superset that also covers their own history),
+    /// else just this person. Called in the background from loadAll and again on
+    /// the Stats tab's appear.
+    func warmStatsData() {
+        let scope: String? = isAdmin ? nil : currentPersonId
+        Task { @MainActor in
+            async let tc: Void = refreshTimeclock(personId: scope)
+            async let js: Void = refreshJobSessions(personId: scope)
+            _ = await (tc, js)
         }
     }
 

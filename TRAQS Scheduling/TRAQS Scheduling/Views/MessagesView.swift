@@ -723,6 +723,10 @@ struct ThreadDetailView: View {
     // the poll only scrolls when we're already at the bottom, so it can't yank
     // the user down while they're reading older history.
     @State private var isAtBottom = true
+    /// True once the opening scroll-to-bottom has settled. While false (the
+    /// moment a thread opens), we ALWAYS pin to the newest message regardless of
+    /// `isAtBottom` or who sent it, so the thread never opens mid-history.
+    @State private var didInitialScroll = false
     private static let bottomAnchor = "chat_bottom_anchor"
 
     // #3 read receipts. `pendingIds` = my messages still in flight (show
@@ -1007,11 +1011,11 @@ struct ThreadDetailView: View {
                     // opening into an uncached thread whose backlog loads after
                     // .onAppear), so that backlog doesn't animate in wholesale.
                     captureBaselineIfNeeded()
-                    // Only auto-follow if we're already at the bottom, or the new
-                    // message is mine (I just sent it) — don't yank the user down
-                    // while they're reading older history.
-                    if isAtBottom || (liveMessages.last.map(isMyMessage) ?? false) {
-                        scrollToBottom(proxy, animated: true)
+                    // Auto-follow if we're at the bottom, or the new message is mine,
+                    // OR we're still in the just-opened window (force to newest so a
+                    // late-loading backlog can't leave us mid-history).
+                    if !didInitialScroll || isAtBottom || (liveMessages.last.map(isMyMessage) ?? false) {
+                        scrollToBottom(proxy, animated: didInitialScroll)
                     }
                     appState.markThreadRead(threadKey)   // keep inbox badge clear while viewing
                     Task { await markThreadReadNow() }
@@ -1019,8 +1023,8 @@ struct ThreadDetailView: View {
                 .onChange(of: liveMessages.last?.id) {
                     // Same guard — but always follow the optimistic→server id swap
                     // of my OWN latest message so its bubble doesn't jump.
-                    if isAtBottom || (liveMessages.last.map(isMyMessage) ?? false) {
-                        scrollToBottom(proxy, animated: true)
+                    if !didInitialScroll || isAtBottom || (liveMessages.last.map(isMyMessage) ?? false) {
+                        scrollToBottom(proxy, animated: didInitialScroll)
                     }
                 }
                 // Keyboard opening shrinks the viewport — re-pin so the newest
@@ -1046,13 +1050,19 @@ struct ThreadDetailView: View {
                     // Clear this thread's inbox unread badge the instant it's
                     // opened (observable → the inbox re-renders immediately).
                     appState.markThreadRead(threadKey)
-                    // Always open on the newest message. defaultScrollAnchor(.bottom)
-                    // gets us close, but a couple of non-animated nudges once the
-                    // lazy content realizes its trailing anchor guarantee we land
-                    // exactly at the bottom — and catch messages that load async
-                    // right after open (when the count doesn't change post-appear).
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { scrollToBottom(proxy, animated: false) }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { scrollToBottom(proxy, animated: false) }
+                    // ALWAYS open on the newest message. defaultScrollAnchor(.bottom)
+                    // gets us close, but an uncached thread's backlog and attachment
+                    // heights can settle AFTER appear — so re-pin to the bottom a few
+                    // times over ~0.85s (ignoring isAtBottom) until the layout is
+                    // stable, then hand off to the normal follow behavior.
+                    didInitialScroll = false
+                    Task { @MainActor in
+                        for delayMs: UInt64 in [0, 80, 200, 450, 850] {
+                            if delayMs > 0 { try? await Task.sleep(nanoseconds: delayMs * 1_000_000) }
+                            scrollToBottom(proxy, animated: false)
+                        }
+                        didInitialScroll = true
+                    }
                     // Pull latest request statuses so any timeoff_request
                     // bubble shows live state + Approve/Deny (admins get all).
                     Task { await appState.refreshTimeOffRequests() }

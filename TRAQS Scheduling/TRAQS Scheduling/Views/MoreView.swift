@@ -158,15 +158,10 @@ struct MoreView: View {
         // Whole-org pay-clock + job-session history (heavy) so the team stats
         // cover everyone. Lifetime data → changing the selected week just
         // re-filters locally, no refetch.
-        .task {
-            await appState.refreshJobSessions(personId: appState.currentPersonId)
-            // Own pay hours so a non-admin's personal Efficiency has data (admins
-            // overwrite with the whole-org pull below).
-            await appState.refreshTimeclock(personId: appState.currentPersonId)
-            guard appState.isAdmin else { return }
-            await appState.refreshTimeclock(personId: nil)
-            await appState.refreshJobSessions(personId: nil)
-        }
+        // Refresh on open — timeclock + job sessions pulled CONCURRENTLY (one
+        // combined update, not four staggered spurts). The data is also warmed
+        // in the background by loadAll, so it's usually already populated here.
+        .task { appState.warmStatsData() }
     }
 
     // MARK: Title (Stats + selected week in accent)
