@@ -97,30 +97,45 @@ struct TRAQSBarsMark: View {
     }
 }
 
+// MARK: - TRAQS Header Logo (the "traqs=" lockup)
+// The brand wordmark with the four-bar accent mark riding right after it like a
+// trailing "=" — the same lockup the old side drawer used, now the fixed
+// leading element of every page's header. Parametric so the hand-tuned bar
+// alignment (offsets measured at wordmark height 64) scales cleanly to any
+// header size.
+struct TRAQSHeaderLogo: View {
+    /// Rendered HEIGHT of the wordmark in points.
+    var size: CGFloat = 44
+
+    var body: some View {
+        HStack(spacing: 0) {
+            TRAQSWordmark(size: size)
+            // The bars mark as a trailing "=" — scaled from the tuned size-64
+            // lockup: bars 21/64, pulled left 13/64 to clear the wordmark PNG's
+            // built-in right padding, nudged up 1/64 to sit level with the letters.
+            TRAQSBarsMark(size: size * (21.0 / 64.0))
+                .offset(x: -size * (13.0 / 64.0), y: -size * (1.0 / 64.0))
+        }
+    }
+}
+
 // MARK: - Screen Header
-// Wordmark on the left, trailing icons + magenta profile avatar on the right.
+// Logo lockup on the left (every page), trailing controls on the right.
 // No center title — the tab bar tells the user where they are.
 
 struct TRAQSNavHeader<Trailing: View>: View {
-    /// The wordmark only rides in the header on the home page.
+    /// Back-compat only: the logo now rides in the header on every page, so this
+    /// flag is ignored. Kept so existing call sites keep compiling.
     var showLogo: Bool = false
     @ViewBuilder var trailing: () -> Trailing
 
     var body: some View {
-        // Menu button on the left, trailing controls on the right. Extra top
-        // padding drops the whole header (and page title) down from the status
-        // bar for more breathing room.
+        // Logo on the left, trailing controls on the right. Extra top padding
+        // drops the whole header (and page title) down from the status bar for
+        // more breathing room.
         HStack(alignment: .center, spacing: 10) {
-            // Menu button, with the wordmark tucked in tight beside it on home.
-            HStack(spacing: 2) {
-                TRAQSMenuButton()
-                    .offset(y: -2)   // nudge the bars up to sit optically level with the wordmark
-                if showLogo {
-                    // Wordmark rides a bit larger than the compact bars button by
-                    // design — the mark is the anchor of the home header.
-                    TRAQSWordmark(size: 64)
-                }
-            }
+            TRAQSHeaderLogo(size: 60)
+                .offset(x: -13)   // nudge the lockup toward the leading edge
             Spacer()
             HStack(spacing: 6) {
                 trailing()
@@ -139,140 +154,6 @@ extension TRAQSNavHeader where Trailing == EmptyView {
     /// We accept and ignore the argument so the build keeps moving while screens
     /// are rewritten.
     init(tabName _: String) { self.trailing = { EmptyView() } }
-}
-
-// MARK: - Profile Button (right side of the header)
-
-struct TRAQSProfileButton: View {
-    @Environment(AppState.self) private var appState
-    @Environment(AuthManager.self) private var auth
-    @State private var showSheet = false
-
-    private var person: Person? { appState.currentPerson }
-    private var initial: String {
-        // Take two initials when we have a "First Last" pattern; otherwise one.
-        let parts = (person?.name ?? "—")
-            .split(separator: " ")
-            .prefix(2)
-            .map { String($0.prefix(1)).uppercased() }
-        return parts.joined()
-    }
-    private var isSaving: Bool {
-        if case .saving = appState.saveStatus { return true }
-        return false
-    }
-    private var isSaved: Bool {
-        if case .saved = appState.saveStatus { return true }
-        return false
-    }
-
-    var body: some View {
-        Button { showSheet = true } label: {
-            ZStack(alignment: .bottomTrailing) {
-                // Avatar: centered initials over the magenta circle
-                ZStack {
-                    Circle().fill(Color(hex: T.magenta))
-                    Text(initial)
-                        .font(.custom(TFontName.bold.rawValue, size: 12))
-                        .foregroundStyle(T.onColor(T.magenta))
-                }
-                .frame(width: 32, height: 32)
-
-                if isSaving {
-                    ProgressView()
-                        .scaleEffect(0.5)
-                        .tint(Color(hex: T.sky))
-                        .frame(width: 12, height: 12)
-                        .background(Circle().fill(Color(hex: T.surface)))
-                        .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
-                        .offset(x: 2, y: 2)
-                        .transition(.opacity)
-                } else if isSaved {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 7, weight: .bold))
-                        .foregroundStyle(T.onColor(T.green))
-                        .frame(width: 12, height: 12)
-                        .background(Circle().fill(Color(hex: T.green)))
-                        .overlay(Circle().stroke(Color(hex: T.surface), lineWidth: 1.5))
-                        .offset(x: 2, y: 2)
-                        .transition(.opacity)
-                }
-            }
-            .animation(.easeInOut(duration: 0.2), value: isSaving)
-            .animation(.easeInOut(duration: 0.2), value: isSaved)
-        }
-        .buttonStyle(.plain)
-        .sheet(isPresented: $showSheet) {
-            ProfileSheet()
-                .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
-        }
-    }
-}
-
-// MARK: - Profile Sheet
-
-private struct ProfileSheet: View {
-    @Environment(AppState.self) private var appState
-    @Environment(AuthManager.self) private var auth
-    @Environment(\.dismiss) private var dismiss
-
-    private var person: Person? { appState.currentPerson }
-    private var initials: String {
-        let parts = (person?.name ?? "—")
-            .split(separator: " ")
-            .prefix(2)
-            .map { String($0.prefix(1)).uppercased() }
-        return parts.joined()
-    }
-
-    var body: some View {
-        ZStack {
-            Color(hex: T.bg).ignoresSafeArea()
-
-            VStack(spacing: 18) {
-                Avatar(initials: initials, size: 72, fill: Color(hex: T.magenta), imageData: person?.image)
-                    .padding(.top, 12)
-
-                VStack(spacing: 4) {
-                    Text(person?.name ?? "—")
-                        .font(TTypo.h3(20))
-                        .foregroundStyle(Color(hex: T.ink))
-                    if let email = person?.email, !email.isEmpty {
-                        Text(email)
-                            .font(TTypo.sm(14))
-                            .foregroundStyle(Color(hex: T.muted))
-                    }
-                    if let role = person?.role, !role.isEmpty {
-                        Chip(label: role, stroke: Color(hex: T.hair), color: Color(hex: T.muted))
-                            .padding(.top, 4)
-                    }
-                }
-
-                Spacer()
-
-                Button {
-                    auth.logout()
-                    dismiss()
-                } label: {
-                    HStack(spacing: 8) {
-                        TIconView(icon: .signOut, size: 13, color: Color(hex: T.red))
-                        Text("SIGN OUT")
-                            .font(TTypo.xsBold(12))
-                            .tLabel(tracking: 1.0)
-                    }
-                    .foregroundStyle(Color(hex: T.red))
-                    .padding(.horizontal, 16).padding(.vertical, 12)
-                    .frame(maxWidth: .infinity)
-                    .background(Capsule().fill(Color(hex: T.red).opacity(0.10)))
-                    .overlay(Capsule().stroke(Color(hex: T.red).opacity(0.35), lineWidth: 1))
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 24)
-            }
-        }
-    }
 }
 
 // MARK: - FastTRAQSPillButton — kept for back-compat

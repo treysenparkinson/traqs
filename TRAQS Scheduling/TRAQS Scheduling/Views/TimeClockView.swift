@@ -414,7 +414,7 @@ private struct PayClockControls: View {
         .foregroundStyle(fill.readableText)
         .frame(maxWidth: .infinity)
         .padding(.vertical, 14)
-        .background(Capsule().fill(fill))
+        .background(Capsule().fill(fill.verticalGradient()))
     }
 }
 

@@ -18,15 +18,8 @@ struct HomeView: View {
 
             VStack(spacing: 0) {
                 TRAQSNavHeader {
-                    // Profile: name on the left, avatar on the right.
-                    HStack(spacing: 8) {
-                        Text(personName)
-                            .font(TTypo.smBold(14))
-                            .foregroundStyle(Color(hex: T.ink))
-                            .lineLimit(1)
-                        Avatar(initials: initials, size: 34, gradient: true,
-                               imageData: appState.currentPerson?.image)
-                    }
+                    // Account controls (top-right): Admin · Settings · Profile.
+                    HomeHeaderControls()
                 }
 
                 ScrollView {
@@ -100,14 +93,6 @@ struct HomeView: View {
     /// Home page title: "Hello, <first name>" once the person loads, else "Hello".
     private var greeting: String {
         firstName.isEmpty ? "Hello" : "Hello, \(firstName)"
-    }
-
-    private var initials: String {
-        let parts = (appState.currentPerson?.name ?? "—")
-            .split(separator: " ")
-            .prefix(2)
-            .map { String($0.prefix(1)).uppercased() }
-        return parts.joined()
     }
 
     /// Unread messages grouped by sender (person name + count), most first.

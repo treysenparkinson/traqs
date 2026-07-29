@@ -19,7 +19,6 @@ enum JobsViewMode: Hashable {
 @MainActor
 final class AppNav {
     var selected: TTab = .home
-    var isMenuOpen: Bool = false
 
     /// Which view the merged Jobs tab shows — list (TasksView) or gantt (GanttView).
     /// Persists across tab switches; reset to `.list` for job deep links so the

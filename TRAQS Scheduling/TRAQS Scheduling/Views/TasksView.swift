@@ -1456,7 +1456,7 @@ struct TaskCardV1: View {
                     .foregroundStyle(T.onColor(T.amber))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .background(Capsule().fill(Color(hex: T.amber)))
+                    .background(Capsule().fill(Color(hex: T.amber).verticalGradient()))
                     .shadow(color: Color(hex: T.amber).opacity(T.skyShadowOpacity),
                             radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
                 }

@@ -1,0 +1,1489 @@
+diff --git a/TRAQS Scheduling/TRAQS Scheduling.xcodeproj/project.pbxproj b/TRAQS Scheduling/TRAQS Scheduling.xcodeproj/project.pbxproj
+index 76d4c6d..c46261a 100644
+--- a/TRAQS Scheduling/TRAQS Scheduling.xcodeproj/project.pbxproj	
++++ b/TRAQS Scheduling/TRAQS Scheduling.xcodeproj/project.pbxproj	
+@@ -425,7 +425,7 @@
+ 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
+ 				CODE_SIGN_ENTITLEMENTS = "TRAQS Scheduling/TRAQS Scheduling.entitlements";
+ 				CODE_SIGN_STYLE = Automatic;
+-				CURRENT_PROJECT_VERSION = 54;
++				CURRENT_PROJECT_VERSION = 55;
+ 				DEAD_CODE_STRIPPING = YES;
+ 				DEVELOPMENT_TEAM = AT8N877SPR;
+ 				ENABLE_APP_SANDBOX = YES;
+@@ -450,7 +450,7 @@
+ 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+ 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+ 				MACOSX_DEPLOYMENT_TARGET = 26.2;
+-				MARKETING_VERSION = 1.1.19;
++				MARKETING_VERSION = 1.1.20;
+ 				PRODUCT_BUNDLE_IDENTIFIER = "TRAQS.TRAQS-Scheduling";
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 				REGISTER_APP_GROUPS = YES;
+@@ -476,7 +476,7 @@
+ 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
+ 				CODE_SIGN_ENTITLEMENTS = "TRAQS Scheduling/TRAQS Scheduling.entitlements";
+ 				CODE_SIGN_STYLE = Automatic;
+-				CURRENT_PROJECT_VERSION = 54;
++				CURRENT_PROJECT_VERSION = 55;
+ 				DEAD_CODE_STRIPPING = YES;
+ 				DEVELOPMENT_TEAM = AT8N877SPR;
+ 				ENABLE_APP_SANDBOX = YES;
+@@ -501,7 +501,7 @@
+ 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
+ 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
+ 				MACOSX_DEPLOYMENT_TARGET = 26.2;
+-				MARKETING_VERSION = 1.1.19;
++				MARKETING_VERSION = 1.1.20;
+ 				PRODUCT_BUNDLE_IDENTIFIER = "TRAQS.TRAQS-Scheduling";
+ 				PRODUCT_NAME = "$(TARGET_NAME)";
+ 				REGISTER_APP_GROUPS = YES;
+diff --git a/TRAQS Scheduling/TRAQS Scheduling/Services/AppNav.swift b/TRAQS Scheduling/TRAQS Scheduling/Services/AppNav.swift
+index 2665a7d..9b98563 100644
+--- a/TRAQS Scheduling/TRAQS Scheduling/Services/AppNav.swift	
++++ b/TRAQS Scheduling/TRAQS Scheduling/Services/AppNav.swift	
+@@ -19,7 +19,6 @@ enum JobsViewMode: Hashable {
+ @MainActor
+ final class AppNav {
+     var selected: TTab = .home
+-    var isMenuOpen: Bool = false
+ 
+     /// Which view the merged Jobs tab shows — list (TasksView) or gantt (GanttView).
+     /// Persists across tab switches; reset to `.list` for job deep links so the
+diff --git a/TRAQS Scheduling/TRAQS Scheduling/Services/ColorExtension.swift b/TRAQS Scheduling/TRAQS Scheduling/Services/ColorExtension.swift
+index 1c9a5b1..f7313d1 100644
+--- a/TRAQS Scheduling/TRAQS Scheduling/Services/ColorExtension.swift	
++++ b/TRAQS Scheduling/TRAQS Scheduling/Services/ColorExtension.swift	
+@@ -39,6 +39,35 @@ extension Color {
+         perceivedBrightness > 140 ? .black : .white
+     }
+ 
++    /// Lighten (positive `amount`) or darken (negative) this color by blending
++    /// toward white or black by `amount` (0…1). iOS-only precise path; returns
++    /// self unchanged if color conversion fails.
++    func adjustBrightness(by amount: Double) -> Color {
++        #if canImport(UIKit)
++        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
++        guard UIColor(self).getRed(&r, green: &g, blue: &b, alpha: &a) else { return self }
++        let t = CGFloat(amount)
++        if t >= 0 {
++            r += (1 - r) * t; g += (1 - g) * t; b += (1 - b) * t
++        } else {
++            let k = max(0, 1 + t)   // t negative → scale toward black
++            r *= k; g *= k; b *= k
++        }
++        return Color(.sRGB, red: Double(r), green: Double(g), blue: Double(b), opacity: Double(a))
++        #else
++        return self
++        #endif
++    }
++
++    /// A subtle vertical gradient of THIS color — lightened at the top, darkened
++    /// at the bottom — so a fixed-color button can render as a gradient CTA of
++    /// the same hue.
++    func verticalGradient(lighten: Double = 0.16, darken: Double = 0.20) -> LinearGradient {
++        LinearGradient(colors: [adjustBrightness(by: lighten),
++                                adjustBrightness(by: -darken)],
++                       startPoint: .top, endPoint: .bottom)
++    }
++
+     init(hex: String) {
+         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+         var int: UInt64 = 0
+diff --git a/TRAQS Scheduling/TRAQS Scheduling/Views/GanttView.swift b/TRAQS Scheduling/TRAQS Scheduling/Views/GanttView.swift
+index 8708f93..09493ae 100644
+--- a/TRAQS Scheduling/TRAQS Scheduling/Views/GanttView.swift	
++++ b/TRAQS Scheduling/TRAQS Scheduling/Views/GanttView.swift	
+@@ -41,37 +41,9 @@ struct GanttView: View {
+             .padding(.bottom, 10)
+ 
+             if segment == .day {
+-                DateSelector(date: $selectedDate)
+-                    .padding(.bottom, 10)
+-                statStrip
+-                    .padding(.horizontal, 16)
+-                    .padding(.bottom, 8)
+-                DayTimeline(date: selectedDate,
+-                            now: now,
+-                            blocks: blocks(for: selectedDate),
+-                            workStart: appState.orgSettings.workStartHour,
+-                            workEnd: appState.orgSettings.workEndHour,
+-                            lunchStart: appState.orgSettings.lunchStartHour,
+-                            lunchDurationH: Double(appState.orgSettings.lunch.durationMinutes) / 60,
+-                            onSelect: { selectedBlock = $0 })
+-                    .transition(.opacity)
++                dayContent
+             } else {
+-                WeekHeaderBar(weekDates: weekDates, selected: $selectedDate)
+-                    .padding(.horizontal, 16)
+-                    .padding(.bottom, 10)
+-                WeekGrid(weekDates: weekDates,
+-                         today: cal.startOfDay(for: Date()),
+-                         now: now,
+-                         workStart: appState.orgSettings.workStartHour,
+-                         workEnd: appState.orgSettings.workEndHour,
+-                         blocksFor: { blocks(for: $0) },
+-                         onSelect: { selectedBlock = $0 })
+-                    .padding(.horizontal, 12)
+-                    .padding(.bottom, 6)
+-                WeekLegendRow(blocks: weekDates.flatMap { blocks(for: $0) })
+-                    .padding(.horizontal, 16)
+-                    .padding(.bottom, 24)
+-                    .transition(.opacity)
++                weekContent
+             }
+             }
+             .padding(.top, 2)
+@@ -84,10 +56,65 @@ struct GanttView: View {
+         }
+     }
+ 
++    // MARK: Day / Week content
++    //
++    // Both branches compute their schedule blocks EXACTLY ONCE per render and
++    // pass concrete arrays down. Previously the week branch handed a recomputing
++    // `blocks(for:)` closure to WeekGrid, whose computed `endHour`/`height` and
++    // per-column/legend reads re-ran that O(jobs×panels×ops) work 50–100+ times
++    // per render — the source of the gantt's jank and occasional freezes.
++
++    @ViewBuilder
++    private var dayContent: some View {
++        let dayBlocks = blocks(for: selectedDate)
++        DateSelector(date: $selectedDate)
++            .padding(.bottom, 10)
++        statStrip(dayBlocks)
++            .padding(.horizontal, 16)
++            .padding(.bottom, 8)
++        DayTimeline(date: selectedDate,
++                    now: now,
++                    blocks: dayBlocks,
++                    workStart: appState.orgSettings.workStartHour,
++                    workEnd: appState.orgSettings.workEndHour,
++                    lunchStart: appState.orgSettings.lunchStartHour,
++                    lunchDurationH: Double(appState.orgSettings.lunch.durationMinutes) / 60,
++                    onSelect: { selectedBlock = $0 })
++            .transition(.opacity)
++    }
++
++    @ViewBuilder
++    private var weekContent: some View {
++        let byDate = weekBlocksByDate()
++        let allWeek = weekDates.flatMap { byDate[$0] ?? [] }
++        WeekHeaderBar(weekDates: weekDates, selected: $selectedDate)
++            .padding(.horizontal, 16)
++            .padding(.bottom, 10)
++        WeekGrid(weekDates: weekDates,
++                 today: cal.startOfDay(for: Date()),
++                 now: now,
++                 workStart: appState.orgSettings.workStartHour,
++                 workEnd: appState.orgSettings.workEndHour,
++                 blocksByDate: byDate,
++                 onSelect: { selectedBlock = $0 })
++            .padding(.horizontal, 12)
++            .padding(.bottom, 6)
++        WeekLegendRow(blocks: allWeek)
++            .padding(.horizontal, 16)
++            .padding(.bottom, 24)
++            .transition(.opacity)
++    }
++
++    /// Build each visible week day's blocks ONCE, keyed by day.
++    private func weekBlocksByDate() -> [Date: [ScheduleBlock]] {
++        var out: [Date: [ScheduleBlock]] = [:]
++        for d in weekDates { out[d] = blocks(for: d) }
++        return out
++    }
++
+     // MARK: 3-stat strip (Jobs / Tasks / Est) — matches the wireframe layout
+ 
+-    private var statStrip: some View {
+-        let bs = blocks(for: selectedDate)
++    private func statStrip(_ bs: [ScheduleBlock]) -> some View {
+         let jobCount = Set(bs.map { $0.jobId }).count
+         let estHours = bs.reduce(0.0) { $0 + ($1.end - $1.start) }
+         return HStack(spacing: 8) {
+@@ -812,7 +839,10 @@ private struct WeekGrid: View {
+     let now: Date
+     let workStart: Double
+     let workEnd: Double
+-    let blocksFor: (Date) -> [ScheduleBlock]
++    /// Precomputed blocks per visible day — built ONCE by GanttView so the
++    /// grid's repeated `endHour`/`height`/column reads iterate ready arrays
++    /// instead of re-running the expensive block packer.
++    let blocksByDate: [Date: [ScheduleBlock]]
+     let onSelect: (ScheduleBlock) -> Void
+ 
+     private var startHour: Double { workStart }
+@@ -825,7 +855,7 @@ private struct WeekGrid: View {
+     /// of being clipped (the "missing jobs" symptom). Shared across all columns
+     /// so the grid rows stay aligned.
+     private var endHour: Double {
+-        let maxEnd = weekDates.flatMap { blocksFor($0) }.map(\.end).max() ?? workEnd
++        let maxEnd = blocksByDate.values.flatMap { $0 }.map(\.end).max() ?? workEnd
+         return max(workEnd, maxEnd.rounded(.up))
+     }
+ 
+@@ -861,7 +891,7 @@ private struct WeekGrid: View {
+                     pxPerHour: pxPerHour,
+                     isToday: cal.isDateInToday(d),
+                     now: now,
+-                    blocks: blocksFor(d),
++                    blocks: blocksByDate[d] ?? [],
+                     onSelect: onSelect)
+                 .frame(maxWidth: .infinity)
+             }
+diff --git a/TRAQS Scheduling/TRAQS Scheduling/Views/HomeHeaderControls.swift b/TRAQS Scheduling/TRAQS Scheduling/Views/HomeHeaderControls.swift
+new file mode 100644
+index 0000000..cdde977
+--- /dev/null
++++ b/TRAQS Scheduling/TRAQS Scheduling/Views/HomeHeaderControls.swift	
+@@ -0,0 +1,110 @@
++import SwiftUI
++
++// MARK: - Home header controls (top-right)
++// The account controls that used to live in the side drawer, now on the Home
++// header's trailing edge. Left → right: Admin (admins only) · Settings glass
++// menu · Profile avatar.
++
++struct HomeHeaderControls: View {
++    @Environment(AppState.self) private var appState
++
++    var body: some View {
++        HStack(spacing: 6) {
++            if appState.isAdmin { AdminHeaderButton() }
++            SettingsGlassMenu()
++            ProfileAvatarButton()
++        }
++    }
++}
++
++// Shared 36×36 Liquid Glass circle label. A fixed glyph box keeps the circle the
++// exact same size regardless of the SF Symbol's intrinsic width, so the Admin,
++// Settings, and Profile controls all match (36 = 22 glyph box + 7 padding ×2).
++private struct GlassCircleIcon: View {
++    let systemName: String
++    var color: Color = Color(hex: T.accent)
++
++    var body: some View {
++        Image(systemName: systemName)
++            .font(.system(size: 18, weight: .semibold))
++            .foregroundStyle(color)
++            .frame(width: 22, height: 22)
++            .padding(7)
++            .glassEffect(.regular.interactive(), in: Circle())
++    }
++}
++
++// MARK: - Admin button → full-screen AdminView
++
++private struct AdminHeaderButton: View {
++    @State private var showAdmin = false
++
++    var body: some View {
++        Button { showAdmin = true } label: {
++            GlassCircleIcon(systemName: "shield.lefthalf.filled",
++                            color: Color(hex: T.ink))
++        }
++        .buttonStyle(.plain)
++        .fullScreenCover(isPresented: $showAdmin) {
++            AdminView().edgeSwipeBack { showAdmin = false }
++        }
++    }
++}
++
++// MARK: - Settings gear → native Liquid Glass menu
++// A glass circle that morphs into a native menu (Customization · Log out) —
++// the same Liquid Glass forming behaviour as the Jobs page's availability
++// button (AvailabilityCheckButton).
++
++private struct SettingsGlassMenu: View {
++    @Environment(AuthManager.self) private var auth
++    @State private var showCustomize = false
++
++    var body: some View {
++        Menu {
++            Button {
++                showCustomize = true
++            } label: {
++                Label("Customization", systemImage: "sparkles")
++            }
++            Divider()
++            Button(role: .destructive) {
++                auth.logout()
++            } label: {
++                Label("Log out", systemImage: "rectangle.portrait.and.arrow.right")
++            }
++        } label: {
++            GlassCircleIcon(systemName: "gearshape", color: Color(hex: T.accent))
++        }
++        .buttonStyle(.plain)
++        .sheet(isPresented: $showCustomize) { CustomizeView() }
++    }
++}
++
++// MARK: - Profile avatar → Edit Profile
++
++private struct ProfileAvatarButton: View {
++    @Environment(AppState.self) private var appState
++    @State private var showProfile = false
++
++    private var person: Person? { appState.currentPerson }
++    private var initials: String {
++        let parts = (person?.name ?? "—")
++            .split(separator: " ")
++            .prefix(2)
++            .map { String($0.prefix(1)).uppercased() }
++        return parts.joined()
++    }
++
++    var body: some View {
++        Button { showProfile = true } label: {
++            Avatar(initials: initials.isEmpty ? "—" : initials,
++                   size: 36, gradient: true, imageData: person?.image)
++                .contentShape(Circle())
++        }
++        .buttonStyle(.plain)
++        .sheet(isPresented: $showProfile) {
++            EditProfileView().edgeSwipeBack { showProfile = false }
++        }
++    }
++}
+diff --git a/TRAQS Scheduling/TRAQS Scheduling/Views/HomeView.swift b/TRAQS Scheduling/TRAQS Scheduling/Views/HomeView.swift
+index d0ac874..5188b94 100644
+--- a/TRAQS Scheduling/TRAQS Scheduling/Views/HomeView.swift	
++++ b/TRAQS Scheduling/TRAQS Scheduling/Views/HomeView.swift	
+@@ -18,15 +18,8 @@ struct HomeView: View {
+ 
+             VStack(spacing: 0) {
+                 TRAQSNavHeader {
+-                    // Profile: name on the left, avatar on the right.
+-                    HStack(spacing: 8) {
+-                        Text(personName)
+-                            .font(TTypo.smBold(14))
+-                            .foregroundStyle(Color(hex: T.ink))
+-                            .lineLimit(1)
+-                        Avatar(initials: initials, size: 34, gradient: true,
+-                               imageData: appState.currentPerson?.image)
+-                    }
++                    // Account controls (top-right): Admin · Settings · Profile.
++                    HomeHeaderControls()
+                 }
+ 
+                 ScrollView {
+@@ -102,14 +95,6 @@ struct HomeView: View {
+         firstName.isEmpty ? "Hello" : "Hello, \(firstName)"
+     }
+ 
+-    private var initials: String {
+-        let parts = (appState.currentPerson?.name ?? "—")
+-            .split(separator: " ")
+-            .prefix(2)
+-            .map { String($0.prefix(1)).uppercased() }
+-        return parts.joined()
+-    }
+-
+     /// Unread messages grouped by sender (person name + count), most first.
+     /// Mirrors AppState.totalUnreadMessages but keeps the per-author breakdown.
+     private var unreadBySender: [(id: String, name: String, count: Int)] {
+diff --git a/TRAQS Scheduling/TRAQS Scheduling/Views/MainTabView.swift b/TRAQS Scheduling/TRAQS Scheduling/Views/MainTabView.swift
+index d6bf692..fad344e 100644
+--- a/TRAQS Scheduling/TRAQS Scheduling/Views/MainTabView.swift	
++++ b/TRAQS Scheduling/TRAQS Scheduling/Views/MainTabView.swift	
+@@ -1,8 +1,9 @@
+ import SwiftUI
+ 
+-// MARK: - TRAQS Tabs (driven by AppNav + a swipeable side drawer)
+-// Swipe from the left edge → drawer opens.
+-// Swipe leftward while open (or tap the scrim / X) → drawer closes.
++// MARK: - TRAQS Tabs (native Liquid Glass bottom TabView)
++// The primary navigation is a native SwiftUI TabView — on iOS 26 its tab bar
++// renders as Liquid Glass automatically. Selection is bound to AppNav.selected
++// so push-notification deep links (which set `selected`) keep working.
+ 
+ enum TTab: Int, CaseIterable, Hashable {
+     // Home is the default landing tab (a daily debrief). The Jobs tab subsumes
+@@ -29,109 +30,50 @@ enum TTab: Int, CaseIterable, Hashable {
+     }
+ }
+ 
+-private let drawerWidth: CGFloat = 268
+-private let edgeGrabZone: CGFloat = 24      // px from the leading edge that initiates an open swipe
+-
+ struct MainTabView: View {
+     @Environment(AppNav.self) private var appNav
+     @Environment(AppState.self) private var appState
+     @Environment(ThemeSettings.self) private var themeSettings
+-    @State private var dragOffset: CGFloat = 0          // additive offset during a live drag
+-    @State private var isDragging: Bool = false
+-    @State private var showSettings: Bool = false
+-    @State private var showAdmin: Bool = false
+     @State private var showTimeOff: Bool = false
+ 
+-    /// Current X position of the drawer's leading edge.
+-    /// -drawerWidth = fully closed (off-screen left). 0 = fully open.
+-    private var drawerX: CGFloat {
+-        let base: CGFloat = appNav.isMenuOpen ? 0 : -drawerWidth
+-        return max(-drawerWidth, min(0, base + dragOffset))
+-    }
+-
+-    /// 0 (closed) ... 1 (open) — drives backdrop opacity in lockstep with the drawer.
+-    private var progress: Double {
+-        Double((drawerX + drawerWidth) / drawerWidth)
+-    }
+-
+     var body: some View {
+-        ZStack(alignment: .leading) {
+-            Color(hex: T.bg).ignoresSafeArea()
+-
+-            // Tab content
+-            Group {
+-                switch appNav.selected {
+-                case .home:     HomeView()
++        ZStack {
++            // Native Liquid Glass tab bar. Order (all 5, for everyone):
++            // Home · Jobs · Time Clock · Stats · Messages.
++            TabView(selection: Binding(get: { appNav.selected },
++                                       set: { appNav.selected = $0 })) {
++                Tab(TTab.home.label,  systemImage: TTab.home.icon.sfName,  value: TTab.home)  { HomeView() }
+                 // Merged Jobs tab: JobsHubView owns the shared header and
+                 // cross-fades its body between the list and gantt views.
+-                case .jobs:     JobsHubView()
+-                case .hours:    TimeClockView()
+-                case .stats:    MoreView()
+-                case .chat:     MessagesView()
+-                }
+-            }
+-            .id(appNav.selected)
+-            .transition(.opacity)
+-            .allowsHitTesting(progress < 0.05)   // disable taps under the drawer while open
+-            // Phase 6: subtle sync-status indicator, just below the nav header.
+-            // Renders nothing when healthy; a small dot on offline/reconnect/error.
+-            .overlay(alignment: .top) {
+-                SyncStatusDot()
+-                    .padding(.top, 52)
+-                    .allowsHitTesting(progress < 0.05)
++                Tab(TTab.jobs.label,  systemImage: TTab.jobs.icon.sfName,  value: TTab.jobs)  { JobsHubView() }
++                Tab(TTab.hours.label, systemImage: TTab.hours.icon.sfName, value: TTab.hours) { TimeClockView() }
++                Tab(TTab.stats.label, systemImage: TTab.stats.icon.sfName, value: TTab.stats) { MoreView() }
++                Tab(TTab.chat.label,  systemImage: TTab.chat.icon.sfName,  value: TTab.chat)  { MessagesView() }
++                    .badge(appState.totalUnreadMessages)
+             }
+ 
+-            // Backdrop scrim — opacity follows the drag in real time
+-            Color.black
+-                .opacity(0.28 * progress)
+-                .ignoresSafeArea()
+-                .onTapGesture { closeMenu() }
+-                .allowsHitTesting(progress > 0.05)
+-                .zIndex(1)
+-
+-            // Drawer — always mounted, offset off-screen when closed
+-            SideMenu(close: closeMenu,
+-                     openSettings: {
+-                         closeMenu()
+-                         // Brief delay so the drawer's close animation reads
+-                         // before the settings sheet pushes in.
+-                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+-                             showSettings = true
+-                         }
+-                     },
+-                     openAdmin: {
+-                         closeMenu()
+-                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+-                             showAdmin = true
+-                         }
+-                     })
+-                .offset(x: drawerX)
+-                .zIndex(2)
+-
+             // Global blocking-action loading overlay (clock in/out). Sits above
+-            // everything, including the drawer, so no screen looks frozen while a
+-            // request is in flight.
++            // everything, including the tab bar, so no screen looks frozen while
++            // a request is in flight.
+             if let label = appState.clockActionLabel {
+                 TRAQSLoadingOverlay(message: label)
+                     .transition(.opacity)
+                     .zIndex(10)
+             }
+         }
+-        .animation(.easeInOut(duration: 0.18), value: appState.clockActionLabel)
+-        // Modal sub-pages support a left-edge swipe to go back (dismiss), matching
+-        // the native back-swipe elsewhere.
+-        .sheet(isPresented: $showSettings) {
+-            SettingsView().edgeSwipeBack { showSettings = false }
+-        }
+-        .fullScreenCover(isPresented: $showAdmin) {
+-            AdminView().edgeSwipeBack { showAdmin = false }
++        // Phase 6: subtle sync-status indicator, just below the nav header.
++        // Renders nothing when healthy; a small dot on offline/reconnect/error.
++        .overlay(alignment: .top) {
++            SyncStatusDot()
++                .padding(.top, 52)
+         }
++        .animation(.easeInOut(duration: 0.18), value: appState.clockActionLabel)
++        // A tapped time-off push flips appNav.openTimeOffPage → present the Time
++        // Off page and reset the flag so it fires once. `initial: true` also
++        // catches a cold-start tap where the flag is already set.
+         .fullScreenCover(isPresented: $showTimeOff) {
+             TimeOffView().edgeSwipeBack { showTimeOff = false }
+         }
+-        // A tapped time-off push flips appNav.openTimeOffPage → present the
+-        // Time Off page and reset the flag so it fires once. `initial: true`
+-        // also catches a cold-start tap where the flag is already set.
+         .onChange(of: appNav.openTimeOffPage, initial: true) { _, open in
+             if open {
+                 showTimeOff = true
+@@ -140,94 +82,6 @@ struct MainTabView: View {
+         }
+         .preferredColorScheme(themeSettings.isLightTheme ? .light : .dark)
+         .animation(.easeInOut(duration: 0.22), value: appNav.selected)
+-        .animation(isDragging ? nil
+-                              : .spring(response: 0.32, dampingFraction: 0.92),
+-                   value: drawerX)
+-        .gesture(
+-            DragGesture(minimumDistance: 8, coordinateSpace: .global)
+-                .onChanged { value in
+-                    // Only engage if:
+-                    //   - the drag started within the leading-edge grab zone (closed → open), OR
+-                    //   - the drawer is already open (open → close)
+-                    if !isDragging {
+-                        let fromEdge = value.startLocation.x <= edgeGrabZone
+-                        guard fromEdge || appNav.isMenuOpen else { return }
+-                        isDragging = true
+-                    }
+-                    dragOffset = value.translation.width
+-                }
+-                .onEnded { value in
+-                    guard isDragging else { return }
+-                    isDragging = false
+-
+-                    let velocity = value.predictedEndTranslation.width - value.translation.width
+-                    let projected = drawerX + velocity * 0.25
+-
+-                    // Snap by velocity-projected halfway point.
+-                    let wantsOpen = projected > -drawerWidth / 2
+-                    appNav.isMenuOpen = wantsOpen
+-                    dragOffset = 0
+-                }
+-        )
+-    }
+-
+-    private func closeMenu() {
+-        withAnimation(.spring(response: 0.32, dampingFraction: 0.92)) {
+-            appNav.isMenuOpen = false
+-            dragOffset = 0
+-        }
+-    }
+-}
+-
+-// MARK: - Hamburger (used inside TRAQSNavHeader's leading slot)
+-
+-struct TRAQSMenuButton: View {
+-    @Environment(AppNav.self) private var appNav
+-    @Environment(AppState.self) private var appState
+-
+-    var body: some View {
+-        Button {
+-            withAnimation(.spring(response: 0.32, dampingFraction: 0.92)) {
+-                appNav.isMenuOpen.toggle()
+-            }
+-        } label: {
+-            // The traced icon bars (3 grey + accent) as the button — drawn
+-            // natively so the accent bar tracks the user's theme accent.
+-            TRAQSBarsMark(size: 22)
+-            .frame(width: 32, height: 32)
+-            .contentShape(Rectangle())
+-            // Missed-notification indicator: a pulsing red dot on the corner.
+-            .overlay(alignment: .topTrailing) {
+-                if appState.hasUnreadNotifications {
+-                    PulsingDot().offset(x: 4, y: -4)
+-                }
+-            }
+-        }
+-        .buttonStyle(.plain)
+-    }
+-}
+-
+-// MARK: - Pulsing notification dot
+-// A red dot with an expanding halo ring that pulses to draw the eye. Used on the
+-// sidebar/hamburger button when there are missed notifications.
+-struct PulsingDot: View {
+-    @State private var pulse = false
+-
+-    var body: some View {
+-        ZStack {
+-            Circle()
+-                .fill(Color(hex: T.red).opacity(0.5))
+-                .frame(width: 9, height: 9)
+-                .scaleEffect(pulse ? 2.2 : 1)
+-                .opacity(pulse ? 0 : 0.6)
+-            Circle()
+-                .fill(Color(hex: T.red))
+-                .frame(width: 9, height: 9)
+-                .overlay(Circle().stroke(.white.opacity(0.9), lineWidth: 1.5))
+-        }
+-        .onAppear {
+-            withAnimation(.easeOut(duration: 1.3).repeatForever(autoreverses: false)) { pulse = true }
+-        }
+     }
+ }
+ 
+@@ -251,237 +105,10 @@ struct JobsViewToggleButton: View {
+     }
+ }
+ 
+-// MARK: - Side Menu (left drawer)
+-
+-private struct SideMenu: View {
+-    @Environment(AppNav.self) private var appNav
+-    @Environment(AppState.self) private var appState
+-    @Environment(AuthManager.self) private var auth
+-    @Environment(ThemeSettings.self) private var themeSettings
+-    let close: () -> Void
+-    let openSettings: () -> Void
+-    let openAdmin: () -> Void
+-
+-    private var person: Person? { appState.currentPerson }
+-    private var initials: String {
+-        let parts = (person?.name ?? "—")
+-            .split(separator: " ")
+-            .prefix(2)
+-            .map { String($0.prefix(1)).uppercased() }
+-        return parts.joined()
+-    }
+-
+-    private var orgInitial: String {
+-        String(appState.orgName.prefix(1)).uppercased()
+-    }
+-
+-    /// Current user's shift status — single source of truth on AppState
+-    /// (shared with the Home screen).
+-    private var shiftStatus: ShiftStatus { appState.myShiftStatus }
+-
+-    /// Salaried employees don't punch a clock, so hide the Hours tab for them.
+-    private var visibleTabs: [TTab] {
+-        let salary = appState.currentPerson?.isSalary ?? false
+-        return TTab.allCases.filter { !(salary && $0 == .hours) }
+-    }
+-
+-    var body: some View {
+-        HStack(spacing: 0) {
+-            VStack(alignment: .leading, spacing: 0) {
+-                // Header inside the drawer — the wordmark + trailing bars mark,
+-                // centered horizontally in the drawer.
+-                HStack(spacing: 0) {
+-                    TRAQSWordmark(size: 64)
+-                    // Alternate lockup: the traced bars (3 grey + accent) ride
+-                    // right after the wordmark like a trailing "=" mark. Drawn
+-                    // natively so the accent bar tracks the theme accent. Pulled
+-                    // left to clear the wordmark PNG's built-in right padding,
+-                    // and nudged up to sit level with the letters.
+-                    TRAQSBarsMark(size: 21)   // = the lowercase "s" x-height at size 64
+-                        .offset(x: -13, y: -1)
+-                }
+-                .frame(maxWidth: .infinity)
+-                .offset(x: -8)   // nudge the centered lockup slightly left
+-                .padding(.horizontal, 20)
+-                .padding(.top, 24)
+-                .padding(.bottom, 18)
+-
+-                // Org card — gradient avatar + org name + plan/subtitle.
+-                HStack(spacing: 12) {
+-                    // Org logo (a PNG set on desktop) if present; otherwise the
+-                    // gradient-initials avatar.
+-                    Avatar(initials: orgInitial.isEmpty ? "—" : orgInitial,
+-                           size: 44,
+-                           gradient: appState.orgSettings.orgLogo == nil,
+-                           imageData: appState.orgSettings.orgLogo)
+-                    VStack(alignment: .leading, spacing: 2) {
+-                        Text(appState.orgName.isEmpty ? "TRAQS" : appState.orgName)
+-                            .font(.custom(TFontName.bold.rawValue, size: 14))
+-                            .foregroundStyle(Color(hex: T.ink))
+-                            .lineLimit(1)
+-                            .truncationMode(.tail)
+-                        if let role = person?.role, !role.isEmpty {
+-                            Text(role)
+-                                .font(TTypo.xs(11))
+-                                .foregroundStyle(Color(hex: T.muted))
+-                                .tLabel(tracking: 0.8)
+-                                .lineLimit(1)
+-                        }
+-                    }
+-                    Spacer(minLength: 0)
+-                }
+-                .padding(.horizontal, 20)
+-                .padding(.bottom, 18)
+-
+-                // Divider — separates the org card from the nav list.
+-                Rectangle()
+-                    .fill(Color(hex: T.hair))
+-                    .frame(height: 1)
+-                    .padding(.horizontal, 20)
+-                    .padding(.bottom, 16)
+-
+-                // Tab list — primary wireframe tabs (Hours hidden for salary).
+-                VStack(spacing: 4) {
+-                    ForEach(visibleTabs, id: \.self) { tab in
+-                        SideMenuRow(icon: tab.icon,
+-                                    label: tab.label,
+-                                    isOn: appNav.selected == tab,
+-                                    badge: tab == .chat ? appState.totalUnreadMessages : 0) {
+-                            withAnimation(.easeInOut(duration: 0.22)) {
+-                                appNav.selected = tab
+-                            }
+-                            close()
+-                        }
+-                    }
+-                }
+-                .padding(.horizontal, 12)
+-
+-                // Subtle divider — separates Settings from the wireframe tabs.
+-                Rectangle()
+-                    .fill(Color(hex: T.hair))
+-                    .frame(height: 1)
+-                    .padding(.horizontal, 20)
+-                    .padding(.vertical, 12)
+-
+-                VStack(spacing: 4) {
+-                    // Time Off moved to a button on the Hours page's header.
+-                    if appState.isAdmin {
+-                        SideMenuRow(icon: .admin,
+-                                    label: "Admin",
+-                                    isOn: false,
+-                                    action: openAdmin)
+-                    }
+-                    SideMenuRow(icon: .settings,
+-                                label: "Settings",
+-                                isOn: false,
+-                                action: openSettings)
+-                }
+-                .padding(.horizontal, 12)
+-
+-                Spacer()
+-
+-                // Profile + logout footer (no card border — clean row)
+-                ProfileFooter(initials: initials,
+-                              name: person?.name ?? "—",
+-                              status: shiftStatus,
+-                              imageData: person?.image,
+-                              onLogout: {
+-                                  auth.logout()
+-                                  close()
+-                              })
+-                    .padding(.horizontal, 20)
+-                    .padding(.bottom, 28)
+-            }
+-            .frame(width: drawerWidth)
+-            .frame(maxHeight: .infinity, alignment: .top)
+-            // Full-bleed drawer: fill the rounded shape itself (extended into the
+-            // safe area) so the gradient reaches the very top & bottom, flush on
+-            // the left, with only the two right-hand corners rounded. Filling the
+-            // shape (rather than clipping a safe-area-sized background) is what
+-            // keeps the fill and the outline the same size.
+-            .background {
+-                let shape = UnevenRoundedRectangle(bottomTrailingRadius: 40,
+-                                                   topTrailingRadius: 40,
+-                                                   style: .continuous)
+-                ZStack {
+-                    shape.fill(themeSettings.isLightTheme
+-                               ? LinearGradient(colors: [Color(hex: T.bgGradTop), Color(hex: T.surface)],
+-                                                startPoint: .top, endPoint: .bottom)
+-                               : LinearGradient(colors: [Color(hex: "#2C2C2E"), Color(hex: "#000000")],
+-                                                startPoint: .top, endPoint: .bottom))
+-                    if themeSettings.isLightTheme {
+-                        GlowBlob(size: T.glowSize * 0.9, opacity: T.glowOpacity * 0.7)
+-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+-                            .offset(x: -40, y: 160)
+-                            .clipShape(shape)
+-                    }
+-                    shape.strokeBorder(
+-                        LinearGradient(colors: [Color(hex: T.highlightStroke).opacity(0.5),
+-                                                Color(hex: T.hair)],
+-                                       startPoint: .top, endPoint: .bottom),
+-                        lineWidth: 1)
+-                }
+-                .ignoresSafeArea()
+-                .shadow(color: Color.black.opacity(0.18), radius: 24, x: 6, y: 0)
+-            }
+-
+-            Spacer(minLength: 0)
+-        }
+-    }
+-}
+-
+-// MARK: - One side-menu row
+-
+-private struct SideMenuRow: View {
+-    let icon: TIcon
+-    let label: String
+-    let isOn: Bool
+-    var badge: Int = 0
+-    let action: () -> Void
+-
+-    var body: some View {
+-        Button(action: action) {
+-            HStack(spacing: 14) {
+-                TIconView(icon: icon, size: 19,
+-                          color: isOn ? T.onGradient : Color(hex: T.muted),
+-                          weight: isOn ? .semibold : .regular)
+-                    .frame(width: 22)
+-                Text(label)
+-                    .font(.custom(isOn ? TFontName.bold.rawValue : TFontName.medium.rawValue, size: 16))
+-                    .foregroundStyle(isOn ? T.onGradient : Color(hex: T.muted))
+-                Spacer(minLength: 0)
+-                if badge > 0 {
+-                    Text(badge > 99 ? "99+" : "\(badge)")
+-                        .font(.custom(TFontName.bold.rawValue, size: 12))
+-                        .foregroundStyle(T.onColor(T.red))
+-                        .padding(.horizontal, 7)
+-                        .padding(.vertical, 2)
+-                        .background(Capsule().fill(Color(hex: T.red)))
+-                }
+-            }
+-            .padding(.horizontal, 16)
+-            .padding(.vertical, 13)
+-            .frame(maxWidth: .infinity, alignment: .leading)
+-            .contentShape(Capsule())
+-            .background {
+-                // Active row → full-width indigo→magenta gradient pill + CTA glow.
+-                // Inactive rows stay transparent (muted glyph + label).
+-                if isOn {
+-                    Capsule()
+-                        .fill(T.brandGradient())
+-                        .shadow(color: Color(hex: T.ctaGlowColor).opacity(T.ctaGlowOpacity),
+-                                radius: T.ctaGlowRadius, x: 0, y: T.ctaGlowY)
+-                }
+-            }
+-        }
+-        .buttonStyle(.plain)
+-        .animation(.easeInOut(duration: 0.18), value: isOn)
+-    }
+-}
+-
+-// MARK: - Worker shift status (drawer pill)
++// MARK: - Worker shift status
+ // Derived from the person's shift time-clock (activeClockIn + its lunch/break
+-// events). Shown as a TagPill above the name so people see their current state.
++// events). Shown as a TagPill (e.g. on the Home screen) so people see their
++// current state.
+ 
+ enum ShiftStatus {
+     case offline, clockedIn, lunch, onBreak
+@@ -504,43 +131,3 @@ enum ShiftStatus {
+     }
+     var dot: Bool { self != .offline }
+ }
+-
+-// MARK: - Profile + Logout footer (drawer, no card border — clean row)
+-
+-private struct ProfileFooter: View {
+-    let initials: String
+-    let name: String
+-    let status: ShiftStatus
+-    var imageData: String? = nil
+-    let onLogout: () -> Void
+-
+-    var body: some View {
+-        // Bottom-align the avatar with the text so the status + name sit lower,
+-        // riding the avatar's baseline rather than floating at its center.
+-        HStack(alignment: .bottom, spacing: 12) {
+-            Avatar(initials: initials, size: 40, gradient: true, imageData: imageData)
+-
+-            // Status pill directly above the name — one tight, left-aligned
+-            // unit. Email lives in Settings now, so it's dropped here.
+-            VStack(alignment: .leading, spacing: 3) {
+-                TagPill(label: status.label, kind: status.kind, dot: status.dot)
+-                Text(name)
+-                    .font(TTypo.smBold(14))
+-                    .foregroundStyle(Color(hex: T.ink))
+-                    .lineLimit(1)
+-            }
+-
+-            Spacer(minLength: 4)
+-
+-            Button(action: onLogout) {
+-                TIconView(icon: .signOut, size: 15,
+-                          color: Color(hex: T.red),
+-                          weight: .semibold)
+-                    .frame(width: 36, height: 36)
+-                    .background(Circle().fill(Color(hex: T.red).opacity(0.10)))
+-                    .overlay(Circle().stroke(Color(hex: T.red).opacity(0.30), lineWidth: 1))
+-            }
+-            .buttonStyle(.plain)
+-        }
+-    }
+-}
+diff --git a/TRAQS Scheduling/TRAQS Scheduling/Views/MessagesView.swift b/TRAQS Scheduling/TRAQS Scheduling/Views/MessagesView.swift
+index 6705340..f89fa50 100644
+--- a/TRAQS Scheduling/TRAQS Scheduling/Views/MessagesView.swift	
++++ b/TRAQS Scheduling/TRAQS Scheduling/Views/MessagesView.swift	
+@@ -305,6 +305,9 @@ struct MessagesView: View {
+                     // Re-enable the native left-edge swipe-back (the thread hides
+                     // the nav bar, which would otherwise disable it).
+                     .background(SwipeBackEnabler())
++                    // Hide the bottom Liquid Glass tab bar while inside a thread;
++                    // it returns when popping back to the messages list.
++                    .toolbar(.hidden, for: .tabBar)
+             }
+             .sheet(isPresented: $showNewGroup) {
+                 NewGroupSheet { name, memberIds in
+diff --git a/TRAQS Scheduling/TRAQS Scheduling/Views/SettingsView.swift b/TRAQS Scheduling/TRAQS Scheduling/Views/SettingsView.swift
+index 3e2d445..68edb53 100644
+--- a/TRAQS Scheduling/TRAQS Scheduling/Views/SettingsView.swift	
++++ b/TRAQS Scheduling/TRAQS Scheduling/Views/SettingsView.swift	
+@@ -2,267 +2,9 @@ import SwiftUI
+ import PhotosUI
+ import UIKit
+ 
+-// MARK: - Settings · TRAQS Revamp
+-// Lightweight V1 settings — appearance, notifications, account, about.
+-// Restyled to the revamp design language: ambient canvas, PageTitle, frosted
+-// profile / section cards, gradient avatar, icon chips, red sign-out card.
+-
+-struct SettingsView: View {
+-    @Environment(AppState.self) private var appState
+-    @Environment(AuthManager.self) private var auth
+-    @Environment(ThemeSettings.self) private var theme
+-    @Environment(\.dismiss) private var dismiss
+-
+-    @State private var showAppearance = false
+-    @State private var showEditProfile = false
+-
+-    // ── Derived display values (no state — pure read of appState) ──
+-    private var personName: String { appState.currentPerson?.name ?? "—" }
+-    private var personRole: String { appState.currentPerson?.role ?? "" }
+-    private var personEmail: String { appState.currentPerson?.email ?? "" }
+-    private var orgValue: String { appState.orgCode.isEmpty ? "—" : appState.orgCode }
+-    private var avatarInitials: String {
+-        let parts = personName
+-            .split(separator: " ")
+-            .prefix(2)
+-            .map { String($0.prefix(1)).uppercased() }
+-        let joined = parts.joined()
+-        return joined.isEmpty ? "—" : joined
+-    }
+-    private var profileSubtitle: String {
+-        if !personEmail.isEmpty && orgValue != "—" { return "\(personEmail) · \(orgValue)" }
+-        if !personEmail.isEmpty { return personEmail }
+-        return orgValue
+-    }
+-    private var nameRoleLine: String {
+-        personRole.isEmpty ? personName : "\(personName) · \(personRole)"
+-    }
+-
+-    var body: some View {
+-        ZStack {
+-            AmbientBackground()
+-
+-            VStack(spacing: 0) {
+-                // Header (sheet chrome — keep dismiss action)
+-                HStack {
+-                    Spacer()
+-                    Button { dismiss() } label: {
+-                        Image(systemName: "xmark")
+-                            .font(.system(size: 14, weight: .semibold))
+-                            .foregroundStyle(Color(hex: T.muted))
+-                            .frame(width: 32, height: 32)
+-                            .background(Circle().fill(Color(hex: T.surface)))
+-                            .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
+-                    }
+-                    .buttonStyle(.plain)
+-                }
+-                .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 4)
+-
+-                ScrollView {
+-                    VStack(spacing: 18) {
+-                        PageTitle(title: "Settings")
+-                            .padding(.top, 4)
+-
+-                        // ── Profile card (frosted) — tap opens Edit Profile ──
+-                        Button { showEditProfile = true } label: {
+-                            HStack(spacing: 14) {
+-                                Avatar(initials: avatarInitials, size: 52, gradient: true,
+-                                       imageData: appState.currentPerson?.image)
+-                                VStack(alignment: .leading, spacing: 3) {
+-                                    Text(nameRoleLine)
+-                                        .font(TTypo.h3(17))
+-                                        .foregroundStyle(Color(hex: T.ink))
+-                                        .lineLimit(1)
+-                                    if !profileSubtitle.isEmpty {
+-                                        Text(profileSubtitle)
+-                                            .font(TTypo.sm(13))
+-                                            .foregroundStyle(Color(hex: T.muted))
+-                                            .lineLimit(1)
+-                                    }
+-                                }
+-                                Spacer(minLength: 8)
+-                                TIconView(icon: .chev, size: 13, color: Color(hex: T.muted))
+-                            }
+-                            .padding(16)
+-                            .frostedCard(radius: T.cornerHero)
+-                        }
+-                        .buttonStyle(.plain)
+-
+-                        // ── PREFERENCES — frosted card with chip rows ──
+-                        SettingsGroup(title: "Preferences") {
+-                            SettingsActionRow(icon: .sparkle,
+-                                              label: "Theme & accent",
+-                                              value: nil,
+-                                              showChevron: true) {
+-                                showAppearance = true
+-                            }
+-                        }
+-
+-                        // ── ACCOUNT — frosted card, chip + label + value rows ──
+-                        SettingsGroup(title: "Account") {
+-                            VStack(spacing: 0) {
+-                                if let p = appState.currentPerson {
+-                                    SettingsValueRow(icon: .person,
+-                                                     label: "Signed in as",
+-                                                     value: p.name)
+-                                    SettingsDivider()
+-                                    if !p.email.isEmpty {
+-                                        SettingsValueRow(icon: .send,
+-                                                         label: "Email",
+-                                                         value: p.email)
+-                                        SettingsDivider()
+-                                    }
+-                                    if !p.role.isEmpty {
+-                                        SettingsValueRow(icon: .admin,
+-                                                         label: "Role",
+-                                                         value: p.role)
+-                                        SettingsDivider()
+-                                    }
+-                                }
+-                                SettingsValueRow(icon: .clients,
+-                                                 label: "Organization",
+-                                                 value: orgValue)
+-                                SettingsDivider()
+-                                SettingsValueRow(icon: .bolt,
+-                                                 label: "About TRAQS",
+-                                                 value: "\(appVersionString) (\(appBuildString))")
+-                            }
+-                        }
+-
+-                        // ── Sign out — its own frosted card, red text/icon ──
+-                        Button {
+-                            auth.logout()
+-                            dismiss()
+-                        } label: {
+-                            HStack(spacing: 8) {
+-                                TIconView(icon: .signOut, size: 16, color: Color(hex: T.red))
+-                                Text("Sign out")
+-                                    .font(TTypo.smBold(15))
+-                                    .foregroundStyle(Color(hex: T.red))
+-                            }
+-                            .frame(maxWidth: .infinity)
+-                            .padding(.vertical, 16)
+-                            .frostedCard(radius: T.cornerHero)
+-                        }
+-                        .buttonStyle(.plain)
+-                        .padding(.top, 4)
+-                        .padding(.bottom, 32)
+-                    }
+-                    .padding(.horizontal, 16)
+-                }
+-                .scrollIndicators(.visible)
+-            }
+-        }
+-        .sheet(isPresented: $showAppearance) { CustomizeView() }
+-        .sheet(isPresented: $showEditProfile) {
+-            EditProfileView().edgeSwipeBack { showEditProfile = false }
+-        }
+-    }
+-
+-    private var appVersionString: String {
+-        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
+-        return v == "—" ? v : "v\(v)"
+-    }
+-    private var appBuildString: String {
+-        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"
+-    }
+-}
+-
+-// MARK: - Section group: uppercased label + frosted card
+-
+-private struct SettingsGroup<Content: View>: View {
+-    let title: String
+-    @ViewBuilder var content: () -> Content
+-
+-    var body: some View {
+-        VStack(alignment: .leading, spacing: 10) {
+-            Text(title.uppercased())
+-                .font(TTypo.xsBold(11))
+-                .foregroundStyle(Color(hex: T.muted))
+-                .tLabel(tracking: 1.4)
+-                .padding(.leading, 6)
+-            VStack(spacing: 0) {
+-                content()
+-            }
+-            .padding(.vertical, 4)
+-            .frostedCard(radius: T.cornerHero)
+-        }
+-    }
+-}
+-
+-// MARK: - Hairline divider between rows inside a frosted card
+-
+-private struct SettingsDivider: View {
+-    var body: some View {
+-        Rectangle()
+-            .fill(Color(hex: T.hair).opacity(0.7))
+-            .frame(height: 1)
+-            .padding(.leading, 64)
+-            .padding(.trailing, 16)
+-    }
+-}
+-
+-// MARK: - Tappable row: IconChip + label + optional value + chevron
+-
+-private struct SettingsActionRow: View {
+-    let icon: TIcon
+-    let label: String
+-    var value: String? = nil
+-    var showChevron: Bool = true
+-    let action: () -> Void
+-
+-    var body: some View {
+-        Button(action: action) {
+-            HStack(spacing: 14) {
+-                IconChip(icon: icon, color: Color(hex: T.pillIndigoFg), size: 36)
+-                Text(label)
+-                    .font(TTypo.smBold(15))
+-                    .foregroundStyle(Color(hex: T.ink))
+-                Spacer(minLength: 8)
+-                if let value {
+-                    Text(value)
+-                        .font(TTypo.sm(14))
+-                        .foregroundStyle(Color(hex: T.muted))
+-                        .lineLimit(1)
+-                }
+-                if showChevron {
+-                    TIconView(icon: .chev, size: 12, color: Color(hex: T.muted))
+-                }
+-            }
+-            .padding(.horizontal, 14)
+-            .padding(.vertical, 11)
+-            .contentShape(Rectangle())
+-        }
+-        .buttonStyle(.plain)
+-    }
+-}
+-
+-// MARK: - Read-only row: IconChip + label + trailing value
+-
+-private struct SettingsValueRow: View {
+-    let icon: TIcon
+-    let label: String
+-    let value: String
+-
+-    var body: some View {
+-        HStack(spacing: 14) {
+-            IconChip(icon: icon, color: Color(hex: T.pillIndigoFg), size: 36)
+-            Text(label)
+-                .font(TTypo.smBold(15))
+-                .foregroundStyle(Color(hex: T.ink))
+-            Spacer(minLength: 8)
+-            Text(value)
+-                .font(TTypo.sm(14))
+-                .foregroundStyle(Color(hex: T.muted))
+-                .lineLimit(1)
+-                .truncationMode(.middle)
+-        }
+-        .padding(.horizontal, 14)
+-        .padding(.vertical, 11)
+-    }
+-}
+-
+ // MARK: - Edit Profile (name / email / phone / color / photo)
++// The account editor plus an About footer (org / role / version) folded in from
++// the retired SettingsView sheet.
+ 
+ struct EditProfileView: View {
+     @Environment(AppState.self) private var appState
+@@ -335,6 +77,22 @@ struct EditProfileView: View {
+                         .padding(16)
+                         .frostedCard(radius: T.cornerHero)
+ 
++                        // ── About (folded in from the retired Settings sheet) ──
++                        VStack(alignment: .leading, spacing: 12) {
++                            Text("ABOUT")
++                                .font(TTypo.xsBold(11)).tLabel(tracking: 1.4)
++                                .foregroundStyle(Color(hex: T.muted))
++                            aboutRow(label: "Organization",
++                                     value: appState.orgName.isEmpty ? "TRAQS" : appState.orgName)
++                            if let role = appState.currentPerson?.role, !role.isEmpty {
++                                aboutRow(label: "Role", value: role)
++                            }
++                            aboutRow(label: "TRAQS",
++                                     value: "\(appVersionString) (\(appBuildString))")
++                        }
++                        .padding(16)
++                        .frostedCard(radius: T.cornerHero)
++
+                         if let error {
+                             Text(error).font(TTypo.xs(12)).foregroundStyle(Color(hex: T.red))
+                         }
+@@ -374,6 +132,29 @@ struct EditProfileView: View {
+         }
+     }
+ 
++    @ViewBuilder
++    private func aboutRow(label: String, value: String) -> some View {
++        HStack(spacing: 8) {
++            Text(label)
++                .font(TTypo.sm(14))
++                .foregroundStyle(Color(hex: T.muted))
++            Spacer(minLength: 8)
++            Text(value)
++                .font(TTypo.smBold(14))
++                .foregroundStyle(Color(hex: T.ink))
++                .lineLimit(1)
++                .truncationMode(.tail)
++        }
++    }
++
++    private var appVersionString: String {
++        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
++        return v == "—" ? v : "v\(v)"
++    }
++    private var appBuildString: String {
++        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—"
++    }
++
+     private func labeledField(_ label: String, text: Binding<String>,
+                               autocap: TextInputAutocapitalization = .never,
+                               keyboard: UIKeyboardType = .default) -> some View {
+diff --git a/TRAQS Scheduling/TRAQS Scheduling/Views/SharedComponents.swift b/TRAQS Scheduling/TRAQS Scheduling/Views/SharedComponents.swift
+index 2076147..0cdba76 100644
+--- a/TRAQS Scheduling/TRAQS Scheduling/Views/SharedComponents.swift	
++++ b/TRAQS Scheduling/TRAQS Scheduling/Views/SharedComponents.swift	
+@@ -97,30 +97,45 @@ struct TRAQSBarsMark: View {
+     }
+ }
+ 
++// MARK: - TRAQS Header Logo (the "traqs=" lockup)
++// The brand wordmark with the four-bar accent mark riding right after it like a
++// trailing "=" — the same lockup the old side drawer used, now the fixed
++// leading element of every page's header. Parametric so the hand-tuned bar
++// alignment (offsets measured at wordmark height 64) scales cleanly to any
++// header size.
++struct TRAQSHeaderLogo: View {
++    /// Rendered HEIGHT of the wordmark in points.
++    var size: CGFloat = 44
++
++    var body: some View {
++        HStack(spacing: 0) {
++            TRAQSWordmark(size: size)
++            // The bars mark as a trailing "=" — scaled from the tuned size-64
++            // lockup: bars 21/64, pulled left 13/64 to clear the wordmark PNG's
++            // built-in right padding, nudged up 1/64 to sit level with the letters.
++            TRAQSBarsMark(size: size * (21.0 / 64.0))
++                .offset(x: -size * (13.0 / 64.0), y: -size * (1.0 / 64.0))
++        }
++    }
++}
++
+ // MARK: - Screen Header
+-// Wordmark on the left, trailing icons + magenta profile avatar on the right.
++// Logo lockup on the left (every page), trailing controls on the right.
+ // No center title — the tab bar tells the user where they are.
+ 
+ struct TRAQSNavHeader<Trailing: View>: View {
+-    /// The wordmark only rides in the header on the home page.
++    /// Back-compat only: the logo now rides in the header on every page, so this
++    /// flag is ignored. Kept so existing call sites keep compiling.
+     var showLogo: Bool = false
+     @ViewBuilder var trailing: () -> Trailing
+ 
+     var body: some View {
+-        // Menu button on the left, trailing controls on the right. Extra top
+-        // padding drops the whole header (and page title) down from the status
+-        // bar for more breathing room.
++        // Logo on the left, trailing controls on the right. Extra top padding
++        // drops the whole header (and page title) down from the status bar for
++        // more breathing room.
+         HStack(alignment: .center, spacing: 10) {
+-            // Menu button, with the wordmark tucked in tight beside it on home.
+-            HStack(spacing: 2) {
+-                TRAQSMenuButton()
+-                    .offset(y: -2)   // nudge the bars up to sit optically level with the wordmark
+-                if showLogo {
+-                    // Wordmark rides a bit larger than the compact bars button by
+-                    // design — the mark is the anchor of the home header.
+-                    TRAQSWordmark(size: 64)
+-                }
+-            }
++            TRAQSHeaderLogo(size: 60)
++                .offset(x: -13)   // nudge the lockup toward the leading edge
+             Spacer()
+             HStack(spacing: 6) {
+                 trailing()
+@@ -141,140 +156,6 @@ extension TRAQSNavHeader where Trailing == EmptyView {
+     init(tabName _: String) { self.trailing = { EmptyView() } }
+ }
+ 
+-// MARK: - Profile Button (right side of the header)
+-
+-struct TRAQSProfileButton: View {
+-    @Environment(AppState.self) private var appState
+-    @Environment(AuthManager.self) private var auth
+-    @State private var showSheet = false
+-
+-    private var person: Person? { appState.currentPerson }
+-    private var initial: String {
+-        // Take two initials when we have a "First Last" pattern; otherwise one.
+-        let parts = (person?.name ?? "—")
+-            .split(separator: " ")
+-            .prefix(2)
+-            .map { String($0.prefix(1)).uppercased() }
+-        return parts.joined()
+-    }
+-    private var isSaving: Bool {
+-        if case .saving = appState.saveStatus { return true }
+-        return false
+-    }
+-    private var isSaved: Bool {
+-        if case .saved = appState.saveStatus { return true }
+-        return false
+-    }
+-
+-    var body: some View {
+-        Button { showSheet = true } label: {
+-            ZStack(alignment: .bottomTrailing) {
+-                // Avatar: centered initials over the magenta circle
+-                ZStack {
+-                    Circle().fill(Color(hex: T.magenta))
+-                    Text(initial)
+-                        .font(.custom(TFontName.bold.rawValue, size: 12))
+-                        .foregroundStyle(T.onColor(T.magenta))
+-                }
+-                .frame(width: 32, height: 32)
+-
+-                if isSaving {
+-                    ProgressView()
+-                        .scaleEffect(0.5)
+-                        .tint(Color(hex: T.sky))
+-                        .frame(width: 12, height: 12)
+-                        .background(Circle().fill(Color(hex: T.surface)))
+-                        .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
+-                        .offset(x: 2, y: 2)
+-                        .transition(.opacity)
+-                } else if isSaved {
+-                    Image(systemName: "checkmark")
+-                        .font(.system(size: 7, weight: .bold))
+-                        .foregroundStyle(T.onColor(T.green))
+-                        .frame(width: 12, height: 12)
+-                        .background(Circle().fill(Color(hex: T.green)))
+-                        .overlay(Circle().stroke(Color(hex: T.surface), lineWidth: 1.5))
+-                        .offset(x: 2, y: 2)
+-                        .transition(.opacity)
+-                }
+-            }
+-            .animation(.easeInOut(duration: 0.2), value: isSaving)
+-            .animation(.easeInOut(duration: 0.2), value: isSaved)
+-        }
+-        .buttonStyle(.plain)
+-        .sheet(isPresented: $showSheet) {
+-            ProfileSheet()
+-                .presentationDetents([.medium])
+-                .presentationDragIndicator(.visible)
+-        }
+-    }
+-}
+-
+-// MARK: - Profile Sheet
+-
+-private struct ProfileSheet: View {
+-    @Environment(AppState.self) private var appState
+-    @Environment(AuthManager.self) private var auth
+-    @Environment(\.dismiss) private var dismiss
+-
+-    private var person: Person? { appState.currentPerson }
+-    private var initials: String {
+-        let parts = (person?.name ?? "—")
+-            .split(separator: " ")
+-            .prefix(2)
+-            .map { String($0.prefix(1)).uppercased() }
+-        return parts.joined()
+-    }
+-
+-    var body: some View {
+-        ZStack {
+-            Color(hex: T.bg).ignoresSafeArea()
+-
+-            VStack(spacing: 18) {
+-                Avatar(initials: initials, size: 72, fill: Color(hex: T.magenta), imageData: person?.image)
+-                    .padding(.top, 12)
+-
+-                VStack(spacing: 4) {
+-                    Text(person?.name ?? "—")
+-                        .font(TTypo.h3(20))
+-                        .foregroundStyle(Color(hex: T.ink))
+-                    if let email = person?.email, !email.isEmpty {
+-                        Text(email)
+-                            .font(TTypo.sm(14))
+-                            .foregroundStyle(Color(hex: T.muted))
+-                    }
+-                    if let role = person?.role, !role.isEmpty {
+-                        Chip(label: role, stroke: Color(hex: T.hair), color: Color(hex: T.muted))
+-                            .padding(.top, 4)
+-                    }
+-                }
+-
+-                Spacer()
+-
+-                Button {
+-                    auth.logout()
+-                    dismiss()
+-                } label: {
+-                    HStack(spacing: 8) {
+-                        TIconView(icon: .signOut, size: 13, color: Color(hex: T.red))
+-                        Text("SIGN OUT")
+-                            .font(TTypo.xsBold(12))
+-                            .tLabel(tracking: 1.0)
+-                    }
+-                    .foregroundStyle(Color(hex: T.red))
+-                    .padding(.horizontal, 16).padding(.vertical, 12)
+-                    .frame(maxWidth: .infinity)
+-                    .background(Capsule().fill(Color(hex: T.red).opacity(0.10)))
+-                    .overlay(Capsule().stroke(Color(hex: T.red).opacity(0.35), lineWidth: 1))
+-                }
+-                .buttonStyle(.plain)
+-                .padding(.horizontal, 20)
+-                .padding(.bottom, 24)
+-            }
+-        }
+-    }
+-}
+-
+ // MARK: - FastTRAQSPillButton — kept for back-compat
+ struct FastTRAQSPillButton: View {
+     var body: some View {
+diff --git a/TRAQS Scheduling/TRAQS Scheduling/Views/TasksView.swift b/TRAQS Scheduling/TRAQS Scheduling/Views/TasksView.swift
+index 04b635f..ba91a21 100644
+--- a/TRAQS Scheduling/TRAQS Scheduling/Views/TasksView.swift	
++++ b/TRAQS Scheduling/TRAQS Scheduling/Views/TasksView.swift	
+@@ -1456,7 +1456,7 @@ struct TaskCardV1: View {
+                     .foregroundStyle(T.onColor(T.amber))
+                     .frame(maxWidth: .infinity)
+                     .padding(.vertical, 10)
+-                    .background(Capsule().fill(Color(hex: T.amber)))
++                    .background(Capsule().fill(Color(hex: T.amber).verticalGradient()))
+                     .shadow(color: Color(hex: T.amber).opacity(T.skyShadowOpacity),
+                             radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
+                 }
+diff --git a/TRAQS Scheduling/TRAQS Scheduling/Views/TimeClockView.swift b/TRAQS Scheduling/TRAQS Scheduling/Views/TimeClockView.swift
+index 8c2c4fa..1311dbd 100644
+--- a/TRAQS Scheduling/TRAQS Scheduling/Views/TimeClockView.swift	
++++ b/TRAQS Scheduling/TRAQS Scheduling/Views/TimeClockView.swift	
+@@ -414,7 +414,7 @@ private struct PayClockControls: View {
+         .foregroundStyle(fill.readableText)
+         .frame(maxWidth: .infinity)
+         .padding(.vertical, 14)
+-        .background(Capsule().fill(fill))
++        .background(Capsule().fill(fill.verticalGradient()))
+     }
+ }
+ 

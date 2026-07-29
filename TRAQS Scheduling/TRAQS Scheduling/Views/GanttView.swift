@@ -41,37 +41,9 @@ struct GanttView: View {
             .padding(.bottom, 10)
 
             if segment == .day {
-                DateSelector(date: $selectedDate)
-                    .padding(.bottom, 10)
-                statStrip
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
-                DayTimeline(date: selectedDate,
-                            now: now,
-                            blocks: blocks(for: selectedDate),
-                            workStart: appState.orgSettings.workStartHour,
-                            workEnd: appState.orgSettings.workEndHour,
-                            lunchStart: appState.orgSettings.lunchStartHour,
-                            lunchDurationH: Double(appState.orgSettings.lunch.durationMinutes) / 60,
-                            onSelect: { selectedBlock = $0 })
-                    .transition(.opacity)
+                dayContent
             } else {
-                WeekHeaderBar(weekDates: weekDates, selected: $selectedDate)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 10)
-                WeekGrid(weekDates: weekDates,
-                         today: cal.startOfDay(for: Date()),
-                         now: now,
-                         workStart: appState.orgSettings.workStartHour,
-                         workEnd: appState.orgSettings.workEndHour,
-                         blocksFor: { blocks(for: $0) },
-                         onSelect: { selectedBlock = $0 })
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 6)
-                WeekLegendRow(blocks: weekDates.flatMap { blocks(for: $0) })
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 24)
-                    .transition(.opacity)
+                weekContent
             }
             }
             .padding(.top, 2)
@@ -84,10 +56,65 @@ struct GanttView: View {
         }
     }
 
+    // MARK: Day / Week content
+    //
+    // Both branches compute their schedule blocks EXACTLY ONCE per render and
+    // pass concrete arrays down. Previously the week branch handed a recomputing
+    // `blocks(for:)` closure to WeekGrid, whose computed `endHour`/`height` and
+    // per-column/legend reads re-ran that O(jobs×panels×ops) work 50–100+ times
+    // per render — the source of the gantt's jank and occasional freezes.
+
+    @ViewBuilder
+    private var dayContent: some View {
+        let dayBlocks = blocks(for: selectedDate)
+        DateSelector(date: $selectedDate)
+            .padding(.bottom, 10)
+        statStrip(dayBlocks)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 8)
+        DayTimeline(date: selectedDate,
+                    now: now,
+                    blocks: dayBlocks,
+                    workStart: appState.orgSettings.workStartHour,
+                    workEnd: appState.orgSettings.workEndHour,
+                    lunchStart: appState.orgSettings.lunchStartHour,
+                    lunchDurationH: Double(appState.orgSettings.lunch.durationMinutes) / 60,
+                    onSelect: { selectedBlock = $0 })
+            .transition(.opacity)
+    }
+
+    @ViewBuilder
+    private var weekContent: some View {
+        let byDate = weekBlocksByDate()
+        let allWeek = weekDates.flatMap { byDate[$0] ?? [] }
+        WeekHeaderBar(weekDates: weekDates, selected: $selectedDate)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 10)
+        WeekGrid(weekDates: weekDates,
+                 today: cal.startOfDay(for: Date()),
+                 now: now,
+                 workStart: appState.orgSettings.workStartHour,
+                 workEnd: appState.orgSettings.workEndHour,
+                 blocksByDate: byDate,
+                 onSelect: { selectedBlock = $0 })
+            .padding(.horizontal, 12)
+            .padding(.bottom, 6)
+        WeekLegendRow(blocks: allWeek)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 24)
+            .transition(.opacity)
+    }
+
+    /// Build each visible week day's blocks ONCE, keyed by day.
+    private func weekBlocksByDate() -> [Date: [ScheduleBlock]] {
+        var out: [Date: [ScheduleBlock]] = [:]
+        for d in weekDates { out[d] = blocks(for: d) }
+        return out
+    }
+
     // MARK: 3-stat strip (Jobs / Tasks / Est) — matches the wireframe layout
 
-    private var statStrip: some View {
-        let bs = blocks(for: selectedDate)
+    private func statStrip(_ bs: [ScheduleBlock]) -> some View {
         let jobCount = Set(bs.map { $0.jobId }).count
         let estHours = bs.reduce(0.0) { $0 + ($1.end - $1.start) }
         return HStack(spacing: 8) {
@@ -812,7 +839,10 @@ private struct WeekGrid: View {
     let now: Date
     let workStart: Double
     let workEnd: Double
-    let blocksFor: (Date) -> [ScheduleBlock]
+    /// Precomputed blocks per visible day — built ONCE by GanttView so the
+    /// grid's repeated `endHour`/`height`/column reads iterate ready arrays
+    /// instead of re-running the expensive block packer.
+    let blocksByDate: [Date: [ScheduleBlock]]
     let onSelect: (ScheduleBlock) -> Void
 
     private var startHour: Double { workStart }
@@ -825,7 +855,7 @@ private struct WeekGrid: View {
     /// of being clipped (the "missing jobs" symptom). Shared across all columns
     /// so the grid rows stay aligned.
     private var endHour: Double {
-        let maxEnd = weekDates.flatMap { blocksFor($0) }.map(\.end).max() ?? workEnd
+        let maxEnd = blocksByDate.values.flatMap { $0 }.map(\.end).max() ?? workEnd
         return max(workEnd, maxEnd.rounded(.up))
     }
 
@@ -861,7 +891,7 @@ private struct WeekGrid: View {
                     pxPerHour: pxPerHour,
                     isToday: cal.isDateInToday(d),
                     now: now,
-                    blocks: blocksFor(d),
+                    blocks: blocksByDate[d] ?? [],
                     onSelect: onSelect)
                 .frame(maxWidth: .infinity)
             }

@@ -305,6 +305,9 @@ struct MessagesView: View {
                     // Re-enable the native left-edge swipe-back (the thread hides
                     // the nav bar, which would otherwise disable it).
                     .background(SwipeBackEnabler())
+                    // Hide the bottom Liquid Glass tab bar while inside a thread;
+                    // it returns when popping back to the messages list.
+                    .toolbar(.hidden, for: .tabBar)
             }
             .sheet(isPresented: $showNewGroup) {
                 NewGroupSheet { name, memberIds in

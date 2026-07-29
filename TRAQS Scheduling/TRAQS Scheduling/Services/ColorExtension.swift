@@ -39,6 +39,35 @@ extension Color {
         perceivedBrightness > 140 ? .black : .white
     }
 
+    /// Lighten (positive `amount`) or darken (negative) this color by blending
+    /// toward white or black by `amount` (0…1). iOS-only precise path; returns
+    /// self unchanged if color conversion fails.
+    func adjustBrightness(by amount: Double) -> Color {
+        #if canImport(UIKit)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard UIColor(self).getRed(&r, green: &g, blue: &b, alpha: &a) else { return self }
+        let t = CGFloat(amount)
+        if t >= 0 {
+            r += (1 - r) * t; g += (1 - g) * t; b += (1 - b) * t
+        } else {
+            let k = max(0, 1 + t)   // t negative → scale toward black
+            r *= k; g *= k; b *= k
+        }
+        return Color(.sRGB, red: Double(r), green: Double(g), blue: Double(b), opacity: Double(a))
+        #else
+        return self
+        #endif
+    }
+
+    /// A subtle vertical gradient of THIS color — lightened at the top, darkened
+    /// at the bottom — so a fixed-color button can render as a gradient CTA of
+    /// the same hue.
+    func verticalGradient(lighten: Double = 0.16, darken: Double = 0.20) -> LinearGradient {
+        LinearGradient(colors: [adjustBrightness(by: lighten),
+                                adjustBrightness(by: -darken)],
+                       startPoint: .top, endPoint: .bottom)
+    }
+
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         var int: UInt64 = 0
