@@ -361,7 +361,8 @@ private struct PayClockControls: View {
                     Button(action: onLunchToggle) {
                         pill(icon: onLunch ? "play.circle.fill" : "fork.knife",
                              text: onLunch ? "End Lunch" : "Lunch",
-                             fill: Color(hex: onLunch ? T.green : lunchColor))
+                             fill: Color(hex: onLunch ? T.green : lunchColor),
+                             outline: true)
                     }
                     .buttonStyle(.plain)
                     .disabled(inFlight)
@@ -405,16 +406,29 @@ private struct PayClockControls: View {
         }
     }
 
-    // Shared capsule label for the two clocked-in buttons.
-    private func pill(icon: String, text: String, fill: Color) -> some View {
-        HStack(spacing: 8) {
+    // Shared capsule label for the clocked-in buttons.
+    // `outline: true` → an accent-gradient OUTLINE button (transparent fill; the
+    // icon, label, and border all in the customization accent gradient).
+    // Otherwise → a solid gradient fill of `fill`.
+    @ViewBuilder
+    private func pill(icon: String, text: String, fill: Color, outline: Bool = false) -> some View {
+        let content = HStack(spacing: 8) {
             Image(systemName: icon).font(.system(size: 16, weight: .semibold))
             Text(text).font(TTypo.xsBold(13)).tLabel(tracking: 0.6)
         }
-        .foregroundStyle(fill.readableText)
         .frame(maxWidth: .infinity)
         .padding(.vertical, 14)
-        .background(Capsule().fill(fill.verticalGradient()))
+
+        if outline {
+            content
+                .foregroundStyle(Color(hex: T.accent).verticalGradient())
+                .background(Capsule().fill(Color.clear))
+                .overlay(Capsule().strokeBorder(Color(hex: T.accent).verticalGradient(), lineWidth: 1.5))
+        } else {
+            content
+                .foregroundStyle(fill.readableText)
+                .background(Capsule().fill(fill.verticalGradient()))
+        }
     }
 }
 

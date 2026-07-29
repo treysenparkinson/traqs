@@ -218,30 +218,35 @@ struct MessagesView: View {
                             .buttonStyle(.plain)
                             .disabled(selectedKeys.isEmpty)
                         } else {
+                            // Utility cluster: Select (checkmark) · Search · Filter.
+                            // All use the same headerGlassCircle so sizes match exactly.
                             Button {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    selectMode = true
-                                }
-                            } label: {
-                                Text("Select")
-                                    .font(TTypo.smBold(13))
-                                    .foregroundStyle(Color(hex: T.ink))
-                                    .padding(.horizontal, 14)
-                                    .frame(height: 36)
-                                    .glassEffect(.regular.interactive(), in: Capsule())
-                            }
+                                withAnimation(.easeInOut(duration: 0.2)) { selectMode = true }
+                            } label: { headerGlassCircle(.select) }
                             .buttonStyle(.plain)
 
-                            IconBtn(icon: .search, size: 18) {
+                            Button {
                                 withAnimation(.easeInOut(duration: 0.18)) {
                                     showSearch.toggle()
                                     if !showSearch { searchText = "" }
                                 }
                                 if showSearch { searchFocused = true }
-                            }
-                            IconBtn(icon: .plus, size: 18) {
+                            } label: { headerGlassCircle(.search) }
+                            .buttonStyle(.plain)
+
+                            filterMenuButton
+
+                            // Hairline separating the utility buttons from New chat.
+                            Rectangle()
+                                .fill(Color(hex: T.muted).opacity(0.5))
+                                .frame(width: 1, height: 22)
+                                .padding(.horizontal, 2)
+
+                            // New chat (+).
+                            Button {
                                 showNewMessage = true   // pick recipients: 1 = DM, 2+ = group
-                            }
+                            } label: { headerGlassCircle(.plus) }
+                            .buttonStyle(.plain)
                         }
                     }
                     .animation(.easeInOut(duration: 0.18), value: selectMode)
@@ -264,40 +269,37 @@ struct MessagesView: View {
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
 
-                    // Inbox + a floating liquid-glass filter FAB (bottom-right)
-                    // that opens a native menu of chat filters.
-                    ZStack(alignment: .topTrailing) {
-                        ScrollView {
-                            VStack(spacing: 0) {
-                                if filteredThreads.isEmpty {
-                                    ChatEmptyState(filter: filter)
-                                        .padding(.top, 80)
-                                } else {
-                                    TSectionTitle(title: "Inbox",
-                                                  action: "MARK ALL READ",
-                                                  onAction: { appState.markAllThreadsRead() })
-                                    VStack(spacing: 12) {
-                                        ForEach(filteredThreads) { t in
-                                            threadRow(t)
-                                                .frostedCard(radius: T.cornerMd)
-                                        }
+                    // Inbox (the filter FAB now lives beside the title above).
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            if filteredThreads.isEmpty {
+                                ChatEmptyState(filter: filter)
+                                    .padding(.top, 80)
+                            } else {
+                                TSectionTitle(title: "Inbox",
+                                              action: "MARK ALL READ",
+                                              onAction: { appState.markAllThreadsRead() })
+                                VStack(spacing: 12) {
+                                    ForEach(filteredThreads) { t in
+                                        threadRow(t)
+                                            .frostedPill()
                                     }
-                                    .padding(.horizontal, 16)
-                                    .padding(.bottom, 96)   // clear the bottom-right filter FAB
                                 }
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 24)
                             }
-                            .animation(.easeInOut(duration: 0.18), value: filter)
                         }
-                        .scrollIndicators(.visible)
-                        .topFadeMask()
-
-                        filterFab
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                            .padding(.trailing, 20)
-                            .padding(.bottom, 26)
+                        .animation(.easeInOut(duration: 0.18), value: filter)
                     }
+                    .scrollIndicators(.visible)
+                    .topFadeMask()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
+            }
+            // Reserve space INSIDE the NavigationStack so the inbox ends at the
+            // top of the floating nav pill (an outer inset is absorbed here).
+            .safeAreaInset(edge: .bottom) {
+                Color.clear.frame(height: appNav.hideTabBar ? 0 : tabPillBottomInset)
             }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: String.self) { key in
@@ -305,9 +307,6 @@ struct MessagesView: View {
                     // Re-enable the native left-edge swipe-back (the thread hides
                     // the nav bar, which would otherwise disable it).
                     .background(SwipeBackEnabler())
-                    // Hide the bottom Liquid Glass tab bar while inside a thread;
-                    // it returns when popping back to the messages list.
-                    .toolbar(.hidden, for: .tabBar)
             }
             .sheet(isPresented: $showNewGroup) {
                 NewGroupSheet { name, memberIds in
@@ -345,6 +344,8 @@ struct MessagesView: View {
                         }
                     }
                 }
+                // Swipe-down to dismiss (plus the Cancel button) with a visible grabber.
+                .presentationDragIndicator(.visible)
             }
             .alert("Delete \(selectedKeys.count) conversation\(selectedKeys.count == 1 ? "" : "s")?",
                    isPresented: $showDeleteConfirm) {
@@ -379,14 +380,26 @@ struct MessagesView: View {
         // Clear the overlay header the moment the thread is popped (path empties),
         // which is when the pop actually begins — so the header fades out in sync
         // with the page and can't be left behind if a pop is dropped/interrupted.
-        .onChange(of: navigationPath.count) { _, count in
+        // Also hide the bottom tab bar while inside a thread (path non-empty).
+        .onChange(of: navigationPath.count, initial: true) { _, count in
             if count == 0 { appState.activeMessageThread = nil }
+            appNav.hideTabBar = count > 0
         }
+        // Leaving the Messages tab entirely → always restore the bar.
+        .onDisappear { appNav.hideTabBar = false }
     }
 
-    /// Liquid-glass filter FAB (same 62pt footprint) whose tap opens a native
-    /// menu of chat filters with the current one checked.
-    private var filterFab: some View {
+    /// Uniform 38×38 glass circle used for EVERY Messages-header icon button, so
+    /// they're guaranteed identical regardless of each glyph's intrinsic width.
+    @ViewBuilder
+    private func headerGlassCircle(_ icon: TIcon) -> some View {
+        TIconView(icon: icon, size: 18, color: Color(hex: T.ink))
+            .frame(width: 38, height: 38)
+            .glassEffect(.regular.interactive(), in: Circle())
+    }
+
+    /// Header filter button whose tap opens a native menu of chat filters.
+    private var filterMenuButton: some View {
         Menu {
             Picker("Filter", selection: $filter) {
                 ForEach(ChatFilter.allCases, id: \.self) { opt in
@@ -394,12 +407,10 @@ struct MessagesView: View {
                 }
             }
         } label: {
-            TIconView(icon: .filter, size: 22, color: Color(hex: T.ink))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            headerGlassCircle(.filter)
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
-        .frame(width: 62, height: 62)
+        .buttonStyle(.plain)
+        .fixedSize()
     }
 
     /// Navigate to the thread named by a pending `.thread` deep link.
@@ -485,6 +496,20 @@ private struct ChannelRow: View {
         return parts.joined()
     }
 
+    /// The DM partner — the member who isn't me, resolved from the
+    /// `dm:<id>_<id>` key so we can show their real photo/color even before
+    /// they've sent a message.
+    private var dmPartner: Person? {
+        guard thread.isDM else { return nil }
+        let ids = thread.key.dropFirst(3).split(separator: "_").map(String.init)
+        let otherId = ids.first(where: { $0 != thread.myId }) ?? ids.first
+        return people.first(where: { $0.id == otherId })
+    }
+
+    private func personInitials(_ name: String) -> String {
+        name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }.joined()
+    }
+
     /// Unique participants in this thread, derived from message authorIds.
     /// Stable order by first appearance so the avatar stack doesn't shuffle
     /// across re-renders.
@@ -520,7 +545,14 @@ private struct ChannelRow: View {
             }
 
             if thread.isDM {
-                Avatar(initials: initials, size: 46, gradient: true)
+                // A DM shows the OTHER person's real avatar — their photo if set,
+                // otherwise their preferred color — so it's clearly a 1:1 chat.
+                if let p = dmPartner {
+                    Avatar(initials: personInitials(p.name), size: 46,
+                           fill: Color(hex: p.color), imageData: p.image)
+                } else {
+                    Avatar(initials: initials, size: 46, gradient: true)
+                }
             } else if !participants.isEmpty {
                 ParticipantStack(people: participants,
                                  avatarSize: 26,
@@ -566,9 +598,9 @@ private struct ChannelRow: View {
                 }
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 14)
-        .contentShape(Rectangle())
+        .padding(.horizontal, 18)
+        .padding(.vertical, 18)
+        .contentShape(Capsule())
     }
 }
 
@@ -1772,7 +1804,19 @@ private struct DeliveryStatusLabel: View {
             case .sent:
                 Text("✓ Sent").foregroundStyle(Color(hex: T.muted))
             case .read(let label):
-                Text("✓✓ \(label)").foregroundStyle(Color(hex: T.sky))
+                HStack(spacing: 4) {
+                    // Stacked/overlapping double-check emblem (GroupMe-style): the
+                    // back check is offset + faded so the pair reads as layered
+                    // rather than two flat ticks side by side.
+                    ZStack {
+                        Image(systemName: "checkmark")
+                            .opacity(0.5)
+                            .offset(x: 4.5)
+                        Image(systemName: "checkmark")
+                    }
+                    Text(label)
+                }
+                .foregroundStyle(Color(hex: T.sky))
             }
         }
         .font(.system(size: 10, weight: .semibold))
@@ -2276,9 +2320,11 @@ private struct ParticipantStack: View {
     var body: some View {
         HStack(spacing: -overlap) {
             ForEach(Array(people.prefix(maxShown).enumerated()), id: \.element.id) { _, p in
+                // Each member's real avatar: their photo if set, else their
+                // preferred color (not a generic brand gradient).
                 Avatar(initials: initials(p.name),
                        size: avatarSize,
-                       gradient: true,
+                       fill: Color(hex: p.color),
                        imageData: p.image)
                     .overlay(Circle().stroke(Color(hex: T.surface), lineWidth: 2))
             }
@@ -2677,7 +2723,6 @@ struct NewMessageSheet: View {
     let onStart: ([String], String?) -> Void
 
     @State private var selectedIds: Set<String> = []
-    @State private var groupName = ""
     @State private var query = ""
 
     private var others: [Person] {
@@ -2701,11 +2746,6 @@ struct NewMessageSheet: View {
         }
     }
 
-    private var subtitle: String {
-        if selectedIds.isEmpty { return "One person for a DM · several for a group" }
-        return isGroup ? "\(selectedIds.count) people · group" : "Direct message"
-    }
-
     private func initials(_ p: Person) -> String {
         let parts = p.name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
         let j = parts.joined(); return j.isEmpty ? "?" : j
@@ -2716,34 +2756,19 @@ struct NewMessageSheet: View {
             AmbientBackground()
 
             ScrollView {
-                VStack(spacing: 18) {
-                    PageTitle(title: "New Message", subtitle: subtitle)
+                VStack(spacing: 16) {
+                    // Big, centered title.
+                    Text("New Message")
+                        .font(.custom(TFontName.extrabold.rawValue, size: 46))
+                        .tracking(-1)
+                        .foregroundStyle(Color(hex: T.ink))
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .multilineTextAlignment(.center)
                         .padding(.top, 8)
 
-                    // Group name — appears once it's a group (2+ selected).
-                    if isGroup {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("GROUP NAME")
-                                .font(TTypo.xsBold(11)).tLabel(tracking: 1.4)
-                                .foregroundStyle(Color(hex: T.muted))
-                            TextField(autoGroupName, text: $groupName)
-                                .textFieldStyle(.plain)
-                                .font(TTypo.sm(15))
-                                .foregroundStyle(Color(hex: T.ink))
-                                .padding(14)
-                                .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).fill(Color(hex: T.surface)))
-                                .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
-                        }
-                        .transition(.opacity.combined(with: .move(edge: .top)))
-                    }
-
-                    // Recipients
+                    // Recipients — just tap who you want, then Create.
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("RECIPIENTS")
-                            .font(TTypo.xsBold(11)).tLabel(tracking: 1.4)
-                            .foregroundStyle(Color(hex: T.muted))
-
-                        // Search field
+                        // Pill-shaped search field.
                         HStack(spacing: 8) {
                             Image(systemName: "magnifyingglass")
                                 .font(.system(size: 13, weight: .semibold))
@@ -2753,9 +2778,9 @@ struct NewMessageSheet: View {
                                 .font(TTypo.sm(14))
                                 .foregroundStyle(Color(hex: T.ink))
                         }
-                        .padding(.horizontal, 14).padding(.vertical, 11)
-                        .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).fill(Color(hex: T.surface)))
-                        .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
+                        .padding(.horizontal, 16).padding(.vertical, 12)
+                        .background(Capsule(style: .continuous).fill(Color(hex: T.surface)))
+                        .overlay(Capsule(style: .continuous).strokeBorder(Color(hex: T.hair), lineWidth: 1))
 
                         VStack(spacing: 8) {
                             ForEach(others) { person in
@@ -2827,9 +2852,9 @@ struct NewMessageSheet: View {
     private func start() {
         let ids = Array(selectedIds)
         guard !ids.isEmpty else { return }
-        let name: String? = ids.count > 1
-            ? { let t = groupName.trimmingCharacters(in: .whitespaces); return t.isEmpty ? autoGroupName : t }()
-            : nil
+        // Group name is auto-derived (irrelevant to the user — only membership
+        // matters); nil for a 1:1 DM.
+        let name: String? = ids.count > 1 ? autoGroupName : nil
         dismiss()
         onStart(ids, name)
     }
@@ -2843,17 +2868,17 @@ struct NewMessageSheet: View {
                 if selected { selectedIds.remove(person.id) } else { selectedIds.insert(person.id) }
             }
         } label: {
-            HStack(spacing: 12) {
-                Avatar(initials: initials(person), size: 42,
+            HStack(spacing: 10) {
+                Avatar(initials: initials(person), size: 36,
                        fill: Color(hex: person.color), imageData: person.image)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 1) {
                     Text(person.name)
-                        .font(TTypo.smBold(15))
+                        .font(TTypo.smBold(14))
                         .foregroundStyle(Color(hex: T.ink))
                         .lineLimit(1)
                     if !person.role.isEmpty {
                         Text(person.role)
-                            .font(TTypo.xs(12))
+                            .font(TTypo.xs(11))
                             .foregroundStyle(Color(hex: T.muted))
                             .lineLimit(1)
                     }
@@ -2862,19 +2887,20 @@ struct NewMessageSheet: View {
                 ZStack {
                     if selected {
                         Circle().fill(T.brandGradient())
-                        Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(T.onGradient)
+                        Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(T.onGradient)
                     } else {
                         Circle().strokeBorder(Color(hex: T.hair), lineWidth: 1.5)
                     }
                 }
-                .frame(width: 24, height: 24)
+                .frame(width: 22, height: 22)
             }
-            .padding(12)
-            .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).fill(Color(hex: T.surface)))
+            .padding(.vertical, 14)
+            .padding(.horizontal, 12)
+            .background(Capsule(style: .continuous).fill(Color(hex: T.surface)))
             .overlay(
-                RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous)
-                    .stroke(selected ? Color(hex: T.accentGradientStart) : Color(hex: T.hair),
-                            lineWidth: selected ? 1.6 : 1)
+                Capsule(style: .continuous)
+                    .strokeBorder(selected ? Color(hex: T.accentGradientStart) : Color(hex: T.hair),
+                                  lineWidth: selected ? 1.6 : 1)
             )
         }
         .buttonStyle(.plain)

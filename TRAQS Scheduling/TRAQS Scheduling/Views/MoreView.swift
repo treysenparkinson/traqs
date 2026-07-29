@@ -263,11 +263,11 @@ struct MoreView: View {
                             GridItem(.flexible(), spacing: 12)], spacing: 12) {
             StatBox(label: "Utilization", value: "\(utilizationPercent)%",
                     info: "Share of the team's scheduled capacity that's booked with work this week. Each worker's assigned job hours ÷ their weekly capacity (hours-per-day × workdays), capped at 100%, then averaged across the team.")
-            StatBox(label: "Task Switching", value: "\(taskSwitchingCount)", caption: "jobs touched this week",
+            StatBox(label: "Task Switching", value: "\(taskSwitchingCount)",
                     info: "How many distinct jobs the team touched this week. A job clocked out of and back into still counts once.")
             StatBox(label: "Reworks", value: "—",
                     info: "Rework hits: when a completed job sent to buyoff is brought back because a task was done wrong, the person who did that task takes one rework hit — one per hit. Not tracked yet (awaiting the rework button).")
-            StatBox(label: "Idle Time", value: fmtIdle(idleHours(now: now)), caption: "clocked in, off jobs",
+            StatBox(label: "Idle Time", value: fmtIdle(idleHours(now: now)),
                     info: "Paid clocked-in time not logged onto any job this week — pay hours minus job hours.")
         }
     }

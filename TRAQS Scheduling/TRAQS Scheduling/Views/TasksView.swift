@@ -1447,18 +1447,17 @@ struct TaskCardV1: View {
                 Button { showBreakConfirm = true } label: {
                     HStack(spacing: 6) {
                         if isBreakBusy {
-                            ProgressView().progressViewStyle(.circular).tint(T.onColor(T.amber)).scaleEffect(0.7)
+                            ProgressView().progressViewStyle(.circular).tint(Color(hex: T.accent)).scaleEffect(0.7)
                         } else {
                             Image(systemName: onBreak ? "play.fill" : "pause.fill")
                             Text(onBreak ? "END BREAK" : "BREAK").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
                         }
                     }
-                    .foregroundStyle(T.onColor(T.amber))
+                    .foregroundStyle(Color(hex: T.accent).verticalGradient())
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
-                    .background(Capsule().fill(Color(hex: T.amber).verticalGradient()))
-                    .shadow(color: Color(hex: T.amber).opacity(T.skyShadowOpacity),
-                            radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
+                    .background(Capsule().fill(Color.clear))
+                    .overlay(Capsule().strokeBorder(Color(hex: T.accent).verticalGradient(), lineWidth: 1.5))
                 }
                 .buttonStyle(.plain)
                 .disabled(isBreakBusy || isStopping)

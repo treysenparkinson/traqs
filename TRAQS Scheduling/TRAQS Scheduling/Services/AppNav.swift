@@ -20,6 +20,10 @@ enum JobsViewMode: Hashable {
 final class AppNav {
     var selected: TTab = .home
 
+    /// Hides the custom frosted tab bar (e.g. while inside a message thread).
+    /// Driven by the owning tab; MainTabView animates the bar out/in.
+    var hideTabBar: Bool = false
+
     /// Which view the merged Jobs tab shows — list (TasksView) or gantt (GanttView).
     /// Persists across tab switches; reset to `.list` for job deep links so the
     /// list view's deep-link consumer can resolve the tapped job (see below).

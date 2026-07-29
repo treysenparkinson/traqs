@@ -89,43 +89,43 @@ struct JobsHubView: View {
 
                     // Static "Jobs" title — rendered once HERE (not inside the
                     // swapped list/gantt views) so it sits in the exact same
-                    // place across both modes with zero shift.
+                    // place across both modes with zero shift. The range FAB sits
+                    // on the right of the title row (list mode only).
                     JobsHeaderBar()
+                        .overlay(alignment: .trailing) {
+                            dateRangeFab
+                                .opacity(appNav.jobsMode == .list ? 1 : 0)
+                                .allowsHitTesting(appNav.jobsMode == .list)
+                                .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
+                                .padding(.trailing, 16)
+                        }
                         .padding(.top, pageTitleTopInset)
                         .padding(.bottom, 6)
 
-                    // Content area with a floating liquid-glass calendar FAB
-                    // (bottom-right). Tapping it opens a native menu of ranges.
-                    ZStack(alignment: .topTrailing) {
-                        // Both views stay mounted and crossfade via opacity, keyed
-                        // on jobsMode. A switch + per-branch .transition here could
-                        // leave the outgoing view stuck on rapid toggles; opacity
-                        // is glitch-free and also preserves each view's scroll state.
-                        ZStack {
-                            TasksView(searchText: searchText, segment: $jobsSegment, onOpenJob: { path.append($0) })
-                                .opacity(appNav.jobsMode == .list ? 1 : 0)
-                                .allowsHitTesting(appNav.jobsMode == .list)
-                            GanttView()
-                                .opacity(appNav.jobsMode == .gantt ? 1 : 0)
-                                .allowsHitTesting(appNav.jobsMode == .gantt)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
-
-                        dateRangeFab
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                            .padding(.trailing, 20)
-                            .padding(.bottom, 26)
+                    // Content — list/gantt crossfade. Both views stay mounted and
+                    // crossfade via opacity, keyed on jobsMode (a switch + per-branch
+                    // .transition could leave the outgoing view stuck on rapid
+                    // toggles; opacity is glitch-free and preserves scroll state).
+                    ZStack {
+                        TasksView(searchText: searchText, segment: $jobsSegment, onOpenJob: { path.append($0) })
                             .opacity(appNav.jobsMode == .list ? 1 : 0)
                             .allowsHitTesting(appNav.jobsMode == .list)
-                            .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
+                        GanttView()
+                            .opacity(appNav.jobsMode == .gantt ? 1 : 0)
+                            .allowsHitTesting(appNav.jobsMode == .gantt)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
                 }
                 .fullScreenCover(isPresented: $showApprovals) { ApprovalQueueView(isPresented: $showApprovals) }
                 // Availability quick-check sheet — presented from this stable
                 // container (not the opacity-animated FAB) so it reliably shows.
                 .sheet(isPresented: $showAvailability) { AvailabilityCheckSheet() }
+            }
+            // Reserve space INSIDE the NavigationStack so content ends at the top
+            // of the floating nav pill (an outer inset is absorbed here).
+            .safeAreaInset(edge: .bottom) {
+                Color.clear.frame(height: appNav.hideTabBar ? 0 : tabPillBottomInset)
             }
             .navigationDestination(for: Job.self) { JobDetailView(job: $0) }
             .toolbar(.hidden, for: .navigationBar)

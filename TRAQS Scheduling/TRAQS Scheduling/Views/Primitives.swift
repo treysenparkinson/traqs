@@ -686,6 +686,29 @@ extension View {
     func frostedCard(radius: CGFloat = T.cornerHero) -> some View {
         modifier(FrostedCard(radius: radius))
     }
+    /// Same frosted treatment as `frostedCard` but fully pill-shaped (Capsule).
+    func frostedPill() -> some View {
+        modifier(FrostedPill())
+    }
+}
+
+// Frosted CAPSULE — the pill variant of FrostedCard (surface fill + top
+// highlight stroke + ambient float shadow, with capsule ends).
+struct FrostedPill: ViewModifier {
+    @Environment(ThemeSettings.self) private var theme
+    func body(content: Content) -> some View {
+        _ = theme.bgPresetId; _ = theme.accent
+        let shape = Capsule(style: .continuous)
+        return content
+            .background(shape.fill(Color(hex: T.surface)))
+            .overlay(shape.strokeBorder(
+                LinearGradient(colors: [Color(hex: T.highlightStroke).opacity(0.55), .clear],
+                               startPoint: .top, endPoint: .bottom),
+                lineWidth: 1))
+            .compositingGroup()
+            .shadow(color: .black.opacity(T.ambientShadowOpacity),
+                    radius: T.ambientShadowRadius, x: 0, y: T.ambientShadowY)
+    }
 }
 
 // ── PageTitle: big bold screen title + optional subtitle (under the header) ─
