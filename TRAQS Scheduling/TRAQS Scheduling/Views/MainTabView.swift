@@ -141,6 +141,13 @@ struct TRAQSTabBar: View {
     private var tabCount: Int { tabBarOrder.count }
     private var barWidth: CGFloat { hPad * 2 + CGFloat(tabCount) * keyW + CGFloat(tabCount - 1) * keySpacing }
 
+    // Accent highlighter size. It's the tallest thing in the bar, so `highlightH`
+    // sets the bar's inner height — `vPad` absorbs the difference to keep the
+    // pill's outer height fixed at 76pt (highlightH + vPad * 2).
+    private let highlightW: CGFloat = 83   // keyW + 18
+    private let highlightH: CGFloat = 62
+    private var vPad: CGFloat { (76 - highlightH) / 2 }
+
     /// Map a horizontal position (in the bar's local space) to the tab under it.
     private func tab(atX x: CGFloat) -> TTab {
         let step = keyW + keySpacing
@@ -188,10 +195,12 @@ struct TRAQSTabBar: View {
             Capsule(style: .continuous)
                 .fill(Color(hex: T.accent).verticalGradient())
                 .shadow(color: Color(hex: T.accent).opacity(0.45), radius: 8, x: 0, y: 3)
-                // Flush horizontal pill: same width as before, height shortened to
-                // stay flush now that the bar is 4px thinner.
-                .frame(width: keyW + 6, height: 54)
-                .offset(x: highlightCenterX - (keyW + 6) / 2)
+                // Slightly larger than a key cell so the active tab reads clearly.
+                // The height drives the bar's inner height (icons are only 48
+                // tall), so `.padding(.vertical)` below is reduced by the same
+                // amount this grows — the pill's outer size never changes.
+                .frame(width: highlightW, height: highlightH)
+                .offset(x: highlightCenterX - highlightW / 2)
                 .animation(dragX == nil ? .timingCurve(0.5, 0.0, 0.2, 1.0, duration: 0.22) : nil,
                            value: highlightCenterX)
 
@@ -205,7 +214,7 @@ struct TRAQSTabBar: View {
             }
         }
         .padding(.horizontal, hPad)
-        .padding(.vertical, 11)   // −2px each side → bar 4px thinner
+        .padding(.vertical, vPad)   // shrinks as the highlighter grows → pill height locked at 76
         // Frosted-glass fill (translucent blur + subtle surface tint) with a FLAT
         // hairline border — the frosted look, minus the glossy reflection.
         .background {
