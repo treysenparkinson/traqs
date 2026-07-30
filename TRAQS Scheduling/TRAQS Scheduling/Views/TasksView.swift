@@ -1427,7 +1427,7 @@ struct TaskCardV1: View {
                         .foregroundStyle(Color(hex: onBreak ? T.amber : T.sky))
                         .tLabel(tracking: 1.0)
                     if onBreak, let brk = appState.myActiveBreak {
-                        PausableTimeline(active: appNav.selected == .jobs, interval: 1) { date in
+                        PausableTimeline(tab: .jobs, interval: 1) { date in
                             Text(breakCountdown(brk, at: date))
                                 .font(TTypo.monoBold(11))
                                 .foregroundStyle(Color(hex: T.amber))
@@ -1436,7 +1436,7 @@ struct TaskCardV1: View {
                     }
                 }
                 Spacer()
-                PausableTimeline(active: appNav.selected == .jobs, interval: 1) { date in
+                PausableTimeline(tab: .jobs, interval: 1) { date in
                     Text("\(elapsedLabel(at: date)) · \(Int(pct))%")
                         .font(TTypo.monoBold(13))
                         .foregroundStyle(Color(hex: T.sky))

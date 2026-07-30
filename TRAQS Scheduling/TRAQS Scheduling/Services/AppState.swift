@@ -55,7 +55,7 @@ class AppState {
     var jobs: [Job] = []
     var people: [Person] = []
     var clients: [Client] = []
-    var messages: [Message] = []
+    var messages: [Message] = [] { didSet { recomputeUnread() } }
     var groups: [ChatGroup] = []
     /// Server-side read receipts: `[threadKey: [personId: ISO "read up to"]]`.
     /// Drives the Sent/Read status under my own message bubbles. Refreshed
@@ -150,6 +150,7 @@ class AppState {
             if let id = currentPersonId, !id.isEmpty {
                 UserDefaults.standard.set(id, forKey: "traqs_currentPersonId")
             }
+            recomputeUnread()   // "mine vs theirs" depends on who I am
         }
     }
     var orgCode: String = KeychainHelper.load(forKey: KeychainHelper.orgCodeKey) ?? ""
@@ -730,7 +731,7 @@ class AppState {
     func signOff(jobId: String, panelId: String, step: EngStep, personId: String, personName: String) {
         guard var job = jobs.first(where: { $0.id == jobId }),
               let pi = job.subs.firstIndex(where: { $0.id == panelId }) else { return }
-        let signOff = EngineeringSignOff(by: personId, byName: personName, at: ISO8601DateFormatter().string(from: Date()))
+        let signOff = EngineeringSignOff(by: personId, byName: personName, at: Date.isoPlainString(Date()))
         var panel = job.subs[pi]
         var eng = panel.engineering ?? Engineering()
         switch step {
@@ -829,7 +830,10 @@ class AppState {
     /// never notified observers, so the badge only ever cleared by luck on the
     /// next unrelated re-render.
     var threadReadAt: [String: String] = (UserDefaults.standard.dictionary(forKey: "traqs_threadReadAt") as? [String: String]) ?? [:] {
-        didSet { UserDefaults.standard.set(threadReadAt, forKey: readStateKey) }
+        didSet {
+            UserDefaults.standard.set(threadReadAt, forKey: readStateKey)
+            recomputeUnread()
+        }
     }
 
     func markThreadRead(_ threadKey: String) {
@@ -848,16 +852,85 @@ class AppState {
     /// than the thread's last-read stamp that I didn't send. `messages` is already
     /// ACL-filtered server-side, so iterating it only counts threads I can see.
     /// Drives the Messages-tab count and the sidebar notification dot.
-    var totalUnreadMessages: Int {
-        guard let myId = currentPersonId else { return 0 }
-        var total = 0
-        for (key, msgs) in Dictionary(grouping: messages, by: { $0.threadKey }) {
-            let readAt = threadReadAt[key].flatMap { Date.fromFlexibleISO8601($0) } ?? .distantPast
-            for m in msgs where m.authorId != myId {
-                if (Date.fromFlexibleISO8601(m.timestamp) ?? .distantPast) > readAt { total += 1 }
-            }
+    /// O(1) read of the cached count. The scan behind it runs only when
+    /// `messages` / `threadReadAt` / `currentPersonId` change — see
+    /// `recomputeUnread()`. It used to be computed inline here, which meant a
+    /// full O(messages) pass (with two ISO8601 parses per message) on EVERY
+    /// evaluation of MainTabView's body — i.e. on every nav-bar tap.
+    var totalUnreadMessages: Int { unreadTotalCache }
+
+    /// Unread grouped by sender, most first. Same cache, same single pass —
+    /// HomeView used to recompute this independently on every render.
+    var unreadSenders: [(id: String, name: String, count: Int)] { unreadSendersCache }
+
+    private(set) var unreadTotalCache: Int = 0
+    private(set) var unreadSendersCache: [(id: String, name: String, count: Int)] = []
+
+    /// Memoised `timestamp` parses, keyed by message id. ISO8601 parsing is the
+    /// bulk of the unread scan's cost (measured 15–24ms per recompute on device
+    /// for ~340 messages), and a sync replaces the whole `messages` array even
+    /// though nearly every element is unchanged — so without this we re-parse
+    /// hundreds of identical strings on every incoming message.
+    ///
+    /// `@ObservationIgnored` matters: this is a private cache, and letting it
+    /// participate in observation would invalidate views on every recompute.
+    @ObservationIgnored private var timestampCache: [String: Date] = [:]
+
+    /// Memoised ISO8601 parses keyed by the string itself.
+    ///
+    /// The pay-clock reducers walk every completed entry and parse its `clockIn`
+    /// on each call — and they're called twice a second by Home's live hours
+    /// plus TimeClock's ticker, always over the SAME immutable strings. ISO8601
+    /// parsing is ICU-backed; Time Profiler on device put it at the top of the
+    /// main thread. Parsing each distinct string once collapses that to a
+    /// dictionary hit. (Stored here in the class body — extensions can't hold
+    /// stored properties.)
+    @ObservationIgnored fileprivate var isoParseCache: [String: Date] = [:]
+
+    private func parsedTimestamp(id: String, iso: String) -> Date {
+        if let hit = timestampCache[id] { return hit }
+        let parsed = Date.fromFlexibleISO8601(iso) ?? .distantPast
+        timestampCache[id] = parsed
+        return parsed
+    }
+
+    /// Single pass over `messages` producing BOTH the total and the per-sender
+    /// breakdown. Each thread's read cursor is parsed once and memoised rather
+    /// than re-parsed per message, and there's no `Dictionary(grouping:)`
+    /// allocation — the grouping fell out of the same loop.
+    func recomputeUnread() {
+        guard let myId = currentPersonId else {
+            unreadTotalCache = 0
+            unreadSendersCache = []
+            return
         }
-        return total
+        // Drop memoised parses for messages that no longer exist, so the cache
+        // can't grow without bound across a long session.
+        if timestampCache.count > messages.count * 2 {
+            timestampCache.removeAll(keepingCapacity: true)
+        }
+
+        var total = 0
+        var counts: [String: (name: String, count: Int)] = [:]
+        var readCursor: [String: Date] = [:]   // threadKey → parsed last-read
+
+        for m in messages where m.authorId != myId {
+            let readAt: Date
+            if let cached = readCursor[m.threadKey] {
+                readAt = cached
+            } else {
+                readAt = threadReadAt[m.threadKey].flatMap { Date.fromFlexibleISO8601($0) } ?? .distantPast
+                readCursor[m.threadKey] = readAt
+            }
+            guard parsedTimestamp(id: m.id, iso: m.timestamp) > readAt else { continue }
+            total += 1
+            counts[m.authorId] = (name: m.authorName, count: (counts[m.authorId]?.count ?? 0) + 1)
+        }
+
+        unreadTotalCache = total
+        unreadSendersCache = counts
+            .map { (id: $0.key, name: $0.value.name, count: $0.value.count) }
+            .sorted { $0.count > $1.count }
     }
     /// Whether there's anything unread worth surfacing (sidebar pulsing dot).
     var hasUnreadNotifications: Bool { totalUnreadMessages > 0 }
@@ -1600,7 +1673,7 @@ class AppState {
 
     func timeclockSendEvent(action: String) async {
         guard let api, let personId = clockedInPersonId, let pin = clockedInPin else { return }
-        let event = ClockEvent(type: action, ts: ISO8601DateFormatter().string(from: Date()))
+        let event = ClockEvent(type: action, ts: Date.isoPlainString(Date()))
         activeClockIn?.events.append(event)
         try? await api.timeclockEvent(action: action, personId: personId, pin: pin)
         // Server publishes the change → delta-sync reconciles. loadAll removed.
@@ -1694,7 +1767,7 @@ class AppState {
         // means we're already in (= success), and a genuine failure reverts.
         let previousClock = people.first(where: { $0.id == personId })?.activeJobClock
         let optimistic = ActiveJobClock(
-            clockIn: ISO8601DateFormatter().string(from: Date()),
+            clockIn: Date.isoPlainString(Date()),
             jobId: jobId, panelId: panelId, opId: opId,
             jobTitle: jobTitle, panelTitle: panelTitle, opTitle: opTitle
         )
@@ -1783,7 +1856,7 @@ class AppState {
               let idx = people.firstIndex(where: { $0.id == personId }) else { return }
         var newPeople = people
         newPeople[idx].activeClockIn = ActiveClockIn(
-            clockIn: ISO8601DateFormatter().string(from: start),
+            clockIn: Date.isoPlainString(start),
             jobRefs: [], events: [], source: "ios-app")
         people = newPeople
         clockChangeAt = Date()
@@ -2020,7 +2093,7 @@ class AppState {
         isPayClocking = true
         defer { isPayClocking = false }
         let evt = ClockEvent(type: starting ? "lunchStart" : "lunchEnd",
-                             ts: ISO8601DateFormatter().string(from: Date()))
+                             ts: Date.isoPlainString(Date()))
         appendLocalClockEvent(personId: personId, evt)
         do {
             if starting { try await api.payLunchStart(personId: personId) }
@@ -2058,7 +2131,7 @@ class AppState {
             size: result.size,
             uploadedById: currentPersonId,
             uploadedByName: currentPerson?.name,
-            uploadedAt: ISO8601DateFormatter().string(from: Date()),
+            uploadedAt: Date.isoPlainString(Date()),
             opId: opId
         )
         // Re-find the job at append time — jobs may have refreshed since the
@@ -2113,7 +2186,7 @@ class AppState {
     func startBreak() async {
         guard let api, let personId = currentPersonId else { return }
         let minutes = orgSettings.breaks.first?.durationMinutes ?? 15
-        let optimistic = ActiveBreak(startedAt: ISO8601DateFormatter().string(from: Date()),
+        let optimistic = ActiveBreak(startedAt: Date.isoPlainString(Date()),
                                      durationMinutes: minutes)
         setLocalBreak(personId: personId, optimistic)
         BreakReminder.schedule(durationMinutes: minutes)
@@ -2395,9 +2468,13 @@ extension AppState {
         }
     }
 
+    /// Was building TWO `ISO8601DateFormatter`s per call — and this runs inside a
+    /// `reduce` over every timeclock entry, driven by a 1s ticker. Formatter
+    /// construction loads ICU resource bundles, which Time Profiler showed as
+    /// the single largest main-thread cost in the app. Now delegates to cached
+    /// formatters.
     private static func fullISODate(_ s: String) -> Date? {
-        let f = ISO8601DateFormatter(); f.formatOptions = [.withFullDate]
-        return f.date(from: s) ?? ISO8601DateFormatter().date(from: s)
+        Date.fromISOFullDate(s)
     }
 
     /// Semi-monthly pay period from an explicit day-of-month pair (Swift port of
@@ -2437,6 +2514,14 @@ extension AppState {
     }
 
     /// My completed pay-clock spans (any date).
+    private func parsedISO(_ s: String) -> Date? {
+        if let hit = isoParseCache[s] { return hit }
+        guard let d = Date.fromFlexibleISO8601(s) else { return nil }
+        if isoParseCache.count > 4000 { isoParseCache.removeAll(keepingCapacity: true) }
+        isoParseCache[s] = d
+        return d
+    }
+
     private var myCompletedPayEntries: [TimeclockEntry] {
         timeclockEntries.filter { e in
             e.eventType == nil && e.clockIn != nil && e.clockOut != nil
@@ -2450,7 +2535,7 @@ extension AppState {
         let w = payPeriodWindow(now: now)
         let end = Calendar.current.date(byAdding: .day, value: 1, to: w.end) ?? w.end
         let completed = myCompletedPayEntries.reduce(0.0) { acc, e in
-            guard let d = e.clockIn.flatMap(Date.fromFlexibleISO8601) ?? e.date.flatMap(Self.fullISODate)
+            guard let d = e.clockIn.flatMap(parsedISO) ?? e.date.flatMap(Self.fullISODate)
             else { return acc }
             return (d >= w.start && d < end) ? acc + (e.hours ?? 0) : acc
         }
@@ -2462,12 +2547,12 @@ extension AppState {
     func hoursToday(now: Date) -> Double {
         let cal = Calendar.current
         let completed = myCompletedPayEntries.reduce(0.0) { acc, e in
-            guard let d = e.clockIn.flatMap(Date.fromFlexibleISO8601) else { return acc }
+            guard let d = e.clockIn.flatMap(parsedISO) else { return acc }
             return cal.isDate(d, inSameDayAs: now) ? acc + (e.hours ?? 0) : acc
         }
         var live = 0.0
         if let c = currentPerson?.activeClockIn,
-           let s = Date.fromFlexibleISO8601(c.clockIn),
+           let s = parsedISO(c.clockIn),
            cal.isDate(s, inSameDayAs: now) {
             live = liveShiftHours(now: now)
         }
@@ -2478,7 +2563,7 @@ extension AppState {
     /// for lunch/break (mirrors the server's hoursElapsedMinusPauses).
     func liveShiftHours(now: Date) -> Double {
         guard let c = currentPerson?.activeClockIn,
-              let s = Date.fromFlexibleISO8601(c.clockIn) else { return 0 }
+              let s = parsedISO(c.clockIn) else { return 0 }
         let totalMs = now.timeIntervalSince(s) * 1000
         return max(0, (totalMs - Self.payPausedMs(c.events, end: now)) / 3_600_000)
     }

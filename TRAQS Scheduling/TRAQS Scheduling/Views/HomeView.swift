@@ -9,8 +9,6 @@ import Combine
 struct HomeView: View {
     @Environment(AppState.self) private var appState
     @Environment(AppNav.self) private var appNav
-    @State private var now = Date()
-    private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ZStack {
@@ -31,14 +29,22 @@ struct HomeView: View {
                             .padding(.top, pageTitleTopInset)
                             .padding(.bottom, 10)
 
-                        // Today's date + this week (today highlighted).
-                        TodayDateCard(now: now)
-                            .padding(.horizontal, 16)
+                        // Today's date + this week (today highlighted). Only has
+                        // to change at midnight, so it ticks once a minute.
+                        LiveClock(every: 60, tab: .home) { now in
+                            TodayDateCard(now: now)
+                        }
+                        .padding(.horizontal, 16)
 
                         // Today's hours + new messages — two square cards side by side.
                         HStack(spacing: 12) {
-                            HoursTodayHero(hoursToday: appState.hoursToday(now: now),
-                                           dayPct: dayPct)
+                            LiveClock(every: 1, tab: .home) { now in
+                                // Compute ONCE per tick — `dayPct` is derived from
+                                // the same value, and hoursToday walks every pay
+                                // entry, so calling it twice doubled that work.
+                                let hours = appState.hoursToday(now: now)
+                                HoursTodayHero(hoursToday: hours, dayPct: dayPct(hours: hours))
+                            }
                             NewMessagesCard(senders: unreadBySender) {
                                 withAnimation(.easeInOut(duration: 0.22)) { appNav.selected = .chat }
                             }
@@ -47,10 +53,12 @@ struct HomeView: View {
                         .padding(.top, 14)
 
                         // Live shift status (clocked in / lunch / break + elapsed).
-                        ClockStatusCard(status: appState.myShiftStatus,
-                                        liveHours: appState.liveShiftHours(now: now))
-                            .padding(.horizontal, 16)
-                            .padding(.top, 14)
+                        LiveClock(every: 1, tab: .home) { now in
+                            ClockStatusCard(status: appState.myShiftStatus,
+                                            liveHours: appState.liveShiftHours(now: now))
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 14)
 
                         // Suggested job for the day.
                         TSectionTitle(title: "Suggested for today")
@@ -70,7 +78,6 @@ struct HomeView: View {
                 .topFadeMask()
                 .refreshable { await reload() }
             }
-            .onReceive(ticker) { if appNav.selected == .home { now = $0 } }   // only tick while visible
             // Home is the landing tab; pull the pay-clock entries + settings the
             // hero needs (jobs/people come from the app-level loadAll).
             .task {
@@ -96,24 +103,17 @@ struct HomeView: View {
     }
 
     /// Unread messages grouped by sender (person name + count), most first.
-    /// Mirrors AppState.totalUnreadMessages but keeps the per-author breakdown.
+    /// Reads AppState's cache — this used to be a duplicate O(messages) scan
+    /// recomputed on every HomeView render (and the 1s ticker made that every
+    /// second). The scan now runs once per data change, shared with the nav
+    /// bar's badge count.
     private var unreadBySender: [(id: String, name: String, count: Int)] {
-        guard let myId = appState.currentPersonId else { return [] }
-        var counts: [String: (name: String, count: Int)] = [:]
-        for (key, msgs) in Dictionary(grouping: appState.messages, by: { $0.threadKey }) {
-            let readAt = appState.threadReadAt[key].flatMap { Date.fromFlexibleISO8601($0) } ?? .distantPast
-            for m in msgs where m.authorId != myId {
-                if (Date.fromFlexibleISO8601(m.timestamp) ?? .distantPast) > readAt {
-                    let prev = counts[m.authorId]
-                    counts[m.authorId] = (name: m.authorName, count: (prev?.count ?? 0) + 1)
-                }
-            }
-        }
-        return counts.map { (id: $0.key, name: $0.value.name, count: $0.value.count) }
-            .sorted { $0.count > $1.count }
+        appState.unreadSenders
     }
 
-    private var today: [TaskAssignment] { appState.todayTasks(now: now) }
+    /// "Today" only rolls over at midnight, so this reads the clock directly
+    /// instead of riding a per-second ticker that invalidated the whole body.
+    private var today: [TaskAssignment] { appState.todayTasks(now: Date()) }
 
     /// Active job if clocked in, else the next "up next" task today, else the first.
     private var suggested: TaskAssignment? {
@@ -126,11 +126,12 @@ struct HomeView: View {
         appState.myActiveJobClock != nil && appState.activeTaskAssignment?.id == task.id
     }
 
-    /// Today's hours toward the daily target (drives the ring).
-    private var dayPct: Double {
+    /// Today's hours toward the daily target (drives the ring). Takes the
+    /// already-computed hours rather than recomputing them.
+    private func dayPct(hours: Double) -> Double {
         let hpd = appState.orgSettings.hpd
         guard hpd > 0 else { return 0 }
-        return min(100, appState.hoursToday(now: now) / hpd * 100)
+        return min(100, hours / hpd * 100)
     }
 
     // MARK: - Actions
@@ -163,7 +164,7 @@ private struct TodayDateCard: View {
     }
 
     private var dateLine: String {
-        let f = DateFormatter(); f.dateFormat = "MMMM d, yyyy"
+        let f = DateFormatter.display("MMMM d, yyyy")
         return f.string(from: now).uppercased()
     }
 

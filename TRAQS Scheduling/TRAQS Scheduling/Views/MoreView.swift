@@ -60,12 +60,26 @@ struct MoreView: View {
 
                             // Ticks every 5s so the stat grid (Idle) + Efficiency
                             // graph grow live while anyone is clocked in.
-                            PausableTimeline(active: appNav.selected == .stats, interval: 5) { date in
+                            //
+                            // Utilization and Task Switching are computed HERE,
+                            // outside the closure: they're weekly aggregates that
+                            // don't depend on `now`, and each is a full walk of
+                            // the job tree / job sessions. Inside the closure they
+                            // re-ran every 5 seconds for no reason. Captured
+                            // values refresh on real data changes instead.
+                            let utilization = utilizationPercent
+                            let switching = taskSwitchingCount
+                            PausableTimeline(tab: .stats, interval: 5) { date in
+                                // ONE walk of the week, shared by Idle and
+                                // Efficiency — this used to run three times.
+                                let days = efficiencyDays(for: nil, now: date)
                                 VStack(spacing: 16) {
-                                    statGrid(now: date)
+                                    statGrid(utilization: utilization,
+                                             switching: switching,
+                                             idle: idleHours(from: days))
                                         .padding(.horizontal, 16)
-                                    EfficiencyCard(percent: "\(efficiencyPercent(for: nil, now: date))%",
-                                                   days: efficiencyDays(for: nil, now: date),
+                                    EfficiencyCard(percent: "\(efficiencyPercent(from: days))%",
+                                                   days: days,
                                                    info: "Job hours logged ÷ pay hours for the week across everyone (e.g. 30 logged of 40 paid = 75%). The bars show each day's pay hours (left) vs job hours (right); the number above each day is the difference.")
                                         .padding(.horizontal, 16)
                                 }
@@ -97,9 +111,10 @@ struct MoreView: View {
 
                             // This person's own efficiency for the selected week —
                             // ticks every 5s so it grows live while they're clocked in.
-                            PausableTimeline(active: appNav.selected == .stats, interval: 5) { date in
-                                EfficiencyCard(percent: "\(efficiencyPercent(for: pid, now: date))%",
-                                               days: efficiencyDays(for: pid, now: date),
+                            PausableTimeline(tab: .stats, interval: 5) { date in
+                                let days = efficiencyDays(for: pid, now: date)   // once, not twice
+                                EfficiencyCard(percent: "\(efficiencyPercent(from: days))%",
+                                               days: days,
                                                info: "Job hours logged ÷ pay hours for the week (e.g. 30 logged of 40 paid = 75%). The bars show each day's pay hours (left) vs job hours (right); the number above each day is the difference.")
                                     .padding(.horizontal, 16)
                                     .padding(.top, 16)
@@ -117,7 +132,7 @@ struct MoreView: View {
                             // this card — not MoreView's whole (admin-heavy) body.
                             // Only when viewing yourself — STOP acts on the current
                             // user, so we don't show it for an admin-selected worker.
-                            PausableTimeline(active: appNav.selected == .stats, interval: 1) { date in
+                            PausableTimeline(tab: .stats, interval: 1) { date in
                                 RunningEntryCard(jobClock: active, now: date,
                                                  isStopping: isStopping,
                                                  onStop: {
@@ -195,9 +210,9 @@ struct MoreView: View {
         guard let interval = cal.dateInterval(of: .weekOfYear, for: weekAnchor) else { return "" }
         let start = interval.start
         let last = cal.date(byAdding: .day, value: -1, to: interval.end) ?? interval.end
-        let mdd = DateFormatter(); mdd.dateFormat = "MMM d"
+        let mdd = DateFormatter.display("MMM d")
         if cal.isDate(start, equalTo: last, toGranularity: .month) {
-            let dOnly = DateFormatter(); dOnly.dateFormat = "d"
+            let dOnly = DateFormatter.display("d")
             return "\(mdd.string(from: start))–\(dOnly.string(from: last))"
         }
         return "\(mdd.string(from: start)) – \(mdd.string(from: last))"
@@ -222,8 +237,30 @@ struct MoreView: View {
         let workers = appState.people.filter { !$0.isAdmin }
         guard !workers.isEmpty else { return 0 }
         let week = weekInterval
+
+        // Walk the job tree ONCE, accumulating hours per person, rather than
+        // re-walking every job → panel → op for each worker. Was
+        // O(workers × tasks) — with ~20 workers that re-parsed and re-tested the
+        // same tasks 20 times per render, on a view that ticks every 1–5s.
+        var hoursByPerson: [String: Double] = [:]
+        for job in appState.jobs {
+            for panel in job.subs {
+                if panel.subs.isEmpty {
+                    guard taskOverlaps(panel.start, panel.end, week) else { continue }
+                    let h = taskEstHours(panel.hpd)
+                    for pid in panel.team { hoursByPerson[pid, default: 0] += h }
+                } else {
+                    for op in panel.subs {
+                        guard taskOverlaps(op.start, op.end, week) else { continue }
+                        let h = taskEstHours(op.hpd)
+                        for pid in op.team { hoursByPerson[pid, default: 0] += h }
+                    }
+                }
+            }
+        }
+
         let avg = workers.reduce(0.0) { acc, p in
-            acc + min(100.0, assignedHours(personId: p.id, in: week) / capacity * 100.0)
+            acc + min(100.0, (hoursByPerson[p.id] ?? 0) / capacity * 100.0)
         } / Double(workers.count)
         return Int(avg.rounded())
     }
@@ -260,16 +297,23 @@ struct MoreView: View {
 
     // MARK: Small stat boxes (Utilization wired; rest are placeholders)
 
-    private func statGrid(now: Date = Date()) -> some View {
+    /// Takes its numbers ALREADY COMPUTED rather than deriving them itself.
+    ///
+    /// This sits inside a 5s timeline. When it computed `utilizationPercent` and
+    /// `taskSwitchingCount` internally, those full job-tree / job-session walks
+    /// re-ran every 5 seconds — even though both are WEEKLY aggregates that
+    /// don't depend on `now` at all. The caller now evaluates them once per body
+    /// evaluation (i.e. on real data changes) and the tick only refreshes Idle.
+    private func statGrid(utilization: Int, switching: Int, idle: Double) -> some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
                             GridItem(.flexible(), spacing: 12)], spacing: 12) {
-            StatBox(label: "Utilization", value: "\(utilizationPercent)%",
+            StatBox(label: "Utilization", value: "\(utilization)%",
                     info: "Share of the team's scheduled capacity that's booked with work this week. Each worker's assigned job hours ÷ their weekly capacity (hours-per-day × workdays), capped at 100%, then averaged across the team.")
-            StatBox(label: "Task Switching", value: "\(taskSwitchingCount)",
+            StatBox(label: "Task Switching", value: "\(switching)",
                     info: "How many distinct jobs the team touched this week. A job clocked out of and back into still counts once.")
             StatBox(label: "Reworks", value: "—",
                     info: "Rework hits: when a completed job sent to buyoff is brought back because a task was done wrong, the person who did that task takes one rework hit — one per hit. Not tracked yet (awaiting the rework button).")
-            StatBox(label: "Idle Time", value: fmtIdle(idleHours(now: now)),
+            StatBox(label: "Idle Time", value: fmtIdle(idle),
                     info: "Paid clocked-in time not logged onto any job this week — pay hours minus job hours.")
         }
     }
@@ -352,7 +396,7 @@ struct MoreView: View {
     private func weekLabel(_ start: Date) -> String {
         let cal = Calendar.current
         let end = cal.date(byAdding: .day, value: 6, to: start) ?? start
-        let f = DateFormatter(); f.dateFormat = "MMM d"
+        let f = DateFormatter.display("MMM d")
         let range = "\(f.string(from: start)) – \(f.string(from: end))"
         return sameWeek(start, Date()) ? "This week · \(range)" : range
     }
@@ -516,21 +560,31 @@ private extension MoreView {
 
     /// Efficiency = week job hours ÷ week pay hours (e.g. 30 logged of 40 paid = 75%).
     func efficiencyPercent(for personId: String?, now: Date = Date()) -> Int {
-        let days = efficiencyDays(for: personId, now: now)
-        let totalPay = days.reduce(0.0) { $0 + $1.pay }
-        let totalJob = days.reduce(0.0) { $0 + $1.job }
-        guard totalPay > 0 else { return 0 }
-        return Int((totalJob / totalPay * 100).rounded())
+        efficiencyPercent(from: efficiencyDays(for: personId, now: now))
     }
 
     /// Idle time = paid clocked-in hours NOT logged onto a job for the week
     /// (everyone) — the complement of Efficiency. Uses gross pay hours (lunch/
     /// break not subtracted — same basis as Efficiency). Live via `now`.
     func idleHours(now: Date = Date()) -> Double {
-        let days = efficiencyDays(for: nil, now: now)
+        idleHours(from: efficiencyDays(for: nil, now: now))
+    }
+
+    /// Derive from an ALREADY-COMPUTED week so callers that also need the days
+    /// (or the efficiency percentage) don't walk every pay entry and job session
+    /// a second and third time — `efficiencyDays` used to run 3× per tick.
+    func idleHours(from days: [EffDay]) -> Double {
         let pay = days.reduce(0.0) { $0 + $1.pay }
         let job = days.reduce(0.0) { $0 + $1.job }
         return max(0, pay - job)
+    }
+
+    /// Same, for the efficiency percentage.
+    func efficiencyPercent(from days: [EffDay]) -> Int {
+        let totalPay = days.reduce(0.0) { $0 + $1.pay }
+        let totalJob = days.reduce(0.0) { $0 + $1.job }
+        guard totalPay > 0 else { return 0 }
+        return Int((totalJob / totalPay * 100).rounded())
     }
 
     /// "3h 12m" — idle rounded to the minute.
@@ -594,7 +648,7 @@ private extension MoreView {
     /// Job sessions grouped by day for the dated log.
     var jobSessionGroups: [EntryGroup] {
         let cal = Calendar.current
-        let df = DateFormatter(); df.dateFormat = "EEE · MMM d"
+        let df = DateFormatter.display("EEE · MMM d")
         let groups = Dictionary(grouping: jobSessionsInPeriod) { s -> Date in
             // Fall back to the session's `date` (as jobSessionsInPeriod does) before
             // today, so a session with a nil clockIn isn't misfiled under today.
@@ -1049,7 +1103,7 @@ private struct EntryRow: View {
     let entry: TimeEntry
 
     private var timeRange: String {
-        let f = DateFormatter(); f.dateFormat = "HH:mm"
+        let f = DateFormatter.display("HH:mm")
         let s = f.string(from: entry.start)
         let e = entry.end.map(f.string(from:)) ?? "live"
         return "\(s) – \(e)"

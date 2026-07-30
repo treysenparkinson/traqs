@@ -1,19 +1,68 @@
 import SwiftUI
 import UIKit
+import Combine
 
-/// A `TimelineView` that only ticks while `active` is true. When inactive it
-/// freezes (an effectively-infinite interval), so a page living in a background
-/// TabView tab stops re-running its periodic recompute/redraw. Content still
-/// updates on real data changes; it just doesn't burn the timer off-screen.
-/// Pass `active: appNav.selected == <thisTab>`.
+/// A `TimelineView` that only ticks while its owning tab is selected. When
+/// inactive it freezes (an effectively-infinite interval), so a page living in a
+/// background TabView tab stops re-running its periodic recompute/redraw.
+/// Content still updates on real data changes; it just doesn't burn the timer
+/// off-screen.
+///
+/// The selected-tab check lives HERE rather than at the call site on purpose.
+/// Callers used to pass `active: appNav.selected == .stats`, which read
+/// `appNav.selected` inside the CALLER's body — so every tab change invalidated
+/// the entire calling page (MoreView, TasksView). Reading it in this small
+/// wrapper keeps the invalidation scoped to the timeline itself.
 struct PausableTimeline<Content: View>: View {
-    let active: Bool
+    @Environment(AppNav.self) private var appNav
+    let tab: TTab
     let interval: TimeInterval
     @ViewBuilder let content: (Date) -> Content
+
     var body: some View {
-        TimelineView(.periodic(from: .now, by: active ? interval : 1_000_000_000)) { ctx in
+        let active = appNav.selected == tab
+        return TimelineView(.periodic(from: .now, by: active ? interval : 1_000_000_000)) { ctx in
             content(ctx.date)
         }
+    }
+}
+
+/// Owns a repeating clock and hands the current time to a SMALL subtree.
+///
+/// Two traps this exists to avoid, both of which were measured causing per-tap
+/// main-thread stalls:
+///
+///  1. Holding `@State now` + a ticker on a big page means every tick
+///     invalidates that page's ENTIRE body. Scope the state here instead and a
+///     tick re-renders only `content`.
+///
+///  2. A `private let ticker = Timer.publish(…).autoconnect()` STORED on a view
+///     is a brand-new, non-equal object every time the view struct is built. A
+///     parent re-render therefore makes the view compare as "changed" and
+///     SwiftUI re-evaluates its body — even when nothing it displays moved.
+///     The publisher lives in `@State` here so it's created once and stays
+///     identical across re-renders.
+struct LiveClock<Content: View>: View {
+    @Environment(AppNav.self) private var appNav
+    @State private var now = Date()
+    @State private var ticker: Publishers.Autoconnect<Timer.TimerPublisher>
+    private let tab: TTab
+    private let content: (Date) -> Content
+
+    init(every interval: TimeInterval,
+         tab: TTab,
+         @ViewBuilder content: @escaping (Date) -> Content) {
+        _ticker = State(initialValue: Timer.publish(every: interval, on: .main, in: .common).autoconnect())
+        self.tab = tab
+        self.content = content
+    }
+
+    var body: some View {
+        content(now)
+            // Guard inside the closure, never in the body: reading
+            // `appNav.selected` during body evaluation would re-introduce the
+            // per-tab-change invalidation this type exists to prevent.
+            .onReceive(ticker) { if appNav.selected == tab { now = $0 } }
     }
 }
 

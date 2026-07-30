@@ -20,7 +20,12 @@ struct TimeClockView: View {
     /// changes live (e.g. an admin flips this person's mobile clock-in
     /// permission) — see .onReceive below.
     @State private var liveRefresh = 0
-    private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    /// `@State`, NOT `let`. As a stored `let`, this publisher was a brand-new
+    /// object every time the view struct was rebuilt by its parent, so SwiftUI
+    /// compared TimeClockView as "changed" and re-evaluated this entire body on
+    /// EVERY nav-bar tap — even taps going to a different tab. @State storage is
+    /// excluded from that comparison and is created once.
+    @State private var ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         // Read the live-synced slices DIRECTLY in body so a permission/clock

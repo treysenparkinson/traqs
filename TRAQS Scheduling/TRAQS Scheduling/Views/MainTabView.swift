@@ -35,48 +35,24 @@ struct MainTabView: View {
     @Environment(AppState.self) private var appState
     @Environment(ThemeSettings.self) private var themeSettings
     @State private var showTimeOff: Bool = false
-    /// Reserves bottom space so a page's content ends at the TOP of the floating
-    /// nav pill. Used by Home/TimeClock/Stats — the tabs without their own
-    /// NavigationStack (Jobs/Messages reserve it inside their stacks). Collapses
-    /// while the bar is hidden (e.g. inside a message thread).
-    @ViewBuilder
-    private func reserveBar<Content: View>(_ content: Content) -> some View {
-        content.safeAreaInset(edge: .bottom) {
-            Color.clear.frame(height: appNav.hideTabBar ? 0 : tabPillBottomInset)
-        }
-    }
 
     var body: some View {
-        ZStack(alignment: .bottom) {
+        return ZStack(alignment: .bottom) {
             Color(hex: T.bg).ignoresSafeArea()
 
-            // Native TabView backbone: each tab is built once and kept alive, and —
-            // crucially — the OTHER tabs are NOT re-evaluated when you switch. The
-            // old keep-alive ZStack re-ran all five heavy page bodies on every tap,
-            // which was the click→page lag. The system tab bar is hidden; the custom
-            // frosted pill below drives `selected`.
-            TabView(selection: Binding(get: { appNav.selected }, set: { appNav.selected = $0 })) {
-                reserveBar(HomeView()).tag(TTab.home)
-                    .toolbar(.hidden, for: .tabBar)
-                JobsHubView().tag(TTab.jobs)            // reserves pill space inside its own NavigationStack
-                    .toolbar(.hidden, for: .tabBar)
-                reserveBar(TimeClockView()).tag(TTab.hours)
-                    .toolbar(.hidden, for: .tabBar)
-                reserveBar(MoreView()).tag(TTab.stats)
-                    .toolbar(.hidden, for: .tabBar)
-                MessagesView().tag(TTab.chat)           // reserves pill space inside its own NavigationStack
-                    .toolbar(.hidden, for: .tabBar)
-            }
-            // Phase 6: subtle sync-status indicator, just below the nav header.
-            .overlay(alignment: .top) {
-                SyncStatusDot().padding(.top, 52)
-            }
+            // The TabView lives in its own view so that the SELECTION read is
+            // scoped to it. Held inline here, a tab change invalidated
+            // MainTabView's whole body — which recomputed the unread badge and
+            // rebuilt the modifier chain around all five tabs on every tap.
+            TabHost()
+                // Phase 6: subtle sync-status indicator, just below the nav header.
+                .overlay(alignment: .top) {
+                    SyncStatusDot().padding(.top, 52)
+                }
 
             // TRAQS frosted floating pill (icon-only).
             if !appNav.hideTabBar {
-                TRAQSTabBar(
-                    selected: Binding(get: { appNav.selected }, set: { appNav.selected = $0 }),
-                    messagesBadge: appState.totalUnreadMessages)
+                TRAQSTabBar()
                     .padding(.bottom, 1)
                     .offset(y: 10)   // sit lower toward the bottom edge
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -107,6 +83,48 @@ struct MainTabView: View {
     }
 }
 
+// MARK: - Tab host
+//
+// Owns the TabView and, critically, the `appNav.selected` read. Everything that
+// does NOT need to change when you switch tabs — the unread badge, the floating
+// pill, the loading overlay, the color scheme — stays in MainTabView, which now
+// keeps its body out of the tap path entirely.
+
+private struct TabHost: View {
+    @Environment(AppNav.self) private var appNav
+
+    /// Reserves bottom space so a page's content ends at the TOP of the floating
+    /// nav pill. Used by Home/TimeClock/Stats — the tabs without their own
+    /// NavigationStack (Jobs/Messages reserve it inside their stacks). Collapses
+    /// while the bar is hidden (e.g. inside a message thread).
+    @ViewBuilder
+    private func reserveBar<Content: View>(_ content: Content) -> some View {
+        content.safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: appNav.hideTabBar ? 0 : tabPillBottomInset)
+        }
+    }
+
+    var body: some View {
+        // Native TabView backbone: each tab is built once and kept alive, and —
+        // crucially — the OTHER tabs are NOT re-evaluated when you switch. The
+        // old keep-alive ZStack re-ran all five heavy page bodies on every tap,
+        // which was the click→page lag. The system tab bar is hidden; the custom
+        // frosted pill drives `selected`.
+        return TabView(selection: Binding(get: { appNav.selected }, set: { appNav.selected = $0 })) {
+            reserveBar(HomeView()).tag(TTab.home)
+                .toolbar(.hidden, for: .tabBar)
+            JobsHubView().tag(TTab.jobs)            // reserves pill space inside its own NavigationStack
+                .toolbar(.hidden, for: .tabBar)
+            reserveBar(TimeClockView()).tag(TTab.hours)
+                .toolbar(.hidden, for: .tabBar)
+            reserveBar(MoreView()).tag(TTab.stats)
+                .toolbar(.hidden, for: .tabBar)
+            MessagesView().tag(TTab.chat)           // reserves pill space inside its own NavigationStack
+                .toolbar(.hidden, for: .tabBar)
+        }
+    }
+}
+
 // MARK: - TRAQS frosted floating tab bar
 // Icon-only pill with the app's frosted-glass language: an ultra-thin frost, a
 // brand-surface tint, a top highlight stroke, an ambient float shadow, and a
@@ -124,9 +142,19 @@ private let tabBarOrder: [TTab] = [.jobs, .hours, .home, .chat, .stats]
 let tabPillBottomInset: CGFloat = 104
 
 struct TRAQSTabBar: View {
-    @Binding var selected: TTab
-    var messagesBadge: Int
+    // Reads the selection and the badge count ITSELF rather than taking them
+    // from MainTabView. Handing this view a `Binding` to `appNav.selected`
+    // attached that dependency to MainTabView's body, so every tap re-ran the
+    // parent — which rebuilt the TabView and all five tab structs.
+    @Environment(AppNav.self) private var appNav
+    @Environment(AppState.self) private var appState
     @Environment(ThemeSettings.self) private var theme
+
+    private var selected: TTab {
+        get { appNav.selected }
+        nonmutating set { appNav.selected = newValue }
+    }
+    private var messagesBadge: Int { appState.totalUnreadMessages }
 
     // Drag-to-select state.
     @State private var dragX: CGFloat? = nil       // finger x while actively dragging (drives label + highlighter)
@@ -146,6 +174,11 @@ struct TRAQSTabBar: View {
     // pill's outer height fixed at 76pt (highlightH + vPad * 2).
     private let highlightW: CGFloat = 83   // keyW + 18
     private let highlightH: CGFloat = 62
+
+    /// How long the highlighter takes to slide to a tapped tab. The page itself
+    /// swaps with no animation, so this is what the eye reads as "how long the
+    /// tap took" — keep it short.
+    private let highlightSlide: Double = 0.15
     private var vPad: CGFloat { (76 - highlightH) / 2 }
 
     /// Map a horizontal position (in the bar's local space) to the tab under it.
@@ -201,7 +234,12 @@ struct TRAQSTabBar: View {
                 // amount this grows — the pill's outer size never changes.
                 .frame(width: highlightW, height: highlightH)
                 .offset(x: highlightCenterX - highlightW / 2)
-                .animation(dragX == nil ? .timingCurve(0.5, 0.0, 0.2, 1.0, duration: 0.22) : nil,
+                // PERCEIVED latency, not CPU: the page swaps instantly, so while
+                // the highlighter is still travelling the tap reads as "not done
+                // yet". Shortened 0.22 → 0.15 and given a faster-departing curve
+                // so the indicator arrives closer to when the page does.
+                // `highlightSlide` is the dial — raise it for a lazier glide.
+                .animation(dragX == nil ? .timingCurve(0.25, 0.0, 0.2, 1.0, duration: highlightSlide) : nil,
                            value: highlightCenterX)
 
             HStack(spacing: keySpacing) {
@@ -217,6 +255,8 @@ struct TRAQSTabBar: View {
         .padding(.vertical, vPad)   // shrinks as the highlighter grows → pill height locked at 76
         // Frosted-glass fill (translucent blur + subtle surface tint) with a FLAT
         // hairline border — the frosted look, minus the glossy reflection.
+        // (Measured on device: replacing this whole stack with a plain opaque
+        // fill did NOT reduce the per-tap stall, so the blur is not the cost.)
         .background {
             ZStack {
                 shape.fill(.ultraThinMaterial)
@@ -257,7 +297,8 @@ struct TRAQSTabBar: View {
                         dragStartX = value.location.x
                         // Page changes instantly (no animation transaction) — the
                         // highlighter eases independently via its scoped animation.
-                        selected = tab(atX: value.location.x)
+                        let target = tab(atX: value.location.x)
+                        selected = target
                     }
                     if abs(value.location.x - (dragStartX ?? value.location.x)) > 8 {
                         isDragging = true

@@ -16,7 +16,10 @@ struct GanttView: View {
     /// Tapping a timeline block sets this, which presents the job-detail popup.
     @State private var selectedBlock: ScheduleBlock?
     private let cal = Calendar.current
-    private let nowTimer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
+    /// `@State`, NOT `let` — a stored publisher is a new object on every rebuild,
+    /// which makes SwiftUI re-evaluate this whole body whenever the parent
+    /// re-renders. See the same note in TimeClockView.
+    @State private var nowTimer = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     enum ScheduleSegment: String, CaseIterable, Hashable { case day, week
         var label: String { rawValue.capitalized }
@@ -813,7 +816,7 @@ private struct WeekHeaderBar: View {
     private let cal = Calendar.current
 
     private var rangeLabel: String {
-        let f = DateFormatter(); f.dateFormat = "MMM d"
+        let f = DateFormatter.display("MMM d")
         guard let first = weekDates.first, let last = weekDates.last else { return "" }
         return "\(f.string(from: first)) – \(f.string(from: last))"
     }
@@ -919,7 +922,7 @@ private struct DayHeaderCell: View {
     private let cal = Calendar.current
 
     private var dow: String {
-        let f = DateFormatter(); f.dateFormat = "EEE"
+        let f = DateFormatter.display("EEE")
         return String(f.string(from: day).prefix(1))
     }
 
@@ -1146,14 +1149,14 @@ private struct DatePickerSheet: View {
 
 private extension DateFormatter {
     static let dayShort: DateFormatter = {
-        let f = DateFormatter(); f.dateFormat = "EEE · MMM d"; return f
+        let f = DateFormatter.display("EEE · MMM d"); return f
     }()
     static let dayFull: DateFormatter = {
-        let f = DateFormatter(); f.dateFormat = "EEE · MMM d"; return f
+        let f = DateFormatter.display("EEE · MMM d"); return f
     }()
     /// Compact "MMM d" — used inside Day-view schedule blocks where space is tight.
     static let blockShort: DateFormatter = {
-        let f = DateFormatter(); f.dateFormat = "MMM d"; return f
+        let f = DateFormatter.display("MMM d"); return f
     }()
 }
 
