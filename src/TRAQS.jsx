@@ -728,7 +728,6 @@ button:not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
    opt-out below (class + element beats bare element, both !important). */
 .tq-sidebar button:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
   transition: width 0.28s cubic-bezier(0.22, 1, 0.36, 1),
-              padding 0.28s cubic-bezier(0.22, 1, 0.36, 1),
               background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
 }
 /* Navigation sidebar opts out of the lift/glow — it keeps the simple background
@@ -18787,19 +18786,25 @@ ${jobsCtx || "No jobs found."}`;
       // Sidebar geometry. SB_W drives the <aside> below, NAV_PAD the nav column's
       // side padding, and NAV_W the usable width between it — which is also the
       // button width, so a collapsed button is exactly 40px and sits dead centre
-      // in the 64px rail ((64 - 40) / 2 = 12). Every value is px so they can all
-      // actually interpolate.
+      // in the 64px rail ((64 - 40) / 2 = 12).
+      //
+      // NAV_PAD is deliberately CONSTANT. It, plus the button's own constant
+      // 11px padding, is what fixes every icon at x=23..41 (centre 32, the rail's
+      // centreline) in BOTH states — so the icons never budge and only the pill
+      // and lettering animate. Vary either one and the icons shunt sideways as
+      // the sidebar opens.
       const NAV_EASE = "cubic-bezier(0.22,1,0.36,1)";
       const SB_W = sidebarExpanded ? 220 : 64;
-      const NAV_PAD = sidebarExpanded ? 8 : 12;
+      const NAV_PAD = 12;
       const NAV_W = SB_W - NAV_PAD * 2;
       // Shared nav-button style — matches iOS: active = brand-gradient fill; pill
       // when expanded, circle when collapsed; no separate sliding indicator.
       const navBtn = (active, o = {}) => ({
         position: "relative",
         // Left-aligned always, never `auto` margins — auto re-centres as the
-        // sidebar animates, which reads as a slide/glitch. Centring is done with
-        // px padding on both this button and its nav column, so it interpolates.
+        // sidebar animates, which reads as a slide/glitch. The icon is centred
+        // in the collapsed rail by constant padding instead, so it holds its
+        // position through the whole animation rather than being pushed around.
         // The button ANIMATES its width on the same curve and duration as the
         // sidebar, so its overflow clips each label away progressively as the
         // rail narrows. It used to snap from "100%" to 40px the instant the
@@ -18807,9 +18812,10 @@ ${jobsCtx || "No jobs found."}`;
         // label dead on frame one while the sidebar kept sliding for 280ms.
         width: NAV_W,
         height: o.h || 40,
-        // 11px collapsed, not 12: the 18px icon sits at the padding edge, so
-        // even padding would leave its centre 1px right of the button's.
-        padding: `0 ${sidebarExpanded ? 12 : 11}px`,
+        // 11px, not 12: the 18px icon overhangs the 40px collapsed button's
+        // 16px content box, so 12 would leave its centre 1px right of the
+        // button's. Constant across states — see NAV_PAD above.
+        padding: "0 11px",
         // Half the height in px: a pill at full width, a true circle at 40px,
         // and unlike radiusPill↔"50%" it interpolates instead of snapping.
         borderRadius: (o.h || 40) / 2,
