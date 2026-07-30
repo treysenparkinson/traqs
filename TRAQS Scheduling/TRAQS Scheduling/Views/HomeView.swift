@@ -70,7 +70,7 @@ struct HomeView: View {
                 .topFadeMask()
                 .refreshable { await reload() }
             }
-            .onReceive(ticker) { now = $0 }
+            .onReceive(ticker) { if appNav.selected == .home { now = $0 } }   // only tick while visible
             // Home is the landing tab; pull the pay-clock entries + settings the
             // hero needs (jobs/people come from the app-level loadAll).
             .task {

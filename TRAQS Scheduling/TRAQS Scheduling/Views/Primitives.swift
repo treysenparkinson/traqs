@@ -1,6 +1,22 @@
 import SwiftUI
 import UIKit
 
+/// A `TimelineView` that only ticks while `active` is true. When inactive it
+/// freezes (an effectively-infinite interval), so a page living in a background
+/// TabView tab stops re-running its periodic recompute/redraw. Content still
+/// updates on real data changes; it just doesn't burn the timer off-screen.
+/// Pass `active: appNav.selected == <thisTab>`.
+struct PausableTimeline<Content: View>: View {
+    let active: Bool
+    let interval: TimeInterval
+    @ViewBuilder let content: (Date) -> Content
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: active ? interval : 1_000_000_000)) { ctx in
+            content(ctx.date)
+        }
+    }
+}
+
 // MARK: - TRAQS Primitives
 // SwiftUI ports of the wireframe primitives in screens/shared.jsx.
 // Light, hairlined, frosted, sometimes raised. The signature indigo→magenta
@@ -48,14 +64,14 @@ struct SBox<Content: View>: View {
         let s = stroke ?? Color(hex: T.hair)
 
         // Broken into typed sub-views/helpers so the type-checker stays fast.
+        // Flat 2D card: fill + hairline/state ring only. Shadows and the
+        // compositingGroup offscreen pass were removed for GPU speed — every
+        // card previously paid an offscreen pass on appear (state is conveyed
+        // by the stroke ring, not the shadow).
         return content()
             .background(shape.fill(f))
             .overlay { glowOverlay(shape) }
             .overlay { strokeOverlay(shape, hairline: s, highlight: highlight) }
-            .compositingGroup()
-            .shadow(color: shadowColor(highlight),
-                    radius: shadowRadius(highlight),
-                    x: 0, y: shadowY(highlight))
     }
 
     @ViewBuilder
@@ -111,7 +127,8 @@ struct LiveSheen: View {
                                  .clear],
                         center: .center, startRadius: 0, endRadius: 95))
                     .frame(width: 190, height: 190)
-                    .blur(radius: 28)
+                    // No .blur — the radial gradient is already soft; the live
+                    // blur pass was an expensive per-card offscreen render.
                     .offset(x: 30, y: -28)
             }
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
@@ -395,16 +412,13 @@ struct IconBtn: View {
         Button(action: action) {
             TIconView(icon: icon, size: size, color: iconColor)
                 .padding(pad)
-                .glassEffect(glassStyle, in: Circle())
+                // Flat chip (was interactive glass — clustered IconBtns were the
+                // last "glassEffect updated multiple times per frame" source on
+                // Jobs/Stats, and a lone glass button looks off amid flat cards).
+                .background(Circle().fill(fill ?? Color(hex: T.surface)))
+                .overlay(Circle().strokeBorder(stroke ?? Color(hex: T.border), lineWidth: 1))
         }
         .buttonStyle(.plain)
-    }
-
-    /// iOS 26 Liquid Glass chrome. If a caller passed an explicit `fill`, carry
-    /// it through as a glass tint; otherwise use plain regular glass.
-    private var glassStyle: Glass {
-        let base: Glass = fill == nil ? .regular : .regular.tint(fill!)
-        return base.interactive()
     }
 }
 
@@ -569,7 +583,8 @@ struct GlowBlob: View {
             .fill(RadialGradient(colors: [color.opacity(opacity), .clear],
                                  center: .center, startRadius: 0, endRadius: size / 2))
             .frame(width: size, height: size)
-            .blur(radius: T.glowBlur)
+            // No .blur — the radial gradient is already soft; the blur was a
+            // full-screen offscreen pass on every appear of Home/Stats/TimeClock.
             .allowsHitTesting(false)
     }
 }
@@ -665,13 +680,11 @@ struct FrostedCard: ViewModifier {
         // reads aren't observable on their own).
         _ = theme.bgPresetId; _ = theme.accent
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        // Flat 2D card — fill + hairline border, no shadow/compositingGroup
+        // (removed for GPU speed on content-dense pages).
         return content
             .background(shape.fill(Color(hex: T.surface)))
-            // Flat hairline border (no glossy white top-edge reflection).
             .overlay(shape.strokeBorder(Color(hex: T.border), lineWidth: 1))
-            .compositingGroup()
-            .shadow(color: .black.opacity(T.ambientShadowOpacity),
-                    radius: T.ambientShadowRadius, x: 0, y: T.ambientShadowY)
     }
 }
 
@@ -692,12 +705,11 @@ struct FrostedPill: ViewModifier {
     func body(content: Content) -> some View {
         _ = theme.bgPresetId; _ = theme.accent
         let shape = Capsule(style: .continuous)
+        // Flat 2D pill — fill + hairline border, no shadow/compositingGroup
+        // (removed for GPU speed; these render per-row in the Messages inbox).
         return content
             .background(shape.fill(Color(hex: T.surface)))
             .overlay(shape.strokeBorder(Color(hex: T.border), lineWidth: 1))
-            .compositingGroup()
-            .shadow(color: .black.opacity(T.ambientShadowOpacity),
-                    radius: T.ambientShadowRadius, x: 0, y: T.ambientShadowY)
     }
 }
 

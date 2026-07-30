@@ -271,16 +271,22 @@ struct MessagesView: View {
 
                     // Inbox (the filter FAB now lives beside the title above).
                     ScrollView {
+                        // Evaluate the thread pipeline ONCE per render (it groups,
+                        // authorizes, and sorts all messages — previously run twice:
+                        // once for the emptiness check and again for the ForEach).
+                        let threads = filteredThreads
                         VStack(spacing: 0) {
-                            if filteredThreads.isEmpty {
+                            if threads.isEmpty {
                                 ChatEmptyState(filter: filter)
                                     .padding(.top, 80)
                             } else {
                                 TSectionTitle(title: "Inbox",
                                               action: "MARK ALL READ",
                                               onAction: { appState.markAllThreadsRead() })
-                                VStack(spacing: 12) {
-                                    ForEach(filteredThreads) { t in
+                                // Lazy: only on-screen rows build (each row pays an
+                                // avatar decode + frosted-pill shadow pass).
+                                LazyVStack(spacing: 12) {
+                                    ForEach(threads) { t in
                                         threadRow(t)
                                             .frostedPill()
                                     }
@@ -395,7 +401,10 @@ struct MessagesView: View {
     private func headerGlassCircle(_ icon: TIcon) -> some View {
         TIconView(icon: icon, size: 18, color: Color(hex: T.ink))
             .frame(width: 38, height: 38)
-            .glassEffect(.regular.interactive(), in: Circle())
+            // Flat chip (was interactive glass ×4 in one header row — the main
+            // "glassEffect updated multiple times per frame" source on Messages).
+            .background(Circle().fill(Color(hex: T.surface)))
+            .overlay(Circle().strokeBorder(Color(hex: T.border), lineWidth: 1))
     }
 
     /// Header filter button whose tap opens a native menu of chat filters.

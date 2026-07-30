@@ -18,6 +18,7 @@ private let isoFormatter: ISO8601DateFormatter = ISO8601DateFormatter()
 
 struct MoreView: View {
     @Environment(AppState.self) private var appState
+    @Environment(AppNav.self) private var appNav
     /// Any day within the week being shown; defaults to the current week. The
     /// calendar button in the header repoints this to jump to another week.
     @State private var weekAnchor: Date = Date()
@@ -59,12 +60,12 @@ struct MoreView: View {
 
                             // Ticks every 5s so the stat grid (Idle) + Efficiency
                             // graph grow live while anyone is clocked in.
-                            TimelineView(.periodic(from: .now, by: 5)) { ctx in
+                            PausableTimeline(active: appNav.selected == .stats, interval: 5) { date in
                                 VStack(spacing: 16) {
-                                    statGrid(now: ctx.date)
+                                    statGrid(now: date)
                                         .padding(.horizontal, 16)
-                                    EfficiencyCard(percent: "\(efficiencyPercent(for: nil, now: ctx.date))%",
-                                                   days: efficiencyDays(for: nil, now: ctx.date),
+                                    EfficiencyCard(percent: "\(efficiencyPercent(for: nil, now: date))%",
+                                                   days: efficiencyDays(for: nil, now: date),
                                                    info: "Job hours logged ÷ pay hours for the week across everyone (e.g. 30 logged of 40 paid = 75%). The bars show each day's pay hours (left) vs job hours (right); the number above each day is the difference.")
                                         .padding(.horizontal, 16)
                                 }
@@ -96,9 +97,9 @@ struct MoreView: View {
 
                             // This person's own efficiency for the selected week —
                             // ticks every 5s so it grows live while they're clocked in.
-                            TimelineView(.periodic(from: .now, by: 5)) { ctx in
-                                EfficiencyCard(percent: "\(efficiencyPercent(for: pid, now: ctx.date))%",
-                                               days: efficiencyDays(for: pid, now: ctx.date),
+                            PausableTimeline(active: appNav.selected == .stats, interval: 5) { date in
+                                EfficiencyCard(percent: "\(efficiencyPercent(for: pid, now: date))%",
+                                               days: efficiencyDays(for: pid, now: date),
                                                info: "Job hours logged ÷ pay hours for the week (e.g. 30 logged of 40 paid = 75%). The bars show each day's pay hours (left) vs job hours (right); the number above each day is the difference.")
                                     .padding(.horizontal, 16)
                                     .padding(.top, 16)
@@ -116,8 +117,8 @@ struct MoreView: View {
                             // this card — not MoreView's whole (admin-heavy) body.
                             // Only when viewing yourself — STOP acts on the current
                             // user, so we don't show it for an admin-selected worker.
-                            TimelineView(.periodic(from: .now, by: 1)) { context in
-                                RunningEntryCard(jobClock: active, now: context.date,
+                            PausableTimeline(active: appNav.selected == .stats, interval: 1) { date in
+                                RunningEntryCard(jobClock: active, now: date,
                                                  isStopping: isStopping,
                                                  onStop: {
                                                      guard !isStopping else { return }
@@ -132,13 +133,19 @@ struct MoreView: View {
                             .padding(.bottom, 4)
                         }
 
-                        VStack(spacing: 12) {
+                        // Evaluate the session pipeline ONCE (each of these
+                        // properties re-filters + re-sorts the whole jobSessions
+                        // array; they were hit 3× per render).
+                        let sessions = jobSessionsInPeriod
+                        let groups = jobSessionGroups
+                        // Lazy: only on-screen day-group cards build.
+                        LazyVStack(spacing: 12) {
                             JobHoursSummaryRow(periodHours: jobPeriodHours,
-                                               sessions: jobSessionsInPeriod.count)
-                            ForEach(jobSessionGroups) { group in
+                                               sessions: sessions.count)
+                            ForEach(groups) { group in
                                 EntryGroupCard(group: group)
                             }
-                            if jobSessionsInPeriod.isEmpty && activeJobClock == nil {
+                            if sessions.isEmpty && activeJobClock == nil {
                                 HoursEmptyState()
                             }
                         }
@@ -437,11 +444,13 @@ private extension MoreView {
     func dayOf(_ iso: String?, _ dateStr: String?) -> Date? {
         if let iso, let d = Date.fromFlexibleISO8601(iso) { return d }
         if let dateStr, !dateStr.isEmpty {
-            let f = ISO8601DateFormatter(); f.formatOptions = [.withFullDate]
-            return f.date(from: dateStr)
+            return Self.isoDateOnly.date(from: dateStr)   // cached; was allocated per call
         }
         return nil
     }
+    static let isoDateOnly: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withFullDate]; return f
+    }()
 
     /// Hours currently accruing from OPEN clocks, attributed to the calendar day
     /// the clock started. Pay = gross elapsed of an open pay shift (matches the
@@ -477,17 +486,24 @@ private extension MoreView {
         let pays = payEntries(for: personId)
         let sessions = appState.jobSessions.filter { personId == nil || $0.personId == personId }
         let live = liveAccrual(for: personId, now: now)
+        // Bucket by start-of-day in ONE pass (was: 7× reduce over all rows, each
+        // re-parsing every row's date — O(7·N) date parses per call, ×3 per render).
+        var payByDay: [Date: Double] = [:]
+        for e in pays {
+            guard let ed = dayOf(e.clockIn, e.date) else { continue }
+            payByDay[cal.startOfDay(for: ed), default: 0] += (e.hours ?? 0)
+        }
+        var jobByDay: [Date: Double] = [:]
+        for s in sessions {
+            guard let sd = dayOf(s.clockIn, s.date) else { continue }
+            jobByDay[cal.startOfDay(for: sd), default: 0] += (s.hours ?? 0)
+        }
         var out: [EffDay] = []
         for offset in 0..<7 {
             guard let day = cal.date(byAdding: .day, value: offset, to: week.start) else { continue }
-            var pay = pays.reduce(0.0) { acc, e in
-                guard let ed = dayOf(e.clockIn, e.date) else { return acc }
-                return cal.isDate(ed, inSameDayAs: day) ? acc + (e.hours ?? 0) : acc
-            }
-            var job = sessions.reduce(0.0) { acc, s in
-                guard let sd = dayOf(s.clockIn, s.date) else { return acc }
-                return cal.isDate(sd, inSameDayAs: day) ? acc + (s.hours ?? 0) : acc
-            }
+            let key = cal.startOfDay(for: day)
+            var pay = payByDay[key] ?? 0
+            var job = jobByDay[key] ?? 0
             for a in live where cal.isDate(a.day, inSameDayAs: day) {
                 pay += a.pay
                 job += a.job

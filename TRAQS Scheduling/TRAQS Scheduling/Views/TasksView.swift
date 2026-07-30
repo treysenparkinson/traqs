@@ -315,7 +315,9 @@ struct TasksView: View {
             }
             if !others.isEmpty {
                 sectionHeader("All Jobs").padding(.horizontal, 16)
-                VStack(spacing: 12) {
+                // Lazy: only on-screen job cards build (each is an SBox with a
+                // shadow/offscreen pass). "All Jobs" can be the whole org's job list.
+                LazyVStack(spacing: 12) {
                     ForEach(others) { job in
                         AllJobsCard(job: job, panels: panelsFor(job))
                     }
@@ -360,7 +362,7 @@ struct TasksView: View {
 
     @ViewBuilder
     private func cardStack(_ items: [TaskAssignment]) -> some View {
-        VStack(spacing: 12) {
+        LazyVStack(spacing: 12) {
             ForEach(items) { task in
                 NavigationLink(value: task.job) {
                     TaskCardV1(task: task, onOpen: { onOpenJob(task.job) })
@@ -1090,6 +1092,7 @@ struct TaskAssignment: Identifiable {
 // (ScheduleJobSheet) can reuse it as the log-time hero.
 struct TaskCardV1: View {
     @Environment(AppState.self) private var appState
+    @Environment(AppNav.self) private var appNav
     let task: TaskAssignment
     /// Menu "Information" action — open the job's detail (default no-op for the
     /// dead AllJobsCard call site, which still wraps the card in a NavigationLink).
@@ -1259,7 +1262,10 @@ struct TaskCardV1: View {
                             .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(Color(hex: T.muted))
                             .frame(width: 30, height: 30)
-                            .glassEffect(.regular.interactive(), in: Circle())
+                            // Flat chip (was per-card interactive glass — one
+                            // offscreen glass pass per task row down the list).
+                            .background(Circle().fill(Color(hex: T.surface)))
+                            .overlay(Circle().strokeBorder(Color(hex: T.border), lineWidth: 1))
                             .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
@@ -1421,8 +1427,8 @@ struct TaskCardV1: View {
                         .foregroundStyle(Color(hex: onBreak ? T.amber : T.sky))
                         .tLabel(tracking: 1.0)
                     if onBreak, let brk = appState.myActiveBreak {
-                        TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                            Text(breakCountdown(brk, at: ctx.date))
+                        PausableTimeline(active: appNav.selected == .jobs, interval: 1) { date in
+                            Text(breakCountdown(brk, at: date))
                                 .font(TTypo.monoBold(11))
                                 .foregroundStyle(Color(hex: T.amber))
                                 .tnum()
@@ -1430,8 +1436,8 @@ struct TaskCardV1: View {
                     }
                 }
                 Spacer()
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text("\(elapsedLabel(at: context.date)) · \(Int(pct))%")
+                PausableTimeline(active: appNav.selected == .jobs, interval: 1) { date in
+                    Text("\(elapsedLabel(at: date)) · \(Int(pct))%")
                         .font(TTypo.monoBold(13))
                         .foregroundStyle(Color(hex: T.sky))
                         .tnum()

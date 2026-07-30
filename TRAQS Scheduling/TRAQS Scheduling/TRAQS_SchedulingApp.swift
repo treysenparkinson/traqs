@@ -19,6 +19,13 @@ struct TRAQS_SchedulingApp: App {
     #endif
 
     init() {
+        #if os(iOS)
+        // UIScrollView delays content touches ~150ms by default to detect scrolling
+        // before delivering the touch. With the keep-alive nav (5 mounted scroll
+        // views), that delay was making taps on the floating nav pill feel slightly
+        // late. Deliver touches immediately; scrolling still starts on an actual drag.
+        UIScrollView.appearance().delaysContentTouches = false
+        #endif
         OneSignal.initialize("41fd1ecb-1bcb-432f-8e0b-2192801d96f4", withLaunchOptions: nil)
         OneSignal.Notifications.requestPermission({ _ in
             // No-op — the system permission UI is the user-facing signal;

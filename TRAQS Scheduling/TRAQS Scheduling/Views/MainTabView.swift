@@ -35,31 +35,14 @@ struct MainTabView: View {
     @Environment(AppState.self) private var appState
     @Environment(ThemeSettings.self) private var themeSettings
     @State private var showTimeOff: Bool = false
-    /// Tabs mounted so far — a tab is added on first visit and then kept alive
-    /// (lazy mount + keep-alive, like the native tab bar) so re-selecting it is
-    /// instant instead of rebuilding.
-    @State private var visited: Set<TTab> = [.home]
-
-    /// One keep-alive tab slot: mounted once visited, shown via opacity. Non-nav
-    /// tabs (Home/TimeClock/Stats) reserve space for the floating pill here;
-    /// Jobs/Messages already do it inside their own NavigationStacks.
+    /// Reserves bottom space so a page's content ends at the TOP of the floating
+    /// nav pill. Used by Home/TimeClock/Stats — the tabs without their own
+    /// NavigationStack (Jobs/Messages reserve it inside their stacks). Collapses
+    /// while the bar is hidden (e.g. inside a message thread).
     @ViewBuilder
-    private func tabContent<Content: View>(_ tab: TTab, reserveBar: Bool,
-                                           @ViewBuilder _ content: () -> Content) -> some View {
-        if visited.contains(tab) {
-            let isActive = appNav.selected == tab
-            Group {
-                if reserveBar {
-                    content().safeAreaInset(edge: .bottom) {
-                        Color.clear.frame(height: appNav.hideTabBar ? 0 : tabPillBottomInset)
-                    }
-                } else {
-                    content()
-                }
-            }
-            .opacity(isActive ? 1 : 0)
-            .allowsHitTesting(isActive)
-            .zIndex(isActive ? 1 : 0)
+    private func reserveBar<Content: View>(_ content: Content) -> some View {
+        content.safeAreaInset(edge: .bottom) {
+            Color.clear.frame(height: appNav.hideTabBar ? 0 : tabPillBottomInset)
         }
     }
 
@@ -67,19 +50,23 @@ struct MainTabView: View {
         ZStack(alignment: .bottom) {
             Color(hex: T.bg).ignoresSafeArea()
 
-            // Keep-alive tab content: each tab MOUNTS on first visit and stays
-            // mounted, so switching is INSTANT — the tap no longer waits on a heavy
-            // page (NavigationStack / gantt / message list + its .task) rebuilding
-            // on the main thread, which was the click→response lag. Visibility
-            // cross-fades via opacity.
-            ZStack {
-                tabContent(.home,  reserveBar: true)  { HomeView() }
-                tabContent(.jobs,  reserveBar: false) { JobsHubView() }
-                tabContent(.hours, reserveBar: true)  { TimeClockView() }
-                tabContent(.stats, reserveBar: true)  { MoreView() }
-                tabContent(.chat,  reserveBar: false) { MessagesView() }
+            // Native TabView backbone: each tab is built once and kept alive, and —
+            // crucially — the OTHER tabs are NOT re-evaluated when you switch. The
+            // old keep-alive ZStack re-ran all five heavy page bodies on every tap,
+            // which was the click→page lag. The system tab bar is hidden; the custom
+            // frosted pill below drives `selected`.
+            TabView(selection: Binding(get: { appNav.selected }, set: { appNav.selected = $0 })) {
+                reserveBar(HomeView()).tag(TTab.home)
+                    .toolbar(.hidden, for: .tabBar)
+                JobsHubView().tag(TTab.jobs)            // reserves pill space inside its own NavigationStack
+                    .toolbar(.hidden, for: .tabBar)
+                reserveBar(TimeClockView()).tag(TTab.hours)
+                    .toolbar(.hidden, for: .tabBar)
+                reserveBar(MoreView()).tag(TTab.stats)
+                    .toolbar(.hidden, for: .tabBar)
+                MessagesView().tag(TTab.chat)           // reserves pill space inside its own NavigationStack
+                    .toolbar(.hidden, for: .tabBar)
             }
-            .animation(.easeInOut(duration: 0.14), value: appNav.selected)   // quick page cross-fade (pops in)
             // Phase 6: subtle sync-status indicator, just below the nav header.
             .overlay(alignment: .top) {
                 SyncStatusDot().padding(.top, 52)
@@ -116,8 +103,6 @@ struct MainTabView: View {
                 appNav.openTimeOffPage = false
             }
         }
-        // Mount each tab on first visit and keep it alive thereafter.
-        .onChange(of: appNav.selected, initial: true) { _, tab in visited.insert(tab) }
         .preferredColorScheme(themeSettings.isLightTheme ? .light : .dark)
     }
 }
@@ -195,14 +180,20 @@ struct TRAQSTabBar: View {
         let shape = Capsule(style: .continuous)
 
         return ZStack(alignment: .leading) {
-            // The ONE accent highlighter — its center follows the finger while
-            // dragging (no animation → 1:1 tracking), otherwise rests on the
-            // selected tab. `.offset` only animates on release (see onEnded).
+            // The ONE accent highlighter. Its slide is animated INDEPENDENTLY of
+            // the page: `selected` is set with NO transaction (so the page swaps
+            // instantly on tap), and this scoped `.animation` eases only the
+            // highlighter's offset toward the new tab. While dragging (dragX set)
+            // the animation is disabled so it tracks the finger 1:1.
             Capsule(style: .continuous)
                 .fill(Color(hex: T.accent).verticalGradient())
                 .shadow(color: Color(hex: T.accent).opacity(0.45), radius: 8, x: 0, y: 3)
-                .frame(width: keyW - 4, height: 44)
-                .offset(x: highlightCenterX - (keyW - 4) / 2)
+                // Bigger + flush: fills the pill's inner height (~74pt) with a small
+                // even inset, and a touch wider per key, so it sits snug in the pill.
+                .frame(width: keyW - 2, height: 58)
+                .offset(x: highlightCenterX - (keyW - 2) / 2)
+                .animation(dragX == nil ? .timingCurve(0.5, 0.0, 0.2, 1.0, duration: 0.22) : nil,
+                           value: highlightCenterX)
 
             HStack(spacing: keySpacing) {
                 ForEach(tabBarOrder, id: \.self) { tab in
@@ -245,37 +236,31 @@ struct TRAQSTabBar: View {
             }
         }
         // Tap OR press-and-slide anywhere on the pill: the highlighter follows to
-        // the tab under the finger; releasing selects it.
+        // the tab under the finger; releasing selects it. (A UIKit touch layer was
+        // tried and REGRESSED render time to 50–167ms — its UIView overlay forced
+        // an expensive layout/compositing pass against the frosted material every
+        // render. The SwiftUI gesture measures ~1ms, so it's the right tool.)
         .contentShape(Capsule())
-        .gesture(
+        .highPriorityGesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
-                    // TOUCH-DOWN: commit the page IMMEDIATELY — the transition to the
-                    // pressed tab starts now, no waiting for finger-up. The page's own
-                    // fade (content .animation, 0.22) runs independently of the
-                    // highlighter's slide, and a fast re-press just cross-fades to the
-                    // newest page.
                     if dragStartX == nil {
                         dragStartX = value.location.x
-                        // Highlighter slides at its own curve; the page's own fade
-                        // (content .animation) starts immediately, independent of it.
-                        withAnimation(.timingCurve(0.5, 0.0, 0.2, 1.0, duration: 0.18)) {
-                            selected = tab(atX: value.location.x)
-                        }
+                        // Page changes instantly (no animation transaction) — the
+                        // highlighter eases independently via its scoped animation.
+                        selected = tab(atX: value.location.x)
                     }
-                    // Past a small threshold it's a real slide → the highlighter +
-                    // label follow the finger 1:1. The page is NOT re-committed while
-                    // sliding — only on release (below).
                     if abs(value.location.x - (dragStartX ?? value.location.x)) > 8 {
                         isDragging = true
                     }
                     if isDragging { dragX = value.location.x }
                 }
                 .onEnded { value in
-                    // If the user slid to a different tab, commit that on release.
-                    let final = tab(atX: value.location.x)
-                    if final != selected { selected = final }
-                    withAnimation(.timingCurve(0.5, 0.0, 0.2, 1.0, duration: 0.18)) { dragX = nil }
+                    if isDragging {
+                        let final = tab(atX: value.location.x)
+                        if final != selected { selected = final }
+                    }
+                    dragX = nil          // instant settle, no slide
                     dragStartX = nil
                     isDragging = false
                 }

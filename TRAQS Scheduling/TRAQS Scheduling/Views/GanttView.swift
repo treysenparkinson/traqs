@@ -8,6 +8,7 @@ import Combine
 
 struct GanttView: View {
     @Environment(AppState.self) private var appState
+    @Environment(AppNav.self) private var appNav
 
     @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date())
     @State private var segment: ScheduleSegment = .day
@@ -50,7 +51,7 @@ struct GanttView: View {
         }
         .scrollIndicators(.visible)
         .animation(.easeInOut(duration: 0.18), value: segment)
-        .onReceive(nowTimer) { _ in now = Date() }
+        .onReceive(nowTimer) { _ in if appNav.selected == .jobs { now = Date() } }   // only tick while visible
         .sheet(item: $selectedBlock) { block in
             ScheduleJobSheet(block: block)
         }

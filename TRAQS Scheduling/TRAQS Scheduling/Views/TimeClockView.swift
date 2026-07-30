@@ -16,7 +16,7 @@ struct TimeClockView: View {
     @Environment(AppNav.self) private var appNav
     @State private var now = Date()
     @State private var showPinPrompt = false
-    /// Bumped on every data rehydrate so this view re-renders when `people`
+    /// Bumped on every data rehydrate so this view re-renders when `peoplKe`
     /// changes live (e.g. an admin flips this person's mobile clock-in
     /// permission) — see .onReceive below.
     @State private var liveRefresh = 0
@@ -121,7 +121,7 @@ struct TimeClockView: View {
                   .refreshable { await reload() }
                 }
             }
-            .onReceive(ticker) { now = $0 }
+            .onReceive(ticker) { if appNav.selected == .hours { now = $0 } }   // only tick while visible
             // Force a re-render when live sync rehydrates data (e.g. an admin just
             // enabled this person's mobile clock-in permission) so the pay-clock
             // CTA appears without needing an app reopen.
@@ -253,14 +253,19 @@ struct TimeClockView: View {
     private var dailyBars: [DailyBar] {
         let cal = Calendar.current
         let today = cal.startOfDay(for: now)
+        // Bucket hours by start-of-day in ONE pass (was: re-filter all entries
+        // 8× and re-parse each date 8× inside the loop).
+        let entries = myCompletedEntries
+        var byDay: [Date: Double] = [:]
+        for e in entries {
+            guard let ed = isoDay(e.clockIn) else { continue }
+            byDay[cal.startOfDay(for: ed), default: 0] += (e.hours ?? 0)
+        }
         var out: [DailyBar] = []
         for i in stride(from: 7, through: 0, by: -1) {
             let d = cal.date(byAdding: .day, value: -i, to: today) ?? today
             let dow = ["S","M","T","W","T","F","S"][cal.component(.weekday, from: d) - 1]
-            var h = myCompletedEntries.reduce(0.0) { acc, e in
-                guard let ed = isoDay(e.clockIn) else { return acc }
-                return cal.isDate(ed, inSameDayAs: d) ? acc + (e.hours ?? 0) : acc
-            }
+            var h = byDay[cal.startOfDay(for: d)] ?? 0
             if i == 0 { h += liveShiftHours }
             out.append(DailyBar(date: d, dow: dow, hours: h, isToday: i == 0))
         }
@@ -276,9 +281,14 @@ struct TimeClockView: View {
         appState.payPeriodWindow(now: now)
     }
 
+    // Cached formatters — allocating an ISO8601DateFormatter per call was a
+    // hot-path cost (parseISO runs per entry during body evaluation).
+    private static let isoDateOnly: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withFullDate]; return f
+    }()
+    private static let isoFull = ISO8601DateFormatter()
     private func parseISO(_ s: String) -> Date? {
-        let f = ISO8601DateFormatter(); f.formatOptions = [.withFullDate]
-        return f.date(from: s) ?? ISO8601DateFormatter().date(from: s)
+        Self.isoDateOnly.date(from: s) ?? Self.isoFull.date(from: s)
     }
 
     private var periodLabel: String {
