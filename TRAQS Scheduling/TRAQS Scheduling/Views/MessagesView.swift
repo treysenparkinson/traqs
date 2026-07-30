@@ -1897,10 +1897,7 @@ struct MessageBubble: View {
                                                 radius: T.ctaGlowRadius * 0.6, x: 0, y: T.ctaGlowY * 0.6)
                                 } else {
                                     shape.fill(Color(hex: T.surface))
-                                        .overlay(shape.strokeBorder(
-                                            LinearGradient(colors: [Color(hex: T.highlightStroke).opacity(0.55), .clear],
-                                                           startPoint: .top, endPoint: .bottom),
-                                            lineWidth: 1))
+                                        .overlay(shape.strokeBorder(Color(hex: T.border), lineWidth: 1))
                                         .compositingGroup()
                                         .shadow(color: .black.opacity(T.ambientShadowOpacity),
                                                 radius: T.ambientShadowRadius * 0.6, x: 0, y: T.ambientShadowY * 0.6)

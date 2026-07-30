@@ -327,8 +327,7 @@ struct PanelCard: View {
             RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).strokeBorder(
                 highlighted
                     ? AnyShapeStyle(Color(hex: T.sky))
-                    : AnyShapeStyle(LinearGradient(colors: [Color(hex: T.highlightStroke).opacity(0.55), .clear],
-                                                   startPoint: .top, endPoint: .bottom)),
+                    : AnyShapeStyle(Color(hex: T.border)),
                 lineWidth: highlighted ? 1.5 : 1)
         )
         .compositingGroup()

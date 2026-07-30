@@ -73,14 +73,9 @@ struct SBox<Content: View>: View {
     @ViewBuilder
     private func strokeOverlay(_ shape: RoundedRectangle, hairline: Color, highlight: Color?) -> some View {
         ZStack {
+            // Flat hairline border only — no glossy white top-edge reflection.
             shape.strokeBorder(style: StrokeStyle(lineWidth: 1, dash: dashed ? [4, 3] : []))
                 .foregroundStyle(hairline)
-            if frosted {                     // glassy white top-edge highlight
-                shape.strokeBorder(
-                    LinearGradient(colors: [Color(hex: T.highlightStroke).opacity(0.55), .clear],
-                                   startPoint: .top, endPoint: .bottom),
-                    lineWidth: 1)
-            }
             if let highlight {               // active/sky/amber ring
                 shape.strokeBorder(highlight.opacity(0.35), lineWidth: 1)
             }
@@ -659,23 +654,21 @@ struct GradientRing: View {
     }
 }
 
-// ── FrostedCard: glassy white surface — big radius, soft white top-edge ────
-// highlight, diffuse ambient elevation. Opt-in via .frostedCard().
+// ── FrostedCard: flat 2D card — surface fill, a simple flat hairline border,
+// diffuse ambient elevation. Opt-in via .frostedCard().
 struct FrostedCard: ViewModifier {
     @Environment(ThemeSettings.self) private var theme
     var radius: CGFloat = T.cornerHero
     func body(content: Content) -> some View {
         // Touch the theme so a live Customize background/accent change
-        // re-renders every frosted surface immediately (the T.* tokens it
+        // re-renders every surface immediately (the T.* tokens it
         // reads aren't observable on their own).
         _ = theme.bgPresetId; _ = theme.accent
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         return content
             .background(shape.fill(Color(hex: T.surface)))
-            .overlay(shape.strokeBorder(
-                LinearGradient(colors: [Color(hex: T.highlightStroke).opacity(0.55), .clear],
-                               startPoint: .top, endPoint: .bottom),
-                lineWidth: 1))
+            // Flat hairline border (no glossy white top-edge reflection).
+            .overlay(shape.strokeBorder(Color(hex: T.border), lineWidth: 1))
             .compositingGroup()
             .shadow(color: .black.opacity(T.ambientShadowOpacity),
                     radius: T.ambientShadowRadius, x: 0, y: T.ambientShadowY)
@@ -692,8 +685,8 @@ extension View {
     }
 }
 
-// Frosted CAPSULE — the pill variant of FrostedCard (surface fill + top
-// highlight stroke + ambient float shadow, with capsule ends).
+// Flat 2D pill — the capsule variant of FrostedCard (surface fill + flat
+// hairline border + ambient float shadow, with capsule ends).
 struct FrostedPill: ViewModifier {
     @Environment(ThemeSettings.self) private var theme
     func body(content: Content) -> some View {
@@ -701,10 +694,7 @@ struct FrostedPill: ViewModifier {
         let shape = Capsule(style: .continuous)
         return content
             .background(shape.fill(Color(hex: T.surface)))
-            .overlay(shape.strokeBorder(
-                LinearGradient(colors: [Color(hex: T.highlightStroke).opacity(0.55), .clear],
-                               startPoint: .top, endPoint: .bottom),
-                lineWidth: 1))
+            .overlay(shape.strokeBorder(Color(hex: T.border), lineWidth: 1))
             .compositingGroup()
             .shadow(color: .black.opacity(T.ambientShadowOpacity),
                     radius: T.ambientShadowRadius, x: 0, y: T.ambientShadowY)

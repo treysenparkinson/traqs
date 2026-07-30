@@ -151,6 +151,10 @@ struct TimeClockView: View {
             }
         }
         .animation(.easeInOut(duration: 0.18), value: showPinPrompt)
+        // Hide the bottom nav pill while the PIN pad is up; it slides back in
+        // (MainTabView animates hideTabBar) when the pad is dismissed.
+        .onChange(of: showPinPrompt) { _, showing in appNav.hideTabBar = showing }
+        .onDisappear { appNav.hideTabBar = false }
     }
 
     private func reload() async {
@@ -550,11 +554,13 @@ private struct ClockInPinOverlay: View {
     @State private var pin = ""
     @State private var error: String?
     @State private var submitting = false
+    /// Bumped on every key press so `.sensoryFeedback` fires a tap haptic each time.
+    @State private var tapTick = 0
     private let maxDigits = 8
+    private let keySize: CGFloat = 78
+    private let keySpacing: CGFloat = 18
 
-    private var keypadRows: [[String]] {
-        [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["⌫", "0", "✓"]]
-    }
+    private let digitRows: [[String]] = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"]]
 
     var body: some View {
         ZStack {
@@ -563,7 +569,7 @@ private struct ClockInPinOverlay: View {
                 .contentShape(Rectangle())
                 .onTapGesture { if !submitting { onCancel() } }
 
-            VStack(spacing: 16) {
+            VStack(spacing: 18) {
                 VStack(spacing: 4) {
                     Text("Clock In")
                         .font(.custom(TFontName.bold.rawValue, size: 20))
@@ -590,62 +596,89 @@ private struct ClockInPinOverlay: View {
                         .foregroundStyle(Color(hex: T.red))
                 }
 
-                VStack(spacing: 10) {
-                    ForEach(keypadRows, id: \.self) { row in
-                        HStack(spacing: 10) {
-                            ForEach(row, id: \.self) { key in keyButton(key) }
+                // Circular, tap-friendly keypad. Action row: Delete (X) · 0 · Confirm (✓).
+                VStack(spacing: keySpacing) {
+                    ForEach(digitRows, id: \.self) { row in
+                        HStack(spacing: keySpacing) {
+                            ForEach(row, id: \.self) { digitKey($0) }
                         }
                     }
+                    HStack(spacing: keySpacing) {
+                        actionKey(icon: "xmark", filled: false) {
+                            if !pin.isEmpty { pin.removeLast(); error = nil }
+                        }
+                        digitKey("0")
+                        actionKey(icon: "checkmark", filled: true) { submit() }
+                    }
                 }
-
-                Button(action: { if !submitting { onCancel() } }) {
-                    Text("Cancel")
-                        .font(TTypo.smBold(14))
-                        .foregroundStyle(Color(hex: T.muted))
+            }
+            .padding(30)
+            .frostedCard(radius: T.cornerHero)
+            // Cancel/close = a Liquid Glass X anchored INSIDE the card's top-left
+            // (attached before the outer frame/padding so it sits on the card,
+            // not floating out in the dimmed backdrop).
+            .overlay(alignment: .topLeading) {
+                Button { if !submitting { onCancel() } } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Color(hex: T.ink))
+                        .frame(width: 40, height: 40)
+                        .glassEffect(.regular.interactive(), in: Circle())
                 }
                 .buttonStyle(.plain)
-                .padding(.top, 2)
+                .padding(14)
             }
-            .padding(24)
-            .frostedCard(radius: T.cornerHero)
-            .frame(maxWidth: 320)
-            .padding(.horizontal, 32)
+            .frame(maxWidth: 360)
+            .padding(.horizontal, 20)
             .opacity(submitting ? 0.7 : 1)
+            // Physical tap feedback on every key.
+            .sensoryFeedback(.impact(weight: .light), trigger: tapTick)
         }
     }
 
-    private func keyButton(_ key: String) -> some View {
-        let isSubmit = key == "✓"
-        return Button(action: { tap(key) }) {
+    // A round digit key.
+    private func digitKey(_ d: String) -> some View {
+        Button {
+            tapTick += 1
+            guard !submitting, pin.count < maxDigits else { return }
+            error = nil
+            pin.append(d)
+        } label: {
+            Text(d)
+                .font(.custom(TFontName.bold.rawValue, size: 27))
+                .foregroundStyle(Color(hex: T.ink))
+                .frame(width: keySize, height: keySize)
+                .background(Circle().fill(Color(hex: T.progressTrack).opacity(0.4)))
+        }
+        .buttonStyle(.plain)
+        .disabled(submitting)
+    }
+
+    // A round action key: delete (X, neutral) or confirm (✓, gradient fill).
+    private func actionKey(icon: String, filled: Bool, action: @escaping () -> Void) -> some View {
+        let isConfirm = icon == "checkmark"
+        return Button {
+            tapTick += 1
+            guard !submitting else { return }
+            action()
+        } label: {
             Group {
-                if isSubmit && submitting {
+                if isConfirm && submitting {
                     ProgressView().tint(T.onGradient)
                 } else {
-                    Text(key)
-                        .font(.custom(TFontName.bold.rawValue, size: 24))
-                        .foregroundStyle(isSubmit ? T.onGradient : Color(hex: T.ink))
+                    Image(systemName: icon)
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundStyle(filled ? T.onGradient : Color(hex: T.ink))
                 }
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 56)
+            .frame(width: keySize, height: keySize)
             .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isSubmit ? AnyShapeStyle(T.brandGradient())
-                                   : AnyShapeStyle(Color(hex: T.progressTrack).opacity(0.4)))
+                Circle().fill(filled ? AnyShapeStyle(T.brandGradient())
+                                     : AnyShapeStyle(Color(hex: T.progressTrack).opacity(0.4)))
             )
         }
         .buttonStyle(.plain)
-        .disabled(submitting || (isSubmit && pin.isEmpty))
-    }
-
-    private func tap(_ key: String) {
-        guard !submitting else { return }
-        error = nil
-        switch key {
-        case "⌫": if !pin.isEmpty { pin.removeLast() }
-        case "✓": submit()
-        default:  if pin.count < maxDigits { pin.append(key) }
-        }
+        .disabled(submitting || (isConfirm && pin.isEmpty))
     }
 
     private func submit() {
