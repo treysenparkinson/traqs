@@ -221,8 +221,17 @@ export async function handler(event) {
       if (!viewerId || viewerId !== String(authorId)) return err(403, "Author does not match authenticated user");
       if (!canViewThread(threadKey, viewerId, jobs, groups)) return err(403, "Not a participant in this thread");
 
+      // Client-supplied id. The web client mints the id before it posts so its
+      // optimistic bubble and this server copy share one identity — the bubble
+      // then stays mounted and only its delivery status flips Sending→Sent,
+      // instead of being torn down and re-added (which rendered as a momentary
+      // duplicate). Honoured only when it's a sane token that isn't already
+      // taken; anything else (older clients, collisions) gets a server id.
+      const wantId = typeof body?.id === "string" ? body.id.trim() : "";
+      const idOk = /^[A-Za-z0-9_-]{1,64}$/.test(wantId) && !existing.some(m => String(m.id) === wantId);
+
       const newMsg = {
-        id: makeId(),
+        id: idOk ? wantId : makeId(),
         threadKey,
         scope: scope || "job",
         jobId: jobId || null,

@@ -613,23 +613,40 @@ animStyle.textContent = `
 .tq-new-pulse     { animation: tqNewPulse 1.6s ease-out infinite; }
 
 /* ── Chat message entrance (send/receive) ──────────────────────────────
-   Mine pop up from the bottom-right; incoming slide in from the leading
-   edge. Applied only to freshly-arrived bubbles — backlog renders static. */
-@keyframes msgPopMine {
-  0%   { opacity: 0; transform: translateY(14px) scale(0.8); }
-  55%  { opacity: 1; transform: translateY(-3px) scale(1.04); }
-  100% { opacity: 1; transform: translateY(0)    scale(1);    }
+   Mine grow and fade in from the bottom-right; incoming slide in from the
+   leading edge. Applied only to freshly-arrived bubbles — backlog renders
+   static.
+
+   The sent bubble deliberately has NO overshoot: it settles straight onto
+   its final size on a decelerating curve, so it reads as the message
+   easing into place rather than springing. Once it lands it never moves
+   again — the only thing that keeps changing is the delivery caption
+   underneath it (Sending → Sent → Read). */
+@keyframes msgSendIn {
+  0%   { opacity: 0; transform: translateY(8px) scale(0.94); }
+  100% { opacity: 1; transform: translateY(0)   scale(1);    }
 }
 @keyframes msgSlideOther {
   0%   { opacity: 0; transform: translateX(-26px) scale(0.94); }
   60%  { opacity: 1; transform: translateX(4px)   scale(1.01); }
   100% { opacity: 1; transform: translateX(0)     scale(1);    }
 }
-.msg-in-mine  { animation: msgPopMine    0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both; transform-origin: bottom right; }
-.msg-in-other { animation: msgSlideOther 0.44s cubic-bezier(0.22, 1, 0.36, 1)    both; transform-origin: bottom left; }
-/* The in-flight bubble breathes until the server confirms it. */
-@keyframes msgSendingPulse { 0%, 100% { opacity: 0.55; } 50% { opacity: 0.9; } }
-.msg-sending { animation: msgSendingPulse 1.15s ease-in-out infinite; }
+.msg-in-mine  { animation: msgSendIn     0.34s cubic-bezier(0.22, 1, 0.36, 1) both; transform-origin: bottom right; }
+.msg-in-other { animation: msgSlideOther 0.44s cubic-bezier(0.22, 1, 0.36, 1) both; transform-origin: bottom left; }
+/* Tap-to-reveal send time. Slides down from behind the bubble, holds, then
+   retreats back up under it. Opacity + transform only — the caption is
+   absolutely positioned and out of flow, so revealing one never nudges a
+   single pixel of the thread. */
+@keyframes msgTimeIn {
+  0%   { opacity: 0; transform: translateY(-9px); }
+  100% { opacity: 1; transform: translateY(0);    }
+}
+@keyframes msgTimeOut {
+  0%   { opacity: 1; transform: translateY(0);    }
+  100% { opacity: 0; transform: translateY(-9px); }
+}
+.msg-time-in  { animation: msgTimeIn  0.28s cubic-bezier(0.22, 1, 0.36, 1)   both; }
+.msg-time-out { animation: msgTimeOut 0.30s cubic-bezier(0.55, 0, 0.55, 0.2) both; }
 /* Read receipt: the double-check ticks pop + tint when a recipient reads. */
 @keyframes msgReadPop {
   0%   { transform: scale(0.6); opacity: 0; }
@@ -638,7 +655,7 @@ animStyle.textContent = `
 }
 .msg-read-pop { animation: msgReadPop 0.34s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 @media (prefers-reduced-motion: reduce) {
-  .msg-in-mine, .msg-in-other, .msg-sending, .msg-read-pop { animation: none !important; }
+  .msg-in-mine, .msg-in-other, .msg-read-pop, .msg-time-in, .msg-time-out { animation: none !important; }
 }
 
 /* Upward-opening dropdown entrance (used only when a menu flips ABOVE its
@@ -3857,6 +3874,30 @@ Extraction rules:
   // from `messages` so a realtime/poll refresh (which replaces `messages`
   // wholesale) can't wipe an in-flight bubble.
   const [pendingMessages, setPendingMessages] = useState([]);
+  // Tap-to-reveal timestamp. Incoming messages no longer carry a permanent time
+  // caption; tapping a bubble slides its send time down from behind it, holds,
+  // then retreats it back up. The caption is absolutely positioned, so nothing
+  // in the thread moves for it.
+  //
+  // Keyed by message id — any number can be revealed at once. Each tap owns its
+  // own pair of timers, so tapping a second message never cuts the first one's
+  // animation short; they simply overlap and each runs its full course. A tap on
+  // a message that's already showing is ignored rather than restarting it.
+  const [timeReveals, setTimeReveals] = useState({});   // { [msgId]: "in" | "out" }
+  const timeRevealTimers = useRef({});                  // { [msgId]: [timeoutId, timeoutId] }
+  const revealMessageTime = (id) => {
+    const key = String(id);
+    if (timeRevealTimers.current[key]) return;          // already running — let it finish
+    setTimeReveals(p => ({ ...p, [key]: "in" }));
+    timeRevealTimers.current[key] = [
+      setTimeout(() => setTimeReveals(p => (p[key] ? { ...p, [key]: "out" } : p)), 2400),
+      setTimeout(() => {
+        delete timeRevealTimers.current[key];
+        setTimeReveals(p => { if (!p[key]) return p; const n = { ...p }; delete n[key]; return n; });
+      }, 2700),
+    ];
+  };
+  useEffect(() => () => Object.values(timeRevealTimers.current).forEach(ts => ts.forEach(clearTimeout)), []);
   // Bubbles whose entrance animation has already played, so re-renders don't
   // replay it. Seeded with a thread's backlog on open (backlog never animates);
   // only genuinely new messages animate. `seenThreadRef` guards the reseed.
@@ -3883,10 +3924,9 @@ Extraction rules:
   });
   const [groups, setGroups] = useState([]);
   const [newGroupModal, setNewGroupModal] = useState(false);
-  const [newGroupName, setNewGroupName] = useState("");
   const [newGroupPeople, setNewGroupPeople] = useState([]);
   const [newGroupSaving, setNewGroupSaving] = useState(false);
-  const [editGroupModal, setEditGroupModal] = useState(null); // { groupId, name, memberIds }
+  const [editGroupModal, setEditGroupModal] = useState(null); // { groupId, memberIds }
   const [editJobModal, setEditJobModal] = useState(null);
   const [editDrag, setEditDrag] = useState(null); // drag-and-drop state for edit-job hierarchy: { kind:"panel"|"op", panelIdx, opIdx } source / over
   const [editAddedIds, setEditAddedIds] = useState(() => new Set()); // ids added during current edit session — drives "New" badge
@@ -4362,12 +4402,18 @@ Extraction rules:
           setPendingMessages(prev => {
             if (!prev.length) return prev;
             return prev.filter(p => {
-              const confirmed = freshMsgs.find(m =>
-                m.threadKey === p.threadKey &&
-                String(m.authorId) === String(p.authorId) &&
-                m.text === p.text &&
-                Math.abs(new Date(m.timestamp) - new Date(p.timestamp)) < 30000
-              );
+              // Exact id match first: the client mints the message id and posts
+              // it, so a confirmed send is identifiable outright. The text/time
+              // heuristic stays as a fallback for anything sent by an older
+              // client (or whose id the server had to replace on collision).
+              const confirmed =
+                freshMsgs.find(m => String(m.id) === String(p.id)) ||
+                freshMsgs.find(m =>
+                  m.threadKey === p.threadKey &&
+                  String(m.authorId) === String(p.authorId) &&
+                  m.text === p.text &&
+                  Math.abs(new Date(m.timestamp) - new Date(p.timestamp)) < 30000
+                );
               if (confirmed) seenMsgIdsRef.current.add(String(confirmed.id));
               return !confirmed;
             });
@@ -5929,7 +5975,15 @@ ${jobsCtx || "No jobs found."}`;
     const { threadKey, scope, jobId, panelId, opId, participants } = chatThread;
     const text = chatInput.trim();
     const attachments = chatAttachments;
+    // The id is minted HERE, not by the server, and posted with the message.
+    // The optimistic bubble and the server copy therefore share one id — which
+    // is the React key — so the bubble is never unmounted and re-added when the
+    // send lands. It stays exactly where it is and only its delivery status
+    // changes (Sending → Sent → Read). Previously the two copies had different
+    // ids, so the swap read as the message duplicating itself.
+    const msgId = "m" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
     const payload = {
+      id: msgId,
       threadKey, scope,
       jobId: jobId || null, panelId: panelId || null, opId: opId || null,
       text,
@@ -5944,8 +5998,7 @@ ${jobsCtx || "No jobs found."}`;
     // success. Kept in `pendingMessages` — separate from `messages` — so a
     // poll/realtime refresh that replaces `messages` wholesale can't wipe an
     // in-flight bubble. On failure we drop it and restore the composer.
-    const tmpId = "tmp_" + uid();
-    const optimistic = { ...payload, id: tmpId, _pending: true, timestamp: new Date().toISOString() };
+    const optimistic = { ...payload, _pending: true, timestamp: new Date().toISOString() };
     setPendingMessages(prev => [...prev, optimistic]);
     setChatInput("");
     setChatAttachments([]);
@@ -5965,16 +6018,20 @@ ${jobsCtx || "No jobs found."}`;
       }
       // Pre-mark the server id as "seen" so the pending→server swap doesn't
       // replay the entrance animation the pending bubble already played.
+      // (Normally identical to msgId; only differs if the server had to mint
+      // its own id because ours collided.)
       seenMsgIdsRef.current.add(String(msg.id));
-      setMessages(prev => (prev.some(m => String(m.id) === String(msg.id)) ? prev : [...prev, msg]));
-      setPendingMessages(prev => prev.filter(m => m.id !== tmpId));
+      setMessages(prev => (prev.some(m => String(m.id) === String(msg.id))
+        ? prev.map(m => (String(m.id) === String(msg.id) ? msg : m))
+        : [...prev, msg]));
+      setPendingMessages(prev => prev.filter(m => String(m.id) !== String(msgId)));
       markThreadRead(threadKey);
       // I authored the newest message → my cursor already covers it; skip the
       // redundant read-cursor POST the viewing effect would otherwise fire.
       lastMarkedReadRef.current[threadKey] = msg.timestamp;
     } catch (e) {
       console.error("Failed to send message:", e);
-      setPendingMessages(prev => prev.filter(m => m.id !== tmpId));
+      setPendingMessages(prev => prev.filter(m => String(m.id) !== String(msgId)));
       setChatInput(prev => prev || text);
       setChatAttachments(prev => (prev.length ? prev : attachments));
       setChatError(e.message || "Failed to send — check your connection and try again.");
@@ -6424,7 +6481,9 @@ ${jobsCtx || "No jobs found."}`;
         participantIds: participants.map(p => p.id),
         attachments: [],
       }, getToken, orgCode);
-      setMessages(prev => [...prev, msg]);
+      // Guard against a realtime refresh having already inserted this message
+      // while the POST was in flight — otherwise it renders twice.
+      setMessages(prev => (prev.some(m => String(m.id) === String(msg.id)) ? prev : [...prev, msg]));
       setQuickChatInput("");
       markThreadRead(threadKey);
     } catch (e) {
@@ -6571,10 +6630,21 @@ ${jobsCtx || "No jobs found."}`;
     return r.start === r.end ? fmtD(r.start) : `${fmtD(r.start)} – ${fmtD(r.end)}`;
   };
 
+  // Groups aren't named — a group IS its people, so its title is just the other
+  // members' names. Accepts a group record or a bare list of member ids.
+  function groupTitle(groupOrIds) {
+    const ids = Array.isArray(groupOrIds) ? groupOrIds : (groupOrIds?.memberIds || []);
+    const names = ids
+      .filter(id => String(id) !== String(loggedInUser?.id))
+      .map(id => people.find(p => String(p.id) === String(id))?.name)
+      .filter(Boolean);
+    return names.join(", ") || "Group";
+  }
+
   function getThreadTitle(threadKey, scope, jobId, panelId, opId) {
     if (scope === "group" || threadKey?.startsWith("group:")) {
       const gId = threadKey?.replace("group:", "") || jobId;
-      const group = groups.find(g => g.id === gId); return group ? group.name : "Group Chat";
+      const group = groups.find(g => g.id === gId); return group ? groupTitle(group) : "Group";
     }
     if (scope === "job" || threadKey?.startsWith("job:")) {
       const job = tasks.find(j => j.id === jobId);
@@ -6598,19 +6668,21 @@ ${jobsCtx || "No jobs found."}`;
   }
 
   async function saveNewGroup() {
-    if (!newGroupName.trim() || newGroupSaving) return;
+    if (!newGroupPeople.length || newGroupSaving) return;
     if (!loggedInUser) { alert("Could not identify your user account. Please refresh and try again."); return; }
     setNewGroupSaving(true);
-    const memberIds = newGroupPeople.length > 0 ? newGroupPeople : [loggedInUser.id];
-    const newGroup = { id: uid(), name: newGroupName.trim(), memberIds, createdBy: loggedInUser.id, createdAt: new Date().toISOString() };
+    // The creator is always a member, whether or not they picked themselves.
+    const memberIds = [...new Set([...newGroupPeople, loggedInUser.id])];
+    // No `name` — groups are identified by their members (see groupTitle).
+    const newGroup = { id: uid(), memberIds, createdBy: loggedInUser.id, createdAt: new Date().toISOString() };
     const updated = [...(Array.isArray(groups) ? groups : []), newGroup];
     try {
       await saveGroups(updated, getToken, orgCode);
       setGroups(updated);
-      setNewGroupModal(false); setNewGroupName(""); setNewGroupPeople([]);
+      setNewGroupModal(false); setNewGroupPeople([]);
       const participants = people.filter(p => memberIds.includes(p.id));
       const threadKey = `group:${newGroup.id}`;
-      setChatThread({ threadKey, title: newGroup.name, scope: "group", groupId: newGroup.id, participants });
+      setChatThread({ threadKey, title: groupTitle(memberIds), scope: "group", groupId: newGroup.id, participants });
       markThreadRead(threadKey);
     } catch (e) {
       console.error("Failed to save group:", e);
@@ -6621,9 +6693,9 @@ ${jobsCtx || "No jobs found."}`;
   }
 
   async function saveEditGroup() {
-    if (!editGroupModal || !editGroupModal.name.trim()) return;
+    if (!editGroupModal || !editGroupModal.memberIds.length) return;
     const updated = groups.map(g => g.id === editGroupModal.groupId
-      ? { ...g, name: editGroupModal.name.trim(), memberIds: editGroupModal.memberIds }
+      ? { ...g, memberIds: editGroupModal.memberIds }
       : g
     );
     try {
@@ -6631,7 +6703,7 @@ ${jobsCtx || "No jobs found."}`;
       setGroups(updated);
       if (chatThread?.groupId === editGroupModal.groupId) {
         const participants = people.filter(p => editGroupModal.memberIds.includes(p.id));
-        setChatThread(ct => ({ ...ct, title: editGroupModal.name.trim(), participants }));
+        setChatThread(ct => ({ ...ct, title: groupTitle(editGroupModal.memberIds), participants }));
       }
       setEditGroupModal(null);
     } catch (e) {
@@ -15311,11 +15383,18 @@ ${jobsCtx || "No jobs found."}`;
 
     // Server messages for the thread + any optimistic (in-flight) bubbles,
     // ordered chronologically. Pending bubbles stamp "now" so they sort last.
+    // Merged BY ID with the server copy winning: an in-flight message carries
+    // the same id in both lists (the client mints it — see sendChatMessage), so
+    // there is exactly one bubble for it no matter which list currently holds
+    // it. Without this, a realtime refresh landing before the POST resolved put
+    // the same message in both lists and it rendered twice.
     const threadMessages = chatThread
-      ? [
-          ...messages.filter(m => m.threadKey === chatThread.threadKey),
-          ...pendingMessages.filter(m => m.threadKey === chatThread.threadKey),
-        ].sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)))
+      ? (() => {
+          const byId = new Map();
+          for (const m of pendingMessages) if (m.threadKey === chatThread.threadKey) byId.set(String(m.id), m);
+          for (const m of messages) if (m.threadKey === chatThread.threadKey) byId.set(String(m.id), m);
+          return [...byId.values()].sort((a, b) => String(a.timestamp).localeCompare(String(b.timestamp)));
+        })()
       : [];
     const canPost = !!(chatThread && loggedInUser);
 
@@ -15327,12 +15406,28 @@ ${jobsCtx || "No jobs found."}`;
       seenMsgIdsRef.current = new Set(threadMessages.map(m => String(m.id)));
     }
 
-    // The last message I authored in this thread — the only one of mine that
-    // shows a delivery status (Sent/Read). Earlier ones of mine show nothing.
-    let lastMineId = null;
+    // Whose read cursor has passed this message. Cursors are "read up to"
+    // timestamps, so a reader who's caught up to a message has by definition
+    // read everything of mine before it too.
+    const readerAtsFor = (m) => {
+      const others = (chatThread?.participants || []).map(p => String(p.id)).filter(id => id !== String(loggedInUser?.id));
+      const cursors = readReceipts[chatThread?.threadKey] || {};
+      return others.map(id => cursors[id]).filter(at => at && at >= m.timestamp);
+    };
+    // Two of my messages can carry a caption at once:
+    //   lastMineId     — my newest message. Shows "Sent" while nobody's read it.
+    //   lastReadMineId — my newest message that HAS been read. Shows "Read …".
+    // They're usually the same message, and then only one caption renders. They
+    // diverge when I send something new on top of an already-read message: the
+    // "Read" marker stays put on the message it actually describes instead of
+    // vanishing, and only jumps forward once the newer message is read too.
+    let lastMineId = null, lastReadMineId = null;
     if (loggedInUser) {
       for (let i = threadMessages.length - 1; i >= 0; i--) {
-        if (String(threadMessages[i].authorId) === String(loggedInUser.id)) { lastMineId = threadMessages[i].id; break; }
+        const m = threadMessages[i];
+        if (String(m.authorId) !== String(loggedInUser.id) || m._pending) continue;
+        if (lastMineId == null) lastMineId = m.id;
+        if (readerAtsFor(m).length) { lastReadMineId = m.id; break; }
       }
     }
     const readLabelTime = (iso) => {
@@ -15346,11 +15441,11 @@ ${jobsCtx || "No jobs found."}`;
     const deliveryStatusFor = (m) => {
       if (!loggedInUser || String(m.authorId) !== String(loggedInUser.id)) return null;
       if (m._pending) return { kind: "sending" };
-      if (String(m.id) !== String(lastMineId)) return null;
-      const others = (chatThread?.participants || []).map(p => String(p.id)).filter(id => id !== String(loggedInUser.id));
-      const cursors = readReceipts[chatThread?.threadKey] || {};
-      const readerAts = others.map(id => cursors[id]).filter(at => at && at >= m.timestamp);
-      if (!readerAts.length) return { kind: "sent" };
+      const isNewestMine = String(m.id) === String(lastMineId);
+      const isNewestRead = String(m.id) === String(lastReadMineId);
+      if (!isNewestMine && !isNewestRead) return null;
+      const readerAts = readerAtsFor(m);
+      if (!readerAts.length) return isNewestMine ? { kind: "sent" } : null;
       if (String(chatThread?.threadKey || "").startsWith("dm:")) {
         const latest = [...readerAts].sort().pop();
         return { kind: "read", label: `Read ${readLabelTime(latest)}` };
@@ -15440,7 +15535,7 @@ ${jobsCtx || "No jobs found."}`;
     // Group chip: a small stack of the (other) members' avatars.
     const groupChip = (g) => { const members = (g.memberIds || []).filter(id => String(id) !== String(loggedInUser?.id)).map(id => people.find(p => String(p.id) === String(id))).filter(Boolean); if (members.length <= 1) return avatarChip(members[0], 38); return <div style={{ position: "relative", width: 38, height: 38, flexShrink: 0 }}><div style={{ position: "absolute", right: 0, bottom: 0, borderRadius: "50%", border: `2px solid ${T.card}` }}>{avatarChip(members[1], 23)}</div><div style={{ position: "absolute", left: 0, top: 0, borderRadius: "50%", border: `2px solid ${T.card}` }}>{avatarChip(members[0], 23)}</div></div>; };
     const convoThreads = [
-      ...myGroups.map(g => { const tk = `group:${g.id}`; const latest = messages.filter(m => m.threadKey === tk).sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0]; const names = (g.memberIds || []).filter(id => String(id) !== String(loggedInUser?.id)).map(id => people.find(p => String(p.id) === String(id))?.name).filter(Boolean).join(", "); return { kind: "group", threadKey: tk, title: names || g.name, latest, group: g }; }),
+      ...myGroups.map(g => { const tk = `group:${g.id}`; const latest = messages.filter(m => m.threadKey === tk).sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0]; return { kind: "group", threadKey: tk, title: groupTitle(g), latest, group: g }; }),
       ...dmThreads.map(t => { const otherId = String(t.threadKey).slice(3).split("_").find(id => String(id) !== String(loggedInUser?.id)); const person = people.find(p => String(p.id) === String(otherId)); return { kind: "dm", threadKey: t.threadKey, title: getThreadTitle(t.threadKey, "dm"), latest: t.latest, group: null, person }; }),
     ].sort((a, b) => {
       const ap = (a.kind === "group" ? pinnedGroups.includes(a.group.id) : pinnedThreads.includes(a.threadKey)) ? 0 : 1;
@@ -15449,7 +15544,7 @@ ${jobsCtx || "No jobs found."}`;
     });
     const isPinnedConvo = (t) => t.kind === "group" ? pinnedGroups.includes(t.group.id) : pinnedThreads.includes(t.threadKey);
     const renderConvo = (t) => t.kind === "group"
-      ? <div key={t.threadKey} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setGroupCtxMenu({ x: e.clientX, y: e.clientY, groupId: t.group.id, groupName: t.group.name }); }}>{renderThread(t.threadKey, t.title, t.latest, unreadCount(t.threadKey), groupChip(t.group), isPinnedConvo(t))}</div>
+      ? <div key={t.threadKey} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setGroupCtxMenu({ x: e.clientX, y: e.clientY, groupId: t.group.id, groupName: t.title }); }}>{renderThread(t.threadKey, t.title, t.latest, unreadCount(t.threadKey), groupChip(t.group), isPinnedConvo(t))}</div>
       : <div key={t.threadKey} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setDmCtxMenu({ x: e.clientX, y: e.clientY, threadKey: t.threadKey, title: t.title }); }}>{renderThread(t.threadKey, t.title, t.latest, unreadCount(t.threadKey), avatarChip(t.person, 38), isPinnedConvo(t))}</div>;
     const pinnedConvos = convoThreads.filter(isPinnedConvo);
     const unpinnedConvos = convoThreads.filter(t => !isPinnedConvo(t));
@@ -15535,6 +15630,12 @@ ${jobsCtx || "No jobs found."}`;
                 {msgs.map((m, i) => {
                   const isMe = loggedInUser && String(m.authorId) === String(loggedInUser.id);
                   const ts = new Date(m.timestamp).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+                  // Label for the tap-to-reveal caption. Today's messages show
+                  // just the clock time; older ones lead with the day.
+                  const tsDay = String(m.timestamp).slice(0, 10);
+                  const tsFull = tsDay === TD ? ts
+                    : tsDay === addD(TD, -1) ? `Yesterday ${ts}`
+                    : `${new Date(m.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" })} ${ts}`;
                   // Only the FIRST message in a consecutive run by the same author
                   // shows the name; follow-on texts stay nameless (an approval/
                   // time-off card breaks the run). Keeps rapid multi-texts tidy.
@@ -15735,32 +15836,52 @@ ${jobsCtx || "No jobs found."}`;
                   const animClass = isNew ? (isMe ? "msg-in-mine" : "msg-in-other") : "";
                   return <div key={m.id} className={animClass} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 10, padding: "4px 14px", alignItems: "center" }}>
                     <div style={{ width: 32, height: 32, borderRadius: 16, background: T.systemBg || T.surfaceSolid || T.surface, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: accentText(T.systemBg || T.surfaceSolid || T.surface), flexShrink: 0 }}>{m.authorName[0]}</div>
-                    <div style={{ maxWidth: "72%", display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: 3 }}>
+                    <div onClick={() => revealMessageTime(m.id)} style={{ position: "relative", maxWidth: "72%", display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: 3, cursor: "pointer" }}>
                       {showName && <span style={{ fontSize: 12, fontWeight: 600, color: T.text, marginLeft: isMe ? 0 : 2, marginRight: isMe ? 2 : 0 }}>{m.authorName}</span>}
-                      {m.text && <div className={m._pending ? "msg-sending" : undefined} style={{ background: isMe ? brandGrad(T.accent) : T.surface, color: isMe ? T.accentText : T.text, padding: "10px 15px", borderRadius: isMe ? "22px 22px 6px 22px" : "22px 22px 22px 6px", fontSize: 15, lineHeight: 1.55, wordBreak: "break-word", border: isMe ? "none" : `1px solid ${T.border}` }}>
+                      {/* No in-flight styling on the bubble itself — it renders
+                          identically from the moment it appears. Delivery state
+                          lives entirely in the caption below. */}
+                      {m.text && <div style={{ position: "relative", zIndex: 1, background: isMe ? brandGrad(T.accent) : T.surface, color: isMe ? T.accentText : T.text, padding: "10px 15px", borderRadius: isMe ? "22px 22px 6px 22px" : "22px 22px 22px 6px", fontSize: 15, lineHeight: 1.55, wordBreak: "break-word", border: isMe ? "none" : `1px solid ${T.border}` }}>
                         {m.text}
                       </div>}
                       {(m.attachments || []).map((att, ai) => (
                         att.mimeType?.startsWith("image/")
-                          ? <div key={ai} onClick={() => setLightboxAtt(att)} className={m._pending ? "msg-sending" : undefined} style={{ borderRadius: 10, overflow: "hidden", border: `1px solid ${T.border}`, maxWidth: 240, cursor: "zoom-in" }}>
+                          ? <div key={ai} onClick={e => { e.stopPropagation(); setLightboxAtt(att); }} style={{ position: "relative", zIndex: 1, borderRadius: 10, overflow: "hidden", border: `1px solid ${T.border}`, maxWidth: 240, cursor: "zoom-in" }}>
                               <img src={`/api/attachment?key=${encodeURIComponent(att.key)}`} alt={att.filename} onLoad={() => { const el = chatScrollRef.current; if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 240) el.scrollTop = el.scrollHeight; }} style={{ display: "block", maxWidth: "100%", maxHeight: 220, objectFit: "cover" }} loading="lazy" />
                             </div>
-                          : <div key={ai} onClick={() => setLightboxAtt(att)} className={m._pending ? "msg-sending" : undefined} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", background: isMe ? brandGrad(T.accent) : T.surface, border: `1px solid ${isMe ? T.accent : T.border}`, borderRadius: 10, fontSize: 13, color: isMe ? T.accentText : T.text, cursor: "pointer", maxWidth: 220 }}>
+                          : <div key={ai} onClick={e => { e.stopPropagation(); setLightboxAtt(att); }} style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", background: isMe ? brandGrad(T.accent) : T.surface, border: `1px solid ${isMe ? T.accent : T.border}`, borderRadius: 10, fontSize: 13, color: isMe ? T.accentText : T.text, cursor: "pointer", maxWidth: 220 }}>
                               <span style={{ flexShrink: 0, lineHeight: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
                               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.filename}</span>
                             </div>
                       ))}
-                      {/* My messages reserve a FIXED-HEIGHT caption slot so the
+                      {/* Fixed-height caption slot, reserved on BOTH sides so the
                           delivery status appearing, changing (Sending→Sent→Read),
-                          or moving to a newer message never reflows the thread.
-                          The status shows only on my latest; the slot stays (empty)
-                          on my earlier ones. Others keep their timestamp — same
-                          slot height, so both sides stay perfectly stable. */}
-                      <span style={{ height: 15, display: "flex", alignItems: "center", marginLeft: isMe ? 0 : 2, marginRight: isMe ? 2 : 0 }}>
-                        {isMe
-                          ? renderDeliveryStatus(status)
-                          : <span style={{ fontSize: 11, color: T.textDim }}>{ts}</span>}
+                          or moving to a newer message never reflows the thread —
+                          and so incoming bubbles keep the same rhythm as mine now
+                          that they no longer carry a standing timestamp. Mine show
+                          the status (which carries the read time with it); theirs
+                          leave it empty, and either side reveals its send time on
+                          tap, below. */}
+                      <span style={{ position: "relative", zIndex: 1, height: 15, display: "flex", alignItems: "center", marginLeft: isMe ? 0 : 2, marginRight: isMe ? 2 : 0 }}>
+                        {isMe ? renderDeliveryStatus(status) : null}
                       </span>
+                      {/* Out of flow (absolute) and deliberately tiny, so it
+                          tucks in below the bubble without displacing anything.
+                          `top: 100%` is the bottom of the whole column, which
+                          sits 18px under the bubble (3px gap + the 15px caption
+                          slot) — so we pull back up by that much to sit flush
+                          against the text. The exception is a message that is
+                          actually showing a delivery status: its slot is
+                          occupied, so the time goes just below it instead.
+                          Note the slot is empty on MOST of my messages too —
+                          the status only ever renders on my newest and my
+                          newest-read — so this keys off the status itself, not
+                          off who sent it.
+                          pointerEvents:none keeps it from swallowing a tap on
+                          whatever sits underneath. */}
+                      {timeReveals[String(m.id)] && (
+                        <div className={timeReveals[String(m.id)] === "out" ? "msg-time-out" : "msg-time-in"} style={{ position: "absolute", top: "100%", marginTop: (isMe && status) ? 0 : -16, [isMe ? "right" : "left"]: 2, fontSize: 10, fontWeight: 600, letterSpacing: "0.02em", color: T.textDim, lineHeight: "11px", whiteSpace: "nowrap", pointerEvents: "none", zIndex: 0 }}>{tsFull}</div>
+                      )}
                     </div>
                   </div>;
                 })}
@@ -21486,10 +21607,10 @@ ${jobsCtx || "No jobs found."}`;
                   {m.text && <div style={{ background: isMe ? brandGrad(T.accent) : T.surface, color: isMe ? T.accentText : T.text, padding: "8px 12px", borderRadius: isMe ? "18px 18px 5px 18px" : "18px 18px 18px 5px", fontSize: 13, lineHeight: 1.45, wordBreak: "break-word", border: isMe ? "none" : `1px solid ${T.border}` }}>{m.text}</div>}
                   {(m.attachments || []).map((att, ai) => (
                     att.mimeType?.startsWith("image/")
-                      ? <div key={ai} onClick={() => setLightboxAtt(att)} style={{ borderRadius: 9, overflow: "hidden", border: `1px solid ${T.border}`, maxWidth: 200, cursor: "zoom-in" }}>
+                      ? <div key={ai} onClick={e => { e.stopPropagation(); setLightboxAtt(att); }} style={{ borderRadius: 9, overflow: "hidden", border: `1px solid ${T.border}`, maxWidth: 200, cursor: "zoom-in" }}>
                           <img src={`/api/attachment?key=${encodeURIComponent(att.key)}`} alt={att.filename} style={{ display: "block", maxWidth: "100%", maxHeight: 160, objectFit: "cover" }} loading="lazy" />
                         </div>
-                      : <div key={ai} onClick={() => setLightboxAtt(att)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 11px", background: isMe ? brandGrad(T.accent) : T.surface, border: `1px solid ${isMe ? T.accent : T.border}`, borderRadius: 9, fontSize: 12, color: isMe ? T.accentText : T.text, cursor: "pointer", maxWidth: 190 }}>
+                      : <div key={ai} onClick={e => { e.stopPropagation(); setLightboxAtt(att); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 11px", background: isMe ? brandGrad(T.accent) : T.surface, border: `1px solid ${isMe ? T.accent : T.border}`, borderRadius: 9, fontSize: 12, color: isMe ? T.accentText : T.text, cursor: "pointer", maxWidth: 190 }}>
                           <span style={{ flexShrink: 0, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
                           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.filename}</span>
                         </div>
@@ -21521,7 +21642,10 @@ ${jobsCtx || "No jobs found."}`;
     <FadeOnClose open={!!groupCtxMenu}>{groupCtxMenu && <div onClick={() => setGroupCtxMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 9998 }}>
       <div onClick={e => e.stopPropagation()} className="anim-ctx" style={{ position: "fixed", left: Math.min(groupCtxMenu.x, window.innerWidth - 220), top: Math.min(groupCtxMenu.y, window.innerHeight - 260), zIndex: 9999, minWidth: 200, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7)", fontFamily: T.font }}>
         <div style={{ padding: "10px 16px 8px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>👥 {groupCtxMenu.groupName}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 7 }}>
+            <span style={{ flexShrink: 0, lineHeight: 0, color: T.textDim }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{groupCtxMenu.groupName}</span>
+          </div>
         </div>
         <CtxMenuItem icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="17" x2="12" y2="21"/><path d="M9 3h6l-1 6 3 3H7l3-3z"/></svg>} label={pinnedGroups.includes(groupCtxMenu.groupId) ? "Unpin from Top" : "Pin to Top"} sub={pinnedGroups.includes(groupCtxMenu.groupId) ? "Remove from pinned" : "Keep at top of list"} onClick={() => {
           const updated = pinnedGroups.includes(groupCtxMenu.groupId)
@@ -21533,9 +21657,9 @@ ${jobsCtx || "No jobs found."}`;
         }} animIdx={0} />
         {can("editJobs") && <>
           <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
-          <CtxMenuItem icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>} label="Edit Group" sub="Rename and manage members" onClick={() => {
+          <CtxMenuItem icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>} label="Edit Group" sub="Add or remove members" onClick={() => {
             const g = groups.find(g => g.id === groupCtxMenu.groupId);
-            if (g) setEditGroupModal({ groupId: g.id, name: g.name, memberIds: g.memberIds || [] });
+            if (g) setEditGroupModal({ groupId: g.id, memberIds: g.memberIds || [] });
             setGroupCtxMenu(null);
           }} animIdx={1} />
         </>}
@@ -22424,10 +22548,8 @@ ${jobsCtx || "No jobs found."}`;
     {newGroupModal && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
       <div className="anim-modal" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: T.radiusHero, padding: 28, width: "100%", maxWidth: 420, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
         <h3 style={{ margin: "0 0 6px", fontSize: 18, fontWeight: 700, color: T.text }}>New Group</h3>
-        <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textDim }}>Create a group for team messaging</p>
-        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Group Name</label>
-        <input autoFocus value={newGroupName} onChange={e => setNewGroupName(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && newGroupName.trim()) saveNewGroup(); }} placeholder="e.g. Wire Crew, Shop Team…" style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", boxSizing: "border-box", marginBottom: 18 }} />
-        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Members <span style={{ color: T.textDim, fontWeight: 400, textTransform: "none" }}>(optional)</span></label>
+        <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textDim }}>Pick who's in it — the group is named after its members</p>
+        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Members</label>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
           {people.map(p => {
             const sel = newGroupPeople.includes(p.id);
@@ -22438,8 +22560,8 @@ ${jobsCtx || "No jobs found."}`;
           })}
         </div>
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <Btn variant="ghost" onClick={() => { setNewGroupModal(false); setNewGroupName(""); setNewGroupPeople([]); }}>Cancel</Btn>
-          <Btn onClick={saveNewGroup} disabled={!newGroupName.trim() || newGroupSaving}>{newGroupSaving ? "Creating…" : "Create Group"}</Btn>
+          <Btn variant="ghost" onClick={() => { setNewGroupModal(false); setNewGroupPeople([]); }}>Cancel</Btn>
+          <Btn onClick={saveNewGroup} disabled={!newGroupPeople.length || newGroupSaving}>{newGroupSaving ? "Creating…" : "Create Group"}</Btn>
         </div>
       </div>
     </div>}
@@ -22451,9 +22573,7 @@ ${jobsCtx || "No jobs found."}`;
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Edit Group</h3>
           <button onClick={() => setEditGroupModal(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", padding: 4, lineHeight: 1 }}>✕</button>
         </div>
-        <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textDim }}>Rename or update group members</p>
-        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Group Name</label>
-        <input autoFocus value={editGroupModal.name} onChange={e => setEditGroupModal(p => ({ ...p, name: e.target.value }))} onKeyDown={e => { if (e.key === "Enter" && editGroupModal.name.trim()) saveEditGroup(); }} placeholder="Group name…" style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", boxSizing: "border-box", marginBottom: 18 }} />
+        <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textDim }}>Add or remove members — the group is named after them</p>
         <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Members</label>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
           {people.map(p => {
@@ -22466,7 +22586,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <Btn variant="ghost" onClick={() => setEditGroupModal(null)}>Cancel</Btn>
-          <Btn onClick={saveEditGroup} disabled={!editGroupModal.name.trim()}>Save Changes</Btn>
+          <Btn onClick={saveEditGroup} disabled={!editGroupModal.memberIds.length}>Save Changes</Btn>
         </div>
       </div>
     </div>}
