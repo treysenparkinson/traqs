@@ -719,6 +719,17 @@ button:not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
   transform: translateY(0) scale(0.97) !important;
   transition-duration: 0.07s !important;
 }
+/* Sidebar nav buttons must also animate WIDTH, so the active pill shrinks with
+   the rail and each label is clipped away progressively instead of vanishing.
+   This has to live here rather than inline: the universal rule above replaces
+   any inline transition via !important, and its property list has no width —
+   so the buttons were snapping 204px to 40px on the first frame of the collapse
+   while the sidebar itself slid shut over 280ms. Same specificity trick as the
+   opt-out below (class + element beats bare element, both !important). */
+.tq-sidebar button:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
+  transition: width 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+              background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
+}
 /* Navigation sidebar opts out of the lift/glow — it keeps the simple background
    fade (set inline per nav button). Higher specificity than the rule above so it
    wins even against !important. */
@@ -18772,6 +18783,12 @@ ${jobsCtx || "No jobs found."}`;
     {/* Shadow T with the chrome theme so the whole sidebar follows the System Color (bg + contrast
         text/borders/hover). Nothing inside the sidebar sits on a card, so this is a clean swap. */}
     {!isMobile && (() => { const T = Tc;
+      // Sidebar geometry. SB_W drives the <aside> below; NAV_W is the usable
+      // width inside the nav column's 8px side padding. Both states are px so
+      // every width involved can actually interpolate.
+      const NAV_EASE = "cubic-bezier(0.22,1,0.36,1)";
+      const SB_W = sidebarExpanded ? 220 : 64;
+      const NAV_W = SB_W - 16;
       // Shared nav-button style — matches iOS: active = brand-gradient fill; pill
       // when expanded, circle when collapsed; no separate sliding indicator.
       const navBtn = (active, o = {}) => ({
@@ -18779,12 +18796,17 @@ ${jobsCtx || "No jobs found."}`;
         // Icon stays put across states: fixed left padding + left-aligned always,
         // so nothing jumps. Collapsed = a 40px circle centered by a FIXED margin
         // (never `auto` — auto re-centers as the sidebar animates → slide/glitch).
-        // Width & border-radius SNAP (px↔% / 50%↔px can't interpolate); the
-        // sidebar's own width transition supplies the smooth motion.
-        width: sidebarExpanded ? "100%" : 40,
+        // The button ANIMATES its width on the same curve and duration as the
+        // sidebar, so its overflow clips each label away progressively as the
+        // rail narrows. It used to snap from "100%" to 40px the instant the
+        // collapse began — percentages can't interpolate to px — which cut every
+        // label dead on frame one while the sidebar kept sliding for 280ms.
+        width: sidebarExpanded ? NAV_W : 40,
         height: o.h || 40,
         padding: "0 12px",
-        borderRadius: sidebarExpanded ? T.radiusPill : "50%",
+        // Half the height in px: a pill at full width, a true circle at 40px,
+        // and unlike radiusPill↔"50%" it interpolates instead of snapping.
+        borderRadius: (o.h || 40) / 2,
         border: o.border || "none",
         background: active ? T.hoverStrong : (o.bg || "transparent"),
         color: o.color || T.text,
@@ -18794,11 +18816,13 @@ ${jobsCtx || "No jobs found."}`;
         display: "flex", alignItems: "center",
         justifyContent: "flex-start",
         gap: 12,
-        transition: "background 0.18s ease, color 0.18s ease",
+        // NOTE: no `transition` here — the universal button rule in the
+        // stylesheet overrides any inline one with !important. The width/colour
+        // transition for these buttons lives in the `.tq-sidebar button` rule.
         overflow: "hidden", whiteSpace: "nowrap",
         ...o.extra,
       });
-      return (<aside className="tq-sidebar" onMouseEnter={() => { if (sidebarMode === "hover") setSidebarExpanded(true); }} onMouseLeave={() => { if (sidebarMode === "hover") setSidebarExpanded(false); }} style={{ width: sidebarExpanded ? 220 : 64, flexShrink: 0, background: T.surfaceSolid || T.surface, display: "flex", flexDirection: "column", transition: "width 0.28s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", position: "relative", zIndex: 100 }}>
+      return (<aside className="tq-sidebar" onMouseEnter={() => { if (sidebarMode === "hover") setSidebarExpanded(true); }} onMouseLeave={() => { if (sidebarMode === "hover") setSidebarExpanded(false); }} style={{ width: SB_W, flexShrink: 0, background: T.surfaceSolid || T.surface, display: "flex", flexDirection: "column", transition: `width 0.28s ${NAV_EASE}`, overflow: "hidden", position: "relative", zIndex: 100 }}>
       {/* Hamburger toggle — only shown in "button" mode; fades + collapses height when switching to hover */}
       <div aria-hidden={sidebarMode !== "button"} style={{ overflow: "hidden", maxHeight: sidebarMode === "button" ? 72 : 0, opacity: sidebarMode === "button" ? 1 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease, border-color 0.2s ease, margin-bottom 0.28s cubic-bezier(0.22,1,0.36,1)", padding: "12px 8px 12px", borderBottom: sidebarMode === "button" ? `1px solid ${T.border}22` : "1px solid transparent", marginBottom: sidebarMode === "button" ? 10 : 0, pointerEvents: sidebarMode === "button" ? "auto" : "none" }}>
         <button onClick={toggleSidebar} title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"} style={navBtn(false, { color: T.textSec })} onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textSec; }}>
@@ -18822,7 +18846,7 @@ ${jobsCtx || "No jobs found."}`;
               onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
               onMouseDown={() => tipCtx.hide()}>
               <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>{v.icon}</span>
-              <span style={{ opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", textOverflow: "ellipsis" }}>{v.label}</span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{v.label}</span>
             </button>
           );
         })}
@@ -18840,7 +18864,7 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
               </span>
-              <span style={{ opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", textOverflow: "ellipsis" }}>Approval Queue</span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>Approval Queue</span>
             </button>
           );
         })()}
@@ -18856,7 +18880,7 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
               </span>
-              <span style={{ opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", textOverflow: "ellipsis" }}>Admin</span>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>Admin</span>
             </button>
           );
         })()}
@@ -18869,7 +18893,7 @@ ${jobsCtx || "No jobs found."}`;
           <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           </span>
-          <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", textOverflow: "ellipsis" }}>Settings</span>
+          <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis" }}>Settings</span>
         </button>
         {/* (Old sidebar Settings dropdown removed — replaced by the full-page Settings view above.) */}
         </div>}
@@ -18882,7 +18906,7 @@ ${jobsCtx || "No jobs found."}`;
               onMouseDown={() => tipCtx.hide()}
               style={navBtn(activeS)}>
               <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>{icon}</span>
-              <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+              <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
             </button>
           ); };
           const orgActive = SETTINGS_ORG_CHILDREN.some(c => c.key === settingsSection);
@@ -18895,7 +18919,7 @@ ${jobsCtx || "No jobs found."}`;
                 onMouseDown={() => tipCtx.hide()}
                 style={navBtn(false, { color: T.textSec, fw: 600, extra: { marginBottom: 6 } })}>
                 <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></span>
-                <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", textOverflow: "ellipsis" }}>Back</span>
+                <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis" }}>Back</span>
               </button>
               {/* Divider — separates Back from the settings sections */}
               <div aria-hidden="true" style={{ height: 1, background: T.border + "55", margin: "6px 12px 8px", opacity: sidebarExpanded ? 1 : 0.4, transition: "opacity 0.2s ease" }} />
@@ -18907,7 +18931,7 @@ ${jobsCtx || "No jobs found."}`;
                   onMouseDown={() => tipCtx.hide()}
                   style={navBtn(orgActive)}>
                   <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></span>
-                  <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", textOverflow: "ellipsis" }}>Organization</span>
+                  <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis" }}>Organization</span>
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: settingsOrgExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0, opacity: sidebarExpanded ? 1 : 0 }}><polyline points="9 18 15 12 9 6"/></svg>
                 </button>
                 <div style={{ display: "grid", gridTemplateRows: settingsOrgExpanded && sidebarExpanded ? "1fr" : "0fr", transition: "grid-template-rows 0.22s cubic-bezier(0.4,0,0.2,1), opacity 0.16s ease", opacity: settingsOrgExpanded && sidebarExpanded ? 1 : 0, pointerEvents: settingsOrgExpanded && sidebarExpanded ? "auto" : "none" }}>
@@ -18934,7 +18958,7 @@ ${jobsCtx || "No jobs found."}`;
                 onMouseDown={() => tipCtx.hide()}
                 style={navBtn(false, { color: T.accent, bg: T.accent + "12", border: `1px solid ${T.accent}44`, fw: 700, extra: { marginTop: 6 } })}>
                 <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg></span>
-                <span style={{ flex: 1, textAlign: "left", opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "0.03em" }}>FAST TRAQS</span>
+                <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "0.03em" }}>FAST TRAQS</span>
               </button>}
             </div>
           );
@@ -18952,11 +18976,11 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ position: "absolute", inset: 0 }} />
           </Tip>}
         </div>
-        <div style={{ flex: 1, minWidth: 0, lineHeight: 1.2, opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", overflow: "hidden", whiteSpace: "nowrap", pointerEvents: sidebarExpanded ? "auto" : "none" }}>
+        <div style={{ flex: 1, minWidth: 0, lineHeight: 1.2, overflow: "hidden", whiteSpace: "nowrap", pointerEvents: sidebarExpanded ? "auto" : "none" }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis" }}>{loggedInUser.name}</div>
           <div style={{ fontSize: 10, color: isAdmin ? T.accent : T.textDim }}>{isAdmin ? "Admin" : "Crew"}</div>
         </div>
-        <div style={{ flexShrink: 0, opacity: sidebarExpanded ? 1 : 0, maxWidth: sidebarExpanded ? 220 : 0, transition: "opacity 0.18s 0.06s, max-width 0.24s cubic-bezier(0.22,1,0.36,1)", pointerEvents: sidebarExpanded ? "auto" : "none" }}>
+        <div style={{ flexShrink: 0, pointerEvents: sidebarExpanded ? "auto" : "none" }}>
           <Tip label="Log out">
             <button onClick={() => setConfirmLogout(true)} style={{ width: 30, height: 30, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: "#ef4444", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s, border-color 0.15s" }}
               onMouseEnter={e => { e.currentTarget.style.background = "#ef444411"; e.currentTarget.style.borderColor = "#ef444455"; }}
