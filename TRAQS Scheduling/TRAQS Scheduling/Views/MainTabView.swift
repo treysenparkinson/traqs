@@ -215,9 +215,14 @@ struct TRAQSTabBar: View {
         }
         .padding(.horizontal, hPad)
         .padding(.vertical, 13)
-        // Flat 2D card fill (a solid lighter surface — no translucent material,
-        // no glossy reflection) for a clean, modern look that's also cheaper.
-        .background(shape.fill(Color(hex: T.surface)))
+        // Frosted-glass fill (translucent blur + subtle surface tint) with a FLAT
+        // hairline border — the frosted look, minus the glossy reflection.
+        .background {
+            ZStack {
+                shape.fill(.ultraThinMaterial)
+                shape.fill(Color(hex: T.surface).opacity(0.30))
+            }
+        }
         .overlay(shape.strokeBorder(Color(hex: T.border), lineWidth: 1))
         .compositingGroup()
         .shadow(color: .black.opacity(T.ambientShadowOpacity),
