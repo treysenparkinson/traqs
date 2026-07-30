@@ -728,6 +728,7 @@ button:not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
    opt-out below (class + element beats bare element, both !important). */
 .tq-sidebar button:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
   transition: width 0.28s cubic-bezier(0.22, 1, 0.36, 1),
+              padding 0.28s cubic-bezier(0.22, 1, 0.36, 1),
               background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
 }
 /* Navigation sidebar opts out of the lift/glow — it keeps the simple background
@@ -18783,27 +18784,32 @@ ${jobsCtx || "No jobs found."}`;
     {/* Shadow T with the chrome theme so the whole sidebar follows the System Color (bg + contrast
         text/borders/hover). Nothing inside the sidebar sits on a card, so this is a clean swap. */}
     {!isMobile && (() => { const T = Tc;
-      // Sidebar geometry. SB_W drives the <aside> below; NAV_W is the usable
-      // width inside the nav column's 8px side padding. Both states are px so
-      // every width involved can actually interpolate.
+      // Sidebar geometry. SB_W drives the <aside> below, NAV_PAD the nav column's
+      // side padding, and NAV_W the usable width between it — which is also the
+      // button width, so a collapsed button is exactly 40px and sits dead centre
+      // in the 64px rail ((64 - 40) / 2 = 12). Every value is px so they can all
+      // actually interpolate.
       const NAV_EASE = "cubic-bezier(0.22,1,0.36,1)";
       const SB_W = sidebarExpanded ? 220 : 64;
-      const NAV_W = SB_W - 16;
+      const NAV_PAD = sidebarExpanded ? 8 : 12;
+      const NAV_W = SB_W - NAV_PAD * 2;
       // Shared nav-button style — matches iOS: active = brand-gradient fill; pill
       // when expanded, circle when collapsed; no separate sliding indicator.
       const navBtn = (active, o = {}) => ({
         position: "relative",
-        // Icon stays put across states: fixed left padding + left-aligned always,
-        // so nothing jumps. Collapsed = a 40px circle centered by a FIXED margin
-        // (never `auto` — auto re-centers as the sidebar animates → slide/glitch).
+        // Left-aligned always, never `auto` margins — auto re-centres as the
+        // sidebar animates, which reads as a slide/glitch. Centring is done with
+        // px padding on both this button and its nav column, so it interpolates.
         // The button ANIMATES its width on the same curve and duration as the
         // sidebar, so its overflow clips each label away progressively as the
         // rail narrows. It used to snap from "100%" to 40px the instant the
         // collapse began — percentages can't interpolate to px — which cut every
         // label dead on frame one while the sidebar kept sliding for 280ms.
-        width: sidebarExpanded ? NAV_W : 40,
+        width: NAV_W,
         height: o.h || 40,
-        padding: "0 12px",
+        // 11px collapsed, not 12: the 18px icon sits at the padding edge, so
+        // even padding would leave its centre 1px right of the button's.
+        padding: `0 ${sidebarExpanded ? 12 : 11}px`,
         // Half the height in px: a pill at full width, a true circle at 40px,
         // and unlike radiusPill↔"50%" it interpolates instead of snapping.
         borderRadius: (o.h || 40) / 2,
@@ -18824,7 +18830,7 @@ ${jobsCtx || "No jobs found."}`;
       });
       return (<aside className="tq-sidebar" onMouseEnter={() => { if (sidebarMode === "hover") setSidebarExpanded(true); }} onMouseLeave={() => { if (sidebarMode === "hover") setSidebarExpanded(false); }} style={{ width: SB_W, flexShrink: 0, background: T.surfaceSolid || T.surface, display: "flex", flexDirection: "column", transition: `width 0.28s ${NAV_EASE}`, overflow: "hidden", position: "relative", zIndex: 100 }}>
       {/* Hamburger toggle — only shown in "button" mode; fades + collapses height when switching to hover */}
-      <div aria-hidden={sidebarMode !== "button"} style={{ overflow: "hidden", maxHeight: sidebarMode === "button" ? 72 : 0, opacity: sidebarMode === "button" ? 1 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease, border-color 0.2s ease, margin-bottom 0.28s cubic-bezier(0.22,1,0.36,1)", padding: "12px 8px 12px", borderBottom: sidebarMode === "button" ? `1px solid ${T.border}22` : "1px solid transparent", marginBottom: sidebarMode === "button" ? 10 : 0, pointerEvents: sidebarMode === "button" ? "auto" : "none" }}>
+      <div aria-hidden={sidebarMode !== "button"} style={{ overflow: "hidden", maxHeight: sidebarMode === "button" ? 72 : 0, opacity: sidebarMode === "button" ? 1 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease, border-color 0.2s ease, margin-bottom 0.28s cubic-bezier(0.22,1,0.36,1), padding 0.28s cubic-bezier(0.22,1,0.36,1)", padding: `12px ${NAV_PAD}px 12px`, borderBottom: sidebarMode === "button" ? `1px solid ${T.border}22` : "1px solid transparent", marginBottom: sidebarMode === "button" ? 10 : 0, pointerEvents: sidebarMode === "button" ? "auto" : "none" }}>
         <button onClick={toggleSidebar} title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"} style={navBtn(false, { color: T.textSec })} onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textSec; }}>
           <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
@@ -18832,7 +18838,7 @@ ${jobsCtx || "No jobs found."}`;
         </button>
       </div>
       {/* Nav buttons */}
-      <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: 2, padding: sidebarMode === "button" ? "0 8px 0" : "12px 8px 0", flex: 1, transition: "padding 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
+      <div style={{ position: "relative", display: "flex", flexDirection: "column", gap: 2, padding: sidebarMode === "button" ? `0 ${NAV_PAD}px 0` : `12px ${NAV_PAD}px 0`, flex: 1, transition: "padding 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
         {/* ─── App navigation (swaps out instantly when entering settings) ─── */}
         {!settingsMode && <div style={settingsNavLayer(false)}>
         {views.map(v => {
