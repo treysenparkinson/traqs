@@ -137,7 +137,7 @@ struct TRAQSTabBar: View {
     // and we can map a drag x → tab without measuring.
     private let keyW: CGFloat = 65
     private let keySpacing: CGFloat = 2
-    private let hPad: CGFloat = 14
+    private let hPad: CGFloat = 17.5   // +2.5px each side → bar 5px wider L→R
     private var tabCount: Int { tabBarOrder.count }
     private var barWidth: CGFloat { hPad * 2 + CGFloat(tabCount) * keyW + CGFloat(tabCount - 1) * keySpacing }
 
@@ -188,10 +188,10 @@ struct TRAQSTabBar: View {
             Capsule(style: .continuous)
                 .fill(Color(hex: T.accent).verticalGradient())
                 .shadow(color: Color(hex: T.accent).opacity(0.45), radius: 8, x: 0, y: 3)
-                // Bigger + flush: fills the pill's inner height (~74pt) with a small
-                // even inset, and a touch wider per key, so it sits snug in the pill.
-                .frame(width: keyW - 2, height: 58)
-                .offset(x: highlightCenterX - (keyW - 2) / 2)
+                // Flush horizontal pill: same width as before, height shortened to
+                // stay flush now that the bar is 4px thinner.
+                .frame(width: keyW + 6, height: 54)
+                .offset(x: highlightCenterX - (keyW + 6) / 2)
                 .animation(dragX == nil ? .timingCurve(0.5, 0.0, 0.2, 1.0, duration: 0.22) : nil,
                            value: highlightCenterX)
 
@@ -205,7 +205,7 @@ struct TRAQSTabBar: View {
             }
         }
         .padding(.horizontal, hPad)
-        .padding(.vertical, 13)
+        .padding(.vertical, 11)   // −2px each side → bar 4px thinner
         // Frosted-glass fill (translucent blur + subtle surface tint) with a FLAT
         // hairline border — the frosted look, minus the glossy reflection.
         .background {
