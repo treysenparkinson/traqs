@@ -344,6 +344,37 @@ const effectiveClockState = (person, now = Date.now()) => {
   if (person?.activeBreak) return { ...cs, isOnBreak: true, status: "break" };
   return cs;
 };
+// Coarse live status for the team boards: "job" | "break" | "lunch" | "idle" |
+// "offline". Lunch/break are detected the same way clockState does it — an open
+// start punch with no matching end — rather than trusting a flag, because the
+// kiosk and iOS write these differently. Hoisted to module scope so the Time
+// Clock board and the Dashboard can't drift apart on what "on lunch" means.
+const PERSON_STATUS_META = {
+  job:     { label: "On job",  color: "#6366f1" },
+  break:   { label: "Break",   color: "#f59e0b" },
+  lunch:   { label: "Lunch",   color: "#f59e0b" },
+  idle:    { label: "Clocked in", color: "#10b981" },
+  offline: { label: "Off",     color: "#64748b" },
+};
+const personStatus = (p) => {
+  const evts = p?.activeClockIn?.events || [];
+  let lunchOpen = null, breakOpen = false;
+  for (const ev of evts) {
+    if (ev.type === "lunchStart") lunchOpen = ev;
+    else if (ev.type === "lunchEnd") lunchOpen = null;
+    else if (ev.type === "breakStart") breakOpen = true;
+    else if (ev.type === "breakEnd") breakOpen = false;
+  }
+  if (lunchOpen) return "lunch";
+  if (p?.activeBreak || breakOpen) return "break";
+  if (p?.activeJobClock) return "job";
+  if (p?.activeClockIn) return "idle";
+  return "offline";
+};
+// The rotating analytics panel cycles these in order, one every 5s. Keys only —
+// the values are derived at render time from live data. Module scope so the
+// rotator's interval can wrap the index without reaching into render state.
+const DASH_STAT_KEYS = ["hours", "active", "ontime", "avg", "clocked", "due"];
 const DEFAULT_WORK_DAYS = [1, 2, 3, 4, 5];
 const addWorkingDays = (ds, n, workDays = DEFAULT_WORK_DAYS) => { let d = new Date(ds + "T12:00:00"); let count = 0; while (count < n) { d.setDate(d.getDate() + 1); if (workDays.includes(d.getDay())) count++; } return toDS(d); };
 const isWorkDay = (ds, workDays = DEFAULT_WORK_DAYS) => workDays.includes(new Date(ds + "T12:00:00").getDay());
@@ -407,8 +438,12 @@ const HEALTH_COLOR = { ontime: "#10b981", behind: "#f59e0b", critical: "#ef4444"
 
 
 const fontLink = document.createElement("link"); fontLink.rel = "stylesheet";
+// 800 matters: it's DM Sans ExtraBold, the heaviest weight the design uses
+// (iOS TFontName.extrabold). Without it here the fallback link would silently
+// synthesise it. index.html normally wins, so this is the safety net.
 fontLink.href = "https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap";
 if (!document.querySelector('link[href*="DM+Sans"]')) document.head.appendChild(fontLink);
+
 if (!document.querySelector('meta[name="viewport"]')) { const vp = document.createElement("meta"); vp.name = "viewport"; vp.content = "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"; document.head.appendChild(vp); }
 
 
@@ -2550,7 +2585,50 @@ Extraction rules:
     window.addEventListener("resize", h);
     return () => window.removeEventListener("resize", h);
   }, []);
-  const [view, setView] = useState("tasks");
+  // Dashboard is the landing page.
+  const [view, setView] = useState("dashboard");
+  // ── Dashboard intro ────────────────────────────────────────────────────────
+  // Two stages, driven by a timer rather than chained CSS so the replay button
+  // can restart the whole thing deterministically:
+  //   "hello" — greeting huge and centred, frosted glow blooming behind it
+  //   "open"  — greeting travels to the top-left AND the panels start popping in
+  // The panels are deliberately tied to the START of the move, not its end, so
+  // the two motions overlap instead of running back to back.
+  const [dashStage, setDashStage] = useState("hello");
+  // Bumping this remounts the animated subtree, so a replay re-runs the CSS
+  // entrance animations (which otherwise only fire once per mount).
+  const [dashRunId, setDashRunId] = useState(0);
+  // Index into DASH_STAT_KEYS for the single rotating analytics panel.
+  const [dashStatIdx, setDashStatIdx] = useState(0);
+  // Latches once the intro has played this app load. A ref, not state, so it
+  // survives every dashboard mount/unmount without re-rendering anything.
+  const dashIntroPlayedRef = useRef(false);
+  // Run the intro whenever the dashboard is entered, and on replay. Timers are
+  // cleared on exit so leaving mid-intro can't land a stage change on an
+  // unmounted view.
+  useEffect(() => {
+    if (view !== "dashboard") return;
+    // Once per app load, not per visit. Navigating away and back lands straight
+    // on the finished layout — the intro is a welcome, and replaying it every
+    // time you tab home would just be latency. The ref (not state) is what makes
+    // it survive the view switching in and out.
+    if (dashIntroPlayedRef.current) { setDashStage("open"); return; }
+    dashIntroPlayedRef.current = true;
+    setDashStage("hello");
+    const t = setTimeout(() => setDashStage("open"), 1500);
+    return () => clearTimeout(t);
+  }, [view, dashRunId]);
+  // Rotate the analytics panel once the panels are in. Restarts with the intro
+  // so a replay always begins on the first stat.
+  useEffect(() => {
+    if (view !== "dashboard") return;
+    setDashStatIdx(0);
+    if (dashStage !== "open") return;
+    const id = setInterval(() => setDashStatIdx(i => (i + 1) % DASH_STAT_KEYS.length), 5000);
+    return () => clearInterval(id);
+  }, [view, dashStage, dashRunId]);
+  // Testing aid: clear the once-per-load latch so the intro runs again.
+  const replayDashIntro = () => { dashIntroPlayedRef.current = false; setDashRunId(n => n + 1); };
   // Button mode starts OPEN. Read straight from localStorage rather than letting
   // the sync effect below do it, so a button-mode reload paints expanded instead
   // of flashing the collapsed rail and animating open on the first frame.
@@ -3805,7 +3883,36 @@ Extraction rules:
   const [jobSelectMode, setJobSelectMode] = useState(false);
   const [teamSelectMode, setTeamSelectMode] = useState(false);
   const [barSelectMode, setBarSelectMode] = useState(false);
+  // The "All" toggle is revealed by animating a wrapper's maxWidth from 0, which
+  // needs overflow:hidden — but that clip box hugs the button, so its hover glow
+  // was being squared off into a hard rectangle. These latch true once the
+  // reveal has finished, at which point the wrapper can stop clipping and the
+  // glow has somewhere to render. Collapsing clips again immediately, so the
+  // slide-away still looks right.
+  const [jobSelRevealed, setJobSelRevealed] = useState(false);
+  const [barSelRevealed, setBarSelRevealed] = useState(false);
+  useEffect(() => {
+    if (!jobSelectMode) { setJobSelRevealed(false); return; }
+    const t = setTimeout(() => setJobSelRevealed(true), 320);   // > the 0.28s reveal
+    return () => clearTimeout(t);
+  }, [jobSelectMode]);
+  useEffect(() => {
+    if (!barSelectMode) { setBarSelRevealed(false); return; }
+    const t = setTimeout(() => setBarSelRevealed(true), 320);
+    return () => clearTimeout(t);
+  }, [barSelectMode]);
   const [selBars, setSelBars] = useState(new Set()); // Set of bar IDs selected on schedule tab
+  // Same treatment for the count + Delete group, which slides in on its own
+  // trigger (a bar actually being selected) rather than on select-mode.
+  // MUST stay below the selBars declaration — reading it above would hit the
+  // temporal dead zone and throw on every render.
+  const barDelShown = barSelectMode && selBars.size > 0;
+  const [barDelRevealed, setBarDelRevealed] = useState(false);
+  useEffect(() => {
+    if (!barDelShown) { setBarDelRevealed(false); return; }
+    const t = setTimeout(() => setBarDelRevealed(true), 300);   // > the 0.26s reveal
+    return () => clearTimeout(t);
+  }, [barDelShown]);
   const [selectedSchedulePerson, setSelectedSchedulePerson] = useState(null);
   const [barDeleteConfirmOpen, setBarDeleteConfirmOpen] = useState(false);
   const [reminderNote, setReminderNote] = useState("");
@@ -3852,6 +3959,15 @@ Extraction rules:
   useEffect(() => {
     if (view !== "analytics" || !anyClockActive) return;
     const id = setInterval(() => setStatsNow(Date.now()), 5000);
+    return () => clearInterval(id);
+  }, [view, anyClockActive]);
+  // Dashboard live clock: ticks only while the Dashboard is open AND someone is
+  // actually on the clock, so the "My clock" elapsed time counts up in real time
+  // without re-rendering the app every second for no reason.
+  const [dashNow, setDashNow] = useState(Date.now());
+  useEffect(() => {
+    if (view !== "dashboard" || !anyClockActive) return;
+    const id = setInterval(() => setDashNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [view, anyClockActive]);
   const [tsPeriodDays, setTsPeriodDays] = useState(0);
@@ -7642,7 +7758,7 @@ ${jobsCtx || "No jobs found."}`;
             // Slide-out wrapper — keeps "+ New Job" mounted while jobSelectMode is true so
             // there's no instant remount-then-collapse race with the "All" slider that caused
             // the toolbar to briefly wrap onto a second row when pressing Done.
-            <div style={{ display: "flex", alignItems: "center", overflow: "hidden", maxWidth: jobSelectMode ? 0 : 140, opacity: jobSelectMode ? 0 : 1, transform: jobSelectMode ? "translateX(8px)" : "translateX(0)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-left 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: jobSelectMode ? "none" : "auto", marginLeft: jobSelectMode ? -6 : 0 }}>
+            <div style={{ display: "flex", alignItems: "center", overflow: jobSelRevealed ? "visible" : "hidden", maxWidth: jobSelectMode ? 0 : 140, opacity: jobSelectMode ? 0 : 1, transform: jobSelectMode ? "translateX(8px)" : "translateX(0)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-left 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: jobSelectMode ? "none" : "auto", marginLeft: jobSelectMode ? -6 : 0 }}>
               <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>
             </div>
           )}
@@ -8093,22 +8209,8 @@ ${jobsCtx || "No jobs found."}`;
       idle:    T.accent,
       offline: T.textDim,
     };
-    const statusFor = (p) => {
-      // Match clockState's lunch/break detection: look for an open start with no matching end.
-      const evts = p?.activeClockIn?.events || [];
-      let lunchOpen = null, breakOpen = false;
-      for (const ev of evts) {
-        if (ev.type === "lunchStart") lunchOpen = ev;
-        else if (ev.type === "lunchEnd") lunchOpen = null;
-        else if (ev.type === "breakStart") breakOpen = true;
-        else if (ev.type === "breakEnd") breakOpen = false;
-      }
-      if (lunchOpen) return "lunch";
-      if (p?.activeBreak || breakOpen) return "break";
-      if (p?.activeJobClock) return "job";
-      if (p?.activeClockIn) return "idle";
-      return "offline";
-    };
+    // Shared with the Dashboard's live-status panel — see personStatus at module scope.
+    const statusFor = personStatus;
     // Break start timestamp, resilient to where the break was recorded: the lightweight
     // activeBreak flag (web), an open breakStart in the payroll clock events, or — for iOS
     // breaks that set the flag without persisting startedAt — the standalone breakStart row
@@ -8643,7 +8745,7 @@ ${jobsCtx || "No jobs found."}`;
             {/* Select */}
             <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} style={{ minWidth: 78 }} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
             <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;padding:7px 14px;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${brandGrad(T.accent)};border:none;color:${T.accentText};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:hover{filter:brightness(1.08);}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
-            <div style={{ display: "flex", alignItems: "center", overflow: "hidden", maxWidth: jobSelectMode ? 90 : 0, opacity: jobSelectMode ? 1 : 0, transform: jobSelectMode ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: jobSelectMode ? "auto" : "none", marginRight: jobSelectMode ? 0 : -6 }}>
+            <div style={{ display: "flex", alignItems: "center", overflow: jobSelRevealed ? "visible" : "hidden", maxWidth: jobSelectMode ? 90 : 0, opacity: jobSelectMode ? 1 : 0, transform: jobSelectMode ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: jobSelectMode ? "auto" : "none", marginRight: jobSelectMode ? 0 : -6 }}>
               <button className="subtle-all-btn" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>
                 {selJobs.size === activeTasks.length ? "None" : "All"}
               </button>
@@ -9833,6 +9935,505 @@ ${jobsCtx || "No jobs found."}`;
       <div style={{ marginTop: 24, border: `1px dashed ${T.border}`, borderRadius: T.radius, padding: "72px 24px", textAlign: "center", fontSize: 13, color: T.textDim }}>Nothing here yet.</div>
     </div>
   );
+
+  // ═══════════════════ DASHBOARD ═══════════════════
+  // The landing page. Everything here is derived from data already in memory —
+  // no new fetches, so it paints instantly from the cold cache.
+  const renderDashboard = () => {
+    const atTop = dashStage !== "hello";   // greeting has moved to its header spot
+    const showCards = atTop;               // panels ride in WITH the move, not after it
+    const padX = isMobile ? 14 : 32;
+    const padTop = isMobile ? 14 : 26;
+
+    // ── Live team status ─────────────────────────────────────────────────────
+    const team = people.filter(p => p.userRole === "user" || p.userRole === "admin");
+    const byStatus = { job: [], idle: [], lunch: [], break: [], offline: [] };
+    team.forEach(p => { (byStatus[personStatus(p)] || byStatus.offline).push(p); });
+    const onClock = team.length - byStatus.offline.length;
+
+    // ── Period + job stats (feed the rotating panel) ─────────────────────────
+    const pp = getPayPeriodFromDates(orgSettings.payDates || [5, 20], TD);
+    const hoursLogged = timeclock
+      .filter(e => !e.eventType && !e.deletedAt && e.date >= pp.start && e.date <= pp.end)
+      .reduce((s, e) => s + (e.hours || 0), 0);
+    const activeJobs = tasks.filter(t => t.status !== "Finished");
+    const avgPct = activeJobs.length ? Math.round(activeJobs.reduce((s, j) => s + _jobPct(j), 0) / activeJobs.length) : 0;
+    const onTimePct = activeJobs.length ? Math.round(activeJobs.filter(j => getHealth(j) === "ontime").length / activeJobs.length * 100) : 0;
+    const dueSoon = activeJobs
+      .filter(j => j.end && j.end >= TD && j.end <= addD(TD, 7))
+      .sort((a, b) => String(a.end).localeCompare(String(b.end)));
+
+    const STATS = {
+      hours:   { label: "Hours logged this pay period", value: (Math.round(hoursLogged * 10) / 10).toFixed(1), unit: "h", color: T.accent },
+      active:  { label: "Active jobs", value: String(activeJobs.length), unit: "", color: "#6366f1" },
+      ontime:  { label: "Jobs on time", value: String(onTimePct), unit: "%", color: onTimePct >= 80 ? "#10b981" : onTimePct >= 50 ? "#f59e0b" : "#ef4444" },
+      avg:     { label: "Average completion", value: String(avgPct), unit: "%", color: "#10b981" },
+      clocked: { label: "On the clock right now", value: String(onClock), unit: ` / ${team.length}`, color: onClock ? "#10b981" : T.textDim },
+      due:     { label: "Jobs due within 7 days", value: String(dueSoon.length), unit: "", color: dueSoon.length ? "#f59e0b" : T.textDim },
+    };
+    const statKey = DASH_STAT_KEYS[dashStatIdx] || DASH_STAT_KEYS[0];
+    const stat = STATS[statKey];
+
+    // ── Month calendar ───────────────────────────────────────────────────────
+    const mNow = new Date(TD + "T12:00:00");
+    const mFirst = new Date(mNow.getFullYear(), mNow.getMonth(), 1);
+    const daysInMonth = new Date(mNow.getFullYear(), mNow.getMonth() + 1, 0).getDate();
+    const leadBlanks = mFirst.getDay();
+    const monthLabel = mFirst.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    // A day is "busy" if any unfinished job spans it — drives the dot under the
+    // date. Each job's range is clamped to the visible month before walking it,
+    // so a multi-year job costs at most 31 iterations instead of its full span.
+    const monthStartDS = `${mNow.getFullYear()}-${String(mNow.getMonth() + 1).padStart(2, "0")}-01`;
+    const monthEndDS = `${mNow.getFullYear()}-${String(mNow.getMonth() + 1).padStart(2, "0")}-${String(daysInMonth).padStart(2, "0")}`;
+    const busyDays = new Set();
+    for (const t of activeJobs) {
+      if (!t.start || !t.end) continue;
+      let d = t.start > monthStartDS ? t.start : monthStartDS;
+      const stop = t.end < monthEndDS ? t.end : monthEndDS;
+      while (d <= stop) { busyDays.add(d); d = addD(d, 1); }
+    }
+
+    // ── Card chrome. `i` drives the one-by-one stagger. ──────────────────────
+    const cardBase = {
+      background: hexA(T.card, 0.82),
+      border: `1px solid ${T.border}`,
+      borderRadius: 26,
+      padding: 16,
+      backdropFilter: "blur(18px) saturate(1.3)",
+      WebkitBackdropFilter: "blur(18px) saturate(1.3)",
+      display: "flex", flexDirection: "column", minWidth: 0,
+      // Rows are fixed fractions now, so a panel must be able to shrink inside
+      // its track instead of pushing the grid taller than the screen.
+      minHeight: 0, overflow: "hidden",
+    };
+    // Span is no longer a parameter — the two containers below own the layout,
+    // so a panel just renders at whatever width its slot gives it.
+    // bodyExtra overrides the body wrapper — used by My Clock to switch off
+    // clipping so its buttons' hover glow has somewhere to render.
+    const panel = (i, title, body, right, extra = {}, bodyExtra = {}) => (
+      <div className="dash-card" style={{ ...cardBase, animationDelay: `${i * 70}ms`, ...extra }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.07em", textTransform: "uppercase", color: T.textDim }}>{title}</span>
+          {right}
+        </div>
+        {/* Body scrolls rather than clips. The card has overflow:hidden so it
+            can shrink inside its fixed 1fr row, but that was silently cutting
+            the last row off panels with more content than height (the Team
+            list). flex:1 + minHeight:0 lets this absorb the leftover space and
+            scroll only what doesn't fit; display:flex keeps `flex:1` working
+            for children that want the full height, like the calendar grid. */}
+        <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", ...bodyExtra }}>
+          {body}
+        </div>
+      </div>
+    );
+    const emptyNote = (msg) => <div style={{ fontSize: 12.5, color: T.textDim, padding: "18px 4px", textAlign: "center" }}>{msg}</div>;
+
+    // Status group: a coloured count chip plus that group's avatars.
+    const statusRow = (key) => {
+      const meta = PERSON_STATUS_META[key];
+      const list = byStatus[key] || [];
+      return (
+        <div key={key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 0", flex: 1, minHeight: 32, borderBottom: `1px solid ${T.border}55` }}>
+          <span style={{ width: 8, height: 8, borderRadius: 4, background: meta.color, flexShrink: 0 }} />
+          <span style={{ fontSize: 12.5, fontWeight: 600, color: T.text, width: 82, flexShrink: 0 }}>{meta.label}</span>
+          <span style={{ fontSize: 13, fontWeight: 800, color: meta.color, fontFamily: T.mono, width: 24, flexShrink: 0 }}>{list.length}</span>
+          {/* No overflow:hidden here — that was cropping the avatars top and
+              bottom whenever the row got shorter than the chip. The panel body
+              already clips horizontally, so runaway width is handled a level up;
+              showing 6 keeps the row inside the column at the narrowest layout. */}
+          <div style={{ display: "flex", alignItems: "center", flex: 1, minWidth: 0 }}>
+            {list.slice(0, 6).map(p => <span key={p.id} title={p.name} style={{ marginLeft: -4, display: "flex", flexShrink: 0 }}><PersonAvatar person={p} size={22} ring={T.card} /></span>)}
+            {list.length > 6 && <span style={{ fontSize: 10.5, color: T.textDim, marginLeft: 7, flexShrink: 0 }}>+{list.length - 6}</span>}
+          </div>
+        </div>
+      );
+    };
+
+    const greetName = (orgName || "").trim();
+
+    // ── Today strip ──────────────────────────────────────────────────────────
+    // A gantt of the actual working day: one lane per person who has clocked any
+    // time today, each punch drawn against the org's configured work window. An
+    // open shift runs to "now", so the lane grows through the day.
+    const dayStartH = workStartH;
+    const daySpanH = Math.max(1, workEndH - workStartH);
+    const nowH = new Date().getHours() + new Date().getMinutes() / 60;
+    const frac = (iso) => {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return null;
+      return Math.min(1, Math.max(0, (d.getHours() + d.getMinutes() / 60 - dayStartH) / daySpanH));
+    };
+    const todayLanes = team.map(p => {
+      const segs = timeclock
+        .filter(e => !e.eventType && !e.deletedAt && String(e.personId) === String(p.id) && e.date === TD && e.clockIn)
+        .map(e => ({ from: frac(e.clockIn), to: e.clockOut ? frac(e.clockOut) : Math.min(1, Math.max(0, (nowH - dayStartH) / daySpanH)), live: !e.clockOut }));
+      const ac = p.activeClockIn?.clockIn;
+      if (ac && String(ac).slice(0, 10) === TD) {
+        segs.push({ from: frac(ac), to: Math.min(1, Math.max(0, (nowH - dayStartH) / daySpanH)), live: true });
+      }
+      const clean = segs.filter(s => s.from != null && s.to != null && s.to > s.from);
+      return clean.length ? { p, segs: clean } : null;
+    }).filter(Boolean);
+    const hourTicks = [];
+    for (let h = Math.ceil(dayStartH); h <= Math.floor(workEndH); h += 2) hourTicks.push(h);
+    const hLabel = (h) => { const hh = ((h % 24) + 24) % 24; const h12 = hh % 12 === 0 ? 12 : hh % 12; return `${h12}${hh >= 12 ? "p" : "a"}`; };
+
+    // ── My clock (quick panel) ───────────────────────────────────────────────
+    const meRec = people.find(p => String(p.id) === String(loggedInUser?.id));
+    // Passing dashNow (not the default Date.now()) is what makes the elapsed
+    // figure recompute on every tick instead of freezing at first render.
+    const myState = meRec ? effectiveClockState(meRec, dashNow) : null;
+    const myStatus = meRec ? personStatus(meRec) : "offline";
+    const myClockInIso = meRec?.activeClockIn?.clockIn || null;
+    const myClockInAt = myClockInIso
+      ? new Date(myClockInIso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+      : null;
+    // "3h 24m" reads better than 3.40h for an in-progress shift. Seconds are
+    // deliberately omitted — a ticking seconds digit draws the eye for no gain.
+    const hm = (ms) => {
+      const mins = Math.max(0, Math.floor(ms / 60000));
+      return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, "0")}m`;
+    };
+    const myHoursToday = timeclock
+      .filter(e => !e.eventType && !e.deletedAt && String(e.personId) === String(loggedInUser?.id) && e.date === TD)
+      .reduce((s, e) => s + (e.hours || 0), 0);
+
+    // Every clock action is PIN-gated server-side, and the keypad modal lives in
+    // the Time Clock page's render. So rather than duplicating the keypad (and
+    // its submit/verify handlers) here, the dashboard primes the SAME shared pin
+    // state and switches to that page — the modal is already open on arrival, so
+    // it's one tap to the keypad instead of one tap to a page you then have to
+    // find the button on.
+    const openClockFlow = (nextPinState) => {
+      if (nextPinState === "clockOut_pin" && ENFORCE_CLOCK_JOB_DEPENDENCY && loggedInUser?.activeJobClock) {
+        alert("Log out of your job before clocking out.");
+        return;
+      }
+      setPinInput(""); setPinError(false); setPinSelectedOps([]);
+      setPinState(nextPinState);
+      switchView("timestamp");
+    };
+
+    return (
+      <div key={dashRunId} style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto" }}>
+        <style>{`
+          /* Opacity ONLY. The drift keyframes below own transform, and two
+             animations on one element can't both drive the same property —
+             the later one silently wins. Splitting them lets a blob fade in
+             and drift at the same time. */
+          @keyframes dashGlowIn { from { opacity: 0; } to { opacity: 1; } }
+          /* Liquid tie-dye: each blob wanders a different path at a different
+             tempo, so the overlaps keep re-mixing instead of settling into a
+             fixed pattern. Long durations (24-38s) keep it ambient. */
+          @keyframes dashDriftA { 0% { transform: translate(0,0) scale(1); } 25% { transform: translate(26%,17%) scale(1.32); } 55% { transform: translate(-19%,28%) scale(0.8); } 80% { transform: translate(15%,-16%) scale(1.18); } 100% { transform: translate(0,0) scale(1); } }
+          @keyframes dashDriftB { 0% { transform: translate(0,0) scale(1.06); } 30% { transform: translate(-30%,22%) scale(0.78); } 60% { transform: translate(22%,-19%) scale(1.38); } 85% { transform: translate(-13%,12%) scale(0.94); } 100% { transform: translate(0,0) scale(1.06); } }
+          @keyframes dashDriftC { 0% { transform: translate(0,0) scale(0.95); } 35% { transform: translate(29%,-24%) scale(1.3); } 65% { transform: translate(-25%,-12%) scale(1.06); } 100% { transform: translate(0,0) scale(0.95); } }
+          @keyframes dashDriftD { 0% { transform: translate(0,0) scale(1.1); } 40% { transform: translate(-24%,-26%) scale(0.82); } 70% { transform: translate(27%,19%) scale(1.34); } 100% { transform: translate(0,0) scale(1.1); } }
+          @keyframes dashHelloIn { from { opacity: 0; } to { opacity: 1; } }
+          @keyframes dashCardIn { from { opacity: 0; transform: translateY(18px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+          /* One full in-hold-out cycle per stat, restarted by the key change. */
+          @keyframes dashStatCycle {
+            0% { opacity: 0; transform: translateX(26px); }
+            8% { opacity: 1; transform: translateX(0); }
+            88% { opacity: 1; transform: translateX(0); }
+            100% { opacity: 0; transform: translateX(-26px); }
+          }
+          .dash-card { animation: dashCardIn 0.44s cubic-bezier(0.22,1,0.36,1) both; }
+          /* The app-wide rule is
+               button:not(:disabled):not([disabled]):not([aria-disabled]):hover
+             with !important on a 0 4px 16px glow and a 1.5px lift. Two things
+             made that clip here, and BOTH had to be dealt with:
+               1. Specificity — that selector scores (0,4,1). A plain
+                  .dash-btn:hover is only (0,2,0) and loses even with !important,
+                  so the three :not()s are repeated below to reach (0,5,0).
+               2. Nowhere to draw — these buttons are full-width inside a panel
+                  body that clipped (overflowX:hidden). Its box sits INSIDE the
+                  card padding, so the glow met a hard edge right at the button.
+                  The My Clock body opts out of clipping (see bodyExtra below),
+                  which hands the glow the card's 16px padding to fade into.
+             The glow is kept, just retuned to fit that 16px: blur 10 + 2px
+             offset reaches 12px, so it fades out fully before the card's own
+             overflow:hidden — visible halo, no cut edge. */
+          .dash-btn:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
+            transform: translateY(-1px) !important;
+            box-shadow: 0 2px 10px var(--tq-glow, rgba(0,0,0,0.2)) !important;
+            filter: brightness(1.06);
+          }
+          .dash-btn:not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
+            transform: scale(0.985) !important;
+          }
+          .dash-blob { position: absolute; border-radius: 50%; filter: blur(80px); will-change: transform; }
+          @media (prefers-reduced-motion: reduce) {
+            .dash-card { animation-duration: 0.01ms !important; }
+            /* Kill the perpetual drift outright — a slow ambient loop is exactly
+               what this preference is asking us not to run. */
+            .dash-blob { animation: dashGlowIn 0.01ms both !important; }
+          }
+        `}</style>
+
+        {/* height:100% + flex column is what lets the grid below claim all the
+            leftover vertical space. Without it the grid was only as tall as its
+            content and the page ended two-thirds of the way down. */}
+        <div style={{ position: "relative", minHeight: "100%", height: isMobile ? "auto" : "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", padding: isMobile ? "14px 14px 26px" : "22px 26px 26px" }}>
+          {/* Frosted glow — colour only, sitting BEHIND everything. Never applied
+              to the text itself, which stays crisp on top of it. */}
+          <div aria-hidden="true" style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none", zIndex: 0 }}>
+            {/* Five overlapping blobs, each on its own path and tempo. The
+                accent leads (twice, different sizes) so the wash still reads as
+                the org's colour rather than a generic rainbow. */}
+            <div className="dash-blob" style={{ width: "48%", paddingBottom: "36%", left: "4%", top: "2%", background: hexA(T.accent, 0.55), animation: "dashGlowIn 1.6s ease-out both, dashDriftA 11s ease-in-out infinite" }} />
+            <div className="dash-blob" style={{ width: "40%", paddingBottom: "32%", right: "2%", top: "-4%", background: hexA("#6366f1", 0.45), animation: "dashGlowIn 1.6s ease-out 120ms both, dashDriftB 13s ease-in-out infinite" }} />
+            <div className="dash-blob" style={{ width: "44%", paddingBottom: "34%", left: "26%", top: "22%", background: hexA("#10b981", 0.34), animation: "dashGlowIn 1.6s ease-out 240ms both, dashDriftC 12s ease-in-out infinite" }} />
+            <div className="dash-blob" style={{ width: "34%", paddingBottom: "28%", right: "18%", top: "34%", background: hexA("#ec4899", 0.3), animation: "dashGlowIn 1.6s ease-out 340ms both, dashDriftD 16s ease-in-out infinite" }} />
+            <div className="dash-blob" style={{ width: "30%", paddingBottom: "26%", left: "12%", top: "44%", background: hexA(T.accent, 0.34), animation: "dashGlowIn 1.6s ease-out 430ms both, dashDriftB 9s ease-in-out infinite reverse" }} />
+          </div>
+
+          {/* Greeting. ONE size throughout — it fades in where it sits (centred)
+              and then travels to the top-left; no scaling, so the type never
+              changes weight or spacing mid-flight. Width is max-content so
+              `left:50%` + translateX(-50%) centres it on its own width, which
+              then interpolates to the page's left padding.
+              cubic-bezier(0.83,0,0.17,1) is an ease-in-OUT (quint): it creeps
+              off the mark, covers the middle fast, and settles slowly. A plain
+              ease-out would start at its quickest, which is the opposite. */}
+          <div aria-hidden={false} style={{
+            position: "absolute", zIndex: 2, pointerEvents: "none",
+            width: "max-content", maxWidth: "92%",
+            left: atTop ? padX : "50%",
+            top: atTop ? padTop : "50%",
+            transform: atTop ? "translate(0, 0) scale(1)" : "translate(-50%, -50%) scale(1.5)",
+            transition: "left 1.15s cubic-bezier(0.83,0,0.17,1), top 1.15s cubic-bezier(0.83,0,0.17,1), transform 1.15s cubic-bezier(0.83,0,0.17,1)",
+            animation: "dashHelloIn 0.9s ease-out both",
+          }}>
+            <span style={{ fontSize: isMobile ? 28 : 44, fontWeight: 900, letterSpacing: "-0.035em", color: T.text, whiteSpace: "nowrap", lineHeight: 1.1 }}>
+              Hello,{greetName ? " " : ""}{greetName || " there"}
+            </span>
+          </div>
+
+          {/* Testing aid — replays the whole intro. */}
+          <button className="dash-btn" onClick={replayDashIntro} title="Replay the intro animation"
+            style={{ position: "absolute", top: isMobile ? 10 : 22, right: isMobile ? 12 : 30, zIndex: 4, display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: hexA(T.card, 0.7), backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", color: T.textSec, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></svg>
+            Replay
+          </button>
+
+          {/* Panels — mounted only once the greeting has settled, so their
+              entrance animations start from the stage change rather than from
+              page load. */}
+          {showCards && (
+            /* Outer grid: two columns on the top row (panels | calendar), then
+               Today spanning both underneath. Giving the OUTER grid its own rows
+               is what stops the calendar running the full page height — it now
+               ends level with Reports, and Today owns the strip below.
+               alignItems:start is deliberately absent throughout: it sized every
+               panel to its content, which is what left the ragged gaps under the
+               shorter ones. Explicit 1fr tracks make panels stretch to their row
+               instead, so boxes grow to fill the space rather than the space
+               sitting empty. */
+            <div style={{ position: "relative", zIndex: 1, flex: 1, minHeight: 0, marginTop: isMobile ? 56 : 74, display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1fr) 680px", gridTemplateRows: isMobile ? "none" : "minmax(0, 1fr) minmax(0, 0.52fr)", gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))", gridTemplateRows: isMobile ? "none" : "repeat(3, minmax(0, 1fr))", gap: 10, minHeight: 0 }}>
+
+              {/* Rotating analytics — one box, a new metric every 5s. */}
+              {panel(0, "Analytics",
+                <div key={statKey} style={{ animation: "dashStatCycle 5s ease-in-out both", display: "flex", flexDirection: "column", justifyContent: "center", flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
+                    <span style={{ fontSize: 38, fontWeight: 800, lineHeight: 1, color: stat.color, fontFamily: T.mono, letterSpacing: "-0.03em" }}>{stat.value}</span>
+                    <span style={{ fontSize: 17, fontWeight: 700, color: stat.color, opacity: 0.75 }}>{stat.unit}</span>
+                  </div>
+                  <div style={{ fontSize: 12.5, color: T.textSec, marginTop: 8 }}>{stat.label}</div>
+                </div>,
+                <span style={{ display: "flex", gap: 4 }}>
+                  {DASH_STAT_KEYS.map((k, i) => <span key={k} style={{ width: i === dashStatIdx ? 14 : 5, height: 5, borderRadius: 3, background: i === dashStatIdx ? T.accent : T.border, transition: "width 0.3s ease, background 0.3s ease" }} />)}
+                </span>
+              )}
+
+              {/* Quick clock. Clocking in/out is PIN-gated server-side
+                  (clockInAction sends `pin`), so this can't be a one-tap action
+                  without silently weakening that. It shows live state and hands
+                  off to the Time Clock page, which owns the PIN prompt. */}
+              {panel(1, "My clock",
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                    <span style={{ width: 9, height: 9, borderRadius: 5, background: PERSON_STATUS_META[myStatus].color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{PERSON_STATUS_META[myStatus].label}</span>
+                  </div>
+                  {myState?.isClocked && (
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                      {/* Elapsed counts up live; lunch/break freeze it, because
+                          clockState subtracts open pause ranges from runningMs. */}
+                      <span style={{ fontSize: 30, fontWeight: 800, lineHeight: 1, color: T.accent, fontFamily: T.mono, letterSpacing: "-0.02em" }}>{hm(myState.runningMs)}</span>
+                      {myClockInAt && <span style={{ fontSize: 12, color: T.textSec }}>since {myClockInAt}</span>}
+                    </div>
+                  )}
+                  {/* Only shown once there's a COMPLETED punch today. An open
+                      shift contributes nothing to `hours` until clock-out, so
+                      while you're on the clock this used to read "Nothing logged
+                      today yet" — technically true of the payroll log, but it
+                      reads as wrong when the timer above it is counting up. */}
+                  {myHoursToday > 0 && (
+                    <div style={{ fontSize: 11.5, color: T.textDim }}>{myHoursToday.toFixed(2)}h logged earlier today</div>
+                  )}
+                  {/* Pushes the buttons to the bottom of the card whatever the
+                      status block above happens to be. */}
+                  <div style={{ flex: 1, minHeight: 4 }} />
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <button className="dash-btn" onClick={() => openClockFlow(myState?.isClocked ? "clockOut_pin" : "clockIn_pin")}
+                      style={{ padding: "10px 14px", borderRadius: T.radiusPill, border: "none", background: myState?.isClocked ? hexA("#ef4444", 0.16) : brandGrad(T.accent), color: myState?.isClocked ? "#ef4444" : T.accentText, fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: T.font }}>
+                      {myState?.isClocked ? "Clock out" : "Clock in"}
+                    </button>
+                    {/* Lunch and break only mean anything on an open shift, so
+                        they're disabled (not hidden) when clocked out — the row
+                        keeps its shape instead of the card reflowing. */}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
+                      {[
+                        { on: myState?.isOnLunch, label: "Lunch", end: "End lunch", state: myState?.isOnLunch ? "lunchEnd_pin" : "lunchStart_pin", color: "#f59e0b" },
+                        { on: myState?.isOnBreak, label: "Break", end: "End break", state: myState?.isOnBreak ? "breakEnd_pin" : "breakStart_pin", color: "#8b5cf6" },
+                      ].map(b => (
+                        <button key={b.label} className="dash-btn" disabled={!myState?.isClocked} onClick={() => openClockFlow(b.state)}
+                          style={{ padding: "8px 10px", borderRadius: T.radiusPill, border: `1px solid ${b.on ? b.color : T.border}`, background: b.on ? hexA(b.color, 0.18) : "transparent", color: myState?.isClocked ? (b.on ? b.color : T.textSec) : T.textDim, fontSize: 11.5, fontWeight: 700, cursor: myState?.isClocked ? "pointer" : "not-allowed", opacity: myState?.isClocked ? 1 : 0.5, fontFamily: T.font, whiteSpace: "nowrap" }}>
+                          {b.on ? b.end : b.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>,
+                null,
+                {},
+                // Let the hover glow spill into the card padding instead of
+                // being cut off at the body box. Safe here: this panel never
+                // has more content than height, so nothing needs to scroll.
+                { overflow: "visible" }
+              )}
+
+              {/* Live team status */}
+              {panel(2, "Team right now",
+                team.length ? <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>{["job", "idle", "lunch", "break", "offline"].map(statusRow)}</div> : emptyNote("No team members yet."),
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", fontFamily: T.mono }}>{onClock}/{team.length} in</span>
+              )}
+
+              {/* Who's on what */}
+              {panel(3, "On a job now",
+                byStatus.job.length ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {byStatus.job.slice(0, 5).map(p => {
+                      const j = tasks.find(t => t.id === p.activeJobClock?.jobId);
+                      return (
+                        <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <PersonAvatar person={p} size={28} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                            <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j ? `${j.jobNumber ? `#${j.jobNumber} · ` : ""}${j.title}` : "Job clock running"}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {byStatus.job.length > 5 && <div style={{ fontSize: 11, color: T.textDim }}>+{byStatus.job.length - 5} more</div>}
+                  </div>
+                ) : emptyNote("Nobody is on a job right now.")
+              )}
+
+              {/* Due soon */}
+              {panel(4, "Due within 7 days",
+                dueSoon.length ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {dueSoon.slice(0, 5).map(j => {
+                      const h = getHealth(j);
+                      return (
+                        <div key={j.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ width: 8, height: 8, borderRadius: 4, background: elColorT(HEALTH_DOT[h]) || T.accent, flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.jobNumber ? `#${j.jobNumber} · ` : ""}{j.title}</div>
+                          <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, flexShrink: 0 }}>{new Date(j.end + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                        </div>
+                      );
+                    })}
+                    {dueSoon.length > 5 && <div style={{ fontSize: 11, color: T.textDim }}>+{dueSoon.length - 5} more</div>}
+                  </div>
+                ) : emptyNote("Nothing due in the next week.")
+              )}
+
+              {/* Reports — no reporting data model exists yet, so this states
+                  that plainly rather than inventing numbers to fill the box. */}
+              {panel(5, "Reports",
+                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px 4px" }}>
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.7 }}>
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="8" y1="13" x2="16" y2="13" /><line x1="8" y1="17" x2="13" y2="17" />
+                  </svg>
+                  <div style={{ fontSize: 12.5, color: T.textDim, textAlign: "center" }}>Nothing to see here yet.</div>
+                  <div style={{ fontSize: 11, color: T.textDim, opacity: 0.75, textAlign: "center" }}>Saved reports will show up here.</div>
+                </div>
+              )}
+
+            </div>
+
+              {/* Calendar — right column, full height */}
+              {panel(7, monthLabel,
+                // flex:1 through every layer so the day grid absorbs the panel's
+                // full height — the cells size themselves to the column instead
+                // of being pinned square by aspectRatio.
+                <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", marginBottom: 6 }}>
+                    {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => <div key={i} style={{ textAlign: "center", fontSize: 11.5, fontWeight: 700, color: T.textDim }}>{d}</div>)}
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gridAutoRows: "minmax(0, 1fr)", flex: 1, minHeight: 0, rowGap: 2 }}>
+                    {Array.from({ length: leadBlanks }, (_, i) => <div key={`b${i}`} />)}
+                    {Array.from({ length: daysInMonth }, (_, i) => {
+                      const dayNum = i + 1;
+                      const ds = `${mNow.getFullYear()}-${String(mNow.getMonth() + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`;
+                      const isToday = ds === TD;
+                      const busy = busyDays.has(ds);
+                      return (
+                        <div key={ds} title={busy ? "Work scheduled" : undefined} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, minHeight: 0 }}>
+                          {/* Only TODAY carries a marker, and it's a circle. The
+                              per-date rounded squares are gone — with a tint on
+                              every busy day the grid read as a wall of chips. */}
+                          <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: "50%", background: isToday ? brandGrad(T.accent) : "transparent", color: isToday ? T.accentText : T.text, fontSize: 17, fontWeight: isToday ? 800 : 500, lineHeight: 1 }}>{dayNum}</span>
+                          <span style={{ width: 5, height: 5, borderRadius: 3, flexShrink: 0, background: busy ? T.accent : "transparent" }} />
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Today — full-width gantt beneath both columns. */}
+              {panel(6, "Today",
+                todayLanes.length ? (
+                  <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+                    {/* Hour axis */}
+                    <div style={{ position: "relative", height: 14, marginLeft: 92, marginBottom: 4 }}>
+                      {hourTicks.map(h => (
+                        <span key={h} style={{ position: "absolute", left: `${((h - dayStartH) / daySpanH) * 100}%`, transform: "translateX(-50%)", fontSize: 9.5, color: T.textDim, fontFamily: T.mono }}>{hLabel(h)}</span>
+                      ))}
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", justifyContent: "space-around", gap: 5, flex: 1, minHeight: 0, overflowY: "auto" }}>
+                      {todayLanes.map(({ p, segs }) => (
+                        <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <PersonAvatar person={p} size={20} />
+                          <span style={{ width: 64, flexShrink: 0, fontSize: 11.5, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name.split(" ")[0]}</span>
+                          <div style={{ position: "relative", flex: 1, height: 16, borderRadius: 8, background: hexA(T.border, 0.5), overflow: "hidden" }}>
+                            {/* Tick guides so a bar can be read against the clock */}
+                            {hourTicks.map(h => <span key={h} style={{ position: "absolute", left: `${((h - dayStartH) / daySpanH) * 100}%`, top: 0, bottom: 0, width: 1, background: hexA(T.textDim, 0.18) }} />)}
+                            {segs.map((sg, si) => (
+                              <span key={si} title={sg.live ? "On the clock" : "Worked"}
+                                style={{ position: "absolute", left: `${sg.from * 100}%`, width: `${Math.max(1.5, (sg.to - sg.from) * 100)}%`, top: 2, bottom: 2, borderRadius: 7, background: sg.live ? brandGrad(T.accent) : hexA(T.accent, 0.45) }} />
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : emptyNote("Nobody has clocked in today yet."),
+                <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{hLabel(Math.round(dayStartH))}–{hLabel(Math.round(workEndH))}</span>,
+                { gridColumn: isMobile ? "auto" : "1 / -1" }
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
   const [teamWidth, setTeamWidth] = useState(1200);
   const [monthZoom, setMonthZoom] = useState(1);
   useEffect(() => {
@@ -10182,7 +10783,7 @@ ${jobsCtx || "No jobs found."}`;
           <Btn size="sm" style={{ minWidth: 78 }} onClick={() => { setBarSelectMode(m => !m); setSelBars(new Set()); }}>{barSelectMode ? "Done" : "Select"}</Btn>
           {/* Sliding "All / None" — same animation + style as the Jobs page Select toggle. */}
           <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;padding:7px 14px;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${brandGrad(T.accent)};border:none;color:${T.accentText};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:hover{filter:brightness(1.08);}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
-          <div style={{ display: "flex", alignItems: "center", overflow: "hidden", maxWidth: barSelectMode ? 90 : 0, opacity: barSelectMode ? 1 : 0, transform: barSelectMode ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: barSelectMode ? "auto" : "none", marginRight: barSelectMode ? 0 : -6 }}>
+          <div style={{ display: "flex", alignItems: "center", overflow: barSelRevealed ? "visible" : "hidden", maxWidth: barSelectMode ? 90 : 0, opacity: barSelectMode ? 1 : 0, transform: barSelectMode ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: barSelectMode ? "auto" : "none", marginRight: barSelectMode ? 0 : -6 }}>
             <button className="subtle-all-btn" onClick={() => { const allIds = new Set(); rowList.forEach(r => { if (r.type === "person") (r.bars || []).forEach(b => { if (b.type === "task") allIds.add(b.id); }); }); setSelBars(selBars.size === allIds.size && allIds.size > 0 ? new Set() : allIds); }}>
               {(() => { const allIds = new Set(); rowList.forEach(r => { if (r.type === "person") (r.bars || []).forEach(b => { if (b.type === "task") allIds.add(b.id); }); }); return selBars.size === allIds.size && allIds.size > 0 ? "None" : "All"; })()}
             </button>
@@ -10190,7 +10791,7 @@ ${jobsCtx || "No jobs found."}`;
           {/* Selected count + Delete — slide/collapse with the same animation as the All toggle,
               expanding once at least one bar is selected and retracting when selection clears / Done. */}
           {(() => { const show = barSelectMode && selBars.size > 0; return (
-          <div style={{ display: "flex", alignItems: "center", gap: 8, overflow: "hidden", whiteSpace: "nowrap", maxWidth: show ? 160 : 0, opacity: show ? 1 : 0, transform: show ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: show ? "auto" : "none", marginRight: show ? 0 : -8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, overflow: barDelRevealed ? "visible" : "hidden", whiteSpace: "nowrap", maxWidth: show ? 160 : 0, opacity: show ? 1 : 0, transform: show ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: show ? "auto" : "none", marginRight: show ? 0 : -8 }}>
             <span style={{ fontSize: 12, color: T.accent, fontWeight: 700, whiteSpace: "nowrap" }}>{selBars.size} selected</span>
             <Btn size="sm" onClick={() => setBarDeleteConfirmOpen(true)}>Delete</Btn>
           </div>); })()}
@@ -19990,7 +20591,7 @@ ${jobsCtx || "No jobs found."}`;
           return (
             <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
               <style>{`@keyframes tqCFIn{from{opacity:0}to{opacity:1}}@keyframes tqCFOut{from{opacity:1}to{opacity:0}}`}</style>
-              {showApp && <div style={layer(false)}><AnimatedView viewKey={view} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{view === "schedule" && frostScroll(renderTeam())}{view === "tasks" && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{renderTasks()}</div>}{view === "approvals" && canSeeApprovalQueue && frostScroll(renderApprovalQueue())}{view === "admin" && isAdmin && frostScroll(renderAdmin())}{view === "timestamp" && frostScroll(renderTimeStamp())}{view === "analytics" && frostScroll(renderAnalytics())}{view === "clients" && frostScroll(renderClients())}{view === "messages" && renderMessages()}{view === "dashboard" && frostScroll(renderBlankPage("Dashboard", "An at-a-glance view of the shop — coming soon."))}{view === "employees" && frostScroll(renderEmployees())}{view === "reports" && frostScroll(renderBlankPage("Reports", "Exportable reporting across jobs, time and people — coming soon."))}</AnimatedView></div>}
+              {showApp && <div style={layer(false)}><AnimatedView viewKey={view} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{view === "schedule" && frostScroll(renderTeam())}{view === "tasks" && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{renderTasks()}</div>}{view === "approvals" && canSeeApprovalQueue && frostScroll(renderApprovalQueue())}{view === "admin" && isAdmin && frostScroll(renderAdmin())}{view === "timestamp" && frostScroll(renderTimeStamp())}{view === "analytics" && frostScroll(renderAnalytics())}{view === "clients" && frostScroll(renderClients())}{view === "messages" && renderMessages()}{view === "dashboard" && renderDashboard()}{view === "employees" && frostScroll(renderEmployees())}{view === "reports" && frostScroll(renderBlankPage("Reports", "Exportable reporting across jobs, time and people — coming soon."))}</AnimatedView></div>}
               {showSettings && <div style={layer(true)}>{renderSettingsPage()}</div>}
             </div>
           );
