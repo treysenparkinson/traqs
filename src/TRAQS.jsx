@@ -1,12 +1,12 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, UL_LOGO_WHITE } from "./logo.js";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme } from "./push.js";
 import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
-import { configureSync, deltaSync, readSlice, hasCachedData } from "./db/sync.js";
+import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
@@ -1296,6 +1296,49 @@ function DateField({ value, onChange, placeholder = "Pick a date", style = {}, w
   );
 }
 
+// Default avatar fill — the same blue used as the fallback author colour for
+// chat messages, so a person without a photo reads as the same identity on the
+// Employees wall and in their message bubbles.
+const PERSON_BLUE = "#4169e1";
+
+// First letter of the FIRST name: "Mary Beth Jones" → "M". Falls back to "?" on
+// a blank/missing name so the circle is never empty.
+function personInitial(person) {
+  const first = String(person?.name ?? "").trim().split(/\s+/)[0] || "";
+  return (first.charAt(0) || "?").toUpperCase();
+}
+
+// One person's avatar: their uploaded photo (Settings → Profile Photo), else a
+// filled circle with their initial.
+//
+// The fill is the colour they deliberately picked when they set one, and
+// PERSON_BLUE otherwise. That fallback is load-bearing, not cosmetic:
+// elColorT() passes an unset colour straight through as `undefined`, so every
+// person who never chose one was rendering a transparent circle — which is most
+// of the roster.
+// `label` overrides the initial when there's no photo (the schedule rows show a
+// team number instead). `ring` draws a border — used where the avatar sits on a
+// coloured job bar and needs an edge to hold against it.
+function PersonAvatar({ person, size = 40, ring = null, label = null, style: sx = {} }) {
+  const img = person?.avatar || person?.image || null;
+  const fill = elColorT(person?.color) || PERSON_BLUE;
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: "50%", flexShrink: 0, overflow: "hidden",
+      background: img ? T.surface : fill,
+      backgroundImage: img ? `url(${img})` : undefined,
+      backgroundSize: "cover", backgroundPosition: "center",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      fontSize: Math.round(size * 0.42), fontWeight: 800, lineHeight: 1,
+      color: accentText(fill),
+      ...(ring ? { border: `2px solid ${ring}` } : {}),
+      ...sx,
+    }}>
+      {img ? "" : (label ?? personInitial(person))}
+    </div>
+  );
+}
+
 // One employee tile on the Employees picker wall. 3:4 portrait, heavily rounded,
 // photo edge-to-edge. No photo → the card is frosted glass with their initial.
 // Rendered as a <button> so it inherits the app-wide hover lift/glow.
@@ -1316,7 +1359,9 @@ function EmployeeCard({ person, img, dot, onOpen }) {
       style={{ position: "relative", aspectRatio: "3 / 4", width: "100%", padding: 0, borderRadius: 26, overflow: "hidden", border: `1px solid ${T.border}`, background: T.card, cursor: "pointer", fontFamily: T.font, display: "block" }}>
       {img
         ? <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${img})`, backgroundSize: "cover", backgroundPosition: "center" }} />
-        : <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 64, fontWeight: 800, color: hexA(elColorT(person.color), 0.45), lineHeight: 1 }}>{person.name.charAt(0).toUpperCase()}</div>}
+        : <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", paddingBottom: 26 }}>
+            <PersonAvatar person={person} size={96} />
+          </div>}
       {dot && <span style={{ position: "absolute", top: 12, right: 12, width: 11, height: 11, borderRadius: "50%", background: dot, boxShadow: `0 0 0 2.5px ${hexA(T.card, 0.9)}` }} />}
       <div style={{ position: "absolute", left: 10, right: 10, bottom: 12, textAlign: "center" }}>
         <div style={{ fontSize: 14.5, fontWeight: 800, color: nameColor, textShadow: shadow, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.name}</div>
@@ -2506,7 +2551,10 @@ Extraction rules:
     return () => window.removeEventListener("resize", h);
   }, []);
   const [view, setView] = useState("tasks");
-  const [sidebarExpanded, setSidebarExpanded] = useState(false);
+  // Button mode starts OPEN. Read straight from localStorage rather than letting
+  // the sync effect below do it, so a button-mode reload paints expanded instead
+  // of flashing the collapsed rail and animating open on the first frame.
+  const [sidebarExpanded, setSidebarExpanded] = useState(() => localStorage.getItem("tq_sidebar_mode") === "button");
   // Sidebar behavior preference: "hover" auto-expands on mouse-enter, "button" keeps it
   // open/closed via the hamburger toggle until the user clicks it again.
   const [sidebarMode, setSidebarMode] = useState(() => {
@@ -2514,6 +2562,12 @@ Extraction rules:
     return saved === "button" ? "button" : "hover";
   });
   useEffect(() => { localStorage.setItem("tq_sidebar_mode", sidebarMode); }, [sidebarMode]);
+  // Follow the preference whenever it CHANGES — switching to button in Settings
+  // opens the sidebar, switching to hover collapses it back to the rail (hover
+  // expands it on mouse-enter, so leaving it pinned open there would be wrong).
+  // Keyed on sidebarMode only, so a manual toggle — which moves sidebarExpanded,
+  // not sidebarMode — is never overridden.
+  useEffect(() => { setSidebarExpanded(sidebarMode === "button"); }, [sidebarMode]);
   const toggleSidebar = () => setSidebarExpanded(p => !p);
   // Sidebar Settings tree — expand the Settings group, then optionally expand one of the
   // inline sub-panels (Design or Organization Settings). Permissions/Departments just open
@@ -4158,13 +4212,56 @@ Extraction rules:
   const [dmCtxMenu, setDmCtxMenu] = useState(null);
   const [confirmClearChat, setConfirmClearChat] = useState(null); // { threadKey, label, isGroup, groupId }
 
-  // Load messages + groups on mount
+  // Load messages + groups on mount.
+  //
+  // The GET result is ALSO folded into the IndexedDB cache (mergeFullMessages),
+  // not just into React state. This is load-bearing: the realtime rehydrate below
+  // replaces `messages` wholesale with readSlice("messages"), so if the cache is
+  // missing history the GET just fetched, the first delta throws that history
+  // away. Only fullResync used to write it, and that runs solely when the cursor
+  // is absent — so a browser with a cursor but an incomplete cache stayed broken
+  // indefinitely (this is why a thread could look fine on one machine and stale
+  // on another: separate origins, separate IndexedDB). iOS has done this since
+  // SyncService.mergeFullMessages; desktop was the odd one out.
   useEffect(() => {
     if (!orgCode) return;
-    fetchMessages(getToken, orgCode).then(setMessages).catch(() => {});
+    fetchMessages(getToken, orgCode)
+      .then(msgs => { setMessages(msgs); return mergeFullMessages(msgs); })
+      .catch(() => {});
     fetchGroups(getToken, orgCode).then(setGroups).catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Backstop reconcile. /sync is the ONLY delivery path for chat (the old
+  // fetchMessages poll was removed because a full-replace clobbered fresher
+  // realtime data — see the note in the effect below), which made a stalled
+  // /sync an invisible, total messaging outage. This restores a fallback WITHOUT
+  // reintroducing that bug: it merges into the cache by id instead of replacing
+  // state, so it can only ever add history back, never drop a live message.
+  //
+  // Cheap by default (every 5 min, foreground only) and immediate whenever sync
+  // health reports a failure — that's when the cache is most likely behind.
+  useEffect(() => {
+    if (!orgCode) return;
+    let cancelled = false;
+    let lastAt = 0;
+    const reconcile = () => {
+      if (document.hidden) return;
+      // Throttle: /sync retries every 30s, and the full GET is ~175KB. Without
+      // this, a sustained sync failure would refetch the whole message log on
+      // every cycle.
+      if (Date.now() - lastAt < 60000) return;
+      lastAt = Date.now();
+      fetchMessages(getToken, orgCode)
+        .then(msgs => { if (!cancelled) return mergeFullMessages(msgs); })
+        .catch(() => {});
+    };
+    const id = setInterval(reconcile, 300000);
+    const onHealth = (e) => { if (e.detail?.consecutiveFailures > 0) reconcile(); };
+    syncBus.addEventListener("sync-health", onHealth);
+    return () => { cancelled = true; clearInterval(id); syncBus.removeEventListener("sync-health", onHealth); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgCode]);
   useEffect(() => {
     if (view !== "messages" || !orgCode) return;
     // Read receipts load only once you're in Messages — kept OFF the cold-start
@@ -7897,8 +7994,8 @@ ${jobsCtx || "No jobs found."}`;
                         {isFirst && itemTeam.length > 0 && (
                           <div style={{ display: "flex", alignItems: "center", gap: 2, paddingRight: 5, flexShrink: 0 }}>
                             {itemTeam.slice(0, 3).map(p => (
-                              <div key={p.id} title={p.name} style={{ width: level === 0 ? 17 : 14, height: level === 0 ? 17 : 14, borderRadius: "50%", background: T.surface, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: T.text, flexShrink: 0, overflow: "hidden" }}>
-                                {p.avatar ? <img src={p.avatar} style={{ width: "100%", height: "100%", objectFit: "cover" }} alt="" /> : (p.name || "?").charAt(0).toUpperCase()}
+                              <div key={p.id} title={p.name} style={{ display: "flex", flexShrink: 0 }}>
+                                <PersonAvatar person={p} size={level === 0 ? 17 : 14} ring={T.border} />
                               </div>
                             ))}
                             {itemTeam.length > 3 && <span style={{ fontSize: 8, color: "rgba(255,255,255,0.8)", fontWeight: 700 }}>+{itemTeam.length - 3}</span>}
@@ -8063,7 +8160,6 @@ ${jobsCtx || "No jobs found."}`;
       if (isNaN(d.getTime())) return "";
       return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
     };
-    const initials = (name) => (name || "").split(" ").slice(0, 2).map(w => w[0] || "").join("").toUpperCase();
     const jobTitleById = (id) => tasks.find(t => t.id === id)?.title || "";
 
     // Filter out people who shouldn't appear on the board: deleted/hidden/system users.
@@ -8074,11 +8170,12 @@ ${jobsCtx || "No jobs found."}`;
     const buckets = { job: [], break: [], lunch: [], idle: [], offline: [] };
     team.forEach(p => { buckets[statusFor(p)].push(p); });
 
+    // Had no photo support at all — always two-letter initials. Now shows the
+    // person's uploaded photo, falling back to the same blue-circle single
+    // initial used everywhere else.
     const Avatar = ({ p, dotColor }) => (
       <div style={{ position: "relative", flexShrink: 0 }}>
-        <div style={{ width: 38, height: 38, borderRadius: "50%", background: elColor(p.color || T.accent), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 800, color: accentText(elColor(p.color || T.accent)) }}>
-          {initials(p.name)}
-        </div>
+        <PersonAvatar person={p} size={38} />
         {dotColor && <div style={{ position: "absolute", right: -2, bottom: -2, width: 12, height: 12, borderRadius: "50%", background: dotColor, border: `2px solid ${T.bg}` }} />}
       </div>
     );
@@ -8697,7 +8794,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                   {t.jobNumber && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 4, padding: "1px 5px", fontFamily: T.mono }}>#{t.jobNumber}</span>}
                   {client && <span style={{ fontSize: 11, color: elColor(client.color), fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: elColor(client.color), display: "inline-block" }} />{client.name}</span>}
-                  {t.projectManagerId && (() => { const pm = people.find(p => p.id === t.projectManagerId); return pm ? <span style={{ fontSize: 10, color: T.accent, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 10, height: 10, borderRadius: 3, background: T.accent, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 7, color: T.accentText, fontWeight: 700, flexShrink: 0 }}>{pm.name[0]}</span>{pm.name.split(" ")[0]}</span> : null; })()}
+                  {t.projectManagerId && (() => { const pm = people.find(p => p.id === t.projectManagerId); return pm ? <span style={{ fontSize: 10, color: T.accent, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><PersonAvatar person={pm} size={10} />{pm.name.split(" ")[0]}</span> : null; })()}
                   {t.scheduledLater ? <span style={{ fontSize: 10, color: "#f59e0b", fontWeight: 600, marginLeft: "auto" }}>PENDING</span> : <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono, marginLeft: "auto" }}>{fm(t.start)} – {fm(t.end)}</span>}
                 </div>
               </div>;
@@ -8745,7 +8842,7 @@ ${jobsCtx || "No jobs found."}`;
                     {(fresh.jobNumber || fresh.poNumber || fresh.projectManagerId) && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
                       {fresh.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>Task # {fresh.jobNumber}</span>}
                       {fresh.poNumber && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98115", border: "1px solid #10b98133", borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>PO # {fresh.poNumber}</span>}
-                      {fresh.projectManagerId && (() => { const pm = people.find(p => p.id === fresh.projectManagerId); return pm ? <span style={{ fontSize: 12, fontWeight: 700, color: T.textSec, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "3px 10px", display: "flex", alignItems: "center", gap: 5 }}><span style={{ width: 14, height: 14, borderRadius: 4, background: "#555", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 8, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{pm.name[0]}</span>PM: {pm.name}</span> : null; })()}
+                      {fresh.projectManagerId && (() => { const pm = people.find(p => p.id === fresh.projectManagerId); return pm ? <span style={{ fontSize: 12, fontWeight: 700, color: T.textSec, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "3px 10px", display: "flex", alignItems: "center", gap: 5 }}><PersonAvatar person={pm} size={14} />PM: {pm.name}</span> : null; })()}
                     </div>}
                   </div>
                 </div>
@@ -8824,7 +8921,7 @@ ${jobsCtx || "No jobs found."}`;
                           <HealthIcon t={op} size={12} />
                           <span style={{ fontSize: 13, fontWeight: 500, color: T.text, minWidth: 50 }}>{op.title}</span>
                           <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(op.start)}–{fm(op.end)}</span>
-                          {person && <span style={{ marginLeft: "auto", fontSize: 12, color: T.textSec, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 16, height: 16, borderRadius: 6, background: "#555", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 700 }}>{person.name[0]}</span>{person.name}</span>}
+                          {person && <span style={{ marginLeft: "auto", fontSize: 12, color: T.textSec, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}><PersonAvatar person={person} size={16} />{person.name}</span>}
                           {!person && <span style={{ marginLeft: "auto", fontSize: 11, color: T.textDim, fontStyle: "italic" }}>Unassigned</span>}
                         </div>; })}
                     </div>}
@@ -8843,7 +8940,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Team</div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {(fresh.team || []).map(id => { const p = people.find(x => x.id === id); if (!p) return null; const jc = fresh.color || T.accent; return <div key={id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: T.radiusSm, background: jc + "15", border: `1px solid ${jc}44` }}>
-                    <div style={{ width: 24, height: 24, borderRadius: 8, background: jc, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
+                    <PersonAvatar person={p} size={24} />
                     <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{p.name}</span>
                     <span style={{ fontSize: 11, color: T.textDim }}>{p.department}</span>
                   </div>; })}
@@ -9062,10 +9159,10 @@ ${jobsCtx || "No jobs found."}`;
             case "team": return (
               <div style={{ ...cellBase, gap: 4, flexWrap: "nowrap", overflow: "hidden" }}>
                 {level === 0 && teamMembers.slice(0, 4).map(p => (
-                  <div key={p.id} title={p.name} style={{ width: 22, height: 22, borderRadius: 7, background: jobColor || T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 700, flexShrink: 0, border: `1.5px solid ${T.card}` }}>{p.name[0]}</div>
+                  <div key={p.id} title={p.name} style={{ display: "flex", flexShrink: 0 }}><PersonAvatar person={p} size={22} ring={T.card} /></div>
                 ))}
                 {level === 0 && teamMembers.length > 4 && <span style={{ fontSize: 10, color: T.textDim }}>+{teamMembers.length - 4}</span>}
-                {level > 0 && assigneePerson && <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: jobColor || T.accent, fontWeight: 600 }}><div style={{ width: 18, height: 18, borderRadius: 6, background: jobColor || T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 700 }}>{assigneePerson.name[0]}</div>{assigneePerson.name.split(" ")[0]}</span>}
+                {level > 0 && assigneePerson && <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: jobColor || T.accent, fontWeight: 600 }}><PersonAvatar person={assigneePerson} size={18} />{assigneePerson.name.split(" ")[0]}</span>}
                 {level > 0 && !assigneePerson && <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic" }}>—</span>}
               </div>
             );
@@ -9347,7 +9444,7 @@ ${jobsCtx || "No jobs found."}`;
                   if (!person) return;
                   const color = elColor(person.color || T.textDim);
                   const header = <>
-                    <div style={{ width: 22, height: 22, borderRadius: 6, background: color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: accentText(color), flexShrink: 0 }}>{person.name[0]}</div>
+                    <PersonAvatar person={person} size={22} />
                     <span style={{ fontSize: 13, fontWeight: 700, color: T.bgText }}>{person.name}</span>
                   </>;
                   sections.push(renderGroupSection({
@@ -9411,7 +9508,7 @@ ${jobsCtx || "No jobs found."}`;
                   {/* Section header */}
                   <div onClick={() => setPmSectionsCollapsed(p => ({ ...p, [pmId]: !p[pmId] }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px", cursor: "pointer", userSelect: "none" }}>
                     <svg style={{ color: T.textDim, transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)", flexShrink: 0 }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
-                    {pm && <div style={{ width: 22, height: 22, borderRadius: 6, background: elColor(pm.color || pmColor), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 800, color: accentText(elColor(pm.color || pmColor)), flexShrink: 0 }}>{pm.name[0]}</div>}
+                    {pm && <PersonAvatar person={pm} size={22} />}
                     <span style={{ fontSize: 13, fontWeight: 700, color: T.bgText }}>{pmLabel}</span>
                     <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: T.accent + "20", borderRadius: 10, padding: "1px 8px" }}>{pmJobs.length}</span>
                   </div>
@@ -10276,7 +10373,7 @@ ${jobsCtx || "No jobs found."}`;
                   const isDropTarget = dayDragTarget === p.id;
                   return <div key={p.id} style={{display:"flex",height:row.hidden ? 0 : rH,overflow:"hidden",borderBottom:row.hidden?"none":`1px solid ${T.bg}55`,background:isDropTarget?T.accent+"18":"transparent",outline:isDropTarget?`2px dashed ${T.accent}88`:"none",opacity:row.hidden?0:1,pointerEvents:row.hidden?"none":"auto",transition:"height 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.14s ease, background 0.1s"}}>
                     <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:8,padding:"0 10px 0 8px",borderRight:`1px solid ${T.border}`,background:T.surface,flexShrink:0}}>
-                      <div style={{width:28,height:28,borderRadius:14,background:T.surface,border:`1px solid ${T.border}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:700,color:T.text,flexShrink:0}}>{p.teamNumber ? String(p.teamNumber).charAt(0).toUpperCase() : p.name.charAt(0).toUpperCase()}</div>
+                      <PersonAvatar person={p} size={28} label={p.teamNumber ? String(p.teamNumber).charAt(0).toUpperCase() : null} />
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name.split(" ")[0]}</div>
                         <div style={{fontSize:11,color:T.textDim}}>{p.department} · {p.cap}h</div>
@@ -10451,7 +10548,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 8, padding: "0 10px 0 8px", height: "100%", opacity: barSelectMode || !hoveredBarPid || bars.some(b => b.type !== "pto" && b.task?.pid === hoveredBarPid) ? 1 : 0.35, transition: "opacity 0.2s" }}>
                 {/* Drag handle */}
                 <Tip label="Drag to reorder"><div onMouseDown={e => startRowDrag(e, p.id)} onClick={e => e.stopPropagation()} style={{ cursor: "grab", color: T.textDim, fontSize: 14, padding: "4px 2px", flexShrink: 0, lineHeight: 1, userSelect: "none", opacity: 0.5 }}>⠿</div></Tip>
-                <div style={{ width: 28, height: 28, borderRadius: 14, background: T.surface, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: T.text, flexShrink: 0 }}>{p.teamNumber ? (isNaN(String(p.teamNumber)) ? String(p.teamNumber).charAt(0).toUpperCase() : String(p.teamNumber)) : p.name.charAt(0).toUpperCase()}</div>
+                <PersonAvatar person={p} size={28} label={p.teamNumber ? (isNaN(String(p.teamNumber)) ? String(p.teamNumber).charAt(0).toUpperCase() : String(p.teamNumber)) : null} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div onClick={barSelectMode ? (e => { e.stopPropagation(); setSelectedSchedulePerson(prev => prev === p.id ? null : p.id); }) : undefined} style={{ fontSize: 13, fontWeight: 600, color: barSelectMode ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: barSelectMode ? "pointer" : "default" }}>{p.name.split(" ")[0]}</div>
                   <div style={{ fontSize: 11, color: T.textDim }}>{p.department} · {p.cap}h{p.isTeamLead ? <span style={{ color: "#10b981", marginLeft: 4 }}>★ Lead</span> : ""}</div>
@@ -11870,7 +11967,6 @@ ${jobsCtx || "No jobs found."}`;
               {workersToday.map(({ person, todayBars, nextBar }) => {
                 const isActive = !!person.activeJobClock;
                 const onBreak = !!person.activeBreak;
-                const initials = person.name.trim().split(/\s+/).map(w => w[0]).join("").toUpperCase().slice(0, 2);
                 const todayBar = todayBars[0];
                 const totalHours = todayBar.task?.hpd || productiveHoursPerDay;
                 const jcLive = person.activeJobClock;
@@ -11882,7 +11978,7 @@ ${jobsCtx || "No jobs found."}`;
                 return (
                   <div key={person.id} className="tq-frost" style={{ minWidth: 230, maxWidth: 230, flexShrink: 0, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "14px 14px 12px", display: "flex", flexDirection: "column", gap: 10, fontFamily: T.font }}>
                     <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                      <div style={{ width: 34, height: 34, borderRadius: "50%", flexShrink: 0, background: elColor(person.color || T.accent), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: accentText(elColor(person.color || T.accent)) }}>{initials}</div>
+                      <PersonAvatar person={person} size={34} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.name}</div>
                         <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.department || ""}</div>
@@ -12383,7 +12479,7 @@ ${jobsCtx || "No jobs found."}`;
                 return (
                   <div key={p.id} style={{ display: "grid", gridTemplateColumns: "minmax(100px,160px) 1fr 140px", gap: 12, alignItems: "center", padding: "4px 0" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                      <div style={{ width: 18, height: 18, borderRadius: "50%", background: elColor(p.color || T.accent), color: accentText(elColor(p.color || T.accent)), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, flexShrink: 0 }}>{p.name[0]}</div>
+                      <PersonAvatar person={p} size={18} />
                       <span style={{ fontSize: 12, color: T.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
                     </div>
                     <div style={{ position: "relative", height: 20, background: T.surface, borderRadius: 4, overflow: "hidden" }}>
@@ -12696,8 +12792,8 @@ ${jobsCtx || "No jobs found."}`;
     const behindCount = dueOps.filter(m => ["critical", "behind"].includes(getHealth(m.op))).length;
     const avgPerTask = doneOps.length ? actual / doneOps.length : null;
 
-    const tile = (value, label, accent) => (
-      <div key={label} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "14px 15px", display: "flex", flexDirection: "column", gap: 7 }}>
+    const tile = (value, label, accent, hint) => (
+      <div key={label} title={hint || undefined} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "14px 15px", display: "flex", flexDirection: "column", gap: 7 }}>
         <div style={{ width: 26, height: 26, borderRadius: 8, background: hexA(accent, 0.14), display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ width: 9, height: 9, borderRadius: 3, background: accent }} />
         </div>
@@ -12791,11 +12887,26 @@ ${jobsCtx || "No jobs found."}`;
     const monthWorkDays = []; { let d = monthStart; while (d <= TD) { if (orgSettings.workDays.includes(new Date(d + "T12:00:00").getDay())) monthWorkDays.push(d); d = addD(d, 1); } }
     const presentDays = new Set(timeclock.filter(e => String(e.personId) === String(P.id) && !e.eventType && e.date >= monthStart && e.date <= TD && (e.hours || 0) > 0).map(e => e.date));
     const attendancePct = monthWorkDays.length ? Math.round((presentDays.size / monthWorkDays.length) * 100) : null;
+    // Late arrival = clocked in more than LATE_GRACE_MIN past the org's
+    // configured work start (orgSettings.workStart, default 08:00) — so an 08:00
+    // start doesn't count anyone late until 08:30. The grace window keeps normal
+    // variation (traffic, a slow badge-in) off someone's record; only a genuinely
+    // late start is logged against them.
+    const LATE_GRACE_MIN = 30;
+    const lateCutoffH = workStartH + LATE_GRACE_MIN / 60;
     const lateArrivals = timeclock.filter(e => {
       if (String(e.personId) !== String(P.id) || e.eventType || !e.clockIn || e.date < monthStart || e.date > TD) return false;
       const t = new Date(e.clockIn);
-      return t.getHours() + t.getMinutes() / 60 > workStartH + 0.25;   // 15-minute grace
+      return t.getHours() + t.getMinutes() / 60 > lateCutoffH;
     }).length;
+    // Decimal hour → "8:30 AM", so the tile can state the actual cutoff instead
+    // of leaving the rule implied.
+    const fmtHourOfDay = (h) => {
+      const total = Math.round(h * 60);
+      const hh = Math.floor(total / 60) % 24, mm = total % 60;
+      const h12 = hh % 12 === 0 ? 12 : hh % 12;
+      return `${h12}:${String(mm).padStart(2, "0")} ${hh >= 12 ? "PM" : "AM"}`;
+    };
 
     const statusChip = (label, color) => <span style={{ fontSize: 11, fontWeight: 700, color, background: hexA(color, 0.14), border: `1px solid ${hexA(color, 0.3)}`, borderRadius: T.radiusPill, padding: "3px 10px", whiteSpace: "nowrap" }}>{label}</span>;
     const kv = (k, v, strong) => (
@@ -12823,7 +12934,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* ── Header card ── */}
       <div style={card({ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", marginBottom: 14 })}>
         <div style={{ position: "relative", flexShrink: 0 }}>
-          <div style={{ width: 62, height: 62, borderRadius: "50%", background: elColor(P.color), backgroundImage: P.avatar || P.image ? `url(${P.avatar || P.image})` : undefined, backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 800, color: accentText(elColor(P.color)) }}>{(P.avatar || P.image) ? "" : P.name.charAt(0).toUpperCase()}</div>
+          <PersonAvatar person={P} size={62} />
           <div style={{ position: "absolute", right: 1, bottom: 1, width: 15, height: 15, borderRadius: "50%", background: clockedColor, border: `2.5px solid ${T.card}` }} />
         </div>
         <div style={{ minWidth: 180 }}>
@@ -13035,7 +13146,7 @@ ${jobsCtx || "No jobs found."}`;
                 : <div style={{ fontSize: 12, color: T.textDim }}>None scheduled</div>}
             </div>
             {tile(attendancePct == null ? "—" : `${presentDays.size} / ${monthWorkDays.length}`, "Days Present (Month)", "#10b981")}
-            {tile(String(lateArrivals), "Late Arrivals (Month)", lateArrivals > 0 ? "#f59e0b" : T.textDim)}
+            {tile(String(lateArrivals), `Late Arrivals (after ${fmtHourOfDay(lateCutoffH)})`, lateArrivals > 0 ? "#f59e0b" : T.textDim, `This month. Counts a clock-in after ${fmtHourOfDay(lateCutoffH)} — a ${LATE_GRACE_MIN}-minute grace window on the ${fmtHourOfDay(workStartH)} start time.`)}
             {tile(h1(overtime), `Overtime (${empPeriod === "pay" ? "Pay Period" : empPeriod === "week" ? "Week" : empPeriod === "month" ? "Month" : "Year"})`, "#f59e0b")}
           </div>
         </div>
@@ -13684,7 +13795,7 @@ ${jobsCtx || "No jobs found."}`;
 
     const renderPersonEditModal = () => {
       if (!tsPersonEditModal) return null;
-      const { person, sessions, activeEntry, saving, addMenuFor } = tsPersonEditModal;
+      const { person, sessions, activeEntry, saving, addMenuFor, confirmDelete, deletingId } = tsPersonEditModal;
 
       // datetime-local <-> ISO. The input shows LOCAL wall-clock time (matching
       // the board's fmtTime); fromLocal parses it back to a UTC ISO string.
@@ -13780,6 +13891,26 @@ ${jobsCtx || "No jobs found."}`;
         return { ...m, addMenuFor: null, activeEntry: { ...m.activeEntry, events: [...m.activeEntry.events, { id: tmpId, eventType, timestamp: mid, origTimestamp: null, _new: true }].sort((a, b) => a.timestamp.localeCompare(b.timestamp)) } };
       });
       const ACTIVE_ADD_CHOICES = ADD_CHOICES.filter(c => c.type === "lunchStart" || c.type === "lunchEnd");
+
+      // ── Delete a whole past shift ─────────────────────────────────────────
+      // Applied IMMEDIATELY rather than deferred to Save, unlike every other
+      // edit in this modal. Deferring would mean the row vanishes on confirm
+      // but silently comes back if the admin closes without saving — the one
+      // outcome a destructive confirm must never produce. The confirm dialog is
+      // the safety net instead. The session is also dropped from the draft so a
+      // later Save doesn't try to edit an entry the server no longer has.
+      const deleteSession = async (sid) => {
+        setTsPersonEditModal(m => ({ ...m, deletingId: sid }));
+        const done = (patch) => setTsPersonEditModal(m => (m ? { ...m, deletingId: null, confirmDelete: null, ...patch } : m));
+        try {
+          const r = await adminDeleteEntryAction({ entryId: sid }, getToken, orgCode);
+          if (!r?.ok) { alert(r?.error || "Couldn't delete this shift."); done({}); return; }
+          done({ sessions: sessions.filter(s => s.id !== sid) });
+          // Re-pull so the day/period totals reflect the server's recomputed
+          // truth (the deletion also lands on other devices via real-time).
+          try { const fresh = await fetchTimeclock(getToken, orgCode); if (Array.isArray(fresh)) setTimeclock(fresh); } catch { /* real-time will reconcile */ }
+        } catch { alert("Network error"); done({}); }
+      };
 
       // Group [active + sessions] by date for display (active is newest first).
       const rows = [...(activeEntry ? [activeEntry] : []), ...sessions];
@@ -13958,7 +14089,24 @@ ${jobsCtx || "No jobs found."}`;
                             {locked
                               ? <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600, color: "#10b981" }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Confirmed — re-open to edit</span>
                               : <span style={{ fontSize: 10.5, color: T.textDim }}>Shift</span>}
-                            <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{sessionNetHours(it).toFixed(2)}h</span>
+                            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{sessionNetHours(it).toFixed(2)}h</span>
+                              {/* Delete the whole shift. Hidden while confirmed —
+                                  the timesheet must be re-opened first, matching
+                                  the server's 409 so the UI can't offer an action
+                                  that is guaranteed to fail. */}
+                              {!locked && (
+                                <button
+                                  onClick={() => setTsPersonEditModal(m => ({ ...m, confirmDelete: { id: it.id, date: it.date, hours: sessionNetHours(it) } }))}
+                                  title="Delete this shift"
+                                  style={{ width: 24, height: 24, flexShrink: 0, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}
+                                  onMouseEnter={e => { e.currentTarget.style.color = "#ef4444"; e.currentTarget.style.borderColor = "#ef444455"; e.currentTarget.style.background = "#ef444412"; }}
+                                  onMouseLeave={e => { e.currentTarget.style.color = T.textDim; e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = "none"; }}
+                                >
+                                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                </button>
+                              )}
+                            </span>
                           </div>
                           {punchRow({ key: "in", label: "In", color: "#10b981", value: it.clockIn, onChange: v => patchSession(it.id, { clockIn: v }), locked })}
                           {it.events.filter(ev => !ev._deleted).map(ev => punchRow({
@@ -14002,6 +14150,44 @@ ${jobsCtx || "No jobs found."}`;
               </button>
             </div>
           </div>
+
+          {/* ── Confirm shift deletion ──────────────────────────────────────
+              Nested inside the same portal so it stacks above the Timestamps
+              modal. Deliberately NOT dismissible by backdrop click — a stray
+              click behind a destructive dialog shouldn't count as an answer. */}
+          {confirmDelete && (
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{ position: "fixed", inset: 0, zIndex: 10020, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+            >
+              <div style={{ background: T.card, borderRadius: 14, width: "100%", maxWidth: 400, border: `1px solid ${T.borderLight}`, boxShadow: "0 28px 70px rgba(0,0,0,0.6)", padding: 22, fontFamily: T.font, animation: "slideUp 0.18s ease-out" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                  <span style={{ width: 34, height: 34, borderRadius: 17, background: "#ef444418", color: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                  </span>
+                  <span style={{ fontSize: 16, fontWeight: 700, color: T.text }}>Delete this shift?</span>
+                </div>
+                <div style={{ fontSize: 13, lineHeight: 1.55, color: T.textSec, marginBottom: 18 }}>
+                  {person.name}'s <strong style={{ color: T.text }}>{fmtDayHeader(confirmDelete.date)}</strong> shift
+                  {" "}(<strong style={{ color: T.text }}>{confirmDelete.hours.toFixed(2)}h</strong>) and any lunch or break
+                  punches inside it will be removed from the timesheet. This happens
+                  immediately and can't be undone.
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                  <button
+                    onClick={() => setTsPersonEditModal(m => ({ ...m, confirmDelete: null }))}
+                    disabled={!!deletingId}
+                    style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.text, fontSize: 13, fontWeight: 600, cursor: deletingId ? "not-allowed" : "pointer", fontFamily: T.font }}
+                  >Cancel</button>
+                  <button
+                    onClick={() => deleteSession(confirmDelete.id)}
+                    disabled={!!deletingId}
+                    style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: "none", background: "#ef4444", color: "#fff", fontSize: 13, fontWeight: 700, cursor: deletingId ? "not-allowed" : "pointer", fontFamily: T.font, opacity: deletingId ? 0.7 : 1 }}
+                  >{deletingId ? "Deleting…" : "Delete Shift"}</button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>,
         document.body
       );
@@ -15745,7 +15931,7 @@ ${jobsCtx || "No jobs found."}`;
         const pctLoad = p.cap > 0 ? Math.min(bookedH / p.cap * 100, 100) : 0;
         return <div key={p.id} style={{ marginBottom: 6 }}>
           <div onClick={() => setMobileExp(prev => ({ ...prev, ["p_" + p.id]: !prev["p_" + p.id] }))} style={{ display: "flex", gap: 12, padding: "12px 14px", background: T.card, borderRadius: isExp ? `${T.radiusSm}px ${T.radiusSm}px 0 0` : T.radiusSm, border: `1px solid ${T.border}`, borderBottom: isExp ? "none" : undefined, cursor: "pointer", alignItems: "center" }}>
-            <div style={{ width: 38, height: 38, borderRadius: 19, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{p.name[0]}</div>
+            <PersonAvatar person={p} size={38} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>{p.name}</div>
               <div style={{ fontSize: 12, color: T.textDim, marginTop: 1 }}>{p.department}{p.cap ? ` · ${p.cap}h/day` : ""}</div>
@@ -15846,7 +16032,7 @@ ${jobsCtx || "No jobs found."}`;
     return <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
       {/* Mobile header bar */}
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: T.surface, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
-        <div style={{ width: 28, height: 28, borderRadius: 14, background: elColor(loggedInUser.color), display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: accentText(elColor(loggedInUser.color)), fontWeight: 700, flexShrink: 0 }}>{loggedInUser.name[0]}</div>
+        <PersonAvatar person={loggedInUser} size={28} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{loggedInUser.name}</div>
           <div style={{ fontSize: 10, color: isAdmin ? T.accent : T.textDim }}>{isAdmin ? "Admin" : "Crew"}</div>
@@ -15883,7 +16069,7 @@ ${jobsCtx || "No jobs found."}`;
             return <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 9999, background: T.glass, border: `1px solid ${T.glassBorder}`, borderRadius: T.radiusSm, boxShadow: "0 8px 32px rgba(0,0,0,0.3)", maxHeight: 300, overflow: "auto" }}>
               {!hasResults && <div style={{ padding: "20px 12px", textAlign: "center", color: T.textDim, fontSize: 13 }}>No results</div>}
               {personResults.slice(0, 4).map(p => <div key={p.id} onClick={() => { setSearchQ(""); setSearchOpen(false); switchView("schedule"); }} style={{ padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text, borderBottom: `1px solid ${T.border}22` }}>
-                <div style={{ width: 22, height: 22, borderRadius: 11, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
+                <PersonAvatar person={p} size={22} />
                 <span style={{ fontWeight: 500 }}>{p.name}</span>
               </div>)}
               {clientResults.slice(0, 4).map(c => <div key={c.id} onClick={() => { setSearchQ(""); setSearchOpen(false); switchView("clients"); setMobileExp(p => ({ ...p, ["c_" + c.id]: true })); }} style={{ padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text, borderBottom: `1px solid ${T.border}22` }}>
@@ -16290,7 +16476,9 @@ ${jobsCtx || "No jobs found."}`;
 
     // Combined conversation list — groups + direct messages together, newest activity on top.
     // Avatar chip: the person's uploaded image, else their initial on the color they picked.
-    const avatarChip = (p, size) => { const col = (p && p.color) || T.accent; return <div style={{ width: size, height: size, borderRadius: "50%", overflow: "hidden", background: col, display: "flex", alignItems: "center", justifyContent: "center", fontSize: Math.round(size * 0.42), fontWeight: 800, color: accentText(col), flexShrink: 0 }}>{p && p.avatar ? <img src={p.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : ((p && p.name) || "?").charAt(0).toUpperCase()}</div>; };
+    // Was reading only `p.avatar` — but the photo uploader writes `p.image`, so
+    // an uploaded photo never appeared in chat. PersonAvatar checks both.
+    const avatarChip = (p, size) => <PersonAvatar person={p} size={size} />;
     // Group chip: a small stack of the (other) members' avatars.
     const groupChip = (g) => { const members = (g.memberIds || []).filter(id => String(id) !== String(loggedInUser?.id)).map(id => people.find(p => String(p.id) === String(id))).filter(Boolean); if (members.length <= 1) return avatarChip(members[0], 38); return <div style={{ position: "relative", width: 38, height: 38, flexShrink: 0 }}><div style={{ position: "absolute", right: 0, bottom: 0, borderRadius: "50%", border: `2px solid ${T.card}` }}>{avatarChip(members[1], 23)}</div><div style={{ position: "absolute", left: 0, top: 0, borderRadius: "50%", border: `2px solid ${T.card}` }}>{avatarChip(members[0], 23)}</div></div>; };
     const convoThreads = [
@@ -16594,7 +16782,7 @@ ${jobsCtx || "No jobs found."}`;
                   if (isNew) seenMsgIdsRef.current.add(String(m.id));
                   const animClass = isNew ? (isMe ? "msg-in-mine" : "msg-in-other") : "";
                   return <div key={m.id} className={animClass} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 10, padding: "4px 14px", alignItems: "center" }}>
-                    <div style={{ width: 32, height: 32, borderRadius: 16, background: T.systemBg || T.surfaceSolid || T.surface, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: accentText(T.systemBg || T.surfaceSolid || T.surface), flexShrink: 0 }}>{m.authorName[0]}</div>
+                    <PersonAvatar person={people.find(pp => String(pp.id) === String(m.authorId)) || { name: m.authorName, color: m.authorColor }} size={32} />
                     <div onClick={() => revealMessageTime(m.id)} style={{ position: "relative", maxWidth: "72%", display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: 3, cursor: "pointer" }}>
                       {showName && <span style={{ fontSize: 12, fontWeight: 600, color: T.text, marginLeft: isMe ? 0 : 2, marginRight: isMe ? 2 : 0 }}>{m.authorName}</span>}
                       {/* No in-flight styling on the bubble itself — it renders
@@ -17940,7 +18128,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>}
           {/* Assigned person */}
           {person && <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, marginBottom: 16 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 10, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: "#fff", fontWeight: 700 }}>{person.name[0]}</div>
+            <PersonAvatar person={person} size={36} />
             <div>
               <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{person.name}</div>
               <div style={{ fontSize: 12, color: T.textDim }}>{person.department}</div>
@@ -18112,7 +18300,7 @@ ${jobsCtx || "No jobs found."}`;
                         <HealthIcon t={op} size={12} />
                         <span style={{ fontSize: 13, fontWeight: 500, color: T.text, minWidth: 50 }}>{op.title}</span>
                         <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(op.start)}–{fm(op.end)}</span>
-                        {person && <span style={{ marginLeft: "auto", fontSize: 12, color: person.color, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}><span style={{ width: 16, height: 16, borderRadius: 6, background: person.color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: accentText(person.color), fontWeight: 700 }}>{person.name[0]}</span>{person.name}</span>}
+                        {person && <span style={{ marginLeft: "auto", fontSize: 12, color: person.color, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}><PersonAvatar person={person} size={16} />{person.name}</span>}
                         {!person && <span style={{ marginLeft: "auto", fontSize: 11, color: T.textDim, fontStyle: "italic" }}>Unassigned</span>}
                       </div>; })}
                   </div>}
@@ -18500,7 +18688,9 @@ ${jobsCtx || "No jobs found."}`;
 
   const renderSettingsGeneral = () => {
     const d = settingsDraft || {};
-    const avatarColor = d.color || "#3b82f6";
+    // Seeds the colour picker at the same blue PersonAvatar falls back to, so
+    // the wheel opens on the colour the user is actually looking at.
+    const avatarColor = d.color || PERSON_BLUE;
     const onPickImage = async (file) => {
       if (!file) return;
       try { const data = await downscaleImage(file, 512, 0.85, "image/jpeg"); patchDraft({ image: data }); } catch (e) { console.error("Avatar resize failed:", e); }
@@ -18510,7 +18700,9 @@ ${jobsCtx || "No jobs found."}`;
         <div className="tq-frost" style={stCard}>
           <div style={stLabel}>Profile Photo</div>
           <div style={{ display: "flex", gap: 22, alignItems: "flex-start", flexWrap: "wrap" }}>
-            <div style={{ width: 84, height: 84, borderRadius: 42, background: d.image ? T.surface : avatarColor, backgroundImage: d.image ? `url(${d.image})` : undefined, backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 34, fontWeight: 800, color: accentText(avatarColor), flexShrink: 0, border: `2px solid ${T.border}` }}>{d.image ? "" : ((d.name || "?").trim()[0] || "?").toUpperCase()}</div>
+            {/* Driven off the live draft through the SAME component every other
+                surface uses, so the preview can't drift from the real thing. */}
+            <PersonAvatar person={{ name: d.name, color: d.color, image: d.image }} size={84} ring={T.border} />
             <div style={{ flex: 1, minWidth: 220 }}>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: d.image ? 0 : 14 }}>
                 <label style={{ ...stGhostBtn, display: "inline-flex", alignItems: "center", gap: 7 }}>
@@ -18646,10 +18838,9 @@ ${jobsCtx || "No jobs found."}`;
               const permsEnabled = perm => person.adminPerms == null || person.adminPerms[perm] === true;
               const togglePerm = (key, val) => updDraftPerson(person.id, { adminPerms: { ...(person.adminPerms || {}), [key]: val } });
               const showPin = showPinIds.has(person.id);
-              const pc = elColor(person.color || "#555");
               return <div key={person.id}>
                 <div onClick={() => setSettingsUser(isSelected ? null : person.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radius, background: isSelected ? T.accent + "10" : T.surface, border: `1px solid ${isSelected ? T.accent + "44" : T.border}`, cursor: "pointer", transition: "all 0.15s" }}>
-                  <div style={{ width: 34, height: 34, borderRadius: 14, background: person.image ? T.surface : pc, backgroundImage: person.image ? `url(${person.image})` : undefined, backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: accentText(pc), flexShrink: 0 }}>{person.image ? "" : person.name[0]}</div>
+                  <PersonAvatar person={person} size={34} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.name}</div>
                     <div style={{ fontSize: 11, color: T.textDim }}>{person.department || "No department"}</div>
@@ -19587,11 +19778,29 @@ ${jobsCtx || "No jobs found."}`;
         overflow: "hidden", whiteSpace: "nowrap",
         ...o.extra,
       });
+      // Fixed-width, CENTRED icon slot shared by every sidebar button.
+      //
+      // The glyphs aren't all the same intrinsic size — nav items are 15px, the
+      // hamburger 18px, one is 16px — and they were aligned by their left edge
+      // (the button's 11px padding). Equal left edges but unequal widths means
+      // unequal centres, so the toggle sat ~1.5px right of the nav icons below
+      // it and read as not lining up.
+      //
+      // An 18px slot (the widest glyph) centres every icon on one axis, and puts
+      // that axis exactly on the collapsed rail's centre: 11px padding + 9px =
+      // 20px = half the 40px button. So the icons line up with each other AND
+      // sit dead-centre when collapsed.
+      const navIcon = { display: "flex", alignItems: "center", justifyContent: "center", width: 18, flexShrink: 0, lineHeight: 0 };
       return (<aside className="tq-sidebar" onMouseEnter={() => { if (sidebarMode === "hover") setSidebarExpanded(true); }} onMouseLeave={() => { if (sidebarMode === "hover") setSidebarExpanded(false); }} style={{ width: SB_W, flexShrink: 0, background: T.surfaceSolid || T.surface, display: "flex", flexDirection: "column", transition: `width 0.28s ${NAV_EASE}`, overflow: "hidden", position: "relative", zIndex: 100 }}>
       {/* Hamburger toggle — only shown in "button" mode; fades + collapses height when switching to hover */}
-      <div aria-hidden={sidebarMode !== "button"} style={{ overflow: "hidden", maxHeight: sidebarMode === "button" ? 72 : 0, opacity: sidebarMode === "button" ? 1 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease, border-color 0.2s ease, margin-bottom 0.28s cubic-bezier(0.22,1,0.36,1), padding 0.28s cubic-bezier(0.22,1,0.36,1)", padding: `12px ${NAV_PAD}px 12px`, borderBottom: sidebarMode === "button" ? `1px solid ${T.border}22` : "1px solid transparent", marginBottom: sidebarMode === "button" ? 10 : 0, pointerEvents: sidebarMode === "button" ? "auto" : "none" }}>
+      {/* No borderBottom — the hairline under the toggle read as a stray seam.
+          The SPACING it sat in is deliberate and unchanged (12px bottom padding
+          + 10px margin): the toggle is a separate control from the nav list and
+          still wants that breathing room, just without a rule drawn through it.
+          `border-color` is dropped from the transition list along with it. */}
+      <div aria-hidden={sidebarMode !== "button"} style={{ overflow: "hidden", maxHeight: sidebarMode === "button" ? 72 : 0, opacity: sidebarMode === "button" ? 1 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease, margin-bottom 0.28s cubic-bezier(0.22,1,0.36,1), padding 0.28s cubic-bezier(0.22,1,0.36,1)", padding: `12px ${NAV_PAD}px 12px`, marginBottom: sidebarMode === "button" ? 10 : 0, pointerEvents: sidebarMode === "button" ? "auto" : "none" }}>
         <button onClick={toggleSidebar} title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"} style={navBtn(false, { color: T.textSec })} onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textSec; }}>
-          <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
+          <span style={navIcon}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
           </span>
         </button>
@@ -19610,7 +19819,7 @@ ${jobsCtx || "No jobs found."}`;
               onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show(v.label, e.clientX, e.clientY); }}
               onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
               onMouseDown={() => tipCtx.hide()}>
-              <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>{v.icon}</span>
+              <span style={navIcon}>{v.icon}</span>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{v.label}</span>
             </button>
           );
@@ -19624,7 +19833,7 @@ ${jobsCtx || "No jobs found."}`;
               onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
               onMouseDown={() => tipCtx.hide()}
               style={navBtn(active)}>
-              <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
+              <span style={navIcon}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
               </span>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>Approval Queue</span>
@@ -19640,7 +19849,7 @@ ${jobsCtx || "No jobs found."}`;
               onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
               onMouseDown={() => tipCtx.hide()}
               style={navBtn(active)}>
-              <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
+              <span style={navIcon}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
               </span>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>Admin</span>
@@ -19653,7 +19862,7 @@ ${jobsCtx || "No jobs found."}`;
           onMouseLeave={e => { tipCtx.hide(); e.currentTarget.style.background = "transparent"; }}
           onMouseDown={() => tipCtx.hide()}
           style={navBtn(false)}>
-          <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>
+          <span style={navIcon}>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           </span>
           <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis" }}>Settings</span>
@@ -19668,7 +19877,7 @@ ${jobsCtx || "No jobs found."}`;
               onMouseLeave={e => { if (!activeS) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
               onMouseDown={() => tipCtx.hide()}
               style={navBtn(activeS)}>
-              <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}>{icon}</span>
+              <span style={navIcon}>{icon}</span>
               <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
             </button>
           ); };
@@ -19681,7 +19890,7 @@ ${jobsCtx || "No jobs found."}`;
                 onMouseLeave={e => { e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
                 onMouseDown={() => tipCtx.hide()}
                 style={navBtn(false, { color: T.textSec, fw: 600, extra: { marginBottom: 6 } })}>
-                <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></span>
+                <span style={navIcon}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></span>
                 <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis" }}>Back</span>
               </button>
               {/* Divider — separates Back from the settings sections */}
@@ -19697,7 +19906,7 @@ ${jobsCtx || "No jobs found."}`;
                   onMouseLeave={e => { if (!orgActive) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
                   onMouseDown={() => tipCtx.hide()}
                   style={navBtn(orgActive)}>
-                  <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></span>
+                  <span style={navIcon}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></span>
                   <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis" }}>Organization</span>
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: settingsOrgExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0, opacity: sidebarExpanded ? 1 : 0 }}><polyline points="9 18 15 12 9 6"/></svg>
                 </button>
@@ -19724,7 +19933,7 @@ ${jobsCtx || "No jobs found."}`;
                 onMouseLeave={e => { e.currentTarget.style.background = T.accent + "12"; tipCtx.hide(); }}
                 onMouseDown={() => tipCtx.hide()}
                 style={navBtn(false, { color: T.accent, bg: T.accent + "12", border: `1px solid ${T.accent}44`, fw: 700, extra: { marginTop: 6 } })}>
-                <span style={{ display: "flex", alignItems: "center", flexShrink: 0, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg></span>
+                <span style={navIcon}><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2L4 14h7l-1 8 9-12h-7l1-8z"/></svg></span>
                 <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "0.03em" }}>FAST TRAQS</span>
               </button>}
             </div>
@@ -19738,7 +19947,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* Profile — avatar always; name + logout fade in when expanded */}
       <div style={{ padding: "4px 16px 12px", flexShrink: 0, display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ position: "relative", width: 32, height: 32, flexShrink: 0 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 16, background: loggedInUser.image ? T.surface : elColor(loggedInUser.color), backgroundImage: loggedInUser.image ? `url(${loggedInUser.image})` : undefined, backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: accentText(elColor(loggedInUser.color)), fontWeight: 700 }}>{loggedInUser.image ? "" : loggedInUser.name[0]}</div>
+          <PersonAvatar person={loggedInUser} size={32} />
           {!sidebarExpanded && <Tip label={`${loggedInUser.name}${isAdmin ? " · Admin" : " · Crew"}`}>
             <div style={{ position: "absolute", inset: 0 }} />
           </Tip>}
@@ -21824,7 +22033,7 @@ ${jobsCtx || "No jobs found."}`;
                 return <div key={person.id}>
                   {/* Person row */}
                   <div onClick={() => isAdmin && setSettingsUser(isSelected ? null : person.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radiusSm, background: isSelected ? T.accent + "10" : T.surface, border: `1px solid ${isSelected ? T.accent + "44" : T.border}`, cursor: isAdmin ? "pointer" : "default", transition: "all 0.15s" }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 10, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{person.name[0]}</div>
+                    <PersonAvatar person={person} size={34} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.name}</div>
                       <div style={{ fontSize: 11, color: T.textDim }}>{person.department || "No department"}</div>
@@ -22363,7 +22572,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{quickChat.title}</div>
             <div style={{ display: "flex", alignItems: "center", gap: 3, marginTop: 5 }}>
               {quickChat.participants.slice(0, 7).map(p => (
-                <div key={p.id} title={p.name} style={{ width: 22, height: 22, borderRadius: 11, background: p.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: accentText(p.color), flexShrink: 0 }}>{p.name[0]}</div>
+                <div key={p.id} title={p.name} style={{ display: "flex", flexShrink: 0 }}><PersonAvatar person={p} size={22} /></div>
               ))}
               {quickChat.participants.length > 7 && <span style={{ fontSize: 10, color: T.textDim, marginLeft: 2 }}>+{quickChat.participants.length - 7}</span>}
             </div>
@@ -22387,7 +22596,9 @@ ${jobsCtx || "No jobs found."}`;
               const showName = !isMe && (!prev || prev.authorId !== m.authorId);
               const ts = new Date(m.timestamp).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
               return <div key={m.id} style={{ display: "flex", flexDirection: isMe ? "row-reverse" : "row", gap: 7, padding: "3px 12px", alignItems: "flex-end" }}>
-                {!isMe && <div style={{ width: 26, height: 26, borderRadius: 13, background: showName ? (T.systemBg || T.surfaceSolid || T.surface) : "transparent", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: accentText(T.systemBg || T.surfaceSolid || T.surface), flexShrink: 0 }}>{showName ? m.authorName[0] : ""}</div>}
+                {!isMe && (showName
+                  ? <PersonAvatar person={people.find(pp => String(pp.id) === String(m.authorId)) || { name: m.authorName, color: m.authorColor }} size={26} />
+                  : <div style={{ width: 26, height: 26, flexShrink: 0 }} />)}
                 <div style={{ maxWidth: "75%", display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: 2 }}>
                   {showName && <span style={{ fontSize: 10, color: T.textDim }}>{m.authorName}</span>}
                   {m.text && <div style={{ background: isMe ? brandGrad(T.accent) : T.surface, color: isMe ? T.accentText : T.text, padding: "8px 12px", borderRadius: isMe ? "18px 18px 5px 18px" : "18px 18px 18px 5px", fontSize: 13, lineHeight: 1.45, wordBreak: "break-word", border: isMe ? "none" : `1px solid ${T.border}` }}>{m.text}</div>}
@@ -22656,7 +22867,7 @@ ${jobsCtx || "No jobs found."}`;
                 if (!busy) { const pp = people.find(x => x.id === p.id); if (pp) for (const to of (pp.timeOff||[])) { if (to.start <= it.end && to.end >= it.start) { busy = true; break; } } }
               }
               return <button key={p.id} onClick={() => { if (busy) return; setTasks(prev => prev.map(job => ({ ...job, subs: (job.subs||[]).map(panel => ({ ...panel, subs: (panel.subs||[]).map(op => op.id === it.id ? { ...op, team: sel ? [] : [p.id] } : op) })) }))); setReassignModal(null); }} disabled={busy} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radiusPill, border: `1.5px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : T.surface, cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.45 : 1, transition: "all 0.12s", textAlign: "left" }} onMouseEnter={e => { if (!busy) e.currentTarget.style.borderColor = T.accent; }} onMouseLeave={e => { if (!busy) e.currentTarget.style.borderColor = sel ? T.accent : T.border; }}>
-                <div style={{ width: 32, height: 32, borderRadius: 9, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</div>
+                <PersonAvatar person={p} size={32} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: sel ? 700 : 500, color: sel ? T.accent : T.text, display: "flex", alignItems: "center", gap: 6 }}>
                     <span>{p.name}{sel && " (current)"}</span>
@@ -22778,7 +22989,7 @@ ${jobsCtx || "No jobs found."}`;
                   ...prev,
                   team: sel ? (prev.team || []).filter(id => id !== p.id) : [...(prev.team || []), p.id]
                 }))} style={{ padding: "4px 10px", borderRadius: T.radiusPill, border: `2px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: sel ? T.accent : T.textSec, fontWeight: sel ? 700 : 400, cursor: "pointer", transition: "all 0.15s", fontFamily: T.font, whiteSpace: "nowrap" }}>
-                  <span style={{ width: 16, height: 16, borderRadius: 5, background: "#555", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</span>
+                  <PersonAvatar person={p} size={16} />
                   {p.name}
                   {isBackup && <span style={{ fontSize: 8, fontWeight: 700, color: "#f59e0b", background: "#f59e0b22", border: "1px solid #f59e0b66", borderRadius: 3, padding: "0 4px", letterSpacing: "0.04em", marginLeft: 2 }}>BACKUP</span>}
                 </button>;
@@ -23111,7 +23322,7 @@ ${jobsCtx || "No jobs found."}`;
               <div key={person.id} style={{ marginBottom: 4 }}>
                 {/* Person header */}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 28px 6px", position: "sticky", top: 0, background: T.card, zIndex: 2 }}>
-                  <div style={{ width: 24, height: 24, borderRadius: 8, background: T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accentText, flexShrink: 0 }}>{person.name[0]}</div>
+                  <PersonAvatar person={person} size={24} />
                   <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{person.name}</span>
                   <span style={{ fontSize: 11, color: T.textDim, marginLeft: 2 }}>{person.department}</span>
                   <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 8, padding: "2px 8px" }}>{pChanges.length} ops</span>
@@ -23208,7 +23419,7 @@ ${jobsCtx || "No jobs found."}`;
           {/* Current dates */}
           <div style={{ display: "flex", gap: 8, marginBottom: 16, padding: "10px 14px", borderRadius: 10, background: T.bg, border: `1px solid ${T.border}` }}>
             <span style={{ fontSize: 12, color: T.textDim, flex: 1 }}>Current: <span style={{ color: T.text, fontFamily: T.mono }}>{fm(op.start)} → {fm(op.end)}</span></span>
-            {(op.team || []).length > 0 && <div style={{ display: "flex", gap: 4 }}>{teamPeople.map(p => <span key={p.id} style={{ width: 20, height: 20, borderRadius: 6, background: "#555", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, color: "#fff", fontWeight: 700 }}>{p.name[0]}</span>)}</div>}
+            {(op.team || []).length > 0 && <div style={{ display: "flex", gap: 4 }}>{teamPeople.map(p => <PersonAvatar key={p.id} person={p} size={20} />)}</div>}
           </div>
 
           {/* Auto slot suggestion */}
@@ -23289,7 +23500,7 @@ ${jobsCtx || "No jobs found."}`;
             const person = (confirmPush.people || people).find(x => x.id === push.personId);
             return <div key={i} style={{ padding: "14px 16px", borderBottom: i < confirmPush.pushes.length - 1 ? `1px solid ${T.border}` : "none", background: i % 2 === 0 ? T.surface : "transparent" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                {person && <span style={{ width: 20, height: 20, borderRadius: 6, background: "#555", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 700 }}>{person.name[0]}</span>}
+                {person && <PersonAvatar person={person} size={20} />}
                 <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{push.opTitle} – {push.panelTitle}</span>
                 <span style={{ fontSize: 12, color: T.textDim, marginLeft: "auto" }}>Job {push.jobTitle}</span>
               </div>
@@ -23384,7 +23595,7 @@ ${jobsCtx || "No jobs found."}`;
           {people.map(p => {
             const sel = newGroupPeople.includes(p.id);
             return <button key={p.id} onClick={() => setNewGroupPeople(prev => sel ? prev.filter(id => id !== p.id) : [...prev, p.id])} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 12px 6px 8px", borderRadius: T.radiusPill, border: `2px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
-              <div style={{ width: 24, height: 24, borderRadius: 12, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff" }}>{p.name[0]}</div>
+              <PersonAvatar person={p} size={24} />
               <span style={{ fontSize: 13, fontWeight: sel ? 600 : 400, color: sel ? T.accent : T.textSec }}>{p.name}</span>
             </button>;
           })}
@@ -23409,7 +23620,7 @@ ${jobsCtx || "No jobs found."}`;
           {people.map(p => {
             const sel = editGroupModal.memberIds.includes(p.id);
             return <button key={p.id} onClick={() => setEditGroupModal(prev => ({ ...prev, memberIds: sel ? prev.memberIds.filter(id => id !== p.id) : [...prev.memberIds, p.id] }))} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 12px 6px 8px", borderRadius: T.radiusPill, border: `2px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
-              <div style={{ width: 24, height: 24, borderRadius: 12, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff" }}>{p.name[0]}</div>
+              <PersonAvatar person={p} size={24} />
               <span style={{ fontSize: 13, fontWeight: sel ? 600 : 400, color: sel ? T.accent : T.textSec }}>{p.name}</span>
             </button>;
           })}
@@ -23698,7 +23909,7 @@ ${jobsCtx || "No jobs found."}`;
                       return (
                         <button onClick={e => { e.stopPropagation(); const opening = deptDropId !== "editJobPM"; setDeptDropId(opening ? "editJobPM" : null); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: T.radiusPill, border: `1px solid ${selPm ? T.accent + "55" : T.glassBorder}`, background: selPm ? T.accent + "10" : T.glass, cursor: "pointer", boxSizing: "border-box", transition: "all 0.15s", fontFamily: T.font }}>
                           {selPm
-                            ? <><div style={{ width: 22, height: 22, borderRadius: 6, background: selPm.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: accentText(selPm.color), flexShrink: 0 }}>{selPm.name[0]}</div><span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: T.accent, textAlign: "left" }}>{selPm.name}</span></>
+                            ? <><PersonAvatar person={selPm} size={22} /><span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: T.accent, textAlign: "left" }}>{selPm.name}</span></>
                             : <span style={{ flex: 1, fontSize: 14, color: T.textDim, textAlign: "left" }}>— No PM —</span>}
                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                         </button>
@@ -23713,7 +23924,7 @@ ${jobsCtx || "No jobs found."}`;
                         const isOn = ej.projectManagerId === p.id;
                         const fk = `editJob-pm-${p.id}`;
                         return <div key={p.id} onClick={() => { setDropFlashKey(fk); setTimeout(() => { setEj({ projectManagerId: p.id }); setDeptDropId(null); setDropFlashKey(null); }, 150); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `toolDrop 0.14s ${(pi + 1) * 38}ms both ease-out` }} onMouseEnter={e => { if (!dropFlashKey) e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { if (!dropFlashKey) e.currentTarget.style.background = "transparent"; }}>
-                          <div style={{ width: 22, height: 22, borderRadius: 6, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</div>
+                          <PersonAvatar person={p} size={22} />
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
                             {p.department && <div style={{ fontSize: 11, color: T.textDim }}>{p.department}</div>}
@@ -23862,7 +24073,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Notifying {recipients.length} team member{recipients.length !== 1 ? "s" : ""}</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 18 }}>
               {recipients.map(p => <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 20, padding: "4px 10px 4px 6px" }}>
-                <div style={{ width: 20, height: 20, borderRadius: 6, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#fff", flexShrink: 0 }}>{p.name[0]}</div>
+                <PersonAvatar person={p} size={20} />
                 <span style={{ fontSize: 12, color: T.text, fontWeight: 500 }}>{p.name}</span>
               </div>)}
             </div>
@@ -24124,7 +24335,7 @@ function AvailModal({ people, allItems, bookedHrs, onClose, isMobile, onStartTas
           {available.map(r => {
             const isSel = selectedPerson === r.p.id;
             return <div key={r.p.id} onClick={() => setSelectedPerson(isSel ? null : r.p.id)} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: isSel ? T.accent + "12" : T.surface, borderRadius: T.radiusSm, border: `1px solid ${isSel ? T.accent + "55" : "#10b98133"}`, cursor: "pointer", transition: "all 0.15s" }}>
-              <div style={{ width: 36, height: 36, borderRadius: 12, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{r.p.name[0]}</div>
+              <PersonAvatar person={r.p} size={36} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>{r.p.name}</div>
                 <div style={{ fontSize: 12, color: T.textSec, marginTop: 1 }}>
@@ -24143,7 +24354,7 @@ function AvailModal({ people, allItems, bookedHrs, onClose, isMobile, onStartTas
         <div style={{ fontSize: 12, fontWeight: 700, color: T.danger, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Busy · {busy.length}</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16 }}>
           {busy.map(r => <div key={r.p.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.danger}22`, opacity: 0.6 }}>
-            <div style={{ width: 32, height: 32, borderRadius: 10, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{r.p.name[0]}</div>
+            <PersonAvatar person={r.p} size={32} />
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 14, fontWeight: 500, color: T.text }}>{r.p.name}</div>
               <div style={{ fontSize: 11, color: T.textDim }}>{r.avg.toFixed(1)}h/day free · needs {aH}h</div>
@@ -24200,7 +24411,7 @@ function TimeOffModal({ people, updPerson, onClose }) {
           <label style={{ display: "block", fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Team Member</label>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {shopCrew.map(p => <button key={p.id} onClick={() => setToPerson(toPerson === p.id ? null : p.id)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusPill, border: `1px solid ${toPerson === p.id ? T.accent + "66" : T.border}`, background: toPerson === p.id ? T.accent + "15" : "transparent", cursor: "pointer", fontFamily: T.font, fontSize: 13, color: T.text, fontWeight: toPerson === p.id ? 600 : 400, transition: "all 0.15s" }}>
-              <div style={{ width: 18, height: 18, borderRadius: 6, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 700 }}>{p.name[0]}</div>
+              <PersonAvatar person={p} size={18} />
               {p.name}
             </button>)}
           </div>
@@ -24232,7 +24443,7 @@ function TimeOffModal({ people, updPerson, onClose }) {
       <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Upcoming{upcoming.length > 0 ? ` · ${upcoming.length}` : ""}</div>
       {upcoming.length === 0 && <div style={{ textAlign: "center", padding: "20px 0", color: T.textDim, fontSize: 13 }}>No upcoming time off</div>}
       {upcoming.map((to, i) => <div key={to.person.id + "-" + i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, marginBottom: 6 }}>
-        <div style={{ width: 28, height: 28, borderRadius: 8, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{to.person.name[0]}</div>
+        <PersonAvatar person={to.person} size={28} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{to.person.name}</div>
           <div style={{ fontSize: 12, color: T.textDim, marginTop: 1 }}>{fm(to.start)} → {fm(to.end)} · {to.reason}</div>
@@ -24244,7 +24455,7 @@ function TimeOffModal({ people, updPerson, onClose }) {
       {past.length > 0 && <>
         <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8, marginTop: 16 }}>Past · {past.length}</div>
         {past.map((to, i) => <div key={to.person.id + "-p-" + i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", background: T.surface, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, marginBottom: 4, opacity: 0.5 }}>
-          <div style={{ width: 24, height: 24, borderRadius: 6, background: "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: "#fff", fontWeight: 700, flexShrink: 0 }}>{to.person.name[0]}</div>
+          <PersonAvatar person={to.person} size={24} />
           <div style={{ flex: 1 }}>
             <span style={{ fontSize: 13, color: T.text }}>{to.person.name}</span>
             <span style={{ fontSize: 12, color: T.textDim, marginLeft: 8 }}>{fm(to.start)} → {fm(to.end)} · {to.reason}</span>

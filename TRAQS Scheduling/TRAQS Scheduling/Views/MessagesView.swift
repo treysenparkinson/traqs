@@ -558,7 +558,7 @@ private struct ChannelRow: View {
                 // otherwise their preferred color — so it's clearly a 1:1 chat.
                 if let p = dmPartner {
                     Avatar(initials: personInitials(p.name), size: 46,
-                           fill: Color(hex: p.color), imageData: p.image)
+                           fill: .personFill(p.color), imageData: p.image)
                 } else {
                     Avatar(initials: initials, size: 46, gradient: true)
                 }
@@ -2340,7 +2340,7 @@ private struct ParticipantStack: View {
                 // preferred color (not a generic brand gradient).
                 Avatar(initials: initials(p.name),
                        size: avatarSize,
-                       fill: Color(hex: p.color),
+                       fill: .personFill(p.color),
                        imageData: p.image)
                     .overlay(Circle().stroke(Color(hex: T.surface), lineWidth: 2))
             }
@@ -2886,7 +2886,7 @@ struct NewMessageSheet: View {
         } label: {
             HStack(spacing: 10) {
                 Avatar(initials: initials(person), size: 36,
-                       fill: Color(hex: person.color), imageData: person.image)
+                       fill: .personFill(person.color), imageData: person.image)
                 VStack(alignment: .leading, spacing: 1) {
                     Text(person.name)
                         .font(TTypo.smBold(14))

@@ -411,7 +411,7 @@ export async function handler(event) {
     //     reconcile them — edit breaks after clock-out.
     //
     // A confirmed timesheet is always locked (re-open it first).
-    if (action === "adminEditEvent" || action === "adminAddEvent" || action === "adminDeleteEvent") {
+    if (action === "adminEditEvent" || action === "adminAddEvent" || action === "adminDeleteEvent" || action === "adminDeleteEntry") {
       let _me;
       try { _me = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
       if (!_me.isAdmin) return err(403, "Admin only");
@@ -576,6 +576,45 @@ export async function handler(event) {
         const entries = recomputeOwners([owner?.id]);
         try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
         return json(200, { ok: true, eventId, entries });
+      }
+
+      // ── Delete an entire past shift ──────────────────────────────────────
+      // Removes a completed punch AND every lunch/break row that fell inside
+      // its window. Both are tombstoned (deletedAt) rather than spliced, so
+      // /sync evicts them from every client — a hard delete leaves the row
+      // cached on other devices forever (the GET already hides tombstones).
+      if (action === "adminDeleteEntry") {
+        const { entryId } = body;
+        if (!entryId) return err(400, "Missing entryId");
+
+        // `!e.eventType` distinguishes a punch row from a lunch/break row —
+        // both live in the same log, and deleting the wrong shape here would
+        // silently wipe a punch when the caller meant an event.
+        const entry = log.find(e => e.id === entryId && !e.eventType && !e.deletedAt);
+        if (!entry) return err(404, "Entry not found");
+        if (entry.confirmed) return err(409, "This entry is in a confirmed timesheet. Re-open the timesheet to delete it.");
+        if (!entry.clockIn || !entry.clockOut) return err(409, "This shift is still open. Clock the person out before deleting it.");
+
+        const stamp = new Date().toISOString();
+        const startMs = new Date(entry.clockIn).getTime();
+        const endMs = new Date(entry.clockOut).getTime();
+
+        // The lunch/break rows this shift owned. Leaving them behind isn't just
+        // untidy: ownerPunch() resolves an event to whatever punch window
+        // contains it, so an orphaned lunch row could later be attributed to a
+        // neighbouring shift and silently cut ITS hours.
+        const orphanIds = new Set(
+          log.filter(e => {
+            if (!e.eventType || e.deletedAt) return false;
+            if (String(e.personId) !== String(entry.personId)) return false;
+            const t = new Date(e.timestamp).getTime();
+            return !Number.isNaN(t) && t >= startMs && t <= endMs;
+          }).map(e => e.id)
+        );
+
+        log = log.map(e => (e.id === entryId || orphanIds.has(e.id)) ? { ...e, deletedAt: stamp } : e);
+        try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
+        return json(200, { ok: true, entryId, deletedEventIds: [...orphanIds] });
       }
     }
 

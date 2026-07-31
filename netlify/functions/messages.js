@@ -21,6 +21,12 @@ const userinfoCache = new Map();
 
 async function emailForToken(event, payload) {
   if (payload?.email) return String(payload.email).toLowerCase().trim();
+  // Same custom claim _utils/auth.js reads. Kept in sync deliberately: without
+  // it, an Auth0 Action that sets the claim would spare /sync the /userinfo
+  // round-trip but leave every message read/write still paying it — which is
+  // the exact request burst that rate-limits and 401s in the first place.
+  const customClaim = payload?.["https://traqs.matrixsystems.com/email"];
+  if (customClaim) return String(customClaim).toLowerCase().trim();
   const sub = payload?.sub;
   if (sub && userinfoCache.has(sub)) return userinfoCache.get(sub);
 

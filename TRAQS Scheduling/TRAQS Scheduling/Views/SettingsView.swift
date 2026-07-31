@@ -38,7 +38,7 @@ struct EditProfileView: View {
                 ScrollView {
                     VStack(spacing: 22) {
                         VStack(spacing: 12) {
-                            Avatar(initials: initials, size: 96, fill: Color(hex: color), imageData: imageData)
+                            Avatar(initials: initials, size: 96, fill: .personFill(color), imageData: imageData)
                             Button { showSourceDialog = true } label: {
                                 Text(imageData == nil ? "Add Photo" : "Change Photo")
                                     .font(TTypo.smBold(13))

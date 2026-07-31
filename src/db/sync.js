@@ -13,16 +13,31 @@ let _inFlight = null; // coalesces overlapping deltaSync calls (Ably can burst)
 export function configureSync(ctx) { _ctx = ctx; }
 export function isConfigured() { return !!_ctx?.orgCode; }
 
-async function authHeaders() {
+// `fresh` bypasses the Auth0 SDK's token cache (cacheMode:"off"), used only on a
+// 401 retry: the cached access token can be expired-but-not-yet-rotated, and
+// re-sending it would just 401 again.
+async function authHeaders(fresh = false) {
   if (!_ctx) throw new Error("sync not configured — call configureSync first");
-  const token = await _ctx.getToken();
+  const token = await _ctx.getToken(fresh ? { cacheMode: "off" } : undefined);
   return { Authorization: `Bearer ${token}`, "X-Org-Code": _ctx.orgCode };
 }
 
 // Raw GET of the delta since a cursor ("0"/undefined → full snapshot).
+//
+// A 401 here is almost never a real auth failure: the backend resolves the
+// caller's email through Auth0 /userinfo (access tokens carry no email claim),
+// which rate-limits under the request bursts this endpoint generates — and the
+// token itself can be mid-rotation. Both are transient, and /sync is the ONLY
+// delivery path for chat, so failing the whole cycle on the first 401 silently
+// stalls messaging until the next lucky poll. Retry once with a forced-fresh
+// token before giving up. Safe to retry: /sync is a pure read.
 export async function fetchDelta(since) {
   const q = encodeURIComponent(since || "0");
-  const res = await fetch(`${SYNC_URL}?since=${q}`, { headers: await authHeaders() });
+  let res = await fetch(`${SYNC_URL}?since=${q}`, { headers: await authHeaders() });
+  if (res.status === 401) {
+    await new Promise((r) => setTimeout(r, 1200));   // let the server's email cache warm
+    res = await fetch(`${SYNC_URL}?since=${q}`, { headers: await authHeaders(true) });
+  }
   if (!res.ok) throw new Error(`sync failed: ${res.status}`);
   return res.json();
 }
@@ -87,15 +102,55 @@ export async function deltaSync() {
   _inFlight = (async () => {
     try {
       const cursor = await getCursor();
-      if (!cursor) return await fullResync();
-      const resp = await fetchDelta(cursor);
-      return await applyDelta(resp);
+      const changed = cursor ? await applyDelta(await fetchDelta(cursor)) : await fullResync();
+      _health.consecutiveFailures = 0;
+      _health.lastError = null;
+      _health.lastSuccessAt = new Date().toISOString();
+      syncBus.dispatchEvent(new CustomEvent("sync-health", { detail: getSyncHealth() }));
+      return changed;
+    } catch (e) {
+      _health.consecutiveFailures += 1;
+      _health.lastError = e?.message || String(e);
+      syncBus.dispatchEvent(new CustomEvent("sync-health", { detail: getSyncHealth() }));
+      throw e;
     } finally {
       _inFlight = null;
     }
   })();
   return _inFlight;
 }
+
+// Fold the authoritative /messages GET into the cache.
+//
+// The GET returns the viewer's ENTIRE thread history (ACL-filtered, tombstones
+// already stripped); /sync deltas are time-filtered, so anything older than this
+// browser's cursor was never written here. That gap was load-bearing: the
+// rehydrate path REPLACES React state with readSlice("messages"), so on a
+// browser whose cache was never fully seeded (a fullResync that 401'd, a profile
+// whose IndexedDB was cleared, a different origin like localhost vs the deployed
+// site) the first live delta swapped a complete 387-message thread for whatever
+// few records the cache happened to hold — and nothing ever repaired it, because
+// only fullResync writes history and it runs only when the cursor is missing.
+//
+// Mirrors iOS SyncService.mergeFullMessages. Upsert-only: it never evicts, so a
+// partial or transient GET cannot delete cached history (deletions still arrive
+// as tombstones through applyDelta). Empty input is a no-op for the same reason.
+export async function mergeFullMessages(list) {
+  if (!Array.isArray(list) || list.length === 0) return false;
+  const rows = list.filter((m) => m && m.id != null && !m.deletedAt);
+  if (!rows.length) return false;
+  await db.messages.bulkPut(rows);
+  syncBus.dispatchEvent(new CustomEvent("messages-changed"));
+  syncBus.dispatchEvent(new CustomEvent("any-changed", { detail: { entities: ["messages"] } }));
+  return true;
+}
+
+// Sync health. Every deltaSync() call site catches and discards errors — correct
+// (a failed background sync must not break the app) but it meant a total
+// messaging outage produced no signal anywhere. Tracking it here lets the UI
+// surface a stalled sync without changing that contract.
+const _health = { consecutiveFailures: 0, lastError: null, lastSuccessAt: null };
+export function getSyncHealth() { return { ..._health }; }
 
 // Read a whole array slice back out of the cache (for re-hydrating React state).
 export async function readSlice(entity) {

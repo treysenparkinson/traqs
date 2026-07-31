@@ -92,4 +92,17 @@ extension Color {
             opacity: Double(a) / 255
         )
     }
+
+    /// Shared default avatar fill — matches PERSON_BLUE on the web so a person
+    /// without a photo looks the same on both platforms.
+    static let personBlue = Color(hex: "#4169e1")
+
+    /// Fill for a person's avatar: the colour they picked, or `personBlue` when
+    /// they never picked one. Needed because `Color(hex:)` falls through to
+    /// opaque BLACK on an empty/invalid string, so every person without a
+    /// colour — most of the roster — rendered a black circle.
+    static func personFill(_ hex: String?) -> Color {
+        let h = (hex ?? "").trimmingCharacters(in: .whitespaces)
+        return h.isEmpty ? personBlue : Color(hex: h)
+    }
 }
