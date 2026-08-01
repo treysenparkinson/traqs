@@ -375,6 +375,11 @@ const personStatus = (p) => {
 // the values are derived at render time from live data. Module scope so the
 // rotator's interval can wrap the index without reaching into render state.
 const DASH_STAT_KEYS = ["hours", "active", "ontime", "avg", "clocked", "due"];
+// Shortest a dashboard panel row may get before the page scrolls instead of
+// squeezing further. A card spends ~58px on padding + header, so this leaves
+// ~112px of body — enough for the densest panel's first rows to read as content
+// rather than a sliver. The outer grid derives its own row floor from this.
+const DASH_ROW_MIN = 170;
 const DEFAULT_WORK_DAYS = [1, 2, 3, 4, 5];
 const addWorkingDays = (ds, n, workDays = DEFAULT_WORK_DAYS) => { let d = new Date(ds + "T12:00:00"); let count = 0; while (count < n) { d.setDate(d.getDate() + 1); if (workDays.includes(d.getDay())) count++; } return toDS(d); };
 const isWorkDay = (ds, workDays = DEFAULT_WORK_DAYS) => workDays.includes(new Date(ds + "T12:00:00").getDay());
@@ -2892,6 +2897,16 @@ Extraction rules:
   // freshly-mounted node, so it re-fires every time the view is entered
   // regardless. Render has to know, hence state as well as the ref.
   const [dashAnimate, setDashAnimate] = useState(true);
+  // Visible size of the dashboard's scroll viewport, used to anchor the greeting
+  // mid-screen in PIXELS instead of as a percentage of its parent.
+  // The parent grows the instant the panels mount — which is the same frame the
+  // greeting starts travelling — so a `top: 50%` anchor recomputed against the
+  // taller box and the greeting snapped to the new centre before animating. A
+  // measured pixel value can't move underneath it, so it now travels from
+  // exactly where it faded in. Measured off the scroll container, whose own box
+  // stays viewport-sized however tall its content gets.
+  const dashScrollRef = useRef(null);
+  const [dashHelloBox, setDashHelloBox] = useState({ w: 0, h: 0 });
   // Run the intro whenever the dashboard is entered, and on replay. Timers are
   // cleared on exit so leaving mid-intro can't land a stage change on an
   // unmounted view.
@@ -2907,6 +2922,23 @@ Extraction rules:
     setDashStage("hello");
     const t = setTimeout(() => setDashStage("open"), 1500);
     return () => clearTimeout(t);
+  }, [view, dashRunId]);
+  // Measure the scroll viewport for the greeting's mid-screen anchor. Layout (not
+  // plain) effect so the pixel value is in place for the FIRST paint — measuring
+  // after paint would render the greeting at a fallback position and then shift
+  // it, which is the very jump this exists to remove.
+  useLayoutEffect(() => {
+    if (view !== "dashboard") return;
+    const el = dashScrollRef.current;
+    if (!el) return;
+    const measure = () => setDashHelloBox(b => {
+      const w = el.clientWidth, h = el.clientHeight;
+      return (b.w === w && b.h === h) ? b : { w, h };
+    });
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [view, dashRunId]);
   // Rotate the analytics panel. A TIMEOUT keyed on the current index, not a
   // repeating interval: every change — auto or manual — gets a clean 5s before
@@ -10562,7 +10594,7 @@ ${jobsCtx || "No jobs found."}`;
     };
 
     return (
-      <div key={dashRunId} style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto" }}>
+      <div key={dashRunId} ref={dashScrollRef} style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto" }}>
         <style>{`
           /* Opacity ONLY. The drift keyframes below own transform, and two
              animations on one element can't both drive the same property —
@@ -10618,10 +10650,15 @@ ${jobsCtx || "No jobs found."}`;
           }
         `}</style>
 
-        {/* height:100% + flex column is what lets the grid below claim all the
+        {/* minHeight:100% + flex column is what lets the grid below claim all the
             leftover vertical space. Without it the grid was only as tall as its
-            content and the page ended two-thirds of the way down. */}
-        <div style={{ position: "relative", minHeight: "100%", height: isMobile ? "auto" : "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", padding: isMobile ? "14px 14px 26px" : "22px 26px 26px" }}>
+            content and the page ended two-thirds of the way down.
+            Deliberately NOT height:100% — that pinned the page to the viewport,
+            so on a short window (a 14" laptop is ~870px) the grid's rows shrank
+            past their content and the cards clipped their own bottoms with no
+            way to scroll to them. minHeight keeps the fills-the-screen look on a
+            tall display while letting the page grow and scroll on a short one. */}
+        <div style={{ position: "relative", minHeight: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", padding: isMobile ? "14px 14px 26px" : "22px 26px 26px" }}>
           {/* Frosted glow — colour only, sitting BEHIND everything. Never applied
               to the text itself, which stays crisp on top of it. */}
           <div aria-hidden="true" style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none", zIndex: 0 }}>
@@ -10646,8 +10683,12 @@ ${jobsCtx || "No jobs found."}`;
           <div aria-hidden={false} style={{
             position: "absolute", zIndex: 2, pointerEvents: "none",
             width: "max-content", maxWidth: "92%",
-            left: atTop ? padX : "50%",
-            top: atTop ? padTop : "50%",
+            /* Pixels, not percentages — see dashHelloBox. Percentages resolve
+               against a parent that grows the same frame this starts moving, so
+               the greeting jumped to the taller box's centre first. The "50%"
+               fallbacks only apply before the first measurement lands. */
+            left: atTop ? padX : (dashHelloBox.w ? Math.round(dashHelloBox.w / 2) : "50%"),
+            top: atTop ? padTop : (dashHelloBox.h ? Math.round(dashHelloBox.h / 2) : "50%"),
             transform: atTop ? "translate(0, 0) scale(1)" : "translate(-50%, -50%) scale(1.45)",
             transition: "left 1.15s cubic-bezier(0.83,0,0.17,1), top 1.15s cubic-bezier(0.83,0,0.17,1), transform 1.15s cubic-bezier(0.83,0,0.17,1)",
             animation: dashAnimate ? "dashHelloIn 0.9s ease-out both" : undefined,
@@ -10676,9 +10717,17 @@ ${jobsCtx || "No jobs found."}`;
                panel to its content, which is what left the ragged gaps under the
                shorter ones. Explicit 1fr tracks make panels stretch to their row
                instead, so boxes grow to fill the space rather than the space
-               sitting empty. */
-            <div style={{ position: "relative", zIndex: 1, flex: 1, minHeight: 0, marginTop: isMobile ? 56 : 74, display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1fr) 680px", gridTemplateRows: isMobile ? "none" : "minmax(0, 1fr) minmax(0, 0.52fr)", gap: 10 }}>
-            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))", gridTemplateRows: isMobile ? "none" : "repeat(3, minmax(0, 1fr))", gap: 10, minHeight: 0 }}>
+               sitting empty.
+
+               Row minimums (not minmax(0,…)) are what keep this honest on a short
+               window. A 0 minimum let every track shrink under its content until
+               the cards clipped; DASH_ROW_MIN is the floor a panel stays readable
+               at, and the page scrolls once the rows can't all fit. On a tall
+               display there's slack above the floor, so the layout is unchanged.
+               The right column shrinks to 420 before the left one gives up any
+               more width — 680 flat overflowed a narrow window sideways. */
+            <div style={{ position: "relative", zIndex: 1, flex: 1, marginTop: isMobile ? 56 : 74, display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1fr) minmax(420px, 680px)", gridTemplateRows: isMobile ? "none" : `minmax(${DASH_ROW_MIN * 3 + 20}px, 1fr) minmax(${DASH_ROW_MIN}px, 0.52fr)`, gap: 10 }}>
+            <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))", gridTemplateRows: isMobile ? "none" : `repeat(3, minmax(${DASH_ROW_MIN}px, 1fr))`, gap: 10 }}>
 
               {/* Rotating analytics — one box, a new metric every 5s. */}
               {panel(0, "Analytics",
@@ -10772,10 +10821,16 @@ ${jobsCtx || "No jobs found."}`;
                 </div>,
                 null,
                 {},
-                // Let the hover glow spill into the card padding instead of
-                // being cut off at the body box. Safe here: this panel never
-                // has more content than height, so nothing needs to scroll.
-                { overflow: "visible" }
+                // Was overflow:visible, to let the buttons' hover glow spill into
+                // the card padding — on the assumption this panel never has more
+                // content than height. That assumption failed on a short window:
+                // clocked in, the timer + logged-hours line + three buttons need
+                // ~177px, so the bottom of the button stack was cut off at the
+                // card's overflow:hidden edge with no scrollbar to reach it.
+                // Keeping the default overflowY:auto fixes that; the negative
+                // margin buys the glow 6px of room INSIDE the scroll box, so it
+                // still isn't clipped at the body edge.
+                { margin: -6, padding: 6 }
               )}
 
               {/* Live team status */}
