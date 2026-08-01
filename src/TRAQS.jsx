@@ -2454,6 +2454,11 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       : `.traqs-custom input[type="date"]::-webkit-calendar-picker-indicator{filter:none;cursor:pointer}.traqs-custom input[type="date"]{color-scheme:light}`;
   }, [themeMode, customTheme.bg]);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  // Sidebar icons step down on narrow viewports — at 1366x768 and similar the
+  // 17px glyphs read oversized against the rest of the chrome. Tracked as a
+  // boolean rather than the raw width so a resize only re-renders when the
+  // breakpoint is actually crossed, not on every pixel of a window drag.
+  const [narrowViewport, setNarrowViewport] = useState(window.innerWidth < 1440);
   const [mobileTab, setMobileTab] = useState("mytasks");
   const [loggedInUser, setLoggedInUser] = useState(null);
   const handleLogin = () => {};
@@ -2884,7 +2889,10 @@ Extraction rules:
   const isAdmin = loggedInUser ? loggedInUser.userRole === "admin" : false;
   const can = perm => isAdmin && (loggedInUser?.adminPerms == null || loggedInUser.adminPerms[perm] === true);
   useEffect(() => {
-    const h = () => setIsMobile(window.innerWidth < 768);
+    const h = () => {
+      setIsMobile(window.innerWidth < 768);
+      setNarrowViewport(window.innerWidth < 1440);
+    };
     window.addEventListener("resize", h);
     return () => window.removeEventListener("resize", h);
   }, []);
@@ -6691,15 +6699,43 @@ ${jobsCtx || "No jobs found."}`;
   // renderBlankPage) so the nav can take its final shape before the pages are
   // built out. Approval Queue, Admin and Settings live below the divider in the
   // sidebar itself, not here.
+  // The Schedule icon is a calendar tile showing today's day-of-month, so it
+  // reads as "today" at a glance. Recomputed on render, which is often enough.
+  // Rendered px size of every sidebar glyph, and the width of the slot they sit
+  // in (see ICON_SLOT in the sidebar block, which reads this). One constant drives
+  // both, because the button's horizontal padding is derived as
+  // (40 - ICON_SLOT) / 2 to keep each icon centred in the collapsed rail and
+  // concentric with the round active highlight — so changing the size here can't
+  // knock the centring out.
+  const NAV_ICON = narrowViewport ? 15 : 17;
+  const todayDateNum = new Date().getDate();
+  // Vertical placement of that date inside the tile's open area, below the header
+  // rule. The open area runs from 9.4 (rule at y=8.4 plus half its 2px stroke) to
+  // 20 (rect edge 21 minus half its stroke), so its centre is 14.7 — NOT 15, and
+  // not the rect's own centre, which is what made the digit look low.
+  //
+  // Digits are lining figures: cap height, no descender. So the baseline sits half
+  // a cap height BELOW the centre, and cap height is ~0.72em across the UI sans
+  // stack (Inter .727 / SF .70 / Helvetica .717). Deriving it from the font size
+  // rather than hard-coding a y keeps the two-digit case centred too, since that
+  // one renders a size smaller to fit the tile.
+  const dateFs = todayDateNum > 9 ? 9.5 : 10.5;
+  const dateBaseline = 14.7 + dateFs * 0.36;
+  // All sidebar glyphs are normalized to one optical box: geometry stays inside
+  // 3..21 of the 24-unit viewBox so that, once the 2px stroke halo is added, every
+  // icon inks the same 20x20 area centered on (12,12). Without this the stock
+  // Feather paths disagree wildly — "users" ran the full 24 wide while the bar
+  // chart was only 14, and they read as different sizes at 15px. Keep new icons
+  // inside 3..21 too.
   const views = [
-    { id: "dashboard", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>, label: "Dashboard" },
-    { id: "tasks", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>, label: "Jobs" },
-    { id: "schedule", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="14" x2="16" y2="14"/><line x1="8" y1="18" x2="13" y2="18"/></svg>, label: "Schedule" },
-    { id: "employees", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>, label: "Employees" },
-    { id: "timestamp", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>, label: "Time Clock" },
-    { id: "analytics", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>, label: "Analytics" },
-    { id: "clients", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg>, label: "Clients" },
-    { id: "messages", icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Messages" },
+    { id: "dashboard", icon: <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 9.3L12 3l9 6.3V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9.2 21 9.2 12.8 14.8 12.8 14.8 21"/></svg>, label: "Dashboard" },
+    { id: "tasks", icon: <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="3.7" cy="3.9" r="1.7" fill="currentColor" stroke="none"/><path d="M8.8 3.9h12.2"/><circle cx="3.7" cy="12" r="1.7" fill="currentColor" stroke="none"/><path d="M8.8 12h12.2"/><circle cx="3.7" cy="20.1" r="1.7" fill="currentColor" stroke="none"/><path d="M8.8 20.1h8.2"/></svg>, label: "Jobs" },
+    { id: "schedule", icon: <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="5.2"/><path d="M3.3 8.4h17.4"/><text x="12" y={dateBaseline} textAnchor="middle" fontFamily={T.font} fontSize={dateFs} fontWeight="700" fill="currentColor" stroke="none">{todayDateNum}</text></svg>, label: "Schedule" },
+    { id: "employees", icon: <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="9.4" cy="7.4" r="4.4"/><path d="M3 21a6.4 6.4 0 0 1 12.8 0"/><path d="M15.6 5.6a3.1 3.1 0 0 1 0 6.2"/><path d="M17.2 14.6a6.2 6.2 0 0 1 3.8 6.4"/></svg>, label: "Employees" },
+    { id: "timestamp", icon: <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 6.6 12 12 15.6 13.8"/></svg>, label: "Time Clock" },
+    { id: "analytics", icon: <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18.4" y1="21" x2="18.4" y2="9.75"/><line x1="12" y1="21" x2="12" y2="3"/><line x1="5.6" y1="21" x2="5.6" y2="14.25"/></svg>, label: "Analytics" },
+    { id: "clients", icon: <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="11.4" height="18" rx="3.3"/><rect x="14.4" y="9.6" width="6.6" height="11.4" rx="2.7"/><path d="M6.2 8.2h5"/><path d="M6.2 12.8h5"/></svg>, label: "Clients" },
+    { id: "messages", icon: <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5c0 4.29-4.04 7.76-9 7.76-1.08 0-2.12-.17-3.08-.47L4.2 20.8l1.2-3.46C3.9 15.8 3 13.8 3 11.5 3 7.3 7 3.8 12 3.8s9 3.47 9 7.7z"/></svg>, label: "Messages" },
   ];
   const ctxDeps = ctxMenu ? (ctxMenu.item.deps || []).map(did => allItems.find(x => x.id === did)).filter(Boolean) : [];
   const ctxBlocks = ctxMenu ? allItems.filter(x => (x.deps || []).includes(ctxMenu.item.id)) : [];
@@ -21126,14 +21162,25 @@ ${jobsCtx || "No jobs found."}`;
       // in the 64px rail ((64 - 40) / 2 = 12).
       //
       // NAV_PAD is deliberately CONSTANT. It, plus the button's own constant
-      // 11px padding, is what fixes every icon at x=23..41 (centre 32, the rail's
+      // padding, is what fixes every icon's centre on x=32 (the rail's
       // centreline) in BOTH states — so the icons never budge and only the pill
       // and lettering animate. Vary either one and the icons shunt sideways as
       // the sidebar opens.
+      //
+      // The whole chain is driven off ICON_SLOT so these three stay in sync:
+      //   NAV_PAD + (40 - ICON_SLOT)/2 + ICON_SLOT/2  ==  32, for any ICON_SLOT
+      // Change ICON_SLOT alone and the padding follows automatically; hard-coding
+      // the padding instead is what knocked the icons off-centre before.
       const NAV_EASE = "cubic-bezier(0.22,1,0.36,1)";
       const SB_W = sidebarExpanded ? 220 : 64;
       const NAV_PAD = 12;
       const NAV_W = SB_W - NAV_PAD * 2;
+      // Width of the shared icon slot. Tracks NAV_ICON — the px size the glyphs
+      // are actually rendered at — so the slot is never narrower than its glyph
+      // (a wider glyph would get flex-shrunk or clipped) and never wider (which
+      // would push the icon off the button's centre). Must stay <= 38 to leave
+      // the collapsed button a content box the slot fits inside.
+      const ICON_SLOT = NAV_ICON;
       // Shared nav-button style — matches iOS: active = brand-gradient fill; pill
       // when expanded, circle when collapsed; no separate sliding indicator.
       const navBtn = (active, o = {}) => ({
@@ -21149,10 +21196,14 @@ ${jobsCtx || "No jobs found."}`;
         // label dead on frame one while the sidebar kept sliding for 280ms.
         width: NAV_W,
         height: o.h || 40,
-        // 11px, not 12: the 18px icon overhangs the 40px collapsed button's
-        // 16px content box, so 12 would leave its centre 1px right of the
-        // button's. Constant across states — see NAV_PAD above.
-        padding: "0 11px",
+        // Locked to (40 - ICON_SLOT) / 2 so the icon slot exactly fills the
+        // collapsed button's content box and its centre lands on 9.5 + 10.5 = 20,
+        // i.e. half the 40px button — concentric with the circular active
+        // highlight, and on the 64px rail's centreline once NAV_PAD is added.
+        // Get this wrong and the icons sit off-centre inside their own highlight
+        // (an 11px pad with the 21px slot pushed them 2.5px right). Constant
+        // across states — see NAV_PAD above.
+        padding: `0 ${(40 - ICON_SLOT) / 2}px`,
         // Half the height in px: a pill at full width, a true circle at 40px,
         // and unlike radiusPill↔"50%" it interpolates instead of snapping.
         borderRadius: (o.h || 40) / 2,
@@ -21173,17 +21224,18 @@ ${jobsCtx || "No jobs found."}`;
       });
       // Fixed-width, CENTRED icon slot shared by every sidebar button.
       //
-      // The glyphs aren't all the same intrinsic size — nav items are 15px, the
-      // hamburger 18px, one is 16px — and they were aligned by their left edge
-      // (the button's 11px padding). Equal left edges but unequal widths means
-      // unequal centres, so the toggle sat ~1.5px right of the nav icons below
-      // it and read as not lining up.
+      // Glyphs are aligned by this slot, never by their own left edge — equal left
+      // edges but unequal widths means unequal centres, which is how the toggle
+      // ended up reading ~1.5px right of the nav icons below it.
       //
-      // An 18px slot (the widest glyph) centres every icon on one axis, and puts
-      // that axis exactly on the collapsed rail's centre: 11px padding + 9px =
-      // 20px = half the 40px button. So the icons line up with each other AND
-      // sit dead-centre when collapsed.
-      const navIcon = { display: "flex", alignItems: "center", justifyContent: "center", width: 18, flexShrink: 0, lineHeight: 0 };
+      // The slot centres every icon on one axis and puts that axis exactly on the
+      // collapsed rail's centre: button padding + half the slot = 20px = half the
+      // 40px button. So the icons line up with each other, sit concentric inside
+      // the round active highlight, AND sit dead-centre when collapsed.
+      //
+      // The settings sub-nav still renders 15/16px glyphs into this slot — they
+      // are centred correctly, just smaller than the main nav's 21px.
+      const navIcon = { display: "flex", alignItems: "center", justifyContent: "center", width: ICON_SLOT, flexShrink: 0, lineHeight: 0 };
       return (<aside className="tq-sidebar" onMouseEnter={() => { if (sidebarMode === "hover") setSidebarExpanded(true); }} onMouseLeave={() => { if (sidebarMode === "hover") setSidebarExpanded(false); }} style={{ width: SB_W, flexShrink: 0, background: T.surfaceSolid || T.surface, display: "flex", flexDirection: "column", transition: `width 0.28s ${NAV_EASE}`, overflow: "hidden", position: "relative", zIndex: 100 }}>
       {/* Hamburger toggle — only shown in "button" mode; fades + collapses height when switching to hover */}
       {/* No borderBottom — the hairline under the toggle read as a stray seam.
@@ -21194,7 +21246,7 @@ ${jobsCtx || "No jobs found."}`;
       <div aria-hidden={sidebarMode !== "button"} style={{ overflow: "hidden", maxHeight: sidebarMode === "button" ? 72 : 0, opacity: sidebarMode === "button" ? 1 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease, margin-bottom 0.28s cubic-bezier(0.22,1,0.36,1), padding 0.28s cubic-bezier(0.22,1,0.36,1)", padding: `12px ${NAV_PAD}px 12px`, marginBottom: sidebarMode === "button" ? 10 : 0, pointerEvents: sidebarMode === "button" ? "auto" : "none" }}>
         <button onClick={toggleSidebar} title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"} style={navBtn(false, { color: T.textSec })} onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = (T.systemBg || T.surface); e.currentTarget.style.color = T.textSec; }}>
           <span style={navIcon}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
           </span>
         </button>
       </div>
@@ -21227,7 +21279,7 @@ ${jobsCtx || "No jobs found."}`;
               onMouseDown={() => tipCtx.hide()}
               style={navBtn(active)}>
               <span style={navIcon}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
               </span>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>Approval Queue</span>
             </button>
@@ -21243,7 +21295,7 @@ ${jobsCtx || "No jobs found."}`;
               onMouseDown={() => tipCtx.hide()}
               style={navBtn(active)}>
               <span style={navIcon}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
               </span>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>Admin</span>
             </button>
@@ -21256,7 +21308,7 @@ ${jobsCtx || "No jobs found."}`;
           onMouseDown={() => tipCtx.hide()}
           style={navBtn(false)}>
           <span style={navIcon}>
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           </span>
           <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis" }}>Settings</span>
         </button>
