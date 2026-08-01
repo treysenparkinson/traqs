@@ -380,6 +380,20 @@ const DASH_STAT_KEYS = ["hours", "active", "ontime", "avg", "clocked", "due"];
 // ~112px of body — enough for the densest panel's first rows to read as content
 // rather than a sliver. The outer grid derives its own row floor from this.
 const DASH_ROW_MIN = 170;
+// ── Dashboard intro timing ───────────────────────────────────────────────────
+// How long the greeting holds at mid-screen before it starts moving.
+const DASH_HELLO_HOLD_MS = 1500;
+// How long the greeting takes to travel from mid-screen to its header spot.
+// The CSS transition and the timer that brings the panels in BOTH read this, so
+// changing the travel speed can't silently desync the two.
+const DASH_TRAVEL_MS = 1150;
+// Panels arrive halfway through that trip — the greeting is visibly already on
+// its way before the layout fills in behind it, instead of everything moving at
+// once from a standing start.
+const DASH_CARDS_DELAY_MS = DASH_TRAVEL_MS / 2;
+// Diameter of a day marker in the dashboard month grid. Today's filled circle
+// and the hover highlight are the SAME disc, so one number keeps them identical.
+const DASH_DAY_DISC = 42;
 const DEFAULT_WORK_DAYS = [1, 2, 3, 4, 5];
 const addWorkingDays = (ds, n, workDays = DEFAULT_WORK_DAYS) => { let d = new Date(ds + "T12:00:00"); let count = 0; while (count < n) { d.setDate(d.getDate() + 1); if (workDays.includes(d.getDay())) count++; } return toDS(d); };
 const isWorkDay = (ds, workDays = DEFAULT_WORK_DAYS) => workDays.includes(new Date(ds + "T12:00:00").getDay());
@@ -2884,9 +2898,6 @@ Extraction rules:
   // The panels are deliberately tied to the START of the move, not its end, so
   // the two motions overlap instead of running back to back.
   const [dashStage, setDashStage] = useState("hello");
-  // Bumping this remounts the animated subtree, so a replay re-runs the CSS
-  // entrance animations (which otherwise only fire once per mount).
-  const [dashRunId, setDashRunId] = useState(0);
   // Index into DASH_STAT_KEYS for the single rotating analytics panel.
   const [dashStatIdx, setDashStatIdx] = useState(0);
   // Latches once the intro has played this app load. A ref, not state, so it
@@ -2897,16 +2908,15 @@ Extraction rules:
   // freshly-mounted node, so it re-fires every time the view is entered
   // regardless. Render has to know, hence state as well as the ref.
   const [dashAnimate, setDashAnimate] = useState(true);
-  // Visible size of the dashboard's scroll viewport, used to anchor the greeting
-  // mid-screen in PIXELS instead of as a percentage of its parent.
-  // The parent grows the instant the panels mount — which is the same frame the
-  // greeting starts travelling — so a `top: 50%` anchor recomputed against the
-  // taller box and the greeting snapped to the new centre before animating. A
-  // measured pixel value can't move underneath it, so it now travels from
-  // exactly where it faded in. Measured off the scroll container, whose own box
-  // stays viewport-sized however tall its content gets.
-  const dashScrollRef = useRef(null);
-  const [dashHelloBox, setDashHelloBox] = useState({ w: 0, h: 0 });
+  // Panels mount on their own timer rather than off dashStage, so their entrance
+  // can land partway through the greeting's trip instead of at the start of it.
+  const [dashCardsIn, setDashCardsIn] = useState(false);
+  // The greeting's mid-screen anchor used to be measured into pixels here (via a
+  // ref + ResizeObserver on the scroll container), because a percentage anchor
+  // re-resolved against a parent that grows when the panels mount. That is now
+  // solved structurally — the greeting is a child of the scroll container, whose
+  // box never grows — so plain percentages are safe and all of that machinery is
+  // gone. See the greeting in renderDashboard.
   // Run the intro whenever the dashboard is entered, and on replay. Timers are
   // cleared on exit so leaving mid-intro can't land a stage change on an
   // unmounted view.
@@ -2916,30 +2926,17 @@ Extraction rules:
     // on the finished layout — the intro is a welcome, and replaying it every
     // time you tab home would just be latency. The ref (not state) is what makes
     // it survive the view switching in and out.
-    if (dashIntroPlayedRef.current) { setDashAnimate(false); setDashStage("open"); return; }
+    if (dashIntroPlayedRef.current) { setDashAnimate(false); setDashStage("open"); setDashCardsIn(true); return; }
     dashIntroPlayedRef.current = true;
     setDashAnimate(true);
     setDashStage("hello");
-    const t = setTimeout(() => setDashStage("open"), 1500);
-    return () => clearTimeout(t);
-  }, [view, dashRunId]);
-  // Measure the scroll viewport for the greeting's mid-screen anchor. Layout (not
-  // plain) effect so the pixel value is in place for the FIRST paint — measuring
-  // after paint would render the greeting at a fallback position and then shift
-  // it, which is the very jump this exists to remove.
-  useLayoutEffect(() => {
-    if (view !== "dashboard") return;
-    const el = dashScrollRef.current;
-    if (!el) return;
-    const measure = () => setDashHelloBox(b => {
-      const w = el.clientWidth, h = el.clientHeight;
-      return (b.w === w && b.h === h) ? b : { w, h };
-    });
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [view, dashRunId]);
+    setDashCardsIn(false);
+    // Two independent timers, not one stage driving both. The greeting starts
+    // travelling at the first; the panels wait until it's halfway there.
+    const tMove = setTimeout(() => setDashStage("open"), DASH_HELLO_HOLD_MS);
+    const tCards = setTimeout(() => setDashCardsIn(true), DASH_HELLO_HOLD_MS + DASH_CARDS_DELAY_MS);
+    return () => { clearTimeout(tMove); clearTimeout(tCards); };
+  }, [view]);
   // Rotate the analytics panel. A TIMEOUT keyed on the current index, not a
   // repeating interval: every change — auto or manual — gets a clean 5s before
   // the next one, so tapping a pip doesn't get yanked forward half a second
@@ -2952,13 +2949,9 @@ Extraction rules:
     const id = setTimeout(() => setDashStatIdx(i => (i + 1) % DASH_STAT_KEYS.length), 5000);
     return () => clearTimeout(id);
   }, [view, dashStage, dashStatIdx]);
-  // Only a replay restarts the cycle from the beginning.
-  useEffect(() => { setDashStatIdx(0); }, [dashRunId]);
   // Throttles wheel/trackpad paging so one flick advances a single stat rather
   // than tearing through the whole set.
   const dashStatWheelRef = useRef(0);
-  // Testing aid: clear the once-per-load latch so the intro runs again.
-  const replayDashIntro = () => { dashIntroPlayedRef.current = false; setDashAnimate(true); setDashRunId(n => n + 1); };
   // Button mode starts OPEN. Read straight from localStorage rather than letting
   // the sync effect below do it, so a button-mode reload paints expanded instead
   // of flashing the collapsed rail and animating open on the first frame.
@@ -10361,8 +10354,8 @@ ${jobsCtx || "No jobs found."}`;
   // The landing page. Everything here is derived from data already in memory —
   // no new fetches, so it paints instantly from the cold cache.
   const renderDashboard = () => {
-    const atTop = dashStage !== "hello";   // greeting has moved to its header spot
-    const showCards = atTop;               // panels ride in WITH the move, not after it
+    const atTop = dashStage !== "hello";   // greeting has left mid-screen
+    const showCards = dashCardsIn;         // panels join HALFWAY through that trip
     const padX = isMobile ? 14 : 32;
     const padTop = isMobile ? 2 : 24;
 
@@ -10418,7 +10411,7 @@ ${jobsCtx || "No jobs found."}`;
     const cardBase = {
       background: hexA(T.card, 0.82),
       border: `1px solid ${T.border}`,
-      borderRadius: 26,
+      borderRadius: 34,
       padding: 16,
       backdropFilter: "blur(18px) saturate(1.3)",
       WebkitBackdropFilter: "blur(18px) saturate(1.3)",
@@ -10593,8 +10586,17 @@ ${jobsCtx || "No jobs found."}`;
       switchView("timestamp");
     };
 
+    // The wrapper below carries two load-bearing styles:
+    //   position:relative — makes THAT box, the visible scroll viewport which
+    //     never grows with content, the containing block for the greeting's and
+    //     the glow's percentage anchors.
+    //   scrollbarGutter:stable — reserves the scrollbar's width up front. The
+    //     panels push the content past one screen, so without it the scrollbar
+    //     materialises on exactly the frame they mount, narrowing this box by
+    //     ~15px, which reflows the whole grid AND drags the greeting sideways
+    //     mid-flight since its anchor is a percentage of this width.
     return (
-      <div key={dashRunId} ref={dashScrollRef} style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto" }}>
+      <div style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto", scrollbarGutter: "stable" }}>
         <style>{`
           /* Opacity ONLY. The drift keyframes below own transform, and two
              animations on one element can't both drive the same property —
@@ -10641,6 +10643,18 @@ ${jobsCtx || "No jobs found."}`;
           .dash-btn:not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
             transform: scale(0.985) !important;
           }
+          /* Month grid. The hover tint lives on the day DISC, not the grid cell:
+             the cell is a full-column rectangle, so tinting it drew a square
+             next to today's circle. Same diameter as today's marker, so hovering
+             any day previews exactly the shape today already wears. :not(.is-today)
+             keeps the hover from flattening today's gradient. */
+          .dash-day-disc { transition: background-color 0.13s ease, color 0.13s ease; }
+          /* !important is required, not decorative: the disc sets background and
+             color as INLINE styles, which outrank a plain stylesheet rule. */
+          .dash-day:hover .dash-day-disc:not(.is-today) {
+            background-color: var(--tq-accent-soft, rgba(65,105,225,0.18)) !important;
+            color: var(--tq-accent) !important;
+          }
           .dash-blob { position: absolute; border-radius: 50%; filter: blur(80px); will-change: transform; }
           @media (prefers-reduced-motion: reduce) {
             .dash-card { animation-duration: 0.01ms !important; }
@@ -10659,51 +10673,12 @@ ${jobsCtx || "No jobs found."}`;
             way to scroll to them. minHeight keeps the fills-the-screen look on a
             tall display while letting the page grow and scroll on a short one. */}
         <div style={{ position: "relative", minHeight: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", padding: isMobile ? "14px 14px 26px" : "22px 26px 26px" }}>
-          {/* Frosted glow — colour only, sitting BEHIND everything. Never applied
-              to the text itself, which stays crisp on top of it. */}
-          <div aria-hidden="true" style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none", zIndex: 0 }}>
-            {/* Five overlapping blobs, each on its own path and tempo. The
-                accent leads (twice, different sizes) so the wash still reads as
-                the org's colour rather than a generic rainbow. */}
-            <div className="dash-blob" style={{ width: "48%", paddingBottom: "36%", left: "4%", top: "2%", background: hexA(T.accent, 0.55), animation: dashAnimate ? "dashGlowIn 1.6s ease-out both, dashDriftA 11s ease-in-out infinite" : "dashDriftA 11s ease-in-out infinite" }} />
-            <div className="dash-blob" style={{ width: "40%", paddingBottom: "32%", right: "2%", top: "-4%", background: hexA("#6366f1", 0.45), animation: dashAnimate ? "dashGlowIn 1.6s ease-out 120ms both, dashDriftB 13s ease-in-out infinite" : "dashDriftB 13s ease-in-out infinite" }} />
-            <div className="dash-blob" style={{ width: "44%", paddingBottom: "34%", left: "26%", top: "22%", background: hexA("#10b981", 0.34), animation: dashAnimate ? "dashGlowIn 1.6s ease-out 240ms both, dashDriftC 12s ease-in-out infinite" : "dashDriftC 12s ease-in-out infinite" }} />
-            <div className="dash-blob" style={{ width: "34%", paddingBottom: "28%", right: "18%", top: "34%", background: hexA("#ec4899", 0.3), animation: dashAnimate ? "dashGlowIn 1.6s ease-out 340ms both, dashDriftD 16s ease-in-out infinite" : "dashDriftD 16s ease-in-out infinite" }} />
-            <div className="dash-blob" style={{ width: "30%", paddingBottom: "26%", left: "12%", top: "44%", background: hexA(T.accent, 0.34), animation: dashAnimate ? "dashGlowIn 1.6s ease-out 430ms both, dashDriftB 9s ease-in-out infinite reverse" : "dashDriftB 9s ease-in-out infinite reverse" }} />
-          </div>
+          {/* Neither the frosted glow nor the greeting is here. Both live as
+              direct children of the scroll container below, deliberately — see
+              the comments there. */}
 
-          {/* Greeting. ONE size throughout — it fades in where it sits (centred)
-              and then travels to the top-left; no scaling, so the type never
-              changes weight or spacing mid-flight. Width is max-content so
-              `left:50%` + translateX(-50%) centres it on its own width, which
-              then interpolates to the page's left padding.
-              cubic-bezier(0.83,0,0.17,1) is an ease-in-OUT (quint): it creeps
-              off the mark, covers the middle fast, and settles slowly. A plain
-              ease-out would start at its quickest, which is the opposite. */}
-          <div aria-hidden={false} style={{
-            position: "absolute", zIndex: 2, pointerEvents: "none",
-            width: "max-content", maxWidth: "92%",
-            /* Pixels, not percentages — see dashHelloBox. Percentages resolve
-               against a parent that grows the same frame this starts moving, so
-               the greeting jumped to the taller box's centre first. The "50%"
-               fallbacks only apply before the first measurement lands. */
-            left: atTop ? padX : (dashHelloBox.w ? Math.round(dashHelloBox.w / 2) : "50%"),
-            top: atTop ? padTop : (dashHelloBox.h ? Math.round(dashHelloBox.h / 2) : "50%"),
-            transform: atTop ? "translate(0, 0) scale(1)" : "translate(-50%, -50%) scale(1.45)",
-            transition: "left 1.15s cubic-bezier(0.83,0,0.17,1), top 1.15s cubic-bezier(0.83,0,0.17,1), transform 1.15s cubic-bezier(0.83,0,0.17,1)",
-            animation: dashAnimate ? "dashHelloIn 0.9s ease-out both" : undefined,
-          }}>
-            <span style={{ fontSize: isMobile ? 32 : 52, fontWeight: 900, letterSpacing: "-0.07em", color: T.bgText || (isLight(T.bg) ? "#0f172a" : "#f1f5f9"), whiteSpace: "nowrap", lineHeight: 1.1 }}>
-              Hello,{greetName ? " " : ""}{greetName || " there"}
-            </span>
-          </div>
-
-          {/* Testing aid — replays the whole intro. */}
-          <button className="dash-btn" onClick={replayDashIntro} title="Replay the intro animation"
-            style={{ position: "absolute", top: isMobile ? 10 : 22, right: isMobile ? 12 : 30, zIndex: 4, display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: hexA(T.card, 0.7), backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)", color: T.textSec, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10" /><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" /></svg>
-            Replay
-          </button>
+          {/* The Replay button that used to sit here was a testing aid; the intro
+              still plays once per app load, so a page refresh replays it. */}
 
           {/* Panels — mounted only once the greeting has settled, so their
               entrance animations start from the stage change rather than from
@@ -10928,11 +10903,16 @@ ${jobsCtx || "No jobs found."}`;
                       const isToday = ds === TD;
                       const busy = busyDays.has(ds);
                       return (
-                        <div key={ds} className="tq-cal-day" title={busy ? "Work scheduled" : undefined} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, minHeight: 0 }}>
+                        <div key={ds} className="dash-day" title={busy ? "Work scheduled" : undefined} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, minHeight: 0 }}>
                           {/* Only TODAY carries a marker, and it's a circle. The
                               per-date rounded squares are gone — with a tint on
-                              every busy day the grid read as a wall of chips. */}
-                          <span style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 34, height: 34, borderRadius: "50%", background: isToday ? brandGrad(T.accent) : "transparent", color: isToday ? T.accentText : T.text, fontSize: 17, fontWeight: isToday ? 800 : 500, lineHeight: 1 }}>{dayNum}</span>
+                              every busy day the grid read as a wall of chips.
+                              NOT .tq-cal-day: that class tints the whole grid
+                              CELL on hover, which is a wide rectangle and read as
+                              a square beside this circle. .dash-day puts the hover
+                              on the disc below instead, at the same diameter. */}
+                          <span className={isToday ? "dash-day-disc is-today" : "dash-day-disc"}
+                            style={{ display: "flex", alignItems: "center", justifyContent: "center", width: DASH_DAY_DISC, height: DASH_DAY_DISC, borderRadius: "50%", background: isToday ? brandGrad(T.accent) : "transparent", color: isToday ? T.accentText : T.text, fontSize: 19, fontWeight: isToday ? 800 : 500, lineHeight: 1 }}>{dayNum}</span>
                           <span style={{ width: 5, height: 5, borderRadius: 3, flexShrink: 0, background: busy ? brandGrad(T.accent) : "transparent" }} />
                         </div>
                       );
@@ -10974,6 +10954,61 @@ ${jobsCtx || "No jobs found."}`;
               )}
             </div>
           )}
+        </div>
+
+        {/* Frosted glow — colour only, sitting BEHIND everything. Never applied
+            to the text itself, which stays crisp on top of it.
+
+            Sits HERE, beside the greeting and outside the padded wrapper, for the
+            same reason the greeting does. Every blob is placed with a percentage
+            `top`, which resolves against its containing block's HEIGHT. Inside the
+            wrapper that height jumps ~40% the instant the panels mount, so all
+            five blobs lurched downward at once — a very visible shove of the whole
+            background, mid-blur(80px) drift. Anchored to the scroll container, whose
+            box is the visible viewport and never grows, the wash simply holds still
+            while the panels arrive. */}
+        <div aria-hidden="true" style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none", zIndex: 0 }}>
+          {/* Five overlapping blobs, each on its own path and tempo. The
+              accent leads (twice, different sizes) so the wash still reads as
+              the org's colour rather than a generic rainbow. */}
+          <div className="dash-blob" style={{ width: "48%", paddingBottom: "36%", left: "4%", top: "2%", background: hexA(T.accent, 0.55), animation: dashAnimate ? "dashGlowIn 1.6s ease-out both, dashDriftA 11s ease-in-out infinite" : "dashDriftA 11s ease-in-out infinite" }} />
+          <div className="dash-blob" style={{ width: "40%", paddingBottom: "32%", right: "2%", top: "-4%", background: hexA("#6366f1", 0.45), animation: dashAnimate ? "dashGlowIn 1.6s ease-out 120ms both, dashDriftB 13s ease-in-out infinite" : "dashDriftB 13s ease-in-out infinite" }} />
+          <div className="dash-blob" style={{ width: "44%", paddingBottom: "34%", left: "26%", top: "22%", background: hexA("#10b981", 0.34), animation: dashAnimate ? "dashGlowIn 1.6s ease-out 240ms both, dashDriftC 12s ease-in-out infinite" : "dashDriftC 12s ease-in-out infinite" }} />
+          <div className="dash-blob" style={{ width: "34%", paddingBottom: "28%", right: "18%", top: "34%", background: hexA("#ec4899", 0.3), animation: dashAnimate ? "dashGlowIn 1.6s ease-out 340ms both, dashDriftD 16s ease-in-out infinite" : "dashDriftD 16s ease-in-out infinite" }} />
+          <div className="dash-blob" style={{ width: "30%", paddingBottom: "26%", left: "12%", top: "44%", background: hexA(T.accent, 0.34), animation: dashAnimate ? "dashGlowIn 1.6s ease-out 430ms both, dashDriftB 9s ease-in-out infinite reverse" : "dashDriftB 9s ease-in-out infinite reverse" }} />
+        </div>
+
+        {/* Greeting. Sits HERE — a direct child of the scroll container — rather
+            than inside the padded wrapper above, and that placement is the whole
+            fix. An absolutely-positioned element resolves percentages against its
+            nearest positioned ancestor. Inside the wrapper that ancestor grows the
+            instant the panels mount, which is the same frame the greeting starts
+            travelling, so `top: 50%` re-resolved against a box roughly twice as
+            tall and the title slid DOWN the screen instead of up to the header.
+            The scroll container's own box is the visible viewport and never grows
+            however tall its content gets, so 50% here means the middle of the
+            screen, permanently. That also retires the measure-into-pixels
+            workaround this used to need: its layout effect bailed out whenever the
+            container hadn't mounted yet and never re-ran, leaving the anchor at 0
+            and silently falling back to the very percentage it was added to avoid.
+
+            ONE size throughout — it fades in where it sits and then travels to the
+            top-left. Width is max-content so translateX(-50%) centres it on its
+            own width, which then interpolates to the page's left padding.
+            cubic-bezier(0.83,0,0.17,1) is an ease-in-OUT (quint): it creeps off
+            the mark, covers the middle fast, and settles slowly. */}
+        <div aria-hidden={false} style={{
+          position: "absolute", zIndex: 2, pointerEvents: "none",
+          width: "max-content", maxWidth: "92%",
+          left: atTop ? padX : "50%",
+          top: atTop ? padTop : "50%",
+          transform: atTop ? "translate(0, 0) scale(1)" : "translate(-50%, -50%) scale(1.45)",
+          transition: `left ${DASH_TRAVEL_MS}ms cubic-bezier(0.83,0,0.17,1), top ${DASH_TRAVEL_MS}ms cubic-bezier(0.83,0,0.17,1), transform ${DASH_TRAVEL_MS}ms cubic-bezier(0.83,0,0.17,1)`,
+          animation: dashAnimate ? "dashHelloIn 0.9s ease-out both" : undefined,
+        }}>
+          <span style={{ fontSize: isMobile ? 32 : 52, fontWeight: 900, letterSpacing: "-0.07em", color: T.bgText || (isLight(T.bg) ? "#0f172a" : "#f1f5f9"), whiteSpace: "nowrap", lineHeight: 1.1 }}>
+            Hello,{greetName ? " " : ""}{greetName || " there"}
+          </span>
         </div>
       </div>
     );
