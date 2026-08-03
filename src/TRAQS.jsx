@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, UL_LOGO_WHITE } from "./logo.js";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme } from "./push.js";
 import { HexColorPicker } from "react-colorful";
@@ -3477,6 +3477,8 @@ Extraction rules:
   const [splitHour, setSplitHour] = useState(0);
   const [workedHoursModal, setWorkedHoursModal] = useState(null); // { op, panel, parentJob } — manual worked-hours entry
   const [workedHoursInput, setWorkedHoursInput] = useState(0);
+  const [workedHoursWho, setWorkedHoursWho] = useState(null); // who to credit the production hours to
+  const [workedHoursDate, setWorkedHoursDate] = useState(""); // which DAY the credited hours land on
   const [finishDeclineState, setFinishDeclineState] = useState({}); // { [requestId]: { showInput, reason } }
   const [frDetailsExpanded, setFrDetailsExpanded] = useState({}); // { [finishRequestId]: bool }
   const [statusPopover, setStatusPopover] = useState(null); // { id, pid, current, x, y }
@@ -5565,7 +5567,7 @@ Extraction rules:
   const [taskFilterOpen, setTaskFilterOpen] = useState(false);
   const [selClient, setSelClient] = useState(null);
   const [clientSearch, setClientSearch] = useState("");
-  const [analyticsPeriod, setAnalyticsPeriod] = useState("month"); // "week" | "month" | "year"
+  const [analyticsPeriod, setAnalyticsPeriod] = useState("week"); // "pay" | "week" | "month" | "year"
   // Employees page — one person's full picture at a time.
   const [empPersonId, setEmpPersonId] = useState(null);   // null → show the picker prompt
   const [empPeriod, setEmpPeriod] = useState("pay");      // "pay" | "week" | "month" | "year"
@@ -13531,7 +13533,13 @@ ${jobsCtx || "No jobs found."}`;
     // â”€â”€ Period selector â†’ date range â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const today = new Date(TD + "T12:00:00");
     let periodStart, periodEnd, periodDays;
-    if (analyticsPeriod === "week") {
+    if (analyticsPeriod === "pay") {
+      // The org's own semi-monthly pay window, so analytics line up with what
+      // the timesheet and the accountant's export are measuring.
+      const pp = getPayPeriodFromDates(orgSettings.payDates || [5, 20], TD);
+      periodStart = pp.start; periodEnd = pp.end;
+      periodDays = Math.max(1, diffD(pp.start, pp.end) + 1);
+    } else if (analyticsPeriod === "week") {
       const d = today.getDay();
       const mondayOffset = d === 0 ? -6 : 1 - d;
       const s = new Date(today); s.setDate(today.getDate() + mondayOffset);
@@ -13713,6 +13721,10 @@ ${jobsCtx || "No jobs found."}`;
     const efficiencyBuckets = () => {
       if (analyticsPeriod === "week") {
         return daysInPeriod.map(d => ({ label: new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" }), days: [d] }));
+      } else if (analyticsPeriod === "pay") {
+        // ~15 days, so daily bars still fit — and daily is the granularity a
+        // supervisor acts on. Dated labels, since weekdays repeat over a period.
+        return daysInPeriod.map(d => ({ label: new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "numeric", day: "numeric" }), days: [d] }));
       } else if (analyticsPeriod === "month") {
         const chunk = Math.ceil(daysInPeriod.length / 5), out = [];
         for (let i = 0; i < daysInPeriod.length; i += chunk) {
@@ -13743,7 +13755,28 @@ ${jobsCtx || "No jobs found."}`;
         const ac = p.activeClockIn;
         if (ac?.clockIn) {
           const s = new Date(ac.clockIn).getTime();
-          if (s) liveAdds.push({ day: String(ac.clockIn).slice(0, 10), pay: Math.max(0, (statsNow - s) / 3600000), prod: 0 });
+          if (s) {
+            // Net lunch/break out of the LIVE pay accrual, exactly as the server's
+            // pausedMsFromEvents does when the punch is finalised. Counting them
+            // gross here made the ratio punish a break twice over: production
+            // stops during lunch, so pay must stop too or efficiency sags by the
+            // whole lunch every day until the shift closes.
+            let ms = statsNow - s;
+            let lunchOpen = null, breakOpen = null;
+            [...(ac.events || [])]
+              .map(ev => ({ type: ev.type, t: new Date(ev.ts || ev.at).getTime() }))
+              .filter(ev => ev.t)
+              .sort((a, b) => a.t - b.t)
+              .forEach(ev => {
+                if (ev.type === "lunchStart") lunchOpen = ev.t;
+                else if (ev.type === "lunchEnd" && lunchOpen != null) { ms -= Math.max(0, ev.t - lunchOpen); lunchOpen = null; }
+                else if (ev.type === "breakStart") breakOpen = ev.t;
+                else if (ev.type === "breakEnd" && breakOpen != null) { ms -= Math.max(0, ev.t - breakOpen); breakOpen = null; }
+              });
+            if (lunchOpen != null) ms -= Math.max(0, statsNow - lunchOpen);   // still on lunch
+            if (breakOpen != null) ms -= Math.max(0, statsNow - breakOpen);
+            liveAdds.push({ day: String(ac.clockIn).slice(0, 10), pay: Math.max(0, ms / 3600000), prod: 0 });
+          }
         }
         const jc = p.activeJobClock;
         if (jc?.clockIn) {
@@ -13857,7 +13890,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)" }}>
             <SlidingPill
               size="sm"
-              options={[{ value: "week", label: "This Week" }, { value: "month", label: "This Month" }, { value: "year", label: "This Year" }]}
+              options={[{ value: "pay", label: "Pay Period" }, { value: "week", label: "This Week" }, { value: "month", label: "This Month" }, { value: "year", label: "This Year" }]}
               value={analyticsPeriod}
               onChange={setAnalyticsPeriod}
             />
@@ -13888,7 +13921,7 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)" }}>
           <SlidingPill
             size="sm"
-            options={[{ value: "week", label: "This Week" }, { value: "month", label: "This Month" }, { value: "year", label: "This Year" }]}
+            options={[{ value: "pay", label: "Pay Period" }, { value: "week", label: "This Week" }, { value: "month", label: "This Month" }, { value: "year", label: "This Year" }]}
             value={analyticsPeriod}
             onChange={setAnalyticsPeriod}
           />
@@ -23287,6 +23320,27 @@ ${jobsCtx || "No jobs found."}`;
           saveTasks(updated, getToken, orgCode).catch(console.warn);
           return updated;
         });
+        // Credit the CHANGE in worked hours as production time, so the person's
+        // efficiency reflects work they did but never clocked. Sending the delta
+        // (not the new total) means the hours added are exactly the hours the
+        // admin just typed — and repeated edits accumulate instead of clashing.
+        const creditDelta = Math.round((val - (op.loggedHours || 0)) * 100) / 100;
+        if (workedHoursWho && creditDelta !== 0) {
+          adminJobHoursAction({
+            personId: workedHoursWho, jobId: parentJob.id, panelId: panel.id, opId: op.id,
+            hours: creditDelta, date: workedHoursDate || TD,
+            jobTitle: parentJob.title || parentJob.jobNumber || null, panelTitle: panel.title || null, opTitle: op.title || null,
+          }, getToken, orgCode)
+            .then(async r => {
+              if (!r?.ok) { console.warn("[worked-hours] credit failed:", r?.error); return; }
+              // Pull the new row into state. productionHours is only refreshed by
+              // a sync event, so without this the efficiency graph sat unchanged
+              // until the next Ably delta — which looked like the credit failing.
+              try { await deltaSync(); setProductionHours((await readSlice("productionhours")) || []); }
+              catch (e) { console.warn("[worked-hours] refresh failed:", e); }
+            })
+            .catch(e => console.warn("[worked-hours] credit failed:", e));
+        }
         setWorkedHoursModal(null);
       };
       return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10003, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setWorkedHoursModal(null)}>
@@ -23304,6 +23358,41 @@ ${jobsCtx || "No jobs found."}`;
               <span>0h</span><span>{totalHours}h</span>
             </div>
           </div>
+          {/* Who gets credited. Manual hours are the fix for a forgotten job
+              clock, so they have to land on a person or that person's efficiency
+              (production ÷ pay) drops for work they actually did. Defaults to
+              whoever is scheduled on the op; changeable when someone else
+              covered part of it. */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 13, color: T.textSec, marginBottom: 8, fontWeight: 500 }}>Credit the added hours to</div>
+            <SimpleDrop
+              pill portal size="lg"
+              value={workedHoursWho || ""}
+              placeholder="Nobody — job progress only"
+              options={[
+                { value: "", label: "Nobody — job progress only" },
+                ...[...people].sort((a, b) => a.name.localeCompare(b.name)).map(p => ({
+                  value: String(p.id),
+                  label: onTeam(op.team, p.id) ? `${p.name} · scheduled` : p.name,
+                  color: p.color,
+                })),
+              ]}
+              onChange={v => setWorkedHoursWho(v)}
+            />
+          </div>
+          {/* Which DAY the credited hours land on. Efficiency is bucketed by day,
+              so this decides whether the correction shows up in the period you're
+              looking at. Defaults to the op's start date — the day the work was
+              scheduled — which is often NOT today, so it has to be visible. */}
+          {workedHoursWho && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 13, color: T.textSec, marginBottom: 8, fontWeight: 500 }}>Count these hours on</div>
+              <DateField value={workedHoursDate} onChange={v => setWorkedHoursDate(v)} placeholder="Pick a day" />
+              <div style={{ fontSize: 11, color: T.textDim, marginTop: 6 }}>
+                Efficiency is measured per day — this decides which day the hours land on.
+              </div>
+            </div>
+          )}
           <div style={{ display: "flex", gap: 10, marginBottom: 24 }}>
             <div style={{ flex: 1, padding: "12px 14px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusXs }}>
               <div style={{ fontSize: 11, color: T.textDim, marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Worked</div>
@@ -24653,7 +24742,7 @@ ${jobsCtx || "No jobs found."}`;
       {can("editJobs") && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01"/></svg>} label="Reschedule" sub="Reopen job to pick a new start date" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } if (!job) return; setModalStep(2); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setRescheduleSelection((job.subs || []).map(p => p.id)); setModal({ type: "edit", data: { ...job, isReschedule: true, _rescheduleStartDate: TD }, parentId: null }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Split Job */}
       {can("editJobs") && isOp && (it.hpd || 0) > 1 && it.status !== "Finished" && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>} label="Split Job" sub="Divide this op into two at a set hour" onClick={() => { let panel = null, parentJob = null, freshOp = null; for (const j of tasks) { for (const pnl of (j.subs||[])) { const found = (pnl.subs||[]).find(o => o.id === it.id); if (found) { panel = pnl; parentJob = j; freshOp = found; break; } } if (panel) break; } if (!panel || !parentJob || !freshOp) return; setSplitHour(Math.round((freshOp.hpd || productiveHoursPerDay) / 2)); setSplitModal({ op: freshOp, panel, parentJob }); setCtxMenu(null); }} animIdx={ci()} />}
-      {can("editJobs") && isOp && it.status !== "Finished" && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 13.5"/></svg>} label="Set Worked Hours" sub="Manually mark hours done (greys out that portion)" onClick={() => { let panel = null, parentJob = null, freshOp = null; for (const j of tasks) { for (const pnl of (j.subs||[])) { const found = (pnl.subs||[]).find(o => o.id === it.id); if (found) { panel = pnl; parentJob = j; freshOp = found; break; } } if (panel) break; } if (!panel || !parentJob || !freshOp) return; setWorkedHoursInput(Math.min(freshOp.loggedHours || 0, freshOp.hpd || 0)); setWorkedHoursModal({ op: freshOp, panel, parentJob }); setCtxMenu(null); }} animIdx={ci()} />}
+      {can("editJobs") && isOp && it.status !== "Finished" && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 13.5"/></svg>} label="Set Worked Hours" sub="Manually mark hours done (greys out that portion)" onClick={() => { let panel = null, parentJob = null, freshOp = null; for (const j of tasks) { for (const pnl of (j.subs||[])) { const found = (pnl.subs||[]).find(o => o.id === it.id); if (found) { panel = pnl; parentJob = j; freshOp = found; break; } } if (panel) break; } if (!panel || !parentJob || !freshOp) return; setWorkedHoursInput(Math.min(freshOp.loggedHours || 0, freshOp.hpd || 0)); setWorkedHoursWho(String((freshOp.team || [])[0] ?? "")); setWorkedHoursDate(TD); setWorkedHoursModal({ op: freshOp, panel, parentJob }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Request Completion — lowest level bar with no children */}
       {liveChildCount === 0 && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>} label="Request Completion" sub="Send to all admins for review and approval" onClick={() => { setFinishApproval({ id: it.id, pid: it.pid || null, title: it.title, jobNumber: it.jobNumber || null }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Delete */}

@@ -962,6 +962,75 @@ export async function handler(event) {
       return json(200, { ok: true, totalPausedMs });
     }
 
+    // ── Manual Job Hours (admin) ──────────────────────────────────────────
+    // Credits production hours to a person for work that was never job-clocked
+    // (they forgot to start the clock). Without this, "Set Worked Hours" moved
+    // op.loggedHours only — the job showed progress but no production hours
+    // existed, so the worker was paid for the time with nothing logged against
+    // it and their efficiency (production ÷ pay) fell for doing the work.
+    //
+    // `hours` is the amount to ADD, not a target total: the caller sends the
+    // increase the admin just made. An earlier version treated it as the op's
+    // total and credited the difference from clocked sessions — arithmetically
+    // defensible, but it meant typing 7.6 to add 4.8, and the credited number
+    // never matched the number entered.
+    //
+    // Negative hours walk back the most recent manual rows for the op (tombstoned
+    // so the removal propagates via /sync), so an over-credit is reversible.
+    if (action === "adminJobHours") {
+      let _mjh;
+      try { _mjh = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+      if (!_mjh.isAdmin) return err(403, "Admin only");
+
+      const { personId: mjhPid, jobId, panelId, opId, hours, date, jobTitle, panelTitle, opTitle } = body;
+      if (!mjhPid || !opId) return err(400, "Missing personId or opId");
+      const mjhHours = Math.round((Number(hours) || 0) * 100) / 100;
+      if (!Number.isFinite(mjhHours)) return err(400, "Invalid hours");
+      const mjhDate = (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) ? date : new Date().toISOString().slice(0, 10);
+
+      let sessions;
+      try { sessions = await readJson(prodKey) ?? []; } catch { return err(500, "Failed to read production hours"); }
+      if (!Array.isArray(sessions)) sessions = [];
+      const stamp = new Date().toISOString();
+
+      if (mjhHours === 0) return json(200, { ok: true, credited: 0 });
+
+      if (mjhHours < 0) {
+        // Remove |mjhHours| of manual credit, newest first. A row only partly
+        // consumed is rewritten with the remainder rather than dropped whole.
+        let toRemove = -mjhHours;
+        const mine = sessions
+          .map((s, i) => ({ s, i }))
+          .filter(({ s }) => s && !s.deletedAt && s.source === "manual" && String(s.opId) === String(opId))
+          .sort((a, b) => String(b.s.clockIn).localeCompare(String(a.s.clockIn)));
+        for (const { s, i } of mine) {
+          if (toRemove <= 0) break;
+          const h = Number(s.hours) || 0;
+          if (h <= toRemove) { sessions[i] = { ...s, deletedAt: stamp }; toRemove -= h; }
+          else { sessions[i] = { ...s, hours: Math.round((h - toRemove) * 100) / 100 }; toRemove = 0; }
+        }
+        try { await writeStampedArray(prodKey, sessions); } catch { return err(500, "Failed to save production hours"); }
+        return json(200, { ok: true, credited: mjhHours });
+      }
+
+      // Span from noon so the row lands on the requested day in every timezone —
+      // these are corrections, not real clock windows.
+      const mjhStart = new Date(mjhDate + "T12:00:00.000Z");
+      const added = {
+        id: "js_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+        personId: mjhPid, jobId: jobId ?? null, panelId: panelId ?? null, opId,
+        jobTitle: jobTitle ?? null, panelTitle: panelTitle ?? null, opTitle: opTitle ?? null,
+        clockIn: mjhStart.toISOString(),
+        clockOut: new Date(mjhStart.getTime() + mjhHours * 3600000).toISOString(),
+        hours: mjhHours, date: mjhDate, source: "manual",
+        enteredBy: _mjh.personId ?? null, enteredAt: stamp,
+      };
+      sessions.push(added);
+
+      try { await writeStampedArray(prodKey, sessions); } catch { return err(500, "Failed to save production hours"); }
+      return json(200, { ok: true, credited: mjhHours, session: added });
+    }
+
     // ── Break Begin (Bearer token, no PIN) ────────────────────────────────────
     // Lightweight status: marks the worker on break WITHOUT touching the job
     // clock (the job keeps logging time — break time is accounted for
