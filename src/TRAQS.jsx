@@ -10037,7 +10037,7 @@ ${jobsCtx || "No jobs found."}`;
                   const widthIdx = 1 + col.i;
                   const isDragOver = colDropIdx === displayIdx && colDragRef.current !== col.id;
                   return (
-                    <div key={col.id} className="tq-cell-drop"
+                    <div key={col.id}
                       onMouseDown={e => startColDrag(e, col.id, false)}
                       onContextMenu={e => { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setColCtxMenu({ x: e.clientX, y: e.clientY, colId: col.id, isCustom: false, hdrLeft: r.left, hdrTop: r.top }); }}
                       onClick={e => { e.stopPropagation(); if (colDragMovedRef.current) { colDragMovedRef.current = false; return; } }}
@@ -10053,7 +10053,7 @@ ${jobsCtx || "No jobs found."}`;
                   const widthIdx = 12 + i;
                   const isDragOverCustom = colDropIdx === (orderedStdCols.length + i) && colDragRef.current !== c.id;
                   return (
-                    <div key={c.id} className="tq-cell-drop"
+                    <div key={c.id}
                       onMouseDown={e => startColDrag(e, c.id, true)}
                       onContextMenu={e => { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setColCtxMenu({ x: e.clientX, y: e.clientY, colId: c.id, isCustom: true, hdrLeft: r.left, hdrTop: r.top }); }}
                       onClick={e => { e.stopPropagation(); if (colDragMovedRef.current) { colDragMovedRef.current = false; return; } }}
