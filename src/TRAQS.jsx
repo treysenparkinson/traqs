@@ -8651,7 +8651,7 @@ ${jobsCtx || "No jobs found."}`;
               {m.charAt(0).toUpperCase() + m.slice(1)}
             </button>
           ))}
-          <div style={{ width: 1, height: 16, background: T.border, margin: "0 2px" }} />
+          <div style={{ width: 1, height: 16, background: hexA(T.text, 0.22), margin: "0 4px" }} />
           <button onClick={() => setGZoom(z => Math.min(4, +(z * 1.25).toFixed(2)))} style={{ ...btnBase, width: 24, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
           <button onClick={() => setGZoom(z => Math.max(0.25, +(z / 1.25).toFixed(2)))} style={{ ...btnBase, width: 24, padding: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
         </div>
@@ -9380,9 +9380,11 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ fontSize: 12, color: T.accent, fontWeight: 700, whiteSpace: "nowrap" }}>{selJobs.size} selected</span>
               <Btn size="sm" style={{ minWidth: 78, ...outlineBtnStyle(T.danger) }} onClick={() => setBulkDeleteConfirm({ type: "jobs", ids: [...selJobs], count: selJobs.size })}>Delete</Btn>
             </div>
-            <div style={{ width: 1, height: 20, background: T.border, flexShrink: 0 }} />
+            {/* Divider between the select group and the tool cluster. Centred in
+                the 18px gap, so the cluster's own offset stays the spacing. */}
+            <div style={{ width: 1, height: 20, background: hexA(T.text, 0.22), flexShrink: 0, marginLeft: 9 }} />
             {/* Filter */}
-            <div ref={toolbarRef} style={{ position: "relative", flexShrink: 0 }}>
+            <div ref={toolbarRef} style={{ position: "relative", flexShrink: 0, marginLeft: 3 }}>
               <button className="icon-btn-glow" onClick={e => { e.stopPropagation(); setTaskFilterOpen(p => !p); }} title="Filter" style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${activeFilterCount > 0 ? T.accent+"88" : T.border}`, background: activeFilterCount > 0 ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
                 {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 12, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
@@ -9439,7 +9441,7 @@ ${jobsCtx || "No jobs found."}`;
             </button>
             </Tip>
           </>}
-          <div style={{ width: 1, height: 20, background: T.border, flexShrink: 0 }} />
+          <div style={{ width: 1, height: 20, background: hexA(T.text, 0.22), flexShrink: 0, margin: "0 3px" }} />
           <Btn size="sm" onClick={() => setBcModalState("open")} style={{ width: 34, height: 34, padding: 0 }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
           </Btn>
@@ -11688,7 +11690,7 @@ ${jobsCtx || "No jobs found."}`;
             </>}
           </div>
           {/* Separator + Today */}
-          <div style={{ width: 1, height: 20, background: T.border, flexShrink: 0 }} />
+          <div style={{ width: 1, height: 20, background: hexA(T.text, 0.22), flexShrink: 0, margin: "0 5px" }} />
           <Btn size="sm" onClick={() => {
             if (tMode === "day") { setTStart(TD); setTEnd(TD); }
             else { const span = diffD(tStart, tEnd); const half = Math.floor(span / 2); setTStart(addD(TD, -half)); setTEnd(addD(TD, span - half)); }
@@ -22554,7 +22556,7 @@ ${jobsCtx || "No jobs found."}`;
             {isPdf && layout && <>
               <button onClick={exportUndo} disabled={!exportPast.length} title="Undo (Ctrl+Z)" style={{ ...EBTN, background: "transparent", color: exportPast.length ? T.text : T.textDim, border: `1px solid ${T.border}`, opacity: exportPast.length ? 1 : 0.5, cursor: exportPast.length ? "pointer" : "default", display: "inline-flex", alignItems: "center", gap: 5 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>Undo</button>
               <button onClick={exportRedo} disabled={!exportFuture.length} title="Redo (Ctrl+Shift+Z)" style={{ ...EBTN, background: "transparent", color: exportFuture.length ? T.text : T.textDim, border: `1px solid ${T.border}`, opacity: exportFuture.length ? 1 : 0.5, cursor: exportFuture.length ? "pointer" : "default", display: "inline-flex", alignItems: "center", gap: 5 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>Redo</button>
-              <div style={{ width: 1, height: 22, background: T.border }} />
+              <div style={{ width: 1, height: 22, background: hexA(T.text, 0.22), margin: "0 -3px" }} />
               <div style={{ position: "relative" }}>
                 <button onClick={() => setExportTplOpen(o => !o)} style={{ ...EBTN, background: T.bg, color: T.text, border: `1px solid ${exportTplOpen ? T.accent : T.border}`, display: "inline-flex", alignItems: "center", gap: 6 }}>Template<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "transform 0.15s", transform: exportTplOpen ? "rotate(180deg)" : "none" }}><polyline points="6 9 12 15 18 9"/></svg></button>
                 {exportTplOpen && <div onClick={() => setExportTplOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />}
@@ -22567,7 +22569,7 @@ ${jobsCtx || "No jobs found."}`;
                 </div>}</FadeOnClose>
               </div>
               <button onClick={saveTemplate} style={{ ...EBTN, background: "transparent", color: T.accent, border: `1px solid ${T.accent}66` }}>Save template</button>
-              <div style={{ width: 1, height: 22, background: T.border }} />
+              <div style={{ width: 1, height: 22, background: hexA(T.text, 0.22), margin: "0 -3px" }} />
               <button onClick={() => { pushExportHistory(); setExportLayout(L => ({ ...L, orientation: L.orientation === "landscape" ? "portrait" : "landscape" })); }} style={{ ...EBTN, background: "transparent", color: hexA(T.systemText || T.textSec, 0.8), border: `1px solid ${T.border}` }}>{layout.orientation === "landscape" ? "Landscape" : "Portrait"}</button>
               <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.textSec, cursor: "pointer" }}><input type="checkbox" checked={layout.snap !== false} onChange={e => { pushExportHistory(); setExportLayout(L => ({ ...L, snap: e.target.checked })); }} />Snap</label>
             </>}
@@ -22674,10 +22676,10 @@ ${jobsCtx || "No jobs found."}`;
                     {fb(al === "left", () => setFmt(tgt, { align: "left" }), aSvg(3, 14, 3, 18, 0, 0), "Align left", isAlignable)}
                     {fb(al === "center", () => setFmt(tgt, { align: "center" }), aSvg(6, 18, 4, 20, 0, 0), "Align center", isAlignable)}
                     {fb(al === "right", () => setFmt(tgt, { align: "right" }), aSvg(10, 21, 6, 21, 0, 0), "Align right", isAlignable)}
-                    <div style={{ width: 1, height: 20, background: T.border }} />
+                    <div style={{ width: 1, height: 20, background: hexA(T.text, 0.22), margin: "0 3px" }} />
                     {fb(bold, () => setFmt(tgt, { bold: !bold }), <span style={{ fontWeight: 800 }}>B</span>, "Bold", isText)}
                     {fb(!!f.italic, () => setFmt(tgt, { italic: !f.italic }), <span style={{ fontStyle: "italic", fontWeight: 700, fontFamily: "Georgia, serif" }}>I</span>, "Italic", isText)}
-                    <div style={{ width: 1, height: 20, background: T.border }} />
+                    <div style={{ width: 1, height: 20, background: hexA(T.text, 0.22), margin: "0 3px" }} />
                     <span style={{ fontSize: 11, color: T.textDim, opacity: isText ? 1 : 0.38, transition: "opacity 0.2s ease" }}>Size</span>
                     {fb(false, () => setFmt(tgt, { size: Math.max(8, size - 2) }), "−", "Smaller", isText)}
                     <span style={{ fontSize: 12, color: T.text, minWidth: 26, textAlign: "center", fontFamily: T.mono, opacity: isText ? 1 : 0.38, transition: "opacity 0.2s ease" }}>{isText ? size : "—"}</span>
