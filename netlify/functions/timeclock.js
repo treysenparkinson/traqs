@@ -189,6 +189,29 @@ async function mutatePersonFresh(peopleKey, personId, mutate) {
   return { people, person: people[idx] };
 }
 
+// Going to lunch must stop the job clock too. Without this the lunch hour is
+// deducted from the pay shift but still accrues against the job's logged hours,
+// so job cost and payroll disagree by exactly the lunch length on every shift.
+// Ending lunch restarts it, reusing the same pausedAt/totalPausedMs mechanism
+// jobPause/jobResume already use — so hoursElapsedMinusPauses needs no change.
+//
+// `pausedByLunch` marks the pause as automatic. Without it, a worker who paused
+// their job by hand before going to lunch would find it silently resumed when
+// lunch ended; only pauses this function created are reversed by it.
+function applyLunchJobPause(person, starting, nowIso) {
+  const jc = person.activeJobClock;
+  if (!jc) return person;                                  // not on a job — nothing to pause
+  if (starting) {
+    if (jc.pausedAt) return person;                        // already paused; leave it (and its origin) alone
+    return { ...person, activeJobClock: { ...jc, pausedAt: nowIso, pausedByLunch: true } };
+  }
+  if (!jc.pausedAt || !jc.pausedByLunch) return person;    // manual pause stays paused
+  const paused = new Date(nowIso).getTime() - new Date(jc.pausedAt).getTime();
+  const totalPausedMs = (jc.totalPausedMs || 0) + Math.max(0, paused);
+  const { pausedAt, pausedByLunch, ...resumed } = jc;
+  return { ...person, activeJobClock: { ...resumed, totalPausedMs } };
+}
+
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
@@ -411,7 +434,7 @@ export async function handler(event) {
     //     reconcile them — edit breaks after clock-out.
     //
     // A confirmed timesheet is always locked (re-open it first).
-    if (action === "adminEditEvent" || action === "adminAddEvent" || action === "adminDeleteEvent" || action === "adminDeleteEntry") {
+    if (action === "adminEditEvent" || action === "adminAddEvent" || action === "adminDeleteEvent" || action === "adminDeleteEntry" || action === "adminReopenEntry") {
       let _me;
       try { _me = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
       if (!_me.isAdmin) return err(403, "Admin only");
@@ -616,6 +639,49 @@ export async function handler(event) {
         try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
         return json(200, { ok: true, entryId, deletedEventIds: [...orphanIds] });
       }
+
+      // ── Admin Reopen Entry (undo a clock-out) ─────────────────────────
+      // For the common mistake of hitting Clock Out when the worker meant Start
+      // Lunch. Deleting the shift outright would lose the clock-in and any
+      // lunch/break rows, so instead the punch is removed and the session is
+      // restored to person.activeClockIn with its original clock-in time.
+      //
+      // The lunch/break rows are deliberately LEFT in the log: ownerPunch()
+      // resolves an event to whatever punch window contains it, so when the
+      // session is closed again the new punch re-adopts them and the deduction
+      // survives the round trip.
+      if (action === "adminReopenEntry") {
+        const { entryId } = body;
+        if (!entryId) return err(400, "Missing entryId");
+
+        const entry = log.find(e => e.id === entryId && !e.eventType && !e.deletedAt);
+        if (!entry) return err(404, "Entry not found");
+        if (entry.confirmed) return err(409, "This entry is in a confirmed timesheet. Re-open the timesheet to edit it.");
+        if (!entry.clockOut) return err(409, "This shift is already open.");
+
+        let people;
+        try { people = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
+        const pIdx = people.findIndex(p => String(p.id) === String(entry.personId));
+        if (pIdx === -1) return err(404, "Person not found");
+        // Two open sessions would make hoursElapsed ambiguous and let a later
+        // clock-out claim the wrong window.
+        if (people[pIdx].activeClockIn) return err(409, "That person is already clocked in. Clock them out before reopening an earlier shift.");
+
+        const startMs = new Date(entry.clockIn).getTime();
+        const endMs = new Date(entry.clockOut).getTime();
+        const events = log
+          .filter(e => e.eventType && !e.deletedAt && String(e.personId) === String(entry.personId))
+          .filter(e => { const t = new Date(e.timestamp).getTime(); return !Number.isNaN(t) && t >= startMs && t <= endMs; })
+          .map(e => ({ type: e.eventType, at: e.timestamp }))
+          .sort((a, b) => String(a.at).localeCompare(String(b.at)));
+
+        people[pIdx] = { ...people[pIdx], activeClockIn: { clockIn: entry.clockIn, jobRefs: entry.jobRefs || [], events, source: entry.source || "kiosk" } };
+        log = log.map(e => e.id === entryId ? { ...e, deletedAt: new Date().toISOString() } : e);
+
+        try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
+        try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save people"); }
+        return json(200, { ok: true, entryId, activeClockIn: people[pIdx].activeClockIn });
+      }
     }
 
     // ── Confirm / Re-open Timesheet (admin only, Bearer token) ────────────────
@@ -693,7 +759,10 @@ export async function handler(event) {
       }
 
       const albTimestamp = albTs || new Date().toISOString();
-      albPeople[albIdx] = { ...albPerson, activeClockIn: { ...albPerson.activeClockIn, events: [...albEvents, { type: evtType, ts: albTimestamp }] } };
+      const albWithEvent = { ...albPerson, activeClockIn: { ...albPerson.activeClockIn, events: [...albEvents, { type: evtType, ts: albTimestamp }] } };
+      albPeople[albIdx] = (evtType === "lunchStart" || evtType === "lunchEnd")
+        ? applyLunchJobPause(albWithEvent, evtType === "lunchStart", albTimestamp)
+        : albWithEvent;
       try { await writeStampedArray(peopleKey, albPeople); } catch { return err(500, "Failed to save"); }
 
       const albEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: albPersonId, date: albTimestamp.slice(0, 10), eventType: evtType, timestamp: albTimestamp };
@@ -773,9 +842,13 @@ export async function handler(event) {
       if (!jcoPerson.activeJobClock) return err(409, "Not clocked into any job");
 
       const jcoClockOut = new Date().toISOString();
-      const { clockIn: jcoClockIn, jobId: jcoJobId, panelId: jcoPanelId, opId: jcoOpId, totalPausedMs: jcoPausedMs = 0 } = jcoPerson.activeJobClock;
+      const { clockIn: jcoClockIn, jobId: jcoJobId, panelId: jcoPanelId, opId: jcoOpId, totalPausedMs: jcoPausedMs = 0, pausedAt: jcoPausedAt } = jcoPerson.activeJobClock;
       const jcoRawMs = new Date(jcoClockOut) - new Date(jcoClockIn);
-      const jcoHours = Math.max(0, Math.round(((jcoRawMs - jcoPausedMs) / 3600000) * 100) / 100);
+      // Close an in-flight pause. Only totalPausedMs was subtracted before, so
+      // ending a job WHILE paused — which is now the norm if someone finishes a
+      // job over lunch — billed the whole pause to the job.
+      const jcoOpenPauseMs = jcoPausedAt ? Math.max(0, new Date(jcoClockOut) - new Date(jcoPausedAt)) : 0;
+      const jcoHours = Math.max(0, Math.round(((jcoRawMs - jcoPausedMs - jcoOpenPauseMs) / 3600000) * 100) / 100);
 
       jcoPeople[jcoIdx] = { ...jcoPerson, activeJobClock: null };
       try { await writeStampedArray(peopleKey, jcoPeople); } catch { return err(500, "Failed to save"); }
@@ -1097,7 +1170,11 @@ export async function handler(event) {
           const lastLunch = [...events].reverse().find(ev => ev.type === "lunchStart" || ev.type === "lunchEnd");
           if (starting && lastLunch?.type === "lunchStart") { const e = new Error("Already on lunch"); e.status = 409; throw e; }
           if (!starting && (!lastLunch || lastLunch.type !== "lunchStart")) { const e = new Error("Not on lunch"); e.status = 409; throw e; }
-          return { ...fresh, activeClockIn: { ...fresh.activeClockIn, events: [...events, { type: starting ? "lunchStart" : "lunchEnd", ts: timestamp }] } };
+          // Pause/resume the job clock in the SAME mutation as the lunch event,
+          // so a failed write can't leave the shift on lunch with the job still
+          // running (or vice versa).
+          const withLunch = { ...fresh, activeClockIn: { ...fresh.activeClockIn, events: [...events, { type: starting ? "lunchStart" : "lunchEnd", ts: timestamp }] } };
+          return applyLunchJobPause(withLunch, starting, timestamp);
         });
       } catch (e) { return err(e.status || 500, e.status ? e.message : "Failed to save"); }
 
@@ -1230,7 +1307,7 @@ export async function handler(event) {
       const lastLunch = [...events].reverse().find(e => e.type === "lunchStart" || e.type === "lunchEnd");
       if (lastLunch?.type === "lunchStart") return err(409, "Already on lunch");
       const timestamp = new Date().toISOString();
-      people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "lunchStart", ts: timestamp }] } };
+      people[personIdx] = applyLunchJobPause({ ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "lunchStart", ts: timestamp }] } }, true, timestamp);
       try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: timestamp.slice(0, 10), eventType: "lunchStart", timestamp };
       let log1; try { log1 = await readJson(payKey) ?? []; } catch { log1 = []; }
@@ -1245,7 +1322,7 @@ export async function handler(event) {
       const lastLunch = [...events].reverse().find(e => e.type === "lunchStart" || e.type === "lunchEnd");
       if (!lastLunch || lastLunch.type !== "lunchStart") return err(409, "Not on lunch");
       const timestamp = new Date().toISOString();
-      people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "lunchEnd", ts: timestamp }] } };
+      people[personIdx] = applyLunchJobPause({ ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "lunchEnd", ts: timestamp }] } }, false, timestamp);
       try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: timestamp.slice(0, 10), eventType: "lunchEnd", timestamp };
       let log2; try { log2 = await readJson(payKey) ?? []; } catch { log2 = []; }

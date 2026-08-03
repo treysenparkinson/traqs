@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, UL_LOGO_WHITE } from "./logo.js";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme } from "./push.js";
 import { HexColorPicker } from "react-colorful";
@@ -15445,7 +15445,7 @@ ${jobsCtx || "No jobs found."}`;
 
     const renderPersonEditModal = () => {
       if (!tsPersonEditModal) return null;
-      const { person, sessions, activeEntry, saving, addMenuFor, confirmDelete, deletingId } = tsPersonEditModal;
+      const { person, sessions, activeEntry, saving, addMenuFor, confirmDelete, deletingId, confirmReopen, reopeningId } = tsPersonEditModal;
 
       // datetime-local <-> ISO. The input shows LOCAL wall-clock time (matching
       // the board's fmtTime); fromLocal parses it back to a UTC ISO string.
@@ -15560,6 +15560,26 @@ ${jobsCtx || "No jobs found."}`;
           // truth (the deletion also lands on other devices via real-time).
           try { const fresh = await fetchTimeclock(getToken, orgCode); if (Array.isArray(fresh)) setTimeclock(fresh); } catch { /* real-time will reconcile */ }
         } catch { alert("Network error"); done({}); }
+      };
+
+      // ── Undo a clock-out ────────────────────────────────────────────────
+      // Applied immediately for the same reason as deleteSession: the row
+      // changes shape (completed shift -> open session) and deferring that to
+      // Save would show a state the server doesn't have. Closes the modal after,
+      // since the person is now clocked in and the draft's session list no
+      // longer describes reality.
+      const reopenSession = async (sid) => {
+        setTsPersonEditModal(m => ({ ...m, reopeningId: sid }));
+        try {
+          const r = await adminReopenEntryAction({ entryId: sid }, getToken, orgCode);
+          if (!r?.ok) { alert(r?.error || "Couldn't reopen this shift."); setTsPersonEditModal(m => (m ? { ...m, reopeningId: null, confirmReopen: null } : m)); return; }
+          try {
+            const [fresh, freshPeople] = await Promise.all([fetchTimeclock(getToken, orgCode), fetchPeople(getToken, orgCode)]);
+            if (Array.isArray(fresh)) setTimeclock(fresh);
+            if (Array.isArray(freshPeople)) setPeople(normalizePeople(freshPeople));
+          } catch { /* real-time will reconcile */ }
+          setTsPersonEditModal(null);
+        } catch { alert("Network error"); setTsPersonEditModal(m => (m ? { ...m, reopeningId: null, confirmReopen: null } : m)); }
       };
 
       // Group [active + sessions] by date for display (active is newest first).
@@ -15758,7 +15778,11 @@ ${jobsCtx || "No jobs found."}`;
                               )}
                             </span>
                           </div>
-                          {punchRow({ key: "in", label: "In", color: "#10b981", value: it.clockIn, onChange: v => patchSession(it.id, { clockIn: v }), locked })}
+                          {/* Deleting the clock-IN removes the shift: a punch with
+                              no start has no window, so there is nothing left to
+                              own its lunch/break rows or compute hours from. */}
+                          {punchRow({ key: "in", label: "In", color: "#10b981", value: it.clockIn, onChange: v => patchSession(it.id, { clockIn: v }),
+                            onDelete: () => setTsPersonEditModal(m => ({ ...m, confirmDelete: { id: it.id, date: it.date, hours: sessionNetHours(it) } })), locked })}
                           {it.events.filter(ev => !ev._deleted).map(ev => punchRow({
                             key: ev.id,
                             label: EVENT_META[ev.eventType]?.label || ev.eventType,
@@ -15768,7 +15792,12 @@ ${jobsCtx || "No jobs found."}`;
                             onDelete: () => removeEvent(it.id, ev.id),
                             locked,
                           }))}
-                          {punchRow({ key: "out", label: "Out", color: "#ef4444", value: it.clockOut, onChange: v => patchSession(it.id, { clockOut: v }), locked })}
+                          {/* Deleting the clock-OUT reopens the session rather than
+                              destroying it — that is the "meant to hit lunch" fix.
+                              Suppressed while someone is already clocked in, since
+                              the server refuses a second open session. */}
+                          {punchRow({ key: "out", label: "Out", color: "#ef4444", value: it.clockOut, onChange: v => patchSession(it.id, { clockOut: v }),
+                            onDelete: activeEntry ? null : () => setTsPersonEditModal(m => ({ ...m, confirmReopen: { id: it.id, date: it.date, out: it.clockOut } })), locked })}
                           {canAdd && (
                             <div style={{ position: "relative", paddingLeft: 2 }}>
                               <button onClick={() => setTsPersonEditModal(m => ({ ...m, addMenuFor: m.addMenuFor === it.id ? null : it.id }))} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: T.radiusPill, border: `1px dashed ${T.border}`, background: "none", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
@@ -15805,6 +15834,40 @@ ${jobsCtx || "No jobs found."}`;
               Nested inside the same portal so it stacks above the Timestamps
               modal. Deliberately NOT dismissible by backdrop click — a stray
               click behind a destructive dialog shouldn't count as an answer. */}
+          {confirmReopen && (
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{ position: "fixed", inset: 0, zIndex: 10020, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+            >
+              <div style={{ background: T.card, borderRadius: 20, width: "100%", maxWidth: 400, border: `1px solid ${T.borderLight}`, boxShadow: "0 28px 70px rgba(0,0,0,0.5)", padding: 24, fontFamily: T.font }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                  <span style={{ width: 34, height: 34, borderRadius: 20, background: T.accent + "18", color: T.accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>
+                  </span>
+                  <span style={{ fontSize: 16, fontWeight: 700, color: T.text }}>Undo this clock-out?</span>
+                </div>
+                <div style={{ fontSize: 13, lineHeight: 1.55, color: T.textSec, marginBottom: 18 }}>
+                  {person.name} will be clocked back in from their original start time,
+                  and the <strong style={{ color: T.text }}>{fmtTime(confirmReopen.out)}</strong> clock-out
+                  will be removed. Any lunch or break punches are kept. Use this when a
+                  clock-out was meant to be a lunch — then add the lunch and clock them
+                  out again.
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                  <button
+                    onClick={() => setTsPersonEditModal(m => ({ ...m, confirmReopen: null }))}
+                    disabled={!!reopeningId}
+                    style={{ padding: "9px 16px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}
+                  >Cancel</button>
+                  <button
+                    onClick={() => reopenSession(confirmReopen.id)}
+                    disabled={!!reopeningId}
+                    style={{ padding: "9px 16px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: reopeningId ? 0.6 : 1 }}
+                  >{reopeningId ? "Reopening…" : "Undo clock-out"}</button>
+                </div>
+              </div>
+            </div>
+          )}
           {confirmDelete && (
             <div
               onClick={e => e.stopPropagation()}
