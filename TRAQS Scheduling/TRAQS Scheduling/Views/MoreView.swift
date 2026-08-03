@@ -80,7 +80,7 @@ struct MoreView: View {
                                         .padding(.horizontal, 16)
                                     EfficiencyCard(percent: "\(efficiencyPercent(from: days))%",
                                                    days: days,
-                                                   info: "Job hours logged ÷ pay hours for the week across everyone (e.g. 30 logged of 40 paid = 75%). The bars show each day's pay hours (left) vs job hours (right); the number above each day is the difference.")
+                                                   info: "Job hours logged ÷ working hours for the week across everyone, where working hours = paid time minus paid breaks. Breaks are excluded so taking them can't cap anyone below 100%. The bars show each day's pay hours (left) vs job hours (right); the number above each day is job hours against working time.")
                                         .padding(.horizontal, 16)
                                 }
                             }
@@ -115,7 +115,7 @@ struct MoreView: View {
                                 let days = efficiencyDays(for: pid, now: date)   // once, not twice
                                 EfficiencyCard(percent: "\(efficiencyPercent(from: days))%",
                                                days: days,
-                                               info: "Job hours logged ÷ pay hours for the week (e.g. 30 logged of 40 paid = 75%). The bars show each day's pay hours (left) vs job hours (right); the number above each day is the difference.")
+                                               info: "Job hours logged ÷ working hours for the week, where working hours = paid time minus paid breaks. Breaks are excluded so taking them can't cap you below 100%. The bars show each day's pay hours (left) vs job hours (right); the number above each day is job hours against working time.")
                                     .padding(.horizontal, 16)
                                     .padding(.top, 16)
                             }
@@ -504,8 +504,8 @@ private extension MoreView {
     /// clock, minus paused time (which now includes both lunch and breaks).
     /// `personId` nil = everyone (team view). This is what makes the graph grow
     /// live while someone is clocked in.
-    func liveAccrual(for personId: String?, now: Date) -> [(day: Date, pay: Double, job: Double)] {
-        var out: [(day: Date, pay: Double, job: Double)] = []
+    func liveAccrual(for personId: String?, now: Date) -> [(day: Date, pay: Double, job: Double, brk: Double)] {
+        var out: [(day: Date, pay: Double, job: Double, brk: Double)] = []
         for p in appState.people where personId == nil || p.id == personId {
             if let c = p.activeClockIn, !c.clockIn.isEmpty, let s = Date.fromFlexibleISO8601(c.clockIn) {
                 var ms = now.timeIntervalSince(s) * 1000
@@ -521,7 +521,21 @@ private extension MoreView {
                 }
                 // Still on lunch: close the open range at `now`, as the server does at clock-out.
                 if let open = lunchOpen { ms -= max(0, now.timeIntervalSince(open) * 1000) }
-                out.append((s, max(0, ms / 1000 / 3600), 0))
+                // Break time inside the OPEN shift, so the denominator excludes it
+                // live rather than only once the punch is finalised.
+                var brkMs: Double = 0
+                var breakOpen: Date? = nil
+                for ev in c.events.sorted(by: { $0.ts < $1.ts }) {
+                    guard let t = Date.fromFlexibleISO8601(ev.ts) else { continue }
+                    if ev.type == "breakStart" {
+                        breakOpen = t
+                    } else if ev.type == "breakEnd", let open = breakOpen {
+                        brkMs += max(0, t.timeIntervalSince(open) * 1000)
+                        breakOpen = nil
+                    }
+                }
+                if let open = breakOpen { brkMs += max(0, now.timeIntervalSince(open) * 1000) }
+                out.append((s, max(0, ms / 1000 / 3600), 0, max(0, brkMs / 1000 / 3600)))
             }
             if let jc = p.activeJobClock, !jc.clockIn.isEmpty, let s = Date.fromFlexibleISO8601(jc.clockIn) {
                 var ms = now.timeIntervalSince(s) * 1000
@@ -529,7 +543,7 @@ private extension MoreView {
                 if let pa = jc.pausedAt, let ps = Date.fromFlexibleISO8601(pa) {
                     ms -= now.timeIntervalSince(ps) * 1000
                 }
-                out.append((s, 0, max(0, ms / 1000 / 3600)))
+                out.append((s, 0, max(0, ms / 1000 / 3600), 0))
             }
         }
         return out
@@ -558,18 +572,42 @@ private extension MoreView {
             guard let sd = dayOf(s.clockIn, s.date) else { continue }
             jobByDay[cal.startOfDay(for: sd), default: 0] += (s.hours ?? 0)
         }
+        // Paid break time per day, paired from the breakStart/breakEnd event rows
+        // — actual records only, never an assumed 30min. Rows are sorted so a
+        // start always precedes its end; an unpaired start is ignored rather than
+        // guessed at (the live accrual covers a break still open right now).
+        var breakByDay: [Date: Double] = [:]
+        let breakRows = appState.timeclockEntries
+            .filter { (personId == nil || $0.personId == personId)
+                && ($0.eventType == "breakStart" || $0.eventType == "breakEnd") }
+            .compactMap { e -> (type: String, t: Date)? in
+                guard let ts = e.timestamp, let d = Date.fromFlexibleISO8601(ts) else { return nil }
+                return (e.eventType ?? "", d)
+            }
+            .sorted { $0.t < $1.t }
+        var openBreak: Date? = nil
+        for row in breakRows {
+            if row.type == "breakStart" {
+                openBreak = row.t
+            } else if let open = openBreak {
+                breakByDay[cal.startOfDay(for: open), default: 0] += max(0, row.t.timeIntervalSince(open) / 3600)
+                openBreak = nil
+            }
+        }
         var out: [EffDay] = []
         for offset in 0..<7 {
             guard let day = cal.date(byAdding: .day, value: offset, to: week.start) else { continue }
             let key = cal.startOfDay(for: day)
             var pay = payByDay[key] ?? 0
             var job = jobByDay[key] ?? 0
+            var brk = breakByDay[key] ?? 0
             for a in live where cal.isDate(a.day, inSameDayAs: day) {
                 pay += a.pay
                 job += a.job
+                brk += a.brk
             }
             let label = dows[cal.component(.weekday, from: day) - 1]
-            out.append(EffDay(label: label, pay: pay, job: job))
+            out.append(EffDay(label: label, pay: pay, job: job, breakHours: brk))
         }
         return out
     }
@@ -593,17 +631,32 @@ private extension MoreView {
     /// (or the efficiency percentage) don't walk every pay entry and job session
     /// a second and third time — `efficiencyDays` used to run 3× per tick.
     func idleHours(from days: [EffDay]) -> Double {
-        let pay = days.reduce(0.0) { $0 + $1.pay }
+        let working = days.reduce(0.0) { $0 + $1.workingHours }
         let job = days.reduce(0.0) { $0 + $1.job }
-        return max(0, pay - job)
+        return max(0, working - job)
     }
 
     /// Same, for the efficiency percentage.
     func efficiencyPercent(from days: [EffDay]) -> Int {
-        let totalPay = days.reduce(0.0) { $0 + $1.pay }
+        let working = days.reduce(0.0) { $0 + $1.workingHours }
         let totalJob = days.reduce(0.0) { $0 + $1.job }
-        guard totalPay > 0 else { return 0 }
-        return Int((totalJob / totalPay * 100).rounded())
+        // Denominator <= 0 means no clocked time, or malformed data recording more
+        // break than pay. Either way there is no working time to be a fraction of.
+        guard working > 0 else {
+            let totalPay = days.reduce(0.0) { $0 + $1.pay }
+            let totalBreak = days.reduce(0.0) { $0 + $1.breakHours }
+            if totalPay > 0 && totalBreak > totalPay {
+                print("[stats] break time (\(totalBreak)h) exceeds pay (\(totalPay)h) — efficiency reported as 0")
+            }
+            return 0
+        }
+        return Int((totalJob / working * 100).rounded())
+    }
+
+    /// Paid break time across the period. Not surfaced yet; kept so a future
+    /// "of your paid time, X was breaks" line needs no recomputation.
+    func breakHours(from days: [EffDay]) -> Double {
+        days.reduce(0.0) { $0 + $1.breakHours }
     }
 
     /// "3h 12m" — idle rounded to the minute.
@@ -886,8 +939,21 @@ struct EffDay: Identifiable {
     let label: String
     let pay: Double
     let job: Double
-    /// Daily difference shown above the bars (job − pay).
-    var diff: Double { job - pay }
+    /// Paid break time for the day, from actual breakStart/breakEnd records — no
+    /// assumed 30min. Excluded from the efficiency denominator because breaks are
+    /// mandatory paid downtime a worker cannot convert into production; counting
+    /// them would cap everyone at ~93.75% for following the rules. Kept as its own
+    /// field so "of your paid time, X was breaks" is available to future UI.
+    let breakHours: Double
+
+    /// Time the worker could actually have been producing: paid time minus the
+    /// breaks they were required to take. Clamped at 0 — malformed data can
+    /// record more break than pay.
+    var workingHours: Double { max(0, pay - breakHours) }
+
+    /// Daily difference shown above the bars: production against working time,
+    /// so a day spent entirely on jobs reads 0 rather than minus the break.
+    var diff: Double { job - workingHours }
 }
 
 private struct EfficiencyCard: View {

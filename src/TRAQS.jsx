@@ -13773,7 +13773,20 @@ ${jobsCtx || "No jobs found."}`;
                 else if (ev.type === "lunchEnd" && lunchOpen != null) { ms -= Math.max(0, ev.t - lunchOpen); lunchOpen = null; }
               });
             if (lunchOpen != null) ms -= Math.max(0, statsNow - lunchOpen);   // still on lunch
-            liveAdds.push({ day: String(ac.clockIn).slice(0, 10), pay: Math.max(0, ms / 3600000), prod: 0 });
+            // Break time inside the OPEN shift. Paid, so it stays IN pay — but it
+            // is excluded from the efficiency denominator, so it has to be
+            // tracked separately rather than deducted here.
+            let brkMs = 0, brkOpen = null;
+            [...(ac.events || [])]
+              .map(ev => ({ type: ev.type, t: new Date(ev.ts || ev.at).getTime() }))
+              .filter(ev => ev.t)
+              .sort((a, b) => a.t - b.t)
+              .forEach(ev => {
+                if (ev.type === "breakStart") brkOpen = ev.t;
+                else if (ev.type === "breakEnd" && brkOpen != null) { brkMs += Math.max(0, ev.t - brkOpen); brkOpen = null; }
+              });
+            if (brkOpen != null) brkMs += Math.max(0, statsNow - brkOpen);
+            liveAdds.push({ day: String(ac.clockIn).slice(0, 10), pay: Math.max(0, ms / 3600000), prod: 0, brk: Math.max(0, brkMs / 3600000) });
           }
         }
         const jc = p.activeJobClock;
@@ -13782,20 +13795,57 @@ ${jobsCtx || "No jobs found."}`;
           if (s) {
             let ms = statsNow - s - (jc.totalPausedMs || 0);
             if (jc.pausedAt) ms -= (statsNow - new Date(jc.pausedAt).getTime());
-            liveAdds.push({ day: String(jc.clockIn).slice(0, 10), pay: 0, prod: Math.max(0, ms / 3600000) });
+            liveAdds.push({ day: String(jc.clockIn).slice(0, 10), pay: 0, prod: Math.max(0, ms / 3600000), brk: 0 });
           }
         }
       });
+      // Paid break time per DAY, paired from the breakStart/breakEnd rows —
+      // actual records only, never an assumed 30min. Mirrors the iOS aggregation
+      // in MoreView.efficiencyDays so both platforms report the same number.
+      const breakByDay = (() => {
+        const out = {};
+        const evs = timeclock
+          .filter(e => e && !e.deletedAt && (e.eventType === "breakStart" || e.eventType === "breakEnd")
+            && (personId == null || String(e.personId) === String(personId)))
+          .map(e => ({ type: e.eventType, t: new Date(e.timestamp).getTime() }))
+          .filter(e => e.t)
+          .sort((a, b) => a.t - b.t);
+        let open = null;
+        for (const ev of evs) {
+          if (ev.type === "breakStart") open = ev.t;
+          else if (open != null) {
+            const day = new Date(open).toISOString().slice(0, 10);
+            out[day] = (out[day] || 0) + Math.max(0, (ev.t - open) / 3600000);
+            open = null;
+          }
+        }
+        return out;
+      })();
       const rows = efficiencyBuckets().map(b => {
         const set = new Set(b.days);
         let pay = timeclock.filter(e => payOk(e) && set.has(dayOf(e))).reduce((a, e) => a + (e.hours || 0), 0);
         let prod = productionHours.filter(s => prodOk(s) && set.has(dayOf(s))).reduce((a, s) => a + (s.hours || 0), 0);
-        liveAdds.forEach(a => { if (set.has(a.day)) { pay += a.pay; prod += a.prod; } });
-        return { label: b.label, pay, prod };
+        let brk = b.days.reduce((a, d) => a + (breakByDay[d] || 0), 0);
+        liveAdds.forEach(a => { if (set.has(a.day)) { pay += a.pay; prod += a.prod; brk += (a.brk || 0); } });
+        // Working time = paid time minus the breaks they were required to take.
+        // Clamped: malformed data can record more break than pay.
+        return { label: b.label, pay, prod, brk, working: Math.max(0, pay - brk) };
       });
       const totalPay = rows.reduce((a, r) => a + r.pay, 0);
       const totalProd = rows.reduce((a, r) => a + r.prod, 0);
-      const pct = totalPay > 0 ? Math.round(totalProd / totalPay * 100) : 0;
+      const totalBreak = rows.reduce((a, r) => a + r.brk, 0);
+      // Breaks are mandatory paid downtime a worker cannot convert into
+      // production, so they come out of the denominator — otherwise following
+      // the rules caps everyone at ~93.75%. 100% now means "worked continuously
+      // outside scheduled breaks"; any idle above 0 is unexpected downtime.
+      const totalWorking = rows.reduce((a, r) => a + r.working, 0);
+      if (totalWorking <= 0 && totalPay > 0 && totalBreak > totalPay) {
+        console.warn(`[stats] break time (${totalBreak}h) exceeds pay (${totalPay}h) — efficiency reported as 0`);
+      }
+      const pct = totalWorking > 0 ? Math.round(totalProd / totalWorking * 100) : 0;
+      // Idle hours (totalWorking - totalProd) are an iOS Stats metric; the web
+      // card shows the percentage and the per-day bars instead. totalBreak is
+      // kept above so "of your paid time, X was breaks" needs no recomputation.
       const maxV = Math.max(...rows.flatMap(r => [r.pay, r.prod]), 1);
       const payColor = blendHex(T.accent, 0.4), prodColor = blendHex(T.accent, -0.22); // same accent hue, light vs. dark shade
       const legend = (color, text) => (
@@ -13815,11 +13865,11 @@ ${jobsCtx || "No jobs found."}`;
             <>
               <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 4 }}>
                 <span style={{ fontSize: 40, fontWeight: 800, color: T.text, fontFamily: T.mono, lineHeight: 1 }}>{pct}%</span>
-                <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{Math.round(totalProd * 10) / 10}h logged / {Math.round(totalPay * 10) / 10}h paid</span>
+                <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{Math.round(totalProd * 10) / 10}h logged / {Math.round(totalWorking * 10) / 10}h woid</span>
               </div>
               <div style={{ display: "flex", alignItems: "flex-end", gap: 22, height: 150, padding: "18px 4px 0" }}>
                 {rows.map((r, i) => {
-                  const diff = r.prod - r.pay;
+                  const diff = r.prod - r.working;
                   return (
                     <div key={i} style={{ flex: "1 1 0", minWidth: 0, display: "flex", flexDirection: "column", alignItems: "center", gap: 6, height: "100%" }}>
                       <span style={{ fontSize: 9, fontFamily: T.mono, fontWeight: 700, color: diff < 0 ? T.danger : "#10b981" }}>{diff >= 0 ? "+" : ""}{diff.toFixed(1)}</span>
