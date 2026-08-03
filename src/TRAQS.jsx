@@ -1823,13 +1823,13 @@ function SearchSelect({ label, value, onChange, options, placeholder = "Search..
       <div style={{ maxHeight: 220, overflow: "auto" }}>
         {(() => { const act = multi ? values.length === 0 : !value; return (
         <div onClick={() => { if (multi) { onChangeMulti([]); } else { onChange(null); setOpen(false); setQ(""); } }}
-          style={{ padding: "10px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: act ? T.accent : T.textSec, fontWeight: act ? 600 : 400, background: act ? T.accent + "10" : "transparent", animation: "toolDrop 0.14s 0ms both ease-out" }}
+          style={{ transition: "background-color 0.15s ease", padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: act ? T.accent : T.textSec, fontWeight: act ? 600 : 400, background: act ? T.accent + "10" : "transparent", animation: "toolDrop 0.14s 0ms both ease-out" }}
           onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = act ? T.accent + "10" : "transparent"}>
           <div style={{ width: 10, height: 10, borderRadius: 5, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />{noneLabel}
         </div>); })()}
         {filtered.length === 0 && <div style={{ padding: "20px 16px", textAlign: "center", fontSize: 13, color: T.textDim }}>No clients match "{q}"</div>}
         {filtered.map((o, oi) => { const act = multi ? values.includes(o.value) : value === o.value; return <div key={o.value} onClick={() => { if (multi) { onChangeMulti(values.includes(o.value) ? values.filter(v => v !== o.value) : [...values, o.value]); } else { onChange(o.value); setOpen(false); setQ(""); } }}
-          style={{ padding: "10px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: act ? o.color || T.text : T.text, fontWeight: act ? 600 : 400, background: act ? (o.color || T.accent) + "12" : "transparent", animation: `toolDrop 0.14s ${(oi + 1) * 38}ms both ease-out` }}
+          style={{ transition: "background-color 0.15s ease", padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: act ? o.color || T.text : T.text, fontWeight: act ? 600 : 400, background: act ? (o.color || T.accent) + "12" : "transparent", animation: `toolDrop 0.14s ${(oi + 1) * 38}ms both ease-out` }}
           onMouseEnter={e => e.currentTarget.style.background = (o.color || T.accent) + "18"} onMouseLeave={e => e.currentTarget.style.background = act ? (o.color || T.accent) + "12" : "transparent"}>
           <div style={{ width: 10, height: 10, borderRadius: 5, background: o.color || T.accent, flexShrink: 0 }} />
           <span style={{ flex: 1 }}>{o.label}</span>
@@ -1889,7 +1889,7 @@ function AnalyticsPersonPicker({ options, value, onChange }) {
   const filtered = options.filter(o => o.label.toLowerCase().includes(q.toLowerCase()));
   const row = (active, dot, label, onClick, idx) => (
     <div key={label + idx} onClick={onClick}
-      style={{ padding: "10px 16px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: active ? (dot || T.accent) : T.text, fontWeight: active ? 600 : 400, background: active ? (dot || T.accent) + "12" : "transparent", animation: `toolDrop 0.14s ${idx * 38}ms both ease-out` }}
+      style={{ transition: "background-color 0.15s ease", padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: active ? (dot || T.accent) : T.text, fontWeight: active ? 600 : 400, background: active ? (dot || T.accent) + "12" : "transparent", animation: `toolDrop 0.14s ${idx * 38}ms both ease-out` }}
       onMouseEnter={e => e.currentTarget.style.background = (dot || T.accent) + "18"}
       onMouseLeave={e => e.currentTarget.style.background = active ? (dot || T.accent) + "12" : "transparent"}>
       {dot ? <div style={{ width: 10, height: 10, borderRadius: 5, background: dot, flexShrink: 0 }} /> : peopleIcon(active ? T.accent : T.textDim)}
@@ -1944,7 +1944,7 @@ function CustomDrop({ value, onChange, options, placeholder = "Select…", compa
       {options.map((r, ri) => {
         const isOn = value === r;
         return <div key={r} onClick={() => { onChange(r); setOpen(false); }}
-          style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", cursor: "pointer", animation: `toolDrop 0.14s ${ri * 38}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }}
+          style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", animation: `toolDrop 0.14s ${ri * 38}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }}
           onMouseEnter={e => e.currentTarget.style.background = T.hover}
           onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
           <div style={{ width: 8, height: 8, borderRadius: 4, background: isOn ? T.accent : T.border, flexShrink: 0, transition: "background 0.12s" }} />
@@ -1996,7 +1996,7 @@ function AssigneeDrop({ value, onChange, people }) {
     {open && anchor && createPortal(
       <div ref={menuRef} style={{ position: "fixed", left: anchor.left, top: anchor.top, width: anchor.width, zIndex: 10060, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.4)", padding: "4px 0", maxHeight: anchor.maxHeight, overflowY: "auto", animation: "menuIn 0.15s ease-out", fontFamily: T.font }}>
         {opts.map((p, ri) => { const isOn = (value || "") === p.id; return <div key={p.id || "__any__"} onClick={() => { onChange(p.id); setOpen(false); }}
-          style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", animation: `toolDrop 0.14s ${Math.min(ri, 14) * 28}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }}
+          style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 9, padding: "10px 14px", cursor: "pointer", animation: `toolDrop 0.14s ${Math.min(ri, 14) * 28}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }}
           onMouseEnter={e => e.currentTarget.style.background = T.hover}
           onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
           <div style={{ width: 8, height: 8, borderRadius: 4, background: isOn ? T.accent : T.border, flexShrink: 0 }} />
@@ -2042,7 +2042,7 @@ function ApprovalTypeDrop({ templateId, templates, onPick, onCreate, portal = fa
   };
   const current = templates.find(t => t.id === templateId);
   const commit = () => { const n = name.trim(); if (!n) return; onCreate(n); setAdding(false); setName(""); setOpen(false); };
-  const rowBase = { display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", cursor: "pointer", fontFamily: T.font, transition: "background-color 0.15s ease" };
+  const rowBase = { display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", fontFamily: T.font, transition: "background-color 0.15s ease" };
   // The TRAQS one-by-one cascade: each row drops in 38ms behind the one above.
   const rowAnim = (ri) => ({ animation: `toolDrop 0.14s ${Math.min(ri, 14) * 38}ms both ease-out` });
   const wrapMenu = (node) => (portal ? createPortal(node, document.body) : node);
@@ -2106,7 +2106,7 @@ function SimpleDrop({ value, options, onChange, placeholder = "Select…", pill 
     setOpen(true);
   };
   const menu = <div ref={menuRef} className="anim-drop" style={{ ...(portal ? { position: "fixed", left: anchor?.left ?? 0, top: anchor?.top ?? 0, width: anchor?.width, zIndex: 10060, maxHeight: anchor?.maxHeight ?? 260 } : { position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, maxHeight: 260 }), background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out", overflowY: "auto", fontFamily: T.font }}>
-    {options.map((o, ri) => { const isOn = o.value === value; return <div key={String(o.value) + ri} onClick={() => { onChange(o.value); setOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", cursor: "pointer", transition: "background-color 0.15s ease", animation: `toolDrop 0.14s ${Math.min(ri, 14) * 38}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
+    {options.map((o, ri) => { const isOn = o.value === value; return <div key={String(o.value) + ri} onClick={() => { onChange(o.value); setOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", transition: "background-color 0.15s ease", animation: `toolDrop 0.14s ${Math.min(ri, 14) * 38}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
       <span style={{ width: 8, height: 8, borderRadius: 4, background: o.color || (isOn ? T.accent : T.border), flexShrink: 0 }} />
       <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text }}>{o.label}</span>
     </div>; })}
@@ -2293,7 +2293,7 @@ function AssigneeSelect({ value, onChange, personOptions, people, extraStyle, co
       </div>}
       <div style={{ maxHeight: 220, overflow: "auto" }}>
         <div onClick={() => { onChange(""); setOpen(false); setQ(""); }}
-          style={{ padding: "8px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: !value ? T.accent : T.textSec, fontWeight: !value ? 600 : 400, background: !value ? T.accent + "10" : "transparent", animation: "toolDrop 0.14s 0ms both ease-out" }}
+          style={{ transition: "background-color 0.15s ease", padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: !value ? T.accent : T.textSec, fontWeight: !value ? 600 : 400, background: !value ? T.accent + "10" : "transparent", animation: "toolDrop 0.14s 0ms both ease-out" }}
           onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong}
           onMouseLeave={e => e.currentTarget.style.background = !value ? T.accent + "10" : "transparent"}>
           <div style={{ width: 8, height: 8, borderRadius: 4, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />
@@ -2305,7 +2305,7 @@ function AssigneeSelect({ value, onChange, personOptions, people, extraStyle, co
           const dotColor = personObj?.color || T.accent;
           const isOn = value && value.toLowerCase() === o.name.toLowerCase();
           return <div key={o.name} onClick={() => { onChange(o.name); setOpen(false); setQ(""); }}
-            style={{ padding: "8px 12px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: isOn ? dotColor : T.text, fontWeight: isOn ? 600 : 400, background: isOn ? dotColor + "12" : "transparent", animation: `toolDrop 0.14s ${(oi + 1) * 38}ms both ease-out` }}
+            style={{ transition: "background-color 0.15s ease", padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: isOn ? dotColor : T.text, fontWeight: isOn ? 600 : 400, background: isOn ? dotColor + "12" : "transparent", animation: `toolDrop 0.14s ${(oi + 1) * 38}ms both ease-out` }}
             onMouseEnter={e => e.currentTarget.style.background = dotColor + "18"}
             onMouseLeave={e => e.currentTarget.style.background = isOn ? dotColor + "12" : "transparent"}>
             <div style={{ width: 8, height: 8, borderRadius: 4, background: dotColor, flexShrink: 0 }} />
@@ -3388,6 +3388,7 @@ Extraction rules:
   const [exportSafe, setExportSafe] = useState(true); // show the editable blue boxes/handles ("safe zones")
   const [exportPtoMode, setExportPtoMode] = useState(false); // hours export: click day cells to toggle PTO highlight
   const [exportTplOpen, setExportTplOpen] = useState(false); // TRAQS-styled template dropdown open state
+  const [exportPeriodOpen, setExportPeriodOpen] = useState(false); // Confirmed Hours period picker
   const [exportTplNameOpen, setExportTplNameOpen] = useState(false); // TRAQS-styled "name this template" modal
   const [exportTplName, setExportTplName] = useState("");
   const exportFitDoneRef = useRef(false); // one-time auto-fit-to-content pass per designer open
@@ -4093,8 +4094,10 @@ Extraction rules:
   // hours flow to the accountant. Excludes the live open shift and job-clock logs.
   // Lists every hourly person, including 0h, so the accountant has the full roster.
   // Component-scoped so both Analytics and the Time Clock page can launch it.
-  const buildHoursReport = () => {
-    const payPeriod = getPayPeriodFromDates(orgSettings.payDates || [5, 20], TD);
+  // `period` ({ start, end }) builds the report for any pay period — the Confirmed
+  // Hours dropdown passes a past one. Omitted, it reports the current period.
+  const buildHoursReport = (period = null) => {
+    const payPeriod = period || getPayPeriodFromDates(orgSettings.payDates || [5, 20], TD);
     const PERIOD_HOUR_CAP = orgSettings.payPeriodHourCap || 80;
     const r2 = n => Math.round(n * 100) / 100;
     const fmtY = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
@@ -4172,8 +4175,19 @@ Extraction rules:
 
     return { start: payPeriod.start, end: payPeriod.end, label: `${fmtY(payPeriod.start)} – ${fmtY(payPeriod.end)}`, cap: PERIOD_HOUR_CAP, dates, weekCols, people: people_, rows, total };
   };
+
+  // Rebuild the export for a given pay period, keeping the designer in sync.
+  const loadHoursPeriod = (period) => {
+    const report = buildHoursReport(period);
+    setExportLayout(seedHoursLayout(report));
+    setExportPageIdx(0);
+    resetExportHistory();
+    setExportPreview(prev => ({ ...(prev || { kind: "pdf", jobs: [], mime: "application/pdf" }), hoursReport: report, filename: `pay-period-hours_${report.start}_to_${report.end}.pdf` }));
+  };
   const openHoursExport = () => {
-    const report = buildHoursReport();
+    // Open on the most recently confirmed period when there is one — that is the
+    // period the accountant is almost always here for. Falls back to the current.
+    const report = buildHoursReport(confirmedPeriods[0] || null);
     setExportLayout(seedHoursLayout(report));
     setExportPageIdx(0);
     resetExportHistory();
@@ -4357,6 +4371,33 @@ Extraction rules:
   const [linkingFrom, setLinkingFrom] = useState(null);
   const [clients, setClients] = useState([]);
   const [timeclock, setTimeclock] = useState([]);
+  // Every pay period that has at least one confirmed punch, newest first.
+  //
+  // Confirmation is stored per timeclock entry (confirmed/confirmedAt/confirmedBy)
+  // rather than as a period record, so the periods are derived: map each confirmed
+  // entry's date through the org's pay-date rule and dedupe by period start. That
+  // keeps this correct if the pay-date settings change — each entry resolves
+  // against the current rule, exactly like the report itself does.
+  const confirmedPeriods = useMemo(() => {
+    const payDates = orgSettings.payDates || [5, 20];
+    const byStart = new Map();
+    for (const e of timeclock) {
+      if (!e?.confirmed || !e.date) continue;
+      const p = getPayPeriodFromDates(payDates, e.date);
+      const cur = byStart.get(p.start);
+      // Keep the latest confirmation stamp in the period, for the "confirmed on" line.
+      if (!cur) byStart.set(p.start, { start: p.start, end: p.end, at: e.confirmedAt || null, by: e.confirmedBy || null, count: 1 });
+      else {
+        cur.count++;
+        if (e.confirmedAt && (!cur.at || e.confirmedAt > cur.at)) { cur.at = e.confirmedAt; cur.by = e.confirmedBy || cur.by; }
+      }
+    }
+    const fmtMD = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    const fmtY = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+    return [...byStart.values()]
+      .sort((a, b) => b.start.localeCompare(a.start))   // most recent at the top
+      .map(p => ({ ...p, label: `${fmtMD(p.start)} – ${fmtY(p.end)}` }));
+  }, [timeclock, orgSettings.payDates]);
   const [productionHours, setProductionHours] = useState([]); // job-clock sessions (js_ rows) — powers the Analytics efficiency graph
   const [dataLoading, setDataLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -19050,7 +19091,7 @@ ${jobsCtx || "No jobs found."}`;
                           </div>;
                         })}
                         <div style={{ borderTop:`1px solid ${T.border}`, marginTop:4, paddingTop:4 }}>
-                          <div onClick={() => { setSoDropPanelId(null); setSignOffSettingsOpen(true); }} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 14px", cursor:"pointer", fontSize:12, color:T.accent, fontWeight:600, transition:"background 0.12s" }}
+                          <div onClick={() => { setSoDropPanelId(null); setSignOffSettingsOpen(true); }} style={{ display:"flex", alignItems:"center", gap:8, padding: "10px 14px", cursor:"pointer", fontSize:12, color:T.accent, fontWeight:600, transition:"background 0.12s" }}
                             onMouseEnter={e => e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e => e.currentTarget.style.background="transparent"}>
                             <span style={{ fontSize:14 }}>+</span> Create new sign off
                           </div>
@@ -21149,7 +21190,9 @@ ${jobsCtx || "No jobs found."}`;
     </div>}
     {/* ── Brand strip — logo + undo/redo + search/ask + save/bell/settings ── */}
     {!isMobile && <div style={{ flexShrink: 0, padding: "18px 32px 18px 14px", display: "flex", alignItems: "center", gap: 18, background: Tc.surfaceSolid, position: "relative", zIndex: 101 }}>
-      <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 40, objectFit: "contain", display: "block", filter: hexLum(Tc.surfaceSolid) > 0.5 ? "brightness(0)" : "none", flexShrink: 0, marginLeft: 45 }} />
+      {/* Nudged down with a relative offset rather than margin so the brand strip
+          keeps its height — a margin would grow the bar by the same 10px. */}
+      <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 40, objectFit: "contain", display: "block", filter: hexLum(Tc.surfaceSolid) > 0.5 ? "brightness(0)" : "none", flexShrink: 0, marginLeft: 45, position: "relative", top: 5 }} />
       {/* TRAQS bars mark — trailing "=" lockup (ported from iOS TRAQSBarsMark).
           3 grey bars + the 3rd (full-width) bar tracks the user's accent. */}
       <div aria-hidden="true" style={{ display: "flex", flexDirection: "column", gap: 2, marginLeft: -19, marginTop: 8, flexShrink: 0 }}>
@@ -21229,7 +21272,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ padding: "28px 18px", textAlign: "center", color: T.textDim, fontSize: 13 }}>All caught up!</div>
             )}
             {timeOffNotifs.map((r, i) => (
-              <div key={"to-" + r.id} onClick={() => openTimeOffNotif(r)} style={{ padding: "12px 18px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${i * 50}ms` }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <div key={"to-" + r.id} onClick={() => openTimeOffNotif(r)} style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${i * 50}ms` }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <span style={{ flexShrink: 0, marginTop: 2, lineHeight: 0, color: r.type === "UTO" ? "#f59e0b" : "#10b981" }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
@@ -21248,7 +21291,7 @@ ${jobsCtx || "No jobs found."}`;
                 const participants = getThreadParticipants(item.scope, item.jobId, item.panelId, item.opId, gId);
                 setChatThread({ threadKey: item.threadKey, title, scope: item.scope, jobId: item.jobId, panelId: item.panelId, opId: item.opId, groupId: gId, participants });
                 setView("messages"); setNotifOpen(false); markThreadRead(item.threadKey);
-              }} style={{ padding: "12px 18px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${(timeOffNotifs.length + i) * 50}ms` }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              }} style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${(timeOffNotifs.length + i) * 50}ms` }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 <div style={{ width: 8, height: 8, borderRadius: 4, background: T.accent, flexShrink: 0, marginTop: 5 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
@@ -22342,6 +22385,37 @@ ${jobsCtx || "No jobs found."}`;
           {/* Toolbar */}
           <div style={{ padding: "12px 18px", background: T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{isPdf ? "Design Export" : kindLabel + " Preview"}</div>
+            {/* Confirmed Hours — pick a confirmed pay period and the whole report
+                (daily hours, PTO, holidays) rebuilds for it. Newest at the top. */}
+            {ep.hoursReport && (() => {
+              const cur = ep.hoursReport;
+              const sel = confirmedPeriods.find(p => p.start === cur.start && p.end === cur.end);
+              return <div style={{ position: "relative" }}>
+                <button className="tq-drop" onClick={() => setExportPeriodOpen(o => !o)} style={{ ...EBTN, height: 32, background: T.bg, color: T.text, border: `1px solid ${exportPeriodOpen ? T.accent : T.border}`, display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Confirmed Hours</span>
+                  <span style={{ fontWeight: 700 }}>{sel ? sel.label : cur.label}</span>
+                  {!sel && <span style={{ fontSize: 10, fontWeight: 700, color: T.textDim }}>(unconfirmed)</span>}
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "transform 0.15s", transform: exportPeriodOpen ? "rotate(180deg)" : "none" }}><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                {exportPeriodOpen && <div onClick={() => setExportPeriodOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />}
+                <FadeOnClose open={exportPeriodOpen} duration={150}>{exportPeriodOpen && <div className="anim-drop" style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, minWidth: 260, maxHeight: 320, overflowY: "auto", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 14px 40px rgba(0,0,0,0.5)", zIndex: 41, padding: "4px 0", fontFamily: T.font, animation: "menuIn 0.15s ease-out" }}>
+                  {confirmedPeriods.length === 0 && <div style={{ padding: "10px 12px", fontSize: 12, color: T.textDim }}>No confirmed timesheets yet.</div>}
+                  {confirmedPeriods.map((p, ri) => {
+                    const isOn = p.start === cur.start && p.end === cur.end;
+                    return <div key={p.start} onClick={() => { loadHoursPeriod(p); setExportPeriodOpen(false); }}
+                      style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", animation: `toolDrop 0.14s ${Math.min(ri, 14) * 38}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }}
+                      onMouseEnter={e => e.currentTarget.style.background = T.hover}
+                      onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
+                      <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: isOn ? T.accent : T.border }} />
+                      <span style={{ flex: 1, minWidth: 0 }}>
+                        <span style={{ display: "block", fontSize: 13, fontWeight: isOn ? 700 : 500, color: isOn ? T.accent : T.text }}>{p.label}</span>
+                        {p.at && <span style={{ display: "block", fontSize: 10.5, color: T.textDim }}>Confirmed {new Date(p.at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}{p.by ? ` by ${p.by}` : ""}</span>}
+                      </span>
+                    </div>;
+                  })}
+                </div>}</FadeOnClose>
+              </div>;
+            })()}
             {isPdf && layout && <>
               <button onClick={exportUndo} disabled={!exportPast.length} title="Undo (Ctrl+Z)" style={{ ...EBTN, background: "transparent", color: exportPast.length ? T.text : T.textDim, border: `1px solid ${T.border}`, opacity: exportPast.length ? 1 : 0.5, cursor: exportPast.length ? "pointer" : "default", display: "inline-flex", alignItems: "center", gap: 5 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>Undo</button>
               <button onClick={exportRedo} disabled={!exportFuture.length} title="Redo (Ctrl+Shift+Z)" style={{ ...EBTN, background: "transparent", color: exportFuture.length ? T.text : T.textDim, border: `1px solid ${T.border}`, opacity: exportFuture.length ? 1 : 0.5, cursor: exportFuture.length ? "pointer" : "default", display: "inline-flex", alignItems: "center", gap: 5 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 14 20 9 15 4"/><path d="M4 20v-7a4 4 0 0 1 4-4h12"/></svg>Redo</button>
@@ -22349,9 +22423,9 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ position: "relative" }}>
                 <button onClick={() => setExportTplOpen(o => !o)} style={{ ...EBTN, background: T.bg, color: T.text, border: `1px solid ${exportTplOpen ? T.accent : T.border}`, display: "inline-flex", alignItems: "center", gap: 6 }}>Template<svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "transform 0.15s", transform: exportTplOpen ? "rotate(180deg)" : "none" }}><polyline points="6 9 12 15 18 9"/></svg></button>
                 {exportTplOpen && <div onClick={() => setExportTplOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />}
-                <FadeOnClose open={exportTplOpen} duration={150}>{exportTplOpen && <div className="anim-drop" style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, minWidth: 200, maxHeight: 280, overflowY: "auto", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 14px 40px rgba(0,0,0,0.5)", zIndex: 41, padding: 5, fontFamily: T.font }}>
+                <FadeOnClose open={exportTplOpen} duration={150}>{exportTplOpen && <div className="anim-drop" style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, minWidth: 200, maxHeight: 280, overflowY: "auto", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 14px 40px rgba(0,0,0,0.5)", zIndex: 41, padding: "4px 0", fontFamily: T.font }}>
                   {templates.length === 0 && <div style={{ padding: "10px 12px", fontSize: 12, color: T.textDim }}>No saved templates yet.</div>}
-                  {templates.map(t => <div key={t.id} onClick={() => { applyTemplate(t); setExportTplOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 9px", borderRadius: T.radiusXs, cursor: "pointer", fontSize: 13, color: T.text }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                  {templates.map(t => <div key={t.id} onClick={() => { applyTemplate(t); setExportTplOpen(false); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 6, padding: "10px 14px", cursor: "pointer", fontSize: 13, color: T.text }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                     <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</span>
                     <button onClick={ev => { ev.stopPropagation(); deleteTemplate(t.id); }} title="Delete template" style={{ border: "none", background: "none", color: hexA(T.systemText || T.textDim, 0.65), cursor: "pointer", fontSize: 13, lineHeight: 1, padding: "0 2px" }}>×</button>
                   </div>)}
@@ -22635,7 +22709,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           </div>;
         })()}
-        {!colCtxMenu.approvalMode && <button onClick={() => { const isCustom = colCtxMenu.isCustom; const cur = isCustom ? (customCols.find(c => c.id === colCtxMenu.colId)?.label || "") : (colLabels[colCtxMenu.colId] || STD_COL_DEFS.find(c => c.id === colCtxMenu.colId)?.label || ""); setRenameCol({ colId: colCtxMenu.colId, isCustom, value: cur, x: colCtxMenu.hdrLeft ?? colCtxMenu.x, y: Math.max(8, (colCtxMenu.hdrTop ?? colCtxMenu.y) - 50) }); setColCtxMenu(null); }} style={{ width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.systemText || T.text, fontFamily: T.font, textAlign: "left", borderTop: colCtxMenu.isCustom && (() => { const c = customCols.find(x => x.id === colCtxMenu.colId); return c && c.type === "select" && !c.fieldKey; })() ? `1px solid ${T.border}` : "none" }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
+        {!colCtxMenu.approvalMode && <button onClick={() => { const isCustom = colCtxMenu.isCustom; const cur = isCustom ? (customCols.find(c => c.id === colCtxMenu.colId)?.label || "") : (colLabels[colCtxMenu.colId] || STD_COL_DEFS.find(c => c.id === colCtxMenu.colId)?.label || ""); setRenameCol({ colId: colCtxMenu.colId, isCustom, value: cur, x: colCtxMenu.hdrLeft ?? colCtxMenu.x, y: Math.max(8, (colCtxMenu.hdrTop ?? colCtxMenu.y) - 50) }); setColCtxMenu(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.systemText || T.text, fontFamily: T.font, textAlign: "left", borderTop: colCtxMenu.isCustom && (() => { const c = customCols.find(x => x.id === colCtxMenu.colId); return c && c.type === "select" && !c.fieldKey; })() ? `1px solid ${T.border}` : "none" }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
           Rename Column
         </button>}
@@ -22695,7 +22769,7 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                     {COL_TEMPLATES.map(tpl => (
                       <button key={tpl.label} onClick={() => doInsert(tpl.type, tpl.label, tpl.options)}
-                        style={{ padding: "5px 10px", borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.text, fontSize: 12, cursor: "pointer", fontFamily: T.font, textAlign: "left", display: "flex", alignItems: "center", gap: 6 }}
+                        style={{ transition: "background-color 0.15s ease", padding: "10px 14px", border: "none", background: "transparent", color: T.text, fontSize: 12, cursor: "pointer", fontFamily: T.font, textAlign: "left", display: "flex", alignItems: "center", gap: 6 }}
                         onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                         <span style={{ fontSize: 9, color: T.textDim, background: T.card, padding: "1px 4px", borderRadius: 3, border: `1px solid ${T.border}` }}>{tpl.type === "select" ? "LIST" : tpl.type === "checkbox" ? "✓" : tpl.type === "number" ? "NUM" : "TXT"}</span>
@@ -22711,7 +22785,7 @@ ${jobsCtx || "No jobs found."}`;
         {!colCtxMenu.approvalMode && (() => {
           const gKey = colCtxMenu.isCustom ? "_cc_" + colCtxMenu.colId : colCtxMenu.colId;
           const on = isColGroupable(gKey);
-          return <button onClick={() => toggleColGroupable(gKey)} style={{ width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.systemText || T.text, fontFamily: T.font, textAlign: "left", borderTop: `1px solid ${T.border}` }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
+          return <button onClick={() => toggleColGroupable(gKey)} style={{ transition: "background-color 0.15s ease", width: "100%", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.systemText || T.text, fontFamily: T.font, textAlign: "left", borderTop: `1px solid ${T.border}` }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
             <span style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${on ? T.accent : T.border}`, background: on ? brandGrad(T.accent) : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
               {on && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
             </span>
@@ -22722,7 +22796,7 @@ ${jobsCtx || "No jobs found."}`;
           if (colCtxMenu.isCustom) { removeCustomCol(colCtxMenu.colId); }
           else { setColOrder(prev => prev.filter(id => id !== colCtxMenu.colId)); }
           setColCtxMenu(null);
-        }} style={{ width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#ef4444", fontFamily: T.font, textAlign: "left", borderTop: `1px solid ${T.border}` }} onMouseEnter={e => e.currentTarget.style.background = "#ef444415"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+        }} style={{ transition: "background-color 0.15s ease", width: "100%", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#ef4444", fontFamily: T.font, textAlign: "left", borderTop: `1px solid ${T.border}` }} onMouseEnter={e => e.currentTarget.style.background = "#ef444415"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
           Delete Column
         </button>}
@@ -23261,19 +23335,19 @@ ${jobsCtx || "No jobs found."}`;
     {approvalCtx && <><div onMouseDown={() => setApprovalCtx(null)} style={{ position: "fixed", inset: 0, zIndex: 10040 }} />
       <div className="anim-ctx" style={{ position: "fixed", left: Math.min(approvalCtx.x, window.innerWidth - 200), top: Math.min(approvalCtx.y, window.innerHeight - 110), zIndex: 10041, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", minWidth: 190, overflow: "hidden", fontFamily: T.font }}>
         {approvalCtx.kind === "standalone" ? <>
-          <button onClick={() => { const a = (orgSettings.approvals || []).find(x => x.id === approvalCtx.approvalId); if (a) openApprovalModal(a); setApprovalCtx(null); }} style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.systemText || T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
+          <button onClick={() => { const a = (orgSettings.approvals || []).find(x => x.id === approvalCtx.approvalId); if (a) openApprovalModal(a); setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.systemText || T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit / Add Steps
           </button>
-          <button onClick={() => { deleteApproval(approvalCtx.approvalId); setApprovalCtx(null); }} style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.danger, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "12"} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
+          <button onClick={() => { deleteApproval(approvalCtx.approvalId); setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.danger, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "12"} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Delete Approval
           </button>
-        </> : approvalCtx.kind === "signoff" ? <button onClick={() => { const t = signOffTemplates.find(x => x.id === approvalCtx.templateId); if (t) { setSignOffTemplateEditing({ id: t.id, name: t.name, steps: [...(t.steps || [])] }); setSignOffSettingsOpen(true); } setApprovalCtx(null); }} style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.systemText || T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
+        </> : approvalCtx.kind === "signoff" ? <button onClick={() => { const t = signOffTemplates.find(x => x.id === approvalCtx.templateId); if (t) { setSignOffTemplateEditing({ id: t.id, name: t.name, steps: [...(t.steps || [])] }); setSignOffSettingsOpen(true); } setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.systemText || T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit “{approvalCtx.templateName}” Steps
         </button> : <>
-          <button onClick={() => { editPanelApproval(approvalCtx.jobId, approvalCtx.panelId, approvalCtx.headerTitle, approvalCtx.seed); setApprovalCtx(null); }} style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.systemText || T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
+          <button onClick={() => { editPanelApproval(approvalCtx.jobId, approvalCtx.panelId, approvalCtx.headerTitle, approvalCtx.seed); setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.systemText || T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit / Add Steps
           </button>
-          {approvalCtx.hasChain && <button onClick={() => { removePanelChain(approvalCtx.jobId, approvalCtx.panelId); setApprovalCtx(null); }} style={{ width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: hexA(T.systemText || T.textSec, 0.8), fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
+          {approvalCtx.hasChain && <button onClick={() => { removePanelChain(approvalCtx.jobId, approvalCtx.panelId); setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: hexA(T.systemText || T.textSec, 0.8), fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Reset to default steps
           </button>}
         </>}
@@ -23723,7 +23797,7 @@ ${jobsCtx || "No jobs found."}`;
           {(() => {
             const fs = isMobile ? 30 : 44;
             const capH = fs; // match the wordmark to the full font size of "FAST"
-            const logoW = Math.round(capH * 2.7); // TRAQS wordmark aspect ratio ~540:200
+            const logoW = Math.round(capH * 2.755); // TRAQS wordmark aspect ratio 810:294 (see logo.js)
             return (
               <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: isMobile ? 10 : 14, marginBottom: 10, marginTop: isMobile ? 4 : 12, filter: `drop-shadow(0 0 14px ${T.accent}99) drop-shadow(0 0 36px ${T.accent}55)`, width: "100%" }}>
                 <span style={{ fontSize: fs, fontWeight: 900, color: T.accent, letterSpacing: "-0.045em", fontFamily: T.font, lineHeight: 1, display: "inline-flex", alignItems: "center", height: capH }}>FAST</span>
@@ -24222,7 +24296,7 @@ ${jobsCtx || "No jobs found."}`;
           }} animIdx={1} />
         </>}
         <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
-        {can("editJobs") && <div onClick={() => { setConfirmClearChat({ threadKey: `group:${groupCtxMenu.groupId}`, label: groupCtxMenu.groupName, isGroup: true, groupId: groupCtxMenu.groupId }); setGroupCtxMenu(null); }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", animation: "toolDrop 0.14s 76ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+        {can("editJobs") && <div onClick={() => { setConfirmClearChat({ threadKey: `group:${groupCtxMenu.groupId}`, label: groupCtxMenu.groupName, isGroup: true, groupId: groupCtxMenu.groupId }); setGroupCtxMenu(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", animation: "toolDrop 0.14s 76ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
           <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete Group</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Remove this group and its messages</div></div>
         </div>}
@@ -24244,7 +24318,7 @@ ${jobsCtx || "No jobs found."}`;
           setThreadCtxMenu(null);
         }} animIdx={0} />
         <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
-        {can("editJobs") && <div onClick={() => { setConfirmClearChat({ threadKey: threadCtxMenu.threadKey, label: threadCtxMenu.title, isGroup: false }); setThreadCtxMenu(null); }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", animation: "toolDrop 0.14s 38ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+        {can("editJobs") && <div onClick={() => { setConfirmClearChat({ threadKey: threadCtxMenu.threadKey, label: threadCtxMenu.title, isGroup: false }); setThreadCtxMenu(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", animation: "toolDrop 0.14s 38ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
           <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Clear Chat</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Delete all messages in this thread</div></div>
         </div>}
@@ -24266,7 +24340,7 @@ ${jobsCtx || "No jobs found."}`;
           setDmCtxMenu(null);
         }} animIdx={0} />
         <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
-        <div onClick={() => { setConfirmClearChat({ threadKey: dmCtxMenu.threadKey, label: dmCtxMenu.title, isGroup: false }); setDmCtxMenu(null); }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", animation: "toolDrop 0.14s 38ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+        <div onClick={() => { setConfirmClearChat({ threadKey: dmCtxMenu.threadKey, label: dmCtxMenu.title, isGroup: false }); setDmCtxMenu(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", animation: "toolDrop 0.14s 38ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
           <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete Conversation</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Delete all messages in this chat</div></div>
         </div>
@@ -24394,7 +24468,7 @@ ${jobsCtx || "No jobs found."}`;
           deleteTarget.pid = it.isSub ? it.pid : null;
         }
         setConfirmDelete(deleteTarget);
-      }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", animation: `toolDrop 0.14s ${ci() * 38}ms both ease-out` }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+      }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", animation: `toolDrop 0.14s ${ci() * 38}ms both ease-out` }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
         <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
         <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Permanently remove this item</div></div>
       </div>}
@@ -24596,7 +24670,7 @@ ${jobsCtx || "No jobs found."}`;
         setPtoCtx(null);
       }} animIdx={0} />
       <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
-      <div onClick={() => { cancelTimeOffEntry(timeOffEntryAt(ptoCtx.personId, ptoCtx.toIdx)); delTimeOff(ptoCtx.personId, ptoCtx.toIdx); setPtoCtx(null); }} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", animation: "toolDrop 0.14s 38ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+      <div onClick={() => { cancelTimeOffEntry(timeOffEntryAt(ptoCtx.personId, ptoCtx.toIdx)); delTimeOff(ptoCtx.personId, ptoCtx.toIdx); setPtoCtx(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", animation: "toolDrop 0.14s 38ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
         <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
         <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete Time Off</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Remove this entry</div></div>
       </div>
@@ -25477,7 +25551,7 @@ ${jobsCtx || "No jobs found."}`;
                       );
                     })()}
                     <FadeOnClose open={deptDropId === "editJobPM"}>{deptDropId === "editJobPM" && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 2200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "8px 0", animation: "menuIn 0.15s ease-out", maxHeight: 260, overflowY: "auto" }}>
-                      <div onClick={() => { setEj({ projectManagerId: null }); setDeptDropId(null); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", animation: `toolDrop 0.14s 0ms both ease-out` }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                      <div onClick={() => { setEj({ projectManagerId: null }); setDeptDropId(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", animation: `toolDrop 0.14s 0ms both ease-out` }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                         <div style={{ width: 22, height: 22, borderRadius: 6, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />
                         <span style={{ fontSize: 13, color: T.textDim }}>— No PM —</span>
                       </div>
