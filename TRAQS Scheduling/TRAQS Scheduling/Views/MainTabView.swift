@@ -260,7 +260,11 @@ struct TRAQSTabBar: View {
         .background {
             ZStack {
                 shape.fill(.ultraThinMaterial)
-                shape.fill(Color(hex: T.surface).opacity(0.30))
+                // Surface tint eased back from 0.30 so a little more of the page
+                // shows through — .ultraThinMaterial is already the thinnest
+                // system material, so this tint is the only transparency lever.
+                // Don't go much below this or the bar stops reading as frosted.
+                shape.fill(Color(hex: T.surface).opacity(0.22))
             }
         }
         .overlay(shape.strokeBorder(Color(hex: T.border), lineWidth: 1))

@@ -142,11 +142,14 @@ struct TasksView: View {
     /// whole parent job with all its panels. Own-active and being-worked tasks are
     /// shown in the being-worked section instead; finished tasks are dropped.
     private var myTodayTasks: [TaskAssignment] {
-        let working = workingJobIds
         let todayStart = cal.startOfDay(for: Date())
         let tomorrow = cal.date(byAdding: .day, value: 1, to: todayStart) ?? todayStart
+        // Excluded by TASK id, not job id. The hero section above pins only the
+        // one task you're clocked into (`workingTasks`), so excluding the whole
+        // job hid every SIBLING task on it — clock into one op of a job and your
+        // other ops on that same job vanished from the page entirely.
         return myTasks
-            .filter { $0.status != .finished && $0.id != activeTaskId && !working.contains($0.job.id) }
+            .filter { $0.status != .finished && $0.id != activeTaskId }
             .filter { t in
                 guard let s = t.startDate, let e = t.endDate else { return false }
                 return s < tomorrow && e >= todayStart   // the task's own dates cover today
@@ -252,15 +255,15 @@ struct TasksView: View {
 
     /// Centered, black section divider — flanked by hairlines so YOUR TASKS and
     /// ALL JOBS read as two clearly separated groups.
-    private func sectionHeader(_ title: String) -> some View {
+    private func sectionHeader(_ title: String, tint: String? = nil) -> some View {
         HStack(spacing: 12) {
-            Rectangle().fill(Color(hex: T.hair)).frame(height: 1)
+            Rectangle().fill(Color(hex: tint ?? T.hair).opacity(tint == nil ? 1 : 0.4)).frame(height: 1)
             Text(title)
                 .font(TTypo.xsBold(12))
-                .foregroundStyle(Color(hex: T.ink))
+                .foregroundStyle(Color(hex: tint ?? T.ink))
                 .tLabel(tracking: 1.6)
                 .fixedSize()
-            Rectangle().fill(Color(hex: T.hair)).frame(height: 1)
+            Rectangle().fill(Color(hex: tint ?? T.hair).opacity(tint == nil ? 1 : 0.4)).frame(height: 1)
         }
     }
 
@@ -272,23 +275,33 @@ struct TasksView: View {
     @ViewBuilder
     private func rangeContent(_ range: Range<Date>, label: String) -> some View {
         // Your assigned, non-finished work — grouped so nothing ever vanishes:
+        //   • Overdue: unstarted and its end date already passed
         //   • Today: scheduled to overlap the window
         //   • In Progress: started (any date, until complete)
-        //   • Upcoming: assigned but not in the window and not started
+        //   • Upcoming: assigned, unstarted, and still ahead of the window
         // Then every OTHER non-finished job as a collapsible "All Jobs" card.
+        //
+        // Overdue is split OUT of Upcoming: that bucket was "doesn't overlap the
+        // window", which silently filed weeks-old unstarted work above genuinely
+        // future work and called it upcoming.
         let mine = myActiveTasks
         let inProgress = mine.filter { $0.status == .inProgress }
         let notStarted = mine.filter { $0.status != .inProgress }
         let today = notStarted.filter { overlapsRange($0, range) }
-        let upcoming = notStarted.filter { !overlapsRange($0, range) }
+        let outsideRange = notStarted.filter { !overlapsRange($0, range) }
+        let overdue = outsideRange.filter { isPast($0, range) }
+        let upcoming = outsideRange.filter { !isPast($0, range) }
         // Job-level ("owner") assignments — bucketed by the JOB's own status/dates
-        // and shown alongside your panel/op tasks in the same Today/In Progress/
-        // Upcoming sections so a job assigned to you at the job level appears.
+        // and shown alongside your panel/op tasks in the same Overdue/Today/
+        // In Progress/Upcoming sections so a job assigned to you at the job level
+        // appears.
         let jobLevel = myJobLevelJobs
         let jobInProgress = jobLevel.filter { $0.status == .inProgress }
         let jobRest = jobLevel.filter { $0.status != .inProgress }
         let jobToday = jobRest.filter { jobOverlapsRange($0, range) }
-        let jobUpcoming = jobRest.filter { !jobOverlapsRange($0, range) }
+        let jobOutside = jobRest.filter { !jobOverlapsRange($0, range) }
+        let jobOverdue = jobOutside.filter { jobIsPast($0, range) }
+        let jobUpcoming = jobOutside.filter { !jobIsPast($0, range) }
         let others = allJobsList
         return VStack(spacing: 16) {
             if mine.isEmpty && jobLevel.isEmpty && others.isEmpty {
@@ -297,6 +310,11 @@ struct TasksView: View {
                     diagnosticLine
                 }
                 .padding(.horizontal, 16).padding(.top, 8)
+            }
+            if !overdue.isEmpty || !jobOverdue.isEmpty {
+                sectionHeader("Overdue", tint: T.amber).padding(.horizontal, 16)
+                cardStack(overdue)
+                jobCardStack(jobOverdue)
             }
             if !today.isEmpty || !jobToday.isEmpty {
                 sectionHeader(windowLabel).padding(.horizontal, 16)
@@ -525,19 +543,33 @@ struct TasksView: View {
     /// moves between sections instead of vanishing.
     private var myActiveTasks: [TaskAssignment] {
         // Tasks shown up top are excluded here so they don't also appear in the
-        // In Progress / Upcoming sections below: the exact today-tasks (by task
-        // id) plus anything on a being-worked job (by job id).
+        // In Progress / Upcoming sections below — by TASK id only. Excluding by
+        // JOB id (the old `workingJobIds` arm) over-excluded: only the single
+        // active task is pinned above, so every other task you're assigned on
+        // that job disappeared from the page for as long as you stayed clocked in.
         let excludeTasks = myTodayTaskIds
-        let excludeJobs = workingJobIds
         return myTasks
             .filter { $0.status != .finished && $0.id != activeTaskId
-                && !excludeTasks.contains($0.id) && !excludeJobs.contains($0.job.id) }
+                && !excludeTasks.contains($0.id) }
             .sorted { ($0.startDate ?? .distantPast) < ($1.startDate ?? .distantPast) }
     }
 
     private func overlapsRange(_ t: TaskAssignment, _ range: Range<Date>) -> Bool {
         guard let s = t.startDate, let e = t.endDate else { return false }
         return s < range.upperBound && e >= range.lowerBound
+    }
+
+    /// Finished its scheduled window before this range began — i.e. overdue.
+    /// Undated work is NOT overdue: with no end date there's nothing to have
+    /// missed, so it stays in Upcoming rather than being accused of lateness.
+    private func isPast(_ t: TaskAssignment, _ range: Range<Date>) -> Bool {
+        guard let e = t.endDate else { return false }
+        return e < range.lowerBound
+    }
+
+    private func jobIsPast(_ job: Job, _ range: Range<Date>) -> Bool {
+        guard let e = job.end.asDate else { return false }
+        return e < range.lowerBound
     }
 
     /// Parent jobs the user is NOT assigned to that have at least one panel
@@ -1103,8 +1135,6 @@ struct TaskCardV1: View {
     @State private var showClockInRequired = false
     @State private var isStopping = false
     @State private var isStarting = false
-    @State private var isBreakBusy = false
-    @State private var showBreakConfirm = false
     /// Set when the worker taps STOP — drives the end-job photo overlay, which
     /// attaches the photo and THEN clocks out. Presented as a fullScreenCover
     /// (with a clear background) so it fades in over the jobs list rather than
@@ -1356,23 +1386,6 @@ struct TaskCardV1: View {
                 }
             }
         }
-        .alert(appState.myActiveBreak != nil ? "End your break?" : "Start a break?",
-               isPresented: $showBreakConfirm) {
-            Button("Cancel", role: .cancel) {}
-            Button(appState.myActiveBreak != nil ? "End Break" : "Start Break") {
-                guard !isBreakBusy else { return }
-                isBreakBusy = true
-                Task {
-                    if appState.myActiveBreak != nil { await appState.endBreak() }
-                    else { await appState.startBreak() }
-                    isBreakBusy = false
-                }
-            }
-        } message: {
-            Text(appState.myActiveBreak != nil
-                 ? "You'll go back to working on the job."
-                 : "Your job timer keeps running while you're on break.")
-        }
         // Request Completion send feedback — Sending… then an animated Sent ✓.
         .overlay {
             if reqPhase != 0 {
@@ -1447,48 +1460,30 @@ struct TaskCardV1: View {
             // Progress
             Bar(pct: pct, height: 7, gradient: T.brandGradient())
 
-            // Break + Stop, side by side under the bar. Each opens a
-            // confirmation to guard against accidental taps.
-            HStack(spacing: 8) {
-                Button { showBreakConfirm = true } label: {
-                    HStack(spacing: 6) {
-                        if isBreakBusy {
-                            ProgressView().progressViewStyle(.circular).tint(Color(hex: T.accent)).scaleEffect(0.7)
-                        } else {
-                            Image(systemName: onBreak ? "play.fill" : "pause.fill")
-                            Text(onBreak ? "END BREAK" : "BREAK").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
-                        }
-                    }
-                    .foregroundStyle(Color(hex: T.accent).verticalGradient())
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Capsule().fill(Color.clear))
-                    .overlay(Capsule().strokeBorder(Color(hex: T.accent).verticalGradient(), lineWidth: 1.5))
-                }
-                .buttonStyle(.plain)
-                .disabled(isBreakBusy || isStopping)
-
-                // STOP → opens the end-job photo step (which performs the actual
-                // clock-out). Restyled to the signature gradient CTA; the action,
-                // STOPPING… spinner, and mutual lockout are unchanged.
-                GradientCTA(disabled: isStopping || isBreakBusy,
-                            dimmed: false,
-                            verticalPadding: 10,
-                            action: {
-                                endJobTarget = PanelPhotoTarget(
-                                    jobId: task.job.id,
-                                    panelId: task.panel.id,
-                                    panelTitle: task.panel.title,
-                                    opId: task.op?.id)
-                            }) {
-                    HStack(spacing: 6) {
-                        if isStopping {
-                            ProgressView().progressViewStyle(.circular).tint(T.onGradient).scaleEffect(0.7)
-                            Text("STOPPING…").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
-                        } else {
-                            Image(systemName: "stop.fill")
-                            Text("STOP").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
-                        }
+            // STOP, full width. Break moved to the Time Clock page (next to
+            // Lunch) — a break is a shift-level thing, not a per-job one, and
+            // the job clock keeps running through it either way. The ON BREAK
+            // label above still reflects a break started over there.
+            //
+            // STOP → opens the end-job photo step (which performs the actual
+            // clock-out). The action and STOPPING… spinner are unchanged.
+            GradientCTA(disabled: isStopping,
+                        dimmed: false,
+                        verticalPadding: 12,
+                        action: {
+                            endJobTarget = PanelPhotoTarget(
+                                jobId: task.job.id,
+                                panelId: task.panel.id,
+                                panelTitle: task.panel.title,
+                                opId: task.op?.id)
+                        }) {
+                HStack(spacing: 6) {
+                    if isStopping {
+                        ProgressView().progressViewStyle(.circular).tint(T.onGradient).scaleEffect(0.7)
+                        Text("STOPPING…").font(TTypo.xsBold(13)).tLabel(tracking: 0.8)
+                    } else {
+                        Image(systemName: "stop.fill")
+                        Text("STOP").font(TTypo.xsBold(13)).tLabel(tracking: 0.8)
                     }
                 }
             }

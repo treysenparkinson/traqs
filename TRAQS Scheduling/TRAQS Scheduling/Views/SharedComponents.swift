@@ -39,9 +39,14 @@ struct TRAQSLoadingOverlay: View {
 struct TRAQSWordmark: View {
     @Environment(ThemeSettings.self) private var themeSettings
     var size: CGFloat = 44
+    /// Overrides the theme-driven variant for callers whose backdrop ISN'T the
+    /// page colour. `true` → the black mark (light backdrop), `false` → white.
+    /// The splash uses this: it sits on the accent-coloured liquid wash, not on
+    /// the theme background, so `isLightTheme` is the wrong question there.
+    var onLightBackground: Bool? = nil
 
     var body: some View {
-        Image(themeSettings.isLightTheme ? "TRAQSLogoBlack" : "TRAQSLogoWhite")
+        Image((onLightBackground ?? themeSettings.isLightTheme) ? "TRAQSLogoBlack" : "TRAQSLogoWhite")
             .resizable()
             // .interpolation(.high) tells SwiftUI to use high-quality
             // sampling when scaling the 3840-wide source down to display

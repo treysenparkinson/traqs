@@ -1,148 +1,113 @@
 import SwiftUI
 
-// MARK: - Splash · "Printhead" load-up
-// The brand wordmark is "printed" onto the canvas: a glowing accent dot pops in
-// at the left baseline, glides left→right (slow→fast→slow) while the wordmark is
-// revealed behind its travelling front, then pulses away. The splash then fades
-// into the app. Mirrors the Claude Design "TRAQS Logo Load-up · Printhead" spec.
+// MARK: - Splash · "Aurora" load-up
 //
-// We reveal the real brand wordmark PNG (rather than re-typesetting "traqs") so
-// the mark stays pixel-faithful; the design's `spClipX` becomes a leading mask.
+// Port of the Claude Design "TRAQS Aurora Load-up" spec (splash/splash-aurora.jsx).
+// Colour fields bloom and drift; the wordmark resolves out of the light — it
+// fades up from a soft blur (`spInkOn`) with a pool of accent light gathering
+// behind it. The splash then fades into the app.
+//
+// Two departures from the design file, both requested:
+//   • The four hardcoded aurora blobs are replaced by the app's own LIQUID
+//     background — the same wash the web offers under background customization
+//     — so the splash is tinted by whatever accent the user picked.
+//   • No printhead dot and no pulse rings. The previous splash printed the mark
+//     with a travelling dot that popped and pulsed away; the aurora resolve
+//     replaces that entirely.
 
 struct SplashView: View {
     @Binding var isShowing: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(ThemeSettings.self) private var theme
 
     private let logoSize: CGFloat = 96          // very large wordmark — splash hero
 
-    // Measured rendered width of the wordmark (drives the reveal + dot travel).
-    @State private var wordWidth: CGFloat = 0
-    @State private var started = false
-
     // Animated state.
     @State private var overallOpacity: Double = 1
-    @State private var revealFraction: CGFloat = 0     // 0…1 — how much of the mark is printed
-    @State private var dotProgress: CGFloat = 0         // 0…1 — dot position along the mark
-    @State private var dotScale: CGFloat = 0
-    @State private var dotOpacity: Double = 0
-    @State private var ringInScale: CGFloat = 0.5       // pop-in ring
-    @State private var ringInOpacity: Double = 0
-    @State private var ringOutScale: CGFloat = 1        // pulse-out ring
-    @State private var ringOutOpacity: Double = 0
+    @State private var inkIn = false            // wordmark resolve (opacity + blur)
+    @State private var poolIn = false           // light pooling behind the mark
+    @State private var started = false
 
-    // Geometry derived from the wordmark.
-    private var dotSize: CGFloat { logoSize * 0.14 }
-    private var dotBaselineY: CGFloat { logoSize * 0.18 }   // below center → near baseline
+    // Timing, from the design (ms → s). Scene ends at ~2.2s.
+    private let poolDelay = 0.50, poolDur = 0.90
+    private let inkDelay  = 0.60, inkDur  = 1.00
+    private let fadeAt    = 2.00, fadeDur = 0.40
 
-    // Motion curves lifted from the design.
-    private let glide = Animation.timingCurve(0.65, 0, 0.35, 1, duration: 0.62)   // slow→fast→slow
-    private let pulseOut = Animation.timingCurve(0.22, 0.61, 0.36, 1, duration: 0.34)
-    private let pop = Animation.spring(response: 0.24, dampingFraction: 0.5)      // overshoot pop-in
+    /// `cubic-bezier(.22,.61,.36,1)` — the design's resolve curve.
+    private let resolve = Animation.timingCurve(0.22, 0.61, 0.36, 1, duration: 1.00)
+
+    /// Which wordmark reads on this splash. The mark sits on the LIQUID WASH,
+    /// which is the accent colour — not on the theme's page background — so the
+    /// choice follows the accent's own luminance: a dark accent (the brand
+    /// blues) gets the white mark, a light one (amber, cyan) gets black.
+    /// Uses the app's shared contrast rule so the threshold lives in one place.
+    private var markOnLightBackground: Bool {
+        Color(hex: theme.accent).readableText == .black
+    }
 
     var body: some View {
         ZStack {
-            // Plain canvas — no brand gradient or glow. Just the wordmark.
-            Color(hex: T.bg).ignoresSafeArea()
+            // ── Ground ──
+            // Radial base per the design, in the theme's own values so the
+            // splash matches whichever background preset is active.
+            RadialGradient(
+                colors: theme.isLightTheme
+                    ? [Color(hex: "#FFFFFF"), Color(hex: "#F3F5FB")]
+                    : [Color(hex: "#0C1020"), Color(hex: "#05070C")],
+                center: UnitPoint(x: 0.5, y: 0.44),
+                startRadius: 0,
+                endRadius: 620
+            )
+            .ignoresSafeArea()
 
-            ZStack {
-                // Wordmark, revealed left→right by a leading mask.
-                TRAQSWordmark(size: logoSize)
-                    .mask(alignment: .leading) {
-                        Rectangle()
-                            .frame(width: max(0, wordWidth * revealFraction))
-                    }
-                    .background(
-                        GeometryReader { geo in
-                            Color.clear
-                                .onAppear { measure(geo.size.width) }
-                                .onChange(of: geo.size.width) { _, w in measure(w) }
-                        }
-                    )
+            // ── The liquid wash (replaces the design's four static blobs) ──
+            // Thicker and much faster than the ambient page setting: the web's
+            // 17–25s paths move almost imperceptibly over a 2.4s splash, so the
+            // load-up drives them at ~3.4× with correspondingly bigger travel.
+            LiquidBackground(thickness: 1.6, energy: 3.4)
+                .ignoresSafeArea()
+                .opacity(poolIn ? 1 : 0)
 
-                // Travelling printhead dot (rides the reveal front, on the baseline).
-                if !reduceMotion {
-                    printhead
-                        .offset(x: -wordWidth / 2 + dotProgress * wordWidth,
-                                y: dotBaselineY)
-                }
-            }
+            // ── Soft light pooling behind the mark as it resolves ──
+            Ellipse()
+                .fill(Color(hex: theme.isLightTheme ? T.accent : T.accentGradientStart)
+                        .opacity(theme.isLightTheme ? 0.10 : 0.22))
+                .frame(width: 300, height: 150)
+                .blur(radius: 46)
+                .opacity(poolIn ? 1 : 0)
+
+            // ── The wordmark, resolving out of the light ──
+            TRAQSWordmark(size: logoSize, onLightBackground: markOnLightBackground)
+                .opacity(inkIn ? 1 : 0)
+                .blur(radius: inkIn ? 0 : 6)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .opacity(overallOpacity)
-        .preferredColorScheme(.light)
-    }
-
-    // The dot + its pop-in and pulse-out rings, all tinted with the app accent.
-    private var printhead: some View {
-        let accent = Color(hex: T.accent)
-        return ZStack {
-            // Pop-in ring.
-            Circle()
-                .stroke(accent, lineWidth: 2)
-                .frame(width: dotSize, height: dotSize)
-                .scaleEffect(ringInScale)
-                .opacity(ringInOpacity)
-
-            // Pulse-out ring.
-            Circle()
-                .stroke(accent, lineWidth: 2)
-                .frame(width: dotSize, height: dotSize)
-                .scaleEffect(ringOutScale)
-                .opacity(ringOutOpacity)
-
-            // The dot itself, with a soft accent glow.
-            Circle()
-                .fill(accent)
-                .frame(width: dotSize, height: dotSize)
-                .shadow(color: accent.opacity(0.65), radius: dotSize * 0.85)
-                .scaleEffect(dotScale)
-                .opacity(dotOpacity)
-        }
-    }
-
-    // Store the measured width once and kick the animation off.
-    private func measure(_ w: CGFloat) {
-        guard w > 0 else { return }
-        wordWidth = w
-        guard !started else { return }
-        started = true
-        run()
+        .onAppear { run() }
     }
 
     private func run() {
-        // Reduce Motion → skip the print; just resolve the wordmark and hand off.
+        guard !started else { return }
+        started = true
+
+        // Reduce Motion → no bloom, no blur resolve; just show the mark and hand off.
         if reduceMotion {
-            revealFraction = 1
-            withAnimation(.easeIn(duration: 0.4).delay(0.6)) { overallOpacity = 0 }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) { isShowing = false }
+            poolIn = true
+            inkIn = true
+            withAnimation(.easeIn(duration: fadeDur).delay(0.90)) { overallOpacity = 0 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.90 + fadeDur) { isShowing = false }
             return
         }
 
-        // 1 — dot pops in at the left baseline (overshoot), with an expanding ring.
-        withAnimation(pop) { dotScale = 1; dotOpacity = 1 }
-        ringInOpacity = 0.6
-        withAnimation(.easeOut(duration: 0.45)) { ringInScale = 2.4; ringInOpacity = 0 }
+        // 1 — the colour fields bloom in.
+        withAnimation(.easeOut(duration: poolDur).delay(poolDelay)) { poolIn = true }
 
-        // 2 — dot glides across, printing the wordmark behind its front.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
-            withAnimation(glide) { revealFraction = 1; dotProgress = 1 }
-        }
+        // 2 — the wordmark resolves out of the light.
+        withAnimation(resolve.delay(inkDelay)) { inkIn = true }
 
-        // 3 — dot pulses away.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.85) {
-            ringOutOpacity = 0.55
-            ringOutScale = 1
-            withAnimation(pulseOut) {
-                dotScale = 2.3
-                dotOpacity = 0
-                ringOutScale = 3
-                ringOutOpacity = 0
-            }
-        }
-
-        // 4 — fade the finished mark out into the app.
-        withAnimation(.easeIn(duration: 0.4).delay(1.30)) { overallOpacity = 0 }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.75) { isShowing = false }
+        // 3 — the finished scene fades into the app.
+        withAnimation(.easeIn(duration: fadeDur).delay(fadeAt)) { overallOpacity = 0 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + fadeAt + fadeDur + 0.05) { isShowing = false }
     }
 }

@@ -2004,13 +2004,18 @@ class AppState {
 
     /// Clock the current user OUT for pay from iOS. Optimistic clear; 409 =
     /// already clocked out (align to server); 401 = revert.
-    func payClockOut() async {
-        guard let api, let personId = currentPersonId, !isPayClocking else { return }
-        guard canClockInOut else { return }   // worker permission gate
+    /// `pin` is passed through when the person has a PIN set; the server verifies
+    /// it (and auto-accepts when they have none), so a stray tap on the
+    /// full-width Clock Out button can't end a shift. Returns whether the
+    /// clock-out went through — the PIN pad stays open on `false`.
+    @discardableResult
+    func payClockOut(pin: String? = nil) async -> Bool {
+        guard let api, let personId = currentPersonId, !isPayClocking else { return false }
+        guard canClockInOut else { return false }   // worker permission gate
         // Must log out of the current job before clocking out (server enforces too).
         guard !clockOutBlockedByJob else {
             clockError = "Log out of your job before clocking out."
-            return
+            return false
         }
         let prevActive = payClockInActive, prevStart = payClockInStart, prevSource = payClockInSource
         isPayClocking = true
@@ -2021,7 +2026,7 @@ class AppState {
         payClockInSource = nil
         clockChangeAt = Date()
         do {
-            try await api.payClockOut(personId: personId)
+            try await api.payClockOut(personId: personId, pin: pin)
             // Clear the canonical in-memory activeClockIn too — not just the
             // payClockIn* flags — so the Home screen's shift card (which reads
             // currentPerson.activeClockIn directly) flips to clocked-out instead
@@ -2042,12 +2047,23 @@ class AppState {
         } catch APIError.httpError(401) {
             payClockInActive = prevActive; payClockInStart = prevStart; payClockInSource = prevSource
             clockChangeAt = Date()
-            clockError = APIError.httpError(401).localizedDescription
+            // A 401 on a PIN-carrying clock-out means the PIN was wrong, not that
+            // the session expired — same distinction payClockIn makes.
+            clockError = pin != nil ? "Invalid PIN. Please try again."
+                                    : APIError.httpError(401).localizedDescription
+            return false
+        } catch APIError.httpError(400) {
+            payClockInActive = prevActive; payClockInStart = prevStart; payClockInSource = prevSource
+            clockChangeAt = Date()
+            clockError = "PIN required."
+            return false
         } catch {
             payClockInActive = prevActive; payClockInStart = prevStart; payClockInSource = prevSource
             clockChangeAt = Date()
             clockError = "Failed to clock out for pay: \(error.localizedDescription)"
+            return false
         }
+        return true
     }
 
     // MARK: - Pay Lunch (Bearer) — pauses the pay clock for lunch
@@ -2087,8 +2103,11 @@ class AppState {
 
     /// Toggle lunch on the pay shift. Optimistically appends the event, calls the
     /// server, then reconciles. 409 = server already in that state (align, no error).
-    func payLunchToggle() async {
-        guard let api, let personId = currentPersonId, !isPayClocking else { return }
+    /// Returns whether the toggle stuck, so the caller can show the big
+    /// LUNCH STARTED / LUNCH ENDED banner only when it actually happened.
+    @discardableResult
+    func payLunchToggle() async -> Bool {
+        guard let api, let personId = currentPersonId, !isPayClocking else { return false }
         let starting = !payOnLunch
         isPayClocking = true
         defer { isPayClocking = false }
@@ -2106,7 +2125,9 @@ class AppState {
             removeLastLocalClockEvent(personId: personId, type: evt.type)   // revert
             clockChangeAt = Date()
             clockError = "Failed to \(starting ? "start" : "end") lunch: \(error.localizedDescription)"
+            return false
         }
+        return true
     }
 
     // MARK: - Panel attachments
@@ -2182,9 +2203,11 @@ class AppState {
     }
 
     /// Start a break using the configured break length. Job clock is left
-    /// running. Schedules the local "ending soon" reminder.
-    func startBreak() async {
-        guard let api, let personId = currentPersonId else { return }
+    /// running. Schedules the local "ending soon" reminder. Returns whether it
+    /// stuck, so the caller can show the BREAK STARTED banner only on success.
+    @discardableResult
+    func startBreak() async -> Bool {
+        guard let api, let personId = currentPersonId else { return false }
         let minutes = orgSettings.breaks.first?.durationMinutes ?? 15
         let optimistic = ActiveBreak(startedAt: Date.isoPlainString(Date()),
                                      durationMinutes: minutes)
@@ -2199,12 +2222,15 @@ class AppState {
             setLocalBreak(personId: personId, nil)   // revert
             BreakReminder.cancel()
             clockError = error.localizedDescription
+            return false
         }
+        return true
     }
 
     /// End the break. The ONLY way a break ends — there is no auto-expiry.
-    func endBreak() async {
-        guard let api, let personId = currentPersonId else { return }
+    @discardableResult
+    func endBreak() async -> Bool {
+        guard let api, let personId = currentPersonId else { return false }
         let previous = myActiveBreak
         setLocalBreak(personId: personId, nil)
         BreakReminder.cancel()
@@ -2216,7 +2242,9 @@ class AppState {
         } catch {
             setLocalBreak(personId: personId, previous)   // revert
             clockError = error.localizedDescription
+            return false
         }
+        return true
     }
 
     func clearClockSession() {
@@ -2560,7 +2588,7 @@ extension AppState {
     }
 
     /// Live hours for the current pay shift — counts while clocked in, pauses
-    /// for lunch/break (mirrors the server's hoursElapsedMinusPauses).
+    /// for LUNCH only (mirrors the server's hoursElapsedMinusPauses).
     func liveShiftHours(now: Date) -> Double {
         guard let c = currentPerson?.activeClockIn,
               let s = parsedISO(c.clockIn) else { return 0 }
@@ -2568,22 +2596,25 @@ extension AppState {
         return max(0, (totalMs - Self.payPausedMs(c.events, end: now)) / 3_600_000)
     }
 
-    private static func payPausedMs(_ events: [ClockEvent], end: Date) -> Double {
+    /// Unpaid time inside an open pay shift. LUNCH ONLY — breaks are paid, so
+    /// they must NOT be deducted here. Matches the server's `pausedMsFromEvents`
+    /// (see 84295a2: a 9h window minus a 60min lunch is the 8h paid day; a
+    /// worker taking 2x15min breaks would otherwise read 7.5h). Breaks come out
+    /// of PRODUCTION time instead, not pay.
+    ///
+    /// An open lunch is closed at `end`, exactly as the server does at clock-out.
+    static func payPausedMs(_ events: [ClockEvent], end: Date) -> Double {
         var paused = 0.0
         var lunchOpen: Date?
-        var breakOpen: Date?
         for ev in events {
             guard let t = Date.fromFlexibleISO8601(ev.ts) else { continue }
             switch ev.type {
             case "lunchStart": lunchOpen = t
             case "lunchEnd":   if let l = lunchOpen { paused += max(0, t.timeIntervalSince(l) * 1000); lunchOpen = nil }
-            case "breakStart": breakOpen = t
-            case "breakEnd":   if let b = breakOpen { paused += max(0, t.timeIntervalSince(b) * 1000); breakOpen = nil }
             default: break
             }
         }
         if let l = lunchOpen { paused += max(0, end.timeIntervalSince(l) * 1000) }
-        if let b = breakOpen { paused += max(0, end.timeIntervalSince(b) * 1000) }
         return paused
     }
 

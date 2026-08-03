@@ -36,14 +36,17 @@ struct HomeView: View {
                         }
                         .padding(.horizontal, 16)
 
-                        // Today's hours + new messages — two square cards side by side.
+                        // Live shift status + new messages — two square cards side
+                        // by side. The shift card took over the slot Today's hours
+                        // used to hold; the full-width status bar that used to sit
+                        // under this row is gone, since it said the same thing.
+                        // Today's hours still lives on the Time Clock page.
                         HStack(spacing: 12) {
                             LiveClock(every: 1, tab: .home) { now in
-                                // Compute ONCE per tick — `dayPct` is derived from
-                                // the same value, and hoursToday walks every pay
-                                // entry, so calling it twice doubled that work.
-                                let hours = appState.hoursToday(now: now)
-                                HoursTodayHero(hoursToday: hours, dayPct: dayPct(hours: hours))
+                                ShiftStatusHero(status: appState.myShiftStatus,
+                                                liveHours: appState.liveShiftHours(now: now)) {
+                                    withAnimation(.easeInOut(duration: 0.22)) { appNav.selected = .hours }
+                                }
                             }
                             NewMessagesCard(senders: unreadBySender) {
                                 withAnimation(.easeInOut(duration: 0.22)) { appNav.selected = .chat }
@@ -52,23 +55,17 @@ struct HomeView: View {
                         .padding(.horizontal, 16)
                         .padding(.top, 14)
 
-                        // Live shift status (clocked in / lunch / break + elapsed).
-                        LiveClock(every: 1, tab: .home) { now in
-                            ClockStatusCard(status: appState.myShiftStatus,
-                                            liveHours: appState.liveShiftHours(now: now))
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 14)
-
-                        // Suggested job for the day.
-                        TSectionTitle(title: "Suggested for today")
+                        // Today's job. The section header above this is gone — the
+                        // card titles itself, matching the two square cards above.
                         if let s = suggested {
                             SuggestedJobCard(task: s, isActive: isActive(s), onJump: jumpToJobs)
                                 .padding(.horizontal, 16)
+                                .padding(.top, 14)
                                 .padding(.bottom, 28)
                         } else {
                             HomeEmpty(text: "Nothing scheduled for today.")
                                 .padding(.horizontal, 16)
+                                .padding(.top, 14)
                                 .padding(.bottom, 28)
                         }
                     }
@@ -124,14 +121,6 @@ struct HomeView: View {
 
     private func isActive(_ task: TaskAssignment) -> Bool {
         appState.myActiveJobClock != nil && appState.activeTaskAssignment?.id == task.id
-    }
-
-    /// Today's hours toward the daily target (drives the ring). Takes the
-    /// already-computed hours rather than recomputing them.
-    private func dayPct(hours: Double) -> Double {
-        let hpd = appState.orgSettings.hpd
-        guard hpd > 0 else { return 0 }
-        return min(100, hours / hpd * 100)
     }
 
     // MARK: - Actions
@@ -218,38 +207,53 @@ private struct TodayDateCard: View {
     }
 }
 
-// MARK: - Hours today hero
+// MARK: - Live shift hero (square, left of Messages)
 
-private struct HoursTodayHero: View {
-    let hoursToday: Double
-    let dayPct: Double
+// Replaces the old Today's-hours ring in this slot AND the full-width status bar
+// that used to sit below it: same square footprint, but the live elapsed timer
+// is the hero and the status pill sits under it.
+private struct ShiftStatusHero: View {
+    let status: ShiftStatus
+    let liveHours: Double
+    /// Taps jump to the Time Clock tab, where the shift can actually be acted on.
+    let onOpen: () -> Void
+
+    private var elapsed: String {
+        let secs = max(0, Int(liveHours * 3600))
+        return String(format: "%d:%02d:%02d", secs / 3600, (secs % 3600) / 60, secs % 60)
+    }
 
     var body: some View {
-        VStack(spacing: 10) {
-            Text("Today's hours")
-                .font(.custom(TFontName.bold.rawValue, size: 15))
-                .foregroundStyle(Color(hex: T.ink))
-                .frame(maxWidth: .infinity)
-            Spacer(minLength: 0)
-            ZStack {
-                GradientRing(pct: dayPct, lineWidth: 10)
-                    .frame(width: 96, height: 96)
-                VStack(spacing: 0) {
-                    Text(String(format: "%.1f", hoursToday))
-                        .font(.custom(TFontName.bold.rawValue, size: 28))
-                        .foregroundStyle(Color(hex: T.ink))
-                        .tnum()
-                    Text("h today")
-                        .font(TTypo.xs(10))
-                        .foregroundStyle(Color(hex: T.muted))
-                }
+        Button(action: onOpen) {
+            VStack(spacing: 10) {
+                Text("This shift")
+                    .font(.custom(TFontName.bold.rawValue, size: 15))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .frame(maxWidth: .infinity)
+
+                Spacer(minLength: 0)
+
+                // The running clock — the whole point of the card, so it carries
+                // the space the icon chip used to take. Placeholder dashes when
+                // off the clock keep the card the same height whether or not a
+                // shift is open.
+                Text(status == .offline ? "--:--:--" : elapsed)
+                    .font(TTypo.monoBold(30))
+                    .foregroundStyle(Color(hex: status == .offline ? T.muted : T.ink))
+                    .tnum()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+
+                TagPill(label: status.label, kind: status.kind, dot: status.dot)
+
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(16)
+            .frostedCard()
+            .aspectRatio(1, contentMode: .fit)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(16)
-        .frostedCard()
-        .aspectRatio(1, contentMode: .fit)
+        .buttonStyle(.plain)
     }
 }
 
@@ -315,42 +319,6 @@ private struct NewMessagesCard: View {
     }
 }
 
-// MARK: - Live shift status
-
-private struct ClockStatusCard: View {
-    let status: ShiftStatus
-    let liveHours: Double
-
-    private var elapsed: String {
-        let secs = max(0, Int(liveHours * 3600))
-        return String(format: "%d:%02d:%02d", secs / 3600, (secs % 3600) / 60, secs % 60)
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            IconChip(icon: .hours,
-                     color: Color(hex: status == .offline ? T.muted : T.accentGradientStart))
-            VStack(alignment: .leading, spacing: 4) {
-                Text(status == .offline ? "Not clocked in" : "This shift")
-                    .font(TTypo.smBold(14))
-                    .foregroundStyle(Color(hex: T.ink))
-                HStack(spacing: 8) {
-                    TagPill(label: status.label, kind: status.kind, dot: status.dot)
-                    if status != .offline {
-                        Text(elapsed)
-                            .font(TTypo.monoBold(13))
-                            .foregroundStyle(Color(hex: T.ink))
-                            .tnum()
-                    }
-                }
-            }
-            Spacer(minLength: 8)
-        }
-        .padding(14)
-        .frostedCard()
-    }
-}
-
 // MARK: - Suggested job card
 
 private struct SuggestedJobCard: View {
@@ -359,17 +327,22 @@ private struct SuggestedJobCard: View {
     let onJump: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(spacing: 12) {
+            // Task pills and job name both centered. No trailing Spacer — that's
+            // what was pinning the pill row to the leading edge.
             HStack(spacing: 8) {
                 TagPill(label: task.title.uppercased(), kind: .indigo)
                 TagPill(label: isActive ? "Active" : "Up next",
                         kind: isActive ? .indigo : .green, dot: isActive)
-                Spacer(minLength: 0)
             }
+            .frame(maxWidth: .infinity, alignment: .center)
+
             Text(task.job.title.isEmpty ? task.title : task.job.title)
                 .font(.custom(TFontName.bold.rawValue, size: 20))
                 .foregroundStyle(Color(hex: T.ink))
                 .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .center)
+
             GradientCTA(verticalPadding: 12, action: onJump) {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.forward")

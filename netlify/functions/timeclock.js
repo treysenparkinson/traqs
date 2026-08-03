@@ -1184,6 +1184,26 @@ export async function handler(event) {
       if (!pcPerson.activeClockIn) return err(409, "Not currently clocked in");
       // Can't clock out while still logged into a job — end the job first.
       if (ENFORCE_CLOCK_JOB_DEPENDENCY && pcPerson.activeJobClock) return err(409, "Log out of your job before clocking out.");
+      // PIN gate, mirroring clock-in: the iOS Clock Out button is full-width and
+      // easy to hit by accident, so anyone with a PIN set must re-enter it to end
+      // a shift. No PIN set → the Bearer token is proof enough, same as clock-in.
+      // An admin clocking SOMEONE ELSE out is exempt — they can't know that
+      // person's PIN, and that path is already admin-authenticated.
+      if (pcPerson.pin && String(_pc.personId) === String(pcPId)) {
+        const poIp = clientIp(event);
+        const poAttempts = failedAttempts.get(poIp) || { count: 0, firstAttempt: Date.now() };
+        if (Date.now() - poAttempts.firstAttempt > 15 * 60 * 1000) {
+          failedAttempts.delete(poIp);
+        } else if (poAttempts.count >= 5) {
+          return err(429, "Too many failed attempts. Try again later.");
+        }
+        if (!body.pin) return err(400, "PIN required");
+        if (!verifyPin(body.pin, pcPerson.pin)) {
+          failedAttempts.set(poIp, { count: (poAttempts.count || 0) + 1, firstAttempt: poAttempts.firstAttempt || Date.now() });
+          return err(401, "Invalid PIN");
+        }
+        failedAttempts.delete(poIp);
+      }
       const clockOut = new Date().toISOString();
       const { clockIn, jobRefs = [], events = [], source: acSource = "ios-app" } = pcPerson.activeClockIn;
       const hours = hoursElapsedMinusPauses(clockIn, clockOut, events);

@@ -1020,6 +1020,25 @@ struct OrgSettings: Codable, Equatable {
         return max(1, Double(block - lunchMin - breakMin) / 60)
     }
 
+    /// Paid hours in a standard day = the scheduled shift block minus the
+    /// UNPAID lunch. Breaks are paid — the pay clock keeps running through them
+    /// — so unlike `productiveHoursPerDay` they are NOT subtracted here.
+    ///
+    /// This is the denominator for "hours clocked today". Deliberately not
+    /// `hpd`: that's a job-scheduling capacity figure (how many hours of work a
+    /// day absorbs) and takes no account of lunch, so a 07:00–16:00 shop with a
+    /// 1h lunch has hpd 9 but only 8 paid hours.
+    var paidHoursPerDay: Double {
+        func minutes(_ t: String) -> Int? {
+            let parts = t.split(separator: ":").compactMap { Int($0) }
+            guard parts.count == 2 else { return nil }
+            return parts[0] * 60 + parts[1]
+        }
+        guard let start = minutes(workStart), let end = minutes(workEnd), end > start else { return 8 }
+        let paid = (end - start) - max(0, lunch.durationMinutes)
+        return paid > 0 ? Double(paid) / 60 : 8
+    }
+
     /// `workStart` parsed as decimal hours (e.g. "07:30" → 7.5).
     var workStartHour: Double {
         let p = workStart.split(separator: ":").compactMap { Int($0) }

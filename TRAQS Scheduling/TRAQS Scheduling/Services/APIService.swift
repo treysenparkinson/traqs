@@ -595,8 +595,11 @@ struct APIService {
         _ = try await perform(req)
     }
 
-    func payClockOut(personId: String) async throws {
-        let body = try JSONEncoder().encode(PayClockPayload(action: "payClockOut", personId: personId))
+    /// Clock out for pay. Like clock-in, `pin` is required only if the person
+    /// has a PIN set — the server verifies it so an accidental tap on the
+    /// full-width Clock Out button can't end someone's shift.
+    func payClockOut(personId: String, pin: String? = nil) async throws {
+        let body = try JSONEncoder().encode(PayClockPayload(action: "payClockOut", personId: personId, pin: pin))
         let req = try await request("timeclock", method: "POST", body: body)
         _ = try await perform(req)
     }
