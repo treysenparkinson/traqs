@@ -313,11 +313,12 @@ const clockState = (activeClockIn, now = Date.now()) => {
     const t = new Date(ev.ts).getTime();
     if (ev.type === "lunchStart") lunchOpen = t;
     else if (ev.type === "lunchEnd" && lunchOpen != null) { pausedMs += Math.max(0, t - lunchOpen); lunchOpen = null; }
+    // Breaks are tracked for the status pill (isOnBreak) but NOT added to
+    // pausedMs: they are paid time. Only lunch comes out of the pay clock.
     else if (ev.type === "breakStart") breakOpen = t;
-    else if (ev.type === "breakEnd" && breakOpen != null) { pausedMs += Math.max(0, t - breakOpen); breakOpen = null; }
+    else if (ev.type === "breakEnd" && breakOpen != null) { breakOpen = null; }
   }
   if (lunchOpen != null) pausedMs += Math.max(0, now - lunchOpen);
-  if (breakOpen != null) pausedMs += Math.max(0, now - breakOpen);
   const isOnLunch = lunchOpen != null;
   const isOnBreak = breakOpen != null;
   return { isClocked: true, isOnLunch, isOnBreak, status: isOnLunch ? "lunch" : isOnBreak ? "break" : "in", pausedMs, runningMs: Math.max(0, (now - startMs) - pausedMs) };
@@ -13770,11 +13771,8 @@ ${jobsCtx || "No jobs found."}`;
               .forEach(ev => {
                 if (ev.type === "lunchStart") lunchOpen = ev.t;
                 else if (ev.type === "lunchEnd" && lunchOpen != null) { ms -= Math.max(0, ev.t - lunchOpen); lunchOpen = null; }
-                else if (ev.type === "breakStart") breakOpen = ev.t;
-                else if (ev.type === "breakEnd" && breakOpen != null) { ms -= Math.max(0, ev.t - breakOpen); breakOpen = null; }
               });
             if (lunchOpen != null) ms -= Math.max(0, statsNow - lunchOpen);   // still on lunch
-            if (breakOpen != null) ms -= Math.max(0, statsNow - breakOpen);
             liveAdds.push({ day: String(ac.clockIn).slice(0, 10), pay: Math.max(0, ms / 3600000), prod: 0 });
           }
         }

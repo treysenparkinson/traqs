@@ -44,21 +44,22 @@ function hoursElapsed(isoStart, isoEnd) {
   return Math.max(0, Math.round((ms / 3600000) * 100) / 100);
 }
 
-// Sum closed lunch/break ranges from a session's events. Open ranges are closed at `endIso` so
-// a worker who clocks out while still on lunch/break has that final stretch excluded too.
+// Sum closed LUNCH ranges from a session's events. Open ranges are closed at `endIso` so
+// a worker who clocks out while still on lunch has that final stretch excluded too.
+//
+// Breaks are PAID and deliberately absent: a 9h clocked window minus a 60min
+// lunch is the 8h paid day. Breaks come out of PRODUCTION time instead (see
+// applyClockJobPause), which is what makes idle time = paid break time.
 function pausedMsFromEvents(events, endIso) {
   if (!Array.isArray(events) || events.length === 0) return 0;
   const endMs = new Date(endIso).getTime();
-  let pausedMs = 0, lunchOpen = null, breakOpen = null;
+  let pausedMs = 0, lunchOpen = null;
   for (const ev of events) {
     const t = new Date(ev.ts).getTime();
     if (ev.type === "lunchStart") lunchOpen = t;
     else if (ev.type === "lunchEnd" && lunchOpen != null) { pausedMs += Math.max(0, t - lunchOpen); lunchOpen = null; }
-    else if (ev.type === "breakStart") breakOpen = t;
-    else if (ev.type === "breakEnd" && breakOpen != null) { pausedMs += Math.max(0, t - breakOpen); breakOpen = null; }
   }
   if (lunchOpen != null) pausedMs += Math.max(0, endMs - lunchOpen);
-  if (breakOpen != null) pausedMs += Math.max(0, endMs - breakOpen);
   return pausedMs;
 }
 function hoursElapsedMinusPauses(isoStart, isoEnd, events) {
@@ -67,7 +68,7 @@ function hoursElapsedMinusPauses(isoStart, isoEnd, events) {
   return Math.max(0, Math.round((netMs / 3600000) * 100) / 100);
 }
 
-// pausedMsFromEvents' counterpart for the PERSISTED lunch/break rows in
+// pausedMsFromEvents' counterpart for the PERSISTED lunch rows in
 // payhours.json (shape `{ eventType, timestamp }`) rather than the
 // activeClockIn.events cache (`{ type, ts }`). `rows` must already be scoped to
 // ONE person; only rows whose timestamp falls inside [startIso, endIso] count,
@@ -82,15 +83,12 @@ function pausedMsFromRows(rows, startIso, endIso) {
     .map(r => ({ type: r.eventType, t: new Date(r.timestamp).getTime() }))
     .filter(r => !Number.isNaN(r.t) && r.t >= startMs && r.t <= endMs)
     .sort((a, b) => a.t - b.t);
-  let paused = 0, lunchOpen = null, breakOpen = null;
+  let paused = 0, lunchOpen = null;
   for (const ev of inWindow) {
     if (ev.type === "lunchStart") lunchOpen = ev.t;
     else if (ev.type === "lunchEnd" && lunchOpen != null) { paused += Math.max(0, ev.t - lunchOpen); lunchOpen = null; }
-    else if (ev.type === "breakStart") breakOpen = ev.t;
-    else if (ev.type === "breakEnd" && breakOpen != null) { paused += Math.max(0, ev.t - breakOpen); breakOpen = null; }
   }
   if (lunchOpen != null) paused += Math.max(0, endMs - lunchOpen);
-  if (breakOpen != null) paused += Math.max(0, endMs - breakOpen);
   return paused;
 }
 
