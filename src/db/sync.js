@@ -145,6 +145,35 @@ export async function mergeFullMessages(list) {
   return true;
 }
 
+// Fold an authoritative full GET (/tasks, /people, /clients) into the cache.
+//
+// Same gap mergeFullMessages closed, and load-bearing for the same reason: the
+// rehydrate path (applySlice in TRAQS.jsx) rebuilds React state from
+// readSlice(entity) and lets the CACHED version of a record win over the one
+// already in memory — and drops any in-memory record the cache doesn't have.
+// So a cache holding a stale copy of a job doesn't just fail to update; on the
+// next sync event it actively replaces the good server copy, and a job the
+// cache never saw disappears from state entirely. That is how a schedule
+// assignment made on one machine could vanish on another: the job was still
+// there (the stale record still exists) but its ops had no team/dates, so no
+// bars rendered on the person's row.
+//
+// Nothing wrote these GETs back to Dexie, so the cache could only ever be
+// repaired by a fullResync — which runs only when the cursor is missing.
+// Upsert-only, exactly like mergeFullMessages: a partial or transient GET can
+// never evict cached records, and real deletions still arrive as tombstones
+// through applyDelta.
+export async function mergeFullSlice(entity, list) {
+  if (!ARRAY_ENTITIES.includes(entity)) return false;
+  if (!Array.isArray(list) || list.length === 0) return false;
+  const rows = list.filter((r) => r && r.id != null && !r.deletedAt);
+  if (!rows.length) return false;
+  await db[entity].bulkPut(rows);
+  syncBus.dispatchEvent(new CustomEvent(`${entity}-changed`));
+  syncBus.dispatchEvent(new CustomEvent("any-changed", { detail: { entities: [entity] } }));
+  return true;
+}
+
 // Sync health. Every deltaSync() call site catches and discards errors — correct
 // (a failed background sync must not break the app) but it meant a total
 // messaging outage produced no signal anywhere. Tracking it here lets the UI

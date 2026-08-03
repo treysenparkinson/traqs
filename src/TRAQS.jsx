@@ -6,7 +6,7 @@ import { TRAQS_LOGO_BLUE, UL_LOGO_WHITE } from "./logo.js";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme } from "./push.js";
 import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
-import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages } from "./db/sync.js";
+import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
@@ -1567,6 +1567,20 @@ function DateField({ value, onChange, placeholder = "Pick a date", style = {}, w
 // Default avatar fill — the same blue used as the fallback author colour for
 // chat messages, so a person without a photo reads as the same identity on the
 // Employees wall and in their message bubbles.
+// Person ids are NOT type-stable across clients. `people[].id` is a string
+// ("t0gnvtljt") for everyone except two legacy seed records, which are numbers
+// (99, 100) — and iOS decodes every id through decodeFlexIDs and writes them
+// all back as strings. So a job assigned on the web as team:[99] comes back
+// from an iOS save as team:["99"].
+//
+// Every strict comparison then fails: `(op.team||[]).includes(99)` is false
+// against ["99"], so the bar silently stops rendering on that person's row (the
+// job still exists, it just has no assignee the schedule recognises), and the
+// drag-reassign mapper's `x === fromPerson` never matches, so dropping a bar on
+// another person appears to do nothing. Compare person ids through these — never
+// with === or Array.includes.
+const sameId = (a, b) => a != null && b != null && String(a) === String(b);
+const onTeam = (team, pid) => (team || []).some(x => sameId(x, pid));
 const PERSON_BLUE = "#4169e1";
 
 // First letter of the FIRST name: "Mary Beth Jones" → "M". Falls back to "?" on
@@ -4479,6 +4493,17 @@ Extraction rules:
     });
   };
 
+  // Write an authoritative full GET of the save-tracked slices through to the
+  // IndexedDB cache, so the cache converges on the server every time we load
+  // rather than only on a fullResync. `pin` is stripped from people first: the
+  // /people GET decrypts it for admins, and /sync deliberately never lets a PIN
+  // reach the client cache — this must not become the path that does.
+  const cacheFullSlices = (t, p, c) => {
+    mergeFullSlice("tasks", t).catch(() => {});
+    mergeFullSlice("people", Array.isArray(p) ? p.map(({ pin, ...rest }) => rest) : p).catch(() => {});
+    mergeFullSlice("clients", c).catch(() => {});
+  };
+
   // Load all data from S3 on mount.
   //
   // Critical: doSave is gated on dataLoadedRef.current. Until the initial
@@ -4540,6 +4565,10 @@ Extraction rules:
         }
         // Only flip the gate AFTER state has been hydrated from S3.
         dataLoadedRef.current = true;
+        // Fold the authoritative GETs back into the cache. Without this the
+        // cache can only be repaired by a fullResync, and applySlice lets a
+        // stale cached record overwrite this good one on the next sync event.
+        cacheFullSlices(safeT, safeP, safeC);
       })
       .catch(e => {
         // Do NOT reset state to seeds — that would let autosave persist an
@@ -4908,6 +4937,10 @@ Extraction rules:
           if (JSON.stringify(prev) === JSON.stringify(newClients)) { pollUpdateRef.current = false; return prev; }
           return newClients;
         });
+        // Same reconciliation as the initial load: the poll just proved what the
+        // server holds, so write it through rather than leaving a stale cache
+        // that applySlice would later replay over this state.
+        cacheFullSlices(newTasks, newPeople, newClients);
       } catch (e) {
         console.warn("Poll re-fetch failed:", e);
       }
@@ -6361,14 +6394,14 @@ Extraction rules:
         const panelIdx = (t.subs || []).findIndex(s => s.id === parentId);
         if (panelIdx >= 0) {
           const newSubs = [...t.subs];
-          newSubs[panelIdx] = { ...newSubs[panelIdx], subs: (newSubs[panelIdx].subs || []).map(op => op.id === taskId ? { ...op, team: (op.team || []).map(x => x === fromPersonId ? toPersonId : x) } : op) };
+          newSubs[panelIdx] = { ...newSubs[panelIdx], subs: (newSubs[panelIdx].subs || []).map(op => op.id === taskId ? { ...op, team: (op.team || []).map(x => sameId(x, fromPersonId) ? toPersonId : x) } : op) };
           return { ...t, subs: newSubs };
         }
         // Check if parentId is this job
-        if (t.id === parentId) return { ...t, subs: (t.subs || []).map(s => s.id === taskId ? { ...s, team: (s.team || []).map(x => x === fromPersonId ? toPersonId : x) } : s) };
+        if (t.id === parentId) return { ...t, subs: (t.subs || []).map(s => s.id === taskId ? { ...s, team: (s.team || []).map(x => sameId(x, fromPersonId) ? toPersonId : x) } : s) };
         return t;
       }
-      if (t.id === taskId) return { ...t, team: (t.team || []).map(x => x === fromPersonId ? toPersonId : x) };
+      if (t.id === taskId) return { ...t, team: (t.team || []).map(x => sameId(x, fromPersonId) ? toPersonId : x) };
       return t;
     }));
   };
@@ -11142,7 +11175,7 @@ ${jobsCtx || "No jobs found."}`;
         if ((job.jobType || "panel") === "panel") {
           (job.subs || []).forEach(panel => {
             (panel.subs || []).forEach(op => {
-              if (!(op.team || []).includes(pid)) return;
+              if (!onTeam(op.team, pid)) return;
               if (op.status === "Finished") return;
               // An assigned op with no dates is real work you can log against but can't
               // be placed on the timeline — pin it to today as an "unscheduled" bar so
@@ -11161,8 +11194,8 @@ ${jobsCtx || "No jobs found."}`;
             // panel's team but NOT on any of its ops — covers panels with no ops AND
             // panels whose ops belong to other people (matches what iOS surfaces and
             // lets you log time against). Undated panels are pinned to today.
-            const onPanelTeam = (panel.team || []).includes(pid);
-            const onAnyOp = (panel.subs || []).some(op => (op.team || []).includes(pid));
+            const onPanelTeam = onTeam(panel.team, pid);
+            const onAnyOp = (panel.subs || []).some(op => onTeam(op.team, pid));
             if (onPanelTeam && !onAnyOp && panel.status !== "Finished") {
               const pUndated = !panel.start || !panel.end;
               const pInView = pUndated ? (TD >= tStart && TD <= tEnd) : (_visualEnd(panel) >= tStart && panel.start <= tEnd);
@@ -11178,7 +11211,7 @@ ${jobsCtx || "No jobs found."}`;
         } else {
           // General task: flat subtasks assigned directly to people
           (job.subs || []).forEach(sub => {
-            if (!(sub.team || []).includes(pid)) return;
+            if (!onTeam(sub.team, pid)) return;
             if (sub.status === "Finished") return;
             const undated = !sub.start || !sub.end;
             if (undated) { if (TD < tStart || TD > tEnd) return; }
@@ -12378,7 +12411,7 @@ ${jobsCtx || "No jobs found."}`;
                         for (const panel of (job.subs || [])) {
                           for (const op of (panel.subs || [])) {
                             if (op.id === movingTaskId || op.status === "Finished") continue;
-                            if (!(op.team || []).includes(targetPid)) continue;
+                            if (!onTeam(op.team, targetPid)) continue;
                             if (!op.start || !op.end) continue;
                             const _v = _opVisual(op);
                             const _opSH = op.startHour ?? workStartH;
@@ -12433,7 +12466,7 @@ ${jobsCtx || "No jobs found."}`;
                       // Can't move the SPECIFIC op someone is actively clocked into — they'd be
                       // stranded. Scoped to this op (bar.task.id): a clock on a sibling task in the
                       // same job must not block moving this independent one.
-                      if (!isPto && bar.task && blockedByActiveClock(jobIdOfNode(bar.task.id), bar.task.id)) return;
+                      if (!isPto && bar.task && blockedByActiveClock(jobIdOfNode(bar.task.id), bar.task.id)) { console.warn("[schedule-drag] rejected: someone is clocked into this op"); return; }
                       const _dropId = bar.id; setDroppedBarId(_dropId); setTimeout(() => setDroppedBarId(prev => prev === _dropId ? null : prev), 500);
                       const finalDx = Math.floor((me.clientX - sx) / liveCW + _origColOffset);
                       const newStart = teamDragLiveRef.current?.snapStart ?? nextBD(addD(_dragBaseStart, finalDx));
@@ -12445,10 +12478,10 @@ ${jobsCtx || "No jobs found."}`;
                       let effStart = newStart;
                       const effEnd = addBD(effStart, _finalVWD - 1);
                       const dropPerson = lastDropPid || origPerson;
-                      const isReassign = !!(lastDropPid && lastDropPid !== origPerson);
+                      const isReassign = !!(lastDropPid && !sameId(lastDropPid, origPerson));
                       const movedByName = loggedInUser ? loggedInUser.name : "Admin";
                       // Block on PTO — cannot push time off
-                      const person = people.find(x => x.id === dropPerson);
+                      const person = people.find(x => sameId(x.id, dropPerson));
                       if (person) {
                         for (const to of (person.timeOff || [])) {
                           if (to.start <= newEnd && to.end >= newStart) {
@@ -12470,13 +12503,13 @@ ${jobsCtx || "No jobs found."}`;
                       }
                       if (tMode === "month" && bar.task && !isPto) {
                         const _gRect = gridAreaEl?.getBoundingClientRect();
-                        if (!_gRect) return;
+                        if (!_gRect) { console.warn("[schedule-drag] rejected: grid element not measurable"); return; }
                         const _cxDrop = (me.clientX - _grabPx) - _gRect.left;
                         const _dayIdx = Math.max(0, Math.min(days.length - 1, Math.floor(_cxDrop / liveCW)));
                         let _di2 = _dayIdx;
                         while (_di2 < days.length - 1 && !isWorkDay(days[_di2], barWorkDays)) _di2++;
                         effStart = isWorkDay(days[_di2], barWorkDays) ? days[_di2] : null;
-                        if (!effStart) return;
+                        if (!effStart) { console.warn("[schedule-drag] rejected: drop day is not a work day", days[_di2]); return; }
                         // Use the bar's live drop date (window-independent). Fall back to newStart
                         // (also dx-based) rather than the stale `days[_dayIdx]` lookup above.
                         effStart = teamDragLiveRef.current?.snapStart || newStart;
@@ -12500,7 +12533,11 @@ ${jobsCtx || "No jobs found."}`;
                         // whole bar via the non-split path below).
                         const _splitWS = deriveWorkedState(bar.task);
                         if (_splitWS.isPartiallyWorked) {
-                          if (effStart === _dragBaseStart && finalHour === _dragBaseHour) return;
+                          // A pure vertical drag (straight down onto another person) leaves the
+                          // dates identical, so this no-op guard used to swallow the reassign
+                          // too — the bar just snapped back. Only bail when nothing changed at
+                          // all, person included.
+                          if (effStart === _dragBaseStart && finalHour === _dragBaseHour && !isReassign) { console.warn("[schedule-drag] no-op: dates and person unchanged"); return; }
                           // Compute end-date + end-hour for a given hpd starting at (startDate, startHourArg).
                           const _calcEnd = (startDate, startHourArg, hpdAmt) => {
                             const _clkH = productiveHoursPerDay > 0 ? (hpdAmt / productiveHoursPerDay) * totalWorkH : 0;
@@ -12545,7 +12582,7 @@ ${jobsCtx || "No jobs found."}`;
                                   startHour: finalHour,
                                   endHour: remEnds.endHour,
                                   moveLog: [],
-                                  ...(lastDropPid && lastDropPid !== origPerson ? { team: (orig.team || []).map(x => x === origPerson ? lastDropPid : x) } : {}),
+                                  ...(lastDropPid && !sameId(lastDropPid, origPerson) ? { team: (orig.team || []).map(x => sameId(x, origPerson) ? lastDropPid : x) } : {}),
                                 };
                                 const nextSubs = [...panel.subs];
                                 nextSubs.splice(idx, 1, updatedOrig, newOp);
@@ -12608,23 +12645,45 @@ ${jobsCtx || "No jobs found."}`;
                         // view, so the bars never actually moved despite the ghosts showing
                         // their landing positions.
                         const multiDragMonthMoves = multiDragMembers.map(_computeMonthMove);
+                        // The schedule draws a bar for whichever level carries the
+                        // assignment: an op, a panel with no ops of its own, or a bare
+                        // job. This commit only ever rewrote OPS, so dragging a
+                        // panel- or job-level bar matched nothing and the whole drop —
+                        // dates and reassign alike — was silently discarded. Apply the
+                        // move at whatever level the dragged bar actually lives at.
+                        let _matched = 0;
+                        const _moveNode = (node) => {
+                          _matched++;
+                          return {
+                            ...node,
+                            start: effStart, end: _newEnd, startHour: finalHour, endHour: _endHour,
+                            ...(lastDropPid && !sameId(lastDropPid, origPerson)
+                              ? { team: (node.team || []).map(x => sameId(x, origPerson) ? lastDropPid : x) }
+                              : {}),
+                          };
+                        };
+                        // Dep-group / multi-select members can also be panels, not just ops.
+                        const _memberMove = (node) => {
+                          const mv = groupMonthMoves.find(m => m.id === node.id) || multiDragMonthMoves.find(m => m.id === node.id);
+                          return mv ? { ...node, start: mv.newStart, end: mv.newEnd, startHour: mv.newStartHour, endHour: mv.newEndHour } : node;
+                        };
                         setTasks(prev => {
-                          const next = prev.map(job => ({
-                            ...job,
-                            subs: (job.subs || []).map(panel => ({
-                              ...panel,
-                              subs: (panel.subs || []).map(op => {
-                                if (op.id === bar.task.id) {
-                                  return { ...op, start: effStart, end: _newEnd, startHour: finalHour, endHour: _endHour, ...(lastDropPid && lastDropPid !== origPerson ? { team: (op.team || []).map(x => x === origPerson ? lastDropPid : x) } : {}) };
-                                }
-                                const gm = groupMonthMoves.find(m => m.id === op.id);
-                                if (gm) return { ...op, start: gm.newStart, end: gm.newEnd, startHour: gm.newStartHour, endHour: gm.newEndHour };
-                                const md = multiDragMonthMoves.find(m => m.id === op.id);
-                                if (md) return { ...op, start: md.newStart, end: md.newEnd, startHour: md.newStartHour, endHour: md.newEndHour };
-                                return op;
-                              })
-                            }))
-                          }));
+                          const next = prev.map(job => {
+                            const _j = job.id === bar.task.id ? _moveNode(job) : job;
+                            return {
+                              ..._j,
+                              subs: (_j.subs || []).map(panel => {
+                                const _p = panel.id === bar.task.id ? _moveNode(panel) : _memberMove(panel);
+                                return {
+                                  ..._p,
+                                  subs: (_p.subs || []).map(op =>
+                                    op.id === bar.task.id ? _moveNode(op) : _memberMove(op)
+                                  ),
+                                };
+                              }),
+                            };
+                          });
+                          if (!_matched) console.warn("[schedule-drag] month commit matched nothing", { barTaskId: bar.task.id, barId: bar.id });
                           return recalcBounds(next, loggedInUser?.name || "Drag");
                         });
                         setTimeout(() => doSaveRef.current(), 0);
@@ -12684,7 +12743,7 @@ ${jobsCtx || "No jobs found."}`;
                                   ...newSubs[panelIdx],
                                   subs: (newSubs[panelIdx].subs || []).map(op =>
                                     op.id === taskId
-                                      ? { ...op, team: (op.team || []).map(x => x === fromPerson ? lastDropPid : x) }
+                                      ? { ...op, team: (op.team || []).map(x => sameId(x, fromPerson) ? lastDropPid : x) }
                                       : op
                                   )
                                 };
@@ -12695,7 +12754,7 @@ ${jobsCtx || "No jobs found."}`;
                                   ...updated,
                                   subs: (updated.subs || []).map(s =>
                                     s.id === taskId
-                                      ? { ...s, team: (s.team || []).map(x => x === fromPerson ? lastDropPid : x) }
+                                      ? { ...s, team: (s.team || []).map(x => sameId(x, fromPerson) ? lastDropPid : x) }
                                       : s
                                   )
                                 };
@@ -12703,7 +12762,7 @@ ${jobsCtx || "No jobs found."}`;
                             } else if (updated.id === taskId) {
                               updated = {
                                 ...updated,
-                                team: (updated.team || []).map(x => x === fromPerson ? lastDropPid : x)
+                                team: (updated.team || []).map(x => sameId(x, fromPerson) ? lastDropPid : x)
                               };
                             }
                           });
@@ -13120,7 +13179,7 @@ ${jobsCtx || "No jobs found."}`;
             if ((job.jobType || "panel") === "panel") {
               (job.subs || []).forEach(panel => {
                 (panel.subs || []).forEach(op => {
-                  if (!(op.team || []).includes(pid)) return;
+                  if (!onTeam(op.team, pid)) return;
                   if (op.status === "Finished") return;
                   if (!op.start || !op.end) return;
                   const tc = panel.color || "#94a3b8";
@@ -13128,7 +13187,7 @@ ${jobsCtx || "No jobs found."}`;
                   if (op.start <= TD && op.end >= TD) todayBars.push(bar);
                   else if (op.start > TD) futureBars.push(bar);
                 });
-                if ((panel.subs || []).length === 0 && (panel.team || []).includes(pid) && panel.start && panel.end && panel.status !== "Finished") {
+                if ((panel.subs || []).length === 0 && onTeam(panel.team, pid) && panel.start && panel.end && panel.status !== "Finished") {
                   const tc = panel.color || "#94a3b8";
                   const bar = { id: panel.id, start: panel.start, end: panel.end, color: tc, task: { ...panel, color: tc, jobTitle: job.title, panelTitle: null, level: 1 } };
                   if (panel.start <= TD && panel.end >= TD) todayBars.push(bar);
@@ -13137,7 +13196,7 @@ ${jobsCtx || "No jobs found."}`;
               });
             } else {
               (job.subs || []).forEach(sub => {
-                if (!(sub.team || []).includes(pid)) return;
+                if (!onTeam(sub.team, pid)) return;
                 if (sub.status === "Finished") return;
                 if (!sub.start || !sub.end) return;
                 const tc = sub.color || "#94a3b8";
