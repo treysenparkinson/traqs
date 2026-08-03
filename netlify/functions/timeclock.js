@@ -187,28 +187,41 @@ async function mutatePersonFresh(peopleKey, personId, mutate) {
   return { people, person: people[idx] };
 }
 
-// Going to lunch must stop the job clock too. Without this the lunch hour is
-// deducted from the pay shift but still accrues against the job's logged hours,
-// so job cost and payroll disagree by exactly the lunch length on every shift.
-// Ending lunch restarts it, reusing the same pausedAt/totalPausedMs mechanism
-// jobPause/jobResume already use — so hoursElapsedMinusPauses needs no change.
+// Lunch AND breaks must stop the job clock. Production time is the 9h window
+// minus BOTH (60min lunch + 30min breaks = 7.5h), while pay only loses lunch
+// (8h). That asymmetry is deliberate: the 0.5h gap between them is paid break
+// time, and it is what the Stats page reports as idle.
 //
-// `pausedByLunch` marks the pause as automatic. Without it, a worker who paused
-// their job by hand before going to lunch would find it silently resumed when
-// lunch ended; only pauses this function created are reversed by it.
-function applyLunchJobPause(person, starting, nowIso) {
+// Without this a break is deducted from neither clock, so job cost overstates
+// the work by the break length on every shift.
+//
+// Reuses the pausedAt/totalPausedMs mechanism jobPause/jobResume already use,
+// so hoursElapsedMinusPauses and the job-hours maths need no change.
+//
+// `pausedReason` marks the pause as automatic and records WHICH event opened
+// it. Without it, a worker who paused their job by hand before going to lunch
+// would find it silently resumed when lunch ended; and a break ending must not
+// resume a job that lunch paused (they can overlap — a break can be opened,
+// then lunch started before the break was closed).
+function applyAutoJobPause(person, reason, starting, nowIso) {
   const jc = person.activeJobClock;
   if (!jc) return person;                                  // not on a job — nothing to pause
   if (starting) {
     if (jc.pausedAt) return person;                        // already paused; leave it (and its origin) alone
-    return { ...person, activeJobClock: { ...jc, pausedAt: nowIso, pausedByLunch: true } };
+    return { ...person, activeJobClock: { ...jc, pausedAt: nowIso, pausedByLunch: true, pausedReason: reason } };
   }
-  if (!jc.pausedAt || !jc.pausedByLunch) return person;    // manual pause stays paused
+  // Only the reason that opened the pause may close it. Legacy rows written
+  // before pausedReason existed carry pausedByLunch only, so treat those as
+  // lunch-owned rather than stranding them paused forever.
+  const owner = jc.pausedReason || (jc.pausedByLunch ? "lunch" : null);
+  if (!jc.pausedAt || owner !== reason) return person;     // manual pause, or a different reason, stays paused
   const paused = new Date(nowIso).getTime() - new Date(jc.pausedAt).getTime();
   const totalPausedMs = (jc.totalPausedMs || 0) + Math.max(0, paused);
-  const { pausedAt, pausedByLunch, ...resumed } = jc;
+  const { pausedAt, pausedByLunch, pausedReason, ...resumed } = jc;
   return { ...person, activeJobClock: { ...resumed, totalPausedMs } };
 }
+// Back-compat alias for the lunch call sites.
+const applyLunchJobPause = (person, starting, nowIso) => applyAutoJobPause(person, "lunch", starting, nowIso);
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
@@ -758,9 +771,13 @@ export async function handler(event) {
 
       const albTimestamp = albTs || new Date().toISOString();
       const albWithEvent = { ...albPerson, activeClockIn: { ...albPerson.activeClockIn, events: [...albEvents, { type: evtType, ts: albTimestamp }] } };
-      albPeople[albIdx] = (evtType === "lunchStart" || evtType === "lunchEnd")
-        ? applyLunchJobPause(albWithEvent, evtType === "lunchStart", albTimestamp)
-        : albWithEvent;
+      // Lunch and break both stop production; only lunch stops pay.
+      albPeople[albIdx] = applyAutoJobPause(
+        albWithEvent,
+        (evtType === "lunchStart" || evtType === "lunchEnd") ? "lunch" : "break",
+        (evtType === "lunchStart" || evtType === "breakStart"),
+        albTimestamp
+      );
       try { await writeStampedArray(peopleKey, albPeople); } catch { return err(500, "Failed to save"); }
 
       const albEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: albPersonId, date: albTimestamp.slice(0, 10), eventType: evtType, timestamp: albTimestamp };
@@ -1052,7 +1069,7 @@ export async function handler(event) {
 
       const bbStart = new Date().toISOString();
       const bbMinutes = Number.isFinite(bbDur) ? bbDur : 15;
-      bbPeople[bbIdx] = { ...bbPeople[bbIdx], activeBreak: { startedAt: bbStart, durationMinutes: bbMinutes } };
+      bbPeople[bbIdx] = applyAutoJobPause({ ...bbPeople[bbIdx], activeBreak: { startedAt: bbStart, durationMinutes: bbMinutes } }, "break", true, bbStart);
       try { await writeStampedArray(peopleKey, bbPeople); } catch { return err(500, "Failed to save"); }
 
       // Log to payhours.json for payroll records.
@@ -1079,7 +1096,7 @@ export async function handler(event) {
       if (!bcPeople[bcIdx].activeBreak) return err(409, "Not on break");
 
       const bcEnd = new Date().toISOString();
-      bcPeople[bcIdx] = { ...bcPeople[bcIdx], activeBreak: null };
+      bcPeople[bcIdx] = applyAutoJobPause({ ...bcPeople[bcIdx], activeBreak: null }, "break", false, new Date().toISOString());
       try { await writeStampedArray(peopleKey, bcPeople); } catch { return err(500, "Failed to save"); }
 
       const bcEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(bcPId), date: bcEnd.slice(0, 10), eventType: "breakEnd", timestamp: bcEnd };
@@ -1404,7 +1421,7 @@ export async function handler(event) {
       const lastBreak = [...events].reverse().find(e => e.type === "breakStart" || e.type === "breakEnd");
       if (lastBreak?.type === "breakStart") return err(409, "Already on break");
       const timestamp = new Date().toISOString();
-      people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "breakStart", ts: timestamp }] } };
+      people[personIdx] = applyAutoJobPause({ ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "breakStart", ts: timestamp }] } }, "break", true, timestamp);
       try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: timestamp.slice(0, 10), eventType: "breakStart", timestamp };
       let log3; try { log3 = await readJson(payKey) ?? []; } catch { log3 = []; }
@@ -1419,7 +1436,7 @@ export async function handler(event) {
       const lastBreak = [...events].reverse().find(e => e.type === "breakStart" || e.type === "breakEnd");
       if (!lastBreak || lastBreak.type !== "breakStart") return err(409, "Not on break");
       const timestamp = new Date().toISOString();
-      people[personIdx] = { ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "breakEnd", ts: timestamp }] } };
+      people[personIdx] = applyAutoJobPause({ ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "breakEnd", ts: timestamp }] } }, "break", false, timestamp);
       try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save"); }
       const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: timestamp.slice(0, 10), eventType: "breakEnd", timestamp };
       let log4; try { log4 = await readJson(payKey) ?? []; } catch { log4 = []; }
