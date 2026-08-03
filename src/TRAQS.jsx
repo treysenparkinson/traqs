@@ -739,7 +739,7 @@ animStyle.textContent = `
   position: relative;
   overflow: hidden;
 }
-.anim-btn:hover  { box-shadow: 0 6px 20px rgba(0,0,0,0.2); filter: brightness(1.08); }
+.anim-btn:hover  { box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16)); filter: brightness(1.05); }
 .anim-btn:active { filter: brightness(0.95); transition-duration: 0.08s; }
 
 /* Customize-modal mockup: ease every colour/theme change so edits fade in rather than snap. */
@@ -754,7 +754,7 @@ animStyle.textContent = `
 .icon-btn-glow {
   transition: box-shadow 0.22s ease-out, filter 0.22s ease-out, border-color 0.18s ease-out, background 0.18s ease-out;
 }
-.icon-btn-glow:hover  { box-shadow: 0 4px 14px rgba(0,0,0,0.22); filter: brightness(1.10); }
+.icon-btn-glow:hover  { box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16)); filter: brightness(1.05); }
 .icon-btn-glow:active { filter: brightness(0.96); transition-duration: 0.08s; }
 
 /* ── Universal button hover — subtle lift + accent glow on EVERY button, app-wide.
@@ -772,14 +772,65 @@ button:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
 }
 @media (hover: hover) {
   button:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
+    /* Same halo as .tq-drop and the input rule below. Buttons used to carry a
+       tighter, harder shadow (0 4px 16px of --tq-glow at 40% accent), so a
+       button and the dropdown beside it glowed differently. One value now, so
+       every interactive control reads as the same family. */
     transform: translateY(-1.5px) !important;
-    box-shadow: 0 4px 16px var(--tq-glow, rgba(0,0,0,0.22)) !important;
-    filter: brightness(1.06);
+    box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16)) !important;
+    filter: brightness(1.05);
   }
 }
 button:not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
   transform: translateY(0) scale(0.97) !important;
   transition-duration: 0.07s !important;
+}
+/* Every text-entry control carries the same soft accent halo the dropdowns and
+   calendar days do: hover lifts it, focus holds the glow and rings the border in
+   the accent. Element selectors (not a class) so this reaches all ~170 inputs and
+   textareas without touching a call site — including any added later.
+
+   Excluded on purpose, because a lift reads as a glitch rather than an affordance:
+   checkbox/radio (they sit inline with label text), range (the slider pill has its
+   own thumb treatment), color and file (OS-drawn widgets), and type=button, which
+   is already covered by the button rules above. Disabled fields get nothing. */
+input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare),
+textarea:not(:disabled):not([readonly]):not(.tq-bare),
+select:not(:disabled) {
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.2s ease, filter 0.2s ease,
+              border-color 0.15s ease, background-color 0.15s ease !important;
+}
+@media (hover: hover) {
+  input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover,
+  textarea:not(:disabled):not([readonly]):not(.tq-bare):hover,
+  select:not(:disabled):hover {
+    transform: translateY(-1.5px);
+    box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16));
+    filter: brightness(1.04);
+  }
+}
+/* Grid cells that act as dropdowns (the styled pickers in the jobs table) get the
+   same halo but NOT the lift: a table cell that rises breaks alignment with the
+   rest of its row. Same treatment, minus the transform. */
+.tq-cell-drop {
+  transition: box-shadow 0.2s ease, filter 0.2s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+@media (hover: hover) {
+  .tq-cell-drop:hover {
+    box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16));
+    filter: brightness(1.04);
+  }
+}
+/* Focus holds the halo but NOT the lift — a field that stays raised while you
+   type reads as stuck, and the caret shifting mid-edit is worse than no motion. */
+input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):focus,
+textarea:not(:disabled):not([readonly]):not(.tq-bare):focus,
+select:not(:disabled):focus {
+  transform: none;
+  box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16));
+  border-color: var(--tq-accent, currentColor);
+  outline: none;
 }
 /* Sidebar nav buttons must also animate WIDTH, so the active pill shrinks with
    the rail and each label is clipped away progressively instead of vanishing.
@@ -803,7 +854,7 @@ input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="
 select:not(.tq-sq) {
   border-radius: 9999px !important;
 }
-textarea:not(.tq-sq) { border-radius: 20px !important; }
+textarea:not(.tq-sq) { border-radius: 26px !important; }
 /* Pills need side padding or the text collides with the curve. Only applied where
    the element didn't already set its own generous horizontal padding. */
 select:not(.tq-sq) { padding-left: 14px; padding-right: 12px; }
@@ -828,7 +879,7 @@ select:not(.tq-sq) { padding-left: 14px; padding-right: 12px; }
 @media (hover: hover) {
   .tq-searchbar:hover {
     transform: translateY(-1.5px);
-    box-shadow: 0 4px 16px var(--tq-glow, rgba(0,0,0,0.22));
+    box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16));
     filter: brightness(1.06);
   }
 }
@@ -964,7 +1015,7 @@ html { scroll-behavior: smooth; }
 ::-webkit-scrollbar-thumb {
   background: var(--tq-sb-thumb, rgba(130,130,150,0.5));
   border: 3px solid transparent;
-  border-radius: 10px;
+  border-radius: 22px;
   background-clip: padding-box;
   transition: background-color 0.15s ease;
 }
@@ -1234,7 +1285,7 @@ function buildCustomTheme(bg, accent, surface, opts = {}) {
     hover: hexA(blendHex(accent, surfDk ? 0.45 : -0.4), surfDk ? 0.20 : 0.15),
     hoverStrong: hexA(blendHex(accent, surfDk ? 0.45 : -0.4), surfDk ? 0.34 : 0.26),
     font:"'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif", mono:"'DM Sans',sans-serif",
-    radius:16, radiusSm:10, radiusXs:7, radiusLg:20, radiusHero:30, radiusPill:9999, glass:surf, glassBorder:bord,
+    radius:22, radiusSm:16, radiusXs:11, radiusLg:26, radiusHero:34, radiusPill:9999, glass:surf, glassBorder:bord,
     blur:"none", glow:"none", colorScheme:dk?"dark":"light",
     // Outer-chrome (header + sidebar) palette — see sysBg above. The chrome reads these via Tc.
     systemBg: sysBg, systemText: sysTxt, systemBorder: sysBord,
@@ -1254,9 +1305,9 @@ function buildCustomTheme(bg, accent, surface, opts = {}) {
 }
 
 const THEMES = {
-  midnight: { name: "Dark",  bg: "#080d18", surface: "#0d1424", card: "#111c30", border: "#1a2a45", borderLight: "#243555", text: "#e6ecf8", textSec: "#e6ecf8", textDim: "#e6ecf8", bgText: "#e6ecf8", accent: "#3d7fff", accentText: "#ffffff", hover: hexA(blendHex("#3d7fff", 0.45), 0.2), hoverStrong: hexA(blendHex("#3d7fff", 0.45), 0.34), danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 16, radiusSm: 10, radiusXs: 7, radiusLg: 20, radiusHero: 30, radiusPill: 9999, glass: "#111c30", glassBorder: "#1e2f4a", blur: "none", glow: "none", colorScheme: "dark" },
-  obsidian: { name: "Obsidian",  bg: "#07070e", surface: "#0d0d1a", card: "#111120", border: "#1c1c34", borderLight: "#252548", text: "#eeeef8", textSec: "#eeeef8", textDim: "#eeeef8", bgText: "#eeeef8", accent: "#7c3aed", accentText: "#ffffff", hover: hexA(blendHex("#7c3aed", 0.45), 0.2), hoverStrong: hexA(blendHex("#7c3aed", 0.45), 0.34), danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 16, radiusSm: 10, radiusXs: 7, radiusLg: 20, radiusHero: 30, radiusPill: 9999, glass: "#111120", glassBorder: "#1c1c34", blur: "none", glow: "none", colorScheme: "dark" },
-  frost:    { name: "White",     bg: "#f0f4f9", surface: "#ffffff",  card: "#ffffff",  border: "#e2e8f2", borderLight: "#d4dce8", text: "#0f172a", textSec: "#0f172a", textDim: "#0f172a", bgText: "#0f172a", accent: "#0ea5e9", accentText: "#ffffff", hover: hexA(blendHex("#0ea5e9", -0.35), 0.14), hoverStrong: hexA(blendHex("#0ea5e9", -0.35), 0.24), danger: "#ef4444", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 16, radiusSm: 10, radiusXs: 7, radiusLg: 20, radiusHero: 30, radiusPill: 9999, glass: "#ffffff",  glassBorder: "#e2e8f2", blur: "none", glow: "none", colorScheme: "light" },
+  midnight: { name: "Dark",  bg: "#080d18", surface: "#0d1424", card: "#111c30", border: "#1a2a45", borderLight: "#243555", text: "#e6ecf8", textSec: "#e6ecf8", textDim: "#e6ecf8", bgText: "#e6ecf8", accent: "#3d7fff", accentText: "#ffffff", hover: hexA(blendHex("#3d7fff", 0.45), 0.2), hoverStrong: hexA(blendHex("#3d7fff", 0.45), 0.34), danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#111c30", glassBorder: "#1e2f4a", blur: "none", glow: "none", colorScheme: "dark" },
+  obsidian: { name: "Obsidian",  bg: "#07070e", surface: "#0d0d1a", card: "#111120", border: "#1c1c34", borderLight: "#252548", text: "#eeeef8", textSec: "#eeeef8", textDim: "#eeeef8", bgText: "#eeeef8", accent: "#7c3aed", accentText: "#ffffff", hover: hexA(blendHex("#7c3aed", 0.45), 0.2), hoverStrong: hexA(blendHex("#7c3aed", 0.45), 0.34), danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#111120", glassBorder: "#1c1c34", blur: "none", glow: "none", colorScheme: "dark" },
+  frost:    { name: "White",     bg: "#f0f4f9", surface: "#ffffff",  card: "#ffffff",  border: "#e2e8f2", borderLight: "#d4dce8", text: "#0f172a", textSec: "#0f172a", textDim: "#0f172a", bgText: "#0f172a", accent: "#0ea5e9", accentText: "#ffffff", hover: hexA(blendHex("#0ea5e9", -0.35), 0.14), hoverStrong: hexA(blendHex("#0ea5e9", -0.35), 0.24), danger: "#ef4444", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#ffffff",  glassBorder: "#e2e8f2", blur: "none", glow: "none", colorScheme: "light" },
 };
 // Legacy aliases so any existing code referencing "dark"/"light" still resolves
 THEMES.dark  = THEMES.midnight;
@@ -1381,7 +1432,7 @@ const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", 
   return <div style={{ marginBottom: label ? 16 : 0, ...(extraStyle || {}) }}>
     {label && <label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500, fontFamily: T.font }}>{label}{required && <span style={{ color: "#ef4444", marginLeft: 4 }}>*</span>}</label>}
     <div ref={ref} style={{ position: "relative" }}>
-      <button ref={trigRef} id={id} onClick={() => setOpen(o => !o)} style={{ width: "100%", padding: compact ? "7px 10px" : "12px 16px", borderRadius: T.radiusPill, border: `1px solid ${open ? T.accent : value ? T.accent + "55" : T.glassBorder}`, background: T.glass, color: value ? T.text : T.textDim, fontSize: compact ? 13 : 14, fontFamily: T.font, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", boxSizing: "border-box", outline: "none", transition: "border-color 0.15s" }}>
+      <button ref={trigRef} id={id} className="tq-drop" onClick={() => setOpen(o => !o)} style={{ width: "100%", padding: compact ? "7px 10px" : "12px 16px", borderRadius: T.radiusPill, border: `1px solid ${open ? T.accent : value ? T.accent + "55" : T.glassBorder}`, background: T.glass, color: value ? T.text : T.textDim, fontSize: compact ? 13 : 14, fontFamily: T.font, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", boxSizing: "border-box", outline: "none", transition: "border-color 0.15s" }}>
         <span>{value ? formatDate(value) : placeholder}</span>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={open || value ? T.accent : T.textDim} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "stroke 0.15s" }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
       </button>
@@ -1390,11 +1441,11 @@ const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", 
           .props — portalling the child threw a TypeError on every close. */}
       {wrapPop(<FadeOnClose open={open}>{open && (<div ref={popRef} onClick={e => e.stopPropagation()} className="anim-drop" style={{ ...(portal ? { position: "fixed", left: anchor?.left ?? 0, top: anchor?.top ?? 0, minWidth: anchor?.width } : { position: "absolute", top: "calc(100% + 6px)", left: 0 }), zIndex: portal ? 10060 : 1500, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 16px 48px rgba(0,0,0,0.5)", padding: 14, width: 290, fontFamily: T.font }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-          <button onClick={NAV(-1)} style={{ width: 30, height: 30, borderRadius: T.radiusPill, border: "none", background: "transparent", color: hexA(T.systemText || T.textSec, 0.8), cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
+          <button onClick={NAV(-1)} style={{ width: 30, height: 30, borderRadius: T.radiusPill, border: "none", background: "transparent", color: hexA(T.systemText || T.textSec, 0.8), cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
           </button>
           <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{viewDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</div>
-          <button onClick={NAV(1)} style={{ width: 30, height: 30, borderRadius: T.radiusPill, border: "none", background: "transparent", color: hexA(T.systemText || T.textSec, 0.8), cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
+          <button onClick={NAV(1)} style={{ width: 30, height: 30, borderRadius: T.radiusPill, border: "none", background: "transparent", color: hexA(T.systemText || T.textSec, 0.8), cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
           </button>
         </div>
@@ -1407,12 +1458,12 @@ const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", 
             const isToday = c.iso === todayIso;
             const tooEarly = !!(c.iso && min && c.iso < min);
             const usable = c.inMonth && !tooEarly;
-            return <button key={i} className="tq-cal-day" disabled={!usable} onClick={() => { if (c.iso && usable) { onChange(c.iso); setOpen(false); } }} style={{ height: 32, padding: 0, borderRadius: T.radiusPill, border: isToday && !isSel ? `1px solid ${T.accent}66` : "1px solid transparent", background: isSel ? brandGrad(T.accent) : "transparent", color: !c.inMonth || tooEarly ? T.textDim + "44" : isSel ? T.accentText : isToday ? T.accent : T.text, fontSize: 12, fontWeight: isSel || isToday ? 700 : 500, fontFamily: T.font, cursor: usable ? "pointer" : "default", transition: "all 0.12s" }} onMouseEnter={e => { if (usable && !isSel) e.currentTarget.style.background = T.hoverStrong; }} onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = (T.systemBg || T.surface); }}>{c.day}</button>;
+            return <button key={i} className="tq-cal-day" disabled={!usable} onClick={() => { if (c.iso && usable) { onChange(c.iso); setOpen(false); } }} style={{ height: 32, padding: 0, borderRadius: T.radiusPill, border: isToday && !isSel ? `1px solid ${T.accent}66` : "1px solid transparent", background: isSel ? brandGrad(T.accent) : "transparent", color: !c.inMonth || tooEarly ? T.textDim + "44" : isSel ? T.accentText : isToday ? T.accent : T.text, fontSize: 12, fontWeight: isSel || isToday ? 700 : 500, fontFamily: T.font, cursor: usable ? "pointer" : "default", transition: "all 0.12s" }} onMouseEnter={e => { if (usable && !isSel) e.currentTarget.style.background = T.hoverStrong; }} onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = "transparent"; }}>{c.day}</button>;
           })}
         </div>
         <div style={{ display: "flex", gap: 8, marginTop: 12, paddingTop: 12, borderTop: `1px solid ${T.border}` }}>
-          <button onClick={() => { onChange(todayIso); setOpen(false); }} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.systemText || T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }} onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.borderColor = T.accent + "66"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = (T.systemBg || T.surface); e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text; }}>Today</button>
-          {value && <button onClick={() => { onChange(""); setOpen(false); }} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusPill, border: `1px solid ${T.danger}33`, background: "transparent", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "12"} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>Clear</button>}
+          <button onClick={() => { onChange(todayIso); setOpen(false); }} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.systemText || T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }} onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.borderColor = T.accent + "66"; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.text; }}>Today</button>
+          {value && <button onClick={() => { onChange(""); setOpen(false); }} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusPill, border: `1px solid ${T.danger}33`, background: "transparent", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Clear</button>}
         </div>
       </div>)}</FadeOnClose>)}
     </div>
@@ -1442,7 +1493,7 @@ const FrostCard = ({ children, onClick, border, style: sx = {} }) => (
 const InputField = ({ label, value, onChange, type = "text", placeholder, id }) => type === "date"
   // Dates route through the in-app calendar rather than the native picker.
   ? <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500, fontFamily: T.font }}>{label}</label><DateField value={value} onChange={onChange} placeholder={placeholder || "Pick a date"} /></div>
-  : <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500, fontFamily: T.font }}>{label}</label><input id={id} type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusPill, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", transition: "border 0.2s, box-shadow 0.2s", colorScheme: T.colorScheme }} onFocus={e => { e.target.style.borderColor = T.accent + "55"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} /></div>;// ── Tooltip system ──────────────────────────────────────────────────────────
+  : <div style={{ marginBottom: 16 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500, fontFamily: T.font }}>{label}</label><input id={id} type={type} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusPill, border: `1px solid ${T.glassBorder}`, background: `var(--tq-field-bg, ${T.glass})`, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", transition: "border 0.2s, box-shadow 0.2s", colorScheme: T.colorScheme }} onFocus={e => { e.target.style.borderColor = T.accent + "55"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} /></div>;// ── Tooltip system ──────────────────────────────────────────────────────────
 const TooltipCtx = createContext(null);
 const Tip = ({ label, children }) => {
   const ctx = useContext(TooltipCtx);
@@ -1542,7 +1593,7 @@ function DateField({ value, onChange, placeholder = "Pick a date", style = {}, w
 
   return (
     <div ref={wrapRef} style={{ position: "relative", ...style }}>
-      <button ref={trigRef} type="button" className={square ? "tq-sq" : undefined} onClick={() => setOpen(o => !o)}
+      <button ref={trigRef} type="button" className={square ? "tq-sq tq-drop" : "tq-drop"} onClick={() => setOpen(o => !o)}
         style={{ width: "100%", display: "flex", alignItems: "center", gap: compact ? 6 : 9, padding: compact ? "5px 10px" : "10px 16px", borderRadius: square ? T.radiusXs : T.radiusPill, border: `1px solid ${open ? T.accent : T.border}`, background: T.surface, color: datePart ? T.text : T.textDim, fontSize: compact ? 12 : 13.5, fontFamily: T.font, cursor: "pointer", textAlign: "left", boxSizing: "border-box" }}>
         <span style={{ lineHeight: 0, flexShrink: 0, color: open ? T.accent : T.textSec }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
         <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
@@ -1573,7 +1624,7 @@ function DateField({ value, onChange, placeholder = "Pick a date", style = {}, w
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, paddingTop: 9, borderTop: `1px solid ${T.border}55` }}>
               <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Time</span>
               <input type="time" value={timePart} onChange={e => emit(datePart || TD, e.target.value)}
-                style={{ flex: 1, padding: "7px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box", colorScheme: T.colorScheme }} />
+                style={{ flex: 1, padding: "7px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box", colorScheme: T.colorScheme }} />
             </div>
       )}
           <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 10, paddingTop: 9, borderTop: `1px solid ${T.border}55` }}>
@@ -1660,7 +1711,7 @@ function EmployeeCard({ person, img, dot, onOpen, onCtx }) {
   const shadow = onPhoto ? (light ? "0 1px 2px rgba(255,255,255,0.5)" : "0 1px 3px rgba(0,0,0,0.55)") : "none";
   return (
     <button className="tq-frost" onClick={onOpen} onContextMenu={onCtx}
-      style={{ position: "relative", aspectRatio: "3 / 4", width: "100%", padding: 0, borderRadius: 26, overflow: "hidden", border: `1px solid ${T.border}`, background: T.card, cursor: "pointer", fontFamily: T.font, display: "block" }}>
+      style={{ position: "relative", aspectRatio: "3 / 4", width: "100%", padding: 0, borderRadius: 30, overflow: "hidden", border: `1px solid ${T.border}`, background: T.card, cursor: "pointer", fontFamily: T.font, display: "block" }}>
       {img
         ? <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${img})`, backgroundSize: "cover", backgroundPosition: "center" }} />
         : <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", paddingBottom: 26 }}>
@@ -1771,7 +1822,7 @@ function MobileNav({ tabs, activeId, onChange }) {
               style={{ position: "relative", zIndex: 1, flex: 1, padding: "8px 4px", border: "none", background: "transparent", cursor: "pointer", fontFamily: T.font, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
               <span style={{ lineHeight: 0, position: "relative", display: "inline-block", color: isActive ? T.accent : T.textDim }}>
                 {tab.icon}
-                {tab.badge > 0 && <span style={{ position: "absolute", top: -4, right: -6, minWidth: 14, height: 14, borderRadius: 7, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: "#fff", padding: "0 3px", boxSizing: "border-box" }}>{tab.badge > 9 ? "9+" : tab.badge}</span>}
+                {tab.badge > 0 && <span style={{ position: "absolute", top: -4, right: -6, minWidth: 14, height: 14, borderRadius: 12, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: "#fff", padding: "0 3px", boxSizing: "border-box" }}>{tab.badge > 9 ? "9+" : tab.badge}</span>}
               </span>
               <span style={{ fontSize: 10, fontWeight: isActive ? 700 : 400, color: isActive ? T.accent : T.textDim, whiteSpace: "nowrap" }}>{tab.label}</span>
             </button>
@@ -1818,20 +1869,20 @@ function SearchSelect({ label, value, onChange, options, placeholder = "Search..
     : { position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 999, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 16px 48px rgba(0,0,0,0.6)", overflow: "hidden", animation: "menuIn 0.15s ease-out" };
   const popup = <FadeOnClose open={open}><div ref={popupRef} className="anim-drop" style={popupStyle}>
       <div style={{ padding: "8px 10px", borderBottom: `1px solid ${T.border}` }}>
-        <input value={q} onChange={e => setQ(e.target.value)} placeholder={placeholder} autoFocus style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none" }} />
+        <input value={q} onChange={e => setQ(e.target.value)} placeholder={placeholder} autoFocus style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none" }} />
       </div>
       <div style={{ maxHeight: 220, overflow: "auto" }}>
         {(() => { const act = multi ? values.length === 0 : !value; return (
         <div onClick={() => { if (multi) { onChangeMulti([]); } else { onChange(null); setOpen(false); setQ(""); } }}
           style={{ transition: "background-color 0.15s ease", padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: act ? T.accent : T.textSec, fontWeight: act ? 600 : 400, background: act ? T.accent + "10" : "transparent", animation: "toolDrop 0.14s 0ms both ease-out" }}
           onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = act ? T.accent + "10" : "transparent"}>
-          <div style={{ width: 10, height: 10, borderRadius: 5, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />{noneLabel}
+          <div style={{ width: 10, height: 10, borderRadius: 8, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />{noneLabel}
         </div>); })()}
         {filtered.length === 0 && <div style={{ padding: "20px 16px", textAlign: "center", fontSize: 13, color: T.textDim }}>No clients match "{q}"</div>}
         {filtered.map((o, oi) => { const act = multi ? values.includes(o.value) : value === o.value; return <div key={o.value} onClick={() => { if (multi) { onChangeMulti(values.includes(o.value) ? values.filter(v => v !== o.value) : [...values, o.value]); } else { onChange(o.value); setOpen(false); setQ(""); } }}
           style={{ transition: "background-color 0.15s ease", padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: act ? o.color || T.text : T.text, fontWeight: act ? 600 : 400, background: act ? (o.color || T.accent) + "12" : "transparent", animation: `toolDrop 0.14s ${(oi + 1) * 38}ms both ease-out` }}
           onMouseEnter={e => e.currentTarget.style.background = (o.color || T.accent) + "18"} onMouseLeave={e => e.currentTarget.style.background = act ? (o.color || T.accent) + "12" : "transparent"}>
-          <div style={{ width: 10, height: 10, borderRadius: 5, background: o.color || T.accent, flexShrink: 0 }} />
+          <div style={{ width: 10, height: 10, borderRadius: 8, background: o.color || T.accent, flexShrink: 0 }} />
           <span style={{ flex: 1 }}>{o.label}</span>
           {multi && act && <span style={{ color: T.accent, fontWeight: 700, flexShrink: 0 }}>✓</span>}
           {o.sub && <span style={{ fontSize: 12, color: T.textDim }}>{o.sub}</span>}
@@ -1840,12 +1891,12 @@ function SearchSelect({ label, value, onChange, options, placeholder = "Search..
     </div></FadeOnClose>;
   return <div style={{ position: "relative", marginBottom: compact ? 0 : 16 }}>
     {label && <label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 8, fontWeight: 500, fontFamily: T.font }}>{label}</label>}
-    <div ref={triggerRef} onClick={() => setOpen(!open)} style={{ display: "flex", alignItems: "center", gap: compact ? 7 : 10, padding: compact ? "5px 12px" : "12px 18px", borderRadius: T.radiusPill, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: T.glass, cursor: "pointer", transition: "border 0.15s" }}>
+    <div className="tq-drop" ref={triggerRef} onClick={() => setOpen(!open)} style={{ display: "flex", alignItems: "center", gap: compact ? 7 : 10, padding: compact ? "5px 12px" : "12px 18px", borderRadius: T.radiusPill, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: `var(--tq-field-bg, ${T.surface})`, cursor: "pointer", transition: "border 0.15s" }}>
       {multi
         ? (values.length === 0
             ? <span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.textDim }}>{emptyLabel}</span>
             : <span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.text, fontWeight: compact ? 600 : 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{values.length === 1 ? (options.find(o => o.value === values[0])?.label || "1 selected") : `${values.length} selected`}</span>)
-        : (selected ? <><div style={{ width: compact ? 7 : 10, height: compact ? 7 : 10, borderRadius: compact ? 4 : 5, background: selected.color || T.accent, flexShrink: 0 }} /><span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.text, fontWeight: compact ? 600 : 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected.label}</span></> : <span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.textDim }}>{emptyLabel}</span>)}
+        : (selected ? <><div style={{ width: compact ? 7 : 10, height: compact ? 7 : 10, borderRadius: 8, background: selected.color || T.accent, flexShrink: 0 }} /><span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.text, fontWeight: compact ? 600 : 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected.label}</span></> : <span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.textDim }}>{emptyLabel}</span>)}
       <span style={{ fontSize: compact ? 8 : 10, color: T.textDim }}>{open ? "▲" : "▼"}</span>
     </div>
     {portal ? createPortal(popup, document.body) : popup}
@@ -1892,7 +1943,7 @@ function AnalyticsPersonPicker({ options, value, onChange }) {
       style={{ transition: "background-color 0.15s ease", padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: active ? (dot || T.accent) : T.text, fontWeight: active ? 600 : 400, background: active ? (dot || T.accent) + "12" : "transparent", animation: `toolDrop 0.14s ${idx * 38}ms both ease-out` }}
       onMouseEnter={e => e.currentTarget.style.background = (dot || T.accent) + "18"}
       onMouseLeave={e => e.currentTarget.style.background = active ? (dot || T.accent) + "12" : "transparent"}>
-      {dot ? <div style={{ width: 10, height: 10, borderRadius: 5, background: dot, flexShrink: 0 }} /> : peopleIcon(active ? T.accent : T.textDim)}
+      {dot ? <div style={{ width: 10, height: 10, borderRadius: 8, background: dot, flexShrink: 0 }} /> : peopleIcon(active ? T.accent : T.textDim)}
       <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
     </div>
   );
@@ -1900,7 +1951,7 @@ function AnalyticsPersonPicker({ options, value, onChange }) {
     {row(!value, null, "Everyone", () => { onChange(null); setOpen(false); setQ(""); }, 0)}
     <div style={{ height: 1, background: T.border }} />
     <div style={{ padding: "8px 10px 0" }}>
-      <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search employees…" autoFocus style={{ width: "100%", padding: "8px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box", outline: "none" }} />
+      <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search employees…" autoFocus style={{ width: "100%", padding: "8px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box", outline: "none" }} />
     </div>
     <div style={{ maxHeight: 240, overflow: "auto", padding: "6px 0" }}>
       {filtered.length === 0
@@ -1909,8 +1960,8 @@ function AnalyticsPersonPicker({ options, value, onChange }) {
     </div>
   </div></FadeOnClose>;
   return <div style={{ position: "relative" }}>
-    <div ref={triggerRef} onClick={() => setOpen(!open)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderRadius: T.radiusPill, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: T.glass, cursor: "pointer", transition: "border 0.15s", minWidth: 150 }}>
-      {selected ? <div style={{ width: 9, height: 9, borderRadius: 5, background: selected.color || T.accent, flexShrink: 0 }} /> : peopleIcon(T.textSec)}
+    <div className="tq-drop" ref={triggerRef} onClick={() => setOpen(!open)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 12px", borderRadius: T.radiusPill, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: `var(--tq-field-bg, ${T.surface})`, cursor: "pointer", transition: "border 0.15s", minWidth: 150 }}>
+      {selected ? <div style={{ width: 9, height: 9, borderRadius: 8, background: selected.color || T.accent, flexShrink: 0 }} /> : peopleIcon(T.textSec)}
       <span style={{ flex: 1, fontSize: 13, color: T.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{selected ? selected.label : "Everyone"}</span>
       <span style={{ fontSize: 9, color: T.textDim }}>{open ? "▲" : "▼"}</span>
     </div>
@@ -1936,7 +1987,7 @@ function CustomDrop({ value, onChange, options, placeholder = "Select…", compa
     return () => { document.removeEventListener("mousedown", hm); document.removeEventListener("keydown", hk); };
   }, [open]);
   return <div ref={ref} style={{ position: "relative" }}>
-    <div className="tq-drop" onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: compact ? "4px 8px" : "10px 14px", borderRadius: pill ? T.radiusPill : (compact ? T.radiusXs : T.radiusSm), border: `1px solid ${open ? T.accent : T.border}`, background: T.surface, cursor: "pointer", userSelect: "none", boxSizing: "border-box" }}>
+    <div className="tq-drop" onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: compact ? "4px 8px" : "10px 14px", borderRadius: pill ? T.radiusPill : (compact ? T.radiusXs : T.radiusSm), border: `1px solid ${open ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, cursor: "pointer", userSelect: "none", boxSizing: "border-box" }}>
       <span style={{ fontSize: compact ? 12 : 14, fontWeight: compact ? 600 : 400, color: value ? T.text : T.textDim, fontFamily: T.font, flex: 1, lineHeight: compact ? "16px" : "normal" }}>{value || placeholder}</span>
       <svg width={compact ? 10 : 12} height={compact ? 10 : 12} viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
     </div>
@@ -1947,7 +1998,7 @@ function CustomDrop({ value, onChange, options, placeholder = "Select…", compa
           style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", animation: `toolDrop 0.14s ${ri * 38}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }}
           onMouseEnter={e => e.currentTarget.style.background = T.hover}
           onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
-          <div style={{ width: 8, height: 8, borderRadius: 4, background: isOn ? T.accent : T.border, flexShrink: 0, transition: "background 0.12s" }} />
+          <div style={{ width: 8, height: 8, borderRadius: 8, background: isOn ? T.accent : T.border, flexShrink: 0, transition: "background 0.12s" }} />
           <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text, fontFamily: T.font }}>{r}</span>
         </div>;
       })}
@@ -1989,7 +2040,7 @@ function AssigneeDrop({ value, onChange, people }) {
     setOpen(true);
   };
   return <div style={{ position: "relative", width: 150, flexShrink: 0 }}>
-    <div ref={triggerRef} className="tq-drop" onClick={toggle} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, padding: "7px 11px", borderRadius: T.radiusPill, border: `1px solid ${open ? T.accent : T.border}`, background: T.bg, cursor: "pointer", transition: "border-color 0.15s", userSelect: "none", boxSizing: "border-box" }}>
+    <div ref={triggerRef} className="tq-drop" onClick={toggle} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, padding: "7px 11px", borderRadius: T.radiusPill, border: `1px solid ${open ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, cursor: "pointer", transition: "border-color 0.15s", userSelect: "none", boxSizing: "border-box" }}>
       <span style={{ fontSize: 12, fontWeight: sel ? 600 : 400, color: sel ? T.bgText : T.textDim, fontFamily: T.font, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel ? sel.name : "Anyone"}</span>
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
     </div>
@@ -1999,7 +2050,7 @@ function AssigneeDrop({ value, onChange, people }) {
           style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 9, padding: "10px 14px", cursor: "pointer", animation: `toolDrop 0.14s ${Math.min(ri, 14) * 28}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }}
           onMouseEnter={e => e.currentTarget.style.background = T.hover}
           onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
-          <div style={{ width: 8, height: 8, borderRadius: 4, background: isOn ? T.accent : T.border, flexShrink: 0 }} />
+          <div style={{ width: 8, height: 8, borderRadius: 8, background: isOn ? T.accent : T.border, flexShrink: 0 }} />
           <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : (p.id ? T.text : T.textDim), fontFamily: T.font, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
         </div>; })}
       </div>,
@@ -2047,17 +2098,17 @@ function ApprovalTypeDrop({ templateId, templates, onPick, onCreate, portal = fa
   const rowAnim = (ri) => ({ animation: `toolDrop 0.14s ${Math.min(ri, 14) * 38}ms both ease-out` });
   const wrapMenu = (node) => (portal ? createPortal(node, document.body) : node);
   return <div ref={ref} style={{ position: "relative" }}>
-    <div className="tq-drop" onClick={toggle} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 14px", borderRadius: T.radiusPill, border: `1px solid ${open ? T.accent : T.border}`, background: T.bg, cursor: "pointer", userSelect: "none" }}>
+    <div className="tq-drop" onClick={toggle} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 14px", borderRadius: T.radiusPill, border: `1px solid ${open ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, cursor: "pointer", userSelect: "none" }}>
       <span style={{ fontSize: 14, color: current ? T.bgText : hexA(T.bgText, 0.55), flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{current ? current.name : "Custom (no type)"}</span>
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "none" }}><polyline points="6 9 12 15 18 9"/></svg>
     </div>
     {open && (portal && !anchor ? null : wrapMenu(<div ref={menuRef} className="anim-drop" style={{ ...(portal ? { position: "fixed", left: anchor.left, top: anchor.top, width: anchor.width, zIndex: 10060, maxHeight: anchor.maxHeight } : { position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, maxHeight: 280 }), background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out", overflowY: "auto", fontFamily: T.font }}>
       {templates.map((t, ri) => { const isOn = t.id === templateId; return <div key={t.id} onClick={() => { onPick(t.id); setOpen(false); }} style={{ ...rowBase, ...rowAnim(ri), background: isOn ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
-        <div style={{ width: 8, height: 8, borderRadius: 4, background: isOn ? T.accent : T.border, flexShrink: 0 }} />
+        <div style={{ width: 8, height: 8, borderRadius: 8, background: isOn ? T.accent : T.border, flexShrink: 0 }} />
         <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text }}>{t.name}</span>
       </div>; })}
       <div onClick={() => { onPick(""); setOpen(false); }} style={{ ...rowBase, ...rowAnim(templates.length), background: !templateId ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = !templateId ? T.accent + "10" : "transparent"}>
-        <div style={{ width: 8, height: 8, borderRadius: 4, background: !templateId ? T.accent : T.border, flexShrink: 0 }} />
+        <div style={{ width: 8, height: 8, borderRadius: 8, background: !templateId ? T.accent : T.border, flexShrink: 0 }} />
         <span style={{ fontSize: 13, color: T.textSec }}>Custom (no type)</span>
       </div>
       <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 4, paddingTop: 4 }}>
@@ -2066,7 +2117,7 @@ function ApprovalTypeDrop({ templateId, templates, onPick, onCreate, portal = fa
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>New type…
             </div>
           : <div style={{ display: "flex", gap: 6, padding: "8px 12px" }} onClick={e => e.stopPropagation()}>
-              <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setAdding(false); setName(""); } }} placeholder="Type name" style={{ flex: 1, minWidth: 0, padding: "6px 9px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 13, fontFamily: T.font, outline: "none" }} />
+              <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setAdding(false); setName(""); } }} placeholder="Type name" style={{ flex: 1, minWidth: 0, padding: "6px 9px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, fontFamily: T.font, outline: "none" }} />
               <button onClick={commit} style={{ padding: "0 12px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Add</button>
             </div>}
       </div>
@@ -2074,7 +2125,7 @@ function ApprovalTypeDrop({ templateId, templates, onPick, onCreate, portal = fa
   </div>;
 }
 // Minimal TRAQS-styled single-select. options: [{ value, label, color? }]. No built-in margin.
-function SimpleDrop({ value, options, onChange, placeholder = "Select…", pill = false, portal = false }) {
+function SimpleDrop({ value, options, onChange, placeholder = "Select…", pill = false, portal = false, size = "sm" }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   // Portalled menus escape a scrolling/clipping ancestor (e.g. a modal body).
@@ -2107,13 +2158,13 @@ function SimpleDrop({ value, options, onChange, placeholder = "Select…", pill 
   };
   const menu = <div ref={menuRef} className="anim-drop" style={{ ...(portal ? { position: "fixed", left: anchor?.left ?? 0, top: anchor?.top ?? 0, width: anchor?.width, zIndex: 10060, maxHeight: anchor?.maxHeight ?? 260 } : { position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, maxHeight: 260 }), background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out", overflowY: "auto", fontFamily: T.font }}>
     {options.map((o, ri) => { const isOn = o.value === value; return <div key={String(o.value) + ri} onClick={() => { onChange(o.value); setOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", transition: "background-color 0.15s ease", animation: `toolDrop 0.14s ${Math.min(ri, 14) * 38}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
-      <span style={{ width: 8, height: 8, borderRadius: 4, background: o.color || (isOn ? T.accent : T.border), flexShrink: 0 }} />
+      <span style={{ width: 8, height: 8, borderRadius: 8, background: o.color || (isOn ? T.accent : T.border), flexShrink: 0 }} />
       <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text }}>{o.label}</span>
     </div>; })}
   </div>;
   return <div ref={ref} style={{ position: "relative" }}>
-    <div className="tq-drop" onClick={toggle} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: pill ? "9px 14px" : "9px 12px", borderRadius: pill ? T.radiusPill : T.radiusSm, border: `1px solid ${open ? T.accent : T.border}`, background: T.bg, cursor: "pointer", userSelect: "none" }}>
-      <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, flex: 1 }}>{sel?.color && <span style={{ width: 8, height: 8, borderRadius: 4, background: sel.color, flexShrink: 0 }} />}<span style={{ fontSize: 14, color: sel ? T.bgText : hexA(T.bgText, 0.55), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel ? sel.label : placeholder}</span></span>
+    <div className="tq-drop" onClick={toggle} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: size === "lg" ? "12px 16px" : pill ? "9px 14px" : "9px 12px", borderRadius: pill ? T.radiusPill : T.radiusSm, border: `1px solid ${open ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, cursor: "pointer", userSelect: "none" }}>
+      <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, flex: 1 }}>{sel?.color && <span style={{ width: 8, height: 8, borderRadius: 8, background: sel.color, flexShrink: 0 }} />}<span style={{ fontSize: 14, color: sel ? T.bgText : hexA(T.bgText, 0.55), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel ? sel.label : placeholder}</span></span>
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "none" }}><polyline points="6 9 12 15 18 9"/></svg>
     </div>
     {open && (portal ? (anchor ? createPortal(menu, document.body) : null) : menu)}
@@ -2125,7 +2176,7 @@ function ApprovalCommentInput({ onAdd }) {
   const submit = () => { const t = text.trim(); if (!t) return; onAdd(t); setText(""); };
   const has = !!text.trim();
   return <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-    <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); submit(); } }} placeholder="Add comment…" style={{ flex: 1, minWidth: 0, padding: "5px 9px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 12, fontFamily: T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
+    <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); submit(); } }} placeholder="Add comment…" style={{ flex: 1, minWidth: 0, padding: "5px 9px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 12, fontFamily: T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
     <button className="tq-noanim" onClick={submit} title="Add comment" style={{ flexShrink: 0, width: 24, height: 24, borderRadius: T.radiusPill, border: "none", background: has ? T.accent : T.border, color: has ? T.accentText : T.textDim, cursor: has ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center" }}>
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
     </button>
@@ -2188,9 +2239,9 @@ function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [
     const sel = isSel(type, o.id);
     const dot = type === "column" ? T.accent : (o.color || T.accent);
     return <div key={type + ":" + o.id} onClick={() => onToggle({ type, id: o.id })}
-      style={{ margin: "4px 8px", padding: "9px 12px", borderRadius: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: sel ? dot : T.text, fontWeight: sel ? 600 : 400, background: sel ? dot + "1e" : "transparent", transition: "background-color 0.2s ease, color 0.2s ease", animation: `toolDrop 0.14s ${i * 22}ms both ease-out` }}
+      style={{ margin: "4px 8px", padding: "9px 12px", borderRadius: 16, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: sel ? dot : T.text, fontWeight: sel ? 600 : 400, background: sel ? dot + "1e" : "transparent", transition: "background-color 0.2s ease, color 0.2s ease", animation: `toolDrop 0.14s ${i * 22}ms both ease-out` }}
       onMouseEnter={e => e.currentTarget.style.background = dot + "26"} onMouseLeave={e => e.currentTarget.style.background = sel ? dot + "1e" : "transparent"}>
-      <div style={{ width: 9, height: 9, borderRadius: type === "column" ? 2 : 5, background: dot, flexShrink: 0 }} />
+      <div style={{ width: 9, height: 9, borderRadius: 8, background: dot, flexShrink: 0 }} />
       <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>
       {sel && <span style={{ color: dot, fontSize: 13, fontWeight: 800 }}>✓</span>}
     </div>;
@@ -2213,14 +2264,14 @@ function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [
       <div onClick={() => { if (!q) toggleSec(id); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", cursor: q ? "default" : "pointer", userSelect: "none", borderTop: `1px solid ${T.border}` }}>
         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
         <span style={{ flex: 1, fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{title}</span>
-        {selCount > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "1e", borderRadius: 8, padding: "1px 7px" }}>{selCount}</span>}
+        {selCount > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "1e", borderRadius: 12, padding: "1px 7px" }}>{selCount}</span>}
         <span style={{ fontSize: 11, color: T.textDim }}>{items.length}</span>
       </div>
       {/* grid-template-rows 0fr↔1fr animates the height; inner overflow hidden clips during the transition */}
       <div style={{ display: "grid", gridTemplateRows: isOpen ? "1fr" : "0fr", transition: "grid-template-rows 0.22s cubic-bezier(0.4,0,0.2,1), opacity 0.15s ease", opacity: isOpen ? 1 : 0, pointerEvents: isOpen ? "auto" : "none" }}>
         <div style={{ overflow: "hidden", minHeight: 0 }}>
           <div style={{ padding: "6px 14px 2px" }}>
-            <button onClick={(e) => { e.stopPropagation(); selectAll(); }} onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.borderColor = T.accent + "66"; }} onMouseLeave={e => { e.currentTarget.style.background = (T.systemBg || T.surface); e.currentTarget.style.borderColor = T.border; }} style={{ width: "100%", padding: "7px 8px", borderRadius: T.radiusPill, background: "transparent", border: `1px dashed ${T.border}`, color: T.accent, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background-color 0.2s ease, border-color 0.2s ease" }}>{allSel ? "Deselect all" : "Select all"}</button>
+            <button onClick={(e) => { e.stopPropagation(); selectAll(); }} onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.borderColor = T.accent + "66"; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; }} style={{ width: "100%", padding: "7px 8px", borderRadius: T.radiusPill, background: "transparent", border: `1px dashed ${T.border}`, color: T.accent, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background-color 0.2s ease, border-color 0.2s ease" }}>{allSel ? "Deselect all" : "Select all"}</button>
           </div>
           {items.map((o, i) => Row(type, o, i))}
         </div>
@@ -2230,7 +2281,7 @@ function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [
   const popupStyle = { position: "fixed", left: coords?.left ?? -9999, top: coords?.top ?? -9999, width: Math.max(coords?.width || 0, 230), zIndex: 100000, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 16px 48px rgba(0,0,0,0.6)", overflow: "hidden", animation: "menuIn 0.15s ease-out", fontFamily: T.font, color: T.text };
   const popup = <FadeOnClose open={open}><div ref={popupRef} className="anim-drop" style={popupStyle}>
     <div style={{ padding: "8px 10px", borderBottom: `1px solid ${T.border}` }}>
-      <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search…" autoFocus style={{ width: "100%", padding: "8px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box", outline: "none" }} />
+      <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search…" autoFocus style={{ width: "100%", padding: "8px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box", outline: "none" }} />
     </div>
     <div style={{ maxHeight: 300, overflow: "auto" }}>
       {noneMatch && <div style={{ padding: "20px 16px", textAlign: "center", fontSize: 13, color: T.textDim }}>No matches for "{q}"</div>}
@@ -2246,9 +2297,9 @@ function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [
     {asIconButton
       ? <button ref={triggerRef} className="icon-btn-glow" onClick={(e) => { e.stopPropagation(); if (!open) onOpen?.(); setOpen(o => !o); }} title="Grouping" style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${value.length > 0 ? T.accent + "88" : T.border}`, background: value.length > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: value.length > 0 ? T.accent : T.textSec, position: "relative" }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-          {value.length > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{value.length}</span>}
+          {value.length > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 12, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{value.length}</span>}
         </button>
-      : <div ref={triggerRef} onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: compact ? 7 : 10, padding: compact ? "5px 9px" : "12px 16px", borderRadius: compact ? T.radiusXs : T.radiusSm, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: T.glass, cursor: "pointer", transition: "border 0.15s" }}>
+      : <div className="tq-drop" ref={triggerRef} onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: compact ? 7 : 10, padding: compact ? "5px 9px" : "12px 16px", borderRadius: compact ? T.radiusXs : T.radiusSm, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: `var(--tq-field-bg, ${T.surface})`, cursor: "pointer", transition: "border 0.15s" }}>
           {value.length > 0
             ? <span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.accent, fontWeight: 700 }}>{value.length} selected</span>
             : <span style={{ flex: 1, fontSize: compact ? 11 : 14, color: T.textDim }}>Group by…</span>}
@@ -2279,8 +2330,8 @@ function AssigneeSelect({ value, onChange, personOptions, people, extraStyle, co
   const showSearch = opts.length > 5;
   const fs = compact ? 11 : 12;
   return <div ref={ref} style={{ position: "relative", ...(extraStyle || {}) }}>
-    <div onClick={() => { if (!open) onOpen?.(); setOpen(o => !o); }}
-      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, padding: "5px 7px", borderRadius: T.radiusXs, border: `1px solid ${open ? T.accent : T.border}`, background: T.bg, cursor: "pointer", userSelect: "none", fontFamily: T.font, boxSizing: "border-box", transition: "border-color 0.15s" }}>
+    <div className="tq-drop" onClick={() => { if (!open) onOpen?.(); setOpen(o => !o); }}
+      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, padding: "5px 7px", borderRadius: T.radiusXs, border: `1px solid ${open ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, cursor: "pointer", userSelect: "none", fontFamily: T.font, boxSizing: "border-box", transition: "border-color 0.15s" }}>
       <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: value ? T.bgText : hexA(T.bgText, 0.55), fontSize: fs }}>
         {value || "(unassigned)"}
       </span>
@@ -2289,14 +2340,14 @@ function AssigneeSelect({ value, onChange, personOptions, people, extraStyle, co
     <FadeOnClose open={open}><div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 1000, minWidth: Math.max(200, ref.current?.offsetWidth || 0), maxWidth: 300, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 12px 32px rgba(0,0,0,0.45)", overflow: "hidden", animation: "menuIn 0.15s ease-out" }}>
       {showSearch && <div style={{ padding: "6px 8px", borderBottom: `1px solid ${T.border}` }}>
         <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search people…" autoFocus
-          style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, boxSizing: "border-box", outline: "none" }} />
+          style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontFamily: T.font, boxSizing: "border-box", outline: "none" }} />
       </div>}
       <div style={{ maxHeight: 220, overflow: "auto" }}>
         <div onClick={() => { onChange(""); setOpen(false); setQ(""); }}
           style={{ transition: "background-color 0.15s ease", padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: !value ? T.accent : T.textSec, fontWeight: !value ? 600 : 400, background: !value ? T.accent + "10" : "transparent", animation: "toolDrop 0.14s 0ms both ease-out" }}
           onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong}
           onMouseLeave={e => e.currentTarget.style.background = !value ? T.accent + "10" : "transparent"}>
-          <div style={{ width: 8, height: 8, borderRadius: 4, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />
+          <div style={{ width: 8, height: 8, borderRadius: 8, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />
           (unassigned)
         </div>
         {filtered.length === 0 && <div style={{ padding: "16px 12px", textAlign: "center", fontSize: 12, color: T.textDim }}>No matches</div>}
@@ -2308,7 +2359,7 @@ function AssigneeSelect({ value, onChange, personOptions, people, extraStyle, co
             style={{ transition: "background-color 0.15s ease", padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: isOn ? dotColor : T.text, fontWeight: isOn ? 600 : 400, background: isOn ? dotColor + "12" : "transparent", animation: `toolDrop 0.14s ${(oi + 1) * 38}ms both ease-out` }}
             onMouseEnter={e => e.currentTarget.style.background = dotColor + "18"}
             onMouseLeave={e => e.currentTarget.style.background = isOn ? dotColor + "12" : "transparent"}>
-            <div style={{ width: 8, height: 8, borderRadius: 4, background: dotColor, flexShrink: 0 }} />
+            <div style={{ width: 8, height: 8, borderRadius: 8, background: dotColor, flexShrink: 0 }} />
             <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.name}</span>
             {o.isNew && <span style={{ fontSize: 10, color: T.textDim, fontWeight: 700, letterSpacing: "-0.045em" }}>NEW</span>}
           </div>;
@@ -2338,14 +2389,14 @@ function TemplateDrop({ templates, onLoad, onDeleteRequest }) {
     <FadeOnClose open={open}><div style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.3)", minWidth: 220, padding: "4px 0", animation: "menuIn 0.15s ease-out" }}>
       {templates.map((tpl, ti) => (
         <div key={tpl.id} style={{ display: "flex", alignItems: "center", animation: `toolDrop 0.14s ${ti * 38}ms both ease-out` }}>
-          <div onClick={() => { onLoad(tpl); setOpen(false); }} style={{ flex: 1, padding: "9px 14px", cursor: "pointer", fontSize: 13, color: T.text, fontWeight: 500, fontFamily: T.font, borderRadius: "4px 0 0 4px" }}
+          <div onClick={() => { onLoad(tpl); setOpen(false); }} style={{ flex: 1, padding: "9px 14px", cursor: "pointer", fontSize: 13, color: T.text, fontWeight: 500, fontFamily: T.font, borderRadius: "8px 0 0 8px" }}
             onMouseEnter={e => e.currentTarget.style.background = T.hover}
             onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             {tpl.name}
           </div>
           <Tip label="Delete template">
           <button onClick={e => { e.stopPropagation(); onDeleteRequest(tpl); setOpen(false); }}
-            style={{ flexShrink: 0, padding: "6px 10px", background: "transparent", border: "none", color: T.textDim, cursor: "pointer", lineHeight: 1, borderRadius: "0 4px 4px 0" }}
+            style={{ flexShrink: 0, padding: "6px 10px", background: "transparent", border: "none", color: T.textDim, cursor: "pointer", lineHeight: 1, borderRadius: "0 8px 8px 0" }}
             onMouseEnter={e => { e.currentTarget.style.color = T.danger; e.currentTarget.style.background = T.danger + "12"; }}
             onMouseLeave={e => { e.currentTarget.style.color = T.textDim; e.currentTarget.style.background = "transparent"; }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
@@ -2440,6 +2491,12 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     // Primary = sidebar / headers / buttons / toggles.
     document.documentElement.style.setProperty("--tq-primary", T.systemBg || solid);
     // Slider pills reuse the toggle track shade so the two read as one control family.
+    // One field colour for every form control — text inputs, textareas and every
+    // dropdown trigger. They had drifted apart (inputs on T.surface, SimpleDrop on
+    // T.bg, SearchSelect on T.glass), so a single modal could show three different
+    // shades across its fields. Anything wanting a different field colour sets
+    // --tq-field-bg on its own container and every control inside follows.
+    document.documentElement.style.setProperty("--tq-field-bg", T.surface);
     document.documentElement.style.setProperty("--tq-toggle-track", hexLum(T.surface) < 0.5 ? blendHex(T.surface, 0.30) : blendHex(T.surface, -0.14));
     document.documentElement.style.setProperty("--tq-accent", T.accent);
     document.documentElement.style.setProperty("--tq-accent-soft", hexA(T.accent, 0.18));
@@ -2481,9 +2538,15 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       return segs.has("18,6,6,18") && segs.has("6,6,18,18");
     };
     const isClose = el => {
+      // textContent includes ALL descendants, so a WRAPPER whose only text comes
+      // from a nested ✕ button matches too — that is what silently erased the
+      // export designer's block outlines, since the wrapper then inherited
+      // `border: none !important`. A real close control has no element children
+      // (or exactly one, the icon svg).
+      const kids = el.children ? el.children.length : 0;
       const s = (el.textContent || "").trim();
-      if (s) return s === "✕" || s === "×" || s === "✖";
-      return isXSvg(el);
+      if (s) return kids === 0 && (s === "✕" || s === "×" || s === "✖");
+      return kids === 1 && String(el.children[0].tagName).toLowerCase() === "svg" && isXSvg(el);
     };
     // Buttons get both classes. Bare-✕ spans/divs (a handful of clear-search and
     // remove-chip controls) are boxed by their own inline background only, so
@@ -2508,7 +2571,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     if (document.querySelector("style[data-traqs-colorpicker]")) return;
     const el = document.createElement("style");
     el.setAttribute("data-traqs-colorpicker", "1");
-    el.textContent = `.react-colorful{width:100%;gap:0}.react-colorful__saturation{border-radius:7px 7px 0 0;flex:1}.react-colorful__hue{height:14px;border-radius:0 0 7px 7px;margin:0}.react-colorful__saturation-pointer,.react-colorful__hue-pointer{width:18px;height:18px;border-width:2.5px}`;
+    el.textContent = `.react-colorful{width:100%;gap:0}.react-colorful__saturation{border-radius:12px 7px 0 0;flex:1}.react-colorful__hue{height:14px;border-radius:0 0 7px 7px;margin:0}.react-colorful__saturation-pointer,.react-colorful__hue-pointer{width:18px;height:18px;border-width:2.5px}`;
     document.head.appendChild(el);
   }, []);
   // Inject date-picker CSS for dynamic custom theme color-scheme
@@ -3389,6 +3452,8 @@ Extraction rules:
   const [exportPtoMode, setExportPtoMode] = useState(false); // hours export: click day cells to toggle PTO highlight
   const [exportTplOpen, setExportTplOpen] = useState(false); // TRAQS-styled template dropdown open state
   const [exportPeriodOpen, setExportPeriodOpen] = useState(false); // Confirmed Hours period picker
+  const [exportPeopleOpen, setExportPeopleOpen] = useState(false); // People picker on the hours export
+  const [exportHoursPeople, setExportHoursPeople] = useState(null); // ids on the sheet; null = not opened yet
   const [exportTplNameOpen, setExportTplNameOpen] = useState(false); // TRAQS-styled "name this template" modal
   const [exportTplName, setExportTplName] = useState("");
   const exportFitDoneRef = useRef(false); // one-time auto-fit-to-content pass per designer open
@@ -3766,7 +3831,7 @@ Extraction rules:
     .page{position:relative;background:#fff;overflow:hidden}
     .page-footer{position:absolute;left:20px;bottom:14px;display:flex;align-items:center;gap:5px;opacity:0.4;filter:grayscale(1);pointer-events:none;z-index:0}
     .page-footer span{font-size:9px;line-height:1;color:#000;font-weight:700;letter-spacing:0.03em;text-transform:uppercase;position:relative;top:2px}
-    .page-footer img{height:13px;width:auto;display:block}
+    .page-footer img{height:13px;width:auto;display:block;position:relative;top:2px}
     .blk{position:absolute;overflow:hidden;display:flex;flex-direction:column;justify-content:center}
     .blk>*{width:100%}
     .blk-logo{width:100%;height:100%;object-fit:contain;object-position:center center}
@@ -4008,11 +4073,33 @@ Extraction rules:
   const seedHoursLayout = (report) => {
     const M = 48, W = 816, PH = 1056;
     const ppl = (report && report.people) || [];
-    // Conservative employees-per-page (each section ~150px tall). Page 1 has less room (header).
-    const FIRST = 4, REST = 6;
+    // One person's section = name header + a row per week + the totals footer. Deriving
+    // it from the report's own week count (rather than a flat 150px) keeps pagination
+    // honest for periods that span a different number of weeks.
+    const SEC_H = 74 + (report?.weekCols?.length || 3) * 26;
+    const FIRST_AVAIL = PH - 250 - 60;   // page 1 also carries logo/date/title/subtitle
+    const REST_AVAIL = PH - M - 60;
+    // Pack by height instead of a fixed 4-then-6 count, so deselecting people
+    // genuinely collapses the sheet instead of leaving the same page count.
     const ranges = [];
     if (!ppl.length) ranges.push([0, 0]);
-    else { let i = 0; while (i < ppl.length) { const n = ranges.length === 0 ? FIRST : REST; ranges.push([i, Math.min(i + n, ppl.length)]); i += n; } }
+    else {
+      let i = 0;
+      while (i < ppl.length) {
+        const avail = ranges.length === 0 ? FIRST_AVAIL : REST_AVAIL;
+        const n = Math.max(1, Math.floor(avail / SEC_H));
+        ranges.push([i, Math.min(i + n, ppl.length)]);
+        i += n;
+      }
+    }
+    // Fit the block to the rows it actually holds rather than reserving the rest of
+    // the page — a part-full last page used to leave a full-height empty block, which
+    // read as blank space on the sheet and as an oversized guide in the designer.
+    // The grand-total row only exists on the last block, so allow for it there.
+    const fitH = (range, avail, last) => {
+      const n = Math.max(0, range[1] - range[0]);
+      return Math.min(avail, n * SEC_H + (last ? 46 : 0) + 8);
+    };
     const pages = ranges.map((range, pi) => {
       const last = pi === ranges.length - 1;
       if (pi === 0) {
@@ -4023,11 +4110,11 @@ Extraction rules:
           { id: uid(), type: "datetime", x: M, y: 112, w: 230, h: 40, opts: defaultExportOpts("datetime"), fmt: { align: "left" } },
           { id: uid(), type: "title", x: M, y: 162, w: W - 2 * M, h: 40, text: "Pay Period Hours", fmt: defaultFmt("title") },
           { id: uid(), type: "subtitle", x: M, y: 206, w: W - 2 * M, h: 26, text: report?.label || "", fmt: defaultFmt("subtitle") },
-          { id: uid(), type: "hours", x: M, y: top, w: W - 2 * M, h: PH - top - 60, opts: defaultExportOpts("hours"), range, showGrand: last },
+          { id: uid(), type: "hours", x: M, y: top, w: W - 2 * M, h: fitH(range, FIRST_AVAIL, last), opts: defaultExportOpts("hours"), range, showGrand: last },
         ] };
       }
       return { blocks: [
-        { id: uid(), type: "hours", x: M, y: M, w: W - 2 * M, h: PH - M - 60, opts: defaultExportOpts("hours"), range, showGrand: last },
+        { id: uid(), type: "hours", x: M, y: M, w: W - 2 * M, h: fitH(range, REST_AVAIL, last), opts: defaultExportOpts("hours"), range, showGrand: last },
       ] };
     });
     return { orientation: "portrait", grid: 16, snap: true, logoDataUrl: null, pages };
@@ -4094,9 +4181,17 @@ Extraction rules:
   // hours flow to the accountant. Excludes the live open shift and job-clock logs.
   // Lists every hourly person, including 0h, so the accountant has the full roster.
   // Component-scoped so both Analytics and the Time Clock page can launch it.
+  // Who belongs on the payroll sheet by default: hourly staff only. Salary people
+  // are excluded because their hours aren't what payroll is reconciling — they can
+  // still be added by hand from the People picker in the export toolbar.
+  const isHourly = p => (p.payType || "hourly") !== "salary";
+  const defaultHoursPeople = () => people.filter(isHourly).map(p => String(p.id));
+
   // `period` ({ start, end }) builds the report for any pay period — the Confirmed
   // Hours dropdown passes a past one. Omitted, it reports the current period.
-  const buildHoursReport = (period = null) => {
+  // `personIds` (array of ids) overrides who appears; omitted, hourly staff only.
+  const buildHoursReport = (period = null, personIds = null) => {
+    const pick = personIds ? new Set(personIds.map(String)) : null;
     const payPeriod = period || getPayPeriodFromDates(orgSettings.payDates || [5, 20], TD);
     const PERIOD_HOUR_CAP = orgSettings.payPeriodHourCap || 80;
     const r2 = n => Math.round(n * 100) / 100;
@@ -4124,7 +4219,7 @@ Extraction rules:
     });
 
     // Per-person daily timesheet. Hourly only, incl. 0h, sorted by name.
-    const people_ = people.filter(p => p.payType !== "salary").slice().sort((a, b) => a.name.localeCompare(b.name)).map(p => {
+    const people_ = people.filter(p => (pick ? pick.has(String(p.id)) : isHourly(p))).slice().sort((a, b) => a.name.localeCompare(b.name)).map(p => {
       // Completed PAY-CLOCK punches (clockIn + clockOut, net of lunch/break), CONFIRMED only, summed by date.
       const hoursByDate = {};
       timeclock
@@ -4176,22 +4271,29 @@ Extraction rules:
     return { start: payPeriod.start, end: payPeriod.end, label: `${fmtY(payPeriod.start)} – ${fmtY(payPeriod.end)}`, cap: PERIOD_HOUR_CAP, dates, weekCols, people: people_, rows, total };
   };
 
-  // Rebuild the export for a given pay period, keeping the designer in sync.
-  const loadHoursPeriod = (period) => {
-    const report = buildHoursReport(period);
+  // Rebuild the export for a pay period and/or a person selection, keeping the
+  // designer in sync. Both default to whatever the open report already used, so
+  // changing one doesn't silently reset the other.
+  const loadHoursPeriod = (period, personIds) => {
+    const ids = personIds || exportHoursPeople || defaultHoursPeople();
+    const report = buildHoursReport(period, ids);
+    setExportHoursPeople(ids);
     setExportLayout(seedHoursLayout(report));
     setExportPageIdx(0);
     resetExportHistory();
-    setExportPreview(prev => ({ ...(prev || { kind: "pdf", jobs: [], mime: "application/pdf" }), hoursReport: report, filename: `pay-period-hours_${report.start}_to_${report.end}.pdf` }));
+    setExportPreview(prev => ({ ...(prev || { kind: "pdf", jobs: [], mime: "application/pdf" }), hoursReport: report, hoursPeriod: period || prev?.hoursPeriod || null, filename: `pay-period-hours_${report.start}_to_${report.end}.pdf` }));
   };
   const openHoursExport = () => {
     // Open on the most recently confirmed period when there is one — that is the
     // period the accountant is almost always here for. Falls back to the current.
-    const report = buildHoursReport(confirmedPeriods[0] || null);
+    const period = confirmedPeriods[0] || null;
+    const ids = defaultHoursPeople();
+    const report = buildHoursReport(period, ids);
+    setExportHoursPeople(ids);
     setExportLayout(seedHoursLayout(report));
     setExportPageIdx(0);
     resetExportHistory();
-    setExportPreview({ kind: "pdf", jobs: [], hoursReport: report, filename: `pay-period-hours_${report.start}_to_${report.end}.pdf`, mime: "application/pdf" });
+    setExportPreview({ kind: "pdf", jobs: [], hoursReport: report, hoursPeriod: period, filename: `pay-period-hours_${report.start}_to_${report.end}.pdf`, mime: "application/pdf" });
   };
   // PTO highlight mode: the preview iframe posts {pid,date,blk} when a day cell is clicked; we
   // toggle that cell's manual yellow on the owning block. Stored on the block so it's saved &
@@ -5762,7 +5864,7 @@ Extraction rules:
                 onChange={v => setFCustom(prev => { const c2 = { ...prev }; if (v) c2[key] = v; else delete c2[key]; return c2; })} />
             ) : (
               <input type={col.type === "number" ? "number" : "text"} value={fCustom[key] || ""} placeholder={`Filter ${col.label}…`} onClick={e => e.stopPropagation()} onChange={e => setFCustom(prev => { const v = e.target.value; const c2 = { ...prev }; if (v) c2[key] = v; else delete c2[key]; return c2; })}
-                style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${fCustom[key] ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: col.type === "number" ? T.mono : T.font, outline: "none", boxSizing: "border-box" }} />
+                style={{ width: "100%", padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${fCustom[key] ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontFamily: col.type === "number" ? T.mono : T.font, outline: "none", boxSizing: "border-box" }} />
             )
           )}
         </div>
@@ -8227,7 +8329,7 @@ ${jobsCtx || "No jobs found."}`;
             <Tip label="Filters">
             <button onClick={() => setFilterOpen(p => !p)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "7px 9px", borderRadius: T.radiusPill, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : T.surface, color: activeFilterCount > 0 ? T.accent : T.textSec, cursor: "pointer", transition: "all 0.15s", position: "relative" }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-              {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 8, minWidth: 16, height: 16, fontSize: 9, fontWeight: 700, lineHeight: "16px", textAlign: "center", padding: "0 4px" }}>{activeFilterCount}</span>}
+              {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 12, minWidth: 16, height: 16, fontSize: 9, fontWeight: 700, lineHeight: "16px", textAlign: "center", padding: "0 4px" }}>{activeFilterCount}</span>}
             </button>
             </Tip>
             <FadeOnClose open={filterOpen}><div className="anim-ctx tq-filter-panel" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 290, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, overflow: "hidden", padding: "16px 20px 16px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font, maxHeight: "80vh", overflowY: "auto" }}>
@@ -8248,7 +8350,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 6 }}>Task #</div>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
-                <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusPill, border: `1.5px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
+                <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusPill, border: `1.5px solid ${fJobNum ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
                 {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 26, height: 26, borderRadius: T.radiusPill, border: "none", background: "transparent", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1 }}>×</button>}
               </div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 6 }}>Role / Area</div>
@@ -8426,8 +8528,8 @@ ${jobsCtx || "No jobs found."}`;
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; handleDrag(e, r, "move"); } }} onContextMenu={e => handleCtx(e, r)}>
                     {_workedPctOfSeg > 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${_workedPctOfSeg}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", borderTopLeftRadius: isFirst ? T.radiusXs : 0, borderBottomLeftRadius: isFirst ? T.radiusXs : 0, zIndex: 2 }} />}
                     {isFirst && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: "rgba(255,255,255,0.15)", borderRadius: T.radiusXs - 1 }} />}
-                    {isFirst && can("moveJobs") && ws.workedHpd === 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                    {isLast && can("moveJobs") && !ws.isFullyWorked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                    {isFirst && can("moveJobs") && ws.workedHpd === 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                    {isLast && can("moveJobs") && !ws.isFullyWorked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     <span style={{ fontSize: r.level === 2 ? 11 : 12, color: barTextColor, fontWeight: 600, padding: "0 12px", position: "relative", zIndex: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 5, flex: 1 }}>{isFirst && hasSubs && <span style={{ fontSize: 9, opacity: 0.7, flexShrink: 0 }}>{isExp ? "▼" : "▶"}</span>}{(isFirst || w > 80) ? label : ""}</span>
                   </div>;
                 });
@@ -8620,7 +8722,7 @@ ${jobsCtx || "No jobs found."}`;
                       <div
                         key={si}
                         onClick={hasSubs ? () => toggleRow(r.id) : undefined}
-                        style={{ position: "absolute", top: (rowH - barH) / 2, left: sL, width: sW, height: barH, background: barColor + "dd", borderRadius: level === 0 ? 4 : 3, overflow: "hidden", display: "flex", alignItems: "center", boxSizing: "border-box", cursor: hasSubs ? "pointer" : "default", borderRight: !isLast ? `2px dashed rgba(255,255,255,0.4)` : undefined, borderLeft: !isFirst ? `2px dashed rgba(255,255,255,0.4)` : undefined, zIndex: 3 }}
+                        style={{ position: "absolute", top: (rowH - barH) / 2, left: sL, width: sW, height: barH, background: barColor + "dd", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", boxSizing: "border-box", cursor: hasSubs ? "pointer" : "default", borderRight: !isLast ? `2px dashed rgba(255,255,255,0.4)` : undefined, borderLeft: !isFirst ? `2px dashed rgba(255,255,255,0.4)` : undefined, zIndex: 3 }}
                       >
                         {_workedPctOfSeg > 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${_workedPctOfSeg}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", zIndex: 2 }} />}
                         {isFirst && hasSubs && (
@@ -8820,7 +8922,7 @@ ${jobsCtx || "No jobs found."}`;
       const k = PILL[kind] || PILL.neutral;
       return (
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 9px", borderRadius: 999, background: k.bg, color: k.fg, fontSize: 11, fontWeight: 700, letterSpacing: "-0.045em", whiteSpace: "nowrap", fontFamily: T.font }}>
-          <span style={{ width: 6, height: 6, borderRadius: 3, background: k.fg, flexShrink: 0 }} />
+          <span style={{ width: 6, height: 6, borderRadius: 8, background: k.fg, flexShrink: 0 }} />
           {children}
         </span>
       );
@@ -9055,10 +9157,10 @@ ${jobsCtx || "No jobs found."}`;
     return <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingTop: 6 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, minHeight: 50, flexWrap: "wrap" }}>
         <h1 style={{ ...pageTitleStyle, marginRight: 10 }}>{queueLabel}</h1>
-        {fEntries.length > 0 && <span style={{ fontSize: 13, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 12, padding: "3px 12px", flexShrink: 0 }}>{fEntries.length}</span>}
+        {fEntries.length > 0 && <span style={{ fontSize: 13, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 16, padding: "3px 12px", flexShrink: 0 }}>{fEntries.length}</span>}
         <div style={{ position: "relative", flex: 1, maxWidth: 320, minWidth: 160 }}>
           <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input value={approvalSearch} onChange={e => setApprovalSearch(e.target.value)} placeholder="Search approvals…" style={{ width: "100%", padding: "8px 28px 8px 30px", borderRadius: T.radiusPill, border: `1px solid ${approvalSearch ? T.accent + "88" : T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+          <input value={approvalSearch} onChange={e => setApprovalSearch(e.target.value)} placeholder="Search approvals…" style={{ width: "100%", padding: "8px 28px 8px 30px", borderRadius: T.radiusPill, border: `1px solid ${approvalSearch ? T.accent + "88" : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
           {approvalSearch && <button onClick={() => setApprovalSearch("")} title="Clear" style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", width: 18, height: 18, borderRadius: "50%", border: "none", background: "transparent", color: T.text, fontSize: 12, lineHeight: 1, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>×</button>}
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
@@ -9068,7 +9170,7 @@ ${jobsCtx || "No jobs found."}`;
               Group: {(groupOpts.find(g => g[0] === approvalGroupBy) || groupOpts[0])[1]}
             </button>
             {approvalGroupOpen && <><div onClick={() => setApprovalGroupOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} /><div className="anim-drop" style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, boxShadow: "0 12px 32px rgba(0,0,0,0.4)", overflow: "hidden", minWidth: 150 }}>
-              {groupOpts.map(([k, lbl]) => <button key={k} onClick={() => { setApprovalGroupBy(k); setApprovalGroupOpen(false); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", background: approvalGroupBy === k ? T.accent + "12" : "transparent", border: "none", color: approvalGroupBy === k ? T.accent : T.text, fontSize: 13, fontWeight: approvalGroupBy === k ? 700 : 500, cursor: "pointer", fontFamily: T.font }} onMouseEnter={ev => { if (approvalGroupBy !== k) ev.currentTarget.style.background = T.hover; }} onMouseLeave={ev => { if (approvalGroupBy !== k) ev.currentTarget.style.background = (T.systemBg || T.surface); }}>{lbl}</button>)}
+              {groupOpts.map(([k, lbl]) => <button key={k} onClick={() => { setApprovalGroupBy(k); setApprovalGroupOpen(false); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", background: approvalGroupBy === k ? T.accent + "12" : "transparent", border: "none", color: approvalGroupBy === k ? T.accent : T.text, fontSize: 13, fontWeight: approvalGroupBy === k ? 700 : 500, cursor: "pointer", fontFamily: T.font }} onMouseEnter={ev => { if (approvalGroupBy !== k) ev.currentTarget.style.background = T.hover; }} onMouseLeave={ev => { if (approvalGroupBy !== k) ev.currentTarget.style.background = "transparent"; }}>{lbl}</button>)}
             </div></>}
           </div>
           <button onClick={() => openApprovalModal(null)} style={{ padding: "7px 14px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 6px ${T.accent}44` }}>+ New Approval</button>
@@ -9085,9 +9187,9 @@ ${jobsCtx || "No jobs found."}`;
         {sections.map(section => (
           <div key={section.key}>
             {String(section.label) !== String(queueLabel) && <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-              {section.color && <div style={{ width: 12, height: 12, borderRadius: 4, background: section.color, flexShrink: 0 }} />}
+              {section.color && <div style={{ width: 12, height: 12, borderRadius: 8, background: section.color, flexShrink: 0 }} />}
               <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: T.text, letterSpacing: "-0.045em" }}>{section.label}</h3>
-              <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 10, padding: "2px 10px" }}>{section.items.length}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 16, padding: "2px 10px" }}>{section.items.length}</span>
             </div>}
             <div className="tq-frost" style={{ borderRadius: T.radius, border: `1.25px solid ${T.border}`, background: T.card, overflowX: "auto" }}>
               <div style={{ minWidth: 1234 }}>
@@ -9119,21 +9221,21 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{ ...cellBase, gap: 4, position: "relative", flexDirection: "column", alignItems: "flex-start", justifyContent: "center" }}>
                       <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: bar }} />
                       <div style={{ display: "flex", alignItems: "center", gap: 7, maxWidth: "100%" }}>
-                        {e.kind === "standalone" && <span style={{ fontSize: 9, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 4, padding: "1px 5px", flexShrink: 0, textTransform: "uppercase", letterSpacing: "-0.045em" }}>New</span>}
+                        {e.kind === "standalone" && <span style={{ fontSize: 9, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 8, padding: "1px 5px", flexShrink: 0, textTransform: "uppercase", letterSpacing: "-0.045em" }}>New</span>}
                         <span style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.title}</span>
-                        {e.isDone && <span style={{ fontSize: 10, fontWeight: 700, color: "#10b981", background: "#10b98118", borderRadius: 8, padding: "1px 7px", flexShrink: 0 }}>✓ Done</span>}
+                        {e.isDone && <span style={{ fontSize: 10, fontWeight: 700, color: "#10b981", background: "#10b98118", borderRadius: 12, padding: "1px 7px", flexShrink: 0 }}>✓ Done</span>}
                       </div>
                       {(e.subtitle || e.jobNumber) && <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{e.jobNumber ? <span style={{ color: T.accent, fontWeight: 700, fontFamily: T.mono }}>#{e.jobNumber}</span> : null}{e.jobNumber && e.subtitle ? " · " : ""}{e.subtitle}</div>}
                     </div>
                     <div style={cellBase}>{client ? <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: elColor(client.color), fontWeight: 600, overflow: "hidden" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: elColor(client.color), flexShrink: 0 }} /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{client.name}</span></span> : <span style={{ fontSize: 12, color: T.textDim }}>—</span>}</div>
-                    <div style={cellBase}><span style={{ fontSize: 11, fontWeight: 700, color: T.textSec, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "2px 8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.deptLabel}</span></div>
+                    <div style={cellBase}><span style={{ fontSize: 11, fontWeight: 700, color: T.textSec, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "2px 8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.deptLabel}</span></div>
                     <div style={{ ...cellBase, justifyContent: "center", cursor: "pointer" }} title="Click to change · right-click to edit options" onClick={ev => { ev.stopPropagation(); cycleApprovalPri(e); }} onContextMenu={openPriEditor}>
-                      {(() => { const pc = priColorOf(e.priority || "Medium"); return <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 8, background: pc + "1a", border: `1px solid ${pc}44`, fontSize: 11, fontWeight: 700, color: pc, userSelect: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.priority || "Medium"}</span>; })()}
+                      {(() => { const pc = priColorOf(e.priority || "Medium"); return <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 12, background: pc + "1a", border: `1px solid ${pc}44`, fontSize: 11, fontWeight: 700, color: pc, userSelect: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.priority || "Medium"}</span>; })()}
                     </div>
                     <div style={cellBase}>
                       <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div style={{ flex: 1, height: 6, borderRadius: 3, background: T.border, overflow: "hidden", minWidth: 40 }}><div style={{ height: "100%", width: pct + "%", background: bar, borderRadius: 3, transition: "width 0.3s" }} /></div>
+                          <div style={{ flex: 1, height: 6, borderRadius: 8, background: T.border, overflow: "hidden", minWidth: 40 }}><div style={{ height: "100%", width: pct + "%", background: bar, borderRadius: 8, transition: "width 0.3s" }} /></div>
                           <span style={{ fontSize: 11, fontWeight: 700, color: bar, fontFamily: T.mono, flexShrink: 0 }}>{e.doneCount}/{e.totalCount}</span>
                         </div>
                         <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
@@ -9146,8 +9248,8 @@ ${jobsCtx || "No jobs found."}`;
                             // if unassigned, anyone with approval ability. Otherwise the step is shown locked/greyed.
                             const canDoThis = s.assigneeId ? (String(loggedInUser?.id) === String(s.assigneeId) || isAdmin) : canApprove;
                             if (isActive && canDoThis) return <button key={sIdx} onClick={() => signStep(e, sIdx)} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 12px", borderRadius: T.radiusPill, background: brandGrad(T.accent), color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 6px ${T.accent}55` }}>→ {s.label}{tag}</button>;
-                            if (isActive) return <Tip key={sIdx} label={s.assigneeId ? `Assigned to ${assignee?.name || "someone else"} — only they can complete this step` : "You don't have approval access for this step"}><span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 11px", borderRadius: 12, background: T.surface, border: `1px solid ${T.border}`, fontSize: 11, fontWeight: 700, color: T.textDim, opacity: 0.85, cursor: "not-allowed" }}><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>{s.label}{tag}</span></Tip>;
-                            return <span key={sIdx} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 12, border: `1px dashed ${T.border}`, fontSize: 11, fontWeight: 500, color: T.textDim, opacity: 0.7 }}>○ {s.label}{tag}</span>;
+                            if (isActive) return <Tip key={sIdx} label={s.assigneeId ? `Assigned to ${assignee?.name || "someone else"} — only they can complete this step` : "You don't have approval access for this step"}><span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 11px", borderRadius: 16, background: T.surface, border: `1px solid ${T.border}`, fontSize: 11, fontWeight: 700, color: T.textDim, opacity: 0.85, cursor: "not-allowed" }}><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>{s.label}{tag}</span></Tip>;
+                            return <span key={sIdx} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 16, border: `1px dashed ${T.border}`, fontSize: 11, fontWeight: 500, color: T.textDim, opacity: 0.7 }}>○ {s.label}{tag}</span>;
                           })}
                           {e.steps.length === 0 && <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic" }}>No steps{e.editable ? " — right-click to add" : ""}</span>}
                         </div>
@@ -9238,7 +9340,7 @@ ${jobsCtx || "No jobs found."}`;
                 onMouseEnter={e => { if (!alreadyAdded) e.currentTarget.style.background = T.hoverStrong; }}
                 onMouseLeave={e => { if (!alreadyAdded) e.currentTarget.style.background = T.hover; }}>
                 <div style={{ display: "flex", flex: 1, alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 9, color: T.textDim, fontWeight: 600, background: T.surface, padding: "1px 5px", borderRadius: 4, border: `1px solid ${T.border}`, flexShrink: 0 }}>{tpl.type === "select" ? "LIST" : tpl.type === "number" ? "NUM" : "TXT"}</span>
+                  <span style={{ fontSize: 9, color: T.textDim, fontWeight: 600, background: T.surface, padding: "1px 5px", borderRadius: 8, border: `1px solid ${T.border}`, flexShrink: 0 }}>{tpl.type === "select" ? "LIST" : tpl.type === "number" ? "NUM" : "TXT"}</span>
                   <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{tpl.label}</span>
                 </div>
                 {alreadyAdded ? <span style={{ fontSize: 9, color: T.textDim }}>✓</span> : <span style={{ fontSize: 10, color: T.accent, fontWeight: 700 }}>+</span>}
@@ -9249,14 +9351,9 @@ ${jobsCtx || "No jobs found."}`;
         {/* Section: Custom Column */}
         <div style={{ padding: "10px 14px 14px", borderTop: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>Custom Column</div>
-          <input value={customColLabel} onChange={e => setCustomColLabel(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && customColLabel.trim()) { const id = uid(); setCustomCols(prev => [...prev, { id, label: customColLabel.trim(), type: customColType, options: customColType === "select" ? toOptObjs(["—", "Option 1", "Option 2"]) : [] }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setCustomColLabel(""); setColPickerOpen(false); } if (e.key === "Escape") setColPickerOpen(false); }} placeholder="Column name…" style={{ width: "100%", padding: "7px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box", marginBottom: 6 }} />
+          <input value={customColLabel} onChange={e => setCustomColLabel(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && customColLabel.trim()) { const id = uid(); setCustomCols(prev => [...prev, { id, label: customColLabel.trim(), type: customColType, options: customColType === "select" ? toOptObjs(["—", "Option 1", "Option 2"]) : [] }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setCustomColLabel(""); setColPickerOpen(false); } if (e.key === "Escape") setColPickerOpen(false); }} placeholder="Column name…" style={{ width: "100%", padding: "7px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box", marginBottom: 6 }} />
           <div style={{ display: "flex", gap: 6 }}>
-            <select value={customColType} onChange={e => setCustomColType(e.target.value)} style={{ flex: 1, padding: "7px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
-              <option value="text">Text</option>
-              <option value="number">Number</option>
-              <option value="date">Date</option>
-              <option value="select">Dropdown (List)</option>
-            </select>
+            <div style={{ flex: 1 }}><SimpleDrop pill portal value={customColType} onChange={v => setCustomColType(v)} options={[{ value: "text", label: "Text" }, { value: "number", label: "Number" }, { value: "date", label: "Date" }, { value: "select", label: "Dropdown (List)" }]} /></div>
             <button onClick={() => { if (!customColLabel.trim()) return; const id = uid(); setCustomCols(prev => [...prev, { id, label: customColLabel.trim(), type: customColType, options: customColType === "select" ? toOptObjs(["—", "Option 1", "Option 2"]) : [] }]); setColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), 120, prev[prev.length - 1]]); setCustomColLabel(""); setColPickerOpen(false); }} style={{ padding: "7px 14px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: customColLabel.trim() ? 1 : 0.4 }}>Add</button>
           </div>
         </div>
@@ -9288,12 +9385,12 @@ ${jobsCtx || "No jobs found."}`;
             <div ref={toolbarRef} style={{ position: "relative", flexShrink: 0 }}>
               <button className="icon-btn-glow" onClick={e => { e.stopPropagation(); setTaskFilterOpen(p => !p); }} title="Filter" style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${activeFilterCount > 0 ? T.accent+"88" : T.border}`, background: activeFilterCount > 0 ? T.accent+"15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
+                {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 12, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
               </button>
               <FadeOnClose open={taskFilterOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 14, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
                 <div style={{ animation: `toolDrop 0.14s 0ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Filter Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => { const active = s === "All" ? fStat.length === 0 : fStat.includes(s); return <button key={s} onClick={() => s === "All" ? setFStat([]) : setFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : T.surface, color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>; })}</div></div>
                 <div style={{ animation: `toolDrop 0.14s 38ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Time Period</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{['current','future','finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : T.surface, color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{tp.charAt(0).toUpperCase()+tp.slice(1)}</button>; })}</div></div>
-                <div style={{ animation: `toolDrop 0.14s 152ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: hexA(T.systemText || T.textDim, 0.65), textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Job #</div><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.systemText || T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />{fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: T.radiusPill, border: "none", background: "transparent", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}</div></div>
+                <div style={{ animation: `toolDrop 0.14s 152ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: hexA(T.systemText || T.textDim, 0.65), textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Job #</div><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.systemText || T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />{fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: T.radiusPill, border: "none", background: "transparent", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}</div></div>
                 {renderCustomColFilters()}
                 {activeFilterCount > 0 && <button onClick={() => { setFStat([]); setFClient([]); setFPers([]); setGrouping([]); setFJobNum(""); setFRole([]); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "6px 12px", borderRadius: T.radiusPill, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font, animation: `toolDrop 0.14s 190ms both ease-out` }}>Clear all filters</button>}
               </div></FadeOnClose>
@@ -9309,7 +9406,7 @@ ${jobsCtx || "No jobs found."}`;
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               </span>
               {(taskSearchOpen || taskSearchQ) && <>
-                <input id="taskSearchInput" value={taskSearchQ} onChange={e => setTaskSearchQ(e.target.value)} placeholder="Search jobs…" style={{ flex: 1, minWidth: 0, padding: "0 8px 0 2px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font }} />
+                <input className="tq-bare" id="taskSearchInput" value={taskSearchQ} onChange={e => setTaskSearchQ(e.target.value)} placeholder="Search jobs…" style={{ flex: 1, minWidth: 0, padding: "0 8px 0 2px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font }} />
                 {taskSearchQ && <button onClick={e => { e.stopPropagation(); setTaskSearchQ(""); document.getElementById("taskSearchInput")?.focus(); }} style={{ width: 22, height: 22, marginRight: 3, padding: 0, borderRadius: T.radiusPill, border: "none", background: "transparent", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 1 }}>×</button>}
               </>}
             </div>
@@ -9361,7 +9458,7 @@ ${jobsCtx || "No jobs found."}`;
               <Tip label="Filter">
               <button onClick={e => { e.stopPropagation(); setTaskFilterOpen(p => !p); }} style={{ width: 34, height: 34, borderRadius: T.radiusPill, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-                {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 8, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
+                {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 12, minWidth: 14, height: 14, fontSize: 8, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{activeFilterCount}</span>}
               </button>
               </Tip>
               <FadeOnClose open={taskFilterOpen}>{taskFilterOpen && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: 36, right: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 200, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
@@ -9391,7 +9488,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div>
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Job #</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
+                    <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
                     {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: T.radiusPill, border: "none", background: "transparent", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}
                   </div>
                 </div>
@@ -9402,7 +9499,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
           <div style={{ position: "relative", marginBottom: 8 }}>
             <svg style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input value={jobSearch} onChange={e => setJobSearch(e.target.value)} placeholder="Search jobs…" style={{ width: "100%", padding: "7px 28px 7px 28px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+            <input value={jobSearch} onChange={e => setJobSearch(e.target.value)} placeholder="Search jobs…" style={{ width: "100%", padding: "7px 28px 7px 28px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
             {jobSearch && <button onClick={() => setJobSearch("")} style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 14, lineHeight: 1, padding: 0 }}>×</button>}
           </div>
           <div style={{ flex: 1, overflow: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
@@ -9427,7 +9524,7 @@ ${jobsCtx || "No jobs found."}`;
                   <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
                 </div>
                 <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                  {t.jobNumber && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 4, padding: "1px 5px", fontFamily: T.mono }}>#{t.jobNumber}</span>}
+                  {t.jobNumber && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 8, padding: "1px 5px", fontFamily: T.mono }}>#{t.jobNumber}</span>}
                   {client && <span style={{ fontSize: 11, color: elColor(client.color), fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: elColor(client.color), display: "inline-block" }} />{client.name}</span>}
                   {t.projectManagerId && (() => { const pm = people.find(p => p.id === t.projectManagerId); return pm ? <span style={{ fontSize: 10, color: T.accent, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><PersonAvatar person={pm} size={10} />{pm.name.split(" ")[0]}</span> : null; })()}
                   {t.scheduledLater ? <span style={{ fontSize: 10, color: "#f59e0b", fontWeight: 600, marginLeft: "auto" }}>PENDING</span> : <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono, marginLeft: "auto" }}>{fm(t.start)} – {fm(t.end)}</span>}
@@ -9475,9 +9572,9 @@ ${jobsCtx || "No jobs found."}`;
                   <div>
                     <h2 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>{fresh.title}</h2>
                     {(fresh.jobNumber || fresh.poNumber || fresh.projectManagerId) && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
-                      {fresh.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>Task # {fresh.jobNumber}</span>}
-                      {fresh.poNumber && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98115", border: "1px solid #10b98133", borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>PO # {fresh.poNumber}</span>}
-                      {fresh.projectManagerId && (() => { const pm = people.find(p => p.id === fresh.projectManagerId); return pm ? <span style={{ fontSize: 12, fontWeight: 700, color: T.textSec, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 6, padding: "3px 10px", display: "flex", alignItems: "center", gap: 5 }}><PersonAvatar person={pm} size={14} />PM: {pm.name}</span> : null; })()}
+                      {fresh.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 12, padding: "3px 10px", fontFamily: T.mono }}>Task # {fresh.jobNumber}</span>}
+                      {fresh.poNumber && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98115", border: "1px solid #10b98133", borderRadius: 12, padding: "3px 10px", fontFamily: T.mono }}>PO # {fresh.poNumber}</span>}
+                      {fresh.projectManagerId && (() => { const pm = people.find(p => p.id === fresh.projectManagerId); return pm ? <span style={{ fontSize: 12, fontWeight: 700, color: T.textSec, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "3px 10px", display: "flex", alignItems: "center", gap: 5 }}><PersonAvatar person={pm} size={14} />PM: {pm.name}</span> : null; })()}
                     </div>}
                   </div>
                 </div>
@@ -9497,7 +9594,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>}
               <div style={{ marginBottom: 20 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 6 }}>Notes</div>
-                <textarea key={fresh.id} defaultValue={fresh.notes || ""} onBlur={e => updTask(fresh.id, { notes: e.target.value })} rows={3} placeholder="Add notes…" style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, color: T.text, fontSize: 14, padding: "12px 14px", fontFamily: T.font, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6, transition: "border-color 0.15s" }} onFocus={e => e.target.style.borderColor = T.accent} />
+                <textarea key={fresh.id} defaultValue={fresh.notes || ""} onBlur={e => updTask(fresh.id, { notes: e.target.value })} rows={3} placeholder="Add notes…" style={{ width: "100%", background: `var(--tq-field-bg, ${T.surface})`, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, color: T.text, fontSize: 14, padding: "12px 14px", fontFamily: T.font, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6, transition: "border-color 0.15s" }} onFocus={e => e.target.style.borderColor = T.accent} />
               </div>
               {customCols.filter(c => !c.fieldKey).length > 0 && <div style={{ marginBottom: 20 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>Custom Fields</div>
@@ -9508,12 +9605,10 @@ ${jobsCtx || "No jobs found."}`;
                     return <div key={col.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <span style={{ fontSize: 12, color: T.textDim, fontWeight: 600, minWidth: 90, flexShrink: 0 }}>{col.label}</span>
                       {col.type === "select" && (col.options || []).length > 0
-                        ? <select key={fresh.id + key} value={val} onChange={e => updTask(fresh.id, { [key]: e.target.value })} style={{ flex: 1, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: val && val !== "—" ? T.text : T.textDim, fontSize: 13, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
-                            {(col.options || []).map(o => { const n = optName(o); return <option key={n} value={n === "—" ? "" : n}>{n}</option>; })}
-                          </select>
+                        ? <div style={{ flex: 1 }}><SimpleDrop pill portal key={fresh.id + key} value={val} placeholder="—" options={[{ value: "", label: "—" }, ...(col.options || []).map(o => { const n = optName(o); return { value: n === "—" ? "" : n, label: n }; }).filter(o => o.value !== "")]} onChange={v => updTask(fresh.id, { [key]: v })} /></div>
                         : col.type === "date"
                         ? <DateField square compact value={val || ""} placeholder="—" style={{ flex: 1 }} onChange={v => updTask(fresh.id, { [key]: v })} />
-                        : <input className="tq-sq" key={fresh.id + key} type={col.type === "number" ? "number" : "text"} defaultValue={val} placeholder="—" style={{ flex: 1, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: col.type === "number" ? T.mono : T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { [key]: e.target.value }); }} />}
+                        : <input className="tq-sq" key={fresh.id + key} type={col.type === "number" ? "number" : "text"} defaultValue={val} placeholder="—" style={{ flex: 1, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: col.type === "number" ? T.mono : T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { [key]: e.target.value }); }} />}
                     </div>;
                   })}
                 </div>
@@ -9529,7 +9624,7 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                       <HealthIcon t={panel} size={14} />
                       <span style={{ flex: 1, fontSize: 14, color: T.text, fontWeight: 600, fontFamily: T.mono }}>{panel.title}</span>
-                      {panel.dateOverridden && <span title={`Original start: ${fm(panel.dateOverridden.originalStart)} · Overridden by ${panel.dateOverridden.overriddenBy} on ${fm(panel.dateOverridden.overriddenAt)}`} style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 8, background: "#f59e0b15", color: "#f59e0b", border: "1px solid #f59e0b33", cursor: "help", flexShrink: 0 }}>Date Overridden</span>}
+                      {panel.dateOverridden && <span title={`Original start: ${fm(panel.dateOverridden.originalStart)} · Overridden by ${panel.dateOverridden.overriddenBy} on ${fm(panel.dateOverridden.overriddenAt)}`} style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 12, background: "#f59e0b15", color: "#f59e0b", border: "1px solid #f59e0b33", cursor: "help", flexShrink: 0 }}>Date Overridden</span>}
                       <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fm(panel.start)} → {fm(panel.end)}</span>
                     </div>
                     {hasEng && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: T.radiusXs, marginBottom: 8, background: engAllDone ? "#10b98108" : T.accent + "08", border: `1px solid ${engAllDone ? "#10b98133" : T.accent + "22"}`, flexWrap: "wrap" }}>
@@ -9544,10 +9639,10 @@ ${jobsCtx || "No jobs found."}`;
                       })}
                       {engAllDone && <span style={{ marginLeft: "auto", fontSize: 11, color: "#10b981", fontWeight: 600 }}>✓ Ready</span>}
                     </div>}
-                    {!hasEng && isAdmin && <div onClick={() => updTask(panel.id, { engineering: { designed: null, verified: null, sentToPerforex: null } }, parent.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "3px 8px", borderRadius: 8, border: `1px solid ${T.border}`, marginBottom: 8, transition: "all 0.15s" }} onMouseEnter={e => e.currentTarget.style.borderColor = T.accent} onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>
+                    {!hasEng && isAdmin && <div onClick={() => updTask(panel.id, { engineering: { designed: null, verified: null, sentToPerforex: null } }, parent.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "3px 8px", borderRadius: 12, border: `1px solid ${T.border}`, marginBottom: 8, transition: "all 0.15s" }} onMouseEnter={e => e.currentTarget.style.borderColor = T.accent} onMouseLeave={e => e.currentTarget.style.borderColor = T.border}>
                       <span style={{ fontSize: 11, color: T.textDim, fontWeight: 600 }}>+ Require {approverLabel} sign-off</span>
                     </div>}
-                    {hasEng && isAdmin && <div onClick={() => updTask(panel.id, { engineering: undefined }, parent.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "3px 8px", borderRadius: 8, border: `1px solid ${T.accent}44`, marginBottom: 8, background: T.accent + "08", transition: "all 0.15s" }}>
+                    {hasEng && isAdmin && <div onClick={() => updTask(panel.id, { engineering: undefined }, parent.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", padding: "3px 8px", borderRadius: 12, border: `1px solid ${T.accent}44`, marginBottom: 8, background: T.accent + "08", transition: "all 0.15s" }}>
                       <span style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>✓ {approverLabel} sign-off enabled — remove?</span>
                     </div>}
                     {(panel.subs || []).length > 0 && <div>
@@ -9702,7 +9797,7 @@ ${jobsCtx || "No jobs found."}`;
                 {level === 1 && <div style={{ width: 5, height: 5, borderRadius: "50%", background: staColorOf(getPanelDisplayStatus(item)), flexShrink: 0, opacity: 0.8 }} />}
                 {level === 2 && <div style={{ width: 4, height: 4, borderRadius: "50%", background: T.textDim, flexShrink: 0, opacity: 0.5 }} />}
                 {isEdit(item.id, "title")
-                  ? <input className="tq-sq" autoFocus defaultValue={item.title} onBlur={e => commitEdit(item.id, "title", e.target.value, pid)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ flex: 1, background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 4, color: T.text, fontSize: level === 0 ? 13 : 12, fontWeight: level === 0 ? 700 : 500, fontFamily: T.font, padding: "1px 4px", minWidth: 0 }} />
+                  ? <input className="tq-sq tq-bare" autoFocus defaultValue={item.title} onBlur={e => commitEdit(item.id, "title", e.target.value, pid)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ flex: 1, background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 8, color: T.text, fontSize: level === 0 ? 13 : 12, fontWeight: level === 0 ? 700 : 500, fontFamily: T.font, padding: "1px 4px", minWidth: 0 }} />
                   : <span style={{ flex: 1, fontSize: level === 0 ? 13 : 12, fontWeight: level === 0 ? 700 : level === 1 ? 600 : 500, color: level === 2 ? T.textSec : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.title}</span>}
               </div>
             );
@@ -9710,7 +9805,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ ...cellBase, fontFamily: T.mono, fontSize: 11 }}
                 onClick={e => level === 0 && startEdit(e, item.id, "jobNumber")}>
                 {isEdit(item.id, "jobNumber")
-                  ? <input className="tq-sq" autoFocus defaultValue={item.jobNumber || ""} onBlur={e => commitEdit(item.id, "jobNumber", e.target.value)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ width: "100%", background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 4, color: T.text, fontSize: 11, fontFamily: T.mono, padding: "1px 4px" }} />
+                  ? <input className="tq-sq tq-bare" autoFocus defaultValue={item.jobNumber || ""} onBlur={e => commitEdit(item.id, "jobNumber", e.target.value)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ width: "100%", background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 8, color: T.text, fontSize: 11, fontFamily: T.mono, padding: "1px 4px" }} />
                   : <span style={{ color: item.jobNumber ? T.text : T.textDim, fontWeight: item.jobNumber ? 600 : 400, cursor: level === 0 ? "text" : "default" }}>{item.jobNumber ? `#${item.jobNumber}` : level === 0 ? "—" : ""}</span>}
               </div>
             );
@@ -9785,8 +9880,8 @@ ${jobsCtx || "No jobs found."}`;
                   {level === 0 && <span style={{ fontSize: 9, color: T.textDim }}>{(item.subs || []).flatMap(p => p.subs || []).filter(o => o.status === "Finished").length}/{(item.subs || []).flatMap(p => p.subs || []).length} ops</span>}
                   {level === 1 && <span style={{ fontSize: 9, color: T.textDim }}>{(item.subs || []).filter(o => o.status === "Finished").length}/{(item.subs || []).length}</span>}
                 </div>
-                <div style={{ height: 4, borderRadius: 2, background: T.border, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${pct}%`, borderRadius: 2, background: pc, transition: "width 0.3s" }} />
+                <div style={{ height: 4, borderRadius: 8, background: T.border, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${pct}%`, borderRadius: 8, background: pc, transition: "width 0.3s" }} />
                 </div>
               </div>
             );
@@ -9879,7 +9974,7 @@ ${jobsCtx || "No jobs found."}`;
                 const ccCond = getCellCondStyle(key);
                 if (col.fieldKey === "color") return (
                   <div key={col.id} style={{ ...cellBase, justifyContent: "center", ...ccCond }}>
-                    {level === 1 && <div style={{ width: 18, height: 18, borderRadius: 9, background: elColor(item.color || "#94a3b8"), border: `2px solid ${item.color ? elColor(item.color) + "55" : T.border}`, boxShadow: item.color ? `0 0 6px ${elColor(item.color)}44` : "none" }} />}
+                    {level === 1 && <div style={{ width: 18, height: 18, borderRadius: 12, background: elColor(item.color || "#94a3b8"), border: `2px solid ${item.color ? elColor(item.color) + "55" : T.border}`, boxShadow: item.color ? `0 0 6px ${elColor(item.color)}44` : "none" }} />}
                   </div>
                 );
                 if (col.type === "checkbox") {
@@ -9900,10 +9995,10 @@ ${jobsCtx || "No jobs found."}`;
                   // Styled picker (matches the Status column) instead of a native <select>, whose
                   // option list renders in the OS system font rather than the app font.
                   return (
-                    <div key={col.id} style={{ ...cellBase, justifyContent: "center", cursor: "pointer", ...ccCond }}
+                    <div key={col.id} className="tq-cell-drop" style={{ ...cellBase, justifyContent: "center", cursor: "pointer", ...ccCond }}
                       onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); const p = placePopover(r, (col.options || []).length); setCcSelectPopover({ itemId: item.id, pid: pid || null, key, current: selVal, options: col.options || [], x: p.x, y: p.y, maxHeight: p.maxHeight, up: p.up }); }}>
                       {selVal
-                        ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 10, background: selColor + "20", border: `1px solid ${selColor}44`, fontSize: 11, fontWeight: 700, color: selColor, whiteSpace: "nowrap", userSelect: "none" }}>{selIcon ? <span style={{ fontSize: 12 }}>{selIcon}</span> : null}{selVal}</span>
+                        ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 16, background: selColor + "20", border: `1px solid ${selColor}44`, fontSize: 11, fontWeight: 700, color: selColor, whiteSpace: "nowrap", userSelect: "none" }}>{selIcon ? <span style={{ fontSize: 12 }}>{selIcon}</span> : null}{selVal}</span>
                         : <span style={{ fontSize: 11, color: T.textDim }}>—</span>}
                     </div>
                   );
@@ -9913,7 +10008,7 @@ ${jobsCtx || "No jobs found."}`;
                     {isEdit(item.id, key)
                       ? col.type === "date"
                       ? <div onClick={e => e.stopPropagation()}><DateField square compact value={val || ""} onChange={v => commitEdit(item.id, key, v, pid)} /></div>
-                      : <input className="tq-sq" autoFocus type={col.type === "number" ? "number" : "text"} defaultValue={val} onBlur={e => commitEdit(item.id, key, e.target.value, pid)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ width: "100%", background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 4, color: T.text, fontSize: 12, fontFamily: col.type === "number" ? T.mono : T.font, padding: "1px 4px" }} />
+                      : <input className="tq-sq tq-bare" autoFocus type={col.type === "number" ? "number" : "text"} defaultValue={val} onBlur={e => commitEdit(item.id, key, e.target.value, pid)} onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setGridCell(null); }} onClick={e => e.stopPropagation()} style={{ width: "100%", background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 8, color: T.text, fontSize: 12, fontFamily: col.type === "number" ? T.mono : T.font, padding: "1px 4px" }} />
                       : <span style={{ fontSize: 12, color: val ? T.text : T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{val || "—"}</span>}
                   </div>
                 );
@@ -9940,7 +10035,7 @@ ${jobsCtx || "No jobs found."}`;
                   const widthIdx = 1 + col.i;
                   const isDragOver = colDropIdx === displayIdx && colDragRef.current !== col.id;
                   return (
-                    <div key={col.id}
+                    <div key={col.id} className="tq-cell-drop"
                       onMouseDown={e => startColDrag(e, col.id, false)}
                       onContextMenu={e => { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setColCtxMenu({ x: e.clientX, y: e.clientY, colId: col.id, isCustom: false, hdrLeft: r.left, hdrTop: r.top }); }}
                       onClick={e => { e.stopPropagation(); if (colDragMovedRef.current) { colDragMovedRef.current = false; return; } }}
@@ -9956,7 +10051,7 @@ ${jobsCtx || "No jobs found."}`;
                   const widthIdx = 12 + i;
                   const isDragOverCustom = colDropIdx === (orderedStdCols.length + i) && colDragRef.current !== c.id;
                   return (
-                    <div key={c.id}
+                    <div key={c.id} className="tq-cell-drop"
                       onMouseDown={e => startColDrag(e, c.id, true)}
                       onContextMenu={e => { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setColCtxMenu({ x: e.clientX, y: e.clientY, colId: c.id, isCustom: true, hdrLeft: r.left, hdrTop: r.top }); }}
                       onClick={e => { e.stopPropagation(); if (colDragMovedRef.current) { colDragMovedRef.current = false; return; } }}
@@ -10005,7 +10100,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div onClick={() => setPmSectionsCollapsed(p => ({ ...p, [sKey]: !p[sKey] }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px", cursor: "pointer", userSelect: "none" }}>
                   <svg style={{ color: T.textDim, transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)", flexShrink: 0 }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                   {headerNode}
-                  <span style={{ fontSize: 11, fontWeight: 700, color: countColor, background: countColor + "22", borderRadius: 10, padding: "1px 8px" }}>{activeJobs.length}</span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: countColor, background: countColor + "22", borderRadius: 16, padding: "1px 8px" }}>{activeJobs.length}</span>
                 </div>
                 {/* Body — grid-template-rows animates retract */}
                 <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.12s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
@@ -10022,7 +10117,7 @@ ${jobsCtx || "No jobs found."}`;
                         {finishedJobs.length > 0 && <div style={{ marginTop: 10 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px" }}>
                             <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981" }}>✓ Finished</span>
-                            <span style={{ fontSize: 10, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 7px" }}>{finishedJobs.length}</span>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 16, padding: "1px 7px" }}>{finishedJobs.length}</span>
                           </div>
                           <FrostCard onClick={gridOnClick} border={`1px solid #10b98133`}>
                             <div style={{ minWidth: minW }}>
@@ -10092,7 +10187,7 @@ ${jobsCtx || "No jobs found."}`;
                   if (!client) return;
                   const color = elColor(client.color) || T.textDim;
                   const header = <>
-                    <div style={{ width: 14, height: 14, borderRadius: 4, background: color, flexShrink: 0 }} />
+                    <div style={{ width: 14, height: 14, borderRadius: 8, background: color, flexShrink: 0 }} />
                     <span style={{ fontSize: 13, fontWeight: 700, color: T.bgText }}>{client.name}</span>
                   </>;
                   sections.push(renderGroupSection({
@@ -10114,7 +10209,7 @@ ${jobsCtx || "No jobs found."}`;
                   sortBuckets(tok.id, [...buckets.entries()]).forEach(([rawKey, b]) => {
                     const vk = encodeURIComponent(rawKey);
                     const header = <>
-                      <div style={{ width: 10, height: 10, borderRadius: 2, background: T.accent, flexShrink: 0 }} />
+                      <div style={{ width: 10, height: 10, borderRadius: 8, background: T.accent, flexShrink: 0 }} />
                       <span style={{ fontSize: 13, fontWeight: 700, color: T.bgText }}>{b.label}</span>
                     </>;
                     sections.push(renderGroupSection({
@@ -10144,7 +10239,7 @@ ${jobsCtx || "No jobs found."}`;
                     <svg style={{ color: T.textDim, transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)", flexShrink: 0 }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                     {pm && <PersonAvatar person={pm} size={22} />}
                     <span style={{ fontSize: 13, fontWeight: 700, color: T.bgText }}>{pmLabel}</span>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: T.accent + "20", borderRadius: 10, padding: "1px 8px" }}>{pmJobs.length}</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, background: T.accent + "20", borderRadius: 16, padding: "1px 8px" }}>{pmJobs.length}</span>
                   </div>
                   {/* Grid — grid-template-rows 0fr↔1fr animates retract */}
                   <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.12s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
@@ -10164,7 +10259,7 @@ ${jobsCtx || "No jobs found."}`;
               {finishedTasks.length > 0 && <div style={{ marginBottom: 20 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px" }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: "#10b981" }}>✓ Finished</span>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: "#10b981", background: "#10b98120", borderRadius: 10, padding: "1px 8px" }}>{finishedTasks.length}</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: "#10b981", background: "#10b98120", borderRadius: 16, padding: "1px 8px" }}>{finishedTasks.length}</span>
                 </div>
                 <FrostCard onClick={gridOnClick} border={`1px solid #10b98133`}>
                   <div style={{ minWidth: minW }}>
@@ -10214,7 +10309,7 @@ ${jobsCtx || "No jobs found."}`;
         <h1 style={{ ...pageTitleStyle, marginRight: 10 }}>Clients</h1>
           <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
             <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input value={clientSearch} onChange={e => setClientSearch(e.target.value)} placeholder="Search clients…" style={{ width: "100%", padding: "8px 10px 8px 30px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+            <input value={clientSearch} onChange={e => setClientSearch(e.target.value)} placeholder="Search clients…" style={{ width: "100%", padding: "8px 10px 8px 30px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
           </div>
           {/* Select sits right of the search; All/None slides out of it, then the
               count + Delete slides out behind that — same timings as Schedule. */}
@@ -10310,10 +10405,10 @@ ${jobsCtx || "No jobs found."}`;
     const inProg = selTasks.filter(t => t.status === "In Progress").length;
     const totalHrs = selTasks.reduce((a, t) => a + (t.hpd || 0) * (diffD(t.start, t.end) + 1), 0);
     return <FadeOnClose open={!!sel} duration={220}>{sel && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 10005, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 8 : "32px 40px", fontFamily: T.font }} onClick={() => setSelClient(null)}>
-      <div className="anim-modal-box" style={{ position: "relative", display: "flex", flexDirection: "column", width: "100%", maxWidth: 1100, height: "90vh", maxHeight: "90vh", background: T.card, borderRadius: isMobile ? 14 : 16, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
+      <div className="anim-modal-box" style={{ position: "relative", display: "flex", flexDirection: "column", width: "100%", maxWidth: 1100, height: "90vh", maxHeight: "90vh", background: T.card, borderRadius: isMobile ? 20 : 22, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
         {/* Sticky header bar */}
         <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 24px", borderBottom: `1px solid ${T.border}`, background: T.surface, flexShrink: 0, borderTopLeftRadius: isMobile ? 14 : 16, borderTopRightRadius: isMobile ? 14 : 16 }}>
-          <div style={{ width: 42, height: 42, borderRadius: 12, background: elColor(sel.color) + "22", border: `2px solid ${elColor(sel.color)}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 700, color: elColor(sel.color), flexShrink: 0 }}>{sel.name.charAt(0)}</div>
+          <div style={{ width: 42, height: 42, borderRadius: 16, background: elColor(sel.color) + "22", border: `2px solid ${elColor(sel.color)}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 700, color: elColor(sel.color), flexShrink: 0 }}>{sel.name.charAt(0)}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel.name}</h2>
             <div style={{ fontSize: 13, color: T.textSec, marginTop: 3, display: "flex", gap: 14, flexWrap: "wrap" }}>
@@ -10356,7 +10451,7 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8 }}>
                     <HealthIcon t={t} />
                     <span style={{ fontSize: 14, fontWeight: 700, color: T.text, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} onClick={() => { setSelClient(null); openDetail(t); }}>{t.title}</span>
-                    {t.jobNumber && <span style={{ fontSize: 11, fontFamily: T.mono, color: T.accent, background: T.accent + "15", borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>#{t.jobNumber}</span>}
+                    {t.jobNumber && <span style={{ fontSize: 11, fontFamily: T.mono, color: T.accent, background: T.accent + "15", borderRadius: 8, padding: "1px 6px", flexShrink: 0 }}>#{t.jobNumber}</span>}
                   </div>
                   <Badge t={(t.status || "").toUpperCase()} c={staColorOf(t.status)} />
                 </div>
@@ -10365,8 +10460,8 @@ ${jobsCtx || "No jobs found."}`;
                   <span>{dur} day{dur !== 1 ? "s" : ""}</span>
                   {(t.subs || []).length > 0 && <span>{t.subs.length} panel{t.subs.length !== 1 ? "s" : ""}</span>}
                 </div>
-                <div style={{ background: T.bg, borderRadius: 4, height: 5, overflow: "hidden", marginBottom: 8 }}>
-                  <div style={{ height: "100%", borderRadius: 4, background: t.color, width: `${pct}%`, transition: "width 0.3s" }} />
+                <div style={{ background: T.bg, borderRadius: 8, height: 5, overflow: "hidden", marginBottom: 8 }}>
+                  <div style={{ height: "100%", borderRadius: 8, background: t.color, width: `${pct}%`, transition: "width 0.3s" }} />
                 </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>{(t.team || []).slice(0, 4).map(id => <Badge key={id} t={pName(id)} c={T.accent} />)}{(t.team || []).length > 4 && <Badge t={`+${(t.team || []).length - 4}`} c={T.textDim} />}</div>
@@ -10387,7 +10482,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div onClick={() => setClientCompletedExpanded(p => !p)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: "#10b98110", cursor: "pointer", userSelect: "none" }}>
                   <span style={{ fontSize: 16 }}>{clientCompletedExpanded ? "📂" : "📁"}</span>
                   <span style={{ fontSize: 14, fontWeight: 700, color: "#10b981", flex: 1 }}>Completed Jobs</span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98122", borderRadius: 10, padding: "1px 10px" }}>{completedJobs.length}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98122", borderRadius: 16, padding: "1px 10px" }}>{completedJobs.length}</span>
                   <span style={{ fontSize: 12, color: "#10b981", opacity: 0.7 }}>{clientCompletedExpanded ? "▲" : "▼"}</span>
                 </div>
                 {clientCompletedExpanded && <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "12px 14px", background: T.surface }}>
@@ -10395,7 +10490,7 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                       <span style={{ fontSize: 13, fontWeight: 700, color: T.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }} onClick={() => { setSelClient(null); openDetail(t); }}>{t.title}</span>
-                      {t.jobNumber && <span style={{ fontSize: 11, fontFamily: T.mono, color: "#10b981", background: "#10b98115", borderRadius: 4, padding: "1px 6px", flexShrink: 0 }}>#{t.jobNumber}</span>}
+                      {t.jobNumber && <span style={{ fontSize: 11, fontFamily: T.mono, color: "#10b981", background: "#10b98115", borderRadius: 8, padding: "1px 6px", flexShrink: 0 }}>#{t.jobNumber}</span>}
                     </div>
                     <div style={{ display: "flex", gap: 12, fontSize: 11, color: T.textDim }}>
                       <span style={{ fontFamily: T.mono }}>{fm(t.start)} → {fm(t.end)}</span>
@@ -10613,7 +10708,7 @@ ${jobsCtx || "No jobs found."}`;
       const list = byStatus[key] || [];
       return (
         <div key={key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "4px 0", flex: 1, minHeight: 32, borderBottom: `1px solid ${T.border}55` }}>
-          <span style={{ width: 8, height: 8, borderRadius: 4, background: meta.color, flexShrink: 0 }} />
+          <span style={{ width: 8, height: 8, borderRadius: 8, background: meta.color, flexShrink: 0 }} />
           <span style={{ fontSize: 12.5, fontWeight: 600, color: T.text, width: 82, flexShrink: 0 }}>{meta.label}</span>
           <span style={{ fontSize: 13, fontWeight: 800, color: meta.color, fontFamily: T.mono, width: 24, flexShrink: 0 }}>{list.length}</span>
           {/* No overflow:hidden here — that was cropping the avatars top and
@@ -10801,7 +10896,7 @@ ${jobsCtx || "No jobs found."}`;
              overflow:hidden — visible halo, no cut edge. */
           .dash-btn:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
             transform: translateY(-1px) !important;
-            box-shadow: 0 2px 10px var(--tq-glow, rgba(0,0,0,0.2)) !important;
+            box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16)) !important;
             filter: brightness(1.06);
           }
           .dash-btn:not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
@@ -10901,7 +10996,7 @@ ${jobsCtx || "No jobs found."}`;
                       className="dash-btn"
                       title={STATS[k]?.label || k}
                       onClick={() => setDashStatIdx(i)}
-                      style={{ width: i === dashStatIdx ? 16 : 7, height: 7, padding: 0, borderRadius: 4, border: "none", background: i === dashStatIdx ? T.accent : T.border, cursor: "pointer", transition: "width 0.3s ease, background 0.3s ease" }}
+                      style={{ width: i === dashStatIdx ? 16 : 7, height: 7, padding: 0, borderRadius: 8, border: "none", background: i === dashStatIdx ? T.accent : T.border, cursor: "pointer", transition: "width 0.3s ease, background 0.3s ease" }}
                     />
                   ))}
                 </span>
@@ -10914,7 +11009,7 @@ ${jobsCtx || "No jobs found."}`;
               {panel(1, "My clock",
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                    <span style={{ width: 9, height: 9, borderRadius: 5, background: PERSON_STATUS_META[myStatus].color, flexShrink: 0 }} />
+                    <span style={{ width: 9, height: 9, borderRadius: 8, background: PERSON_STATUS_META[myStatus].color, flexShrink: 0 }} />
                     <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{PERSON_STATUS_META[myStatus].label}</span>
                   </div>
                   {myState?.isClocked && (
@@ -11007,7 +11102,7 @@ ${jobsCtx || "No jobs found."}`;
                       const h = getHealth(j);
                       return (
                         <div key={j.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: 4, background: elColorT(HEALTH_DOT[h]) || T.accent, flexShrink: 0 }} />
+                          <span style={{ width: 8, height: 8, borderRadius: 8, background: elColorT(HEALTH_DOT[h]) || T.accent, flexShrink: 0 }} />
                           <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.jobNumber ? `#${j.jobNumber} · ` : ""}{j.title}</div>
                           <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, flexShrink: 0 }}>{new Date(j.end + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
                         </div>
@@ -11031,7 +11126,7 @@ ${jobsCtx || "No jobs found."}`;
                         <span style={{ position: "relative", display: "flex", flexShrink: 0 }}>
                           <PersonAvatar person={t.who || { name: t.authorName, color: t.authorColor }} size={30} />
                           {t.unread > 0 && (
-                            <span style={{ position: "absolute", top: -3, right: -4, minWidth: 16, height: 16, padding: "0 4px", boxSizing: "border-box", borderRadius: 8, background: T.accent, color: T.accentText, fontSize: 9.5, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${T.card}` }}>
+                            <span style={{ position: "absolute", top: -3, right: -4, minWidth: 16, height: 16, padding: "0 4px", boxSizing: "border-box", borderRadius: 12, background: T.accent, color: T.accentText, fontSize: 9.5, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${T.card}` }}>
                               {t.unread > 9 ? "9+" : t.unread}
                             </span>
                           )}
@@ -11045,7 +11140,7 @@ ${jobsCtx || "No jobs found."}`;
                     ))}
                   </div>
                 ) : emptyNote("No messages yet."),
-                unreadTotal > 0 ? <span style={{ fontSize: 11, fontWeight: 700, color: T.accentText, background: T.accent, borderRadius: 10, padding: "2px 8px" }}>{unreadTotal}</span> : null
+                unreadTotal > 0 ? <span style={{ fontSize: 11, fontWeight: 700, color: T.accentText, background: T.accent, borderRadius: 16, padding: "2px 8px" }}>{unreadTotal}</span> : null
               )}
 
             </div>
@@ -11077,7 +11172,7 @@ ${jobsCtx || "No jobs found."}`;
                               on the disc below instead, at the same diameter. */}
                           <span className={isToday ? "dash-day-disc is-today" : "dash-day-disc"}
                             style={{ display: "flex", alignItems: "center", justifyContent: "center", width: DASH_DAY_DISC, height: DASH_DAY_DISC, borderRadius: "50%", background: isToday ? brandGrad(T.accent) : "transparent", color: isToday ? T.accentText : T.text, fontSize: 19, fontWeight: isToday ? 800 : 500, lineHeight: 1 }}>{dayNum}</span>
-                          <span style={{ width: 5, height: 5, borderRadius: 3, flexShrink: 0, background: busy ? brandGrad(T.accent) : "transparent" }} />
+                          <span style={{ width: 5, height: 5, borderRadius: 8, flexShrink: 0, background: busy ? brandGrad(T.accent) : "transparent" }} />
                         </div>
                       );
                     })}
@@ -11100,12 +11195,12 @@ ${jobsCtx || "No jobs found."}`;
                         <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <PersonAvatar person={p} size={20} />
                           <span style={{ width: 64, flexShrink: 0, fontSize: 11.5, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name.split(" ")[0]}</span>
-                          <div style={{ position: "relative", flex: 1, height: 16, borderRadius: 8, background: hexA(T.border, 0.5), overflow: "hidden" }}>
+                          <div style={{ position: "relative", flex: 1, height: 16, borderRadius: 12, background: hexA(T.border, 0.5), overflow: "hidden" }}>
                             {/* Tick guides so a bar can be read against the clock */}
                             {hourTicks.map(h => <span key={h} style={{ position: "absolute", left: `${((h - dayStartH) / daySpanH) * 100}%`, top: 0, bottom: 0, width: 1, background: hexA(T.textDim, 0.18) }} />)}
                             {segs.map((sg, si) => (
                               <span key={si} title={sg.live ? "On the clock" : "Worked"}
-                                style={{ position: "absolute", left: `${sg.from * 100}%`, width: `${Math.max(1.5, (sg.to - sg.from) * 100)}%`, top: 2, bottom: 2, borderRadius: 7, background: sg.live ? brandGrad(T.accent) : hexA(T.accent, 0.45) }} />
+                                style={{ position: "absolute", left: `${sg.from * 100}%`, width: `${Math.max(1.5, (sg.to - sg.from) * 100)}%`, top: 2, bottom: 2, borderRadius: 12, background: sg.live ? brandGrad(T.accent) : hexA(T.accent, 0.45) }} />
                             ))}
                           </div>
                         </div>
@@ -11542,7 +11637,7 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ position: "relative", flexShrink: 0 }} onClick={e => e.stopPropagation()}>
           <button className="icon-btn-glow" onClick={e => { e.stopPropagation(); setScheduleFilterOpen(p => !p); }} title="Filter" style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${scheduleFilterCount > 0 ? T.accent + "88" : T.border}`, background: scheduleFilterCount > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: scheduleFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-            {scheduleFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 8, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{scheduleFilterCount}</span>}
+            {scheduleFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 12, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{scheduleFilterCount}</span>}
           </button>
           <FadeOnClose open={scheduleFilterOpen}><div className="anim-drop tq-filter-panel" onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, width: 250, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 28px rgba(0,0,0,0.35)", zIndex: 400, padding: 12, display: "flex", flexDirection: "column", gap: 10, maxHeight: "80vh", overflowY: "auto" }}>
               <div style={{ animation: `toolDrop 0.14s 0ms both ease-out` }}>
@@ -11588,7 +11683,7 @@ ${jobsCtx || "No jobs found."}`;
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             </span>
             {(scheduleSearchOpen || scheduleSearchQ) && <>
-              <input id="scheduleSearchInput" value={scheduleSearchQ} onChange={e => setScheduleSearchQ(e.target.value)} onBlur={() => { if (!scheduleSearchQ) setScheduleSearchOpen(false); }} placeholder="Search jobs…" style={{ flex: 1, minWidth: 0, padding: "0 8px 0 2px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font }} />
+              <input className="tq-bare" id="scheduleSearchInput" value={scheduleSearchQ} onChange={e => setScheduleSearchQ(e.target.value)} onBlur={() => { if (!scheduleSearchQ) setScheduleSearchOpen(false); }} placeholder="Search jobs…" style={{ flex: 1, minWidth: 0, padding: "0 8px 0 2px", border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font }} />
               {scheduleSearchQ && <button onClick={e => { e.stopPropagation(); setScheduleSearchQ(""); setScheduleSearchOpen(false); }} style={{ width: 22, height: 22, marginRight: 3, padding: 0, borderRadius: T.radiusPill, border: "none", background: "transparent", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 1 }}>×</button>}
             </>}
           </div>
@@ -11779,7 +11874,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* Resource timeline grid */}
       {people.length > 0 && tMode !== "day" && <div ref={teamContainerRef} style={{ width: "100%" }}>
       <div ref={teamRef} className="tq-schedule-scroll tq-frost" onMouseDown={handleTeamPan} onWheel={handleTeamWheel} style={{ overflow: isMobile ? "auto" : "hidden", overflowX: (!isMobile && tMode === "month") ? "auto" : (!isMobile ? "hidden" : undefined), border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
-        <style>{`.tq-schedule-scroll::-webkit-scrollbar{height:26px}.tq-schedule-scroll::-webkit-scrollbar-track{background:${T.bg};border-top:1px solid ${T.border}}.tq-schedule-scroll::-webkit-scrollbar-thumb{background:${T.border};border-radius:13px;border:4px solid ${T.bg};min-width:80px}.tq-schedule-scroll::-webkit-scrollbar-thumb:hover{background:${T.accent}aa}.tq-schedule-scroll{scrollbar-width:auto;scrollbar-color:${T.border} ${T.bg}}`}</style>
+        <style>{`.tq-schedule-scroll::-webkit-scrollbar{height:26px}.tq-schedule-scroll::-webkit-scrollbar-track{background:${T.bg};border-top:1px solid ${T.border}}.tq-schedule-scroll::-webkit-scrollbar-thumb{background:${T.border};border-radius:16px;border:4px solid ${T.bg};min-width:80px}.tq-schedule-scroll::-webkit-scrollbar-thumb:hover{background:${T.accent}aa}.tq-schedule-scroll{scrollbar-width:auto;scrollbar-color:${T.border} ${T.bg}}`}</style>
         <div style={{ display: "flex", flexDirection: "column", position: "relative", width: tMode === "month" ? `${monthZoom * 100}%` : "100%", minWidth: "100%" }}>
           {/* Dual header: week groups + day numbers */}
           <div style={{ borderBottom: `2px solid ${T.border}` }}>
@@ -11817,7 +11912,7 @@ ${jobsCtx || "No jobs found."}`;
               const sw = (Math.max(diffD(sub.start < tStart ? tStart : sub.start, sub.end > tEnd ? tEnd : sub.end) + 1, 1) / nDays * 100) + "%";
               return <div key={`sub-${row.person.id}-${sub.id}`} style={{ display: "flex", height: subH, borderBottom: gridOn ? `1px solid ${schedLine}` : "none", background: schedSubBg }}>
                 <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 6, padding: "0 16px 0 56px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: schedSubBg, zIndex: 10 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: 3, background: sub.color, flexShrink: 0 }} />
+                  <div style={{ width: 6, height: 6, borderRadius: 8, background: sub.color, flexShrink: 0 }} />
                   <span style={{ fontSize: 12, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub.title}</span>
                 </div>
                 <div style={{ flex: 1, position: "relative", display: "flex" }}>
@@ -11838,7 +11933,7 @@ ${jobsCtx || "No jobs found."}`;
                           const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
                           document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
                         }}
-                        style={{ position: "absolute", top: 3, left: `calc(${segSx} + 2px)`, width: `calc(${segSw} - 4px)`, height: subH - 6, borderRadius: 4, background: sub.color, border: `1px solid ${sub.color}`, borderRight: !isLast ? `2px dashed ${sub.color}bb` : `1px solid ${sub.color}`, borderLeft: !isFirst ? `2px dashed ${sub.color}bb` : `1px solid ${sub.color}`, cursor: "grab", display: "flex", alignItems: "center", padding: "0 8px", overflow: "hidden", zIndex: sub.id === scheduleHighlightId ? 10 : 4, animation: isFirst && sub.id === scheduleHighlightId ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": sub.color + "99" }}>
+                        style={{ position: "absolute", top: 3, left: `calc(${segSx} + 2px)`, width: `calc(${segSw} - 4px)`, height: subH - 6, borderRadius: 8, background: sub.color, border: `1px solid ${sub.color}`, borderRight: !isLast ? `2px dashed ${sub.color}bb` : `1px solid ${sub.color}`, borderLeft: !isFirst ? `2px dashed ${sub.color}bb` : `1px solid ${sub.color}`, cursor: "grab", display: "flex", alignItems: "center", padding: "0 8px", overflow: "hidden", zIndex: sub.id === scheduleHighlightId ? 10 : 4, animation: isFirst && sub.id === scheduleHighlightId ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": sub.color + "99" }}>
                         {isFirst && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 6, cursor: "ew-resize", zIndex: 5 }} onMouseDown={e => {
                           e.stopPropagation(); e.preventDefault(); const startX = e.clientX; const os = sub.start; let lastDx = 0;
                           const onM = me => { const dx = Math.round((me.clientX - startX) / cW); if (dx === lastDx) return; lastDx = dx; const ns = addD(os, dx); if (ns <= sub.end) updTask(sub.id, { start: ns }, row.parentTaskId); };
@@ -11879,8 +11974,8 @@ ${jobsCtx || "No jobs found."}`;
             const canEditPerson = !teamSelectMode && !barSelectMode && can("manageTeam");
             return <div key={p.id} data-rowtype="person" data-rowid={p.id} onClick={teamSelectMode ? () => setSelPeople(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; }) : undefined} style={{ display: "flex", height: row.hidden ? 0 : rH, overflow: "hidden", borderBottom: row.hidden ? "none" : (isDrop ? `1px solid ${T.accent}` : gridOn ? `1px solid ${schedLine}` : "none"), position: "relative", background: teamSelectMode && selPeople.has(p.id) ? T.accent + "18" : isDrop ? T.accent + "08" : "transparent", opacity: row.hidden ? 0 : (isBeingDragged ? 0.35 : 1), transition: "height 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.14s ease, background 0.15s, border-color 0.15s", pointerEvents: row.hidden ? "none" : "auto", cursor: teamSelectMode ? "pointer" : "default" }}>
               {/* Insertion line indicators */}
-              {isDragBefore && <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: T.accent, zIndex: 20, borderRadius: 1, boxShadow: `0 0 6px ${T.accent}` }} />}
-              {isDragAfter  && <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 2, background: T.accent, zIndex: 20, borderRadius: 1, boxShadow: `0 0 6px ${T.accent}` }} />}
+              {isDragBefore && <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 2, background: T.accent, zIndex: 20, borderRadius: 8, boxShadow: `0 0 6px ${T.accent}` }} />}
+              {isDragAfter  && <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, height: 2, background: T.accent, zIndex: 20, borderRadius: 8, boxShadow: `0 0 6px ${T.accent}` }} />}
               {/* The whole person card is the edit affordance — it replaced a
                   per-row Edit button, which was a lot of chrome on every row for
                   something the card itself can carry. Inert while either select
@@ -11940,7 +12035,7 @@ ${jobsCtx || "No jobs found."}`;
                       _wRem = Math.max(0, _wRem - segW);
                       if (segW <= 0) return;
                       const _gi = ghosts.length;
-                      ghosts.push(<div key={`team-ghost-${_gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${Math.max(segW, 0.5)}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}`, background: gc + (hasOverlap ? "55" : "18"), boxShadow: `0 0 ${hasOverlap ? 24 : 16}px ${gc}${hasOverlap ? "BB" : "66"}`, pointerEvents: "none", zIndex: 35 }} />);
+                      ghosts.push(<div key={`team-ghost-${_gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${Math.max(segW, 0.5)}% - 4px)`, height: rH - 8, borderRadius: 26, border: `2px dashed ${gc}`, background: gc + (hasOverlap ? "55" : "18"), boxShadow: `0 0 ${hasOverlap ? 24 : 16}px ${gc}${hasOverlap ? "BB" : "66"}`, pointerEvents: "none", zIndex: 35 }} />);
                     });
                   }
                   (groupSnaps || []).forEach(gs => {
@@ -11963,7 +12058,7 @@ ${jobsCtx || "No jobs found."}`;
                         const _segAvailW = _segRightPct - segLeft;
                         const segW = isLast ? Math.max(0, _gsWRemaining) : Math.max(0.5, Math.min(_gsWRemaining, _segAvailW));
                         _gsWRemaining = Math.max(0, _gsWRemaining - segW);
-                        ghosts.push(<div key={`ghost-grp-${gs.id}-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}88`, background: gc + "10", boxShadow: `0 0 10px ${gc}44`, pointerEvents: "none", zIndex: 34 }} />);
+                        ghosts.push(<div key={`ghost-grp-${gs.id}-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 26, border: `2px dashed ${gc}88`, background: gc + "10", boxShadow: `0 0 10px ${gc}44`, pointerEvents: "none", zIndex: 34 }} />);
                       });
                     }
                   });
@@ -11990,7 +12085,7 @@ ${jobsCtx || "No jobs found."}`;
                       const _segAvailW = _segRightPct - segLeft;
                       const segW = isLast ? Math.max(0, _msWRemaining) : Math.max(0.5, Math.min(_msWRemaining, _segAvailW));
                       _msWRemaining = Math.max(0, _msWRemaining - segW);
-                      ghosts.push(<div key={`ghost-multi-${ms.id}-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 20, border: `2px dashed ${gc}`, background: gc + "1a", boxShadow: `0 0 14px ${gc}66`, pointerEvents: "none", zIndex: 35 }} />);
+                      ghosts.push(<div key={`ghost-multi-${ms.id}-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 26, border: `2px dashed ${gc}`, background: gc + "1a", boxShadow: `0 0 14px ${gc}66`, pointerEvents: "none", zIndex: 35 }} />);
                     });
                   });
                   return ghosts.length ? <>{ghosts}</> : null;
@@ -12070,7 +12165,7 @@ ${jobsCtx || "No jobs found."}`;
                     const chipJob = tasks.find(j => j.id === bar.jobId);
                     return <div key={bar.id}
                       onClick={() => { if (chipJob) openDetail(chipJob); }}
-                      style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: "auto", minWidth: 80, maxWidth: 160, height: rH - 8, borderRadius: 20, background: bar.allDone ? "#10b981" : "#3b82f6", border: `1.5px solid ${bar.allDone ? "#10b98166" : "#3b82f666"}`, cursor: "pointer", display: "flex", alignItems: "center", padding: "0 10px", zIndex: 4, boxShadow: `0 2px 8px ${bar.color}44`, overflow: "hidden" }}
+                      style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: "auto", minWidth: 80, maxWidth: 160, height: rH - 8, borderRadius: 26, background: bar.allDone ? "#10b981" : "#3b82f6", border: `1.5px solid ${bar.allDone ? "#10b98166" : "#3b82f666"}`, cursor: "pointer", display: "flex", alignItems: "center", padding: "0 10px", zIndex: 4, boxShadow: `0 2px 8px ${bar.color}44`, overflow: "hidden" }}
                       onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; }}>
                       <span style={{ fontSize: 10, color: "#fff", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{bar.panelTitle}</span>
                       {!bar.allDone && <span style={{ fontSize: 9, color: "rgba(255,255,255,0.75)", marginLeft: 4, whiteSpace: "nowrap" }}>· {bar.activeStep}</span>}
@@ -13173,8 +13268,8 @@ ${jobsCtx || "No jobs found."}`;
                       if (pctOfDiv <= 0) return null;
                       return <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pctOfDiv}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", borderTopLeftRadius: T.radiusXs, borderBottomLeftRadius: T.radiusXs, zIndex: 2 }} />;
                     })()}
-                    {can("moveJobs") && !barLocked && !(ws && ws.workedHpd > 0) && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                    {barSegs.length === 1 && can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                    {can("moveJobs") && !barLocked && !(ws && ws.workedHpd > 0) && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                    {barSegs.length === 1 && can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="6.5" fill="rgba(255,255,255,0.25)"/><polyline points="3,6.5 5.5,9 10,4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
                     {inDepGroup && !isBarSelected && (() => { const _panelId2 = bar.task?.level === 2 ? bar.task.pid : bar.task?.level === 1 ? bar.task.id : null; const _dm = _panelId2 ? tasks.flatMap(j => j.subs||[]).find(p => p.id === _panelId2)?.depsMode : undefined; const _locked = _dm === "locked"; return <Tip label={_locked ? "Locked — moves as a block with its group" : "Linked — moves with its dependency group"}><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.7, lineHeight: 0 }}>{_locked ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>}</span></Tip>; })()}
                     {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
@@ -13209,7 +13304,7 @@ ${jobsCtx || "No jobs found."}`;
                         if (pctOfDiv <= 0) return null;
                         return <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pctOfDiv}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", zIndex: 2 }} />;
                       })()}
-                      {isLastSeg && can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 2, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                      {isLastSeg && can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     </div>;
                   })];
                 })}
@@ -13367,8 +13462,8 @@ ${jobsCtx || "No jobs found."}`;
                       <div style={{ fontSize: 11, color: T.textDim, marginBottom: 6, paddingLeft: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minHeight: 16 }}>
                         {todayBar.task?.panelTitle ? `${todayBar.task.panelTitle}${todayBar.task?.title ? " · " + todayBar.task.title : ""}` : (todayBar.task?.title || "")}
                       </div>
-                      <div style={{ height: 3, borderRadius: 2, background: T.border, overflow: "hidden", marginBottom: 4 }}>
-                        <div style={{ height: "100%", width: `${progressPct}%`, background: todayBar.color || T.accent, borderRadius: 2 }} />
+                      <div style={{ height: 3, borderRadius: 8, background: T.border, overflow: "hidden", marginBottom: 4 }}>
+                        <div style={{ height: "100%", width: `${progressPct}%`, background: todayBar.color || T.accent, borderRadius: 8 }} />
                       </div>
                       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: T.textDim }}>
                         <span>{loggedHours.toFixed(1)}h logged</span>
@@ -13426,7 +13521,7 @@ ${jobsCtx || "No jobs found."}`;
         }
         label = `${startLabel}  ·  ${timeStr}  →  ${endLabel}  ·  ${endTimeStr}`;
       }
-      return <div style={{ position: "fixed", left: teamDragInfo.cursorX + 16, top: teamDragInfo.cursorY - 36, background: "rgba(10,10,20,0.92)", color: "#fff", fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 8, pointerEvents: "none", zIndex: 9999, whiteSpace: "nowrap", boxShadow: "0 4px 20px rgba(0,0,0,0.5)", border: `1px solid ${T.accent}66`, backdropFilter: "blur(4px)" }}>{label}</div>;
+      return <div style={{ position: "fixed", left: teamDragInfo.cursorX + 16, top: teamDragInfo.cursorY - 36, background: "rgba(10,10,20,0.92)", color: "#fff", fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 12, pointerEvents: "none", zIndex: 9999, whiteSpace: "nowrap", boxShadow: "0 4px 20px rgba(0,0,0,0.5)", border: `1px solid ${T.accent}66`, backdropFilter: "blur(4px)" }}>{label}</div>;
     })()}
     </div>;
   };
@@ -13536,7 +13631,7 @@ ${jobsCtx || "No jobs found."}`;
       <div key={label} className="tq-frost" style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "16px 18px", fontFamily: T.font, display: "flex", flexDirection: "column", gap: 10 }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{label}</div>
         <div style={{ fontSize: 30, fontWeight: 800, color: T.text, fontFamily: T.mono, lineHeight: 1 }}>{value}</div>
-        <div style={{ width: 32, height: 4, borderRadius: 2, background: accent }} />
+        <div style={{ width: 32, height: 4, borderRadius: 8, background: accent }} />
       </div>
     );
 
@@ -13551,8 +13646,8 @@ ${jobsCtx || "No jobs found."}`;
               {data.map(d => (
                 <div key={d.n} style={{ display: "grid", gridTemplateColumns: "minmax(80px,120px) 1fr 34px", gap: 12, alignItems: "center" }}>
                   <span style={{ fontSize: 12, color: T.textSec, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.n}</span>
-                  <div style={{ height: 22, background: T.surface, borderRadius: 6, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${(d.c / max) * 100}%`, minWidth: d.c > 0 ? 6 : 0, background: colorOf(d.n), borderRadius: 6, transition: "width 0.3s" }} />
+                  <div style={{ height: 22, background: T.surface, borderRadius: 12, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${(d.c / max) * 100}%`, minWidth: d.c > 0 ? 6 : 0, background: colorOf(d.n), borderRadius: 12, transition: "width 0.3s" }} />
                   </div>
                   <span style={{ fontSize: 14, fontWeight: 700, color: T.text, fontFamily: T.mono, textAlign: "right" }}>{d.c}</span>
                 </div>
@@ -13596,7 +13691,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 5 }}>
             {slices.map(s => (
               <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
-                <div style={{ width: 10, height: 10, borderRadius: 2, background: s.color, flexShrink: 0 }} />
+                <div style={{ width: 10, height: 10, borderRadius: 8, background: s.color, flexShrink: 0 }} />
                 <span style={{ flex: 1, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.label}</span>
                 <span style={{ color: T.textDim, fontFamily: T.mono }}>{fmtVal(s.value)}</span>
                 <span style={{ color: T.textDim, fontFamily: T.mono, width: 40, textAlign: "right" }}>{Math.round((s.value / Math.max(total, 1)) * 100)}%</span>
@@ -13672,12 +13767,12 @@ ${jobsCtx || "No jobs found."}`;
       const payColor = blendHex(T.accent, 0.4), prodColor = blendHex(T.accent, -0.22); // same accent hue, light vs. dark shade
       const legend = (color, text) => (
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <div style={{ width: 12, height: 12, borderRadius: 3, background: color }} />
+          <div style={{ width: 12, height: 12, borderRadius: 8, background: color }} />
           <span style={{ fontSize: 11, color: T.textDim }}>{text}</span>
         </div>
       );
       const bar = (v, color) => (
-        <div style={{ flex: 1, minWidth: 0, margin: "0 2px", height: `${Math.max(v > 0 ? 4 : 3, (v / maxV) * 100)}%`, background: v > 0 ? `linear-gradient(to top, ${color}, ${blendHex(color, 0.35)})` : T.surface, borderRadius: "5px 5px 0 0", transition: "height 0.3s" }} title={`${v.toFixed(2)}h`} />
+        <div style={{ flex: 1, minWidth: 0, margin: "0 2px", height: `${Math.max(v > 0 ? 4 : 3, (v / maxV) * 100)}%`, background: v > 0 ? `linear-gradient(to top, ${color}, ${blendHex(color, 0.35)})` : T.surface, borderRadius: "8px 8px 0 0", transition: "height 0.3s" }} title={`${v.toFixed(2)}h`} />
       );
       const empty = totalPay === 0 && totalProd === 0;
       return (
@@ -13852,7 +13947,7 @@ ${jobsCtx || "No jobs found."}`;
                       <PersonAvatar person={p} size={18} />
                       <span style={{ fontSize: 12, color: T.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
                     </div>
-                    <div style={{ position: "relative", height: 20, background: T.surface, borderRadius: 4, overflow: "hidden" }}>
+                    <div style={{ position: "relative", height: 20, background: T.surface, borderRadius: 8, overflow: "hidden" }}>
                       <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: barColor, transition: "width 0.3s" }} />
                     </div>
                     <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, textAlign: "right" }}><span style={{ color: barColor, fontWeight: 700 }}>{logged}h</span> <span style={{ opacity: 0.6 }}>/ {PERIOD_HOUR_CAP}h</span>{over && <span style={{ color: "#ef4444", fontWeight: 700 }}> (+{Math.round((logged - PERIOD_HOUR_CAP) * 10) / 10})</span>}</div>
@@ -13877,7 +13972,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ width: "100%", display: "flex", flexDirection: "column", gap: 5 }}>
                 {donutSlices.map(s => (
                   <div key={s.dept} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
-                    <div style={{ width: 10, height: 10, borderRadius: 2, background: s.color, flexShrink: 0 }} />
+                    <div style={{ width: 10, height: 10, borderRadius: 8, background: s.color, flexShrink: 0 }} />
                     <span style={{ flex: 1, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.dept}</span>
                     <span style={{ color: T.textDim, fontFamily: T.mono }}>{Math.round(s.h)}h</span>
                     <span style={{ color: T.textDim, fontFamily: T.mono, width: 36, textAlign: "right" }}>{Math.round((s.h / deptTotal) * 100)}%</span>
@@ -13941,9 +14036,9 @@ ${jobsCtx || "No jobs found."}`;
           const isT = ds === TD;
           const isSel = ds === selDS;
           const hasTasks = allItems.some(t => ds >= t.start && ds <= t.end);
-          return <div key={i} onClick={() => setMobileSelDay(ds)} style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "8px 0", cursor: "pointer", borderRadius: 12 }}>
-            <div className="tq-cal-day" style={{ width: 34, height: 34, borderRadius: 17, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: isT || isSel ? 700 : 400, color: isSel ? T.accentText : isT ? T.accent : T.text, background: isSel ? T.accent : isT ? T.accent + "15" : "transparent", transition: "all 0.15s" }}>{day}</div>
-            {hasTasks && !isSel && <div style={{ width: 5, height: 5, borderRadius: 3, background: T.accent, marginTop: 2 }} />}
+          return <div key={i} onClick={() => setMobileSelDay(ds)} style={{ display: "flex", flexDirection: "column", alignItems: "center", padding: "8px 0", cursor: "pointer", borderRadius: 16 }}>
+            <div className="tq-cal-day" style={{ width: 34, height: 34, borderRadius: 20, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: isT || isSel ? 700 : 400, color: isSel ? T.accentText : isT ? T.accent : T.text, background: isSel ? T.accent : isT ? T.accent + "15" : "transparent", transition: "all 0.15s" }}>{day}</div>
+            {hasTasks && !isSel && <div style={{ width: 5, height: 5, borderRadius: 8, background: T.accent, marginTop: 2 }} />}
             {!hasTasks && <div style={{ width: 5, height: 5, marginTop: 2 }} />}
           </div>;
         })}
@@ -13964,7 +14059,7 @@ ${jobsCtx || "No jobs found."}`;
           const isExp = mobileExp[t.id];
           return <div key={t.id} style={{ marginBottom: 6 }}>
             <div onClick={() => { if (hasSubs) { setMobileExp(p => ({ ...p, [t.id]: !p[t.id] })); } else { openDetail(t); } }} style={{ display: "flex", gap: 12, padding: "12px 14px", background: T.card, borderRadius: isExp ? `${T.radiusSm}px ${T.radiusSm}px 0 0` : T.radiusSm, border: `1px solid ${T.border}`, borderBottom: isExp ? "none" : `1px solid ${T.border}`, cursor: "pointer", alignItems: "center" }}>
-              <div style={{ width: 4, height: 40, borderRadius: 2, background: owner ? owner.color : T.accent, flexShrink: 0 }} />
+              <div style={{ width: 4, height: 40, borderRadius: 8, background: owner ? owner.color : T.accent, flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   {hasSubs && <span style={{ fontSize: 10, color: T.textDim, flexShrink: 0 }}>{isExp ? "▼" : "▶"}</span>}
@@ -13987,7 +14082,7 @@ ${jobsCtx || "No jobs found."}`;
               {(t.subs || []).map(s => {
                 const isActive = selDS >= s.start && selDS <= s.end;
                 return <div key={s.id} onClick={() => openDetail(s)} style={{ display: "flex", gap: 10, padding: "10px 14px 10px 32px", cursor: "pointer", alignItems: "center", opacity: isActive ? 1 : 0.45 }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
-                  <div style={{ width: 8, height: 8, borderRadius: 4, background: owner ? owner.color : T.accent, flexShrink: 0, opacity: isActive ? 1 : 0.5 }} />
+                  <div style={{ width: 8, height: 8, borderRadius: 8, background: owner ? owner.color : T.accent, flexShrink: 0, opacity: isActive ? 1 : 0.5 }} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, fontWeight: 500, color: isActive ? T.text : T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</div>
                     <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{fm(s.start)} → {fm(s.end)}{!isActive ? " · not today" : ""}</div>
@@ -14021,7 +14116,7 @@ ${jobsCtx || "No jobs found."}`;
       const cardBorder = opts.border || T.border;
       return <div key={t.id} style={{ marginBottom: 6 }}>
         <div onClick={() => { if (hasSubs) { setMobileExp(p => ({ ...p, ["my_" + t.id]: !p["my_" + t.id] })); } else { openDetail(t); } }} style={{ display: "flex", gap: 12, padding: "12px 14px", background: cardBg, borderRadius: isExp ? `${T.radiusSm}px ${T.radiusSm}px 0 0` : T.radiusSm, border: `1px solid ${cardBorder}`, borderBottom: isExp ? "none" : `1px solid ${cardBorder}`, cursor: "pointer", alignItems: "center" }}>
-          <div style={{ width: 4, height: 40, borderRadius: 2, background: opts.barColor || (curPerson ? curPerson.color : T.accent), flexShrink: 0 }} />
+          <div style={{ width: 4, height: 40, borderRadius: 8, background: opts.barColor || (curPerson ? curPerson.color : T.accent), flexShrink: 0 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               {hasSubs && <span style={{ fontSize: 10, color: T.textDim, flexShrink: 0 }}>{isExp ? "▼" : "▶"}</span>}
@@ -14034,7 +14129,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         {isExp && <div style={{ background: T.bg + "88", border: `1px solid ${cardBorder}`, borderTop: "none", borderRadius: `0 0 ${T.radiusSm}px ${T.radiusSm}px`, padding: "4px 0" }}>
           {(t.subs || []).map(s => <div key={s.id} onClick={() => openDetail(s)} style={{ display: "flex", gap: 10, padding: "10px 14px 10px 32px", cursor: "pointer", alignItems: "center" }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
-            <div style={{ width: 8, height: 8, borderRadius: 4, background: curPerson ? curPerson.color : T.accent, flexShrink: 0 }} />
+            <div style={{ width: 8, height: 8, borderRadius: 8, background: curPerson ? curPerson.color : T.accent, flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 500, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</div>
               <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{fm(s.start)} → {fm(s.end)}</div>
@@ -14113,9 +14208,9 @@ ${jobsCtx || "No jobs found."}`;
       <div className="anim-modal-overlay" onClick={() => setEmpDelete(null)}
         style={{ position: "fixed", inset: 0, zIndex: 10020, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
         <div onClick={e => e.stopPropagation()} className="anim-modal-box"
-          style={{ background: T.card, borderRadius: 26, width: "100%", maxWidth: 440, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", padding: 24, fontFamily: T.font }}>
+          style={{ background: T.card, borderRadius: 30, width: "100%", maxWidth: 440, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", padding: 24, fontFamily: T.font }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-            <span style={{ width: 38, height: 38, borderRadius: 19, background: "#ef444418", color: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            <span style={{ width: 38, height: 38, borderRadius: 26, background: "#ef444418", color: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
             </span>
             <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
@@ -14190,7 +14285,7 @@ ${jobsCtx || "No jobs found."}`;
       <div className="anim-modal-overlay" onClick={() => setAddEmpDraft(null)}
         style={{ position: "fixed", inset: 0, zIndex: 10015, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 20px", overflowY: "auto" }}>
         <div onClick={e => e.stopPropagation()} className="anim-modal-box"
-          style={{ background: T.card, borderRadius: 26, width: "100%", maxWidth: 520, margin: "auto", border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", fontFamily: T.font }}>
+          style={{ background: T.card, borderRadius: 30, width: "100%", maxWidth: 520, margin: "auto", border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", fontFamily: T.font }}>
           <div style={{ padding: "22px 26px 4px" }}>
             <h2 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.045em" }}>{d.id ? "Edit employee" : "New employee"}</h2>
           </div>
@@ -14349,8 +14444,8 @@ ${jobsCtx || "No jobs found."}`;
 
     const tile = (value, label, accent, hint) => (
       <div key={label} title={hint || undefined} style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "14px 15px", display: "flex", flexDirection: "column", gap: 7 }}>
-        <div style={{ width: 26, height: 26, borderRadius: 8, background: hexA(accent, 0.14), display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ width: 9, height: 9, borderRadius: 3, background: accent }} />
+        <div style={{ width: 26, height: 26, borderRadius: 12, background: hexA(accent, 0.14), display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ width: 9, height: 9, borderRadius: 8, background: accent }} />
         </div>
         <div style={{ fontSize: 22, fontWeight: 800, color: T.text, fontFamily: T.mono, lineHeight: 1 }}>{value}</div>
         <div style={{ fontSize: 11, color: T.textDim }}>{label}</div>
@@ -14583,12 +14678,12 @@ ${jobsCtx || "No jobs found."}`;
                         const hgt = ((b.eH - b.sH) / totalWorkH) * 100;
                         const over = dayH > dailyCap;
                         const col = over ? "#f59e0b" : elColor(b.job.color || T.accent);
-                        return <div key={b.op.id + "_" + bi} title={`${b.job.title} · ${b.op.title} · ${h1(b.share)}h`} style={{ position: "absolute", left: 3, right: 3, top: `${top}%`, height: `calc(${hgt}% - 2px)`, minHeight: 16, background: hexA(col, 0.16), borderLeft: `2.5px solid ${col}`, borderRadius: 4, padding: "3px 5px", overflow: "hidden" }}>
+                        return <div key={b.op.id + "_" + bi} title={`${b.job.title} · ${b.op.title} · ${h1(b.share)}h`} style={{ position: "absolute", left: 3, right: 3, top: `${top}%`, height: `calc(${hgt}% - 2px)`, minHeight: 16, background: hexA(col, 0.16), borderLeft: `2.5px solid ${col}`, borderRadius: 8, padding: "3px 5px", overflow: "hidden" }}>
                           <div style={{ fontSize: 9.5, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.job.title}</div>
                           <div style={{ fontSize: 9, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.op.title}</div>
                         </div>;
                       })}
-                      {!off && !blocks.length && <div style={{ position: "absolute", inset: 6, border: `1px dashed ${T.border}`, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9.5, color: T.textDim }}>Available</div>}
+                      {!off && !blocks.length && <div style={{ position: "absolute", inset: 6, border: `1px dashed ${T.border}`, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9.5, color: T.textDim }}>Available</div>}
                     </div>
                   </div>;
                 })}
@@ -14597,11 +14692,11 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 12, paddingTop: 11, borderTop: `1px solid ${T.border}55`, flexShrink: 0 }}>
               {[["Assigned Work", T.accent], ["Overtime", "#f59e0b"], ["PTO", "#8b5cf6"]].map(([l, c]) => (
                 <span key={l} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: T.textSec }}>
-                  <span style={{ width: 11, height: 11, borderRadius: 3, background: hexA(c, 0.25), border: `1.5px solid ${c}` }} />{l}
+                  <span style={{ width: 11, height: 11, borderRadius: 8, background: hexA(c, 0.25), border: `1.5px solid ${c}` }} />{l}
                 </span>
               ))}
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, color: T.textSec }}>
-                <span style={{ width: 11, height: 11, borderRadius: 3, border: `1px dashed ${T.border}` }} />Available
+                <span style={{ width: 11, height: 11, borderRadius: 8, border: `1px dashed ${T.border}` }} />Available
               </span>
             </div>
           </>}
@@ -14623,7 +14718,7 @@ ${jobsCtx || "No jobs found."}`;
             {/* marginTop:auto drops the bar to the bottom of the stretched card
                 rather than leaving a gap beneath it. */}
             <div style={{ marginTop: "auto", paddingTop: 14 }}>
-              <div style={{ height: 7, borderRadius: 4, background: T.border + "66", overflow: "hidden" }}>
+              <div style={{ height: 7, borderRadius: 8, background: T.border + "66", overflow: "hidden" }}>
                 <div style={{ width: `${cw.pct}%`, height: "100%", background: brandGrad("#10b981"), transition: "width 0.3s" }} />
               </div>
               <div style={{ textAlign: "right", fontSize: 11, fontWeight: 700, color: T.textDim, marginTop: 5, fontFamily: T.mono }}>{cw.pct}%</div>
@@ -14782,10 +14877,10 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                 <span style={{ fontSize: 13, color: T.text }}>From the</span>
                 <input type="number" min="1" max="31" value={(orgSettings.payDates||[5,20])[0]} onChange={e => { const v=Math.min(31,Math.max(1,parseInt(e.target.value)||1)); const d2=(orgSettings.payDates||[5,20])[1]; setOrgSettings(s=>({...s,payDates:[v,d2]})); }}
-                  style={{ width: 54, padding: "5px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", textAlign: "center" }} />
+                  style={{ width: 54, padding: "5px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", textAlign: "center" }} />
                 <span style={{ fontSize: 13, color: T.text }}>to the</span>
                 <input type="number" min="1" max="31" value={(orgSettings.payDates||[5,20])[1]} onChange={e => { const v=Math.min(31,Math.max(1,parseInt(e.target.value)||1)); const d1=(orgSettings.payDates||[5,20])[0]; setOrgSettings(s=>({...s,payDates:[d1,v]})); }}
-                  style={{ width: 54, padding: "5px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", textAlign: "center" }} />
+                  style={{ width: 54, padding: "5px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", textAlign: "center" }} />
                 <span style={{ fontSize: 13, color: T.text }}>of each month</span>
               </div>
               <div style={{ fontSize: 11, color: T.textDim }}>
@@ -14800,7 +14895,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                 <span style={{ fontSize: 13, color: T.text }}>Cap each person at</span>
                 <input type="number" min="1" max="999" step="1" value={orgSettings.payPeriodHourCap ?? 80} onChange={e => { const v = Math.min(999, Math.max(1, parseInt(e.target.value) || 80)); setOrgSettings(s => ({ ...s, payPeriodHourCap: v })); }}
-                  style={{ width: 60, padding: "5px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", textAlign: "center" }} />
+                  style={{ width: 60, padding: "5px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", textAlign: "center" }} />
                 <span style={{ fontSize: 13, color: T.text }}>hours per pay period</span>
               </div>
             </div>}
@@ -14813,7 +14908,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                 <button type="button" className="tq-noanim" onClick={() => setOrgSettings(s => ({ ...s, iosPayClockEnabled: !s.iosPayClockEnabled }))} style={{ flexShrink: 0, width: 40, height: 22, borderRadius: T.radiusPill, border: "none", background: orgSettings.iosPayClockEnabled ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
-                  <span style={{ position: "absolute", top: 3, left: orgSettings.iosPayClockEnabled ? 21 : 3, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s" }} />
+                  <span style={{ position: "absolute", top: 3, left: orgSettings.iosPayClockEnabled ? 21 : 3, width: 16, height: 16, borderRadius: 12, background: "#fff", transition: "left 0.2s" }} />
                 </button>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Allow workers to clock in for pay from iOS app</div>
@@ -14828,7 +14923,7 @@ ${jobsCtx || "No jobs found."}`;
                 {[{ key: "trackLunch", label: "Track Lunch", desc: "Show Start/End Lunch buttons for hourly workers" }, { key: "trackBreaks", label: "Track Breaks", desc: "Show Start/End Break buttons for hourly workers" }].map(({ key, label, desc }) => (
                   <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     <button type="button" className="tq-noanim" onClick={() => setOrgSettings(s => ({ ...s, [key]: !s[key] }))} style={{ flexShrink: 0, width: 40, height: 22, borderRadius: T.radiusPill, border: "none", background: orgSettings[key] ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
-                      <span style={{ position: "absolute", top: 3, left: orgSettings[key] ? 21 : 3, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s" }} />
+                      <span style={{ position: "absolute", top: 3, left: orgSettings[key] ? 21 : 3, width: 16, height: 16, borderRadius: 12, background: "#fff", transition: "left 0.2s" }} />
                     </button>
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{label}</div>
@@ -14851,10 +14946,10 @@ ${jobsCtx || "No jobs found."}`;
                   return (
                     <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 160px", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${T.border}18`, animation: `toolDrop 0.14s ${pi * 38}ms both ease-out` }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: 4, background: T.textDim, flexShrink: 0 }} />
+                        <div style={{ width: 8, height: 8, borderRadius: 8, background: T.textDim, flexShrink: 0 }} />
                         <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
                       </div>
-                      <div style={{ display: "flex", borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                      <div style={{ display: "flex", borderRadius: 12, border: `1px solid ${T.border}`, overflow: "hidden" }}>
                         {["hourly","salary"].map(pt => (
                           <button key={pt} type="button" onClick={() => draftSet(p.id, "payType", pt)}
                             style={{ flex: 1, padding: "4px 0", border: "none", background: payType === pt ? (pt === "salary" ? elColor("#6366f1") : T.accent) : T.surface, color: payType === pt ? (pt === "salary" ? "#fff" : T.accentText) : T.textDim, fontSize: 11, fontWeight: payType === pt ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s", textTransform: "capitalize" }}
@@ -14862,7 +14957,7 @@ ${jobsCtx || "No jobs found."}`;
                         ))}
                       </div>
                       <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: T.surface, overflow: "hidden" }}>
-                        <input type={showPinIds.has(p.id) ? "text" : "password"} value={p.pin || ""} onChange={e => draftSet(p.id, "pin", e.target.value)} placeholder={p.hasPin ? "•••• set" : "Set PIN"}
+                        <input className="tq-bare" type={showPinIds.has(p.id) ? "text" : "password"} value={p.pin || ""} onChange={e => draftSet(p.id, "pin", e.target.value)} placeholder={p.hasPin ? "•••• set" : "Set PIN"}
                           style={{ flex: 1, padding: "5px 8px", border: "none", background: "transparent", color: T.text, fontSize: 13, fontFamily: T.mono, letterSpacing: showPinIds.has(p.id) ? "normal" : "0.15em", outline: "none", minWidth: 0 }}
                         />
                         <button type="button" onClick={() => setShowPinIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })}
@@ -15221,7 +15316,7 @@ ${jobsCtx || "No jobs found."}`;
       if (pinState === "closed") return null;
       return createPortal(
         <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10010, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={closePin}>
-          <div style={{ background: T.card, borderRadius: 20, padding: "52px 32px 32px", width: "100%", maxWidth: 360, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", position: "relative", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: T.card, borderRadius: 26, padding: "52px 32px 32px", width: "100%", maxWidth: 360, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", position: "relative", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
             <button onClick={closePin} style={{ position: "absolute", top: 16, right: 18, background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
 
             {/* Title */}
@@ -15269,7 +15364,7 @@ ${jobsCtx || "No jobs found."}`;
                     ? <span style={{ fontSize: 13, color: T.textDim }}>Enter PIN</span>
                     : <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap", maxWidth: 240 }}>
                         {Array.from({ length: pinInput.length }, (_, i) => (
-                          <div key={i} style={{ width: 14, height: 14, borderRadius: 7, background: pinModalColor, flexShrink: 0 }} />
+                          <div key={i} style={{ width: 14, height: 14, borderRadius: 12, background: pinModalColor, flexShrink: 0 }} />
                         ))}
                       </div>
                   }
@@ -15572,10 +15667,10 @@ ${jobsCtx || "No jobs found."}`;
 
       return createPortal(
         <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10015, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflow: "auto" }} onClick={() => setTsPersonEditModal(null)}>
-          <div style={{ background: T.card, borderRadius: 16, width: "100%", maxWidth: 580, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", animation: "slideUp 0.22s ease-out", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: T.card, borderRadius: 20, width: "100%", maxWidth: 580, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", animation: "slideUp 0.22s ease-out", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div style={{ padding: "18px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
-              <div style={{ width: 10, height: 10, borderRadius: 5, background: T.textDim, flexShrink: 0 }} />
+              <div style={{ width: 10, height: 10, borderRadius: 8, background: T.textDim, flexShrink: 0 }} />
               <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>{person.name} — Timestamps</span>
               <span style={{ fontSize: 11, color: T.textDim }}>Last 30 days</span>
               <button onClick={() => setTsPersonEditModal(null)} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 20, cursor: "pointer", lineHeight: 1, padding: "0 2px", marginLeft: 8 }}>✕</button>
@@ -15604,7 +15699,7 @@ ${jobsCtx || "No jobs found."}`;
                         return (
                           <div key={it.id} style={{ background: "#10b98110", borderRadius: T.radiusSm, border: `1px solid #10b98155`, padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
-                              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, color: "#10b981" }}><span style={{ width: 6, height: 6, borderRadius: 3, background: "#10b981" }} />On the clock</span>
+                              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, color: "#10b981" }}><span style={{ width: 6, height: 6, borderRadius: 8, background: "#10b981" }} />On the clock</span>
                               <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", fontFamily: T.mono }}>{activeNetHours(it).toFixed(2)}h</span>
                             </div>
                             {punchRow({ key: "in", label: "In", color: "#10b981", value: it.clockIn, onChange: v => setTsPersonEditModal(m => ({ ...m, activeEntry: { ...m.activeEntry, clockIn: v } })) })}
@@ -15713,9 +15808,9 @@ ${jobsCtx || "No jobs found."}`;
               onClick={e => e.stopPropagation()}
               style={{ position: "fixed", inset: 0, zIndex: 10020, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
             >
-              <div style={{ background: T.card, borderRadius: 14, width: "100%", maxWidth: 400, border: `1px solid ${T.borderLight}`, boxShadow: "0 28px 70px rgba(0,0,0,0.6)", padding: 22, fontFamily: T.font, animation: "slideUp 0.18s ease-out" }}>
+              <div style={{ background: T.card, borderRadius: 20, width: "100%", maxWidth: 400, border: `1px solid ${T.borderLight}`, boxShadow: "0 28px 70px rgba(0,0,0,0.6)", padding: 22, fontFamily: T.font, animation: "slideUp 0.18s ease-out" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-                  <span style={{ width: 34, height: 34, borderRadius: 17, background: "#ef444418", color: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <span style={{ width: 34, height: 34, borderRadius: 20, background: "#ef444418", color: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                   </span>
                   <span style={{ fontSize: 16, fontWeight: 700, color: T.text }}>Delete this shift?</span>
@@ -15814,7 +15909,7 @@ ${jobsCtx || "No jobs found."}`;
       const staff = people.filter(p => p.payType !== "salary");
       return createPortal(
         <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10015, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflow: "auto" }} onClick={() => setPastLogsOpen(false)}>
-          <div style={{ background: T.card, borderRadius: 16, width: "100%", maxWidth: 620, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", animation: "slideUp 0.22s ease-out", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: T.card, borderRadius: 20, width: "100%", maxWidth: 620, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", animation: "slideUp 0.22s ease-out", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div style={{ padding: "18px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
@@ -16079,7 +16174,7 @@ ${jobsCtx || "No jobs found."}`;
 
       return createPortal(
         <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10010, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={closeStartJobPicker}>
-          <div style={{ background: T.card, borderRadius: 20, padding: "52px 28px 28px", width: "100%", maxWidth: 520, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", position: "relative", maxHeight: "80vh", display: "flex", flexDirection: "column", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: T.card, borderRadius: 26, padding: "52px 28px 28px", width: "100%", maxWidth: 520, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", position: "relative", maxHeight: "80vh", display: "flex", flexDirection: "column", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
             <button onClick={closeStartJobPicker} style={{ position: "absolute", top: 16, right: 18, background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 4 }}>Start Job</div>
             <div style={{ fontSize: 18, fontWeight: 700, color: T.text, marginBottom: 16 }}>Select a job to clock into</div>
@@ -16091,7 +16186,7 @@ ${jobsCtx || "No jobs found."}`;
               onChange={e => setStartJobSearch(e.target.value)}
               placeholder="Search jobs..."
               autoFocus
-              style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusPill, border: `1.5px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", marginBottom: 16, boxSizing: "border-box", transition: "border-color 0.15s" }}
+              style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusPill, border: `1.5px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", marginBottom: 16, boxSizing: "border-box", transition: "border-color 0.15s" }}
               onFocus={e => { e.target.style.borderColor = T.accent; }}
               onBlur={e => { e.target.style.borderColor = T.border; }}
             />
@@ -16166,7 +16261,7 @@ ${jobsCtx || "No jobs found."}`;
                                         <div style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>
                                           <span style={{ fontSize: 13, fontWeight: 600, color: T.text, flex: 1 }}>{op.title}</span>
                                           {dept && (
-                                            <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}30`, borderRadius: 6, padding: "2px 6px", whiteSpace: "nowrap" }}>
+                                            <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}30`, borderRadius: 12, padding: "2px 6px", whiteSpace: "nowrap" }}>
                                               {dept}
                                             </span>
                                           )}
@@ -16212,10 +16307,10 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                   <span style={{ fontSize: 14, color: T.text }}>From the</span>
                   <input type="number" min="1" max="31" value={(orgSettings.payDates||[5,20])[0]} onChange={e => { const v=Math.min(31,Math.max(1,parseInt(e.target.value)||1)); const d2=(orgSettings.payDates||[5,20])[1]; setOrgSettings(s=>({...s,payDates:[v,d2]})); }}
-                    style={{ width: 60, padding: "9px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", textAlign: "center" }} />
+                    style={{ width: 60, padding: "9px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", textAlign: "center" }} />
                   <span style={{ fontSize: 14, color: T.text }}>to the</span>
                   <input type="number" min="1" max="31" value={(orgSettings.payDates||[5,20])[1]} onChange={e => { const v=Math.min(31,Math.max(1,parseInt(e.target.value)||1)); const d1=(orgSettings.payDates||[5,20])[0]; setOrgSettings(s=>({...s,payDates:[d1,v]})); }}
-                    style={{ width: 60, padding: "9px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", textAlign: "center" }} />
+                    style={{ width: 60, padding: "9px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", textAlign: "center" }} />
                   <span style={{ fontSize: 14, color: T.text }}>of each month</span>
                 </div>
                 <div style={{ fontSize: 12, color: T.textDim }}>
@@ -16227,7 +16322,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 14, color: T.text }}>Cap each person at</span>
                   <input type="number" min="1" max="999" step="1" value={orgSettings.payPeriodHourCap ?? 80} onChange={e => { const v = Math.min(999, Math.max(1, parseInt(e.target.value) || 80)); setOrgSettings(s => ({ ...s, payPeriodHourCap: v })); }}
-                    style={{ width: 64, padding: "9px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", textAlign: "center" }} />
+                    style={{ width: 64, padding: "9px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", textAlign: "center" }} />
                   <span style={{ fontSize: 14, color: T.text }}>hours per pay period</span>
                 </div>
               </div>}
@@ -16238,7 +16333,7 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                   <button type="button" onClick={() => setOrgSettings(s => ({ ...s, iosPayClockEnabled: !s.iosPayClockEnabled }))} style={{ flexShrink: 0, width: 46, height: 26, borderRadius: T.radiusPill, border: "none", background: orgSettings.iosPayClockEnabled ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
-                    <span style={{ position: "absolute", top: 3, left: orgSettings.iosPayClockEnabled ? 23 : 3, width: 20, height: 20, borderRadius: 10, background: "#fff", transition: "left 0.2s" }} />
+                    <span style={{ position: "absolute", top: 3, left: orgSettings.iosPayClockEnabled ? 23 : 3, width: 20, height: 20, borderRadius: 16, background: "#fff", transition: "left 0.2s" }} />
                   </button>
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>Allow workers to clock in for pay from iOS app</div>
@@ -16251,7 +16346,7 @@ ${jobsCtx || "No jobs found."}`;
                   {[{ key: "trackLunch", label: "Track Lunch", desc: "Show Start/End Lunch buttons for hourly workers" }, { key: "trackBreaks", label: "Track Breaks", desc: "Show Start/End Break buttons for hourly workers" }].map(({ key, label, desc }) => (
                     <div key={key} style={{ display: "flex", alignItems: "center", gap: 14 }}>
                       <button type="button" onClick={() => setOrgSettings(s => ({ ...s, [key]: !s[key] }))} style={{ flexShrink: 0, width: 46, height: 26, borderRadius: T.radiusPill, border: "none", background: orgSettings[key] ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
-                        <span style={{ position: "absolute", top: 3, left: orgSettings[key] ? 23 : 3, width: 20, height: 20, borderRadius: 10, background: "#fff", transition: "left 0.2s" }} />
+                        <span style={{ position: "absolute", top: 3, left: orgSettings[key] ? 23 : 3, width: 20, height: 20, borderRadius: 16, background: "#fff", transition: "left 0.2s" }} />
                       </button>
                       <div>
                         <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{label}</div>
@@ -16269,13 +16364,13 @@ ${jobsCtx || "No jobs found."}`;
                     return (
                       <div key={p.id} style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: "14px 16px", marginBottom: 10 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                          <div style={{ width: 10, height: 10, borderRadius: 5, background: T.textDim }} />
+                          <div style={{ width: 10, height: 10, borderRadius: 8, background: T.textDim }} />
                           <span style={{ fontSize: 15, fontWeight: 600, color: T.text }}>{p.name}</span>
                         </div>
                         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                           <div>
                             <div style={{ fontSize: 11, color: T.textDim, marginBottom: 6 }}>Pay Type</div>
-                            <div style={{ display: "flex", borderRadius: 6, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                            <div style={{ display: "flex", borderRadius: 12, border: `1px solid ${T.border}`, overflow: "hidden" }}>
                               {["hourly","salary"].map(pt => (
                                 <button key={pt} type="button" onClick={() => draftSet(p.id, "payType", pt)} style={{ flex: 1, padding: "8px 0", border: "none", background: payType === pt ? (pt === "salary" ? elColor("#6366f1") : T.accent) : T.surface, color: payType === pt ? (pt === "salary" ? "#fff" : T.accentText) : T.textDim, fontSize: 12, fontWeight: payType === pt ? 700 : 400, cursor: "pointer", fontFamily: T.font, textTransform: "capitalize" }}>{pt}</button>
                               ))}
@@ -16284,7 +16379,7 @@ ${jobsCtx || "No jobs found."}`;
                           <div>
                             <div style={{ fontSize: 11, color: T.textDim, marginBottom: 6 }}>PIN</div>
                             <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: T.surface, overflow: "hidden" }}>
-                              <input type={showPinIds.has(p.id) ? "text" : "password"} value={p.pin || ""} onChange={e => draftSet(p.id, "pin", e.target.value)} placeholder={p.hasPin ? "•••• set — type to change" : "Set PIN"}
+                              <input className="tq-bare" type={showPinIds.has(p.id) ? "text" : "password"} value={p.pin || ""} onChange={e => draftSet(p.id, "pin", e.target.value)} placeholder={p.hasPin ? "•••• set — type to change" : "Set PIN"}
                                 style={{ flex: 1, padding: "8px 10px", border: "none", background: "transparent", color: T.text, fontSize: 18, fontFamily: T.mono, letterSpacing: showPinIds.has(p.id) ? "normal" : "0.25em", outline: "none", minWidth: 0 }}
                               />
                               <button type="button" onClick={() => setShowPinIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })}
@@ -16354,7 +16449,7 @@ ${jobsCtx || "No jobs found."}`;
               <div className="tq-frost" style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, padding: "18px 16px", marginBottom: 16 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 12 }}>My Pay Hours</div>
                 <div style={{ display: "flex", gap: 10 }}>
-                  <div style={{ flex: 1, background: T.surface, borderRadius: 28, padding: "18px 0", textAlign: "center" }}>
+                  <div style={{ flex: 1, background: T.surface, borderRadius: 30, padding: "18px 0", textAlign: "center" }}>
                     <div style={{ fontSize: 10, color: T.textDim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 4 }}>This Period</div>
                     <div style={{ fontSize: 28, fontWeight: 700, color: T.text, fontFamily: T.mono, lineHeight: 1 }}>{myPeriodHrs.toFixed(1)}</div>
                     <div style={{ fontSize: 10, color: T.textDim, marginTop: 2 }}>{fmtDate(ppNow.start)} – {fmtDate(ppNow.end)}</div>
@@ -16372,7 +16467,7 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 6px #22c55e", flexShrink: 0 }} />
                         <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{jc.jobTitle}</span>
                         {jc.opTitle && <span style={{ fontSize: 12, color: T.textDim }}>· {jc.opTitle}</span>}
-                        {onBreak && <span style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b40", borderRadius: 10, padding: "1px 7px" }}>On break</span>}
+                        {onBreak && <span style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b40", borderRadius: 16, padding: "1px 7px" }}>On break</span>}
                         <span style={{ fontSize: 13, fontWeight: 700, color: "#22c55e", fontFamily: T.mono, marginLeft: "auto" }}>{tsJobElapsed || "0h 0m"}</span>
                       </div>
                       <div style={{ display: "flex", gap: 8 }}>
@@ -16410,9 +16505,9 @@ ${jobsCtx || "No jobs found."}`;
                   return (
                     <div>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: 4, background: "#22c55e", boxShadow: "0 0 8px #22c55e", flexShrink: 0 }} />
+                        <div style={{ width: 8, height: 8, borderRadius: 8, background: "#22c55e", boxShadow: "0 0 8px #22c55e", flexShrink: 0 }} />
                         <span style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{jobTitle}</span>
-                        {onBreak && <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b40", borderRadius: 10, padding: "2px 8px" }}>On break</span>}
+                        {onBreak && <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b40", borderRadius: 16, padding: "2px 8px" }}>On break</span>}
                       </div>
                       {(panelTitle || opTitle) && (
                         <div style={{ fontSize: 12, color: T.textDim, marginBottom: 12, paddingLeft: 16 }}>{panelTitle}{opTitle ? ` · ${opTitle}` : ""}</div>
@@ -16464,13 +16559,13 @@ ${jobsCtx || "No jobs found."}`;
                           <div key={p.id} className="tq-frost" style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${clocked ? pillColor + "30" : T.borderLight}`, overflow: "hidden" }}>
                             <div onClick={() => setTsExpandedPersons(prev => ({ ...prev, [p.id]: !prev[p.id] }))} style={{ padding: "14px 16px", cursor: "pointer" }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                                <div style={{ width: 9, height: 9, borderRadius: 5, background: T.textDim, flexShrink: 0 }} />
+                                <div style={{ width: 9, height: 9, borderRadius: 8, background: T.textDim, flexShrink: 0 }} />
                                 <span style={{ fontSize: 15, fontWeight: 700, color: T.text, flex: 1 }}>{p.name}</span>
                                 <div
                                   onClick={isAdmin ? (e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setClockPopover({ personId: p.id, personName: p.name, action: clocked ? "out" : "in", x: r.right - 168, y: r.bottom + 4 }); }) : undefined}
                                   title={isAdmin ? (clocked ? "Click to clock out" : "Click to clock in") : undefined}
-                                  style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 10, background: clocked ? pillColor + "18" : T.surface, border: `1px solid ${clocked ? pillColor + "40" : T.border}`, cursor: isAdmin ? "pointer" : "default" }}>
-                                  <div style={{ width: 6, height: 6, borderRadius: 3, background: clocked ? pillColor : T.textDim }} />
+                                  style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 8px", borderRadius: 16, background: clocked ? pillColor + "18" : T.surface, border: `1px solid ${clocked ? pillColor + "40" : T.border}`, cursor: isAdmin ? "pointer" : "default" }}>
+                                  <div style={{ width: 6, height: 6, borderRadius: 8, background: clocked ? pillColor : T.textDim }} />
                                   <span style={{ fontSize: 11, fontWeight: 700, color: clocked ? pillColor : T.textDim }}>{ui.label}</span>
                                 </div>
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isExp ? "rotate(90deg)" : "none", transition: "transform 0.15s", flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
@@ -16482,7 +16577,7 @@ ${jobsCtx || "No jobs found."}`;
                                     const panel = job?.subs?.find(s => s.id === r.panelId);
                                     return (
                                       <div key={r.opId} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: T.text }}>
-                                        <div style={{ width: 5, height: 5, borderRadius: 3, background: T.accent, flexShrink: 0 }} />
+                                        <div style={{ width: 5, height: 5, borderRadius: 8, background: T.accent, flexShrink: 0 }} />
                                         <span style={{ fontWeight: 600 }}>{job?.title || "—"}</span>
                                         {panel && <span style={{ color: T.textDim }}>· {panel.title}</span>}
                                       </div>
@@ -16540,7 +16635,7 @@ ${jobsCtx || "No jobs found."}`;
                         return (
                           <div key={person.id} className="tq-frost" style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.borderLight}`, marginBottom: 10, overflow: "hidden" }}>
                             <div onClick={() => setTsExpandedPersons(prev => ({ ...prev, ["ts_" + person.id]: !prev["ts_" + person.id] }))} style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", cursor: "pointer" }}>
-                              <div style={{ width: 8, height: 8, borderRadius: 4, background: T.textDim }} />
+                              <div style={{ width: 8, height: 8, borderRadius: 8, background: T.textDim }} />
                               <span style={{ fontSize: 14, fontWeight: 600, color: T.text, flex: 1 }}>{person.name}</span>
                               <span style={{ fontSize: 20, fontWeight: 700, color: pTotal > 0 ? T.accent : T.textDim, fontFamily: T.mono }}>{pTotal.toFixed(1)}h</span>
                               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isExpTS ? "rotate(90deg)" : "none", transition: "transform 0.15s", flexShrink: 0, marginLeft: 4 }}><polyline points="9 18 15 12 9 6"/></svg>
@@ -16846,7 +16941,7 @@ ${jobsCtx || "No jobs found."}`;
                         <span style={{ fontSize: 14, fontWeight: 500, color: accentClr }}>
                           Active on {jc.opTitle || jc.jobTitle}
                         </span>
-                        {onBreak && <span style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b40", borderRadius: 9, padding: "1px 6px" }}>On break</span>}
+                        {onBreak && <span style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b40", borderRadius: 12, padding: "1px 6px" }}>On break</span>}
                       </div>
                       {(jc.panelTitle || jc.jobTitle) && (
                         <div style={{ fontSize: 11, color: T.textDim, paddingLeft: 14 }}>
@@ -16896,7 +16991,7 @@ ${jobsCtx || "No jobs found."}`;
 
             {/* Stats */}
             <div style={{ display: "block" }}>
-              <div style={{ background: T.card, borderRadius: 28, border: `1px solid ${T.borderLight}`, padding: "20px 16px", textAlign: "center" }}>
+              <div style={{ background: T.card, borderRadius: 30, border: `1px solid ${T.borderLight}`, padding: "20px 16px", textAlign: "center" }}>
                 <div style={{ fontSize: 11, color: T.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 6 }}>This Period</div>
                 <div style={{ fontSize: 30, fontWeight: 700, color: T.text, fontFamily: T.mono, lineHeight: 1 }}>{myPeriodHrs.toFixed(1)}</div>
                 <div style={{ fontSize: 11, color: T.textDim, marginTop: 3 }}>{fmtDate(ppNow.start)} – {fmtDate(ppNow.end)}</div>
@@ -16958,13 +17053,13 @@ ${jobsCtx || "No jobs found."}`;
                               </td>
                               <td style={{ padding: "10px 10px" }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                  <div style={{ width: 8, height: 8, borderRadius: 4, background: T.textDim, flexShrink: 0 }} />
+                                  <div style={{ width: 8, height: 8, borderRadius: 8, background: T.textDim, flexShrink: 0 }} />
                                   <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{p.name}</span>
                                 </div>
                               </td>
                               <td style={{ padding: "10px 10px" }}>
                                 {(() => { const isSalary = p.payType === "salary"; return (
-                                  <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 8, background: elColor(isSalary ? "#6366f1" : "#f59e0b") + "18", color: elColor(isSalary ? "#6366f1" : "#f59e0b"), border: `1px solid ${elColor(isSalary ? "#6366f1" : "#f59e0b")}30` }}>
+                                  <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 12, background: elColor(isSalary ? "#6366f1" : "#f59e0b") + "18", color: elColor(isSalary ? "#6366f1" : "#f59e0b"), border: `1px solid ${elColor(isSalary ? "#6366f1" : "#f59e0b")}30` }}>
                                     {isSalary ? "Salary" : "Hourly"}
                                   </span>
                                 ); })()}
@@ -16973,8 +17068,8 @@ ${jobsCtx || "No jobs found."}`;
                                 <div
                                   onClick={isAdmin ? (e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setClockPopover({ personId: p.id, personName: p.name, action: clocked ? "out" : "in", x: r.left, y: r.bottom + 4 }); }) : undefined}
                                   title={isAdmin ? (clocked ? "Click to clock out" : "Click to clock in") : undefined}
-                                  style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 10, background: clocked ? pillColor + "18" : T.surface, border: `1px solid ${clocked ? pillColor + "40" : T.border}`, cursor: isAdmin ? "pointer" : "default" }}>
-                                  <div style={{ width: 6, height: 6, borderRadius: 3, background: clocked ? pillColor : T.textDim }} />
+                                  style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 8px", borderRadius: 16, background: clocked ? pillColor + "18" : T.surface, border: `1px solid ${clocked ? pillColor + "40" : T.border}`, cursor: isAdmin ? "pointer" : "default" }}>
+                                  <div style={{ width: 6, height: 6, borderRadius: 8, background: clocked ? pillColor : T.textDim }} />
                                   <span style={{ fontSize: 11, fontWeight: 600, color: clocked ? pillColor : T.textDim }}>{ui.label}</span>
                                 </div>
                               </td>
@@ -16989,7 +17084,7 @@ ${jobsCtx || "No jobs found."}`;
                                     onChange={ev => setSinceEdit(s => ({ ...s, value: ev.target.value }))}
                                     onBlur={ev => commitSinceEdit(p, ev.target.value)}
                                     onKeyDown={ev => { if (ev.key === "Enter") { ev.preventDefault(); ev.currentTarget.blur(); } else if (ev.key === "Escape") { ev.preventDefault(); sinceCancelRef.current = true; setSinceEdit(null); } }}
-                                    style={{ colorScheme: T.colorScheme, padding: "3px 6px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}`, background: T.card, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none" }}
+                                    style={{ colorScheme: T.colorScheme, padding: "3px 6px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}`, background: `var(--tq-field-bg, ${T.card})`, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none" }}
                                   />
                                 ) : (
                                   <span
@@ -17107,9 +17202,9 @@ ${jobsCtx || "No jobs found."}`;
                       <div key={person.id} style={{ marginBottom: 20, background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, overflow: "hidden" }}>
                         <div style={{ padding: "10px 16px", background: T.card, borderBottom: `1px solid ${T.border}` }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: isCurrPeriod ? 0 : 6 }}>
-                            <div style={{ width: 9, height: 9, borderRadius: 5, background: T.textDim }} />
+                            <div style={{ width: 9, height: 9, borderRadius: 8, background: T.textDim }} />
                             <span style={{ fontWeight: 700, color: T.text, flex: 1, fontSize: 14 }}>{person.name}</span>
-                            {(() => { const isSalary = person.payType === "salary"; const ptc = elColor(isSalary ? "#6366f1" : "#f59e0b"); return <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 8, background: ptc + "18", color: ptc, border: `1px solid ${ptc}30`, marginRight: 6 }}>{isSalary ? "Salary" : "Hourly"}</span>; })()}
+                            {(() => { const isSalary = person.payType === "salary"; const ptc = elColor(isSalary ? "#6366f1" : "#f59e0b"); return <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 12, background: ptc + "18", color: ptc, border: `1px solid ${ptc}30`, marginRight: 6 }}>{isSalary ? "Salary" : "Hourly"}</span>; })()}
                             <span style={{ fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{totalH.toFixed(2)} hrs</span>
                           </div>
                           {!isCurrPeriod && <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 17 }}>
@@ -17212,7 +17307,7 @@ ${jobsCtx || "No jobs found."}`;
                                 {job.jobNumber && <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, marginLeft: 6 }}>#{job.jobNumber}</span>}
                                 <span style={{ fontSize: 11, color: T.textDim, marginLeft: 6 }}>· {panel.title}</span>
                               </div>
-                              <span style={{ fontSize: 11, fontWeight: 700, color: statusColor, background: statusColor + "18", border: `1px solid ${statusColor}30`, borderRadius: 8, padding: "2px 8px", flexShrink: 0 }}>{statusLabel}</span>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: statusColor, background: statusColor + "18", border: `1px solid ${statusColor}30`, borderRadius: 12, padding: "2px 8px", flexShrink: 0 }}>{statusLabel}</span>
                             </div>
                             <div style={{ fontSize: 12, color: T.textDim }}>
                               Requested by <strong style={{ color: T.text }}>{req.byName}</strong> · {new Date(req.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
@@ -17254,7 +17349,7 @@ ${jobsCtx || "No jobs found."}`;
                       const tl6 = buildDayTimeline(timeclock.filter(x => String(x.personId) === String(loggedInUser.id) && x.date === e.date));
                       return (
                         <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 0", borderBottom: i < entries.length - 1 ? `1px solid ${T.border}` : "none", fontSize: 13 }}>
-                          <div style={{ width: 7, height: 7, borderRadius: 4, background: T.accent, flexShrink: 0, marginTop: 4 }} />
+                          <div style={{ width: 7, height: 7, borderRadius: 8, background: T.accent, flexShrink: 0, marginTop: 4 }} />
                           <div style={{ fontFamily: T.mono, display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
                             {tl6.map((ln, li) => <span key={li}><span style={{ color: ln.color, fontWeight: 700 }}>{ln.label}</span><span style={{ color: T.text }}>: {ln.kind === "single" ? fmtTime(ln.ts) : `${fmtTime(ln.start)}${ln.end ? ` – ${fmtTime(ln.end)}` : " (active)"}`}</span></span>)}
                           </div>
@@ -17298,7 +17393,7 @@ ${jobsCtx || "No jobs found."}`;
       const isExp = mobileExp["t_" + t.id];
       return <div key={t.id} style={{ marginBottom: 6 }}>
         <div onClick={() => { if (hasSubs) setMobileExp(p => ({ ...p, ["t_" + t.id]: !p["t_" + t.id] })); else openDetail(t); }} style={{ display: "flex", gap: 10, padding: "11px 12px", background: T.card, borderRadius: isExp ? `${T.radiusSm}px ${T.radiusSm}px 0 0` : T.radiusSm, border: `1px solid ${T.border}`, borderBottom: isExp ? "none" : undefined, cursor: "pointer", alignItems: "flex-start" }}>
-          <div style={{ width: 4, alignSelf: "stretch", minHeight: 36, borderRadius: 2, background: "#94a3b8", flexShrink: 0, marginTop: 2 }} />
+          <div style={{ width: 4, alignSelf: "stretch", minHeight: 36, borderRadius: 8, background: "#94a3b8", flexShrink: 0, marginTop: 2 }} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
               {hasSubs && <span style={{ fontSize: 10, color: T.textDim, flexShrink: 0 }}>{isExp ? "▼" : "▶"}</span>}
@@ -17306,7 +17401,7 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: T.radiusPill, background: (staColorOf(t.status) || T.accent) + "22", color: staColorOf(t.status) || T.accent, fontWeight: 700, flexShrink: 0, whiteSpace: "nowrap", textTransform: "uppercase", letterSpacing: "-0.045em" }}>{t.status}</span>
             </div>
             <div style={{ fontSize: 12, color: T.textDim, marginTop: 3, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-              {owner && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><div style={{ width: 6, height: 6, borderRadius: 3, background: owner.color, flexShrink: 0 }} />{owner.name}</span>}
+              {owner && <span style={{ display: "flex", alignItems: "center", gap: 3 }}><div style={{ width: 6, height: 6, borderRadius: 8, background: owner.color, flexShrink: 0 }} />{owner.name}</span>}
               {cl && <span>· {cl.name}</span>}
               <span style={{ fontFamily: T.mono }}>{fm(t.start)} → {fm(t.end)}</span>
             </div>
@@ -17319,7 +17414,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         {isExp && <div style={{ background: T.bg + "88", border: `1px solid ${T.border}`, borderTop: "none", borderRadius: `0 0 ${T.radiusSm}px ${T.radiusSm}px`, padding: "4px 0" }}>
           {(t.subs || []).map(s => <div key={s.id} onClick={() => openDetail(s)} style={{ display: "flex", gap: 10, padding: "10px 14px 10px 30px", cursor: "pointer", alignItems: "center" }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
-            <div style={{ width: 7, height: 7, borderRadius: 4, background: owner ? owner.color : T.accent, flexShrink: 0 }} />
+            <div style={{ width: 7, height: 7, borderRadius: 8, background: owner ? owner.color : T.accent, flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 500, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.title}</div>
               <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{fm(s.start)} → {fm(s.end)}</div>
@@ -17348,8 +17443,8 @@ ${jobsCtx || "No jobs found."}`;
             <div onClick={() => setMobileExp(p => ({ ...p, [mKey]: !p[mKey] }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: `${T.accent}15`, borderRadius: T.radiusSm, border: `1px solid ${T.accent}30`, cursor: "pointer", marginBottom: isOpen ? 6 : 0 }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
               <span style={{ fontSize: 14, fontWeight: 700, color: T.accent, flex: 1 }}>{tmpl.name}</span>
-              {pending.length > 0 && <span style={{ fontSize: 12, color: T.accent, fontWeight: 700, background: `${T.accent}20`, borderRadius: 10, padding: "1px 8px" }}>{pending.length}</span>}
-              {finished.length > 0 && <span style={{ fontSize: 11, color: "#10b981", fontWeight: 700, background: "#10b98120", borderRadius: 10, padding: "1px 8px" }}>✓{finished.length}</span>}
+              {pending.length > 0 && <span style={{ fontSize: 12, color: T.accent, fontWeight: 700, background: `${T.accent}20`, borderRadius: 16, padding: "1px 8px" }}>{pending.length}</span>}
+              {finished.length > 0 && <span style={{ fontSize: 11, color: "#10b981", fontWeight: 700, background: "#10b98120", borderRadius: 16, padding: "1px 8px" }}>✓{finished.length}</span>}
               <span style={{ fontSize: 11, color: T.textDim, marginLeft: 4 }}>{isOpen ? "▲" : "▼"}</span>
             </div>
             {isOpen && <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -17379,7 +17474,7 @@ ${jobsCtx || "No jobs found."}`;
           <div onClick={() => setMobileExp(p => ({ ...p, eng_queue: !p.eng_queue }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: `${T.accent}15`, borderRadius: T.radiusSm, border: `1px solid ${T.accent}30`, cursor: "pointer", marginBottom: mobileEngOpen ? 6 : 0 }}>
             <span style={{ fontSize: 14 }}>🔧</span>
             <span style={{ fontSize: 14, fontWeight: 700, color: T.accent, flex: 1 }}>{queueLabel}</span>
-            <span style={{ fontSize: 12, color: T.accent, fontWeight: 700, background: `${T.accent}20`, borderRadius: 10, padding: "1px 8px" }}>{engQueueItems.length}</span>
+            <span style={{ fontSize: 12, color: T.accent, fontWeight: 700, background: `${T.accent}20`, borderRadius: 16, padding: "1px 8px" }}>{engQueueItems.length}</span>
             <span style={{ fontSize: 11, color: T.textDim, marginLeft: 4 }}>{mobileEngOpen ? "▲" : "▼"}</span>
           </div>
           {mobileEngOpen && <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -17433,7 +17528,7 @@ ${jobsCtx || "No jobs found."}`;
         const isExp = mobileExp["c_" + c.id];
         return <div key={c.id} style={{ marginBottom: 6 }}>
           <div onClick={() => setMobileExp(p => ({ ...p, ["c_" + c.id]: !p["c_" + c.id] }))} style={{ display: "flex", gap: 12, padding: "13px 14px", background: T.card, borderRadius: isExp ? `${T.radiusSm}px ${T.radiusSm}px 0 0` : T.radiusSm, border: `1px solid ${T.border}`, borderBottom: isExp ? "none" : undefined, cursor: "pointer", alignItems: "center" }}>
-            <div style={{ width: 10, height: 10, borderRadius: 5, background: elColor(c.color), flexShrink: 0, boxShadow: `0 0 6px ${elColor(c.color)}66` }} />
+            <div style={{ width: 10, height: 10, borderRadius: 8, background: elColor(c.color), flexShrink: 0, boxShadow: `0 0 6px ${elColor(c.color)}66` }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>{c.name}</div>
               <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>{c.contact || "No contact"}{c.email ? " · " + c.email : ""}</div>
@@ -17451,7 +17546,7 @@ ${jobsCtx || "No jobs found."}`;
             {can("editJobs") && <button onClick={() => setClientModal({ ...c })} style={{ background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: T.radiusPill, padding: "6px 14px", fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer", fontFamily: T.font, marginBottom: 10 }}>Edit Client</button>}
             {cTasks.length > 0 && <>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", marginBottom: 6 }}>Jobs · {cTasks.length}</div>
-              {cTasks.map(t => <div key={t.id} onClick={() => openDetail(t)} style={{ padding: "8px 10px", marginBottom: 4, background: T.bg, borderRadius: 6, cursor: "pointer", fontSize: 13, color: T.bgText, display: "flex", alignItems: "center", gap: 8 }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = T.bg}>
+              {cTasks.map(t => <div key={t.id} onClick={() => openDetail(t)} style={{ padding: "8px 10px", marginBottom: 4, background: T.bg, borderRadius: 12, cursor: "pointer", fontSize: 13, color: T.bgText, display: "flex", alignItems: "center", gap: 8 }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = T.bg}>
                 <HealthIcon t={t} size={8} />
                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
                 <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(t.start)}</span>
@@ -17479,8 +17574,8 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>{p.name}</div>
               <div style={{ fontSize: 12, color: T.textDim, marginTop: 1 }}>{p.department}{p.cap ? ` · ${p.cap}h/day` : ""}</div>
-              <div style={{ marginTop: 5, background: T.bg, borderRadius: 3, height: 4, overflow: "hidden", width: "65%" }}>
-                <div style={{ height: "100%", borderRadius: 3, background: bookedH > p.cap ? T.danger : pctLoad > 70 ? "#f59e0b" : T.accent, width: pctLoad + "%", transition: "width 0.3s" }} />
+              <div style={{ marginTop: 5, background: T.bg, borderRadius: 8, height: 4, overflow: "hidden", width: "65%" }}>
+                <div style={{ height: "100%", borderRadius: 8, background: bookedH > p.cap ? T.danger : pctLoad > 70 ? "#f59e0b" : T.accent, width: pctLoad + "%", transition: "width 0.3s" }} />
               </div>
             </div>
             <div style={{ textAlign: "right", flexShrink: 0 }}>
@@ -17507,16 +17602,16 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             {currentTasks.length > 0 && <>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Working On</div>
-              {currentTasks.map(t => <div key={t.id} onClick={() => openDetail(t)} style={{ padding: "7px 10px", marginBottom: 4, background: T.card, borderRadius: 6, cursor: "pointer", fontSize: 13, color: T.text, display: "flex", alignItems: "center", gap: 8, border: `1px solid ${T.border}` }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = T.card}>
-                <div style={{ width: 6, height: 6, borderRadius: 3, background: T.textDim, flexShrink: 0 }} />
+              {currentTasks.map(t => <div key={t.id} onClick={() => openDetail(t)} style={{ padding: "7px 10px", marginBottom: 4, background: T.card, borderRadius: 12, cursor: "pointer", fontSize: 13, color: T.text, display: "flex", alignItems: "center", gap: 8, border: `1px solid ${T.border}` }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = T.card}>
+                <div style={{ width: 6, height: 6, borderRadius: 8, background: T.textDim, flexShrink: 0 }} />
                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
                 <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(t.end)}</span>
               </div>)}
             </>}
             {upcoming.length > 0 && <>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginTop: 8, marginBottom: 5 }}>Up Next</div>
-              {upcoming.map(t => <div key={t.id} onClick={() => openDetail(t)} style={{ padding: "7px 10px", marginBottom: 4, background: T.card, borderRadius: 6, cursor: "pointer", fontSize: 13, color: T.text, display: "flex", alignItems: "center", gap: 8, border: `1px solid ${T.border}`, opacity: 0.72 }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = T.card}>
-                <div style={{ width: 6, height: 6, borderRadius: 3, background: T.textDim, flexShrink: 0 }} />
+              {upcoming.map(t => <div key={t.id} onClick={() => openDetail(t)} style={{ padding: "7px 10px", marginBottom: 4, background: T.card, borderRadius: 12, cursor: "pointer", fontSize: 13, color: T.text, display: "flex", alignItems: "center", gap: 8, border: `1px solid ${T.border}`, opacity: 0.72 }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = T.card}>
+                <div style={{ width: 6, height: 6, borderRadius: 8, background: T.textDim, flexShrink: 0 }} />
                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
                 <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(t.start)}</span>
               </div>)}
@@ -17547,7 +17642,7 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ background: T.card, borderRadius: T.radiusSm, padding: "14px 16px", border: `1px solid ${T.border}`, marginBottom: 12 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 10 }}>By Status</div>
           {bySt.map(s => <div key={s.n} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-            <div style={{ width: 10, height: 10, borderRadius: 5, background: staColorOf(s.n), flexShrink: 0 }} />
+            <div style={{ width: 10, height: 10, borderRadius: 8, background: staColorOf(s.n), flexShrink: 0 }} />
             <span style={{ flex: 1, fontSize: 14, color: T.textSec }}>{s.n}</span>
             <span style={{ fontSize: 16, fontWeight: 700, color: T.text, fontFamily: T.mono }}>{s.c}</span>
           </div>)}
@@ -17564,8 +17659,8 @@ ${jobsCtx || "No jobs found."}`;
                 <span style={{ fontSize: 13, color: T.text, fontWeight: 500 }}>{p.name}</span>
                 <span style={{ fontSize: 12, color: hrs > p.cap ? T.danger : T.textDim, fontFamily: T.mono, fontWeight: 600 }}>{hrs}h / {p.cap}h</span>
               </div>
-              <div style={{ background: T.bg, borderRadius: 3, height: 6, overflow: "hidden" }}>
-                <div style={{ height: "100%", borderRadius: 3, background: elColor(hrs > p.cap ? T.danger : pct > 70 ? "#f59e0b" : T.accent), width: pct + "%", transition: "width 0.3s" }} />
+              <div style={{ background: T.bg, borderRadius: 8, height: 6, overflow: "hidden" }}>
+                <div style={{ height: "100%", borderRadius: 8, background: elColor(hrs > p.cap ? T.danger : pct > 70 ? "#f59e0b" : T.accent), width: pct + "%", transition: "width 0.3s" }} />
               </div>
             </div>;
           })}
@@ -17585,12 +17680,12 @@ ${jobsCtx || "No jobs found."}`;
         {loggedInUser.payType !== "salary" && (() => {
           const _clocked = !!loggedInUser.activeClockIn?.clockIn;
           return (
-            <div style={{ width: 8, height: 8, borderRadius: 4, background: _clocked ? T.accent : T.textDim, flexShrink: 0 }} />
+            <div style={{ width: 8, height: 8, borderRadius: 8, background: _clocked ? T.accent : T.textDim, flexShrink: 0 }} />
           );
         })()}
         <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: notifOpen ? T.accent + "15" : T.bg, border: `1px solid ${notifOpen ? T.accent + "44" : T.border}`, borderRadius: T.radiusPill, cursor: "pointer", flexShrink: 0, transition: "all 0.2s" }}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={notifOpen ? T.accent : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-          {hasNotifs && <span style={{ position: "absolute", top: 4, right: 4, width: 12, height: 12, borderRadius: 6, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700, color: "#fff" }}>{notifCount > 9 ? "9+" : notifCount}</span>}
+          {hasNotifs && <span style={{ position: "absolute", top: 4, right: 4, width: 12, height: 12, borderRadius: 12, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 700, color: "#fff" }}>{notifCount > 9 ? "9+" : notifCount}</span>}
         </button>
         <button onClick={e => { e.stopPropagation(); setSettingsOpen(p => !p); }} style={{ width: 36, height: 36, display: "flex", alignItems: "center", justifyContent: "center", background: settingsOpen ? T.accent + "15" : T.bg, border: `1px solid ${settingsOpen ? T.accent + "44" : T.border}`, borderRadius: T.radiusPill, cursor: "pointer", flexShrink: 0, transition: "all 0.2s" }}>
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke={settingsOpen ? T.accent : T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "transform 0.3s", transform: settingsOpen ? "rotate(90deg)" : "none" }}><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -17601,8 +17696,8 @@ ${jobsCtx || "No jobs found."}`;
         <div ref={searchRef} style={{ position: "relative" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", borderRadius: T.radiusSm, border: `1px solid ${searchOpen ? T.accent : T.border}`, background: T.bg, transition: "border 0.15s" }}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-            <input value={searchQ} onChange={e => { setSearchQ(e.target.value); setSearchOpen(true); }} onFocus={() => { if (searchQ) setSearchOpen(true); }} placeholder="Search..." style={{ flex: 1, border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 14, fontFamily: T.font }} />
-            {searchQ && <span onClick={() => { setSearchQ(""); setSearchOpen(false); }} style={{ cursor: "pointer", fontSize: 11, color: T.textDim, padding: "2px 6px", borderRadius: 4, background: "transparent"}}>✕</span>}
+            <input className="tq-bare" value={searchQ} onChange={e => { setSearchQ(e.target.value); setSearchOpen(true); }} onFocus={() => { if (searchQ) setSearchOpen(true); }} placeholder="Search..." style={{ flex: 1, border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 14, fontFamily: T.font }} />
+            {searchQ && <span onClick={() => { setSearchQ(""); setSearchOpen(false); }} style={{ cursor: "pointer", fontSize: 11, color: T.textDim, padding: "2px 6px", borderRadius: 8, background: "transparent"}}>✕</span>}
           </div>
           {searchOpen && searchQ.length > 0 && (() => {
             const q = searchQ.toLowerCase();
@@ -17617,7 +17712,7 @@ ${jobsCtx || "No jobs found."}`;
                 <span style={{ fontWeight: 500 }}>{p.name}</span>
               </div>)}
               {clientResults.slice(0, 4).map(c => <div key={c.id} onClick={() => { setSearchQ(""); setSearchOpen(false); switchView("clients"); setMobileExp(p => ({ ...p, ["c_" + c.id]: true })); }} style={{ padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text, borderBottom: `1px solid ${T.border}22` }}>
-                <div style={{ width: 8, height: 8, borderRadius: 4, background: elColor(c.color) }} />
+                <div style={{ width: 8, height: 8, borderRadius: 8, background: elColor(c.color) }} />
                 <span style={{ fontWeight: 500 }}>{c.name}</span>
               </div>)}
               {jobResults.slice(0, 6).map(t => <div key={t.id} onClick={() => { setSearchQ(""); setSearchOpen(false); openDetail(t); }} style={{ padding: "10px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: T.text, borderBottom: `1px solid ${T.border}22` }}>
@@ -17645,7 +17740,7 @@ ${jobsCtx || "No jobs found."}`;
       {moreOpen && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9990 }} onClick={() => setMoreOpen(false)}>
           <div style={{ position: "absolute", bottom: 60, left: 0, right: 0, background: T.surface, borderTop: `1px solid ${T.border}`, borderRadius: `${T.radius}px ${T.radius}px 0 0`, padding: "8px 0 20px", boxShadow: "0 -8px 32px rgba(0,0,0,0.4)" }} onClick={e => e.stopPropagation()}>
-            <div style={{ width: 36, height: 4, borderRadius: 2, background: T.border, margin: "6px auto 16px" }} />
+            <div style={{ width: 36, height: 4, borderRadius: 8, background: T.border, margin: "6px auto 16px" }} />
             {[
               { id: "clients", label: "Clients", icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg> },
               { id: "analytics", label: "Analytics", icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
@@ -17770,7 +17865,7 @@ ${jobsCtx || "No jobs found."}`;
               onChange={e => { setOrgCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setOrgCodeError(""); }}
               placeholder="Enter org code"
               maxLength={20}
-              style={{ width: "100%", padding: "13px 14px", borderRadius: T.radiusPill, border: `1.5px solid ${orgCodeError ? "#ef4444" : T.border}`, background: T.surface, color: T.text, fontSize: 16, fontFamily: T.mono, fontWeight: 700, letterSpacing: "-0.045em", outline: "none", boxSizing: "border-box", marginBottom: 8, textTransform: "uppercase" }}
+              style={{ width: "100%", padding: "13px 14px", borderRadius: T.radiusPill, border: `1.5px solid ${orgCodeError ? "#ef4444" : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 16, fontFamily: T.mono, fontWeight: 700, letterSpacing: "-0.045em", outline: "none", boxSizing: "border-box", marginBottom: 8, textTransform: "uppercase" }}
             />
             {orgCodeError && <div style={{ fontSize: 12, color: "#ef4444", marginBottom: 12 }}>{orgCodeError}</div>}
             <button
@@ -17831,7 +17926,7 @@ ${jobsCtx || "No jobs found."}`;
                 setView("messages"); setNotifOpen(false); markThreadRead(item.threadKey);
               }} style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start" }}
                 onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = "transparent"}>
-                <div style={{ width: 8, height: 8, borderRadius: 4, background: T.accent, flexShrink: 0, marginTop: 4 }} />
+                <div style={{ width: 8, height: 8, borderRadius: 8, background: T.accent, flexShrink: 0, marginTop: 4 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                     <span style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
@@ -18011,7 +18106,7 @@ ${jobsCtx || "No jobs found."}`;
           {latest && <div style={{ fontSize: 12, marginTop: 2, color: isActive ? hexA(T.accentText, 0.75) : T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(latest.authorId) === String(loggedInUser?.id) ? "You" : latest.authorName}: {latest.text || (latest.attachments?.length ? "Attachment" : "")}</div>}
         </div>
         {pinned && <span style={{ lineHeight: 0, flexShrink: 0, color: isActive ? T.accentText : T.textDim }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="17" x2="12" y2="21"/><path d="M9 3h6l-1 6 3 3H7l3-3z"/></svg></span>}
-        {unread > 0 && <div style={{ minWidth: 20, height: 20, padding: "0 6px", boxSizing: "border-box", borderRadius: 10, background: isActive ? "rgba(255,255,255,0.28)" : T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accentText, flexShrink: 0 }}>{unread > 9 ? "9+" : unread}</div>}
+        {unread > 0 && <div style={{ minWidth: 20, height: 20, padding: "0 6px", boxSizing: "border-box", borderRadius: 16, background: isActive ? "rgba(255,255,255,0.28)" : T.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: T.accentText, flexShrink: 0 }}>{unread > 9 ? "9+" : unread}</div>}
       </div>;
     };
 
@@ -18158,9 +18253,9 @@ ${jobsCtx || "No jobs found."}`;
                             <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>Completion Request</div>
                             <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Requested by <strong style={{ color: T.text }}>{frReq?.byName || m.authorName}</strong> · {ts}</div>
                           </div>
-                          {isPending && <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b33", borderRadius: 8, padding: "3px 10px", flexShrink: 0 }}>Pending</span>}
-                          {isApproved && <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#10b98118", border: "1px solid #10b98133", borderRadius: 8, padding: "3px 10px", flexShrink: 0 }}>Approved</span>}
-                          {isDeclined && <span style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", background: "#ef444418", border: "1px solid #ef444433", borderRadius: 8, padding: "3px 10px", flexShrink: 0 }}>Declined</span>}
+                          {isPending && <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b33", borderRadius: 12, padding: "3px 10px", flexShrink: 0 }}>Pending</span>}
+                          {isApproved && <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#10b98118", border: "1px solid #10b98133", borderRadius: 12, padding: "3px 10px", flexShrink: 0 }}>Approved</span>}
+                          {isDeclined && <span style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", background: "#ef444418", border: "1px solid #ef444433", borderRadius: 12, padding: "3px 10px", flexShrink: 0 }}>Declined</span>}
                         </div>
                         {/* Body */}
                         <div style={{ padding: "14px 18px" }}>
@@ -18245,7 +18340,7 @@ ${jobsCtx || "No jobs found."}`;
                                   onChange={e => setFinishDeclineState(prev => ({ ...prev, [m.finishRequestId]: { ...prev[m.finishRequestId], reason: e.target.value } }))}
                                   placeholder="Reason for declining (required)…"
                                   rows={3}
-                                  style={{ width: "100%", padding: "10px 12px", borderRadius: T.radiusXs, border: `1px solid ${hasReason ? T.border : "#ef444466"}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, resize: "vertical", boxSizing: "border-box" }}
+                                  style={{ width: "100%", padding: "10px 12px", borderRadius: T.radiusXs, border: `1px solid ${hasReason ? T.border : "#ef444466"}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, resize: "vertical", boxSizing: "border-box" }}
                                 />
                                 <div style={{ display: "flex", gap: 8 }}>
                                   <button onClick={() => setFinishDeclineState(prev => ({ ...prev, [m.finishRequestId]: { showInput: false, reason: "" } }))} style={{ flex: 1, padding: "12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.systemText || T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
@@ -18289,21 +18384,21 @@ ${jobsCtx || "No jobs found."}`;
                             <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>Time Off Request</div>
                             <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>from <strong style={{ color: T.text }}>{toName}</strong> · {ts}</div>
                           </div>
-                          {toPending && <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b33", borderRadius: 8, padding: "3px 10px", flexShrink: 0 }}>Pending</span>}
-                          {toStatus === "approved" && <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#10b98118", border: "1px solid #10b98133", borderRadius: 8, padding: "3px 10px", flexShrink: 0 }}>Approved</span>}
-                          {toStatus === "denied" && <span style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", background: "#ef444418", border: "1px solid #ef444433", borderRadius: 8, padding: "3px 10px", flexShrink: 0 }}>Denied</span>}
-                          {toStatus === "cancelled" && <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, background: T.border, borderRadius: 8, padding: "3px 10px", flexShrink: 0 }}>Cancelled</span>}
+                          {toPending && <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b33", borderRadius: 12, padding: "3px 10px", flexShrink: 0 }}>Pending</span>}
+                          {toStatus === "approved" && <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#10b98118", border: "1px solid #10b98133", borderRadius: 12, padding: "3px 10px", flexShrink: 0 }}>Approved</span>}
+                          {toStatus === "denied" && <span style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", background: "#ef444418", border: "1px solid #ef444433", borderRadius: 12, padding: "3px 10px", flexShrink: 0 }}>Denied</span>}
+                          {toStatus === "cancelled" && <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, background: T.border, borderRadius: 12, padding: "3px 10px", flexShrink: 0 }}>Cancelled</span>}
                         </div>
                         <div style={{ padding: "14px 16px" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: toNoteV ? 8 : 12 }}>
-                            <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "-0.045em", color: toClr, background: toClr + "1f", borderRadius: 8, padding: "2px 9px" }}>{toTypeV}</span>
+                            <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "-0.045em", color: toClr, background: toClr + "1f", borderRadius: 12, padding: "2px 9px" }}>{toTypeV}</span>
                             <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{rangeTO}</span>
                           </div>
                           {toNoteV && <div style={{ fontSize: 13, color: T.textSec, marginBottom: 12, lineHeight: 1.5 }}>{toNoteV}</div>}
                           {toReq && toStatus !== "pending" && toReq.decidedByName && <div style={{ fontSize: 12, color: T.textDim }}>{toStatus === "approved" ? "Approved" : toStatus === "denied" ? "Denied" : "Updated"} by {toReq.decidedByName}{toReq.denialReason ? ` · “${toReq.denialReason}”` : ""}</div>}
                           {isAdmin && toPending && (denying
                             ? <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
-                                <input autoFocus value={toDenyReason} onChange={e => setToDenyReason(e.target.value)} placeholder="Reason (optional)…" onKeyDown={e => { if (e.key === "Enter") decideTimeOff(m.timeOffRequestId, "deny", toDenyReason); if (e.key === "Escape") { setToDeny(null); setToDenyReason(""); } }} style={{ padding: "9px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }} />
+                                <input autoFocus value={toDenyReason} onChange={e => setToDenyReason(e.target.value)} placeholder="Reason (optional)…" onKeyDown={e => { if (e.key === "Enter") decideTimeOff(m.timeOffRequestId, "deny", toDenyReason); if (e.key === "Escape") { setToDeny(null); setToDenyReason(""); } }} style={{ padding: "9px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }} />
                                 <div style={{ display: "flex", gap: 8 }}>
                                   <button onClick={() => { setToDeny(null); setToDenyReason(""); }} style={{ flex: 1, padding: "11px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.systemText || T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
                                   <button disabled={toBusy === m.timeOffRequestId} onClick={() => decideTimeOff(m.timeOffRequestId, "deny", toDenyReason)} style={{ flex: 1, padding: "11px", borderRadius: T.radiusPill, border: "none", background: brandGrad("#ef4444"), color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: toBusy === m.timeOffRequestId ? 0.6 : 1 }}>Confirm Deny</button>
@@ -18337,10 +18432,10 @@ ${jobsCtx || "No jobs found."}`;
                       </div>}
                       {(m.attachments || []).map((att, ai) => (
                         att.mimeType?.startsWith("image/")
-                          ? <div key={ai} onClick={e => { e.stopPropagation(); setLightboxAtt(att); }} style={{ position: "relative", zIndex: 1, borderRadius: 10, overflow: "hidden", border: `1px solid ${T.border}`, maxWidth: 240, cursor: "zoom-in" }}>
+                          ? <div key={ai} onClick={e => { e.stopPropagation(); setLightboxAtt(att); }} style={{ position: "relative", zIndex: 1, borderRadius: 16, overflow: "hidden", border: `1px solid ${T.border}`, maxWidth: 240, cursor: "zoom-in" }}>
                               <img src={`/api/attachment?key=${encodeURIComponent(att.key)}`} alt={att.filename} onLoad={() => { const el = chatScrollRef.current; if (el && el.scrollHeight - el.scrollTop - el.clientHeight < 240) el.scrollTop = el.scrollHeight; }} style={{ display: "block", maxWidth: "100%", maxHeight: 220, objectFit: "cover" }} loading="lazy" />
                             </div>
-                          : <div key={ai} onClick={e => { e.stopPropagation(); setLightboxAtt(att); }} style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", background: isMe ? brandGrad(T.accent) : T.surface, border: `1px solid ${isMe ? T.accent : T.border}`, borderRadius: 10, fontSize: 13, color: isMe ? T.accentText : T.text, cursor: "pointer", maxWidth: 220 }}>
+                          : <div key={ai} onClick={e => { e.stopPropagation(); setLightboxAtt(att); }} style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", background: isMe ? brandGrad(T.accent) : T.surface, border: `1px solid ${isMe ? T.accent : T.border}`, borderRadius: 16, fontSize: 13, color: isMe ? T.accentText : T.text, cursor: "pointer", maxWidth: 220 }}>
                               <span style={{ flexShrink: 0, lineHeight: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
                               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.filename}</span>
                             </div>
@@ -18382,7 +18477,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
           {/* Input */}
           <div style={{ padding: "12px 14px", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
-            {chatError && <div style={{ marginBottom: 8, padding: "8px 12px", background: T.danger + "15", border: `1px solid ${T.danger}33`, borderRadius: 8, fontSize: 12, color: T.danger, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            {chatError && <div style={{ marginBottom: 8, padding: "8px 12px", background: T.danger + "15", border: `1px solid ${T.danger}33`, borderRadius: 12, fontSize: 12, color: T.danger, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
               <span>⚠ {chatError}</span>
               <button onClick={() => setChatError(null)} style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", fontSize: 14, padding: 0, lineHeight: 1 }}>✕</button>
             </div>}
@@ -18391,7 +18486,7 @@ ${jobsCtx || "No jobs found."}`;
                 {chatAttachments.length > 0 && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                     {chatAttachments.map((att, i) => (
-                      <div key={att.key} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px 4px 6px", background: T.accent + "18", border: `1px solid ${T.accent}44`, borderRadius: 8, maxWidth: 180 }}>
+                      <div key={att.key} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px 4px 6px", background: T.accent + "18", border: `1px solid ${T.accent}44`, borderRadius: 12, maxWidth: 180 }}>
                         <span style={{ lineHeight: 0 }}>{att.mimeType.startsWith("image/") ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>}</span>
                         <span style={{ fontSize: 11, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{att.filename}</span>
                         <button onClick={() => setChatAttachments(prev => prev.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 13, cursor: "pointer", padding: "0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
@@ -18407,14 +18502,14 @@ ${jobsCtx || "No jobs found."}`;
                       : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
                     }
                   </button></Tip>
-                  <textarea value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }} placeholder="Type a message… (Enter to send)" rows={1} style={{ flex: 1, height: 38, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, padding: "8px 16px", color: T.text, fontSize: 15, fontFamily: T.font, resize: "none", outline: "none", lineHeight: 1.35, boxSizing: "border-box" }} />
+                  <textarea value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }} placeholder="Type a message… (Enter to send)" rows={1} style={{ flex: 1, height: 38, background: `var(--tq-field-bg, ${T.surface})`, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, padding: "8px 16px", color: T.text, fontSize: 15, fontFamily: T.font, resize: "none", outline: "none", lineHeight: 1.35, boxSizing: "border-box" }} />
                   <button onClick={sendChatMessage} disabled={(!chatInput.trim() && !chatAttachments.length) || chatSending || chatUploading} style={{ width: 38, height: 38, borderRadius: T.radiusPill, background: (chatInput.trim() || chatAttachments.length) && !chatSending && !chatUploading ? brandGrad(T.accent) : T.border, border: "none", cursor: (chatInput.trim() || chatAttachments.length) && !chatSending && !chatUploading ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "background 0.15s" }}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
                   </button>
                 </div>
               </div>
             ) : (
-              <div style={{ textAlign: "center", padding: "10px 0", fontSize: 12, color: T.textDim, background: T.surface, borderRadius: 8, border: `1px solid ${T.border}` }}>
+              <div style={{ textAlign: "center", padding: "10px 0", fontSize: 12, color: T.textDim, background: T.surface, borderRadius: 12, border: `1px solid ${T.border}` }}>
                 👁 View only — you're not a participant in this thread
               </div>
             )}
@@ -18428,7 +18523,7 @@ ${jobsCtx || "No jobs found."}`;
   const renderModal = () => {
     if (!modal) return null;
     const ov = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: isMobile ? "8px" : "40px 24px", overflow: "auto" };
-    const bx = (wide) => ({ background: T.card, borderRadius: isMobile ? 14 : 16, padding: isMobile ? "56px 18px 18px" : "60px 32px 32px", maxWidth: wide ? 1000 : 600, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" });
+    const bx = (wide) => ({ background: T.card, borderRadius: isMobile ? 26 : T.radiusHero, padding: isMobile ? "56px 18px 18px" : "60px 32px 32px", maxWidth: wide ? 1000 : 600, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" });
     const cls = <button onClick={closeModal} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>;
     if (modal.type === "edit") { const [ed, setEd] = [modal.data, d => setModal(p => ({ ...p, data: typeof d === "function" ? d(p.data) : d }))];
       const addPanels = (count) => {
@@ -18894,9 +18989,9 @@ ${jobsCtx || "No jobs found."}`;
                   const val = ed[key]||"";
                   return <div key={col.id}>
                     <label style={{ display:"block", fontSize:13, color:T.textSec, fontWeight:600, letterSpacing:"0.04em", textTransform:"uppercase", marginBottom:6 }}>{col.label}</label>
-                    <select value={val} onChange={e => setEd(p => ({ ...p, [key]:e.target.value }))} style={{ width:"100%", padding:"9px 12px", borderRadius:T.radiusSm, border:`1px solid ${T.border}`, background:T.surface, color:val?T.text:T.textDim, fontSize:14, fontFamily:T.font, outline:"none", cursor:"pointer" }}>
-                      {(col.options||[]).map(o => { const n = optName(o); return <option key={n} value={n==="—"?"":n}>{n}</option>; })}
-                    </select>
+                    <SimpleDrop pill portal size="lg" value={val} placeholder="—"
+                      options={[{ value: "", label: "—" }, ...(col.options || []).map(o => { const n = optName(o); return { value: n === "—" ? "" : n, label: n }; }).filter(o => o.value !== "")]}
+                      onChange={v => setEd(p => ({ ...p, [key]: v }))} />
                   </div>;
                 }
                 return <InputField key={col.id} label={col.label} type={col.type==="number"?"number":col.type==="date"?"date":"text"} value={ed[key]||""} onChange={v => setEd(p => ({ ...p, [key]:v }))} />;
@@ -18904,7 +18999,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>}
             <div style={{ marginBottom:20, marginTop:8 }}>
               <label style={{ display:"block", fontSize:13, color:T.textSec, marginBottom:6, fontWeight:500 }}>Notes</label>
-              <textarea id="s1-notes" value={ed.notes} onChange={e => setEd(p => ({ ...p, notes:e.target.value }))} rows={3} style={{ width:"100%", padding:"12px 16px", borderRadius:T.radiusSm, border:`1px solid ${T.glassBorder}`, background:T.glass, color:T.text, fontSize:14, fontFamily:T.font, resize:"vertical", boxSizing:"border-box", outline:"none", transition:"border 0.2s, box-shadow 0.2s", colorScheme:T.colorScheme }} onFocus={e => { e.target.style.borderColor=T.accent+"55"; e.target.style.boxShadow=`0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor=T.glassBorder; e.target.style.boxShadow="none"; }} />
+              <textarea id="s1-notes" value={ed.notes} onChange={e => setEd(p => ({ ...p, notes:e.target.value }))} rows={3} style={{ width:"100%", padding:"12px 16px", borderRadius:T.radiusSm, border:`1px solid ${T.glassBorder}`, background: `var(--tq-field-bg, ${T.glass})`, color:T.text, fontSize:14, fontFamily:T.font, resize:"vertical", boxSizing:"border-box", outline:"none", transition:"border 0.2s, box-shadow 0.2s", colorScheme:T.colorScheme }} onFocus={e => { e.target.style.borderColor=T.accent+"55"; e.target.style.boxShadow=`0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor=T.glassBorder; e.target.style.boxShadow="none"; }} />
             </div>
           </div>}
 
@@ -18937,7 +19032,7 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:8 }}>
                     {ed.isReschedule && <input type="checkbox" checked={rescheduleSelection.includes(panel.id)} onChange={() => setRescheduleSelection(prev => prev.includes(panel.id) ? prev.filter(id => id !== panel.id) : [...prev, panel.id])} style={{ width:16, height:16, cursor:"pointer", accentColor:T.accent, flexShrink:0 }} />}
                     <div style={{ display:"flex", alignItems:"center", gap:3, flexShrink:0 }}>
-                      <Tip label="Quantity — creates this many copies when saved"><input type="number" min="1" max="999" value={panel.qty||1} onChange={e => updatePanel({qty:Math.max(1,parseInt(e.target.value)||1)})} style={{ width:54, padding:"7px 6px", borderRadius: T.radiusPill, border:`1px solid ${(panel.qty||1)>1?T.accent:T.border}`, background:T.surface, color:(panel.qty||1)>1?T.accent:T.text, fontSize:13, fontFamily:T.font, textAlign:"center", fontWeight:(panel.qty||1)>1?700:400 }} /></Tip>
+                      <Tip label="Quantity — creates this many copies when saved"><input type="number" min="1" max="999" value={panel.qty||1} onChange={e => updatePanel({qty:Math.max(1,parseInt(e.target.value)||1)})} style={{ width:54, padding:"7px 6px", borderRadius: T.radiusPill, border:`1px solid ${(panel.qty||1)>1?T.accent:T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:(panel.qty||1)>1?T.accent:T.text, fontSize:13, fontFamily:T.font, textAlign:"center", fontWeight:(panel.qty||1)>1?700:400 }} /></Tip>
                       <span style={{ fontSize:11, color:T.textDim }}>qty</span>
                     </div>
                     <button onClick={e => { e.stopPropagation(); setCollapsedOps(prev => ({...prev,[panel.id]:!prev[panel.id]})); }} style={{ padding:"3px 5px", background:"transparent", border:"none", cursor:"pointer", color:T.textDim, flexShrink:0 }}>
@@ -18961,12 +19056,12 @@ ${jobsCtx || "No jobs found."}`;
                     </div>
                     <input value={panel.title} onChange={e => updatePanel({title:e.target.value})} placeholder="Operation name"
                       onKeyDown={e => { if(e.key==="Enter") { e.preventDefault(); setEd(p => ({ ...p, subs:[...(p.subs||[]),{id:uid(),title:"Op-"+String((p.subs||[]).length+1).padStart(3,"0"),start:"",end:"",pri:"High",status:"Not Started",team:[],hpd:7.5,notes:"",deps:[],subs:[],color:p.color||randomJobColor()}] })); } }}
-                      style={{ flex:1, padding:"7px 10px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:T.font, boxSizing:"border-box" }} />
+                      style={{ flex:1, padding:"7px 10px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:13, fontFamily:T.font, boxSizing:"border-box" }} />
                     {panel.start ? <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(panel.start)} → {fm(panel.end)}</span> : null}
                     <div style={{ display:"flex", alignItems:"center", gap:4, flexShrink:0 }}>
                       {hasSubs
                         ? <Tip label="Sum of sub-op hours"><div style={{ width:52, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.bg, color:T.accent, fontSize:13, fontFamily:T.font, textAlign:"center", fontWeight:700 }}>{panelHpdSum}</div></Tip>
-                        : <input type="number" min="0.5" max="24" step="0.5" value={panel.hpd??7.5} onChange={e => { setAvailCheckPassed(false); updatePanel({hpd:parseFloat(e.target.value)||7.5}); }} style={{ width:52, padding:"7px 6px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
+                        : <input type="number" min="0.5" max="24" step="0.5" value={panel.hpd??7.5} onChange={e => { setAvailCheckPassed(false); updatePanel({hpd:parseFloat(e.target.value)||7.5}); }} style={{ width:52, padding:"7px 6px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
                       }
                       <Tip label="Estimated total hours for this operation"><span style={{ fontSize:11, color:hasSubs?T.accent:T.textDim, whiteSpace:"nowrap", width:24 }}>hrs</span></Tip>
                       {!hasSubs && <div style={{ position:"relative", flexShrink:0 }}>
@@ -18991,7 +19086,7 @@ ${jobsCtx || "No jobs found."}`;
                           <div style={{ borderTop:`1px solid ${T.border}`, marginTop:4, paddingTop:4 }}>
                             {deptAddMode
                               ? <div style={{ display:"flex", gap:4, padding:"4px 8px 6px" }}>
-                                  <input value={deptAddInput} onChange={e=>setDeptAddInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updatePanel({requiredDepartment:v}); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); } if(e.key==="Escape"){ setDeptAddMode(false); setDeptAddInput(""); }}} placeholder="Department name…" style={{ flex:1, padding:"5px 8px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:12, fontFamily:T.font, outline:"none", minWidth:0 }} autoFocus />
+                                  <input value={deptAddInput} onChange={e=>setDeptAddInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updatePanel({requiredDepartment:v}); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); } if(e.key==="Escape"){ setDeptAddMode(false); setDeptAddInput(""); }}} placeholder="Department name…" style={{ flex:1, padding:"5px 8px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:12, fontFamily:T.font, outline:"none", minWidth:0 }} autoFocus />
                                   <button onClick={()=>{ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updatePanel({requiredDepartment:v}); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); }} style={{ padding:"5px 10px", borderRadius:6, border:"none", background:T.accent, color:T.accentText, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Add</button>
                                 </div>
                               : <div onClick={()=>setDeptAddMode(true)} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 14px", cursor:"pointer", fontSize:12, color:T.accent, fontWeight:600, transition:"background 0.12s" }}
@@ -19013,10 +19108,10 @@ ${jobsCtx || "No jobs found."}`;
                       <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:4, paddingLeft:16 }}>
                         <Tip label="Drag to reorder"><div style={{ cursor:"grab", color:T.textDim, fontSize:13, userSelect:"none", flexShrink:0, paddingRight:4 }}>⠿</div></Tip>
                         <div style={{ width:2, height:20, background:T.border, borderRadius:2, flexShrink:0 }} />
-                        <input value={sub.title} onChange={e => updateSub({title:e.target.value})} placeholder="Sub-operation name" style={{ flex:1, padding:"7px 10px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:T.font, boxSizing:"border-box" }} />
+                        <input value={sub.title} onChange={e => updateSub({title:e.target.value})} placeholder="Sub-operation name" style={{ flex:1, padding:"7px 10px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:13, fontFamily:T.font, boxSizing:"border-box" }} />
                         {sub.start ? <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(sub.start)} → {fm(sub.end)}</span> : null}
                         <div style={{ display:"flex", alignItems:"center", gap:4, flexShrink:0 }}>
-                          <input type="number" min="0.5" max="24" step="0.5" value={sub.hpd??7.5} onChange={e => { setAvailCheckPassed(false); updateSub({hpd:parseFloat(e.target.value)||7.5}); }} style={{ width:52, padding:"7px 6px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
+                          <input type="number" min="0.5" max="24" step="0.5" value={sub.hpd??7.5} onChange={e => { setAvailCheckPassed(false); updateSub({hpd:parseFloat(e.target.value)||7.5}); }} style={{ width:52, padding:"7px 6px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
                           <Tip label="Estimated total hours for this operation"><span style={{ fontSize:11, color:T.textDim, whiteSpace:"nowrap", width:24 }}>hrs</span></Tip>
                           <div style={{ position:"relative", flexShrink:0 }}>
                             <button onClick={e => { e.stopPropagation(); const opening=deptDropId!==sub.id; setDeptDropId(opening?sub.id:null); if(opening){ setDeptAddInput(""); setDeptAddMode(false); } }}
@@ -19040,7 +19135,7 @@ ${jobsCtx || "No jobs found."}`;
                               <div style={{ borderTop:`1px solid ${T.border}`, marginTop:4, paddingTop:4 }}>
                                 {deptAddMode
                                   ? <div style={{ display:"flex", gap:4, padding:"4px 8px 6px" }}>
-                                      <input value={deptAddInput} onChange={e=>setDeptAddInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updateSub({requiredDepartment:v}); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); } if(e.key==="Escape"){ setDeptAddMode(false); setDeptAddInput(""); }}} placeholder="Department name…" style={{ flex:1, padding:"5px 8px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:12, fontFamily:T.font, outline:"none", minWidth:0 }} autoFocus />
+                                      <input value={deptAddInput} onChange={e=>setDeptAddInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updateSub({requiredDepartment:v}); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); } if(e.key==="Escape"){ setDeptAddMode(false); setDeptAddInput(""); }}} placeholder="Department name…" style={{ flex:1, padding:"5px 8px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:12, fontFamily:T.font, outline:"none", minWidth:0 }} autoFocus />
                                       <button onClick={()=>{ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updateSub({requiredDepartment:v}); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); }} style={{ padding:"5px 10px", borderRadius:6, border:"none", background:T.accent, color:T.accentText, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Add</button>
                                     </div>
                                   : <div onClick={()=>setDeptAddMode(true)} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 14px", cursor:"pointer", fontSize:12, color:T.accent, fontWeight:600, transition:"background 0.12s" }}
@@ -19653,7 +19748,7 @@ ${jobsCtx || "No jobs found."}`;
           {/* Health + Lock banner */}
           <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
             <div style={{ flex: 1, background: healthColor + "15", border: `1px solid ${healthColor}33`, borderRadius: T.radiusSm, padding: "10px 16px", display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 10, height: 10, borderRadius: 5, background: healthColor, boxShadow: `0 0 8px ${healthColor}66` }} />
+              <div style={{ width: 10, height: 10, borderRadius: 8, background: healthColor, boxShadow: `0 0 8px ${healthColor}66` }} />
               <span style={{ fontSize: 13, fontWeight: 700, color: healthColor }}>{healthLabel}</span>
             </div>
             {isOpLocked && <div style={{ background: "#f59e0b15", border: "1px solid #f59e0b33", borderRadius: T.radiusSm, padding: "10px 16px", display: "flex", alignItems: "center", gap: 8 }}>
@@ -19666,8 +19761,8 @@ ${jobsCtx || "No jobs found."}`;
           {parentJob && <div style={{ marginBottom: 20 }}>
             <div style={{ fontSize: 14, color: T.textDim, marginBottom: 6 }}>{parentJob.title}</div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {parentJob.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>Task # {parentJob.jobNumber}</span>}
-              {parentJob.poNumber && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98115", border: "1px solid #10b98133", borderRadius: 6, padding: "3px 10px", fontFamily: T.mono }}>PO # {parentJob.poNumber}</span>}
+              {parentJob.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 12, padding: "3px 10px", fontFamily: T.mono }}>Task # {parentJob.jobNumber}</span>}
+              {parentJob.poNumber && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98115", border: "1px solid #10b98133", borderRadius: 12, padding: "3px 10px", fontFamily: T.mono }}>PO # {parentJob.poNumber}</span>}
             </div>
           </div>}
           {/* Assigned person */}
@@ -19696,14 +19791,14 @@ ${jobsCtx || "No jobs found."}`;
           </div>
           {/* Client */}
           {client && <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, marginBottom: 16 }}>
-            <div style={{ width: 10, height: 10, borderRadius: 5, background: elColor(client.color) }} />
+            <div style={{ width: 10, height: 10, borderRadius: 8, background: elColor(client.color) }} />
             <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{client.name}</span>
             {client.contact && <span style={{ fontSize: 12, color: T.textDim, marginLeft: "auto" }}>{client.contact}</span>}
           </div>}
           {/* Notes / description — always show, editable */}
           {parentJob && <div style={{ marginBottom: 16 }}>
             <div style={{ fontSize: 11, color: T.textDim, fontWeight: 600, textTransform: "uppercase", marginBottom: 6 }}>Notes</div>
-            <textarea defaultValue={parentJob.notes || ""} rows={3} placeholder="Add notes…" style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, color: T.text, fontSize: 14, padding: "12px 14px", fontFamily: T.font, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6, transition: "border-color 0.15s" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(parentJob.id, { notes: e.target.value }); }} />
+            <textarea defaultValue={parentJob.notes || ""} rows={3} placeholder="Add notes…" style={{ width: "100%", background: `var(--tq-field-bg, ${T.surface})`, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, color: T.text, fontSize: 14, padding: "12px 14px", fontFamily: T.font, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6, transition: "border-color 0.15s" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(parentJob.id, { notes: e.target.value }); }} />
           </div>}
           {/* Move Log / Schedule History */}
           {(opData.moveLog || []).length > 0 && <div style={{ marginBottom: 16 }}>
@@ -19861,7 +19956,7 @@ ${jobsCtx || "No jobs found."}`;
           {/* Information */}
           {sec("info", "Information", <>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-              {dClient && infoRow("Client", <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 9, height: 9, borderRadius: 5, background: dClient.color, flexShrink: 0 }} />{dClient.name}</span>)}
+              {dClient && infoRow("Client", <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 9, height: 9, borderRadius: 8, background: dClient.color, flexShrink: 0 }} />{dClient.name}</span>)}
               {infoRow("Schedule", <span style={{ fontFamily: T.mono }}>{fm(fresh.start)} → {fm(fresh.end)}</span>)}
               {infoRow("Hours / Day", `${fresh.hpd || 8}h`)}
               {fresh.dueDate && infoRow("Customer Due Date", <span style={{ fontFamily: T.mono, color: fresh.dueDate < TD ? "#ef4444" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b" : T.text }}>{fm(fresh.dueDate)}{fresh.dueDate < TD ? " · OVERDUE" : ""}</span>)}
@@ -19877,18 +19972,16 @@ ${jobsCtx || "No jobs found."}`;
                 return <div key={col.id} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   <span style={{ fontSize: 10, color: T.textDim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{col.label}</span>
                   {col.type === "select" && (col.options || []).length > 0
-                    ? <select key={fresh.id + key} value={val} onChange={e => updTask(fresh.id, { [key]: e.target.value })} style={{ padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: val && val !== "—" ? T.bgText : hexA(T.bgText, 0.5), fontSize: 13, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
-                        {(col.options || []).map(o => { const n = optName(o); return <option key={n} value={n === "—" ? "" : n}>{n}</option>; })}
-                      </select>
+                    ? <SimpleDrop pill portal key={fresh.id + key} value={val} placeholder="—" options={[{ value: "", label: "—" }, ...(col.options || []).map(o => { const n = optName(o); return { value: n === "—" ? "" : n, label: n }; }).filter(o => o.value !== "")]} onChange={v => updTask(fresh.id, { [key]: v })} />
                     : col.type === "date"
                     ? <DateField square compact value={val || ""} placeholder="—" onChange={v => updTask(fresh.id, { [key]: v })} />
-                    : <input className="tq-sq" key={fresh.id + key} type={col.type === "number" ? "number" : "text"} defaultValue={val} placeholder="—" style={{ padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 13, fontFamily: col.type === "number" ? T.mono : T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { [key]: e.target.value }); }} />}
+                    : <input className="tq-sq" key={fresh.id + key} type={col.type === "number" ? "number" : "text"} defaultValue={val} placeholder="—" style={{ padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, fontFamily: col.type === "number" ? T.mono : T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { [key]: e.target.value }); }} />}
                 </div>;
               })}
             </div>}
           </>, null, true)}
           {/* Notes */}
-          {sec("notes", "Notes", <textarea value={t.notes || ""} onChange={e => setModal(p => ({ ...p, data: { ...p.data, notes: e.target.value } }))} rows={4} placeholder="Add notes…" style={{ width: "100%", background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, color: T.bgText, fontSize: 14, padding: "12px 14px", fontFamily: T.font, fontWeight: 400, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6, transition: "border-color 0.15s" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { notes: e.target.value }); }} />)}
+          {sec("notes", "Notes", <textarea value={t.notes || ""} onChange={e => setModal(p => ({ ...p, data: { ...p.data, notes: e.target.value } }))} rows={4} placeholder="Add notes…" style={{ width: "100%", background: `var(--tq-field-bg, ${T.bg})`, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, color: T.bgText, fontSize: 14, padding: "12px 14px", fontFamily: T.font, fontWeight: 400, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6, transition: "border-color 0.15s" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { notes: e.target.value }); }} />)}
           {/* Attachments */}
           {sec("att", `Attachments${dTotalAtt ? ` (${dTotalAtt})` : ""}`, <>
             {dPanels.length === 0 && <div style={{ fontSize: 12, color: T.textDim }}>No panels to attach photos to.</div>}
@@ -19907,7 +20000,7 @@ ${jobsCtx || "No jobs found."}`;
                     ? <div style={{ fontSize: 11, color: T.textDim, paddingBottom: 2 }}>No photos.</div>
                     : attView === "list"
                       ? <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                          {atts.map(a => <div key={a.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.bg }}>
+                          {atts.map(a => <div key={a.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.bg }}>
                             <span style={{ flexShrink: 0, lineHeight: 0 }}>{a.mimeType?.startsWith("image/") ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>}</span>
                             <span onClick={() => setLightboxAtt(a)} title="View" style={{ flex: 1, minWidth: 0, fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: "underline" }}>{a.filename}</span>
                             {dCanEdit && <button onClick={() => deletePanelAttachment({ jobId: fresh.id, panelId: panel.id }, a.key)} title="Remove" style={{ width: 18, height: 18, flexShrink: 0, borderRadius: "50%", border: "none", background: T.danger + "22", color: T.danger, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>×</button>}
@@ -19915,7 +20008,7 @@ ${jobsCtx || "No jobs found."}`;
                         </div>
                       : <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                           {atts.map(a => <div key={a.key} style={{ position: "relative", width: 72 }}>
-                            <div onClick={() => setLightboxAtt(a)} title={`${a.filename}${a.uploadedByName ? " · " + a.uploadedByName : ""}`} style={{ width: 72, height: 72, borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}`, cursor: "pointer", background: T.bg }}>
+                            <div onClick={() => setLightboxAtt(a)} title={`${a.filename}${a.uploadedByName ? " · " + a.uploadedByName : ""}`} style={{ width: 72, height: 72, borderRadius: 12, overflow: "hidden", border: `1px solid ${T.border}`, cursor: "pointer", background: T.bg }}>
                               {a.mimeType?.startsWith("image/")
                                 ? <img src={`/api/attachment?key=${encodeURIComponent(a.key)}`} alt={a.filename} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                                 : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>}
@@ -19937,12 +20030,12 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Progress</span>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: dHealthColor, background: dHealthColor + "15", border: `1px solid ${dHealthColor}33`, borderRadius: 6, padding: "1px 8px" }}><span style={{ width: 7, height: 7, borderRadius: 4, background: dHealthColor }} />{dHealthLabel}</span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: dHealthColor, background: dHealthColor + "15", border: `1px solid ${dHealthColor}33`, borderRadius: 12, padding: "1px 8px" }}><span style={{ width: 7, height: 7, borderRadius: 8, background: dHealthColor }} />{dHealthLabel}</span>
                   <span style={{ fontSize: 13, fontWeight: 800, color: dPctColor }}>{dPct}%</span>
                 </span>
               </div>
-              <div style={{ height: 9, borderRadius: 5, background: T.bg, border: `1px solid ${T.border}`, overflow: "hidden" }}>
-                <div style={{ width: `${dPct}%`, height: "100%", background: dPctColor, borderRadius: 5, transition: "width 0.3s ease" }} />
+              <div style={{ height: 9, borderRadius: 8, background: T.bg, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                <div style={{ width: `${dPct}%`, height: "100%", background: dPctColor, borderRadius: 8, transition: "width 0.3s ease" }} />
               </div>
             </div>
             {/* Stats */}
@@ -20225,7 +20318,7 @@ ${jobsCtx || "No jobs found."}`;
 
   // ── Section bodies ──
   // Shared style helpers for settings sections (card surface + labeled inputs).
-  const stCard = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 22, padding: "22px 24px" };
+  const stCard = { background: T.card, border: `1px solid ${T.border}`, borderRadius: 26, padding: "22px 24px" };
   const stLabel = { fontSize: 20, fontWeight: 800, color: T.text, letterSpacing: "-0.045em", marginBottom: 16 };
   const stFieldLabel = { fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 600, fontFamily: T.font };
   const stInput = { width: "100%", padding: "11px 18px", borderRadius: T.radiusPill, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", colorScheme: T.colorScheme, transition: "border 0.2s, box-shadow 0.2s" };
@@ -20300,7 +20393,7 @@ ${jobsCtx || "No jobs found."}`;
         <div className="tq-frost" style={stCard}>
           <div style={stLabel}>Organization Logo</div>
           <div style={{ display: "flex", gap: 22, alignItems: "flex-start", flexWrap: "wrap" }}>
-            <div style={{ width: 84, height: 84, borderRadius: 20, background: orgSettings.orgLogo ? T.surface : T.bg, backgroundImage: orgSettings.orgLogo ? `url(${orgSettings.orgLogo})` : undefined, backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: `1px solid ${T.border}`, color: T.textDim, fontSize: 12, fontWeight: 700 }}>{orgSettings.orgLogo ? "" : "Logo"}</div>
+            <div style={{ width: 84, height: 84, borderRadius: 26, background: orgSettings.orgLogo ? T.surface : T.bg, backgroundImage: orgSettings.orgLogo ? `url(${orgSettings.orgLogo})` : undefined, backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: `1px solid ${T.border}`, color: T.textDim, fontSize: 12, fontWeight: 700 }}>{orgSettings.orgLogo ? "" : "Logo"}</div>
             <div style={{ flex: 1, minWidth: 220 }}>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <label style={{ ...stGhostBtn, display: "inline-flex", alignItems: "center", gap: 7 }}>
@@ -20354,7 +20447,7 @@ ${jobsCtx || "No jobs found."}`;
             {roles.map((r, idx) => (
               <div key={idx} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", background: T.surface, border: `1px solid ${roleEditId === idx ? T.accent + "66" : T.border}`, borderRadius: T.radius, transition: "border-color 0.15s" }}>
                 {roleEditId === idx
-                  ? <input autoFocus value={roleEditVal} onChange={e => setRoleEditVal(e.target.value)} onKeyDown={e => { if (e.key === "Enter") commitEdit(); else if (e.key === "Escape") setRoleEditId(null); }} onBlur={commitEdit} style={{ flex: 1, background: "none", border: "none", outline: "none", fontSize: 14, color: T.text, fontFamily: T.font }} />
+                  ? <input className="tq-bare" autoFocus value={roleEditVal} onChange={e => setRoleEditVal(e.target.value)} onKeyDown={e => { if (e.key === "Enter") commitEdit(); else if (e.key === "Escape") setRoleEditId(null); }} onBlur={commitEdit} style={{ flex: 1, background: "none", border: "none", outline: "none", fontSize: 14, color: T.text, fontFamily: T.font }} />
                   : <span style={{ flex: 1, fontSize: 14, color: T.text }}>{r}</span>}
                 {roleEditId !== idx && <Tip label="Edit"><button onClick={() => { setRoleEditId(idx); setRoleEditVal(r); }} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), cursor: "pointer", fontSize: 13, padding: "0 4px", lineHeight: 1, display: "flex", alignItems: "center" }}>✎</button></Tip>}
                 <Tip label="Delete"><button onClick={() => { patchDraft(dd => ({ roles: (dd.roles || []).filter((_, i) => i !== idx) })); if (roleEditId === idx) setRoleEditId(null); }} style={{ background: "none", border: "none", color: T.danger || "#ef4444", cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px", display: "flex", alignItems: "center" }}>✕</button></Tip>
@@ -20394,9 +20487,9 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{ fontSize: 11, color: T.textDim }}>{person.department || "No department"}</div>
                   </div>
                   <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                    {isAdm && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 14, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Admin</span>}
-                    {person.canSignOff && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 14, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Approver</span>}
-                    {person.noAutoSchedule && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 14, background: "#f59e0b20", color: "#f59e0b", border: "1px solid #f59e0b33" }}>No Auto</span>}
+                    {isAdm && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 20, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Admin</span>}
+                    {person.canSignOff && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 20, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Approver</span>}
+                    {person.noAutoSchedule && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 20, background: "#f59e0b20", color: "#f59e0b", border: "1px solid #f59e0b33" }}>No Auto</span>}
                   </div>
                   <span style={{ color: T.textDim, fontSize: 12, marginLeft: 4 }}>{isSelected ? "▲" : "▼"}</span>
                 </div>
@@ -20408,8 +20501,8 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Admin Capabilities</div>
                         </div>
-                        <div style={{ width: 36, height: 20, borderRadius: 14, background: isAdm ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                          <div style={{ position: "absolute", top: 2, left: isAdm ? 18 : 2, width: 16, height: 16, borderRadius: 14, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                        <div style={{ width: 36, height: 20, borderRadius: 20, background: isAdm ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                          <div style={{ position: "absolute", top: 2, left: isAdm ? 18 : 2, width: 16, height: 16, borderRadius: 20, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                         </div>
                       </div>
                       {isAdm && <div style={{ paddingLeft: 12, display: "flex", flexDirection: "column", gap: 4 }}>
@@ -20418,8 +20511,8 @@ ${jobsCtx || "No jobs found."}`;
                           return <div key={key} onClick={() => togglePerm(key, !on)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radius, cursor: "pointer", transition: "background 0.15s" }} onMouseEnter={e => { e.currentTarget.style.background = T.hover; }} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                             <span style={{ fontSize: 13, width: 18, textAlign: "center", flexShrink: 0 }}>{icon}</span>
                             <span style={{ flex: 1, fontSize: 12, color: on ? T.text : T.textDim, fontWeight: on ? 500 : 400 }}>{label}</span>
-                            <div style={{ width: 28, height: 16, borderRadius: 14, background: on ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                              <div style={{ position: "absolute", top: 2, left: on ? 14 : 2, width: 12, height: 12, borderRadius: 14, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 2px rgba(0,0,0,0.3)" }} />
+                            <div style={{ width: 28, height: 16, borderRadius: 20, background: on ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                              <div style={{ position: "absolute", top: 2, left: on ? 14 : 2, width: 12, height: 12, borderRadius: 20, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 2px rgba(0,0,0,0.3)" }} />
                             </div>
                           </div>;
                         })}
@@ -20429,8 +20522,8 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Approval Queue Access</div>
                         </div>
-                        <div style={{ width: 36, height: 20, borderRadius: 14, background: person.canSignOff ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                          <div style={{ position: "absolute", top: 2, left: person.canSignOff ? 18 : 2, width: 16, height: 16, borderRadius: 14, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                        <div style={{ width: 36, height: 20, borderRadius: 20, background: person.canSignOff ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                          <div style={{ position: "absolute", top: 2, left: person.canSignOff ? 18 : 2, width: 16, height: 16, borderRadius: 20, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                         </div>
                       </div>
                       <div onClick={() => updDraftPerson(person.id, { noAutoSchedule: !person.noAutoSchedule })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radius, border: `1px solid ${person.noAutoSchedule ? "#f59e0b44" : T.border}`, background: person.noAutoSchedule ? "#f59e0b08" : T.surface, transition: "all 0.15s" }}>
@@ -20438,8 +20531,8 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Exclude from Auto-Scheduling</div>
                         </div>
-                        <div style={{ width: 36, height: 20, borderRadius: 14, background: person.noAutoSchedule ? "#f59e0b" : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                          <div style={{ position: "absolute", top: 2, left: person.noAutoSchedule ? 18 : 2, width: 16, height: 16, borderRadius: 14, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                        <div style={{ width: 36, height: 20, borderRadius: 20, background: person.noAutoSchedule ? "#f59e0b" : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                          <div style={{ position: "absolute", top: 2, left: person.noAutoSchedule ? 18 : 2, width: 16, height: 16, borderRadius: 20, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                         </div>
                       </div>
                       <div style={{ padding: "10px 10px 12px", borderRadius: T.radius, border: `1px solid ${T.border}`, background: T.surface }}>
@@ -20451,7 +20544,7 @@ ${jobsCtx || "No jobs found."}`;
                         </div>
                         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                           <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.bg, overflow: "hidden" }}>
-                            <input type={showPin ? "text" : "password"} value={person.pin || ""} onChange={e => updDraftPerson(person.id, { pin: e.target.value })} placeholder="PIN" style={{ width: 110, padding: "6px 10px", border: "none", background: "transparent", color: T.bgText, fontSize: 16, fontFamily: T.mono, letterSpacing: showPin ? "0.15em" : "0.3em", outline: "none", textAlign: "center" }} />
+                            <input className="tq-bare" type={showPin ? "text" : "password"} value={person.pin || ""} onChange={e => updDraftPerson(person.id, { pin: e.target.value })} placeholder="PIN" style={{ width: 110, padding: "6px 10px", border: "none", background: "transparent", color: T.bgText, fontSize: 16, fontFamily: T.mono, letterSpacing: showPin ? "0.15em" : "0.3em", outline: "none", textAlign: "center" }} />
                             <button onClick={() => setShowPinIds(prev => { const n = new Set(prev); n.has(person.id) ? n.delete(person.id) : n.add(person.id); return n; })} style={{ flexShrink: 0, padding: "0 8px", border: "none", background: "transparent", color: hexA(T.systemText || T.textDim, 0.65), cursor: "pointer", lineHeight: 1, display: "flex", alignItems: "center", height: 30 }}>
                               {showPin
                                 ? <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
@@ -20590,7 +20683,7 @@ ${jobsCtx || "No jobs found."}`;
               <div key={tmpl.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radius }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{tmpl.name}</div>
-                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>{(tmpl.steps || []).map((s, i) => <span key={i} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 14, background: T.accent + "18", color: T.accent, fontWeight: 600 }}>{i + 1}. {s}</span>)}</div>
+                  <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>{(tmpl.steps || []).map((s, i) => <span key={i} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 20, background: T.accent + "18", color: T.accent, fontWeight: 600 }}>{i + 1}. {s}</span>)}</div>
                 </div>
                 <Tip label="Edit"><button onClick={() => setSignOffTemplateEditing({ ...tmpl, steps: [...(tmpl.steps || [])] })} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), cursor: "pointer", fontSize: 13, padding: "2px 6px", lineHeight: 1 }}>✎</button></Tip>
                 <Tip label="Delete"><button onClick={() => patchDraft(dd => ({ signOffTemplates: (dd.signOffTemplates || []).filter(t => t.id !== tmpl.id) }))} style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", fontSize: 14, padding: "2px 6px", lineHeight: 1 }}>✕</button></Tip>
@@ -20610,7 +20703,7 @@ ${jobsCtx || "No jobs found."}`;
     const numInput = { width: 60, padding: "6px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", textAlign: "center" };
     const Toggle = ({ on, onClick }) => (
       <button type="button" onClick={onClick} style={{ flexShrink: 0, width: 40, height: 22, borderRadius: T.radiusPill, border: "none", background: on ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
-        <span style={{ position: "absolute", top: 3, left: on ? 21 : 3, width: 16, height: 16, borderRadius: 14, background: "#fff", transition: "left 0.2s" }} />
+        <span style={{ position: "absolute", top: 3, left: on ? 21 : 3, width: 16, height: 16, borderRadius: 20, background: "#fff", transition: "left 0.2s" }} />
       </button>
     );
     return (
@@ -20663,7 +20756,7 @@ ${jobsCtx || "No jobs found."}`;
                 ? { animation: "staggerUp 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(i, 14) * 32}ms` }
                 : {});
               return (<>
-                <div onClick={() => setClockAccessOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <div className="tq-drop" onClick={() => setClockAccessOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Per-worker access</div>
                   </div>
@@ -20720,16 +20813,16 @@ ${jobsCtx || "No jobs found."}`;
             return (
               <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 150px", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${T.border}18` }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: 4, background: T.textDim, flexShrink: 0 }} />
+                  <div style={{ width: 8, height: 8, borderRadius: 8, background: T.textDim, flexShrink: 0 }} />
                   <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
                 </div>
-                <div style={{ display: "flex", borderRadius: 14, border: `1px solid ${T.border}`, overflow: "hidden" }}>
+                <div style={{ display: "flex", borderRadius: 20, border: `1px solid ${T.border}`, overflow: "hidden" }}>
                   {["hourly", "salary"].map(pt => (
                     <button key={pt} type="button" onClick={() => updDraftPerson(p.id, { payType: pt })} style={{ flex: 1, padding: "4px 0", border: "none", background: payType === pt ? (pt === "salary" ? elColor("#6366f1") : T.accent) : T.surface, color: payType === pt ? (pt === "salary" ? "#fff" : T.accentText) : T.textDim, fontSize: 11, fontWeight: payType === pt ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s", textTransform: "capitalize" }}>{pt}</button>
                   ))}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, overflow: "hidden" }}>
-                  <input type={showPin ? "text" : "password"} value={p.pin || ""} onChange={e => updDraftPerson(p.id, { pin: e.target.value })} placeholder={p.hasPin ? "•••• set" : "Set PIN"} style={{ flex: 1, padding: "5px 8px", border: "none", background: "transparent", color: T.text, fontSize: 13, fontFamily: T.mono, letterSpacing: showPin ? "normal" : "0.15em", outline: "none", minWidth: 0 }} />
+                  <input className="tq-bare" type={showPin ? "text" : "password"} value={p.pin || ""} onChange={e => updDraftPerson(p.id, { pin: e.target.value })} placeholder={p.hasPin ? "•••• set" : "Set PIN"} style={{ flex: 1, padding: "5px 8px", border: "none", background: "transparent", color: T.text, fontSize: 13, fontFamily: T.mono, letterSpacing: showPin ? "normal" : "0.15em", outline: "none", minWidth: 0 }} />
                   <button type="button" onClick={() => setShowPinIds(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; })} style={{ flexShrink: 0, padding: "0 7px", border: "none", background: "transparent", color: hexA(T.systemText || T.textDim, 0.65), cursor: "pointer", lineHeight: 1, display: "flex", alignItems: "center", height: "100%" }}>
                     {showPin
                       ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
@@ -20759,7 +20852,7 @@ ${jobsCtx || "No jobs found."}`;
     const pSysText = pT.systemText || pT.text;
     const pSysBorder = pT.systemBorder || pT.border;
     const lbl = { fontSize: 20, fontWeight: 800, color: T.text, letterSpacing: "-0.045em", marginBottom: 14 };
-    const card = { background: hexA(T.text, 0.05), border: `1px solid ${T.border}`, borderRadius: 22, padding: "20px 22px", marginBottom: 28 };
+    const card = { background: hexA(T.text, 0.05), border: `1px solid ${T.border}`, borderRadius: 26, padding: "20px 22px", marginBottom: 28 };
     const recentImgs = [...new Set([dc.bgImage, ...bgImageHistory].filter(Boolean))].slice(0, 6);
     const ROSTER = 132;
     const BARC = ["#f97316", "#22c55e", "#a855f7", "#ec4899", "#ef4444", pT.accent];
@@ -20937,9 +21030,9 @@ ${jobsCtx || "No jobs found."}`;
               {themePresets.length === 0 && <div style={{ fontSize: 12, color: T.textDim, marginBottom: 12 }}>No saved presets yet.</div>}
               {themePresets.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
                 {themePresets.map((p, idx) => (
-                  <div key={idx} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: p.bg, border: `1.5px solid ${p.accent}`, borderRadius: 20, cursor: "pointer" }}
+                  <div key={idx} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: p.bg, border: `1.5px solid ${p.accent}`, borderRadius: 26, cursor: "pointer" }}
                     onClick={() => { setDraftMode("custom"); setDraftCustom(c => ({ ...c, bg: p.bg, accent: p.accent, text: p.text || c.text, surface: p.surface || c.surface, systemColor: p.systemColor ?? c.systemColor, bgMode: p.bgMode ?? c.bgMode, bgImage: p.bgImage !== undefined ? p.bgImage : c.bgImage, liquidColor: p.liquidColor ?? c.liquidColor, bgOpacity: p.bgOpacity ?? c.bgOpacity, cardOpacity: p.cardOpacity ?? c.cardOpacity, jobBarMode: p.jobBarMode ?? c.jobBarMode, jobBarColor: p.jobBarColor ?? c.jobBarColor, cellColorMode: p.cellColorMode ?? c.cellColorMode, scheduleGrid: p.scheduleGrid ?? c.scheduleGrid })); }}>
-                    <div style={{ width: 10, height: 10, borderRadius: 5, background: p.accent }} />
+                    <div style={{ width: 10, height: 10, borderRadius: 8, background: p.accent }} />
                     <span style={{ fontSize: 12, fontWeight: 600, color: p.accent }}>{p.name}</span>
                     <button onClick={e => { e.stopPropagation(); setThemePresets(prev => prev.filter((_, i) => i !== idx)); }} style={{ background: "transparent", border: "none", cursor: "pointer", color: p.accent, fontSize: 14, lineHeight: 1, padding: 0, opacity: 0.7 }}>✕</button>
                   </div>
@@ -20948,7 +21041,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display: "flex", gap: 8 }}>
                 <input value={presetNameInput} onChange={e => setPresetNameInput(e.target.value)} placeholder="Preset name…"
                   onKeyDown={e => { if (e.key === "Enter" && presetNameInput.trim()) { setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: dc.bg, accent: dc.accent, text: dc.text, surface: dc.surface, systemColor: dc.systemColor, bgMode: dc.bgMode, bgImage: dc.bgImage, liquidColor: dc.liquidColor, bgOpacity: dc.bgOpacity, cardOpacity: dc.cardOpacity, jobBarMode: dc.jobBarMode, jobBarColor: dc.jobBarColor, cellColorMode: dc.cellColorMode, scheduleGrid: dc.scheduleGrid }]); setPresetNameInput(""); } }}
-                  style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, color: T.text, fontSize: 13, padding: "8px 16px", fontFamily: T.font, outline: "none" }} />
+                  style={{ flex: 1, background: `var(--tq-field-bg, ${T.surface})`, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, color: T.text, fontSize: 13, padding: "8px 16px", fontFamily: T.font, outline: "none" }} />
                 <button onClick={() => { if (!presetNameInput.trim()) return; setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: dc.bg, accent: dc.accent, text: dc.text, surface: dc.surface, systemColor: dc.systemColor, bgMode: dc.bgMode, bgImage: dc.bgImage, liquidColor: dc.liquidColor, bgOpacity: dc.bgOpacity, cardOpacity: dc.cardOpacity, jobBarMode: dc.jobBarMode, jobBarColor: dc.jobBarColor, cellColorMode: dc.cellColorMode, scheduleGrid: dc.scheduleGrid }]); setPresetNameInput(""); }}
                   style={{ padding: "8px 18px", background: brandGrad(T.accent), color: T.accentText, border: "none", borderRadius: T.radiusPill, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: T.font, opacity: presetNameInput.trim() ? 1 : 0.4 }}>Save</button>
               </div>
@@ -20965,23 +21058,23 @@ ${jobsCtx || "No jobs found."}`;
                 })}
               </div>
             </div>
-            <div className="tq-preview-anim" style={{ flex: 1, borderRadius: 16, overflow: "hidden", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", boxShadow: "0 24px 70px rgba(0,0,0,0.55), 0 6px 22px rgba(0,0,0,0.4)", background: pSolid }}>
+            <div className="tq-preview-anim" style={{ flex: 1, borderRadius: 20, overflow: "hidden", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", boxShadow: "0 24px 70px rgba(0,0,0,0.55), 0 6px 22px rgba(0,0,0,0.4)", background: pSolid }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 18px", background: pSolid, flexShrink: 0 }}>
                 <span style={{ fontSize: 30, fontWeight: 800, color: pSysText, letterSpacing: "-0.045em", marginLeft: 46 }}>traqs</span>
                 <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                  <span style={{ width: 16, height: 16, borderRadius: 14, background: pSysBorder }} />
-                  <span style={{ width: 16, height: 16, borderRadius: 14, background: pSysBorder }} />
+                  <span style={{ width: 16, height: 16, borderRadius: 20, background: pSysBorder }} />
+                  <span style={{ width: 16, height: 16, borderRadius: 20, background: pSysBorder }} />
                 </span>
               </div>
               <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
                 <div style={{ width: 48, flexShrink: 0, background: pSolid, display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 14 }}>
                   <div style={{ height: draftSidebar === "button" ? 26 : 0, opacity: draftSidebar === "button" ? 1 : 0, marginBottom: draftSidebar === "button" ? 16 : 0, overflow: "hidden", transition: "height 0.3s ease, opacity 0.3s ease, margin-bottom 0.3s ease", display: "flex", alignItems: "center", justifyContent: "center" }}>
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
-                      {[0, 1, 2].map(i => <div key={i} style={{ width: 17, height: 2, borderRadius: 1, background: pSysText }} />)}
+                      {[0, 1, 2].map(i => <div key={i} style={{ width: 17, height: 2, borderRadius: 8, background: pSysText }} />)}
                     </div>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-                    {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ width: 20, height: 20, borderRadius: 14, background: i === 0 ? pT.accent : pSysBorder }} />)}
+                    {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ width: 20, height: 20, borderRadius: 20, background: i === 0 ? pT.accent : pSysBorder }} />)}
                   </div>
                 </div>
                 <div style={{ flex: 1, minHeight: 0, minWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: "hidden", position: "relative", background: pT.bg }}>
@@ -20992,32 +21085,32 @@ ${jobsCtx || "No jobs found."}`;
                   </>}
                   {(() => { const renderMock = (which) => which === "jobs" ? <div key="jobs" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 16 }}>
                     <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
-                      <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 14, padding: "7px 14px" }}>+ New Job</span>
+                      <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 20, padding: "7px 14px" }}>+ New Job</span>
                     </div>
                     {[[70, 56, 82], [62, 78, 48, 66], [74, 50, 60]].map((rowWidths, sec) => {
                       const COLS = "1.7fr 0.5fr 1fr 0.9fr 0.8fr 0.8fr 1.2fr 0.5fr";
                       return <div key={sec}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
-                          <div style={{ height: 9, width: 88, borderRadius: 4, background: pT.text, opacity: 0.55 }} />
-                          <div style={{ height: 15, width: 24, borderRadius: 14, background: pT.accent + "2e" }} />
+                          <div style={{ height: 9, width: 88, borderRadius: 8, background: pT.text, opacity: 0.55 }} />
+                          <div style={{ height: 15, width: 24, borderRadius: 20, background: pT.accent + "2e" }} />
                         </div>
                         <div style={{ background: pFrostBg, ...pFrostFx, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden" }}>
                           <div style={{ display: "grid", gridTemplateColumns: COLS, gap: 10, alignItems: "center", padding: "8px 14px", borderBottom: `1.5px solid ${pT.border}` }}>
-                            {[40, 50, 44, 44, 50, 50, 36, 40].map((w, i) => <div key={i} style={{ height: 6, width: `${w}%`, borderRadius: 3, background: pT.textDim, opacity: 0.45 }} />)}
+                            {[40, 50, 44, 44, 50, 50, 36, 40].map((w, i) => <div key={i} style={{ height: 6, width: `${w}%`, borderRadius: 8, background: pT.textDim, opacity: 0.45 }} />)}
                           </div>
                           {rowWidths.map((nameW, r) => (
                             <div key={r} style={{ display: "grid", gridTemplateColumns: COLS, gap: 10, alignItems: "center", padding: "10px 14px", borderBottom: r < rowWidths.length - 1 ? `1px solid ${pT.border}` : "none" }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <div style={{ width: 9, height: 9, borderRadius: 5, background: pT.accent, flexShrink: 0, opacity: 0.85 }} />
-                                <div style={{ height: 8, width: `${nameW}%`, borderRadius: 4, background: pT.textDim, opacity: 0.32 }} />
+                                <div style={{ width: 9, height: 9, borderRadius: 8, background: pT.accent, flexShrink: 0, opacity: 0.85 }} />
+                                <div style={{ height: 8, width: `${nameW}%`, borderRadius: 8, background: pT.textDim, opacity: 0.32 }} />
                               </div>
-                              <div style={{ height: 8, width: "80%", borderRadius: 4, background: pT.textDim, opacity: 0.28 }} />
-                              <span style={{ height: 15, width: 48, borderRadius: 7, background: pPriColor(r) + "33", border: `1px solid ${pPriColor(r)}66` }} />
-                              <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: pClientColor(r), flexShrink: 0 }} /><div style={{ height: 8, width: "62%", borderRadius: 4, background: pClientColor(r), opacity: 0.55 }} /></div>
-                              <div style={{ height: 8, width: "75%", borderRadius: 4, background: pT.textDim, opacity: 0.28 }} />
-                              <div style={{ height: 8, width: "75%", borderRadius: 4, background: pT.textDim, opacity: 0.28 }} />
-                              <div style={{ height: 6, borderRadius: 3, background: pT.border, overflow: "hidden" }}><div style={{ width: `${[60, 35, 90, 20, 72, 48][r % 6]}%`, height: "100%", background: pT.accent, borderRadius: 3 }} /></div>
-                              <div style={{ width: 16, height: 16, borderRadius: 14, background: pT.textDim, opacity: 0.3, justifySelf: "start" }} />
+                              <div style={{ height: 8, width: "80%", borderRadius: 8, background: pT.textDim, opacity: 0.28 }} />
+                              <span style={{ height: 15, width: 48, borderRadius: 12, background: pPriColor(r) + "33", border: `1px solid ${pPriColor(r)}66` }} />
+                              <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: pClientColor(r), flexShrink: 0 }} /><div style={{ height: 8, width: "62%", borderRadius: 8, background: pClientColor(r), opacity: 0.55 }} /></div>
+                              <div style={{ height: 8, width: "75%", borderRadius: 8, background: pT.textDim, opacity: 0.28 }} />
+                              <div style={{ height: 8, width: "75%", borderRadius: 8, background: pT.textDim, opacity: 0.28 }} />
+                              <div style={{ height: 6, borderRadius: 8, background: pT.border, overflow: "hidden" }}><div style={{ width: `${[60, 35, 90, 20, 72, 48][r % 6]}%`, height: "100%", background: pT.accent, borderRadius: 8 }} /></div>
+                              <div style={{ width: 16, height: 16, borderRadius: 20, background: pT.textDim, opacity: 0.3, justifySelf: "start" }} />
                             </div>
                           ))}
                         </div>
@@ -21025,55 +21118,55 @@ ${jobsCtx || "No jobs found."}`;
                     })}
                   </div> : <div key="schedule" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 12 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 14, padding: "6px 14px" }}>Select</span>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: pT.text, border: `1px solid ${pT.border}`, borderRadius: 14, padding: "6px 12px", opacity: 0.75 }}>Today</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 20, padding: "6px 14px" }}>Select</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: pT.text, border: `1px solid ${pT.border}`, borderRadius: 20, padding: "6px 12px", opacity: 0.75 }}>Today</span>
                       <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                        <span style={{ width: 22, height: 22, borderRadius: 14, background: pT.border }} />
-                        <span style={{ width: 22, height: 22, borderRadius: 14, background: pT.border }} />
+                        <span style={{ width: 22, height: 22, borderRadius: 20, background: pT.border }} />
+                        <span style={{ width: 22, height: 22, borderRadius: 20, background: pT.border }} />
                       </span>
                     </div>
                     <div style={{ flex: 1, minHeight: 0, background: pFrostBg, ...pFrostFx, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden", display: "flex", flexDirection: "column" }}>
                       <div style={{ display: "flex", flexShrink: 0, borderBottom: `1.5px solid ${pGridOn ? pGridLine : "transparent"}` }}>
                         <div style={{ width: ROSTER, flexShrink: 0, borderRight: `1px solid ${pGridOn ? pGridLine : "transparent"}` }} />
                         <div style={{ flex: 1, display: "flex" }}>
-                          {Array.from({ length: 14 }).map((_, i) => <div key={i} style={{ flex: 1, padding: "7px 0", borderRight: i < 13 ? `1px solid ${pGridOn ? pGridLine : "transparent"}` : "none", display: "flex", justifyContent: "center" }}><div style={{ height: 6, width: 12, borderRadius: 3, background: pT.textDim, opacity: 0.4 }} /></div>)}
+                          {Array.from({ length: 14 }).map((_, i) => <div key={i} style={{ flex: 1, padding: "7px 0", borderRight: i < 13 ? `1px solid ${pGridOn ? pGridLine : "transparent"}` : "none", display: "flex", justifyContent: "center" }}><div style={{ height: 6, width: 12, borderRadius: 8, background: pT.textDim, opacity: 0.4 }} /></div>)}
                         </div>
                       </div>
                       <div style={{ flex: 1, overflow: "hidden" }}>
                         {SCHED_GROUPS.map((rows, gi) => <div key={gi}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 12px", background: hexA(pT.text, 0.05) }}>
-                            <div style={{ height: 7, width: 54, borderRadius: 3, background: pT.text, opacity: 0.5 }} />
-                            <div style={{ height: 12, width: 20, borderRadius: 14, background: pT.accent + "2e" }} />
+                            <div style={{ height: 7, width: 54, borderRadius: 8, background: pT.text, opacity: 0.5 }} />
+                            <div style={{ height: 12, width: 20, borderRadius: 20, background: pT.accent + "2e" }} />
                           </div>
                           {rows.map((bars, ri) => <div key={ri} style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${pGridOn ? pGridLine : "transparent"}` }}>
                             <div style={{ width: ROSTER, flexShrink: 0, display: "flex", alignItems: "center", gap: 7, padding: "0 10px", height: 32, borderRight: `1px solid ${pGridOn ? pGridLine : "transparent"}` }}>
-                              <div style={{ width: 16, height: 16, borderRadius: 5, background: pT.jobBarMode === "adaptive" ? pT.accent : pT.jobBarMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[(gi + ri) % BARC.length], flexShrink: 0 }} />
-                              <div style={{ flex: 1, minWidth: 0 }}><div style={{ height: 6, width: `${52 + ((gi + ri) % 4) * 11}%`, borderRadius: 3, background: pT.textDim, opacity: 0.34 }} /></div>
-                              <div style={{ height: 11, width: 22, borderRadius: 5, background: pT.accent + "26", flexShrink: 0 }} />
+                              <div style={{ width: 16, height: 16, borderRadius: 8, background: pT.jobBarMode === "adaptive" ? pT.accent : pT.jobBarMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[(gi + ri) % BARC.length], flexShrink: 0 }} />
+                              <div style={{ flex: 1, minWidth: 0 }}><div style={{ height: 6, width: `${52 + ((gi + ri) % 4) * 11}%`, borderRadius: 8, background: pT.textDim, opacity: 0.34 }} /></div>
+                              <div style={{ height: 11, width: 22, borderRadius: 8, background: pT.accent + "26", flexShrink: 0 }} />
                             </div>
                             <div style={{ flex: 1, position: "relative", height: 32 }}>
                               <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(to right, ${pGridLine} 0 1px, transparent 1px calc(100% / 14))`, opacity: pGridOn ? 1 : 0, pointerEvents: "none" }} />
-                              {bars.map((b, bi) => <div key={bi} style={{ position: "absolute", top: 7, height: 18, left: `${b.l}%`, width: `${b.w}%`, background: pT.jobBarMode === "adaptive" ? pT.accent : pT.jobBarMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[b.c], borderRadius: 5 }} />)}
+                              {bars.map((b, bi) => <div key={bi} style={{ position: "absolute", top: 7, height: 18, left: `${b.l}%`, width: `${b.w}%`, background: pT.jobBarMode === "adaptive" ? pT.accent : pT.jobBarMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[b.c], borderRadius: 8 }} />)}
                             </div>
                           </div>)}
                         </div>)}
                       </div>
                     </div>
                     <div style={{ flexShrink: 0 }}>
-                      <div style={{ height: 7, width: 96, borderRadius: 3, background: pT.textDim, opacity: 0.4, marginBottom: 8 }} />
+                      <div style={{ height: 7, width: 96, borderRadius: 8, background: pT.textDim, opacity: 0.4, marginBottom: 8 }} />
                       <div style={{ display: "flex", gap: 10 }}>
                         {[0, 1, 2, 3, 4].map(i => {
                           const ac = pMode === "adaptive" ? pT.accent : pMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[i % BARC.length];
                           return <div key={i} style={{ width: 124, flexShrink: 0, background: pFrostBg, ...pFrostFx, border: `1px solid ${pT.border}`, borderRadius: pT.radius, padding: 12, display: "flex", flexDirection: "column", gap: 9 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                               <div style={{ width: 24, height: 24, borderRadius: "50%", background: ac, flexShrink: 0 }} />
-                              <div style={{ flex: 1, minWidth: 0 }}><div style={{ height: 7, width: "72%", borderRadius: 3, background: pT.textDim, opacity: 0.4 }} /></div>
-                              <div style={{ height: 5, width: 24, borderRadius: 3, background: pT.accent, opacity: 0.7, flexShrink: 0 }} />
+                              <div style={{ flex: 1, minWidth: 0 }}><div style={{ height: 7, width: "72%", borderRadius: 8, background: pT.textDim, opacity: 0.4 }} /></div>
+                              <div style={{ height: 5, width: 24, borderRadius: 8, background: pT.accent, opacity: 0.7, flexShrink: 0 }} />
                             </div>
                             <div style={{ height: 1, background: pT.border }} />
-                            <div style={{ height: 6, width: "86%", borderRadius: 3, background: pT.textDim, opacity: 0.3 }} />
-                            <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: ac, flexShrink: 0 }} /><div style={{ height: 5, width: "55%", borderRadius: 3, background: ac, opacity: 0.5 }} /></div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ height: 13, width: 38, borderRadius: 14, background: ac + "33", border: `1px solid ${ac}55` }} /><div style={{ height: 5, width: "34%", borderRadius: 3, background: pT.textDim, opacity: 0.25 }} /></div>
+                            <div style={{ height: 6, width: "86%", borderRadius: 8, background: pT.textDim, opacity: 0.3 }} />
+                            <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: ac, flexShrink: 0 }} /><div style={{ height: 5, width: "55%", borderRadius: 8, background: ac, opacity: 0.5 }} /></div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ height: 13, width: 38, borderRadius: 20, background: ac + "33", border: `1px solid ${ac}55` }} /><div style={{ height: 5, width: "34%", borderRadius: 8, background: pT.textDim, opacity: 0.25 }} /></div>
                           </div>;
                         })}
                       </div>
@@ -21116,7 +21209,7 @@ ${jobsCtx || "No jobs found."}`;
         <button onClick={discardSection} disabled={!dirty || settingsSaving} style={{ ...stGhostBtn, padding: "9px 18px", fontSize: 13, cursor: (!dirty || settingsSaving) ? "not-allowed" : "pointer", opacity: (!dirty || settingsSaving) ? 0.45 : 1 }}>Discard</button>
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 12, fontWeight: 600, color: dirty ? "#f59e0b" : "#10b981", display: "inline-flex", alignItems: "center", gap: 7 }}>
-          <span style={{ width: 8, height: 8, borderRadius: 4, background: dirty ? "#f59e0b" : "#10b981" }} />
+          <span style={{ width: 8, height: 8, borderRadius: 8, background: dirty ? "#f59e0b" : "#10b981" }} />
           {dirty ? "Unsaved changes" : "All changes saved"}
         </span>
       </div>
@@ -21220,10 +21313,10 @@ ${jobsCtx || "No jobs found."}`;
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
                     Ask TRAQS
                   </button>
-                : <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "4px 14px", borderRadius: 22, border: `1px solid ${T.accent}66`, background: T.bg, boxShadow: `0 0 0 2px ${T.accent}18` }}>
+                : <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "4px 14px", borderRadius: 26, border: `1px solid ${T.accent}66`, background: T.bg, boxShadow: `0 0 0 2px ${T.accent}18` }}>
                     <svg width="11" height="11" viewBox="0 0 24 24" fill={T.accent} style={{ flexShrink: 0 }}><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
-                    <input ref={askBarInputRef} value={askBarQ} onChange={e => setAskBarQ(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && askBarQ.trim()) { const q = askBarQ.trim(); setAskBarQ(""); setAskExpanded(false); setAskHistory(h => [...h, { role: "user", content: q }]); setAskOpen(true); setAskLoading(true); handleAskTraqs(q); } if (e.key === "Escape") { setAskExpanded(false); setAskBarQ(""); } }} placeholder="Ask anything…" style={{ flex: 1, border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font, minWidth: 0 }} />
-                    {askBarQ && <span onClick={() => setAskBarQ("")} style={{ cursor: "pointer", fontSize: 10, color: T.textDim, padding: "1px 5px", borderRadius: 4, background: "transparent", flexShrink: 0 }}>✕</span>}
+                    <input className="tq-bare" ref={askBarInputRef} value={askBarQ} onChange={e => setAskBarQ(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && askBarQ.trim()) { const q = askBarQ.trim(); setAskBarQ(""); setAskExpanded(false); setAskHistory(h => [...h, { role: "user", content: q }]); setAskOpen(true); setAskLoading(true); handleAskTraqs(q); } if (e.key === "Escape") { setAskExpanded(false); setAskBarQ(""); } }} placeholder="Ask anything…" style={{ flex: 1, border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 12, fontFamily: T.font, minWidth: 0 }} />
+                    {askBarQ && <span onClick={() => setAskBarQ("")} style={{ cursor: "pointer", fontSize: 10, color: T.textDim, padding: "1px 5px", borderRadius: 8, background: "transparent", flexShrink: 0 }}>✕</span>}
                   </div>
               }
             </div>
@@ -21261,7 +21354,7 @@ ${jobsCtx || "No jobs found."}`;
           <button onClick={e => { e.stopPropagation(); setNotifOpen(p => !p); }} style={{ position: "relative", background: notifOpen ? T.accent + "15" : "transparent", border: `1px solid ${notifOpen ? T.accent + "44" : Tc.border}`, borderRadius: T.radiusPill, padding: "7px 14px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "all 0.2s", fontFamily: T.font }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={notifOpen ? T.accent : Tc.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
             <span style={{ fontSize: 12, fontWeight: 600, color: notifOpen ? T.accent : Tc.textSec, letterSpacing: "-0.045em" }}>Notifications</span>
-            {hasNotifs && <span style={{ position: "absolute", top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 8, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", lineHeight: 1, padding: "0 4px" }}>{notifCount > 9 ? "9+" : notifCount}</span>}
+            {hasNotifs && <span style={{ position: "absolute", top: -4, right: -4, minWidth: 16, height: 16, borderRadius: 12, background: "#ef4444", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: "#fff", lineHeight: 1, padding: "0 4px" }}>{notifCount > 9 ? "9+" : notifCount}</span>}
           </button>
           <FadeOnClose open={notifOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 80, top: 60, width: 320, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, overflow: "hidden", fontFamily: T.font }}>
             <div style={{ padding: "14px 18px 10px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -21292,7 +21385,7 @@ ${jobsCtx || "No jobs found."}`;
                 setChatThread({ threadKey: item.threadKey, title, scope: item.scope, jobId: item.jobId, panelId: item.panelId, opId: item.opId, groupId: gId, participants });
                 setView("messages"); setNotifOpen(false); markThreadRead(item.threadKey);
               }} style={{ padding: "10px 14px", borderBottom: `1px solid ${T.border}`, cursor: "pointer", display: "flex", gap: 10, alignItems: "flex-start", transition: "background 0.15s", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${(timeOffNotifs.length + i) * 50}ms` }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                <div style={{ width: 8, height: 8, borderRadius: 4, background: T.accent, flexShrink: 0, marginTop: 5 }} />
+                <div style={{ width: 8, height: 8, borderRadius: 8, background: T.accent, flexShrink: 0, marginTop: 5 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                     <span style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{title}</span>
@@ -21400,7 +21493,7 @@ ${jobsCtx || "No jobs found."}`;
           still wants that breathing room, just without a rule drawn through it.
           `border-color` is dropped from the transition list along with it. */}
       <div aria-hidden={sidebarMode !== "button"} style={{ overflow: "hidden", maxHeight: sidebarMode === "button" ? 72 : 0, opacity: sidebarMode === "button" ? 1 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s ease, margin-bottom 0.28s cubic-bezier(0.22,1,0.36,1), padding 0.28s cubic-bezier(0.22,1,0.36,1)", padding: `12px ${NAV_PAD}px 12px`, marginBottom: sidebarMode === "button" ? 10 : 0, pointerEvents: sidebarMode === "button" ? "auto" : "none" }}>
-        <button onClick={toggleSidebar} title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"} style={navBtn(false, { color: T.textSec })} onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = (T.systemBg || T.surface); e.currentTarget.style.color = T.textSec; }}>
+        <button onClick={toggleSidebar} title={sidebarExpanded ? "Collapse sidebar" : "Expand sidebar"} style={navBtn(false, { color: T.textSec })} onMouseEnter={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.color = T.accent; }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textSec; }}>
           <span style={navIcon}>
             <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
           </span>
@@ -21673,9 +21766,9 @@ ${jobsCtx || "No jobs found."}`;
       <div style={{ position: "fixed", left: teamDayGhost.left, top: teamDayGhost.top, width: teamDayGhost.width, height: teamDayGhost.height, background: teamDayGhost.color, borderRadius: T.radiusXs, display: "flex", alignItems: "center", padding: "0 10px", overflow: "hidden", boxShadow: `0 8px 24px ${teamDayGhost.color}66, 0 0 0 2px rgba(255,255,255,0.3)`, opacity: 0.88, pointerEvents: "none", zIndex: 9999, border: "1.5px solid rgba(255,255,255,0.35)" }}>
         <span style={{ fontSize: 10, color: "#fff", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{teamDayGhost.label}</span>
       </div>
-      {teamDayGhost.time && <div style={{ position: "fixed", left: teamDayGhost.left, top: teamDayGhost.top - 24, background: "rgba(10,10,20,0.92)", color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 6, pointerEvents: "none", zIndex: 10000, whiteSpace: "nowrap", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", border: `1px solid ${teamDayGhost.color}88`, backdropFilter: "blur(4px)", fontFamily: T.mono }}>{teamDayGhost.time}</div>}
+      {teamDayGhost.time && <div style={{ position: "fixed", left: teamDayGhost.left, top: teamDayGhost.top - 24, background: "rgba(10,10,20,0.92)", color: "#fff", fontSize: 11, fontWeight: 700, padding: "3px 8px", borderRadius: 12, pointerEvents: "none", zIndex: 10000, whiteSpace: "nowrap", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", border: `1px solid ${teamDayGhost.color}88`, backdropFilter: "blur(4px)", fontFamily: T.mono }}>{teamDayGhost.time}</div>}
     </>}
-    {resizeTooltip && <div style={{ position: "fixed", left: resizeTooltip.x + 10, top: resizeTooltip.y - 18, background: "rgba(10,10,20,0.95)", color: "#fff", fontSize: 11, fontWeight: 700, padding: "4px 8px", borderRadius: 6, pointerEvents: "none", zIndex: 10000, whiteSpace: "nowrap", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", border: `1px solid ${T.accent}88`, backdropFilter: "blur(4px)", fontFamily: T.font, lineHeight: 1.3 }}>
+    {resizeTooltip && <div style={{ position: "fixed", left: resizeTooltip.x + 10, top: resizeTooltip.y - 18, background: "rgba(10,10,20,0.95)", color: "#fff", fontSize: 11, fontWeight: 700, padding: "4px 8px", borderRadius: 12, pointerEvents: "none", zIndex: 10000, whiteSpace: "nowrap", boxShadow: "0 4px 16px rgba(0,0,0,0.5)", border: `1px solid ${T.accent}88`, backdropFilter: "blur(4px)", fontFamily: T.font, lineHeight: 1.3 }}>
       <span style={{ fontSize: 9, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", fontWeight: 600, fontFamily: T.font, marginRight: 6 }}>{resizeTooltip.side === "left" ? "Start" : "End"}</span>
       <span style={{ fontFamily: T.font }}>{resizeTooltip.date}{resizeTooltip.time ? ` · ${resizeTooltip.time}` : ""}</span>
     </div>}
@@ -21734,7 +21827,7 @@ ${jobsCtx || "No jobs found."}`;
                 {orgEditing !== "name" && <button onClick={() => { setOrgNameInput(orgName || ""); setOrgNameError(""); setOrgEditing("name"); }} style={{ padding: "4px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.systemText || T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>Edit</button>}
               </div>
               {orgEditing === "name" && <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
-                <input autoFocus value={orgNameInput} onChange={e => { setOrgNameInput(e.target.value); setOrgNameError(""); }} placeholder="Company name" maxLength={80} style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusPill, border: `1.5px solid ${orgNameError ? "#ef4444" : T.border}`, background: T.bg, color: T.bgText, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 6, fontFamily: T.font }} />
+                <input autoFocus value={orgNameInput} onChange={e => { setOrgNameInput(e.target.value); setOrgNameError(""); }} placeholder="Company name" maxLength={80} style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusPill, border: `1.5px solid ${orgNameError ? "#ef4444" : T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 6, fontFamily: T.font }} />
                 {orgNameError && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 6 }}>{orgNameError}</div>}
                 <div style={{ display: "flex", gap: 6 }}>
                   <button onClick={() => { setOrgEditing(null); setOrgNameError(""); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
@@ -21753,7 +21846,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>
               {orgEditing === "code" && <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
                 <div style={{ fontSize: 11, color: T.textDim, marginBottom: 8 }}>Changing this reloads the app. Everyone signs in with the new code.</div>
-                <input autoFocus value={orgCodeInput} onChange={e => { setOrgCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setOrgCodeError(""); }} placeholder="New code" maxLength={20} style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusPill, border: `1.5px solid ${orgCodeError ? "#ef4444" : T.border}`, background: T.bg, color: T.bgText, fontSize: 13, fontFamily: T.mono, fontWeight: 700, letterSpacing: "-0.045em", outline: "none", boxSizing: "border-box", marginBottom: 6, textTransform: "uppercase" }} />
+                <input autoFocus value={orgCodeInput} onChange={e => { setOrgCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setOrgCodeError(""); }} placeholder="New code" maxLength={20} style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusPill, border: `1.5px solid ${orgCodeError ? "#ef4444" : T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, fontFamily: T.mono, fontWeight: 700, letterSpacing: "-0.045em", outline: "none", boxSizing: "border-box", marginBottom: 6, textTransform: "uppercase" }} />
                 {orgCodeError && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 6 }}>{orgCodeError}</div>}
                 <div style={{ display: "flex", gap: 6 }}>
                   <button onClick={() => { setOrgEditing(null); setOrgCodeError(""); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
@@ -21970,9 +22063,9 @@ ${jobsCtx || "No jobs found."}`;
                 {themePresets.length === 0 && <div style={{ fontSize: 12, color: T.textDim, marginBottom: 12 }}>No saved presets yet.</div>}
                 {themePresets.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
                   {themePresets.map((p, idx) => (
-                    <div key={idx} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: p.bg, border: `1.5px solid ${p.accent}`, borderRadius: 20, cursor: "pointer" }}
+                    <div key={idx} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px", background: p.bg, border: `1.5px solid ${p.accent}`, borderRadius: 26, cursor: "pointer" }}
                       onClick={() => { setDraftMode("custom"); setDraftCustom(c => ({ ...c, bg: p.bg, accent: p.accent, text: p.text || c.text, surface: p.surface || c.surface, systemColor: p.systemColor ?? c.systemColor, bgMode: p.bgMode ?? c.bgMode, bgImage: p.bgImage !== undefined ? p.bgImage : c.bgImage, liquidColor: p.liquidColor ?? c.liquidColor, bgOpacity: p.bgOpacity ?? c.bgOpacity, cardOpacity: p.cardOpacity ?? c.cardOpacity, jobBarMode: p.jobBarMode ?? c.jobBarMode, jobBarColor: p.jobBarColor ?? c.jobBarColor, cellColorMode: p.cellColorMode ?? c.cellColorMode, scheduleGrid: p.scheduleGrid ?? c.scheduleGrid })); }}>
-                      <div style={{ width: 10, height: 10, borderRadius: 5, background: p.accent }} />
+                      <div style={{ width: 10, height: 10, borderRadius: 8, background: p.accent }} />
                       <span style={{ fontSize: 12, fontWeight: 600, color: p.accent }}>{p.name}</span>
                       <button onClick={e => { e.stopPropagation(); setThemePresets(prev => prev.filter((_, i) => i !== idx)); }} style={{ background: "transparent", border: "none", cursor: "pointer", color: p.accent, fontSize: 14, lineHeight: 1, padding: 0, opacity: 0.7 }}>✕</button>
                     </div>
@@ -21981,7 +22074,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ display: "flex", gap: 8 }}>
                   <input value={presetNameInput} onChange={e => setPresetNameInput(e.target.value)} placeholder="Preset name…"
                     onKeyDown={e => { if (e.key === "Enter" && presetNameInput.trim()) { setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: dc.bg, accent: dc.accent, text: dc.text, surface: dc.surface, systemColor: dc.systemColor, bgMode: dc.bgMode, bgImage: dc.bgImage, liquidColor: dc.liquidColor, bgOpacity: dc.bgOpacity, cardOpacity: dc.cardOpacity, jobBarMode: dc.jobBarMode, jobBarColor: dc.jobBarColor, cellColorMode: dc.cellColorMode, scheduleGrid: dc.scheduleGrid }]); setPresetNameInput(""); } }}
-                    style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, color: T.text, fontSize: 13, padding: "8px 12px", fontFamily: T.font, outline: "none" }} />
+                    style={{ flex: 1, background: `var(--tq-field-bg, ${T.surface})`, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, color: T.text, fontSize: 13, padding: "8px 12px", fontFamily: T.font, outline: "none" }} />
                   <button onClick={() => { if (!presetNameInput.trim()) return; setThemePresets(prev => [...prev, { name: presetNameInput.trim(), bg: dc.bg, accent: dc.accent, text: dc.text, surface: dc.surface, systemColor: dc.systemColor, bgMode: dc.bgMode, bgImage: dc.bgImage, liquidColor: dc.liquidColor, bgOpacity: dc.bgOpacity, cardOpacity: dc.cardOpacity, jobBarMode: dc.jobBarMode, jobBarColor: dc.jobBarColor, cellColorMode: dc.cellColorMode, scheduleGrid: dc.scheduleGrid }]); setPresetNameInput(""); }}
                     style={{ padding: "8px 16px", background: brandGrad(T.accent), color: T.accentText, border: "none", borderRadius: T.radius, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: T.font, opacity: presetNameInput.trim() ? 1 : 0.4 }}>Save</button>
                 </div>
@@ -21997,13 +22090,13 @@ ${jobsCtx || "No jobs found."}`;
                   })}
                 </div>
               </div>
-              <div className="tq-preview-anim" style={{ flex: 1, borderRadius: 16, overflow: "hidden", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", boxShadow: "0 24px 70px rgba(0,0,0,0.55), 0 6px 22px rgba(0,0,0,0.4)", background: pSolid }}>
+              <div className="tq-preview-anim" style={{ flex: 1, borderRadius: 20, overflow: "hidden", border: `1px solid ${T.border}`, display: "flex", flexDirection: "column", boxShadow: "0 24px 70px rgba(0,0,0,0.55), 0 6px 22px rgba(0,0,0,0.4)", background: pSolid }}>
                 {/* full-width solid header (logo + New Job) — sits above sidebar + content, no divider */}
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 18px", background: pSolid, flexShrink: 0 }}>
                   <span style={{ fontSize: 30, fontWeight: 800, color: pSysText, letterSpacing: "-0.045em", marginLeft: 46 }}>traqs</span>
                   <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                    <span style={{ width: 16, height: 16, borderRadius: 14, background: pSysBorder }} />
-                    <span style={{ width: 16, height: 16, borderRadius: 14, background: pSysBorder }} />
+                    <span style={{ width: 16, height: 16, borderRadius: 20, background: pSysBorder }} />
+                    <span style={{ width: 16, height: 16, borderRadius: 20, background: pSysBorder }} />
                   </span>
                 </div>
                 {/* row: sidebar + content */}
@@ -22012,11 +22105,11 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ width: 48, flexShrink: 0, background: pSolid, display: "flex", flexDirection: "column", alignItems: "center", paddingTop: 14 }}>
                     <div style={{ height: draftSidebar === "button" ? 26 : 0, opacity: draftSidebar === "button" ? 1 : 0, marginBottom: draftSidebar === "button" ? 16 : 0, overflow: "hidden", transition: "height 0.3s ease, opacity 0.3s ease, margin-bottom 0.3s ease", display: "flex", alignItems: "center", justifyContent: "center" }}>
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4 }}>
-                        {[0, 1, 2].map(i => <div key={i} style={{ width: 17, height: 2, borderRadius: 1, background: pSysText }} />)}
+                        {[0, 1, 2].map(i => <div key={i} style={{ width: 17, height: 2, borderRadius: 8, background: pSysText }} />)}
                       </div>
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-                      {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ width: 20, height: 20, borderRadius: 14, background: i === 0 ? pT.accent : pSysBorder }} />)}
+                      {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ width: 20, height: 20, borderRadius: 20, background: i === 0 ? pT.accent : pSysBorder }} />)}
                     </div>
                   </div>
                   {/* rounded content panel with the background image (mirrors the 22px content area) */}
@@ -22039,38 +22132,38 @@ ${jobsCtx || "No jobs found."}`;
                     {(() => { const renderMock = (which) => which === "jobs" ? <div key="jobs" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 16 }}>
                       {/* content toolbar — New Job lives here (on the screen), not in the header */}
                       <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
-                        <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 14, padding: "7px 14px" }}>+ New Job</span>
+                        <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 20, padding: "7px 14px" }}>+ New Job</span>
                       </div>
                       {[[70, 56, 82], [62, 78, 48, 66], [74, 50, 60]].map((rowWidths, sec) => {
                         const COLS = "1.7fr 0.5fr 1fr 0.9fr 0.8fr 0.8fr 1.2fr 0.5fr";
                         return <div key={sec}>
                           {/* group header — blank label + count chip */}
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
-                            <div style={{ height: 9, width: 88, borderRadius: 4, background: pT.text, opacity: 0.55 }} />
-                            <div style={{ height: 15, width: 24, borderRadius: 14, background: pT.accent + "2e" }} />
+                            <div style={{ height: 9, width: 88, borderRadius: 8, background: pT.text, opacity: 0.55 }} />
+                            <div style={{ height: 15, width: 24, borderRadius: 20, background: pT.accent + "2e" }} />
                           </div>
                           {/* frosted section panel */}
                           <div style={{ background: pFrostBg, ...pFrostFx, border: `1px solid ${pT.border}`, borderRadius: pT.radius, overflow: "hidden", ...(pAdaptive ? { backdropFilter: "blur(18px) saturate(1.4)" } : {}) }}>
                             {/* column-header row (blank) */}
                             <div style={{ display: "grid", gridTemplateColumns: COLS, gap: 10, alignItems: "center", padding: "8px 14px", borderBottom: `1.5px solid ${pT.border}` }}>
-                              {[40, 50, 44, 44, 50, 50, 36, 40].map((w, i) => <div key={i} style={{ height: 6, width: `${w}%`, borderRadius: 3, background: pT.textDim, opacity: 0.45 }} />)}
+                              {[40, 50, 44, 44, 50, 50, 36, 40].map((w, i) => <div key={i} style={{ height: 6, width: `${w}%`, borderRadius: 8, background: pT.textDim, opacity: 0.45 }} />)}
                             </div>
                             {/* blank rows */}
                             {rowWidths.map((nameW, r) => (
                               <div key={r} style={{ display: "grid", gridTemplateColumns: COLS, gap: 10, alignItems: "center", padding: "10px 14px", borderBottom: r < rowWidths.length - 1 ? `1px solid ${pT.border}` : "none" }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                  <div style={{ width: 9, height: 9, borderRadius: 5, background: pT.accent, flexShrink: 0, opacity: 0.85 }} />
-                                  <div style={{ height: 8, width: `${nameW}%`, borderRadius: 4, background: pT.textDim, opacity: 0.32 }} />
+                                  <div style={{ width: 9, height: 9, borderRadius: 8, background: pT.accent, flexShrink: 0, opacity: 0.85 }} />
+                                  <div style={{ height: 8, width: `${nameW}%`, borderRadius: 8, background: pT.textDim, opacity: 0.32 }} />
                                 </div>
-                                <div style={{ height: 8, width: "80%", borderRadius: 4, background: pT.textDim, opacity: 0.28 }} />
+                                <div style={{ height: 8, width: "80%", borderRadius: 8, background: pT.textDim, opacity: 0.28 }} />
                                 {/* Col 3 — priority pill (multi-color / mode-driven shades) */}
-                                <span style={{ height: 15, width: 48, borderRadius: 7, background: pPriColor(r) + "33", border: `1px solid ${pPriColor(r)}66` }} />
+                                <span style={{ height: 15, width: 48, borderRadius: 12, background: pPriColor(r) + "33", border: `1px solid ${pPriColor(r)}66` }} />
                                 {/* Col 4 — client cell (multi-color dot + label / mode-driven) */}
-                                <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: pClientColor(r), flexShrink: 0 }} /><div style={{ height: 8, width: "62%", borderRadius: 4, background: pClientColor(r), opacity: 0.55 }} /></div>
-                                <div style={{ height: 8, width: "75%", borderRadius: 4, background: pT.textDim, opacity: 0.28 }} />
-                                <div style={{ height: 8, width: "75%", borderRadius: 4, background: pT.textDim, opacity: 0.28 }} />
-                                <div style={{ height: 6, borderRadius: 3, background: pT.border, overflow: "hidden" }}><div style={{ width: `${[60, 35, 90, 20, 72, 48][r % 6]}%`, height: "100%", background: pT.accent, borderRadius: 3 }} /></div>
-                                <div style={{ width: 16, height: 16, borderRadius: 14, background: pT.textDim, opacity: 0.3, justifySelf: "start" }} />
+                                <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: pClientColor(r), flexShrink: 0 }} /><div style={{ height: 8, width: "62%", borderRadius: 8, background: pClientColor(r), opacity: 0.55 }} /></div>
+                                <div style={{ height: 8, width: "75%", borderRadius: 8, background: pT.textDim, opacity: 0.28 }} />
+                                <div style={{ height: 8, width: "75%", borderRadius: 8, background: pT.textDim, opacity: 0.28 }} />
+                                <div style={{ height: 6, borderRadius: 8, background: pT.border, overflow: "hidden" }}><div style={{ width: `${[60, 35, 90, 20, 72, 48][r % 6]}%`, height: "100%", background: pT.accent, borderRadius: 8 }} /></div>
+                                <div style={{ width: 16, height: 16, borderRadius: 20, background: pT.textDim, opacity: 0.3, justifySelf: "start" }} />
                               </div>
                             ))}
                           </div>
@@ -22079,11 +22172,11 @@ ${jobsCtx || "No jobs found."}`;
                     </div> : <div key="schedule" style={{ position: "relative", height: "100%", padding: 16, overflow: "hidden", display: "flex", flexDirection: "column", gap: 12 }}>
                       {/* schedule toolbar — Select / Today + filter + search */}
                       <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 14, padding: "6px 14px" }}>Select</span>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: pT.text, border: `1px solid ${pT.border}`, borderRadius: 14, padding: "6px 12px", opacity: 0.75 }}>Today</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 20, padding: "6px 14px" }}>Select</span>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: pT.text, border: `1px solid ${pT.border}`, borderRadius: 20, padding: "6px 12px", opacity: 0.75 }}>Today</span>
                         <span style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
-                          <span style={{ width: 22, height: 22, borderRadius: 14, background: pT.border }} />
-                          <span style={{ width: 22, height: 22, borderRadius: 14, background: pT.border }} />
+                          <span style={{ width: 22, height: 22, borderRadius: 20, background: pT.border }} />
+                          <span style={{ width: 22, height: 22, borderRadius: 20, background: pT.border }} />
                         </span>
                       </div>
                       {/* gantt panel (frosted) — left roster + timeline with bars */}
@@ -22092,25 +22185,25 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ display: "flex", flexShrink: 0, borderBottom: `1.5px solid ${pGridOn ? pGridLine : "transparent"}` }}>
                           <div style={{ width: ROSTER, flexShrink: 0, borderRight: `1px solid ${pGridOn ? pGridLine : "transparent"}` }} />
                           <div style={{ flex: 1, display: "flex" }}>
-                            {Array.from({ length: 14 }).map((_, i) => <div key={i} style={{ flex: 1, padding: "7px 0", borderRight: i < 13 ? `1px solid ${pGridOn ? pGridLine : "transparent"}` : "none", display: "flex", justifyContent: "center" }}><div style={{ height: 6, width: 12, borderRadius: 3, background: pT.textDim, opacity: 0.4 }} /></div>)}
+                            {Array.from({ length: 14 }).map((_, i) => <div key={i} style={{ flex: 1, padding: "7px 0", borderRight: i < 13 ? `1px solid ${pGridOn ? pGridLine : "transparent"}` : "none", display: "flex", justifyContent: "center" }}><div style={{ height: 6, width: 12, borderRadius: 8, background: pT.textDim, opacity: 0.4 }} /></div>)}
                           </div>
                         </div>
                         {/* department groups → person rows */}
                         <div style={{ flex: 1, overflow: "hidden" }}>
                           {SCHED_GROUPS.map((rows, gi) => <div key={gi}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 12px", background: hexA(pT.text, 0.05) }}>
-                              <div style={{ height: 7, width: 54, borderRadius: 3, background: pT.text, opacity: 0.5 }} />
-                              <div style={{ height: 12, width: 20, borderRadius: 14, background: pT.accent + "2e" }} />
+                              <div style={{ height: 7, width: 54, borderRadius: 8, background: pT.text, opacity: 0.5 }} />
+                              <div style={{ height: 12, width: 20, borderRadius: 20, background: pT.accent + "2e" }} />
                             </div>
                             {rows.map((bars, ri) => <div key={ri} style={{ display: "flex", alignItems: "center", borderBottom: `1px solid ${pGridOn ? pGridLine : "transparent"}` }}>
                               <div style={{ width: ROSTER, flexShrink: 0, display: "flex", alignItems: "center", gap: 7, padding: "0 10px", height: 32, borderRight: `1px solid ${pGridOn ? pGridLine : "transparent"}` }}>
-                                <div style={{ width: 16, height: 16, borderRadius: 5, background: pT.jobBarMode === "adaptive" ? pT.accent : pT.jobBarMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[(gi + ri) % BARC.length], flexShrink: 0 }} />
-                                <div style={{ flex: 1, minWidth: 0 }}><div style={{ height: 6, width: `${52 + ((gi + ri) % 4) * 11}%`, borderRadius: 3, background: pT.textDim, opacity: 0.34 }} /></div>
-                                <div style={{ height: 11, width: 22, borderRadius: 5, background: pT.accent + "26", flexShrink: 0 }} />
+                                <div style={{ width: 16, height: 16, borderRadius: 8, background: pT.jobBarMode === "adaptive" ? pT.accent : pT.jobBarMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[(gi + ri) % BARC.length], flexShrink: 0 }} />
+                                <div style={{ flex: 1, minWidth: 0 }}><div style={{ height: 6, width: `${52 + ((gi + ri) % 4) * 11}%`, borderRadius: 8, background: pT.textDim, opacity: 0.34 }} /></div>
+                                <div style={{ height: 11, width: 22, borderRadius: 8, background: pT.accent + "26", flexShrink: 0 }} />
                               </div>
                               <div style={{ flex: 1, position: "relative", height: 32 }}>
                                 <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(to right, ${pGridLine} 0 1px, transparent 1px calc(100% / 14))`, opacity: pGridOn ? 1 : 0, pointerEvents: "none" }} />
-                                {bars.map((b, bi) => <div key={bi} style={{ position: "absolute", top: 7, height: 18, left: `${b.l}%`, width: `${b.w}%`, background: pT.jobBarMode === "adaptive" ? pT.accent : pT.jobBarMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[b.c], borderRadius: 5 }} />)}
+                                {bars.map((b, bi) => <div key={bi} style={{ position: "absolute", top: 7, height: 18, left: `${b.l}%`, width: `${b.w}%`, background: pT.jobBarMode === "adaptive" ? pT.accent : pT.jobBarMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[b.c], borderRadius: 8 }} />)}
                               </div>
                             </div>)}
                           </div>)}
@@ -22118,7 +22211,7 @@ ${jobsCtx || "No jobs found."}`;
                       </div>
                       {/* Schedule Status — blank status cards (profile avatars in their colors + colored lines) */}
                       <div style={{ flexShrink: 0 }}>
-                        <div style={{ height: 7, width: 96, borderRadius: 3, background: pT.textDim, opacity: 0.4, marginBottom: 8 }} />
+                        <div style={{ height: 7, width: 96, borderRadius: 8, background: pT.textDim, opacity: 0.4, marginBottom: 8 }} />
                         <div style={{ display: "flex", gap: 10 }}>
                           {[0, 1, 2, 3, 4].map(i => {
                             const ac = pMode === "adaptive" ? pT.accent : pMode === "custom" ? (pT.jobBarColor || pT.accent) : BARC[i % BARC.length];
@@ -22126,14 +22219,14 @@ ${jobsCtx || "No jobs found."}`;
                               {/* header: avatar + name + link */}
                               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                 <div style={{ width: 24, height: 24, borderRadius: "50%", background: ac, flexShrink: 0 }} />
-                                <div style={{ flex: 1, minWidth: 0 }}><div style={{ height: 7, width: "72%", borderRadius: 3, background: pT.textDim, opacity: 0.4 }} /></div>
-                                <div style={{ height: 5, width: 24, borderRadius: 3, background: pT.accent, opacity: 0.7, flexShrink: 0 }} />
+                                <div style={{ flex: 1, minWidth: 0 }}><div style={{ height: 7, width: "72%", borderRadius: 8, background: pT.textDim, opacity: 0.4 }} /></div>
+                                <div style={{ height: 5, width: 24, borderRadius: 8, background: pT.accent, opacity: 0.7, flexShrink: 0 }} />
                               </div>
                               <div style={{ height: 1, background: pT.border }} />
                               {/* body: job + client + status */}
-                              <div style={{ height: 6, width: "86%", borderRadius: 3, background: pT.textDim, opacity: 0.3 }} />
-                              <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: ac, flexShrink: 0 }} /><div style={{ height: 5, width: "55%", borderRadius: 3, background: ac, opacity: 0.5 }} /></div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ height: 13, width: 38, borderRadius: 14, background: ac + "33", border: `1px solid ${ac}55` }} /><div style={{ height: 5, width: "34%", borderRadius: 3, background: pT.textDim, opacity: 0.25 }} /></div>
+                              <div style={{ height: 6, width: "86%", borderRadius: 8, background: pT.textDim, opacity: 0.3 }} />
+                              <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div style={{ width: 6, height: 6, borderRadius: "50%", background: ac, flexShrink: 0 }} /><div style={{ height: 5, width: "55%", borderRadius: 8, background: ac, opacity: 0.5 }} /></div>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ height: 13, width: 38, borderRadius: 20, background: ac + "33", border: `1px solid ${ac}55` }} /><div style={{ height: 5, width: "34%", borderRadius: 8, background: pT.textDim, opacity: 0.25 }} /></div>
                             </div>;
                           })}
                         </div>
@@ -22254,7 +22347,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ fontSize: 12, color: T.textDim }}>Click rows to select — highlighted rows will be exported</div>
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                {exportSelRows.size > 0 && <span style={{ fontSize: 12, color: T.accent, fontWeight: 700, background: T.accent + "18", padding: "3px 10px", borderRadius: 8 }}>{exportSelRows.size} selected</span>}
+                {exportSelRows.size > 0 && <span style={{ fontSize: 12, color: T.accent, fontWeight: 700, background: T.accent + "18", padding: "3px 10px", borderRadius: 12 }}>{exportSelRows.size} selected</span>}
                 <button onClick={() => setExportSelOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 22, lineHeight: 1, padding: "0 4px" }}>✕</button>
               </div>
             </div>
@@ -22263,7 +22356,7 @@ ${jobsCtx || "No jobs found."}`;
               {/* Search */}
               <div style={{ display: "flex", alignItems: "center", gap: 6, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "5px 10px", flex: "1 1 180px", maxWidth: 260 }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-                <input value={exportSelSearch} onChange={e => setExportSelSearch(e.target.value)} placeholder="Filter jobs…" style={{ border: "none", background: "transparent", color: T.text, fontSize: 13, outline: "none", fontFamily: T.font, width: "100%" }} />
+                <input className="tq-bare" value={exportSelSearch} onChange={e => setExportSelSearch(e.target.value)} placeholder="Filter jobs…" style={{ border: "none", background: "transparent", color: T.text, fontSize: 13, outline: "none", fontFamily: T.font, width: "100%" }} />
                 {exportSelSearch && <button onClick={() => setExportSelSearch("")} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), cursor: "pointer", fontSize: 14, padding: 0, lineHeight: 1 }}>✕</button>}
               </div>
               {/* Select / Clear */}
@@ -22292,7 +22385,7 @@ ${jobsCtx || "No jobs found."}`;
                 onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = "transparent"; }}>
                 {/* Sel indicator */}
                 <div style={{ width: 44, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <div style={{ width: 18, height: 18, borderRadius: 5, border: `2px solid ${isSel ? T.accent : T.border}`, background: isSel ? brandGrad(T.accent) : "transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.12s" }}>
+                  <div style={{ width: 18, height: 18, borderRadius: 8, border: `2px solid ${isSel ? T.accent : T.border}`, background: isSel ? brandGrad(T.accent) : "transparent", display: "flex", alignItems: "center", justifyContent: "center", transition: "all 0.12s" }}>
                     {isSel && <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="2 6 5 9 10 3"/></svg>}
                   </div>
                 </div>
@@ -22385,6 +22478,48 @@ ${jobsCtx || "No jobs found."}`;
           {/* Toolbar */}
           <div style={{ padding: "12px 18px", background: T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{isPdf ? "Design Export" : kindLabel + " Preview"}</div>
+            {/* People — who lands on the sheet. Defaults to hourly staff only, since
+                that is what payroll reconciles; salary staff are listed but unticked
+                so the accountant can add one deliberately rather than by accident. */}
+            {ep.hoursReport && (() => {
+              const sel = new Set((exportHoursPeople || defaultHoursPeople()).map(String));
+              const sorted = [...people].sort((a, b) => (isHourly(b) - isHourly(a)) || a.name.localeCompare(b.name));
+              const hourlyIds = people.filter(isHourly).map(p => String(p.id));
+              const setSel = ids => loadHoursPeriod(ep.hoursPeriod || null, ids);
+              const toggle = id => {
+                const n = new Set(sel);
+                n.has(String(id)) ? n.delete(String(id)) : n.add(String(id));
+                setSel([...n]);
+              };
+              return <div style={{ position: "relative" }}>
+                <button className="tq-drop" onClick={() => setExportPeopleOpen(o => !o)} style={{ ...EBTN, height: 32, background: T.bg, color: T.text, border: `1px solid ${exportPeopleOpen ? T.accent : T.border}`, display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>People</span>
+                  <span style={{ fontWeight: 700 }}>{sel.size} of {people.length}</span>
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "transform 0.15s", transform: exportPeopleOpen ? "rotate(180deg)" : "none" }}><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                {exportPeopleOpen && <div onClick={() => setExportPeopleOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />}
+                <FadeOnClose open={exportPeopleOpen} duration={150}>{exportPeopleOpen && <div className="anim-drop" style={{ position: "absolute", top: "calc(100% + 5px)", left: 0, minWidth: 260, maxHeight: 340, overflowY: "auto", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 14px 40px rgba(0,0,0,0.5)", zIndex: 41, padding: "4px 0", fontFamily: T.font, animation: "menuIn 0.15s ease-out" }}>
+                  <div style={{ display: "flex", gap: 8, padding: "6px 14px 8px", borderBottom: `1px solid ${T.border}` }}>
+                    <button onClick={() => setSel(hourlyIds)} style={{ ...EBTN, height: 26, flex: 1, background: "transparent", color: T.accent, border: `1px solid ${T.accent}66` }}>Hourly only</button>
+                    <button onClick={() => setSel(people.map(p => String(p.id)))} style={{ ...EBTN, height: 26, flex: 1, background: "transparent", color: T.textSec, border: `1px solid ${T.border}` }}>All</button>
+                  </div>
+                  {sorted.map((p, ri) => {
+                    const on = sel.has(String(p.id));
+                    const salary = !isHourly(p);
+                    return <div key={p.id} onClick={() => toggle(p.id)}
+                      style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", animation: `toolDrop 0.14s ${Math.min(ri, 14) * 38}ms both ease-out`, background: on ? T.accent + "10" : "transparent" }}
+                      onMouseEnter={e => e.currentTarget.style.background = T.hover}
+                      onMouseLeave={e => e.currentTarget.style.background = on ? T.accent + "10" : "transparent"}>
+                      <span style={{ width: 15, height: 15, flexShrink: 0, borderRadius: 8, border: `1.5px solid ${on ? T.accent : T.border}`, background: on ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {on && <svg width="9" height="9" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke={T.accentText} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                      </span>
+                      <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: on ? 700 : 500, color: on ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                      {salary && <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "-0.02em", textTransform: "uppercase", color: T.textDim, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, padding: "1px 7px", flexShrink: 0 }}>Salary</span>}
+                    </div>;
+                  })}
+                </div>}</FadeOnClose>
+              </div>;
+            })()}
             {/* Confirmed Hours — pick a confirmed pay period and the whole report
                 (daily hours, PTO, holidays) rebuilds for it. Newest at the top. */}
             {ep.hoursReport && (() => {
@@ -22402,11 +22537,11 @@ ${jobsCtx || "No jobs found."}`;
                   {confirmedPeriods.length === 0 && <div style={{ padding: "10px 12px", fontSize: 12, color: T.textDim }}>No confirmed timesheets yet.</div>}
                   {confirmedPeriods.map((p, ri) => {
                     const isOn = p.start === cur.start && p.end === cur.end;
-                    return <div key={p.start} onClick={() => { loadHoursPeriod(p); setExportPeriodOpen(false); }}
+                    return <div key={p.start} onClick={() => { loadHoursPeriod(p, exportHoursPeople); setExportPeriodOpen(false); }}
                       style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", animation: `toolDrop 0.14s ${Math.min(ri, 14) * 38}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }}
                       onMouseEnter={e => e.currentTarget.style.background = T.hover}
                       onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
-                      <span style={{ width: 8, height: 8, borderRadius: 4, flexShrink: 0, background: isOn ? T.accent : T.border }} />
+                      <span style={{ width: 8, height: 8, borderRadius: 8, flexShrink: 0, background: isOn ? T.accent : T.border }} />
                       <span style={{ flex: 1, minWidth: 0 }}>
                         <span style={{ display: "block", fontSize: 13, fontWeight: isOn ? 700 : 500, color: isOn ? T.accent : T.text }}>{p.label}</span>
                         {p.at && <span style={{ display: "block", fontSize: 10.5, color: T.textDim }}>Confirmed {new Date(p.at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}{p.by ? ` by ${p.by}` : ""}</span>}
@@ -22445,8 +22580,8 @@ ${jobsCtx || "No jobs found."}`;
           {!isPdf ? (
             <div style={{ flex: 1, overflow: "auto", background: "#525659", padding: 24, display: "flex", justifyContent: "center" }}>
               {ep.kind === "csv"
-                ? <pre style={{ width: "100%", maxWidth: 1000, padding: 24, background: "#fff", color: "#0f172a", fontFamily: T.mono, fontSize: 12, lineHeight: 1.5, borderRadius: 6, whiteSpace: "pre", overflow: "auto" }}>{ep.content}</pre>
-                : <iframe srcDoc={ep.html} title="Export preview" sandbox="" style={{ width: "100%", maxWidth: 920, height: "100%", border: "none", background: "#fff", borderRadius: 6 }} />}
+                ? <pre style={{ width: "100%", maxWidth: 1000, padding: 24, background: "#fff", color: "#0f172a", fontFamily: T.mono, fontSize: 12, lineHeight: 1.5, borderRadius: 12, whiteSpace: "pre", overflow: "auto" }}>{ep.content}</pre>
+                : <iframe srcDoc={ep.html} title="Export preview" sandbox="" style={{ width: "100%", maxWidth: 920, height: "100%", border: "none", background: "#fff", borderRadius: 12 }} />}
             </div>
           ) : !layout ? <div style={{ flex: 1 }} /> : (
             <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
@@ -22460,7 +22595,7 @@ ${jobsCtx || "No jobs found."}`;
                     {paletteGroups.map(grp => <div key={grp.name} style={{ marginBottom: 10 }}>
                       <div style={{ fontSize: 11, fontWeight: 700, color: T.textSec, margin: "4px 0 6px", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(grp.items[0]?.i ?? 0, 14) * 0.03}s` }}>{grp.name}</div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-                        {grp.items.map(({ item, i }) => <div key={i} draggable onDragStart={ev => ev.dataTransfer.setData("text/plain", String(i))} onClick={() => { const blk = blockFromItem(item, 48, 48); addExportBlock(pageIdx, blk); setExportSelId(blk.id); fitBlockHeight(pageIdx, blk, ctx); setExportAddOpen(false); }} title="Drag onto the sheet, or click to add" onMouseEnter={ev => { ev.currentTarget.style.borderColor = T.accent; ev.currentTarget.style.boxShadow = `0 0 0 1px ${T.accent}, 0 0 12px ${T.accent}66`; ev.currentTarget.style.background = T.hover; }} onMouseLeave={ev => { ev.currentTarget.style.borderColor = T.border; ev.currentTarget.style.boxShadow = "none"; ev.currentTarget.style.background = T.bg; }} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 9px", borderRadius: 7, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 12, fontWeight: 600, cursor: "grab", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", transition: "border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(i, 14) * 0.03}s` }}><span style={{ color: T.accent, fontSize: 14, lineHeight: 1, flexShrink: 0 }}>+</span>{item.label}</div>)}
+                        {grp.items.map(({ item, i }) => <div key={i} draggable onDragStart={ev => ev.dataTransfer.setData("text/plain", String(i))} onClick={() => { const blk = blockFromItem(item, 48, 48); addExportBlock(pageIdx, blk); setExportSelId(blk.id); fitBlockHeight(pageIdx, blk, ctx); setExportAddOpen(false); }} title="Drag onto the sheet, or click to add" onMouseEnter={ev => { ev.currentTarget.style.borderColor = T.accent; ev.currentTarget.style.boxShadow = `0 0 0 1px ${T.accent}, 0 0 12px ${T.accent}66`; ev.currentTarget.style.background = T.hover; }} onMouseLeave={ev => { ev.currentTarget.style.borderColor = T.border; ev.currentTarget.style.boxShadow = "none"; ev.currentTarget.style.background = T.bg; }} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 9px", borderRadius: 12, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 12, fontWeight: 600, cursor: "grab", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", transition: "border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease", animation: "dropIn 0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(i, 14) * 0.03}s` }}><span style={{ color: T.accent, fontSize: 14, lineHeight: 1, flexShrink: 0 }}>+</span>{item.label}</div>)}
                       </div>
                     </div>)}
                     </div>
@@ -22483,7 +22618,7 @@ ${jobsCtx || "No jobs found."}`;
                       const o = b.opts || {};
                       const chk = (label, key) => <label key={key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", fontSize: 12, color: T.textSec, cursor: "pointer" }}><input type="checkbox" checked={o[key] !== false} onChange={e => setOpt(b, key, e.target.checked)} />{label}</label>;
                       const hasOpts = ["job", "panel", "summary", "datetime"].includes(b.type) || TXT.includes(b.type) || b.type !== "logo";
-                      return <div key={b.id} style={{ borderRadius: 7, border: `1px solid ${open ? T.accent + "55" : "transparent"}`, background: open ? T.accent + "10" : "transparent", transition: "background 0.18s, border-color 0.18s", overflow: "hidden" }}>
+                      return <div key={b.id} style={{ borderRadius: 12, border: `1px solid ${open ? T.accent + "55" : "transparent"}`, background: open ? T.accent + "10" : "transparent", transition: "background 0.18s, border-color 0.18s", overflow: "hidden" }}>
                         <div onClick={() => setExportSelId(open ? null : b.id)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 8px", cursor: "pointer" }}>
                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={open ? T.accent : T.textDim} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.18s", transform: open ? "rotate(0deg)" : "rotate(-90deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
                           <span style={{ flex: 1, minWidth: 0, fontSize: 12, fontWeight: open ? 700 : 500, color: open ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{blockLabel(b, ep.jobs)}</span>
@@ -22499,7 +22634,7 @@ ${jobsCtx || "No jobs found."}`;
                               {b.type === "hours" && <>
                                 {chk("Department column", "department")}
                                 <button onClick={() => setExportPtoMode(m => !m)} title="Click day cells on the sheet to mark/unmark PTO (yellow)" style={{ marginTop: 8, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, height: 30, padding: "0 10px", borderRadius: T.radiusPill, border: `1px solid ${ptoActive ? "#f59e0b" : T.border}`, background: ptoActive ? "#f59e0b" : T.bg, color: ptoActive ? "#fff" : T.text, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.18s, border-color 0.18s, color 0.18s" }}>
-                                  <span style={{ width: 12, height: 12, borderRadius: 3, background: "#fde68a", border: "1px solid rgba(0,0,0,0.2)", display: "inline-block", flexShrink: 0 }} />
+                                  <span style={{ width: 12, height: 12, borderRadius: 8, background: "#fde68a", border: "1px solid rgba(0,0,0,0.2)", display: "inline-block", flexShrink: 0 }} />
                                   {ptoActive ? "PTO highlight ON — click cells" : "Highlight PTO"}
                                 </button>
                                 {ptoActive && <div style={{ fontSize: 11, color: T.textDim, marginTop: 5, lineHeight: 1.4 }}>Click day cells on the sheet to toggle PTO (yellow). Press the button again to finish.</div>}
@@ -22568,21 +22703,25 @@ ${jobsCtx || "No jobs found."}`;
                   {(page?.blocks || []).map(b => {
                     if (exportEditing === b.id && TXT.includes(b.type)) {
                       const _f = b.fmt || {}; const _ds = b.type === "title" ? 26 : b.type === "subtitle" ? 15 : 12; const _bold = _f.bold != null ? _f.bold : (b.type === "title");
-                      const edStyle = { position: "absolute", left: b.x * scale, top: b.y * scale, width: b.w * scale, height: b.h * scale, border: `2px solid ${T.accent}`, borderRadius: 4, boxSizing: "border-box", padding: "5px 7px", fontSize: Math.round((_f.size || _ds) * scale), fontWeight: _bold ? 800 : 400, fontStyle: _f.italic ? "italic" : "normal", textAlign: _f.align || "left", fontFamily: T.font, color: "#0f172a", background: "#fff", outline: "none", boxShadow: `0 6px 22px ${T.accent}66`, resize: "none", zIndex: 6, lineHeight: 1.3 };
+                      const edStyle = { position: "absolute", left: b.x * scale, top: b.y * scale, width: b.w * scale, height: b.h * scale, border: `2px solid ${T.accent}`, borderRadius: 8, boxSizing: "border-box", padding: "5px 7px", fontSize: Math.round((_f.size || _ds) * scale), fontWeight: _bold ? 800 : 400, fontStyle: _f.italic ? "italic" : "normal", textAlign: _f.align || "left", fontFamily: T.font, color: "#0f172a", background: "#fff", outline: "none", boxShadow: `0 6px 22px ${T.accent}66`, resize: "none", zIndex: 6, lineHeight: 1.3 };
                       const common = { autoFocus: true, defaultValue: b.text || "", placeholder: "Type text…", onPointerDown: ev => ev.stopPropagation(), onDoubleClick: ev => ev.stopPropagation(), onBlur: ev => { if (exportCancelRef.current) { exportCancelRef.current = false; setExportEditing(null); } else commitEdit(b, ev.target.value); } };
                       return b.type === "text"
                         ? <textarea key={b.id} {...common} onKeyDown={ev => { if (ev.key === "Escape") { ev.preventDefault(); exportCancelRef.current = true; ev.target.blur(); } }} style={edStyle} />
                         : <input key={b.id} {...common} onKeyDown={ev => { if (ev.key === "Enter") { ev.preventDefault(); ev.target.blur(); } else if (ev.key === "Escape") { ev.preventDefault(); exportCancelRef.current = true; ev.target.blur(); } }} style={edStyle} />;
                     }
                     const isSel = exportSelId === b.id;
-                    // Overlay chrome (selection border + resize handle) sits on the always-white export
-                    // page, so a light/white accent would vanish. Fall back to slate when the accent is light.
-                    const ov = isLight(T.accent) ? "#475569" : T.accent;
+                    // Overlay chrome (safe-zone boxes + resize handle) sits on the always-white
+                    // export page. It used to be drawn in the user's accent, which meant the
+                    // guides were only as visible as whatever accent happened to be set — and
+                    // at the 1px/40%-alpha unselected weight, most accents washed out on white.
+                    // Fixed dark slate instead, so the safe zones read on every theme.
+                    const ov = "#334155";      // guides
+                    const ovSel = "#0f172a";   // selected block — darker still
                     // In PTO highlight mode the overlays must NOT intercept, so cell clicks reach the iframe.
                     const show = exportSafe && !ptoActive; // "safe zones" = the editable blue boxes/handles
-                    return <div key={b.id} onPointerDown={show ? (ev => { setExportSelId(b.id); startBlockDrag(ev, pageIdx, b, "move", scale, layout); }) : undefined} onDoubleClick={show ? (() => { if (TXT.includes(b.type)) setExportEditing(b.id); }) : undefined} title={show ? (TXT.includes(b.type) ? "Drag to move · double-click to edit text" : "Click to select · drag to move") : undefined} style={{ position: "absolute", left: b.x * scale, top: b.y * scale, width: b.w * scale, height: b.h * scale, border: show ? (isSel ? `2px solid ${ov}` : `1px solid ${ov}66`) : "none", background: show ? (isSel ? ov + "14" : ov + "08") : "transparent", cursor: show ? "move" : "default", boxSizing: "border-box", boxShadow: show && isSel ? `0 0 0 2px ${ov}44` : "none", pointerEvents: show ? "auto" : "none", transition: "border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease", animation: "menuIn 0.18s ease-out" }}>
-                      {show && <button onClick={ev => { ev.stopPropagation(); removeExportBlock(pageIdx, b.id); if (isSel) setExportSelId(null); }} onPointerDown={ev => ev.stopPropagation()} title="Remove" style={{ position: "absolute", top: -9, right: -9, width: 18, height: 18, borderRadius: "50%", border: "none", background: "#ef4444", color: "#fff", fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1, boxShadow: "0 1px 4px rgba(0,0,0,0.4)" }}>×</button>}
-                      {show && <div onPointerDown={ev => { setExportSelId(b.id); startBlockDrag(ev, pageIdx, b, "resize", scale, layout); }} title="Resize" style={{ position: "absolute", right: -6, bottom: -6, width: 13, height: 13, borderRadius: 3, background: ov, cursor: "nwse-resize", boxShadow: "0 0 0 1.5px rgba(255,255,255,0.95), 0 1px 4px rgba(0,0,0,0.5)" }} />}
+                    return <div key={b.id} onPointerDown={show ? (ev => { setExportSelId(b.id); startBlockDrag(ev, pageIdx, b, "move", scale, layout); }) : undefined} onDoubleClick={show ? (() => { if (TXT.includes(b.type)) setExportEditing(b.id); }) : undefined} title={show ? (TXT.includes(b.type) ? "Drag to move · double-click to edit text" : "Click to select · drag to move") : undefined} style={{ position: "absolute", left: b.x * scale, top: b.y * scale, width: b.w * scale, height: b.h * scale, border: show ? (isSel ? `2px solid ${ovSel}` : `2px dashed ${ov}`) : "none", background: show ? (isSel ? ovSel + "1a" : ov + "12") : "transparent", cursor: show ? "move" : "default", boxSizing: "border-box", boxShadow: show && isSel ? `0 0 0 2px ${ovSel}3d` : "none", pointerEvents: show ? "auto" : "none", transition: "border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.18s ease", animation: "menuIn 0.18s ease-out" }}>
+                      {show && <button onClick={ev => { ev.stopPropagation(); removeExportBlock(pageIdx, b.id); if (isSel) setExportSelId(null); }} onPointerDown={ev => ev.stopPropagation()} title="Remove" style={{ position: "absolute", top: -11, right: -11, width: 22, height: 22, borderRadius: "50%", border: "none", background: "transparent", color: "#ef4444", fontSize: 17, fontWeight: 800, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>×</button>}
+                      {show && <div onPointerDown={ev => { setExportSelId(b.id); startBlockDrag(ev, pageIdx, b, "resize", scale, layout); }} title="Resize" style={{ position: "absolute", right: -6, bottom: -6, width: 13, height: 13, borderRadius: 8, background: ovSel, cursor: "nwse-resize", boxShadow: "0 0 0 1.5px rgba(255,255,255,0.95), 0 1px 4px rgba(0,0,0,0.5)" }} />}
                     </div>;
                   })}
                 </div>
@@ -22608,7 +22747,7 @@ ${jobsCtx || "No jobs found."}`;
         <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ width: "min(420px, 92vw)", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radius, boxShadow: "0 24px 80px rgba(0,0,0,0.6)", padding: 22 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 4 }}>Save layout template</div>
           <div style={{ fontSize: 12, color: T.textDim, marginBottom: 16 }}>Give this export layout a name so you can reuse it later.</div>
-          <input autoFocus value={exportTplName} onChange={e => setExportTplName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") setExportTplNameOpen(false); }} placeholder="Template name" style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 14, fontFamily: T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
+          <input autoFocus value={exportTplName} onChange={e => setExportTplName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") setExportTplNameOpen(false); }} placeholder="Template name" style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 14, fontFamily: T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20 }}>
             <button onClick={() => setExportTplNameOpen(false)} style={{ padding: "8px 16px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
             <button onClick={commit} disabled={!exportTplName.trim()} style={{ padding: "8px 16px", borderRadius: T.radiusPill, border: "none", background: exportTplName.trim() ? T.accent : T.border, color: exportTplName.trim() ? T.accentText : T.textDim, fontSize: 13, fontWeight: 700, cursor: exportTplName.trim() ? "pointer" : "default", fontFamily: T.font }}>Save</button>
@@ -22636,12 +22775,12 @@ ${jobsCtx || "No jobs found."}`;
       const top = Math.max(8, renameCol.y);
       return <>
         <div style={{ position: "fixed", inset: 0, zIndex: 10029 }} onMouseDown={commit} />
-        <div onMouseDown={startDrag} className="anim-ctx" style={{ position: "fixed", left, top, zIndex: 10030, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: 9, boxShadow: "0 10px 30px rgba(0,0,0,0.45)", padding: 8, width: 206, cursor: "grab", fontFamily: T.font, userSelect: "none" }}>
+        <div onMouseDown={startDrag} className="anim-ctx" style={{ position: "fixed", left, top, zIndex: 10030, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: 12, boxShadow: "0 10px 30px rgba(0,0,0,0.45)", padding: 8, width: 206, cursor: "grab", fontFamily: T.font, userSelect: "none" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 5, margin: "0 2px 6px" }}>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" style={{ color: T.textDim, flexShrink: 0 }}><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>
             <span style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Rename</span>
           </div>
-          <input autoFocus value={renameCol.value} onMouseDown={e => e.stopPropagation()} onChange={e => setRenameCol(r => ({ ...r, value: e.target.value }))} onFocus={e => e.target.select()} onKeyDown={e => { if (e.key === "Enter") commit(); else if (e.key === "Escape") setRenameCol(null); }} placeholder="Column name" style={{ width: "100%", boxSizing: "border-box", padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 13, fontFamily: T.font, outline: "none", cursor: "text" }} onFocusCapture={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
+          <input autoFocus value={renameCol.value} onMouseDown={e => e.stopPropagation()} onChange={e => setRenameCol(r => ({ ...r, value: e.target.value }))} onFocus={e => e.target.select()} onKeyDown={e => { if (e.key === "Enter") commit(); else if (e.key === "Escape") setRenameCol(null); }} placeholder="Column name" style={{ width: "100%", boxSizing: "border-box", padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, fontFamily: T.font, outline: "none", cursor: "text" }} onFocusCapture={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
         </div>
       </>;
     })()}
@@ -22656,7 +22795,7 @@ ${jobsCtx || "No jobs found."}`;
           if (!isStd && !isCustomSelect) return null;
           const open = colCtxMenu.subMenu === "edit";
           const inputBase = { flex: 1, minWidth: 0, padding: "5px 11px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" };
-          const delBtn = (onClick, disabled) => <button onClick={onClick} disabled={disabled} title={disabled ? "At least one option required" : "Delete option"} style={{ flexShrink: 0, width: 22, height: 22, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: disabled ? T.textDim : "#ef4444", cursor: disabled ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, lineHeight: 1, opacity: disabled ? 0.4 : 1 }} onMouseEnter={e => { if (!disabled) { e.currentTarget.style.background = "#ef444415"; e.currentTarget.style.borderColor = "#ef4444"; } }} onMouseLeave={e => { e.currentTarget.style.background = (T.systemBg || T.surface); e.currentTarget.style.borderColor = T.border; }}>×</button>;
+          const delBtn = (onClick, disabled) => <button onClick={onClick} disabled={disabled} title={disabled ? "At least one option required" : "Delete option"} style={{ flexShrink: 0, width: 22, height: 22, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: disabled ? T.textDim : "#ef4444", cursor: disabled ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, lineHeight: 1, opacity: disabled ? 0.4 : 1 }} onMouseEnter={e => { if (!disabled) { e.currentTarget.style.background = "#ef444415"; e.currentTarget.style.borderColor = "#ef4444"; } }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; }}>×</button>;
           const rowAnim = i => ({ animation: "dropIn 0.26s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(i, 12) * 0.03}s` });
           const addBtn = (onClick, animIdx) => <button onClick={onClick} style={{ marginTop: 2, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px dashed ${T.accent}66`, background: T.systemBg || T.surface, color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, ...rowAnim(animIdx) }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add option</button>;
           const lbl = { fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 2 };
@@ -22681,8 +22820,8 @@ ${jobsCtx || "No jobs found."}`;
             {draft.map((o, i) => optName(o) === "—"
               ? <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 7px", fontSize: 11, color: T.textDim, fontStyle: "italic", ...rowAnim(i >= base ? 0 : i + 1) }}>(blank / none)</div>
               : <div key={i} style={{ display: "flex", alignItems: "center", gap: 5, ...rowAnim(i >= base ? 0 : i + 1) }}>
-                  <input type="color" className="tq-color-swatch" value={o.color || "#94a3b8"} disabled={adaptiveLock} onClick={e => e.stopPropagation()} onChange={e => upd(i, { color: e.target.value })} title={adaptiveLock ? "Colors are auto-generated in Adaptive mode" : "Color"} style={{ width: 24, height: 24, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: "transparent", cursor: adaptiveLock ? "not-allowed" : "pointer", flexShrink: 0, opacity: adaptiveLock ? 0.35 : 1, pointerEvents: adaptiveLock ? "none" : "auto" }} />
-                  {hasIcon && <input className="tq-sq" value={o.icon || ""} onClick={e => e.stopPropagation()} onChange={e => upd(i, { icon: e.target.value.slice(0, 2) })} title="Icon" style={{ width: 26, textAlign: "center", padding: "5px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", flexShrink: 0, boxSizing: "border-box" }} />}
+                  <input type="color" className="tq-color-swatch tq-bare" value={o.color || "#94a3b8"} disabled={adaptiveLock} onClick={e => e.stopPropagation()} onChange={e => upd(i, { color: e.target.value })} title={adaptiveLock ? "Colors are auto-generated in Adaptive mode" : "Color"} style={{ width: 24, height: 24, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, background: "transparent", cursor: adaptiveLock ? "not-allowed" : "pointer", flexShrink: 0, opacity: adaptiveLock ? 0.35 : 1, pointerEvents: adaptiveLock ? "none" : "auto" }} />
+                  {hasIcon && <input className="tq-sq" value={o.icon || ""} onClick={e => e.stopPropagation()} onChange={e => upd(i, { icon: e.target.value.slice(0, 2) })} title="Icon" style={{ width: 26, textAlign: "center", padding: "5px 0", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.card})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", flexShrink: 0, boxSizing: "border-box" }} />}
                   <input value={optName(o)} onClick={e => e.stopPropagation()} onChange={e => upd(i, { name: e.target.value })} onKeyDown={e => { if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur(); }} onFocus={e => e.currentTarget.style.borderColor = T.accent} onBlur={e => e.currentTarget.style.borderColor = T.border} style={inputBase} />
                   {delBtn(() => del(i), minOne && draft.length <= 1)}
                 </div>)}
@@ -22691,7 +22830,7 @@ ${jobsCtx || "No jobs found."}`;
           const body = <div style={{ background: T.surface, borderTop: `1px solid ${T.border}`, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
             <div key={optEditSeq} className="tq-opt-scroll" style={{ display: "flex", flexDirection: "column", gap: 5, maxHeight: 280 }}>{rows}</div>
             <div style={{ display: "flex", gap: 6, marginTop: 4, paddingTop: 8, borderTop: `1px solid ${T.border}`, ...rowAnim(draft.length + 2) }}>
-              <button onClick={closeEditor} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: hexA(T.systemText || T.textSec, 0.8), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.bg} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>Cancel</button>
+              <button onClick={closeEditor} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: hexA(T.systemText || T.textSec, 0.8), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.bg} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Cancel</button>
               <button onClick={save} disabled={!dirty} title={dirty ? "Apply changes" : "No changes to save"} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusPill, border: "none", background: dirty ? T.accent : T.border, color: dirty ? T.accentText : T.textDim, fontSize: 12, fontWeight: 700, cursor: dirty ? "pointer" : "default", fontFamily: T.font, opacity: dirty ? 1 : 0.7 }}>Save{dirty ? " •" : ""}</button>
             </div>
           </div>;
@@ -22709,7 +22848,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           </div>;
         })()}
-        {!colCtxMenu.approvalMode && <button onClick={() => { const isCustom = colCtxMenu.isCustom; const cur = isCustom ? (customCols.find(c => c.id === colCtxMenu.colId)?.label || "") : (colLabels[colCtxMenu.colId] || STD_COL_DEFS.find(c => c.id === colCtxMenu.colId)?.label || ""); setRenameCol({ colId: colCtxMenu.colId, isCustom, value: cur, x: colCtxMenu.hdrLeft ?? colCtxMenu.x, y: Math.max(8, (colCtxMenu.hdrTop ?? colCtxMenu.y) - 50) }); setColCtxMenu(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.systemText || T.text, fontFamily: T.font, textAlign: "left", borderTop: colCtxMenu.isCustom && (() => { const c = customCols.find(x => x.id === colCtxMenu.colId); return c && c.type === "select" && !c.fieldKey; })() ? `1px solid ${T.border}` : "none" }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
+        {!colCtxMenu.approvalMode && <button onClick={() => { const isCustom = colCtxMenu.isCustom; const cur = isCustom ? (customCols.find(c => c.id === colCtxMenu.colId)?.label || "") : (colLabels[colCtxMenu.colId] || STD_COL_DEFS.find(c => c.id === colCtxMenu.colId)?.label || ""); setRenameCol({ colId: colCtxMenu.colId, isCustom, value: cur, x: colCtxMenu.hdrLeft ?? colCtxMenu.x, y: Math.max(8, (colCtxMenu.hdrTop ?? colCtxMenu.y) - 50) }); setColCtxMenu(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.systemText || T.text, fontFamily: T.font, textAlign: "left", borderTop: colCtxMenu.isCustom && (() => { const c = customCols.find(x => x.id === colCtxMenu.colId); return c && c.type === "select" && !c.fieldKey; })() ? `1px solid ${T.border}` : "none" }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
           Rename Column
         </button>}
@@ -22772,7 +22911,7 @@ ${jobsCtx || "No jobs found."}`;
                         style={{ transition: "background-color 0.15s ease", padding: "10px 14px", border: "none", background: "transparent", color: T.text, fontSize: 12, cursor: "pointer", fontFamily: T.font, textAlign: "left", display: "flex", alignItems: "center", gap: 6 }}
                         onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong}
                         onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                        <span style={{ fontSize: 9, color: T.textDim, background: T.card, padding: "1px 4px", borderRadius: 3, border: `1px solid ${T.border}` }}>{tpl.type === "select" ? "LIST" : tpl.type === "checkbox" ? "✓" : tpl.type === "number" ? "NUM" : "TXT"}</span>
+                        <span style={{ fontSize: 9, color: T.textDim, background: T.card, padding: "1px 4px", borderRadius: 8, border: `1px solid ${T.border}` }}>{tpl.type === "select" ? "LIST" : tpl.type === "checkbox" ? "✓" : tpl.type === "number" ? "NUM" : "TXT"}</span>
                         {tpl.label}
                       </button>
                     ))}
@@ -22785,8 +22924,8 @@ ${jobsCtx || "No jobs found."}`;
         {!colCtxMenu.approvalMode && (() => {
           const gKey = colCtxMenu.isCustom ? "_cc_" + colCtxMenu.colId : colCtxMenu.colId;
           const on = isColGroupable(gKey);
-          return <button onClick={() => toggleColGroupable(gKey)} style={{ transition: "background-color 0.15s ease", width: "100%", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.systemText || T.text, fontFamily: T.font, textAlign: "left", borderTop: `1px solid ${T.border}` }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
-            <span style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${on ? T.accent : T.border}`, background: on ? brandGrad(T.accent) : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
+          return <button onClick={() => toggleColGroupable(gKey)} style={{ transition: "background-color 0.15s ease", width: "100%", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.systemText || T.text, fontFamily: T.font, textAlign: "left", borderTop: `1px solid ${T.border}` }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+            <span style={{ width: 16, height: 16, borderRadius: 8, border: `2px solid ${on ? T.accent : T.border}`, background: on ? brandGrad(T.accent) : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
               {on && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
             </span>
             Use for grouping
@@ -22844,7 +22983,7 @@ ${jobsCtx || "No jobs found."}`;
               style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: "pointer", userSelect: "none", animation: `${ccSelectPopover.up ? "toolDropUp" : "toolDrop"} 0.14s ${(ccSelectPopover.up ? ccSelectPopover.options.length - 1 - oi : oi) * 38}ms both ease-out`, background: isCurrent ? oc + "12" : "transparent" }}
               onMouseEnter={e => { if (!isCurrent) e.currentTarget.style.background = oc + "18"; }}
               onMouseLeave={e => { e.currentTarget.style.background = isCurrent ? oc + "12" : "transparent"; }}>
-              {ic ? <span style={{ width: 12, textAlign: "center", fontSize: 13, color: optVal ? oc : T.textDim, flexShrink: 0 }}>{ic}</span> : <div style={{ width: 8, height: 8, borderRadius: 4, background: optVal ? oc : T.border, flexShrink: 0 }} />}
+              {ic ? <span style={{ width: 12, textAlign: "center", fontSize: 13, color: optVal ? oc : T.textDim, flexShrink: 0 }}>{ic}</span> : <div style={{ width: 8, height: 8, borderRadius: 8, background: optVal ? oc : T.border, flexShrink: 0 }} />}
               <span style={{ fontSize: 13, fontWeight: isCurrent ? 600 : 400, color: isCurrent ? oc : T.text, flex: 1 }}>{n === "—" ? "— (none)" : n}</span>
               {isCurrent && <svg width="12" height="12" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke={oc} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
             </div>
@@ -23092,7 +23231,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ marginBottom: 18 }}>
             <div style={{ fontSize: 13, color: T.textSec, marginBottom: 10, fontWeight: 500 }}>Hours worked of <strong style={{ color: T.text }}>{totalHours}h</strong></div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <input type="number" min={0} max={totalHours} step={0.5} value={workedHoursInput} onChange={e => setWorkedHoursInput(e.target.value === "" ? 0 : parseFloat(e.target.value))} style={{ width: 110, padding: "10px 12px", border: `1px solid ${T.border}`, borderRadius: T.radiusPill, background: T.surface, color: T.text, fontSize: 15, fontWeight: 700, fontFamily: T.font }} />
+              <input type="number" min={0} max={totalHours} step={0.5} value={workedHoursInput} onChange={e => setWorkedHoursInput(e.target.value === "" ? 0 : parseFloat(e.target.value))} style={{ width: 110, padding: "10px 12px", border: `1px solid ${T.border}`, borderRadius: T.radiusPill, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 15, fontWeight: 700, fontFamily: T.font }} />
               <span style={{ fontSize: 13, color: T.textSec }}>hours ({pct}% done)</span>
             </div>
             <input type="range" min={0} max={totalHours} step={0.5} value={val} onChange={e => setWorkedHoursInput(parseFloat(e.target.value))} style={{ width: "100%", accentColor: T.accent, cursor: "pointer", marginTop: 14 }} />
@@ -23138,7 +23277,7 @@ ${jobsCtx || "No jobs found."}`;
                   const parseH = t => { const [h, m] = t.split(":").map(Number); return h + m / 60; };
                   const newHpd = Math.max(0.5, parseFloat((parseH(orgSettings.workEnd || "15:00") - parseH(newStart)).toFixed(2)));
                   setOrgSettings(s => ({ ...s, workStart: newStart, hpd: newHpd }));
-                }} style={{ padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font }} />
+                }} style={{ padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font }} />
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ fontSize: 12, color: T.textDim }}>Closes</span>
@@ -23147,7 +23286,7 @@ ${jobsCtx || "No jobs found."}`;
                   const parseH = t => { const [h, m] = t.split(":").map(Number); return h + m / 60; };
                   const newHpd = Math.max(0.5, parseFloat((parseH(newEnd) - parseH(orgSettings.workStart || "07:00")).toFixed(2)));
                   setOrgSettings(s => ({ ...s, workEnd: newEnd, hpd: newHpd }));
-                }} style={{ padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font }} />
+                }} style={{ padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font }} />
               </div>
               <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>= {orgSettings.hpd} hrs/day</span>
             </div>
@@ -23158,8 +23297,8 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {(orgSettings.breaks || []).map((brk, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input type="time" value={brk.time} onChange={e => { const v = e.target.value; setOrgSettings(s => { const b = [...(s.breaks || [])]; b[i] = { ...b[i], time: v }; return { ...s, breaks: b }; }); }} style={{ padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font }} />
-                  <input type="number" min="1" max="120" value={brk.durationMinutes} onChange={e => { const v = Math.max(1, parseInt(e.target.value) || 1); setOrgSettings(s => { const b = [...(s.breaks || [])]; b[i] = { ...b[i], durationMinutes: v }; return { ...s, breaks: b }; }); }} style={{ width: 56, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font }} />
+                  <input type="time" value={brk.time} onChange={e => { const v = e.target.value; setOrgSettings(s => { const b = [...(s.breaks || [])]; b[i] = { ...b[i], time: v }; return { ...s, breaks: b }; }); }} style={{ padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font }} />
+                  <input type="number" min="1" max="120" value={brk.durationMinutes} onChange={e => { const v = Math.max(1, parseInt(e.target.value) || 1); setOrgSettings(s => { const b = [...(s.breaks || [])]; b[i] = { ...b[i], durationMinutes: v }; return { ...s, breaks: b }; }); }} style={{ width: 56, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font }} />
                   <span style={{ fontSize: 12, color: T.textDim }}>min</span>
                   <button onClick={() => setOrgSettings(s => ({ ...s, breaks: (s.breaks || []).filter((_, j) => j !== i) }))} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px" }}>✕</button>
                 </div>
@@ -23171,8 +23310,8 @@ ${jobsCtx || "No jobs found."}`;
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "-0.045em", textTransform: "uppercase", marginBottom: 10 }}>Lunch</div>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input type="time" value={(orgSettings.lunch || { time: "12:00", durationMinutes: 30 }).time} onChange={e => { const v = e.target.value; setOrgSettings(s => ({ ...s, lunch: { ...(s.lunch || { time: "12:00", durationMinutes: 30 }), time: v } })); }} style={{ padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font }} />
-              <input type="number" min="1" max="120" value={(orgSettings.lunch || { time: "12:00", durationMinutes: 30 }).durationMinutes} onChange={e => { const v = Math.max(1, parseInt(e.target.value) || 1); setOrgSettings(s => ({ ...s, lunch: { ...(s.lunch || { time: "12:00", durationMinutes: 30 }), durationMinutes: v } })); }} style={{ width: 56, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font }} />
+              <input type="time" value={(orgSettings.lunch || { time: "12:00", durationMinutes: 30 }).time} onChange={e => { const v = e.target.value; setOrgSettings(s => ({ ...s, lunch: { ...(s.lunch || { time: "12:00", durationMinutes: 30 }), time: v } })); }} style={{ padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font }} />
+              <input type="number" min="1" max="120" value={(orgSettings.lunch || { time: "12:00", durationMinutes: 30 }).durationMinutes} onChange={e => { const v = Math.max(1, parseInt(e.target.value) || 1); setOrgSettings(s => ({ ...s, lunch: { ...(s.lunch || { time: "12:00", durationMinutes: 30 }), durationMinutes: v } })); }} style={{ width: 56, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font }} />
               <span style={{ fontSize: 12, color: T.textDim }}>min</span>
             </div>
           </div>
@@ -23262,7 +23401,7 @@ ${jobsCtx || "No jobs found."}`;
             {orgSettings.roles.map((r, idx) => (
               <div key={r} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: T.surface, border: `1px solid ${roleEditId === idx ? T.accent + "66" : T.border}`, borderRadius: T.radiusSm, transition: "border-color 0.15s" }}>
                 {roleEditId === idx ? (
-                  <input
+                  <input className="tq-bare"
                     autoFocus
                     value={roleEditVal}
                     onChange={e => setRoleEditVal(e.target.value)}
@@ -23318,7 +23457,7 @@ ${jobsCtx || "No jobs found."}`;
                 }
               }}
               placeholder="New department name, e.g. Wiring, Fabrication…"
-              style={{ flex: 1, padding: "9px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }}
+              style={{ flex: 1, padding: "9px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }}
             />
             <button
               onClick={() => {
@@ -23335,19 +23474,19 @@ ${jobsCtx || "No jobs found."}`;
     {approvalCtx && <><div onMouseDown={() => setApprovalCtx(null)} style={{ position: "fixed", inset: 0, zIndex: 10040 }} />
       <div className="anim-ctx" style={{ position: "fixed", left: Math.min(approvalCtx.x, window.innerWidth - 200), top: Math.min(approvalCtx.y, window.innerHeight - 110), zIndex: 10041, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", minWidth: 190, overflow: "hidden", fontFamily: T.font }}>
         {approvalCtx.kind === "standalone" ? <>
-          <button onClick={() => { const a = (orgSettings.approvals || []).find(x => x.id === approvalCtx.approvalId); if (a) openApprovalModal(a); setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.systemText || T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
+          <button onClick={() => { const a = (orgSettings.approvals || []).find(x => x.id === approvalCtx.approvalId); if (a) openApprovalModal(a); setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.systemText || T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit / Add Steps
           </button>
-          <button onClick={() => { deleteApproval(approvalCtx.approvalId); setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.danger, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "12"} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
+          <button onClick={() => { deleteApproval(approvalCtx.approvalId); setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.danger, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Delete Approval
           </button>
-        </> : approvalCtx.kind === "signoff" ? <button onClick={() => { const t = signOffTemplates.find(x => x.id === approvalCtx.templateId); if (t) { setSignOffTemplateEditing({ id: t.id, name: t.name, steps: [...(t.steps || [])] }); setSignOffSettingsOpen(true); } setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.systemText || T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
+        </> : approvalCtx.kind === "signoff" ? <button onClick={() => { const t = signOffTemplates.find(x => x.id === approvalCtx.templateId); if (t) { setSignOffTemplateEditing({ id: t.id, name: t.name, steps: [...(t.steps || [])] }); setSignOffSettingsOpen(true); } setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.systemText || T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit “{approvalCtx.templateName}” Steps
         </button> : <>
-          <button onClick={() => { editPanelApproval(approvalCtx.jobId, approvalCtx.panelId, approvalCtx.headerTitle, approvalCtx.seed); setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.systemText || T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
+          <button onClick={() => { editPanelApproval(approvalCtx.jobId, approvalCtx.panelId, approvalCtx.headerTitle, approvalCtx.seed); setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.systemText || T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit / Add Steps
           </button>
-          {approvalCtx.hasChain && <button onClick={() => { removePanelChain(approvalCtx.jobId, approvalCtx.panelId); setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: hexA(T.systemText || T.textSec, 0.8), fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>
+          {approvalCtx.hasChain && <button onClick={() => { removePanelChain(approvalCtx.jobId, approvalCtx.panelId); setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: hexA(T.systemText || T.textSec, 0.8), fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Reset to default steps
           </button>}
         </>}
@@ -23455,7 +23594,7 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{tmpl.name}</div>
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 4 }}>
-                      {tmpl.steps.map((s, i) => <span key={i} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 8, background: T.accent + "18", color: T.accent, fontWeight: 600 }}>{i + 1}. {s}</span>)}
+                      {tmpl.steps.map((s, i) => <span key={i} style={{ fontSize: 10, padding: "2px 7px", borderRadius: 12, background: T.accent + "18", color: T.accent, fontWeight: 600 }}>{i + 1}. {s}</span>)}
                     </div>
                   </div>
                   <button onClick={() => setSignOffTemplateEditing({ ...tmpl, steps: [...tmpl.steps] })} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), cursor: "pointer", fontSize: 13, padding: "2px 6px", lineHeight: 1 }}>✎</button>
@@ -23473,7 +23612,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
               <div>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 6 }}>Template Name</div>
-                <input autoFocus value={signOffTemplateEditing.name} onChange={e => setSignOffTemplateEditing(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Engineering, Sales, QA…" style={{ width: "100%", padding: "9px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", boxSizing: "border-box" }}
+                <input autoFocus value={signOffTemplateEditing.name} onChange={e => setSignOffTemplateEditing(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Engineering, Sales, QA…" style={{ width: "100%", padding: "9px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", boxSizing: "border-box" }}
                   onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
               </div>
               <div>
@@ -23483,7 +23622,7 @@ ${jobsCtx || "No jobs found."}`;
                     <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, width: 18, textAlign: "center", flexShrink: 0 }}>{i + 1}</span>
                       <input value={step} onChange={e => setSignOffTemplateEditing(p => ({ ...p, steps: p.steps.map((s, j) => j === i ? e.target.value : s) }))} placeholder={`Step ${i + 1} label…`}
-                        style={{ flex: 1, padding: "7px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }}
+                        style={{ flex: 1, padding: "7px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }}
                         onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border}
                         onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); setSignOffTemplateEditing(p => ({ ...p, steps: [...p.steps.slice(0, i + 1), "", ...p.steps.slice(i + 1)] })); } }} />
                       {(signOffTemplateEditing.steps || []).length > 1 && <button onClick={() => setSignOffTemplateEditing(p => ({ ...p, steps: p.steps.filter((_, j) => j !== i) }))} style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "0 3px", flexShrink: 0 }}>✕</button>}
@@ -23529,7 +23668,7 @@ ${jobsCtx || "No jobs found."}`;
       <div onClick={e => e.stopPropagation()} style={{ width: 440, maxWidth: "95vw", height: "100%", background: T.card, borderLeft: `1px solid ${T.borderLight}`, display: "flex", flexDirection: "column", boxShadow: "-24px 0 80px rgba(0,0,0,0.5)", animation: "slideInRight 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
         {/* Header */}
         <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-          <div style={{ width: 32, height: 32, borderRadius: 10, background: `linear-gradient(135deg, ${T.accent}33, ${T.accent}18)`, border: `1px solid ${T.accent}44`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <div style={{ width: 32, height: 32, borderRadius: 16, background: `linear-gradient(135deg, ${T.accent}33, ${T.accent}18)`, border: `1px solid ${T.accent}44`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill={T.accent}><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
           </div>
           <div>
@@ -23544,7 +23683,7 @@ ${jobsCtx || "No jobs found."}`;
         {/* Conversation */}
         <div style={{ flex: 1, overflow: "auto", padding: "16px 20px", display: "flex", flexDirection: "column", gap: 14 }}>
           {askHistory.length === 0 && <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 16, padding: "40px 0" }}>
-            <div style={{ width: 56, height: 56, borderRadius: 18, background: `linear-gradient(135deg, ${T.accent}33, ${T.accent}18)`, border: `1px solid ${T.accent}33`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ width: 56, height: 56, borderRadius: 20, background: `linear-gradient(135deg, ${T.accent}33, ${T.accent}18)`, border: `1px solid ${T.accent}33`, display: "flex", alignItems: "center", justifyContent: "center" }}>
               <svg width="26" height="26" viewBox="0 0 24 24" fill={T.accent}><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z"/></svg>
             </div>
             <div style={{ textAlign: "center", maxWidth: 300 }}>
@@ -23566,21 +23705,21 @@ ${jobsCtx || "No jobs found."}`;
             return (
               <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: msg.role === "user" ? "flex-end" : "flex-start", gap: 4 }}>
                 <div style={{ fontSize: 10, color: T.textDim, marginBottom: 2, padding: "0 4px" }}>{msg.role === "user" ? "You" : "TRAQS AI"}</div>
-                <div style={{ maxWidth: "88%", padding: "11px 14px", borderRadius: msg.role === "user" ? "16px 16px 4px 16px" : "4px 16px 16px 16px", background: msg.role === "user" ? T.accent : T.surface, color: msg.role === "user" ? T.accentText : T.text, fontSize: 13, lineHeight: 1.65, border: msg.role === "user" ? "none" : `1px solid ${T.border}`, whiteSpace: "pre-wrap" }}>
+                <div style={{ maxWidth: "88%", padding: "11px 14px", borderRadius: msg.role === "user" ? "20px 20px 8px 20px" : "8px 20px 20px 20px", background: msg.role === "user" ? T.accent : T.surface, color: msg.role === "user" ? T.accentText : T.text, fontSize: 13, lineHeight: 1.65, border: msg.role === "user" ? "none" : `1px solid ${T.border}`, whiteSpace: "pre-wrap" }}>
                   {displayText}
                 </div>
               </div>
             );
           })}
           {askLoading && <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-            <div style={{ padding: "11px 14px", borderRadius: "4px 16px 16px 16px", background: T.surface, border: `1px solid ${T.border}`, display: "flex", gap: 5, alignItems: "center" }}>
-              {[0,1,2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: 3, background: T.accent, animation: `bounce 1.2s ease-in-out ${i*0.18}s infinite` }}/>)}
+            <div style={{ padding: "11px 14px", borderRadius: "8px 20px 20px 20px", background: T.surface, border: `1px solid ${T.border}`, display: "flex", gap: 5, alignItems: "center" }}>
+              {[0,1,2].map(i => <div key={i} style={{ width: 6, height: 6, borderRadius: 8, background: T.accent, animation: `bounce 1.2s ease-in-out ${i*0.18}s infinite` }}/>)}
             </div>
           </div>}
         </div>
         {/* Pending Actions confirmation card */}
         {pendingActions && (
-          <div style={{ margin: "0 16px 12px", background: T.surface, border: `1px solid ${T.accent}55`, borderRadius: 12, overflow: "hidden", flexShrink: 0 }}>
+          <div style={{ margin: "0 16px 12px", background: T.surface, border: `1px solid ${T.accent}55`, borderRadius: 16, overflow: "hidden", flexShrink: 0 }}>
             <div style={{ padding: "10px 14px 8px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 8 }}>
               <div style={{ width: 7, height: 7, borderRadius: "50%", background: T.accent }} />
               <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, letterSpacing: "-0.045em", textTransform: "uppercase" }}>TRAQS wants to</div>
@@ -23602,7 +23741,7 @@ ${jobsCtx || "No jobs found."}`;
         {/* Input */}
         <div style={{ padding: "14px 20px 20px", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
           <div style={{ display: "flex", gap: 8, alignItems: "flex-end", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "10px 12px", transition: "border 0.15s", boxShadow: "inset 0 1px 3px rgba(0,0,0,0.08)" }}>
-            <textarea ref={askInputRef} value={askQ} onChange={e => setAskQ(e.target.value)} onKeyDown={async e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); await handleAskTraqs(); } }} placeholder="Ask anything about your schedule…" rows={2} style={{ flex: 1, background: "transparent", border: "none", outline: "none", resize: "none", fontSize: 13, color: T.text, fontFamily: T.font, lineHeight: 1.55 }} />
+            <textarea className="tq-bare" ref={askInputRef} value={askQ} onChange={e => setAskQ(e.target.value)} onKeyDown={async e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); await handleAskTraqs(); } }} placeholder="Ask anything about your schedule…" rows={2} style={{ flex: 1, background: "transparent", border: "none", outline: "none", resize: "none", fontSize: 13, color: T.text, fontFamily: T.font, lineHeight: 1.55 }} />
             <button onClick={handleAskTraqs} disabled={!askQ.trim() || askLoading} style={{ width: 34, height: 34, borderRadius: T.radiusPill, background: askQ.trim() && !askLoading ? T.accent : T.border, border: "none", cursor: askQ.trim() && !askLoading ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s" }}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={askQ.trim() && !askLoading ? T.accentText : T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
             </button>
@@ -23616,7 +23755,7 @@ ${jobsCtx || "No jobs found."}`;
       <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)",
         zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
         onClick={() => setSaveTemplateModal(false)}>
-        <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 16, padding: 28,
+        <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 28,
           maxWidth: 400, width: "100%", border: `1px solid ${T.borderLight}`,
           boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }}>
           <h3 style={{ margin: "0 0 16px", color: T.text, fontSize: 18, fontWeight: 700 }}>Save Template</h3>
@@ -23652,7 +23791,7 @@ ${jobsCtx || "No jobs found."}`;
     )}
     {/* Users Modal */}
     {usersOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 2000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }}>
-      <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 16, padding: 0, width: "100%", maxWidth: 580, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", overflow: "hidden", position: "relative" }}>
+      <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 0, width: "100%", maxWidth: 580, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", overflow: "hidden", position: "relative" }}>
         {/* Header */}
         <div style={{ padding: "24px 28px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${T.border}` }}>
           <h3 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: T.text }}>User Permissions</h3>
@@ -23677,9 +23816,9 @@ ${jobsCtx || "No jobs found."}`;
                       <div style={{ fontSize: 11, color: T.textDim }}>{person.department || "No department"}</div>
                     </div>
                     <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                      {isAdm && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Admin</span>}
-                      {person.isEngineer && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>{(orgSettings.approverLabel || "Approver").slice(0, 3)}</span>}
-                      {person.noAutoSchedule && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 6, background: "#f59e0b20", color: "#f59e0b", border: "1px solid #f59e0b33" }}>No Auto</span>}
+                      {isAdm && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 12, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>Admin</span>}
+                      {person.isEngineer && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 12, background: T.accent + "20", color: T.accent, border: `1px solid ${T.accent}33` }}>{(orgSettings.approverLabel || "Approver").slice(0, 3)}</span>}
+                      {person.noAutoSchedule && <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 12, background: "#f59e0b20", color: "#f59e0b", border: "1px solid #f59e0b33" }}>No Auto</span>}
                     </div>
                     <span style={{ color: T.textDim, fontSize: 12, marginLeft: 4 }}>{isSelected ? "▲" : "▼"}</span>
                   </div>
@@ -23693,8 +23832,8 @@ ${jobsCtx || "No jobs found."}`;
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Admin Capabilities</div>
                       </div>
-                      <div style={{ width: 36, height: 20, borderRadius: 10, background: isAdm ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                        <div style={{ position: "absolute", top: 2, left: isAdm ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                      <div style={{ width: 36, height: 20, borderRadius: 16, background: isAdm ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                        <div style={{ position: "absolute", top: 2, left: isAdm ? 18 : 2, width: 16, height: 16, borderRadius: 12, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                       </div>
                     </div>}
                     {/* Sub-permissions when admin */}
@@ -23704,8 +23843,8 @@ ${jobsCtx || "No jobs found."}`;
                         return <div key={key} onClick={() => togglePerm(key, !on)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radiusXs, cursor: isAdmin ? "pointer" : "default", transition: "background 0.15s", opacity: isAdmin ? 1 : 0.6 }} onMouseEnter={e => { if (isAdmin) e.currentTarget.style.background = T.hover; }} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                           <span style={{ fontSize: 13, width: 18, textAlign: "center", flexShrink: 0 }}>{icon}</span>
                           <span style={{ flex: 1, fontSize: 12, color: on ? T.text : T.textDim, fontWeight: on ? 500 : 400 }}>{label}</span>
-                          <div style={{ width: 28, height: 16, borderRadius: 8, background: on ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                            <div style={{ position: "absolute", top: 2, left: on ? 14 : 2, width: 12, height: 12, borderRadius: 6, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 2px rgba(0,0,0,0.3)" }} />
+                          <div style={{ width: 28, height: 16, borderRadius: 12, background: on ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                            <div style={{ position: "absolute", top: 2, left: on ? 14 : 2, width: 12, height: 12, borderRadius: 12, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 2px rgba(0,0,0,0.3)" }} />
                           </div>
                         </div>;
                       })}
@@ -23717,8 +23856,8 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Approval Queue Access</div>
                         <div style={{ fontSize: 11, color: T.textDim }}>Can view the Approval Queue page and sign off steps for assigned sign-off templates</div>
                       </div>
-                      <div style={{ width: 36, height: 20, borderRadius: 10, background: person.canSignOff ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                        <div style={{ position: "absolute", top: 2, left: person.canSignOff ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                      <div style={{ width: 36, height: 20, borderRadius: 16, background: person.canSignOff ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                        <div style={{ position: "absolute", top: 2, left: person.canSignOff ? 18 : 2, width: 16, height: 16, borderRadius: 12, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                       </div>
                     </div>
                     {/* No Auto-Schedule toggle */}
@@ -23727,8 +23866,8 @@ ${jobsCtx || "No jobs found."}`;
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Exclude from Auto-Scheduling</div>
                       </div>
-                      <div style={{ width: 36, height: 20, borderRadius: 10, background: person.noAutoSchedule ? "#f59e0b" : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                        <div style={{ position: "absolute", top: 2, left: person.noAutoSchedule ? 18 : 2, width: 16, height: 16, borderRadius: 8, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
+                      <div style={{ width: 36, height: 20, borderRadius: 16, background: person.noAutoSchedule ? "#f59e0b" : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                        <div style={{ position: "absolute", top: 2, left: person.noAutoSchedule ? 18 : 2, width: 16, height: 16, borderRadius: 12, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                       </div>
                     </div>
                     {/* Clock-In PIN (admin only) */}
@@ -23760,7 +23899,7 @@ ${jobsCtx || "No jobs found."}`;
                               value={draft}
                               onChange={e => { setPinDrafts(p => ({ ...p, [person.id]: e.target.value })); }}
                               placeholder="New PIN"
-                              style={{ width: 120, padding: "6px 10px", borderRadius: T.radiusPill, border: `1px solid ${draft.length > 0 ? T.accent : T.border}`, background: T.bg, color: T.bgText, fontSize: 18, fontFamily: T.mono, letterSpacing: "-0.045em", outline: "none", textAlign: "center", boxSizing: "border-box", transition: "border-color 0.15s" }}
+                              style={{ width: 120, padding: "6px 10px", borderRadius: T.radiusPill, border: `1px solid ${draft.length > 0 ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 18, fontFamily: T.mono, letterSpacing: "-0.045em", outline: "none", textAlign: "center", boxSizing: "border-box", transition: "border-color 0.15s" }}
                             />
                             <button
                               onClick={savePin}
@@ -23787,7 +23926,7 @@ ${jobsCtx || "No jobs found."}`;
 
       {/* ── Phase 1: FAST TRAQS splash intro ─────────────────────────── */}
       {fastTraqsPhase === "intro" && (
-        <div className={fastTraqsExiting ? "ft-intro-exit" : "ft-intro-enter"} onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: isMobile ? 18 : 24, padding: isMobile ? "24px 20px 20px" : "44px 36px 36px", width: "100%", maxWidth: 500, maxHeight: "90vh", overflow: "auto", border: `1px solid ${T.accent}44`, boxShadow: `0 48px 120px rgba(0,0,0,0.75), 0 0 80px ${T.accent}18`, textAlign: "center", position: "relative" }}>
+        <div className={fastTraqsExiting ? "ft-intro-exit" : "ft-intro-enter"} onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: isMobile ? 22 : 30, padding: isMobile ? "24px 20px 20px" : "44px 36px 36px", width: "100%", maxWidth: 500, maxHeight: "90vh", overflow: "auto", border: `1px solid ${T.accent}44`, boxShadow: `0 48px 120px rgba(0,0,0,0.75), 0 0 80px ${T.accent}18`, textAlign: "center", position: "relative" }}>
           {/* Ambient glow orb */}
           {!isMobile && <div style={{ position: "absolute", top: -100, left: "50%", transform: "translateX(-50%)", width: 400, height: 400, background: `radial-gradient(circle, ${T.accent}18 0%, transparent 65%)`, pointerEvents: "none" }} />}
           {/* Close */}
@@ -23818,7 +23957,7 @@ ${jobsCtx || "No jobs found."}`;
               { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg>, title: "Clients",           desc: "Identifies and imports contacts" },
               { icon: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>, title: "Your Timeline",     desc: "Builds your full schedule automatically" },
             ].map((f, i) => (
-              <div key={f.title} style={{ background: T.bg, borderRadius: isMobile ? 10 : 14, padding: isMobile ? "10px 12px" : "14px 16px", border: `1px solid ${T.border}`, animation: `ftFeaturePop 0.5s cubic-bezier(0.34,1.56,0.64,1) ${0.12 + i * 0.08}s both` }}>
+              <div key={f.title} style={{ background: T.bg, borderRadius: isMobile ? 16 : 20, padding: isMobile ? "10px 12px" : "14px 16px", border: `1px solid ${T.border}`, animation: `ftFeaturePop 0.5s cubic-bezier(0.34,1.56,0.64,1) ${0.12 + i * 0.08}s both` }}>
                 <div style={{ width: isMobile ? 18 : 24, height: isMobile ? 18 : 24, marginBottom: isMobile ? 4 : 6, color: T.accent }}>{cloneElement(f.icon, { width: isMobile ? 18 : 24, height: isMobile ? 18 : 24 })}</div>
                 <div style={{ fontSize: isMobile ? 11 : 13, fontWeight: 700, color: T.text, fontFamily: T.font, marginBottom: 2 }}>{f.title}</div>
                 <div style={{ fontSize: isMobile ? 11 : 12, color: T.textSec, fontFamily: T.font, lineHeight: 1.4 }}>{f.desc}</div>
@@ -23842,7 +23981,7 @@ ${jobsCtx || "No jobs found."}`;
 
       {/* ── Phase 2: Input form ───────────────────────────────────────── */}
       {fastTraqsPhase === "input" && (
-        <div className="ft-input-enter" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 0, width: "100%", maxWidth: 620, maxHeight: "88vh", overflow: "auto", border: `1px solid ${T.accent}33`, boxShadow: `0 40px 100px rgba(0,0,0,0.65), 0 0 50px ${T.accent}14` }}>
+        <div className="ft-input-enter" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 26, padding: 0, width: "100%", maxWidth: 620, maxHeight: "88vh", overflow: "auto", border: `1px solid ${T.accent}33`, boxShadow: `0 40px 100px rgba(0,0,0,0.65), 0 0 50px ${T.accent}14` }}>
           {/* Header */}
           <div style={{ padding: "18px 24px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
             <Tip label="Back"><button onClick={() => setFastTraqsPhase("intro")} style={{ width: 32, height: 32, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.text, fontFamily: T.font, flexShrink: 0 }}>←</button></Tip>
@@ -23860,7 +23999,7 @@ ${jobsCtx || "No jobs found."}`;
             <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 6 }}>Paste information or describe changes</label>
             <textarea value={uploadText} onChange={e => setUploadText(e.target.value)}
               placeholder={"Paste scheduling data, job details, or describe updates to existing jobs...\n\nExamples:\n• Team: Alex, Jordan, Morgan\n  Job 10055 for Riverside Electric, due Mar 15\n  2 panels, Wire→Cut→Layout each 2 days\n\n• Add PO-45123 to job 10042\n• Mark Riverside Pump Station as In Progress\n• Set due date for job 10055 to March 15"}
-              style={{ width: "100%", minHeight: 130, padding: "10px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 13, fontFamily: T.font, resize: "vertical", outline: "none", lineHeight: 1.5, boxSizing: "border-box" }} disabled={uploadProcessing} />
+              style={{ width: "100%", minHeight: 130, padding: "10px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, fontFamily: T.font, resize: "vertical", outline: "none", lineHeight: 1.5, boxSizing: "border-box" }} disabled={uploadProcessing} />
 
             <div style={{ marginTop: 14 }}>
               <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 6 }}>Or upload files</label>
@@ -23933,7 +24072,7 @@ ${jobsCtx || "No jobs found."}`;
           return out;
         })();
         return (
-          <div className="ft-input-enter" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 0, width: "100%", maxWidth: 760, maxHeight: "90vh", overflow: "hidden", border: `1px solid ${T.accent}33`, boxShadow: `0 40px 100px rgba(0,0,0,0.65), 0 0 50px ${T.accent}14`, display: "flex", flexDirection: "column" }}>
+          <div className="ft-input-enter" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 26, padding: 0, width: "100%", maxWidth: 760, maxHeight: "90vh", overflow: "hidden", border: `1px solid ${T.accent}33`, boxShadow: `0 40px 100px rgba(0,0,0,0.65), 0 0 50px ${T.accent}14`, display: "flex", flexDirection: "column" }}>
             {/* Header */}
             <div style={{ padding: "18px 24px 14px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
               <Tip label="Back to input"><button onClick={() => setFastTraqsPhase("input")} style={{ width: 32, height: 32, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.text, fontFamily: T.font, flexShrink: 0 }}>←</button></Tip>
@@ -24069,7 +24208,7 @@ ${jobsCtx || "No jobs found."}`;
     </div>}
     {/* ─── Clear/Delete chat confirmation ─── */}
     <FadeOnClose open={!!confirmClearChat} duration={220}>{confirmClearChat && <div className="anim-modal-overlay" onClick={() => setConfirmClearChat(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", zIndex: 10001, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 400, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 400, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)" }}>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 16, color: T.danger, opacity: 0.8 }}><svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
         <h3 style={{ margin: "0 0 10px", color: T.text, fontSize: 18, fontWeight: 700, textAlign: "center" }}>
           {confirmClearChat.isGroup ? "Delete Group?" : "Clear Chat?"}
@@ -24105,7 +24244,7 @@ ${jobsCtx || "No jobs found."}`;
     <FadeOnClose open={!!lightboxAtt} duration={220}>{lightboxAtt && <div className="anim-modal-overlay" onClick={() => setLightboxAtt(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", zIndex: 10000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       {/* Top toolbar — download + share the link */}
       <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: 20, left: 24, display: "flex", gap: 8 }}>
-        <a href={`/api/attachment?key=${encodeURIComponent(lightboxAtt.key)}`} download={lightboxAtt.filename} style={{ background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 9, padding: "8px 14px", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: T.font, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}>
+        <a href={`/api/attachment?key=${encodeURIComponent(lightboxAtt.key)}`} download={lightboxAtt.filename} style={{ background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 12, padding: "8px 14px", color: "#fff", fontSize: 13, fontWeight: 600, fontFamily: T.font, textDecoration: "none", display: "inline-flex", alignItems: "center", gap: 6 }}>
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
           Download
         </a>
@@ -24116,11 +24255,11 @@ ${jobsCtx || "No jobs found."}`;
       </div>
       <button onClick={() => setLightboxAtt(null)} style={{ position: "absolute", top: 20, right: 24, background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: "50%", width: 38, height: 38, color: "#fff", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", lineHeight: 1 }}>✕</button>
       {lightboxAtt.mimeType?.startsWith("image/")
-        ? <img src={`/api/attachment?key=${encodeURIComponent(lightboxAtt.key)}`} alt={lightboxAtt.filename} onClick={e => e.stopPropagation()} style={{ maxWidth: "90vw", maxHeight: "88vh", borderRadius: 10, objectFit: "contain", boxShadow: "0 20px 60px rgba(0,0,0,0.8)" }} />
-        : <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 14, padding: "32px 40px", display: "flex", flexDirection: "column", alignItems: "center", gap: 16, maxWidth: 340 }}>
+        ? <img src={`/api/attachment?key=${encodeURIComponent(lightboxAtt.key)}`} alt={lightboxAtt.filename} onClick={e => e.stopPropagation()} style={{ maxWidth: "90vw", maxHeight: "88vh", borderRadius: 16, objectFit: "contain", boxShadow: "0 20px 60px rgba(0,0,0,0.8)" }} />
+        : <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: "32px 40px", display: "flex", flexDirection: "column", alignItems: "center", gap: 16, maxWidth: 340 }}>
             <span style={{ lineHeight: 0, color: T.textDim }}><svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
             <div style={{ fontSize: 15, fontWeight: 600, color: T.text, textAlign: "center", wordBreak: "break-all" }}>{lightboxAtt.filename}</div>
-            <a href={`/api/attachment?key=${encodeURIComponent(lightboxAtt.key)}`} download={lightboxAtt.filename} style={{ background: brandGrad(T.accent), color: T.accentText, borderRadius: 9, padding: "10px 24px", textDecoration: "none", fontSize: 14, fontWeight: 600, fontFamily: T.font }}>Download</a>
+            <a href={`/api/attachment?key=${encodeURIComponent(lightboxAtt.key)}`} download={lightboxAtt.filename} style={{ background: brandGrad(T.accent), color: T.accentText, borderRadius: 12, padding: "10px 24px", textDecoration: "none", fontSize: 14, fontWeight: 600, fontFamily: T.font }}>Download</a>
           </div>
       }
     </div>}</FadeOnClose>
@@ -24137,7 +24276,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ fontSize: 17, fontWeight: 800, color: T.text, marginBottom: 4 }}>📷 Photo of {pp.panelTitle}</div>
           <div style={{ fontSize: 13, color: T.textDim, marginBottom: 18, lineHeight: 1.5 }}>Take a picture of the panel you finished — it's saved to this job's Attachments.</div>
           {atts.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16 }}>
-            {atts.map(a => <div key={a.key} onClick={() => setLightboxAtt(a)} style={{ width: 64, height: 64, borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}`, cursor: "pointer", flexShrink: 0, background: T.surface }}>
+            {atts.map(a => <div key={a.key} onClick={() => setLightboxAtt(a)} style={{ width: 64, height: 64, borderRadius: 12, overflow: "hidden", border: `1px solid ${T.border}`, cursor: "pointer", flexShrink: 0, background: T.surface }}>
               <img src={`/api/attachment?key=${encodeURIComponent(a.key)}`} alt={a.filename} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             </div>)}
           </div>}
@@ -24182,7 +24321,7 @@ ${jobsCtx || "No jobs found."}`;
                   ? <div style={{ fontSize: 12, color: T.textDim, padding: "4px 0 2px" }}>No photos yet.</div>
                   : <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
                       {atts.map(a => <div key={a.key} style={{ position: "relative", width: 96 }}>
-                        <div onClick={() => setLightboxAtt(a)} title={`${a.uploadedByName || ""}${a.uploadedAt ? " · " + new Date(a.uploadedAt).toLocaleString() : ""}`} style={{ width: 96, height: 96, borderRadius: 8, overflow: "hidden", border: `1px solid ${T.border}`, cursor: "pointer", background: T.surface }}>
+                        <div onClick={() => setLightboxAtt(a)} title={`${a.uploadedByName || ""}${a.uploadedAt ? " · " + new Date(a.uploadedAt).toLocaleString() : ""}`} style={{ width: 96, height: 96, borderRadius: 12, overflow: "hidden", border: `1px solid ${T.border}`, cursor: "pointer", background: T.surface }}>
                           {a.mimeType?.startsWith("image/")
                             ? <img src={`/api/attachment?key=${encodeURIComponent(a.key)}`} alt={a.filename} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
                             : <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: T.textDim }}><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>}
@@ -24236,13 +24375,13 @@ ${jobsCtx || "No jobs found."}`;
                   : <div style={{ width: 26, height: 26, flexShrink: 0 }} />)}
                 <div style={{ maxWidth: "75%", display: "flex", flexDirection: "column", alignItems: isMe ? "flex-end" : "flex-start", gap: 2 }}>
                   {showName && <span style={{ fontSize: 10, color: T.textDim }}>{m.authorName}</span>}
-                  {m.text && <div style={{ background: isMe ? brandGrad(T.accent) : T.surface, color: isMe ? T.accentText : T.text, padding: "8px 12px", borderRadius: isMe ? "18px 18px 5px 18px" : "18px 18px 18px 5px", fontSize: 13, lineHeight: 1.45, wordBreak: "break-word", border: isMe ? "none" : `1px solid ${T.border}` }}>{m.text}</div>}
+                  {m.text && <div style={{ background: isMe ? brandGrad(T.accent) : T.surface, color: isMe ? T.accentText : T.text, padding: "8px 12px", borderRadius: isMe ? "22px 22px 8px 22px" : "22px 22px 8px 22px", fontSize: 13, lineHeight: 1.45, wordBreak: "break-word", border: isMe ? "none" : `1px solid ${T.border}` }}>{m.text}</div>}
                   {(m.attachments || []).map((att, ai) => (
                     att.mimeType?.startsWith("image/")
-                      ? <div key={ai} onClick={e => { e.stopPropagation(); setLightboxAtt(att); }} style={{ borderRadius: 9, overflow: "hidden", border: `1px solid ${T.border}`, maxWidth: 200, cursor: "zoom-in" }}>
+                      ? <div key={ai} onClick={e => { e.stopPropagation(); setLightboxAtt(att); }} style={{ borderRadius: 12, overflow: "hidden", border: `1px solid ${T.border}`, maxWidth: 200, cursor: "zoom-in" }}>
                           <img src={`/api/attachment?key=${encodeURIComponent(att.key)}`} alt={att.filename} style={{ display: "block", maxWidth: "100%", maxHeight: 160, objectFit: "cover" }} loading="lazy" />
                         </div>
-                      : <div key={ai} onClick={e => { e.stopPropagation(); setLightboxAtt(att); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 11px", background: isMe ? brandGrad(T.accent) : T.surface, border: `1px solid ${isMe ? T.accent : T.border}`, borderRadius: 9, fontSize: 12, color: isMe ? T.accentText : T.text, cursor: "pointer", maxWidth: 190 }}>
+                      : <div key={ai} onClick={e => { e.stopPropagation(); setLightboxAtt(att); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 11px", background: isMe ? brandGrad(T.accent) : T.surface, border: `1px solid ${isMe ? T.accent : T.border}`, borderRadius: 12, fontSize: 12, color: isMe ? T.accentText : T.text, cursor: "pointer", maxWidth: 190 }}>
                           <span style={{ flexShrink: 0, lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
                           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{att.filename}</span>
                         </div>
@@ -24258,13 +24397,13 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ padding: "10px 12px", borderTop: `1px solid ${T.border}`, flexShrink: 0 }}>
           {loggedInUser && quickChat.participants.some(p => p.id === loggedInUser.id) ? (
             <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
-              <textarea value={quickChatInput} onChange={e => setQuickChatInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendQuickMessage(); } }} placeholder="Quick message… (Enter to send)" rows={2} style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 10, padding: "9px 12px", color: T.text, fontSize: 13, fontFamily: T.font, resize: "none", outline: "none", lineHeight: 1.4 }} />
+              <textarea value={quickChatInput} onChange={e => setQuickChatInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendQuickMessage(); } }} placeholder="Quick message… (Enter to send)" rows={2} style={{ flex: 1, background: `var(--tq-field-bg, ${T.surface})`, border: `1px solid ${T.border}`, borderRadius: 16, padding: "9px 12px", color: T.text, fontSize: 13, fontFamily: T.font, resize: "none", outline: "none", lineHeight: 1.4 }} />
               <button onClick={sendQuickMessage} disabled={!quickChatInput.trim() || quickChatSending} style={{ width: 38, height: 38, borderRadius: T.radiusPill, background: quickChatInput.trim() && !quickChatSending ? T.accent : T.border, border: "none", cursor: quickChatInput.trim() && !quickChatSending ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "background 0.15s" }}>
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
               </button>
             </div>
           ) : (
-            <div style={{ textAlign: "center", padding: "8px 0", fontSize: 12, color: T.textDim, background: T.surface, borderRadius: 8, border: `1px solid ${T.border}` }}>👁 View only — you're not a participant</div>
+            <div style={{ textAlign: "center", padding: "8px 0", fontSize: 12, color: T.textDim, background: T.surface, borderRadius: 12, border: `1px solid ${T.border}` }}>👁 View only — you're not a participant</div>
           )}
         </div>
       </div>
@@ -24409,9 +24548,9 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 11, color: T.textDim }}>{fm(it.start)} → {fm(it.end)}{it.hpd > 0 ? ` · ${it.hpd}h/day` : ""}</div>
             </div>
             <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
-              {can("editJobs") && <Tip label="Edit"><button onClick={() => { setCtxMenu(null); if (isOp) { let parentJob = null; for (const job of tasks) { for (const panel of (job.subs||[])) { if ((panel.subs||[]).find(o => o.id === it.id)) { parentJob = job; break; } } if (parentJob) break; } if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else if (isPanel) { const parentJob = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else { openEdit(it, null); } }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: hexA(T.systemText || T.textSec, 0.8), transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = (T.systemBg || T.surface); }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></Tip>}
-              <Tip label="Open Chat"><button onClick={() => { openChat(it); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: hexA(T.systemText || T.textSec, 0.8), transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = (T.systemBg || T.surface); }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button></Tip>
-              {can("editJobs") && <Tip label="Send Reminder"><button onClick={() => { setReminderModal({ item: it }); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: hexA(T.systemText || T.textSec, 0.8), transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = (T.systemBg || T.surface); }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button></Tip>}
+              {can("editJobs") && <Tip label="Edit"><button onClick={() => { setCtxMenu(null); if (isOp) { let parentJob = null; for (const job of tasks) { for (const panel of (job.subs||[])) { if ((panel.subs||[]).find(o => o.id === it.id)) { parentJob = job; break; } } if (parentJob) break; } if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else if (isPanel) { const parentJob = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else { openEdit(it, null); } }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: hexA(T.systemText || T.textSec, 0.8), transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></Tip>}
+              <Tip label="Open Chat"><button onClick={() => { openChat(it); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: hexA(T.systemText || T.textSec, 0.8), transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button></Tip>
+              {can("editJobs") && <Tip label="Send Reminder"><button onClick={() => { setReminderModal({ item: it }); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: hexA(T.systemText || T.textSec, 0.8), transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button></Tip>}
               {showDepToggle && <button
                 onClick={(e) => { e.stopPropagation(); e.preventDefault(); setTasks(prev => { const next = prev.map(job => ({ ...job, subs: (job.subs || []).map(panel => { if (panel.id !== panelId) return panel; const siblings = panel.subs || []; const allSubIds = siblings.map(s => s.id); if (toggleNext === "unlocked") return { ...panel, depsMode: "unlocked", subs: siblings.map(s => ({ ...s, deps: allSubIds.filter(id => id !== s.id) })) }; if (toggleNext === "locked") return { ...panel, depsMode: "locked" }; return { ...panel, depsMode: undefined, subs: siblings.map(s => ({ ...s, deps: [] })) }; }) })); saveTasks(next, getToken, orgCode).catch(console.warn); return next; }); }}
                 title={toggleTitle}
@@ -24506,7 +24645,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: sel ? 700 : 500, color: sel ? T.accent : T.text, display: "flex", alignItems: "center", gap: 6 }}>
                     <span>{p.name}{sel && " (current)"}</span>
-                    {personDeptMatch(p, reqDept) === "secondary" && <span style={{ fontSize: 9, fontWeight: 700, color: "#f59e0b", background: "#f59e0b22", border: "1px solid #f59e0b66", borderRadius: 4, padding: "1px 5px", letterSpacing: "-0.045em" }}>BACKUP</span>}
+                    {personDeptMatch(p, reqDept) === "secondary" && <span style={{ fontSize: 9, fontWeight: 700, color: "#f59e0b", background: "#f59e0b22", border: "1px solid #f59e0b66", borderRadius: 8, padding: "1px 5px", letterSpacing: "-0.045em" }}>BACKUP</span>}
                   </div>
                   <div style={{ fontSize: 11, color: T.textDim }}>{busy ? "Busy during this period" : p.department || "Team member"}</div>
                 </div>
@@ -24594,7 +24733,7 @@ ${jobsCtx || "No jobs found."}`;
           placeholder={quickAddSub.type === "panel" ? "Panel name…" : "Operation name…"}
           value={quickAddSub.title}
           onChange={e => setQuickAddSub(p => ({ ...p, title: e.target.value }))}
-          style={{ width: "100%", padding: "8px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 13, fontFamily: T.font, outline: "none", marginBottom: 10, boxSizing: "border-box" }}
+          style={{ width: "100%", padding: "8px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, fontFamily: T.font, outline: "none", marginBottom: 10, boxSizing: "border-box" }}
         />
         <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
           <div style={{ flex: 1 }}>
@@ -24626,7 +24765,7 @@ ${jobsCtx || "No jobs found."}`;
                 }))} style={{ padding: "4px 10px", borderRadius: T.radiusPill, border: `2px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: sel ? T.accent : T.textSec, fontWeight: sel ? 700 : 400, cursor: "pointer", transition: "all 0.15s", fontFamily: T.font, whiteSpace: "nowrap" }}>
                   <PersonAvatar person={p} size={16} />
                   {p.name}
-                  {isBackup && <span style={{ fontSize: 8, fontWeight: 700, color: "#f59e0b", background: "#f59e0b22", border: "1px solid #f59e0b66", borderRadius: 3, padding: "0 4px", letterSpacing: "-0.045em", marginLeft: 2 }}>BACKUP</span>}
+                  {isBackup && <span style={{ fontSize: 8, fontWeight: 700, color: "#f59e0b", background: "#f59e0b22", border: "1px solid #f59e0b66", borderRadius: 8, padding: "0 4px", letterSpacing: "-0.045em", marginLeft: 2 }}>BACKUP</span>}
                 </button>;
               });
             })()}
@@ -24679,7 +24818,7 @@ ${jobsCtx || "No jobs found."}`;
     {clientModal && (() => {
       const [ed, setEd] = [clientModal, d => setClientModal(typeof d === "function" ? d(clientModal) : d)];
       return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }} >
-        <div className="anim-modal-box" style={{ background: T.card, borderRadius: isMobile ? 0 : 16, padding: isMobile ? "54px 16px 16px" : "60px 32px 32px", maxWidth: isMobile ? "100%" : 540, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }} onClick={e => e.stopPropagation()}>
+        <div className="anim-modal-box" style={{ background: T.card, borderRadius: isMobile ? 0 : 22, padding: isMobile ? "54px 16px 16px" : "60px 32px 32px", maxWidth: isMobile ? "100%" : 540, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }} onClick={e => e.stopPropagation()}>
           <button onClick={() => setClientModal(null)} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
           <h3 style={{ margin: "0 0 24px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit Client" : "New Client"}</h3>
           <InputField label="Company Name" value={ed.name} onChange={v => setClientModal(p => ({ ...p, name: v }))} />
@@ -24688,7 +24827,7 @@ ${jobsCtx || "No jobs found."}`;
             <InputField label="Phone" value={ed.phone} onChange={v => setClientModal(p => ({ ...p, phone: v }))} />
           </div>
           <InputField label="Email" value={ed.email} onChange={v => setClientModal(p => ({ ...p, email: v }))} />
-          <div style={{ marginBottom: 20 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Notes</label><textarea value={ed.notes} onChange={e => setClientModal(p => ({ ...p, notes: e.target.value }))} rows={3} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, resize: "vertical", boxSizing: "border-box" }} /></div>
+          <div style={{ marginBottom: 20 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Notes</label><textarea value={ed.notes} onChange={e => setClientModal(p => ({ ...p, notes: e.target.value }))} rows={3} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 14, fontFamily: T.font, resize: "vertical", boxSizing: "border-box" }} /></div>
           <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", alignItems: "center" }}>
             {ed.id && <Btn variant="danger" onClick={() => setConfirmDeleteClient(ed.id)} style={{ marginRight: "auto" }}>Delete Client</Btn>}
             <Btn variant="ghost" onClick={() => setClientModal(null)}>Cancel</Btn>
@@ -24699,8 +24838,8 @@ ${jobsCtx || "No jobs found."}`;
     })()}
     {/* Client delete confirm modal */}
     <FadeOnClose open={!!confirmDeleteClient} duration={220}>{confirmDeleteClient && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 420, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, textAlign: "center" }} onClick={e => e.stopPropagation()}>
-        <div style={{ width: 56, height: 56, borderRadius: 28, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.danger }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
+      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 420, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, textAlign: "center" }} onClick={e => e.stopPropagation()}>
+        <div style={{ width: 56, height: 56, borderRadius: 30, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.danger }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
         <h3 style={{ margin: "0 0 8px", color: T.danger, fontSize: 20, fontWeight: 700 }}>Delete Client?</h3>
         <p style={{ margin: "0 0 24px", fontSize: 14, color: T.textSec, lineHeight: 1.6 }}>
           This will permanently delete <strong style={{ color: T.text }}>{clients.find(c => c.id === confirmDeleteClient)?.name}</strong> and remove them from all associated jobs. This cannot be undone.
@@ -24716,7 +24855,7 @@ ${jobsCtx || "No jobs found."}`;
       const ed = personModal;
       const setEd = d => setPersonModal(typeof d === "function" ? d(personModal) : d);
       return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }} >
-        <div className="anim-modal-box" style={{ background: T.card, borderRadius: isMobile ? 0 : 16, padding: isMobile ? "54px 16px 16px" : "60px 32px 32px", maxWidth: isMobile ? "100%" : 600, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }} onClick={e => e.stopPropagation()}>
+        <div className="anim-modal-box" style={{ background: T.card, borderRadius: isMobile ? 0 : 22, padding: isMobile ? "54px 16px 16px" : "60px 32px 32px", maxWidth: isMobile ? "100%" : 600, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }} onClick={e => e.stopPropagation()}>
           <button onClick={() => setPersonModal(null)} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
           <h3 style={{ margin: "0 0 24px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit Team Member" : "New Team Member"}</h3>
           <InputField label="Full Name" value={ed.name} onChange={v => setEd(p => {
@@ -24732,7 +24871,7 @@ ${jobsCtx || "No jobs found."}`;
               {orgSettings.roles.length > 0 ? (
                 <CustomDrop value={ed.department || ""} onChange={v => setEd(p => ({ ...p, department: v, secondaryDepartment: p.secondaryDepartment === v ? "" : p.secondaryDepartment }))} options={orgSettings.roles} placeholder="Select a department…" />
               ) : (
-                <input value={ed.department || ""} onChange={e => setEd(p => ({ ...p, department: e.target.value }))} placeholder="e.g. Shop, Engineering…" style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+                <input value={ed.department || ""} onChange={e => setEd(p => ({ ...p, department: e.target.value }))} placeholder="e.g. Shop, Engineering…" style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
               )}
             </div>
             <div style={{ marginBottom: 4 }}>
@@ -24748,7 +24887,7 @@ ${jobsCtx || "No jobs found."}`;
                   placeholder="None"
                 />
               ) : (
-                <input value={ed.secondaryDepartment || ""} onChange={e => setEd(p => ({ ...p, secondaryDepartment: e.target.value }))} placeholder="Optional backup dept" style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+                <input value={ed.secondaryDepartment || ""} onChange={e => setEd(p => ({ ...p, secondaryDepartment: e.target.value }))} placeholder="Optional backup dept" style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 14, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
               )}
             </div>
           </div>
@@ -24767,7 +24906,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ flex: 1 }}><label style={{ display: "block", fontSize: 11, color: T.textDim, marginBottom: 4 }}>From</label><TraqsDatePicker compact value={to.start} onChange={v => { const nto = [...ed.timeOff]; nto[i] = { ...nto[i], start: v }; setEd(p => ({ ...p, timeOff: nto })); }} /></div>
               <div style={{ flex: 1 }}><label style={{ display: "block", fontSize: 11, color: T.textDim, marginBottom: 4 }}>To</label><TraqsDatePicker compact value={to.end} onChange={v => { const nto = [...ed.timeOff]; nto[i] = { ...nto[i], end: v }; setEd(p => ({ ...p, timeOff: nto })); }} /></div>
               <div><label style={{ display: "block", fontSize: 11, color: T.textDim, marginBottom: 4 }}>Type</label><div style={{ display: "flex", gap: 4 }}>{["PTO", "UTO"].map(t => { const active = (to.type || "PTO") === t; const c = t === "PTO" ? "#10b981" : "#f59e0b"; return <button key={t} type="button" onClick={() => { const nto = [...ed.timeOff]; nto[i] = { ...nto[i], type: t }; setEd(p => ({ ...p, timeOff: nto })); }} style={{ padding: "8px 11px", borderRadius: T.radiusPill, border: `1px solid ${active ? c + "66" : T.border}`, background: active ? c + "15" : "transparent", cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: active ? 700 : 400, color: active ? c : T.textSec }}>{t}</button>; })}</div></div>
-              <div style={{ flex: 1 }}><label style={{ display: "block", fontSize: 11, color: T.textDim, marginBottom: 4 }}>Reason</label><input value={to.reason} onChange={e => { const nto = [...ed.timeOff]; nto[i] = { ...nto[i], reason: e.target.value }; setEd(p => ({ ...p, timeOff: nto })); }} placeholder="Vacation, Sick..." style={{ width: "100%", padding: "8px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} /></div>
+              <div style={{ flex: 1 }}><label style={{ display: "block", fontSize: 11, color: T.textDim, marginBottom: 4 }}>Reason</label><input value={to.reason} onChange={e => { const nto = [...ed.timeOff]; nto[i] = { ...nto[i], reason: e.target.value }; setEd(p => ({ ...p, timeOff: nto })); }} placeholder="Vacation, Sick..." style={{ width: "100%", padding: "8px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} /></div>
               <Btn variant="danger" size="sm" onClick={() => { const nto = ed.timeOff.filter((_, j) => j !== i); setEd(p => ({ ...p, timeOff: nto })); }}>✕</Btn>
             </div>)}
           </div>
@@ -24792,7 +24931,7 @@ ${jobsCtx || "No jobs found."}`;
     })()}
     {/* Time Off edit modal */}
     <FadeOnClose open={!!timeOffEdit} duration={220}>{timeOffEdit && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1001, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
-      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 28, maxWidth: 420, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
+      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 20, padding: 28, maxWidth: 420, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
         <h3 style={{ margin: "0 0 20px", color: T.text, fontSize: 20, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit Time Off</h3>
         <div style={{ display: "flex", gap: 12, marginBottom: 14, alignItems: "center" }}>
           <div>
@@ -24818,7 +24957,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         <div style={{ marginBottom: 20 }}>
           <label style={{ display: "block", fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Reason</label>
-          <input value={timeOffEdit.reason} onChange={e => setTimeOffEdit(p => ({ ...p, reason: e.target.value }))} placeholder="Vacation, sick leave, etc." style={{ width: "100%", padding: "10px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box" }} />
+          <input value={timeOffEdit.reason} onChange={e => setTimeOffEdit(p => ({ ...p, reason: e.target.value }))} placeholder="Vacation, sick leave, etc." style={{ width: "100%", padding: "10px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box" }} />
         </div>
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <Btn variant="ghost" onClick={() => setTimeOffEdit(null)}>Cancel</Btn>
@@ -24829,7 +24968,7 @@ ${jobsCtx || "No jobs found."}`;
     {/* Time Off modal */}
     {timeOffModal && <TimeOffModal people={people} updPerson={updPerson} onClose={() => setTimeOffModal(false)} />}
     {/* Engineering block error toast */}
-    {engBlockError && <div style={{ position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)", zIndex: 9999, background: "#ef4444", color: "#fff", borderRadius: 10, padding: "12px 20px", fontSize: 14, fontWeight: 600, boxShadow: "0 8px 32px rgba(0,0,0,0.4)", display: "flex", alignItems: "center", gap: 10, maxWidth: 480, pointerEvents: "none" }}>
+    {engBlockError && <div style={{ position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)", zIndex: 9999, background: "#ef4444", color: "#fff", borderRadius: 16, padding: "12px 20px", fontSize: 14, fontWeight: 600, boxShadow: "0 8px 32px rgba(0,0,0,0.4)", display: "flex", alignItems: "center", gap: 10, maxWidth: 480, pointerEvents: "none" }}>
       <span style={{ fontSize: 18 }}>🔧</span>{engBlockError}
     </div>}
     {/* Logout confirmation modal */}
@@ -24851,8 +24990,8 @@ ${jobsCtx || "No jobs found."}`;
     )}
     {/* Delete confirmation modal */}
     <FadeOnClose open={!!templateDeleteConfirm} duration={220}>{templateDeleteConfirm && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <div className="anim-delete-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 400, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, textAlign: "center" }} onClick={e => e.stopPropagation()}>
-        <div style={{ width: 48, height: 48, borderRadius: 24, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px", color: T.danger }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
+      <div className="anim-delete-box" style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 400, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, textAlign: "center" }} onClick={e => e.stopPropagation()}>
+        <div style={{ width: 48, height: 48, borderRadius: 30, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px", color: T.danger }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
         <h3 style={{ margin: "0 0 10px", color: T.text, fontSize: 18, fontWeight: 700 }}>Delete Template?</h3>
         <p style={{ margin: "0 0 12px", fontSize: 14, color: T.textSec }}>This will permanently remove:</p>
         <div style={{ padding: "10px 16px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, marginBottom: 20 }}>
@@ -24865,8 +25004,8 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </div>}</FadeOnClose>
     <FadeOnClose open={!!confirmDelete} duration={220}>{confirmDelete && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
-      <div className="anim-delete-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 440, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, position: "relative", textAlign: "center" }} onClick={e => e.stopPropagation()}>
-        <div style={{ width: 56, height: 56, borderRadius: 28, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.danger }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
+      <div className="anim-delete-box" style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 440, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, position: "relative", textAlign: "center" }} onClick={e => e.stopPropagation()}>
+        <div style={{ width: 56, height: 56, borderRadius: 30, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.danger }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
         <h3 style={{ margin: "0 0 12px", color: T.text, fontSize: 20, fontWeight: 700 }}>Delete Task?</h3>
         <p style={{ margin: "0 0 8px", fontSize: 15, color: T.textSec, lineHeight: 1.5 }}>You are about to permanently delete:</p>
         <div style={{ padding: "12px 18px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, marginBottom: 16 }}>
@@ -24885,8 +25024,8 @@ ${jobsCtx || "No jobs found."}`;
 
     {/* Overlap Error Modal */}
     <FadeOnClose open={!!overlapError} duration={220}>{overlapError && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
-      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 520, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, position: "relative", textAlign: "center" }} onClick={e => e.stopPropagation()}>
-        <div style={{ width: 56, height: 56, borderRadius: 28, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.danger }}>{overlapError.message.includes("Locked") ? <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> : <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>}</div>
+      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 520, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, position: "relative", textAlign: "center" }} onClick={e => e.stopPropagation()}>
+        <div style={{ width: 56, height: 56, borderRadius: 30, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.danger }}>{overlapError.message.includes("Locked") ? <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> : <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>}</div>
         <h3 style={{ margin: "0 0 8px", color: T.danger, fontSize: 20, fontWeight: 700 }}>{overlapError.message}</h3>
         <p style={{ margin: "0 0 16px", fontSize: 14, color: T.textSec, lineHeight: 1.5 }}>{overlapError.message.includes("Locked") ? "One or more jobs in the path are locked and cannot be moved or pushed forward." : overlapError.message.includes("Clocked") ? "A worker has an active job clock on this job. It can't be moved, restructured, or deleted until they end their job." : "This action would create a scheduling conflict. Team members cannot work on multiple tasks at the same time."}</p>
         <div style={{ textAlign: "left", maxHeight: 200, overflow: "auto", marginBottom: 24 }}>
@@ -24901,8 +25040,8 @@ ${jobsCtx || "No jobs found."}`;
 
     {/* Confirm Move Modal */}
     <FadeOnClose open={!!confirmMove} duration={220}>{confirmMove && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
-      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 480, width: "100%", border: `1px solid ${T.accent}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5)`, position: "relative", textAlign: "center" }} onClick={e => e.stopPropagation()}>
-        <div style={{ width: 56, height: 56, borderRadius: 28, background: T.accent + "15", border: `2px solid ${T.accent}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.accent }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></div>
+      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 480, width: "100%", border: `1px solid ${T.accent}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5)`, position: "relative", textAlign: "center" }} onClick={e => e.stopPropagation()}>
+        <div style={{ width: 56, height: 56, borderRadius: 30, background: T.accent + "15", border: `2px solid ${T.accent}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.accent }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg></div>
         <h3 style={{ margin: "0 0 12px", color: T.text, fontSize: 20, fontWeight: 700 }}>{confirmMove.title || "Move Entire Job?"}</h3>
         <p style={{ margin: "0 0 24px", fontSize: 14, color: T.textSec, lineHeight: 1.6 }}>{confirmMove.message}</p>
         <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
@@ -24919,11 +25058,11 @@ ${jobsCtx || "No jobs found."}`;
       const movedLater   = changes.filter(c => c.calDays > 0).length;
       const maxSaved     = changes.reduce((acc, c) => c.calDays < 0 ? acc + Math.abs(c.calDays) : acc, 0);
       return <div className="anim-modal-overlay" onClick={() => setOptimizePreview(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(6px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-        <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 18, padding: 0, maxWidth: 620, width: "100%", border: `1px solid ${T.accent}33`, boxShadow: `0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px ${T.accent}22`, overflow: "hidden", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
+        <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 0, maxWidth: 620, width: "100%", border: `1px solid ${T.accent}33`, boxShadow: `0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px ${T.accent}22`, overflow: "hidden", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
           {/* Header */}
           <div style={{ padding: "24px 28px 20px", borderBottom: `1px solid ${T.border}`, background: `linear-gradient(135deg, ${T.accent}12, transparent)` }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 12, background: T.accent + "20", border: `1.5px solid ${T.accent}44`, display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, flexShrink: 0 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 16, background: T.accent + "20", border: `1.5px solid ${T.accent}44`, display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, flexShrink: 0 }}>
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
               </div>
               <div>
@@ -24933,17 +25072,17 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             {/* Stats row */}
             <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-              {movedEarlier > 0 && <div style={{ flex: 1, padding: "8px 12px", borderRadius: 10, background: "#10b98112", border: "1px solid #10b98133" }}>
+              {movedEarlier > 0 && <div style={{ flex: 1, padding: "8px 12px", borderRadius: 16, background: "#10b98112", border: "1px solid #10b98133" }}>
                 <div style={{ fontSize: 18, fontWeight: 700, color: "#10b981", fontFamily: T.mono }}>{movedEarlier}</div>
                 <div style={{ fontSize: 11, color: "#10b981", fontWeight: 600 }}>Pulled Earlier</div>
                 <div style={{ fontSize: 10, color: T.textDim }}>~{maxSaved} calendar days saved</div>
               </div>}
-              {movedLater > 0 && <div style={{ flex: 1, padding: "8px 12px", borderRadius: 10, background: "#f59e0b12", border: "1px solid #f59e0b33" }}>
+              {movedLater > 0 && <div style={{ flex: 1, padding: "8px 12px", borderRadius: 16, background: "#f59e0b12", border: "1px solid #f59e0b33" }}>
                 <div style={{ fontSize: 18, fontWeight: 700, color: "#f59e0b", fontFamily: T.mono }}>{movedLater}</div>
                 <div style={{ fontSize: 11, color: "#f59e0b", fontWeight: 600 }}>Pushed Later</div>
                 <div style={{ fontSize: 10, color: T.textDim }}>Conflicts resolved</div>
               </div>}
-              <div style={{ flex: 1, padding: "8px 12px", borderRadius: 10, background: T.accent + "10", border: `1px solid ${T.accent}33` }}>
+              <div style={{ flex: 1, padding: "8px 12px", borderRadius: 16, background: T.accent + "10", border: `1px solid ${T.accent}33` }}>
                 <div style={{ fontSize: 18, fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{groupedByPerson.length}</div>
                 <div style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>People Affected</div>
                 <div style={{ fontSize: 10, color: T.textDim }}>By priority + due date</div>
@@ -24960,7 +25099,7 @@ ${jobsCtx || "No jobs found."}`;
                   <PersonAvatar person={person} size={24} />
                   <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{person.name}</span>
                   <span style={{ fontSize: 11, color: T.textDim, marginLeft: 2 }}>{person.department}</span>
-                  <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 8, padding: "2px 8px" }}>{pChanges.length} ops</span>
+                  <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 12, padding: "2px 8px" }}>{pChanges.length} ops</span>
                 </div>
                 {/* That person's changes */}
                 {pChanges.map((c, i) => {
@@ -24977,7 +25116,7 @@ ${jobsCtx || "No jobs found."}`;
                       <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, textDecoration: "line-through" }}>{fm(c.oldStart)}–{fm(c.oldEnd)}</div>
                       <div style={{ fontSize: 12, fontWeight: 700, color: col, fontFamily: T.mono }}>{fm(c.newStart)}–{fm(c.newEnd)}</div>
                     </div>
-                    <div style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: col, background: col + "15", border: `1px solid ${col}33`, borderRadius: 6, padding: "2px 7px", minWidth: 42, textAlign: "center", marginTop: 2 }}>
+                    <div style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: col, background: col + "15", border: `1px solid ${col}33`, borderRadius: 12, padding: "2px 7px", minWidth: 42, textAlign: "center", marginTop: 2 }}>
                       {earlier ? `${Math.abs(c.calDays)}d ↑` : `+${c.calDays}d`}
                     </div>
                   </div>;
@@ -25003,7 +25142,7 @@ ${jobsCtx || "No jobs found."}`;
 
     {/* Edit Notes modal */}
     <FadeOnClose open={!!editNotesModal} duration={220}>{editNotesModal && <div className="anim-modal-overlay" onClick={() => setEditNotesModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 16, padding: 28, maxWidth: 480, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
+      <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 28, maxWidth: 480, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
         <h3 style={{ margin: "0 0 4px", color: T.text, fontSize: 18, fontWeight: 700 }}>Edit Notes</h3>
         <p style={{ margin: "0 0 16px", fontSize: 13, color: T.textDim }}>{editNotesModal.op.title}</p>
         <textarea
@@ -25012,7 +25151,7 @@ ${jobsCtx || "No jobs found."}`;
           onChange={e => setEditNotesModal(p => ({ ...p, notes: e.target.value }))}
           placeholder="Add notes for this job…"
           rows={5}
-          style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6 }}
+          style={{ width: "100%", padding: "10px 14px", borderRadius: 16, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 14, fontFamily: T.font, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6 }}
         />
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
           <Btn variant="ghost" onClick={() => setEditNotesModal(null)}>Cancel</Btn>
@@ -25047,18 +25186,18 @@ ${jobsCtx || "No jobs found."}`;
         setRescheduleModal(null);
       };
       return <div className="anim-modal-overlay" onClick={() => setRescheduleModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-        <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 16, padding: 28, maxWidth: 500, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
+        <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 28, maxWidth: 500, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
           <h3 style={{ margin: "0 0 4px", color: T.text, fontSize: 18, fontWeight: 700 }}>Edit Schedule</h3>
           <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textDim }}>{op.title}{op.panelTitle ? ` · ${op.panelTitle}` : ""}</p>
 
           {/* Current dates */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 16, padding: "10px 14px", borderRadius: 10, background: T.bg, border: `1px solid ${T.border}` }}>
+          <div style={{ display: "flex", gap: 8, marginBottom: 16, padding: "10px 14px", borderRadius: 16, background: T.bg, border: `1px solid ${T.border}` }}>
             <span style={{ fontSize: 12, color: T.textDim, flex: 1 }}>Current: <span style={{ color: T.text, fontFamily: T.mono }}>{fm(op.start)} → {fm(op.end)}</span></span>
             {(op.team || []).length > 0 && <div style={{ display: "flex", gap: 4 }}>{teamPeople.map(p => <PersonAvatar key={p.id} person={p} size={20} />)}</div>}
           </div>
 
           {/* Auto slot suggestion */}
-          {hasAutoSlot && <div onClick={() => setRescheduleModal(p => ({ ...p, newStart: autoStart, newEnd: autoEnd }))} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 10, background: isSameAsAuto ? T.accent + "18" : T.surface, border: `1.5px solid ${isSameAsAuto ? T.accent : T.border}`, marginBottom: 16, cursor: "pointer", transition: "all 0.15s" }}>
+          {hasAutoSlot && <div onClick={() => setRescheduleModal(p => ({ ...p, newStart: autoStart, newEnd: autoEnd }))} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: 16, background: isSameAsAuto ? T.accent + "18" : T.surface, border: `1.5px solid ${isSameAsAuto ? T.accent : T.border}`, marginBottom: 16, cursor: "pointer", transition: "all 0.15s" }}>
             <span style={{ fontSize: 18 }}>✨</span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: isSameAsAuto ? T.accent : T.text }}>Next Available Slot</div>
@@ -25066,7 +25205,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             {isSameAsAuto && <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
           </div>}
-          {!hasAutoSlot && <div style={{ padding: "10px 14px", borderRadius: 10, background: "#ef444415", border: "1px solid #ef444433", marginBottom: 16, fontSize: 13, color: "#ef4444" }}>No open slot found in the next 365 days — set dates manually.</div>}
+          {!hasAutoSlot && <div style={{ padding: "10px 14px", borderRadius: 16, background: "#ef444415", border: "1px solid #ef444433", marginBottom: 16, fontSize: 13, color: "#ef4444" }}>No open slot found in the next 365 days — set dates manually.</div>}
 
           {/* Manual date pickers */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 20 }}>
@@ -25126,8 +25265,8 @@ ${jobsCtx || "No jobs found."}`;
 
     {/* Push confirmation modal */}
     {confirmPush && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
-      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 560, width: "100%", border: `1px solid #f59e0b33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5)`, position: "relative" }} onClick={e => e.stopPropagation()}>
-        <div style={{ width: 56, height: 56, borderRadius: 28, background: "#f59e0b15", border: "2px solid #f59e0b33", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: "#f59e0b" }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 560, width: "100%", border: `1px solid #f59e0b33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5)`, position: "relative" }} onClick={e => e.stopPropagation()}>
+        <div style={{ width: 56, height: 56, borderRadius: 30, background: "#f59e0b15", border: "2px solid #f59e0b33", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: "#f59e0b" }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
         <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 20, fontWeight: 700, textAlign: "center" }}>Scheduling Conflict</h3>
         <p style={{ margin: "0 0 20px", fontSize: 14, color: T.textSec, lineHeight: 1.5, textAlign: "center" }}>This move affects <strong style={{ color: "#f59e0b" }}>{confirmPush.pushes.length}</strong> other {confirmPush.pushes.length === 1 ? "job" : "jobs"}. How would you like to proceed?</p>
         <div style={{ maxHeight: 260, overflow: "auto", marginBottom: 24, borderRadius: T.radiusSm, border: `1px solid ${T.border}` }}>
@@ -25143,7 +25282,7 @@ ${jobsCtx || "No jobs found."}`;
                 <span style={{ color: T.textDim, fontFamily: T.mono }}>{fm(push.oldStart)} – {fm(push.oldEnd)}</span>
                 <span style={{ color: "#f59e0b", fontSize: 16 }}>→</span>
                 <span style={{ color: "#f59e0b", fontWeight: 700, fontFamily: T.mono }}>{fm(push.newStart)} – {fm(push.newEnd)}</span>
-                <span style={{ marginLeft: "auto", background: "#f59e0b15", border: "1px solid #f59e0b33", borderRadius: 6, padding: "2px 8px", fontSize: 12, color: "#f59e0b", fontWeight: 700 }}>+{push.daysPushed} {push.daysPushed === 1 ? "day" : "days"}</span>
+                <span style={{ marginLeft: "auto", background: "#f59e0b15", border: "1px solid #f59e0b33", borderRadius: 12, padding: "2px 8px", fontSize: 12, color: "#f59e0b", fontWeight: 700 }}>+{push.daysPushed} {push.daysPushed === 1 ? "day" : "days"}</span>
               </div>
             </div>;
           })}
@@ -25160,8 +25299,8 @@ ${jobsCtx || "No jobs found."}`;
 
     {/* Bar Delete Confirmation Modal */}
     {barDeleteConfirmOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setBarDeleteConfirmOpen(false)}>
-      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 400, width: "100%", border: `1px solid #ef444433`, boxShadow: `0 24px 60px rgba(0,0,0,0.5)` }} onClick={e => e.stopPropagation()}>
-        <div style={{ width: 52, height: 52, borderRadius: 26, background: "#ef444415", border: "2px solid #ef444433", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px", color: "#ef4444" }}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg></div>
+      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 400, width: "100%", border: `1px solid #ef444433`, boxShadow: `0 24px 60px rgba(0,0,0,0.5)` }} onClick={e => e.stopPropagation()}>
+        <div style={{ width: 52, height: 52, borderRadius: 30, background: "#ef444415", border: "2px solid #ef444433", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px", color: "#ef4444" }}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg></div>
         <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 19, fontWeight: 700, textAlign: "center" }}>Delete {selBars.size} {selBars.size === 1 ? "item" : "items"}?</h3>
         <p style={{ margin: "0 0 24px", fontSize: 13, color: T.textSec, textAlign: "center", lineHeight: 1.55 }}>This will permanently remove the selected bars from the schedule. This action cannot be undone.</p>
         <div style={{ display: "flex", gap: 10 }}>
@@ -25311,7 +25450,7 @@ ${jobsCtx || "No jobs found."}`;
                   const ghostW = Math.max(80, Math.min(cw * days - 4, 800));
                   const ghost = document.createElement("div");
                   ghost.textContent = item.title || "(untitled)";
-                  ghost.style.cssText = `position:absolute;top:-1000px;left:-1000px;height:34px;width:${ghostW}px;padding:0 12px;background:${item.color};color:${accentText(item.color)};border-radius:6px;font-family:${T.font.split(",")[0]};font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,0.35);border:1.5px solid ${item.color};`;
+                  ghost.style.cssText = `position:absolute;top:-1000px;left:-1000px;height:34px;width:${ghostW}px;padding:0 12px;background:${item.color};color:${accentText(item.color)};border-radius:12px;font-family:${T.font.split(",")[0]};font-weight:600;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;box-shadow:0 4px 16px rgba(0,0,0,0.35);border:1.5px solid ${item.color};`;
                   document.body.appendChild(ghost);
                   e.dataTransfer.setDragImage(ghost, 14, 17);
                   setTimeout(() => { try { document.body.removeChild(ghost); } catch (_) {} }, 0);
@@ -25319,7 +25458,7 @@ ${jobsCtx || "No jobs found."}`;
                 style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "10px 12px", cursor: "grab", display: "flex", alignItems: "center", gap: 10, transition: "border-color 0.15s, transform 0.12s" }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent + "88"; }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; }}>
-                <div style={{ width: 4, alignSelf: "stretch", borderRadius: 2, background: elColor(item.color), flexShrink: 0 }} />
+                <div style={{ width: 4, alignSelf: "stretch", borderRadius: 8, background: elColor(item.color), flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.title}</div>
                   <div style={{ fontSize: 10, color: T.textDim, marginTop: 2, display: "flex", gap: 8 }}>
@@ -25486,7 +25625,7 @@ ${jobsCtx || "No jobs found."}`;
         flashToast(`Template "${tpl.name}" loaded`);
       };
       const fieldLabel = (text) => <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 6, fontFamily: T.font }}>{text}</label>;
-      const fieldInput = (val, onChange, opts = {}) => <input value={val} onChange={e => onChange(e.target.value)} type={opts.type || "text"} placeholder={opts.placeholder || ""} style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", colorScheme: T.colorScheme, transition: "border 0.15s, box-shadow 0.15s" }} onFocus={e => { e.target.style.borderColor = T.accent + "66"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} />;
+      const fieldInput = (val, onChange, opts = {}) => <input value={val} onChange={e => onChange(e.target.value)} type={opts.type || "text"} placeholder={opts.placeholder || ""} style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.glassBorder}`, background: `var(--tq-field-bg, ${T.glass})`, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", colorScheme: T.colorScheme, transition: "border 0.15s, box-shadow 0.15s" }} onFocus={e => { e.target.style.borderColor = T.accent + "66"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} />;
       const clientOpts = clients.map(c => ({ value: c.id, label: c.name, color: elColor(c.color), sub: c.contact || "" }));
       return (
         <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 2100, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)", display: "flex", alignItems: "stretch", justifyContent: "center", padding: 24 }} onClick={() => setEditJobModal(null)}>
@@ -25552,7 +25691,7 @@ ${jobsCtx || "No jobs found."}`;
                     })()}
                     <FadeOnClose open={deptDropId === "editJobPM"}>{deptDropId === "editJobPM" && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 2200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "8px 0", animation: "menuIn 0.15s ease-out", maxHeight: 260, overflowY: "auto" }}>
                       <div onClick={() => { setEj({ projectManagerId: null }); setDeptDropId(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", animation: `toolDrop 0.14s 0ms both ease-out` }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-                        <div style={{ width: 22, height: 22, borderRadius: 6, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />
+                        <div style={{ width: 22, height: 22, borderRadius: 12, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />
                         <span style={{ fontSize: 13, color: T.textDim }}>— No PM —</span>
                       </div>
                       {people.map((p, pi) => {
@@ -25578,7 +25717,7 @@ ${jobsCtx || "No jobs found."}`;
               {/* Notes — full width */}
               <div>
                 {fieldLabel("Notes")}
-                <textarea value={ej.notes} onChange={e => setEj({ notes: e.target.value })} rows={3} placeholder="Job notes…" style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: T.glass, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", resize: "vertical", colorScheme: T.colorScheme, transition: "border 0.15s, box-shadow 0.15s" }} onFocus={e => { e.target.style.borderColor = T.accent + "66"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} />
+                <textarea value={ej.notes} onChange={e => setEj({ notes: e.target.value })} rows={3} placeholder="Job notes…" style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusSm, border: `1px solid ${T.glassBorder}`, background: `var(--tq-field-bg, ${T.glass})`, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", resize: "vertical", colorScheme: T.colorScheme, transition: "border 0.15s, box-shadow 0.15s" }} onFocus={e => { e.target.style.borderColor = T.accent + "66"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} />
               </div>
               {/* Panels & Operations — full hierarchy editor */}
               <div>
@@ -25603,7 +25742,7 @@ ${jobsCtx || "No jobs found."}`;
                       onDrop={e => { e.preventDefault(); if (editDrag && (editDrag.kind === "panel" || editDrag.kind === "panel-over")) { const srcIdx = editDrag.srcIdx ?? editDrag.panelIdx; if (srcIdx !== pi) setEj(p => { const subs = [...p.subs]; const [moved] = subs.splice(srcIdx, 1); subs.splice(pi, 0, moved); return { ...p, subs }; }); setEditDrag(null); } }}
                       onDragLeave={() => { if (isPanelDragOver) setEditDrag(d => d && d.kind === "panel-over" ? { kind: "panel", panelIdx: d.srcIdx } : d); }}
                       style={{ position: "relative", background: T.surface, border: `1px solid ${isPanelDragOver ? T.accent : T.border}`, borderRadius: T.radiusSm, padding: 12, fontFamily: T.font, opacity: isPanelBeingDragged ? 0.5 : 1, transition: "border-color 0.15s, opacity 0.15s" }}>
-                      {editAddedIds.has(panel.id) && <div style={{ position: "absolute", top: -7, right: -7, padding: "2px 7px", borderRadius: 10, background: brandGrad(T.accent), color: T.accentText, fontSize: 9, fontWeight: 800, letterSpacing: "-0.045em", textTransform: "uppercase", fontFamily: T.font, animation: "newBadgePulse 1.6s ease-out infinite", zIndex: 2 }}>New</div>}
+                      {editAddedIds.has(panel.id) && <div style={{ position: "absolute", top: -7, right: -7, padding: "2px 7px", borderRadius: 16, background: brandGrad(T.accent), color: T.accentText, fontSize: 9, fontWeight: 800, letterSpacing: "-0.045em", textTransform: "uppercase", fontFamily: T.font, animation: "newBadgePulse 1.6s ease-out infinite", zIndex: 2 }}>New</div>}
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                         {(() => { const pColor = panel.color || ej.color; return (
                         <div style={{ position: "relative", flexShrink: 0 }}>
@@ -25613,7 +25752,7 @@ ${jobsCtx || "No jobs found."}`;
                             onDragEnd={() => setEditDrag(null)}
                             onClick={e => { e.stopPropagation(); if (jobBarMode !== "system") return; setColorDropId(colorDropId === `editPanel-${panel.id}` ? null : `editPanel-${panel.id}`); }}
                             title={jobBarMode === "system" ? "Click to change color · Drag to reorder" : "Job colors are theme-controlled (Customize → Job Cards Color)"}
-                            style={{ width: 22, height: 22, borderRadius: 6, background: pColor, border: `1.5px solid ${T.border}`, boxShadow: `0 0 0 2px ${pColor}33`, cursor: jobBarMode === "system" ? "grab" : "not-allowed", opacity: jobBarMode === "system" ? 1 : 0.4, flexShrink: 0 }} />
+                            style={{ width: 22, height: 22, borderRadius: 12, background: pColor, border: `1.5px solid ${T.border}`, boxShadow: `0 0 0 2px ${pColor}33`, cursor: jobBarMode === "system" ? "grab" : "not-allowed", opacity: jobBarMode === "system" ? 1 : 0.4, flexShrink: 0 }} />
                           {colorDropId === `editPanel-${panel.id}` && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 2300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.35)", padding: 10, width: 220, display: "flex", flexDirection: "column", gap: 8, animation: "menuIn 0.15s ease-out" }}>
                             <HexColorPicker color={pColor} onChange={c => updPanel(pi, { color: c })} style={{ width: "100%", height: 160 }} />
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
@@ -25625,7 +25764,7 @@ ${jobsCtx || "No jobs found."}`;
                             </div>
                           </div>}
                         </div>); })()}
-                        <input value={panel.title} onChange={e => updPanel(pi, { title: e.target.value })} placeholder="Panel name" style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 13, fontWeight: 700, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+                        <input value={panel.title} onChange={e => updPanel(pi, { title: e.target.value })} placeholder="Panel name" style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, fontWeight: 700, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
                         <button onClick={() => removePanel(pi)} title="Delete panel" style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.danger}33`, background: "transparent", color: T.danger, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }}>
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
                         </button>
@@ -25648,12 +25787,12 @@ ${jobsCtx || "No jobs found."}`;
                               style={{ cursor: "grab", color: T.textDim, padding: "2px 1px", display: "flex", alignItems: "center", lineHeight: 0, userSelect: "none", flexShrink: 0 }}>
                               <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>
                             </div>
-                            <input value={op.title} onChange={e => updOp(pi, oi, { title: e.target.value })} placeholder="Op name" style={{ flex: 1, padding: "4px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontWeight: 600, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+                            <input value={op.title} onChange={e => updOp(pi, oi, { title: e.target.value })} placeholder="Op name" style={{ flex: 1, padding: "4px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontWeight: 600, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
                             <div style={{ minWidth: 140, flexShrink: 0 }}>
                               <CustomDrop value={op.requiredDepartment || ""} onChange={v => updOp(pi, oi, { requiredDepartment: v })} options={orgSettings.roles || []} placeholder="— Dept —" compact />
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
-                              <input type="number" min="0" step="0.5" value={op.hpd ?? ""} onChange={e => updOp(pi, oi, { hpd: e.target.value === "" ? null : parseFloat(e.target.value) })} placeholder="hrs" title="Hours per day" style={{ width: 56, padding: "4px 6px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 12, fontWeight: 600, fontFamily: T.font, outline: "none", boxSizing: "border-box", textAlign: "right", MozAppearance: "textfield" }} />
+                              <input type="number" min="0" step="0.5" value={op.hpd ?? ""} onChange={e => updOp(pi, oi, { hpd: e.target.value === "" ? null : parseFloat(e.target.value) })} placeholder="hrs" title="Hours per day" style={{ width: 56, padding: "4px 6px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontWeight: 600, fontFamily: T.font, outline: "none", boxSizing: "border-box", textAlign: "right", MozAppearance: "textfield" }} />
                               <span style={{ fontSize: 10, color: T.textDim, fontWeight: 600 }}>h</span>
                             </div>
                             <button onClick={() => removeOp(pi, oi)} title="Delete op" style={{ width: 22, height: 22, padding: 0, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.danger, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -25707,13 +25846,13 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ padding: "16px 24px" }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>Notifying {recipients.length} team member{recipients.length !== 1 ? "s" : ""}</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 18 }}>
-              {recipients.map(p => <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 20, padding: "4px 10px 4px 6px" }}>
+              {recipients.map(p => <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 6, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 26, padding: "4px 10px 4px 6px" }}>
                 <PersonAvatar person={p} size={20} />
                 <span style={{ fontSize: 12, color: T.text, fontWeight: 500 }}>{p.name}</span>
               </div>)}
             </div>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 6 }}>Message (optional)</div>
-            <textarea value={reminderNote} onChange={e => setReminderNote(e.target.value)} placeholder="Please complete this job." rows={3} style={{ width: "100%", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, color: T.text, fontSize: 13, padding: "10px 12px", fontFamily: T.font, resize: "vertical", outline: "none", boxSizing: "border-box" }} />
+            <textarea value={reminderNote} onChange={e => setReminderNote(e.target.value)} placeholder="Please complete this job." rows={3} style={{ width: "100%", background: `var(--tq-field-bg, ${T.surface})`, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, color: T.text, fontSize: 13, padding: "10px 12px", fontFamily: T.font, resize: "vertical", outline: "none", boxSizing: "border-box" }} />
           </div>
           <div style={{ padding: "0 24px 20px", display: "flex", gap: 10, justifyContent: "flex-end" }}>
             <button onClick={() => { setReminderModal(null); setReminderNote(""); }} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: hexA(T.systemText || T.textSec, 0.8), fontSize: 13, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
@@ -25730,8 +25869,8 @@ ${jobsCtx || "No jobs found."}`;
     </div>}
     {/* Bulk delete confirmation modal */}
     {bulkDeleteConfirm && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1300, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setBulkDeleteConfirm(null)}>
-      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: 32, maxWidth: 440, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, textAlign: "center" }} onClick={e => e.stopPropagation()}>
-        <div style={{ width: 56, height: 56, borderRadius: 28, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.danger }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
+      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 440, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, textAlign: "center" }} onClick={e => e.stopPropagation()}>
+        <div style={{ width: 56, height: 56, borderRadius: 30, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.danger }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
         <h3 style={{ margin: "0 0 8px", color: T.danger, fontSize: 20, fontWeight: 700 }}>Delete {bulkDeleteConfirm.count} {bulkDeleteConfirm.type === "jobs" ? "Job" : bulkDeleteConfirm.type === "clients" ? "Client" : "Person"}{bulkDeleteConfirm.count !== 1 ? "s" : ""}?</h3>
         <p style={{ margin: "0 0 24px", fontSize: 14, color: T.textSec, lineHeight: 1.6 }}>This will permanently delete {bulkDeleteConfirm.count} selected {bulkDeleteConfirm.type === "jobs" ? "job" : bulkDeleteConfirm.type === "clients" ? "client" : "team member"}{bulkDeleteConfirm.count !== 1 ? "s" : ""}. This cannot be undone.</p>
         <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
@@ -25766,10 +25905,10 @@ ${jobsCtx || "No jobs found."}`;
               <div key={cond.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: T.surface, border: `1px solid ${cond.enabled ? T.accent + "33" : T.border}`, borderRadius: T.radiusSm, transition: "border-color 0.15s" }}>
                 <button className="tq-noanim" onClick={() => setOrgSettings(s => ({ ...s, conditions: (s.conditions || []).map(c => c.id === cond.id ? { ...c, enabled: !c.enabled } : c) }))}
                   style={{ width: 36, height: 20, borderRadius: T.radiusPill, border: "none", background: cond.enabled ? T.accent : T.border, cursor: "pointer", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
-                  <div style={{ width: 14, height: 14, borderRadius: 7, background: "#fff", position: "absolute", top: 3, left: cond.enabled ? 19 : 3, transition: "left 0.2s" }} />
+                  <div style={{ width: 14, height: 14, borderRadius: 12, background: "#fff", position: "absolute", top: 3, left: cond.enabled ? 19 : 3, transition: "left 0.2s" }} />
                 </button>
-                {cond.formatBgColor && <div style={{ width: 12, height: 12, borderRadius: 3, background: cond.formatBgColor, border: `1px solid ${T.border}`, flexShrink: 0 }} />}
-                {cond.formatTextColor && !cond.formatBgColor && <div style={{ width: 12, height: 12, borderRadius: 3, background: cond.formatTextColor, border: `1px solid ${T.border}`, flexShrink: 0 }} />}
+                {cond.formatBgColor && <div style={{ width: 12, height: 12, borderRadius: 8, background: cond.formatBgColor, border: `1px solid ${T.border}`, flexShrink: 0 }} />}
+                {cond.formatTextColor && !cond.formatBgColor && <div style={{ width: 12, height: 12, borderRadius: 8, background: cond.formatTextColor, border: `1px solid ${T.border}`, flexShrink: 0 }} />}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: cond.enabled ? T.text : T.textDim }}>{cond.name || "Untitled"}</div>
                   <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -25804,7 +25943,7 @@ ${jobsCtx || "No jobs found."}`;
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
           <span style={{ fontSize: 15, fontWeight: 700, color: T.text, flex: 1 }}>{condWizard.id ? "Edit Condition" : "New Condition"}</span>
           <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-            {[1,2,3].map(s => <div key={s} style={{ width: s === condWizard.step ? 18 : 7, height: 7, borderRadius: 4, background: s <= condWizard.step ? T.accent : T.border, transition: "all 0.2s" }} />)}
+            {[1,2,3].map(s => <div key={s} style={{ width: s === condWizard.step ? 18 : 7, height: 7, borderRadius: 8, background: s <= condWizard.step ? T.accent : T.border, transition: "all 0.2s" }} />)}
           </div>
           <button onClick={() => setCondWizard(null)} style={{ background: "none", border: "none", cursor: "pointer", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 20, lineHeight: 1, padding: "0 2px", marginLeft: 8 }}>✕</button>
         </div>
@@ -25815,13 +25954,11 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 16 }}>Step 1 · When should this trigger?</div>
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 12, color: T.textSec, marginBottom: 5, fontWeight: 600 }}>Condition name</div>
-              <input value={condWizard.name} onChange={e => setCondWizard(w => ({ ...w, name: e.target.value }))} placeholder="e.g. On Hold Warning, Overdue Alert…" style={{ width: "100%", padding: "8px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+              <input value={condWizard.name} onChange={e => setCondWizard(w => ({ ...w, name: e.target.value }))} placeholder="e.g. On Hold Warning, Overdue Alert…" style={{ width: "100%", padding: "8px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
             </div>
             <div style={{ marginBottom: 10 }}>
               <div style={{ fontSize: 12, color: T.textSec, marginBottom: 5, fontWeight: 600 }}>Watch column</div>
-              <select value={condWizard.triggerField} onChange={e => { const f = condFields.find(ff => ff.key === e.target.value); const ops = COND_OPS_BY_TYPE[f?.type] || COND_OPS_BY_TYPE.text; setCondWizard(w => ({ ...w, triggerField: e.target.value, triggerOp: ops[0][0], triggerValue: "" })); }} style={{ width: "100%", padding: "8px 10px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
-                {condFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
-              </select>
+              <SimpleDrop pill portal value={condWizard.triggerField} options={condFields.map(f => ({ value: f.key, label: f.label }))} onChange={v => { const f = condFields.find(ff => ff.key === v); const ops = COND_OPS_BY_TYPE[f?.type] || COND_OPS_BY_TYPE.text; setCondWizard(w => ({ ...w, triggerField: v, triggerOp: ops[0][0], triggerValue: "" })); }} />
             </div>
             {(() => {
               const fMeta = condFields.find(f => f.key === condWizard.triggerField);
@@ -25831,20 +25968,15 @@ ${jobsCtx || "No jobs found."}`;
               return <>
                 <div style={{ marginBottom: needsValue ? 10 : 0 }}>
                   <div style={{ fontSize: 12, color: T.textSec, marginBottom: 5, fontWeight: 600 }}>Condition</div>
-                  <select value={condWizard.triggerOp} onChange={e => setCondWizard(w => ({ ...w, triggerOp: e.target.value, triggerValue: "" }))} style={{ width: "100%", padding: "8px 10px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
-                    {ops.map(([k, lbl]) => <option key={k} value={k}>{lbl}</option>)}
-                  </select>
+                  <SimpleDrop pill portal value={condWizard.triggerOp} options={ops.map(([k, lbl]) => ({ value: k, label: lbl }))} onChange={v => setCondWizard(w => ({ ...w, triggerOp: v, triggerValue: "" }))} />
                 </div>
                 {needsValue && <div>
                   <div style={{ fontSize: 12, color: T.textSec, marginBottom: 5, fontWeight: 600 }}>Value</div>
                   {fType === "select" && (fMeta?.options || []).length > 0
-                    ? <select value={condWizard.triggerValue} onChange={e => setCondWizard(w => ({ ...w, triggerValue: e.target.value }))} style={{ width: "100%", padding: "8px 10px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", cursor: "pointer" }}>
-                        <option value="">— Select —</option>
-                        {(fMeta.options || []).map(optName).filter(n => n !== "—").map(n => <option key={n} value={n}>{n}</option>)}
-                      </select>
+                    ? <SimpleDrop pill portal value={condWizard.triggerValue} placeholder="— Select —" options={[{ value: "", label: "— Select —" }, ...(fMeta.options || []).map(optName).filter(n => n !== "—").map(n => ({ value: n, label: n }))]} onChange={v => setCondWizard(w => ({ ...w, triggerValue: v }))} />
                     : fType === "date"
                     ? <DateField value={condWizard.triggerValue} onChange={v => setCondWizard(w => ({ ...w, triggerValue: v }))} placeholder="Pick a date…" />
-                    : <input type={fType === "number" ? "number" : "text"} value={condWizard.triggerValue} onChange={e => setCondWizard(w => ({ ...w, triggerValue: e.target.value }))} placeholder="Enter value…" style={{ width: "100%", padding: "8px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
+                    : <input type={fType === "number" ? "number" : "text"} value={condWizard.triggerValue} onChange={e => setCondWizard(w => ({ ...w, triggerValue: e.target.value }))} placeholder="Enter value…" style={{ width: "100%", padding: "8px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
                   }
                 </div>}
               </>;
@@ -25941,7 +26073,7 @@ function AvailModal({ people, allItems, bookedHrs, onClose, isMobile, onStartTas
   const available = results.filter(r => r.ok);
   const busy = results.filter(r => !r.ok);
   return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }}>
-    <div className="anim-modal-box" style={{ background: T.card, borderRadius: isMobile ? 0 : 16, padding: isMobile ? "54px 16px 16px" : "60px 32px 32px", maxWidth: isMobile ? "100%" : 600, width: "100%", border: `1px solid ${T.borderLight}`, position: "relative", boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
+    <div className="anim-modal-box" style={{ background: T.card, borderRadius: isMobile ? 0 : 22, padding: isMobile ? "54px 16px 16px" : "60px 32px 32px", maxWidth: isMobile ? "100%" : 600, width: "100%", border: `1px solid ${T.borderLight}`, position: "relative", boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
       <button onClick={onClose} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
       <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 22, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>Availability Finder</h3>
       <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textDim }}>Find available team members for a date range</p>
@@ -25958,7 +26090,7 @@ function AvailModal({ people, allItems, bookedHrs, onClose, isMobile, onStartTas
         </div>
         <div style={{ minWidth: 120 }}>
           <label style={{ display: "block", fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Hrs/Day</label>
-          <input type="number" min="1" max="12" value={aH} onChange={e => { setAH(+e.target.value); setSelectedPerson(null); }} style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box" }} />
+          <input type="number" min="1" max="12" value={aH} onChange={e => { setAH(+e.target.value); setSelectedPerson(null); }} style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box" }} />
         </div>
       </div>
 
@@ -25978,7 +26110,7 @@ function AvailModal({ people, allItems, bookedHrs, onClose, isMobile, onStartTas
                 </div>
                 {r.cur.length > 0 && <div style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>Current: {r.cur.map(t => t.title).join(", ")}</div>}
               </div>
-              {isSel && <div style={{ width: 22, height: 22, borderRadius: 11, background: T.accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><span style={{ color: T.accentText, fontSize: 13, fontWeight: 700 }}>✓</span></div>}
+              {isSel && <div style={{ width: 22, height: 22, borderRadius: 16, background: T.accent, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><span style={{ color: T.accentText, fontSize: 13, fontWeight: 700 }}>✓</span></div>}
             </div>;
           })}
         </div>
@@ -26033,7 +26165,7 @@ function TimeOffModal({ people, updPerson, onClose }) {
     updPerson(pid, { timeOff: (p.timeOff || []).filter((_, i) => i !== idx) });
   };
   return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }}>
-    <div className="anim-modal-box" style={{ background: T.card, borderRadius: 16, padding: "60px 32px 32px", maxWidth: 560, width: "100%", border: `1px solid ${T.borderLight}`, position: "relative", boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
+    <div className="anim-modal-box" style={{ background: T.card, borderRadius: 20, padding: "60px 32px 32px", maxWidth: 560, width: "100%", border: `1px solid ${T.borderLight}`, position: "relative", boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
       <button onClick={onClose} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
       <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 22, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Manage Time Off</h3>
       <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textDim }}>Schedule time off for team members</p>
@@ -26068,7 +26200,7 @@ function TimeOffModal({ people, updPerson, onClose }) {
         </div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ display: "block", fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Reason</label>
-          <input value={toReason} onChange={e => setToReason(e.target.value)} placeholder="Vacation, sick leave, etc." style={{ width: "100%", padding: "8px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} />
+          <input value={toReason} onChange={e => setToReason(e.target.value)} placeholder="Vacation, sick leave, etc." style={{ width: "100%", padding: "8px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, fontFamily: T.font, boxSizing: "border-box" }} />
         </div>
         <Btn size="sm" onClick={handleAdd} style={{ opacity: toPerson ? 1 : 0.4, pointerEvents: toPerson ? "auto" : "none" }}>+ Add Time Off</Btn>
       </div>
@@ -26082,7 +26214,7 @@ function TimeOffModal({ people, updPerson, onClose }) {
           <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>{to.person.name}</div>
           <div style={{ fontSize: 12, color: T.textDim, marginTop: 1 }}>{fm(to.start)} → {fm(to.end)} · {to.reason}</div>
         </div>
-        <button onClick={() => handleRemove(to.person.id, to.idx)} style={{ background: "none", border: "none", color: T.danger, fontSize: 16, cursor: "pointer", padding: "4px 8px", borderRadius: T.radiusPill }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "12"} onMouseLeave={e => e.currentTarget.style.background = (T.systemBg || T.surface)}>✕</button>
+        <button onClick={() => handleRemove(to.person.id, to.idx)} style={{ background: "none", border: "none", color: T.danger, fontSize: 16, cursor: "pointer", padding: "4px 8px", borderRadius: T.radiusPill }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "12"} onMouseLeave={e => e.currentTarget.style.background = "none"}>✕</button>
       </div>)}
 
       {/* Past time off */}
