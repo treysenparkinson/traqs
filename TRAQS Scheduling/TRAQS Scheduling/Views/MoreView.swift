@@ -497,15 +497,31 @@ private extension MoreView {
     }()
 
     /// Hours currently accruing from OPEN clocks, attributed to the calendar day
-    /// the clock started. Pay = gross elapsed of an open pay shift (matches the
-    /// gross basis Efficiency uses); Job = elapsed of an open job clock, minus
-    /// paused time. `personId` nil = everyone (team view). This is what makes the
-    /// graph grow live while someone is clocked in.
+    /// the clock started. Pay = elapsed of an open pay shift minus LUNCH — the
+    /// same basis a finalised punch uses (`pausedMsFromEvents` server-side).
+    /// Breaks are deliberately NOT subtracted here: they are paid time, so they
+    /// stay in pay and come out of production only. Job = elapsed of an open job
+    /// clock, minus paused time (which now includes both lunch and breaks).
+    /// `personId` nil = everyone (team view). This is what makes the graph grow
+    /// live while someone is clocked in.
     func liveAccrual(for personId: String?, now: Date) -> [(day: Date, pay: Double, job: Double)] {
         var out: [(day: Date, pay: Double, job: Double)] = []
         for p in appState.people where personId == nil || p.id == personId {
             if let c = p.activeClockIn, !c.clockIn.isEmpty, let s = Date.fromFlexibleISO8601(c.clockIn) {
-                out.append((s, max(0, now.timeIntervalSince(s) / 3600), 0))
+                var ms = now.timeIntervalSince(s) * 1000
+                var lunchOpen: Date? = nil
+                for ev in c.events.sorted(by: { $0.ts < $1.ts }) {
+                    guard let t = Date.fromFlexibleISO8601(ev.ts) else { continue }
+                    if ev.type == "lunchStart" {
+                        lunchOpen = t
+                    } else if ev.type == "lunchEnd", let open = lunchOpen {
+                        ms -= max(0, t.timeIntervalSince(open) * 1000)
+                        lunchOpen = nil
+                    }
+                }
+                // Still on lunch: close the open range at `now`, as the server does at clock-out.
+                if let open = lunchOpen { ms -= max(0, now.timeIntervalSince(open) * 1000) }
+                out.append((s, max(0, ms / 1000 / 3600), 0))
             }
             if let jc = p.activeJobClock, !jc.clockIn.isEmpty, let s = Date.fromFlexibleISO8601(jc.clockIn) {
                 var ms = now.timeIntervalSince(s) * 1000
@@ -564,8 +580,11 @@ private extension MoreView {
     }
 
     /// Idle time = paid clocked-in hours NOT logged onto a job for the week
-    /// (everyone) — the complement of Efficiency. Uses gross pay hours (lunch/
-    /// break not subtracted — same basis as Efficiency). Live via `now`.
+    /// (everyone) — the complement of Efficiency. Pay is net of LUNCH but
+    /// includes breaks (breaks are paid); production is net of lunch AND breaks.
+    /// So a worker who takes their full breaks and logs everything else shows a
+    /// baseline idle of the break time itself — 0.5h/day on a 9h window with
+    /// 2x15m. That is the intended semantic, not a gap to chase. Live via `now`.
     func idleHours(now: Date = Date()) -> Double {
         idleHours(from: efficiencyDays(for: nil, now: now))
     }
