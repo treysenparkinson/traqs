@@ -6,6 +6,7 @@
 //
 
 import Testing
+import Foundation
 @testable import TRAQS_Scheduling
 
 struct TRAQS_SchedulingTests {
@@ -61,5 +62,104 @@ struct TRAQS_SchedulingTests {
                                             myId: "admin-1", jobs: [], groups: []) == true)
         #expect(MessagesView.canViewThread("dm:worker-2_worker-3",
                                             myId: "admin-1", jobs: [], groups: []) == false)
+    }
+}
+
+// MARK: - Stats math
+
+/// Fixed UTC calendar so these assert on the arithmetic, not on wherever the
+/// test happens to run.
+private let statsCalendar: Calendar = {
+    var c = Calendar(identifier: .gregorian)
+    c.timeZone = TimeZone(identifier: "UTC")!
+    return c
+}()
+private let statsISO: ISO8601DateFormatter = {
+    let f = ISO8601DateFormatter()
+    f.timeZone = TimeZone(identifier: "UTC")!
+    return f
+}()
+private func at(_ iso: String) -> Date { statsISO.date(from: iso)! }
+private func startOfDay(_ iso: String) -> Date { statsCalendar.startOfDay(for: at(iso)) }
+private func brk(_ person: String, _ type: String, _ iso: String) -> StatsMath.BreakRow {
+    StatsMath.BreakRow(personId: person, type: type, t: at(iso))
+}
+private func totalBreak(_ rows: [StatsMath.BreakRow]) -> Double {
+    StatsMath.breakHoursByDay(rows, calendar: statsCalendar).values.reduce(0, +)
+}
+
+struct StatsMathBreakTests {
+
+    /// The bug: every worker's rows were paired against ONE global cursor, so a
+    /// shop breaking together lost most of its break time. Three simultaneous
+    /// 15-minute breaks reported 0.25h — one break, not three.
+    @Test func simultaneousBreaksAreCountedPerPerson() {
+        let rows = [
+            brk("p1", "breakStart", "2026-08-03T10:00:00Z"),
+            brk("p2", "breakStart", "2026-08-03T10:00:00Z"),
+            brk("p3", "breakStart", "2026-08-03T10:00:00Z"),
+            brk("p1", "breakEnd",   "2026-08-03T10:15:00Z"),
+            brk("p2", "breakEnd",   "2026-08-03T10:15:00Z"),
+            brk("p3", "breakEnd",   "2026-08-03T10:15:00Z"),
+        ]
+        #expect(abs(totalBreak(rows) - 0.75) < 0.0001)
+    }
+
+    /// Interleaved (not identical) intervals were the worse case — the old
+    /// pairing reported 0.15h of the real 0.75h.
+    @Test func staggeredOverlappingBreaksAreCountedPerPerson() {
+        let rows = [
+            brk("p1", "breakStart", "2026-08-03T10:00:00Z"),
+            brk("p2", "breakStart", "2026-08-03T10:03:00Z"),
+            brk("p3", "breakStart", "2026-08-03T10:06:00Z"),
+            brk("p1", "breakEnd",   "2026-08-03T10:15:00Z"),
+            brk("p2", "breakEnd",   "2026-08-03T10:18:00Z"),
+            brk("p3", "breakEnd",   "2026-08-03T10:21:00Z"),
+        ]
+        #expect(abs(totalBreak(rows) - 0.75) < 0.0001)
+    }
+
+    /// One person's two breaks in a day still pair independently.
+    @Test func twoBreaksInOneDayBothCount() {
+        let rows = [
+            brk("p1", "breakStart", "2026-08-03T10:00:00Z"),
+            brk("p1", "breakEnd",   "2026-08-03T10:15:00Z"),
+            brk("p1", "breakStart", "2026-08-03T14:00:00Z"),
+            brk("p1", "breakEnd",   "2026-08-03T14:15:00Z"),
+        ]
+        #expect(abs(totalBreak(rows) - 0.5) < 0.0001)
+    }
+
+    /// An unpaired start is ignored rather than guessed at, and must not swallow
+    /// another person's end.
+    @Test func unpairedStartIsIgnoredWithoutStealingAnotherPersonsEnd() {
+        let rows = [
+            brk("p1", "breakStart", "2026-08-03T10:00:00Z"),
+            brk("p2", "breakStart", "2026-08-03T10:00:00Z"),
+            brk("p2", "breakEnd",   "2026-08-03T10:15:00Z"),
+        ]
+        #expect(abs(totalBreak(rows) - 0.25) < 0.0001)
+    }
+
+    /// Break time is filed under the day the break started.
+    @Test func breakHoursBucketByStartDay() {
+        let byDay = StatsMath.breakHoursByDay([
+            brk("p1", "breakStart", "2026-08-03T10:00:00Z"),
+            brk("p1", "breakEnd",   "2026-08-03T10:15:00Z"),
+            brk("p2", "breakStart", "2026-08-04T10:00:00Z"),
+            brk("p2", "breakEnd",   "2026-08-04T10:30:00Z"),
+        ], calendar: statsCalendar)
+        #expect(abs((byDay[startOfDay("2026-08-03T00:00:00Z")] ?? 0) - 0.25) < 0.0001)
+        #expect(abs((byDay[startOfDay("2026-08-04T00:00:00Z")] ?? 0) - 0.50) < 0.0001)
+    }
+
+    /// At shop scale the undercount was ~15×.
+    @Test func fifteenWorkersBreakingTogether() {
+        var rows: [StatsMath.BreakRow] = []
+        for i in 0..<15 {
+            rows.append(brk("w\(i)", "breakStart", "2026-08-03T10:00:00Z"))
+            rows.append(brk("w\(i)", "breakEnd",   "2026-08-03T10:15:00Z"))
+        }
+        #expect(abs(totalBreak(rows) - 3.75) < 0.0001)
     }
 }

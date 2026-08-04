@@ -573,27 +573,19 @@ private extension MoreView {
             jobByDay[cal.startOfDay(for: sd), default: 0] += (s.hours ?? 0)
         }
         // Paid break time per day, paired from the breakStart/breakEnd event rows
-        // — actual records only, never an assumed 30min. Rows are sorted so a
-        // start always precedes its end; an unpaired start is ignored rather than
-        // guessed at (the live accrual covers a break still open right now).
-        var breakByDay: [Date: Double] = [:]
-        let breakRows = appState.timeclockEntries
-            .filter { (personId == nil || $0.personId == personId)
-                && ($0.eventType == "breakStart" || $0.eventType == "breakEnd") }
-            .compactMap { e -> (type: String, t: Date)? in
-                guard let ts = e.timestamp, let d = Date.fromFlexibleISO8601(ts) else { return nil }
-                return (e.eventType ?? "", d)
-            }
-            .sorted { $0.t < $1.t }
-        var openBreak: Date? = nil
-        for row in breakRows {
-            if row.type == "breakStart" {
-                openBreak = row.t
-            } else if let open = openBreak {
-                breakByDay[cal.startOfDay(for: open), default: 0] += max(0, row.t.timeIntervalSince(open) / 3600)
-                openBreak = nil
-            }
-        }
+        // — actual records only, never an assumed 30min. Pairing happens PER
+        // PERSON inside StatsMath: on the org view these rows cover the whole
+        // shop, and a single shared cursor lost most of the break time whenever
+        // two people were on break at once.
+        let breakByDay = StatsMath.breakHoursByDay(
+            appState.timeclockEntries
+                .filter { (personId == nil || $0.personId == personId)
+                    && ($0.eventType == "breakStart" || $0.eventType == "breakEnd") }
+                .compactMap { e -> StatsMath.BreakRow? in
+                    guard let ts = e.timestamp, let d = Date.fromFlexibleISO8601(ts) else { return nil }
+                    return StatsMath.BreakRow(personId: e.personId, type: e.eventType ?? "", t: d)
+                },
+            calendar: cal)
         var out: [EffDay] = []
         for offset in 0..<7 {
             guard let day = cal.date(byAdding: .day, value: offset, to: week.start) else { continue }

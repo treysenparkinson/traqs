@@ -8,6 +8,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
+import { breakHoursByDay } from "./statsMath.js";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
 
@@ -13800,27 +13801,12 @@ ${jobsCtx || "No jobs found."}`;
         }
       });
       // Paid break time per DAY, paired from the breakStart/breakEnd rows —
-      // actual records only, never an assumed 30min. Mirrors the iOS aggregation
-      // in MoreView.efficiencyDays so both platforms report the same number.
-      const breakByDay = (() => {
-        const out = {};
-        const evs = timeclock
-          .filter(e => e && !e.deletedAt && (e.eventType === "breakStart" || e.eventType === "breakEnd")
-            && (personId == null || String(e.personId) === String(personId)))
-          .map(e => ({ type: e.eventType, t: new Date(e.timestamp).getTime() }))
-          .filter(e => e.t)
-          .sort((a, b) => a.t - b.t);
-        let open = null;
-        for (const ev of evs) {
-          if (ev.type === "breakStart") open = ev.t;
-          else if (open != null) {
-            const day = new Date(open).toISOString().slice(0, 10);
-            out[day] = (out[day] || 0) + Math.max(0, (ev.t - open) / 3600000);
-            open = null;
-          }
-        }
-        return out;
-      })();
+      // actual records only, never an assumed 30min. Pairing happens PER PERSON
+      // (see statsMath.js): on the team view these rows cover the whole shop,
+      // and one shared cursor lost most of the break time whenever two people
+      // were on break at once. Mirrors StatsMath.breakHoursByDay on iOS so both
+      // platforms report the same number.
+      const breakByDay = breakHoursByDay(timeclock, personId);
       const rows = efficiencyBuckets().map(b => {
         const set = new Set(b.days);
         let pay = timeclock.filter(e => payOk(e) && set.has(dayOf(e))).reduce((a, e) => a + (e.hours || 0), 0);
