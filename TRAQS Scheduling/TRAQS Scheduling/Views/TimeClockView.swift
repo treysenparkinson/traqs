@@ -618,6 +618,7 @@ private struct WeekBarsCard: View {
 // `onSubmit` returns whether the PIN was accepted; a rejection clears the entry
 // and shows "Incorrect PIN" so the worker can retry.
 private struct ClockPinOverlay: View {
+    @Environment(ThemeSettings.self) private var theme
     let title: String
     let personName: String?
     let onCancel: () -> Void
@@ -635,8 +636,14 @@ private struct ClockPinOverlay: View {
     private let digitRows: [[String]] = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"]]
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.55)
+        // Touch the theme so a live Customize accent change re-renders the
+        // surface tint below (the T.* tokens aren't observable on their own).
+        _ = theme.accent
+        let shape = RoundedRectangle(cornerRadius: T.cornerHero, style: .continuous)
+        return ZStack {
+            // Lighter than the old 0.55: the card is real glass now, and a heavy
+            // scrim is what it blurs, so a dark backdrop turned the frost muddy.
+            Color.black.opacity(0.32)
                 .ignoresSafeArea()
                 .contentShape(Rectangle())
                 .onTapGesture { if !submitting { onCancel() } }
@@ -685,7 +692,20 @@ private struct ClockPinOverlay: View {
                 }
             }
             .padding(30)
-            .frostedCard(radius: T.cornerHero)
+            // Frosted glass, the same recipe as the break/lunch banner: a real
+            // blur (.ultraThinMaterial) plus a surface tint, which is the
+            // transparency knob. This used to be .frostedCard(), which despite
+            // the name is an opaque surface fill — no blur, nothing showing
+            // through — so the PIN pad read as a flat panel next to the
+            // break/lunch popups it sits alongside.
+            .background {
+                ZStack {
+                    shape.fill(.ultraThinMaterial)
+                    shape.fill(Color(hex: T.surface).opacity(0.22))
+                }
+            }
+            .compositingGroup()
+            .shadow(color: .black.opacity(0.22), radius: 24, x: 0, y: 10)
             // Cancel/close = a Liquid Glass X anchored INSIDE the card's top-left
             // (attached before the outer frame/padding so it sits on the card,
             // not floating out in the dimmed backdrop).
