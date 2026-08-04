@@ -1869,6 +1869,24 @@ struct MessageBubble: View {
     /// true = resting. Flipped in onAppear.
     @State private var appeared = false
 
+    /// The bubble outline, matching the web app (src/TRAQS.jsx, the `m.text`
+    /// bubble in the thread): 22pt on three corners and a 6pt tuck on the BOTTOM
+    /// corner nearest the sender, so the bubble points back at whoever wrote it.
+    /// This was a plain 20pt RoundedRectangle — symmetric, so it read as a pill
+    /// with no sense of direction.
+    ///
+    /// One property, used for both the fill and the hit-test, so the tappable
+    /// area can't drift from the drawn shape.
+    private var bubbleShape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            cornerRadii: .init(topLeading: 22,
+                               bottomLeading: isMe ? 22 : 6,
+                               bottomTrailing: isMe ? 6 : 22,
+                               topTrailing: 22),
+            style: .continuous
+        )
+    }
+
     var body: some View {
         VStack(alignment: isMe ? .trailing : .leading, spacing: 2) {
             HStack(alignment: .bottom, spacing: 8) {
@@ -1899,7 +1917,7 @@ struct MessageBubble: View {
                             .padding(.vertical, 10)
                             .foregroundStyle(isMe ? T.onGradient : Color(hex: T.ink))
                             .background {
-                                let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+                                let shape = bubbleShape
                                 if isMe {
                                     shape.fill(T.brandGradient())
                                         .shadow(color: Color(hex: T.ctaGlowColor).opacity(T.ctaGlowOpacity * 0.7),
@@ -1913,7 +1931,7 @@ struct MessageBubble: View {
                                 }
                             }
                             .frame(maxWidth: 300, alignment: isMe ? .trailing : .leading)
-                            .contentShape(RoundedRectangle(cornerRadius: 20))
+                            .contentShape(bubbleShape)
                             .onTapGesture { toggleTimestamp() }
                     }
 
