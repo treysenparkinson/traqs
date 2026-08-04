@@ -675,7 +675,7 @@ private struct ClockPinOverlay: View {
                         .foregroundStyle(Color(hex: T.red))
                 }
 
-                // Circular, tap-friendly keypad. Action row: Delete (X) · 0 · Confirm (✓).
+                // Circular, tap-friendly keypad. Action row: Delete (⌫) · 0 · Confirm (✓).
                 VStack(spacing: keySpacing) {
                     ForEach(digitRows, id: \.self) { row in
                         HStack(spacing: keySpacing) {
@@ -683,7 +683,10 @@ private struct ClockPinOverlay: View {
                         }
                     }
                     HStack(spacing: keySpacing) {
-                        actionKey(icon: "xmark", filled: false) {
+                        // Backspace, not an X — this rubs out the last digit, and
+                        // an X next to the card's cancel X read as a second way
+                        // to close the pad rather than an edit key.
+                        actionKey(icon: "delete.backward", filled: false) {
                             if !pin.isEmpty { pin.removeLast(); error = nil }
                         }
                         digitKey("0")
@@ -746,7 +749,7 @@ private struct ClockPinOverlay: View {
         .disabled(submitting)
     }
 
-    // A round action key: delete (X, neutral) or confirm (✓, gradient fill).
+    // A round action key: delete (⌫, neutral) or confirm (✓, gradient fill).
     private func actionKey(icon: String, filled: Bool, action: @escaping () -> Void) -> some View {
         let isConfirm = icon == "checkmark"
         return Button {
