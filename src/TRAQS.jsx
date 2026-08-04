@@ -12471,6 +12471,13 @@ ${jobsCtx || "No jobs found."}`;
                       ? addBD(_layoutEnd, 1, _barBDOpts)
                       : _layoutEnd;
                   const barSegs = bar.type === "eng-chip" ? [] : weekdaySegments(_layoutStart, _segsEnd, tStart, tEnd, _barWorkDays, true);
+                  // weekdaySegments clamps the end to the last visible day, and the
+                  // segment it hands back carries no sign of having been truncated.
+                  // Without this the final VISIBLE segment gets treated as the bar's
+                  // real end: a mid-bar full workday collapses to _barEndHour's
+                  // width (a few px), leaving a sliver and an apparent gap that
+                  // heals as soon as the true end is panned into view.
+                  const _endsInView = _segsEnd <= tEnd;
                   const firstBarSeg = barSegs[0] || { start: _layoutStart, end: _layoutEnd };
                   const _baseXPct = diffD(tStart, _layoutStart) / nDays * 100;
                   const _calDays0 = Math.max(diffD(firstBarSeg.start, firstBarSeg.end) + 1, 1);
@@ -13620,7 +13627,7 @@ ${jobsCtx || "No jobs found."}`;
                       return <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pctOfDiv}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", borderTopLeftRadius: T.radiusXs, borderBottomLeftRadius: T.radiusXs, zIndex: 2 }} />;
                     })()}
                     {can("moveJobs") && !barLocked && !_dragBlocked && !(ws && ws.workedHpd > 0) && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                    {barSegs.length === 1 && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                    {barSegs.length === 1 && _endsInView && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="6.5" fill="rgba(255,255,255,0.25)"/><polyline points="3,6.5 5.5,9 10,4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
                     {inDepGroup && !isBarSelected && (() => { const _panelId2 = bar.task?.level === 2 ? bar.task.pid : bar.task?.level === 1 ? bar.task.id : null; const _dm = _panelId2 ? tasks.flatMap(j => j.subs||[]).find(p => p.id === _panelId2)?.depsMode : undefined; const _locked = _dm === "locked"; return <Tip label={_locked ? "Locked — moves as a block with its group" : "Linked — moves with its dependency group"}><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.7, lineHeight: 0 }}>{_locked ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>}</span></Tip>; })()}
                     {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
@@ -13633,7 +13640,10 @@ ${jobsCtx || "No jobs found."}`;
                   isNew && <span key={barKey + "-new"} className="tq-new-pulse" title="New job — added in the last 24h" style={{ position: "absolute", left: `calc(${x} + ${w} - 10px)`, top: 4, zIndex: 8, width: 9, height: 9, borderRadius: "50%", background: "#0a84ff", boxSizing: "border-box", pointerEvents: "none" }} />,
                   ...barSegs.slice(1).map((seg, si) => {
                     const tailX = (diffD(tStart, seg.start) / nDays * 100) + "%";
-                    const isLastSeg = si === barSegs.length - 2;
+                    // Only the segment that actually holds the bar's end gets the
+                    // end-hour partial width; a tail clipped by the window edge is
+                    // mid-bar, so it fills its columns from the remaining budget.
+                    const isLastSeg = si === barSegs.length - 2 && _endsInView;
                     const _segCalDays = diffD(seg.start, seg.end) + 1;
                     const _segAvailW = _segCalDays / nDays * 100;
                     // Last-segment width must include any full workdays preceding the end day in the segment
