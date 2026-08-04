@@ -163,3 +163,33 @@ struct StatsMathBreakTests {
         #expect(abs(totalBreak(rows) - 3.75) < 0.0001)
     }
 }
+
+struct StatsMathWeekTests {
+
+    /// The platform split: `.weekOfYear` starts Sunday under en_US, so Sunday's
+    /// hours landed in a different week than the desktop's Monday-anchored one.
+    @Test func sundayBelongsToTheWeekThatStartedMonday() {
+        let week = StatsMath.weekInterval(containing: at("2026-08-09T13:00:00Z"), calendar: statsCalendar)
+        #expect(week.start == startOfDay("2026-08-03T00:00:00Z"))
+        #expect(week.end == startOfDay("2026-08-10T00:00:00Z"))
+    }
+
+    @Test func mondayOpensItsOwnWeek() {
+        let week = StatsMath.weekInterval(containing: at("2026-08-03T00:30:00Z"), calendar: statsCalendar)
+        #expect(week.start == startOfDay("2026-08-03T00:00:00Z"))
+    }
+
+    @Test func everyDayMondayThroughSundayResolvesToOneWeek() {
+        for offset in 0..<7 {
+            let day = statsCalendar.date(byAdding: .day, value: offset, to: at("2026-08-03T09:00:00Z"))!
+            let week = StatsMath.weekInterval(containing: day, calendar: statsCalendar)
+            #expect(week.start == startOfDay("2026-08-03T00:00:00Z"))
+        }
+    }
+
+    /// The Sunday before is the PREVIOUS week, not this one.
+    @Test func precedingSundayFallsInThePreviousWeek() {
+        let week = StatsMath.weekInterval(containing: at("2026-08-02T12:00:00Z"), calendar: statsCalendar)
+        #expect(week.start == startOfDay("2026-07-27T00:00:00Z"))
+    }
+}

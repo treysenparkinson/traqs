@@ -207,7 +207,7 @@ struct MoreView: View {
     /// when the week stays within one month).
     private var weekLabel: String {
         let cal = Calendar.current
-        guard let interval = cal.dateInterval(of: .weekOfYear, for: weekAnchor) else { return "" }
+        let interval = StatsMath.weekInterval(containing: weekAnchor, calendar: cal)
         let start = interval.start
         let last = cal.date(byAdding: .day, value: -1, to: interval.end) ?? interval.end
         let mdd = DateFormatter.display("MMM d")
@@ -220,9 +220,10 @@ struct MoreView: View {
 
     // MARK: Utilization (team average of each worker's assigned ÷ capacity)
 
+    /// Monday–Sunday, matching the desktop's analytics week. `.weekOfYear` would
+    /// start Sunday under en_US and split Sunday's hours across platforms.
     private var weekInterval: DateInterval {
-        Calendar.current.dateInterval(of: .weekOfYear, for: weekAnchor)
-            ?? DateInterval(start: weekAnchor, duration: 7 * 86_400)
+        StatsMath.weekInterval(containing: weekAnchor, calendar: Calendar.current)
     }
 
     /// Team-average utilization for the selected week: each worker's assigned
@@ -387,10 +388,10 @@ struct MoreView: View {
             .frame(width: 22, height: 22)
     }
 
-    /// Start-of-week dates for the last 8 weeks (this week first).
+    /// Start-of-week (Monday) dates for the last 8 weeks, this week first.
     private var weekStarts: [Date] {
         let cal = Calendar.current
-        guard let thisStart = cal.dateInterval(of: .weekOfYear, for: Date())?.start else { return [] }
+        let thisStart = StatsMath.weekInterval(containing: Date(), calendar: cal).start
         return (0..<8).compactMap { cal.date(byAdding: .day, value: -7 * $0, to: thisStart) }
     }
     private func weekLabel(_ start: Date) -> String {
@@ -400,8 +401,13 @@ struct MoreView: View {
         let range = "\(f.string(from: start)) – \(f.string(from: end))"
         return sameWeek(start, Date()) ? "This week · \(range)" : range
     }
+    /// Compared by Monday-anchored week start, not `.weekOfYear` — otherwise on a
+    /// Sunday the picker checkmark and the "This week" label point at the week
+    /// that is about to begin rather than the one being shown.
     private func sameWeek(_ a: Date, _ b: Date) -> Bool {
-        Calendar.current.isDate(a, equalTo: b, toGranularity: .weekOfYear)
+        let cal = Calendar.current
+        return StatsMath.weekInterval(containing: a, calendar: cal).start
+            == StatsMath.weekInterval(containing: b, calendar: cal).start
     }
 
     /// Operations a person is assigned to (leaf ops across all jobs).

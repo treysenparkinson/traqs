@@ -53,4 +53,25 @@ enum StatsMath {
         }
         return out
     }
+
+    // MARK: - Week window
+
+    /// The Monday–Sunday week containing `date`.
+    ///
+    /// Anchored on Monday explicitly rather than through `.weekOfYear`, whose
+    /// first weekday follows the device locale (Sunday under en_US). The desktop
+    /// keys its analytics week off Monday, so a locale-driven week filed every
+    /// Sunday's hours into a different week on each platform and the two
+    /// efficiency numbers could never agree.
+    static func weekInterval(containing date: Date, calendar: Calendar) -> DateInterval {
+        // weekday: 1 = Sunday … 7 = Saturday. Sunday closes the preceding week,
+        // so it steps back six days rather than forward one.
+        let weekday = calendar.component(.weekday, from: date)
+        let mondayOffset = weekday == 1 ? -6 : 2 - weekday
+        let shifted = calendar.date(byAdding: .day, value: mondayOffset, to: date) ?? date
+        let start = calendar.startOfDay(for: shifted)
+        let end = calendar.date(byAdding: .day, value: 7, to: start)
+            ?? start.addingTimeInterval(7 * 86_400)
+        return DateInterval(start: start, end: end)
+    }
 }
