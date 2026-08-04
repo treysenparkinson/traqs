@@ -12213,6 +12213,43 @@ ${jobsCtx || "No jobs found."}`;
                 singleDayStacking[bar.start].push(bar.id);
               });
             }
+            // ── Overrun push-forward ────────────────────────────────────────────
+            // An op past its estimate keeps growing (see _barHpd in the bar render),
+            // so the work AFTER it on this person's row has to move out of the way or
+            // the bars simply overlap. The shift is exactly the growth, so an extended
+            // bar's new end meets the next bar's new start — no overlap, no gap — and
+            // it unwinds by itself the moment the op is marked Finished.
+            //
+            // Derived at render time, never persisted. Writing pushed dates into
+            // tasks.json would mean the schedule mutates itself on a 30s timer, racing
+            // the autosave and the known lost-write clobber, and it would silently
+            // overwrite a supervisor's own drag.
+            //
+            // Per-person hours, matching the bar's own budget: hpd is divided by team
+            // size, so the overrun must be too, or a two-person op would push the row
+            // by twice what its bar actually grew.
+            // rowBarWS is shared with the bar render below rather than recomputed
+            // there. Two calls would read Date.now() at different instants, so the
+            // push and the growth it is meant to match could disagree — and it halves
+            // the work on the heaviest view.
+            const overrunPushH = {}, rowBarWS = {};
+            {
+              let carryH = 0;
+              const ordered = bars
+                .filter(b => b.type === "task" && b.task && b.start)
+                .sort((a, b) => String(a.start).localeCompare(String(b.start))
+                  || ((a.task?.startHour ?? workStartH) - (b.task?.startHour ?? workStartH)));
+              for (const b of ordered) {
+                // Assigned BEFORE this bar's own overrun is added: an overrunning op
+                // grows in place, it does not shove itself.
+                if (carryH > 0) overrunPushH[b.id] = carryH;
+                const ws = deriveWorkedState(b.task, producedFor(b.task), liveOpHours(b.task));
+                rowBarWS[b.id] = ws;
+                if (ws.isFullyWorked) continue;
+                const tsz = Math.max(1, (b.task.team || []).length);
+                carryH += Math.max(0, ws.workedHoursShown - (b.task.hpd || 0)) / tsz;
+              }
+            }
             const utilC = elColor(row.util > 60 ? "#10b981" : row.util > 30 ? "#f59e0b" : T.textDim);
             const isDrop = dropTarget === p.id;
             const isBeingDragged = rowDragId === p.id;
@@ -12358,9 +12395,13 @@ ${jobsCtx || "No jobs found."}`;
                   const nDays = days.length;
                   const _opStart = bar.task?.start; const _opEnd = bar.task?.end;
                   const _barTeamSz = Math.max(1, (bar.task?.team || []).length);
-                  // Worked state for this bar, computed ONCE here because the bar's own
-                  // geometry now depends on it (below) as well as its stripe.
-                  const _barWS = (bar.type === "task" && bar.task) ? deriveWorkedState(bar.task, producedFor(bar.task), liveOpHours(bar.task)) : null;
+                  // Worked state for this bar — the bar's own geometry depends on it
+                  // (below) as well as its stripe. Reused from the row pass that built
+                  // overrunPushH so both read the same instant; the fallback covers a
+                  // task bar with no start date, which that pass skips.
+                  const _barWS = (bar.type === "task" && bar.task)
+                    ? (rowBarWS[bar.id] || deriveWorkedState(bar.task, producedFor(bar.task), liveOpHours(bar.task)))
+                    : null;
                   // An op past its estimate keeps GROWING rather than pinning at 100%.
                   // Everything about a bar's length — its day span, its width budget,
                   // its end hour — is derived from this hours budget and NOT from the
@@ -12373,16 +12414,33 @@ ${jobsCtx || "No jobs found."}`;
                     : 0;
                   const _isOverrunning = _overrunPerPerson > 0;
                   const _barHpd = ((bar.task?.hpd || 0) > 0 ? bar.task.hpd / _barTeamSz : productiveHoursPerDay) + _overrunPerPerson;
-                  const _barStartH = bar.task?.startHour ?? workStartH;
+                  // PTO spans its whole calendar range as one continuous bar (incl. weekends),
+                  // so treat every day as a "work" day for segmentation — no weekend gaps.
+                  // Hoisted above the layout-start maths below, which needs the same options.
+                  const _barWorkDays = bar.type === "pto" ? [0, 1, 2, 3, 4, 5, 6] : orgSettings.workDays;
+                  const _barBDOpts = { workDays: _barWorkDays, holidays: orgSettings.holidays };
+                  // Push from ops earlier on this row that have run long (see overrunPushH).
+                  // Converted to whole business days plus a part-day hour offset, then rolled
+                  // over the end of the working day, so a pushed bar lands on a real working
+                  // day at a real hour rather than sliding across a weekend column. PTO is
+                  // never pushed: a booked day off does not move because work ran late.
+                  const _pushH = bar.type === "task" ? (overrunPushH[bar.id] || 0) : 0;
+                  const _pushWholeDays = _pushH > 0 ? Math.floor(_pushH / Math.max(0.0001, productiveHoursPerDay)) : 0;
+                  let _layoutStart = _pushWholeDays > 0 ? addBD(bar.start, _pushWholeDays, _barBDOpts) : bar.start;
+                  let _layoutEnd = _pushWholeDays > 0 ? addBD(bar.end, _pushWholeDays, _barBDOpts) : bar.end;
+                  let _pushedStartH = (bar.task?.startHour ?? workStartH) + (_pushH - _pushWholeDays * Math.max(0.0001, productiveHoursPerDay));
+                  while (_pushH > 0 && totalWorkH > 0 && _pushedStartH >= workEndH) {
+                    _pushedStartH -= totalWorkH;
+                    _layoutStart = addBD(_layoutStart, 1, _barBDOpts);
+                    _layoutEnd = addBD(_layoutEnd, 1, _barBDOpts);
+                  }
+                  const _barStartH = _pushH > 0 ? _pushedStartH : (bar.task?.startHour ?? workStartH);
                   const isSingleDayPartial = (tMode === "month" || tMode === "week") && bar.type === "task" && _opStart && _opEnd && _opStart === _opEnd && _barHpd <= productiveHoursPerDay;
                   const isHourPositioned = (tMode === "month" || tMode === "week") && bar.type === "task" && bar.task?.startHour != null && bar.task.startHour > workStartH;
                   const _offsetH = _barStartH - workStartH;
                   const _barClockH = (_barHpd / productiveHoursPerDay) * totalWorkH;
                   const _firstDayCapacity = isHourPositioned ? Math.max(0, (totalWorkH - _offsetH) / totalWorkH * productiveHoursPerDay) : productiveHoursPerDay;
-                  // PTO spans its whole calendar range as one continuous bar (incl. weekends),
-                  // so treat every day as a "work" day for segmentation — no weekend gaps.
-                  const _barWorkDays = bar.type === "pto" ? [0, 1, 2, 3, 4, 5, 6] : orgSettings.workDays;
-                  const _willOverflowWeekend = isSingleDayPartial && isHourPositioned && (_offsetH + _barClockH) > totalWorkH && !isWorkDay(addD(bar.end, 1), _barWorkDays);
+                  const _willOverflowWeekend = isSingleDayPartial && isHourPositioned && (_offsetH + _barClockH) > totalWorkH && !isWorkDay(addD(_layoutEnd, 1), _barWorkDays);
                   // Always derive the bar's visual end from hpd + current workDays so the bar adapts
                   // when the org's working-days set changes, regardless of what the task's stored end says.
                   // `|| _isOverrunning` so a ONE-DAY op that runs long extends into the
@@ -12404,18 +12462,25 @@ ${jobsCtx || "No jobs found."}`;
                       })()
                     : null;
                   const _effectiveSingleDay = isSingleDayPartial || (_visualWorkDays === 1 && _barHpd <= productiveHoursPerDay);
-                  const _barBDOpts = { workDays: _barWorkDays, holidays: orgSettings.holidays };
+                  // _layoutStart / _layoutEnd rather than bar.start / bar.end: everything
+                  // from here down positions the bar, and it has to position the PUSHED
+                  // bar. The stored dates are untouched.
                   const _segsEnd = _visualWorkDays != null
-                    ? addBD(bar.start, _visualWorkDays - 1, _barBDOpts)
+                    ? addBD(_layoutStart, _visualWorkDays - 1, _barBDOpts)
                     : _willOverflowWeekend
-                      ? addBD(bar.end, 1, _barBDOpts)
-                      : bar.end;
-                  const barSegs = bar.type === "eng-chip" ? [] : weekdaySegments(bar.start, _segsEnd, tStart, tEnd, _barWorkDays, true);
-                  const firstBarSeg = barSegs[0] || { start: bar.start, end: bar.end };
-                  const _baseXPct = diffD(tStart, bar.start) / nDays * 100;
+                      ? addBD(_layoutEnd, 1, _barBDOpts)
+                      : _layoutEnd;
+                  const barSegs = bar.type === "eng-chip" ? [] : weekdaySegments(_layoutStart, _segsEnd, tStart, tEnd, _barWorkDays, true);
+                  const firstBarSeg = barSegs[0] || { start: _layoutStart, end: _layoutEnd };
+                  const _baseXPct = diffD(tStart, _layoutStart) / nDays * 100;
                   const _calDays0 = Math.max(diffD(firstBarSeg.start, firstBarSeg.end) + 1, 1);
                   // PTO isn't hours-budgeted — let it fill its full day span (no hpd cap).
                   const _wBudget = bar.type === "pto" ? 100 : Math.max(0.03 / nDays * 100, (_barHpd / productiveHoursPerDay) / nDays * 100);
+                  // Keyed on the STORED start, matching how singleDayStacking was built.
+                  // It only decides the order of same-day partial bars within a column,
+                  // so a pushed bar keeps its place in that order rather than jumping —
+                  // which is right, though a bar pushed onto a different day is stacked
+                  // against its original neighbours, not its new ones.
                   const stackIdx = _effectiveSingleDay ? (singleDayStacking[bar.start]?.indexOf(bar.id) ?? 0) : 0;
                   const stackShift = (_effectiveSingleDay && stackIdx > 0 && !isHourPositioned) ? stackIdx * _wBudget : 0;
                   const _oneDayPct = 1 / nDays * 100;
@@ -12585,6 +12650,13 @@ ${jobsCtx || "No jobs found."}`;
                           let found = false;
                           for (const panel of (job.subs || [])) {
                             const op = (panel.subs || []).find(o => o.id === bid);
+                            // An op running over its estimate is held out of the group move
+                            // for the same reason its own bar can't be dragged: it renders at
+                            // a pushed position that the drag maths doesn't know about, so
+                            // moving it would land it somewhere other than where the group
+                            // appears to go. Grabbing the group by a different bar must not
+                            // be a way around that.
+                            if (op && deriveWorkedState(op, producedFor(op), liveOpHours(op)).isOverdueHours) { found = true; break; }
                             if (op) { members.push({ id: bid, origStart: op.start, origEnd: op.end, origStartHour: op.startHour ?? workStartH, origEndHour: op.endHour ?? workEndH, hpd: op.hpd || 0, wdDur: getWorkingDayDuration(op.start, op.end), pid: panel.id, grandPid: job.id, level: 2, personIds: op.team || [], origPerson: (op.team || [])[0] ?? origPerson }); found = true; break; }
                             if (panel.id === bid) { members.push({ id: bid, origStart: panel.start, origEnd: panel.end, origStartHour: panel.startHour ?? workStartH, origEndHour: panel.endHour ?? workEndH, hpd: panel.hpd || 0, wdDur: getWorkingDayDuration(panel.start, panel.end), pid: job.id, level: 1, personIds: panel.team || [], origPerson: (panel.team || [])[0] ?? origPerson }); found = true; break; }
                           }
@@ -13488,6 +13560,18 @@ ${jobsCtx || "No jobs found."}`;
                   };
                   const ws = !isPto ? _barWS : null;
                   const barLocked = !isPto && bar.task && ws && ws.displayLocked;
+                  // Moving is blocked while an op is running over its estimate, and this
+                  // is an interaction guard, NOT a lock — the op is still unfinished and
+                  // still the thing being worked.
+                  //
+                  // The reason it has to be blocked: an overrunning bar renders at a
+                  // PUSHED position (see overrunPushH), while handleTeamDrag bases its
+                  // day/hour delta on the task's stored start. The two disagree by
+                  // exactly the push, so a drag would land somewhere other than where it
+                  // was dropped — the same failure the comment inside that handler warns
+                  // about for hour-positioned bars. Selection still works; only moving
+                  // and resizing are held.
+                  const _dragBlocked = !isPto && _isOverrunning;
                   // Worked-overlay budget: percent-of-timeline width covered by the striped portion.
                   // Distributes across multi-segment bars in lockstep with the bar's own width budget.
                   const _workedCellsTotal = ws ? ws.workedFraction * _wBudget : 0;
@@ -13524,9 +13608,9 @@ ${jobsCtx || "No jobs found."}`;
                   // "NEW" badge — show on bars whose parent job was created within the last 24h.
                   const isNew = !isPto && bar.jobCreatedAt && (Date.now() - new Date(bar.jobCreatedAt).getTime()) < 86400000;
                   return [<div key={barKey}
-                    onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
+                    onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, height: rH - 8, boxSizing: "border-box", borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${bc}` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : bar.unscheduled ? `1.5px dashed ${accentText(bc)}` : `1.5px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : barLocked ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
+                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, height: rH - 8, boxSizing: "border-box", borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${bc}` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : bar.unscheduled ? `1.5px dashed ${accentText(bc)}` : `1.5px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
                     onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
                     {!isPto && ws && ws.workedFraction > 0 && _wFirst > 0 && (() => {
                       const _segWorked = Math.max(0, Math.min(_workedRemainingBudget, _wFirst));
@@ -13535,8 +13619,8 @@ ${jobsCtx || "No jobs found."}`;
                       if (pctOfDiv <= 0) return null;
                       return <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pctOfDiv}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", borderTopLeftRadius: T.radiusXs, borderBottomLeftRadius: T.radiusXs, zIndex: 2 }} />;
                     })()}
-                    {can("moveJobs") && !barLocked && !(ws && ws.workedHpd > 0) && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                    {barSegs.length === 1 && can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                    {can("moveJobs") && !barLocked && !_dragBlocked && !(ws && ws.workedHpd > 0) && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                    {barSegs.length === 1 && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="6.5" fill="rgba(255,255,255,0.25)"/><polyline points="3,6.5 5.5,9 10,4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
                     {inDepGroup && !isBarSelected && (() => { const _panelId2 = bar.task?.level === 2 ? bar.task.pid : bar.task?.level === 1 ? bar.task.id : null; const _dm = _panelId2 ? tasks.flatMap(j => j.subs||[]).find(p => p.id === _panelId2)?.depsMode : undefined; const _locked = _dm === "locked"; return <Tip label={_locked ? "Locked — moves as a block with its group" : "Linked — moves with its dependency group"}><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.7, lineHeight: 0 }}>{_locked ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>}</span></Tip>; })()}
                     {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
@@ -13560,9 +13644,9 @@ ${jobsCtx || "No jobs found."}`;
                     const isPto2 = bar.type === "pto";
                     const bc2 = bar.color;
                     return <div key={bar.id + "_t" + si + "_" + seg.start}
-                      onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto2) { if (selBars.has(bar.id)) { handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } handleTeamDrag(e); } }}
+                      onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto2) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                       onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
-                      style={{ position: "absolute", top: 4, left: tailX, width: tailW, height: rH - 8, boxSizing: "border-box", borderRadius: T.radiusXs, background: isPto2 ? `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${bc2}` : bc2, border: isBarSelected ? `2px solid #fff` : isPto2 ? `1.5px solid ${bc2}` : `2px dashed ${bc2}cc`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
+                      style={{ position: "absolute", top: 4, left: tailX, width: tailW, height: rH - 8, boxSizing: "border-box", borderRadius: T.radiusXs, background: isPto2 ? `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${bc2}` : bc2, border: isBarSelected ? `2px solid #fff` : isPto2 ? `1.5px solid ${bc2}` : `2px dashed ${bc2}cc`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : _dragBlocked ? "not-allowed" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
                       onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
                       {!isPto2 && ws && _workedRemainingBudget > 0 && _tailWNum > 0 && (() => {
                         const _segWorked = Math.max(0, Math.min(_workedRemainingBudget, _tailWNum));
@@ -13571,7 +13655,7 @@ ${jobsCtx || "No jobs found."}`;
                         if (pctOfDiv <= 0) return null;
                         return <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pctOfDiv}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", zIndex: 2 }} />;
                       })()}
-                      {isLastSeg && can("moveJobs") && !barLocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                      {isLastSeg && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     </div>;
                   })];
                 })}
