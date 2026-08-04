@@ -7022,27 +7022,35 @@ ${jobsCtx || "No jobs found."}`;
   const handleCtx = (e, item, source = "gantt") => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, item, source }); };
   // Context-menu placement, decided from the menu's MEASURED height rather than
   // a guess: the item list varies with type and permissions, so no constant is
-  // right for every menu. First paint renders it hidden at its natural height,
-  // this measures it, and the second paint positions it. `null` = not yet
+  // right for every menu. It renders hidden at its natural height, this measures
+  // it, and it is positioned before the browser paints. `null` = not yet
   // measured, which is what keeps the unplaced first frame invisible.
-  const ctxMenuRef = useRef(null);
+  //
+  // The node arrives via a ref CALLBACK, not a ref object, and the effect keys on
+  // that node. FadeOnClose mounts its children one commit late (it returns null
+  // until its own layout effect flips `mounted`), so on the commit where ctxMenu
+  // becomes truthy the menu div does not exist yet. Keyed on [ctxMenu] alone this
+  // effect read a null ref, bailed, and never ran again — leaving the menu
+  // permanently unmeasured: invisible, never flipped, and with count 0 so the row
+  // cascade never reversed. Keying on the node re-runs it the moment one attaches.
+  const [ctxMenuEl, setCtxMenuEl] = useState(null);
+  const ctxMenuRef = useCallback(node => setCtxMenuEl(node), []);
   const [ctxPlace, setCtxPlace] = useState(null);
   useLayoutEffect(() => {
     if (!ctxMenu) { setCtxPlace(null); return; }
-    const el = ctxMenuRef.current;
-    if (!el) return;
+    if (!ctxMenuEl) return;
     setCtxPlace({
       ...placeContextMenu({
         y: ctxMenu.y,
         viewportHeight: window.innerHeight,
-        menuHeight: el.scrollHeight,
+        menuHeight: ctxMenuEl.scrollHeight,
       }),
       // Row count drives the reversed cascade when the menu flips up. Counted
       // from the DOM because the rows are built from inline conditionals, so
       // there's no static total to read.
-      count: el.querySelectorAll("[data-ctx-row]").length,
+      count: ctxMenuEl.querySelectorAll("[data-ctx-row]").length,
     });
-  }, [ctxMenu]);
+  }, [ctxMenu, ctxMenuEl]);
 
   // Copy item from context menu into clipboard
   const copyItem = (item) => {
