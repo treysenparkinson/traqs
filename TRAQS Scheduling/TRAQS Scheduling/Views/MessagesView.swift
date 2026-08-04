@@ -280,7 +280,10 @@ struct MessagesView: View {
                                 ChatEmptyState(filter: filter)
                                     .padding(.top, 80)
                             } else {
-                                TSectionTitle(title: "Inbox",
+                                // No title — you're on the Messages tab looking at
+                                // a list of threads, so "Inbox" only restated it.
+                                // The row stays for MARK ALL READ.
+                                TSectionTitle(title: "",
                                               action: "MARK ALL READ",
                                               onAction: { appState.markAllThreadsRead() })
                                 // Lazy: only on-screen rows build (each row pays an

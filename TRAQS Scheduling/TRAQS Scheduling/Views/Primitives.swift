@@ -585,6 +585,8 @@ struct Sparkline: View {
 // ── Section title (used by inboxes, hours entries, etc.) ───────────────────
 
 struct TSectionTitle: View {
+    /// Pass "" for a header that carries only its trailing action — the section
+    /// is already obvious from context and doesn't need naming.
     let title: String
     var action: String? = nil
     /// Optional tap handler for the trailing action label. When provided the
@@ -593,9 +595,11 @@ struct TSectionTitle: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text(title)
-                .font(TTypo.h3(18))
-                .foregroundStyle(Color(hex: T.ink))
+            if !title.isEmpty {
+                Text(title)
+                    .font(TTypo.h3(18))
+                    .foregroundStyle(Color(hex: T.ink))
+            }
             Spacer()
             if let a = action {
                 if let onAction {
