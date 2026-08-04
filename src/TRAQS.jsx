@@ -7541,31 +7541,39 @@ ${jobsCtx || "No jobs found."}`;
 
   const adminApproveJobFinish = async (jobId, panelId, opId, requestId) => {
     if (!isAdmin || !loggedInUser) return;
-    const job = tasks.find(t => t.id === jobId);
+    const job = tasks.find(t => sameId(t.id, jobId));
     if (!job) return;
     const now = new Date().toISOString();
     const jobLevel = !panelId && !opId;   // iOS / whole-job completion request
     // Mark an item and ALL descendants Finished (used for whole-job completion).
     const finishTree = (item) => ({ ...item, status: "Finished", subs: (item.subs || []).map(finishTree) });
-    const resolveReq = (reqs) => (reqs || []).map(r => r.id !== requestId ? r : {
-      ...r, status: "approved", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now,
-    });
+    // Upsert, NOT map. A request that never had a finishRequests[] row — an iOS
+    // request writes only pendingFinish — matched nothing here, so approving it
+    // recorded who approved it NOWHERE and the bubble could only say "Approved".
+    // Appending the resolved row means the approver is always stored.
+    const resolveReq = (reqs, item) => {
+      const list = reqs || [];
+      const stamp = r => ({ ...r, status: "approved", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now });
+      if (list.some(r => sameId(r.id, requestId))) return list.map(r => !sameId(r.id, requestId) ? r : stamp(r));
+      const prior = item?.finishRequest;
+      return [...list, stamp({ id: requestId, by: prior?.by ?? null, byName: prior?.byName ?? null, at: prior?.at || now })];
+    };
     let label;
     let newTasks;
     if (jobLevel) {
       // Finish the entire job: job + every panel + every op.
-      newTasks = tasks.map(t => t.id !== jobId ? t : {
-        ...finishTree(t), finishRequest: undefined, finishRequests: resolveReq(t.finishRequests),
+      newTasks = tasks.map(t => !sameId(t.id, jobId) ? t : {
+        ...finishTree(t), finishRequest: undefined, pendingFinish: false, finishRequests: resolveReq(t.finishRequests, t),
       });
       label = `${job.title}${job.jobNumber ? ` #${job.jobNumber}` : ""}`;
     } else {
-      const panel = (job.subs || []).find(s => s.id === panelId);
+      const panel = (job.subs || []).find(s => sameId(s.id, panelId));
       if (!panel) return;
-      const target = opId ? (panel.subs || []).find(s => s.id === opId) : panel;
+      const target = opId ? (panel.subs || []).find(s => sameId(s.id, opId)) : panel;
       if (!target) return;
       const updateItem = (items, targetId) => items.map(item => {
-        if (item.id === targetId) return {
-          ...item, status: "Finished", finishRequest: undefined, finishRequests: resolveReq(item.finishRequests),
+        if (sameId(item.id, targetId)) return {
+          ...item, status: "Finished", finishRequest: undefined, pendingFinish: false, finishRequests: resolveReq(item.finishRequests, item),
         };
         if (item.subs?.length) return { ...item, subs: updateItem(item.subs, targetId) };
         return item;
@@ -7575,40 +7583,44 @@ ${jobsCtx || "No jobs found."}`;
     }
     setTasks(newTasks);
     saveTasks(newTasks, getToken, orgCode).catch(console.warn);
-    const grp = await ensureCompletionGroup();
-    postMessage({
-      threadKey: `group:${grp.id}`, scope: "group", jobId,
-      text: `Completion request approved by ${loggedInUser.name}. "${label}" is now Finished.`,
-      authorId: loggedInUser.id, authorName: loggedInUser.name,
-      authorColor: elColor(loggedInUser.color) || "#64748b", participantIds: grp.memberIds, attachments: [],
-    }, getToken, orgCode).then(msg => setMessages(prev => [...prev, msg])).catch(console.warn);
+    // No follow-up message is posted. The decision belongs ON the request bubble,
+    // which now reads "APPROVED BY <name>" from resolvedByName/resolvedAt — a
+    // second auto-sent chat message just repeated it and pushed the request
+    // itself out of view.
   };
 
   const adminDeclineJobFinish = async (jobId, panelId, opId, requestId, reason) => {
     if (!isAdmin || !loggedInUser) return;
-    const job = tasks.find(t => t.id === jobId);
+    const job = tasks.find(t => sameId(t.id, jobId));
     if (!job) return;
     const now = new Date().toISOString();
     const jobLevel = !panelId && !opId;
-    const declineReq = (reqs) => (reqs || []).map(r => r.id !== requestId ? r : {
-      ...r, status: "declined", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now,
-      ...(reason ? { declineReason: reason } : {}),
-    });
+    // Upsert for the same reason as resolveReq in adminApproveJobFinish.
+    const declineReq = (reqs, item) => {
+      const list = reqs || [];
+      const stamp = r => ({
+        ...r, status: "declined", resolvedBy: loggedInUser.id, resolvedByName: loggedInUser.name, resolvedAt: now,
+        ...(reason ? { declineReason: reason } : {}),
+      });
+      if (list.some(r => sameId(r.id, requestId))) return list.map(r => !sameId(r.id, requestId) ? r : stamp(r));
+      const prior = item?.finishRequest;
+      return [...list, stamp({ id: requestId, by: prior?.by ?? null, byName: prior?.byName ?? null, at: prior?.at || now })];
+    };
     let label;
     let newTasks;
     if (jobLevel) {
-      newTasks = tasks.map(t => t.id !== jobId ? t : {
-        ...t, finishRequest: undefined, finishRequests: declineReq(t.finishRequests),
+      newTasks = tasks.map(t => !sameId(t.id, jobId) ? t : {
+        ...t, finishRequest: undefined, pendingFinish: false, finishRequests: declineReq(t.finishRequests, t),
       });
       label = `${job.title}${job.jobNumber ? ` #${job.jobNumber}` : ""}`;
     } else {
-      const panel = (job.subs || []).find(s => s.id === panelId);
+      const panel = (job.subs || []).find(s => sameId(s.id, panelId));
       if (!panel) return;
-      const target = opId ? (panel.subs || []).find(s => s.id === opId) : panel;
+      const target = opId ? (panel.subs || []).find(s => sameId(s.id, opId)) : panel;
       if (!target) return;
       const updateItem = (items, targetId) => items.map(item => {
-        if (item.id === targetId) return {
-          ...item, finishRequest: undefined, finishRequests: declineReq(item.finishRequests),
+        if (sameId(item.id, targetId)) return {
+          ...item, finishRequest: undefined, pendingFinish: false, finishRequests: declineReq(item.finishRequests, item),
         };
         if (item.subs?.length) return { ...item, subs: updateItem(item.subs, targetId) };
         return item;
@@ -7618,13 +7630,8 @@ ${jobsCtx || "No jobs found."}`;
     }
     setTasks(newTasks);
     saveTasks(newTasks, getToken, orgCode).catch(console.warn);
-    const grp = await ensureCompletionGroup();
-    postMessage({
-      threadKey: `group:${grp.id}`, scope: "group", jobId,
-      text: `Completion request for "${label}" was declined by ${loggedInUser.name}.${reason ? ` Reason: ${reason}` : ""}`,
-      authorId: loggedInUser.id, authorName: loggedInUser.name,
-      authorColor: elColor(loggedInUser.color) || "#64748b", participantIds: grp.memberIds, attachments: [],
-    }, getToken, orgCode).then(msg => setMessages(prev => [...prev, msg])).catch(console.warn);
+    // No follow-up message — see adminApproveJobFinish. The bubble carries
+    // "DENIED BY <name>" plus the reason.
     setFinishDeclineState(prev => { const n = { ...prev }; delete n[requestId]; return n; });
   };
 
@@ -7633,12 +7640,12 @@ ${jobsCtx || "No jobs found."}`;
   // finished items go back to "In Progress" since prior statuses aren't stored.
   const adminUndoJobFinish = async (jobId, panelId, opId, requestId) => {
     if (!isAdmin || !loggedInUser) return;
-    const job = tasks.find(t => t.id === jobId);
+    const job = tasks.find(t => sameId(t.id, jobId));
     if (!job) return;
     const jobLevel = !panelId && !opId;
     const reopen = (item) => ({ ...item, status: item.status === "Finished" ? "In Progress" : item.status, subs: (item.subs || []).map(reopen) });
     const pendReq = (reqs, item) => {
-      const reqs2 = (reqs || []).map(r => r.id !== requestId ? r : { id: r.id, by: r.by, byName: r.byName, at: r.at, status: "pending" });
+      const reqs2 = (reqs || []).map(r => !sameId(r.id, requestId) ? r : { id: r.id, by: r.by, byName: r.byName, at: r.at, status: "pending" });
       const e = reqs2.find(r => r.id === requestId);
       return { finishRequests: reqs2, finishRequest: e ? { requestId: e.id, by: e.by, byName: e.byName, at: e.at } : item.finishRequest };
     };
@@ -7664,15 +7671,15 @@ ${jobsCtx || "No jobs found."}`;
         const delta = diffD(minStart, sNextBD(TD));
         if (delta > 0) reopened = shiftTree(reopened, delta);
       }
-      newTasks = tasks.map(t => t.id !== jobId ? t : reopened);
+      newTasks = tasks.map(t => !sameId(t.id, jobId) ? t : reopened);
       label = `${job.title}${job.jobNumber ? ` #${job.jobNumber}` : ""}`;
     } else {
-      const panel = (job.subs || []).find(s => s.id === panelId);
+      const panel = (job.subs || []).find(s => sameId(s.id, panelId));
       if (!panel) return;
-      const target = opId ? (panel.subs || []).find(s => s.id === opId) : panel;
+      const target = opId ? (panel.subs || []).find(s => sameId(s.id, opId)) : panel;
       if (!target) return;
       const updateItem = (items, targetId) => items.map(item => {
-        if (item.id === targetId) return { ...item, status: item.status === "Finished" ? "In Progress" : item.status, ...pendReq(item.finishRequests, item) };
+        if (sameId(item.id, targetId)) return { ...item, status: item.status === "Finished" ? "In Progress" : item.status, ...pendReq(item.finishRequests, item) };
         if (item.subs?.length) return { ...item, subs: updateItem(item.subs, targetId) };
         return item;
       });
@@ -18794,6 +18801,29 @@ ${jobsCtx || "No jobs found."}`;
     // Was reading only `p.avatar` — but the photo uploader writes `p.image`, so
     // an uploaded photo never appeared in chat. PersonAvatar checks both.
     const avatarChip = (p, size) => <PersonAvatar person={p} size={size} />;
+    // One width for every request bubble — completion and time off alike — so they
+    // line up in the thread regardless of how much text each carries.
+    const REQUEST_BUBBLE_W = 560;
+    // Sender badge for request bubbles. These read as coming from TRAQS rather
+    // than from the requester, so they get a system mark instead of the author's
+    // avatar — the requester's name is already stated inside the card.
+    // The TRAQS bars mark (Assets.xcassets/TRAQSIconBars): four left-aligned
+    // rounded bars of stepped lengths, the third one accent. Drawn rather than
+    // bitmapped so it tracks the theme's accent and stays crisp at any size.
+    const systemChatBadge = (
+      <div style={{ width: 32, height: 32, borderRadius: "50%", flexShrink: 0, background: T.card, border: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center", alignSelf: "flex-end" }}>
+        {/* viewBox is the mark's exact extent — 24 wide, and 4 bars of 3.4 with
+            2.2 gaps = 20.2 tall. An earlier 20 clipped the last bar and left the
+            whole mark sitting high in the circle. display:block kills the inline
+            baseline gap that also pushed it off centre. */}
+        <svg width="17" height="14.3" viewBox="0 0 24 20.2" fill="none" aria-label="TRAQS" style={{ display: "block" }}>
+          <rect x="0" y="0"    width="14.4" height="3.4" rx="1.7" fill={T.textDim} />
+          <rect x="0" y="5.6"  width="20.4" height="3.4" rx="1.7" fill={T.textDim} />
+          <rect x="0" y="11.2" width="24"   height="3.4" rx="1.7" fill={T.accent} />
+          <rect x="0" y="16.8" width="11.5" height="3.4" rx="1.7" fill={T.textDim} />
+        </svg>
+      </div>
+    );
     // Group chip: a small stack of the (other) members' avatars.
     const groupChip = (g) => { const members = (g.memberIds || []).filter(id => String(id) !== String(loggedInUser?.id)).map(id => people.find(p => String(p.id) === String(id))).filter(Boolean); if (members.length <= 1) return avatarChip(members[0], 38); return <div style={{ position: "relative", width: 38, height: 38, flexShrink: 0 }}><div style={{ position: "absolute", right: 0, bottom: 0, borderRadius: "50%", border: `2px solid ${T.card}` }}>{avatarChip(members[1], 23)}</div><div style={{ position: "absolute", left: 0, top: 0, borderRadius: "50%", border: `2px solid ${T.card}` }}>{avatarChip(members[0], 23)}</div></div>; };
     const convoThreads = [
@@ -18907,21 +18937,52 @@ ${jobsCtx || "No jobs found."}`;
 
                   // ── Special rendering: Finish Approval Request ──
                   if (m.type === "finish_request") {
-                    const frJob = tasks.find(t => t.id === m.jobId);
-                    const frPanel = (frJob?.subs || []).find(s => s.id === m.panelId);
-                    const frOp = m.opId ? (frPanel?.subs || []).find(s => s.id === m.opId) : null;
+                    // sameId throughout: ids drift between string and number across
+                    // web and iOS, and a strict === here resolved frTarget to
+                    // undefined, which made isPending false and silently removed the
+                    // admin's only way to act on the request.
+                    const frJob = tasks.find(t => sameId(t.id, m.jobId));
+                    const frPanel = (frJob?.subs || []).find(s => sameId(s.id, m.panelId));
+                    const frOp = m.opId ? (frPanel?.subs || []).find(s => sameId(s.id, m.opId)) : null;
                     const frTarget = frOp || frPanel || frJob; // sub-op, else panel, else the whole job (iOS completion request)
-                    const frReq = (frTarget?.finishRequests || []).find(r => r.id === m.finishRequestId);
-                    const frClient = frJob?.clientId ? clients.find(c => c.id === frJob.clientId) : null;
-                    const frPM = frJob?.projectManagerId ? people.find(p => p.id === frJob.projectManagerId) : null;
+                    const frReq = (frTarget?.finishRequests || []).find(r => sameId(r.id, m.finishRequestId));
+                    const frClient = frJob?.clientId ? clients.find(c => sameId(c.id, frJob.clientId)) : null;
+                    const frPM = frJob?.projectManagerId ? people.find(p => sameId(p.id, frJob.projectManagerId)) : null;
                     const frDecState = finishDeclineState[m.finishRequestId] || {};
-                    const isPending = frReq?.status === "pending";
-                    const isApproved = frReq?.status === "approved";
-                    const isDeclined = frReq?.status === "declined";
+                    // Status without a finishRequests[] row to read. Every resolution
+                    // path clears `finishRequest` and `pendingFinish`, so either one
+                    // still being set means pending. Falling back to pending when
+                    // nothing resolves matches the time-off bubble and errs toward
+                    // leaving the admin able to act rather than stranding a request.
+                    const frFallback = frTarget
+                      ? (sameId(frTarget.finishRequest?.requestId, m.finishRequestId) || frTarget.pendingFinish
+                          ? "pending"
+                          : frTarget.status === "Finished" ? "approved" : "pending")
+                      : "pending";
+                    const frStatus = frReq?.status || frFallback;
+                    // Who decided it. resolvedByName is written on every decision, but
+                    // fall back to looking resolvedBy up in people, then to the most
+                    // recent resolved row on the item — requests resolved before that
+                    // name was recorded otherwise render as a bare "APPROVED".
+                    const frResolvedRow = frReq?.resolvedByName || frReq?.resolvedBy != null
+                      ? frReq
+                      : (frTarget?.finishRequests || []).filter(r => r.resolvedByName || r.resolvedBy != null).slice(-1)[0] || frReq;
+                    const frResolvedName = frResolvedRow?.resolvedByName
+                      || (frResolvedRow?.resolvedBy != null ? people.find(p => sameId(p.id, frResolvedRow.resolvedBy))?.name : null)
+                      || null;
+                    const isPending = frStatus === "pending";
+                    const isApproved = frStatus === "approved";
+                    const isDeclined = frStatus === "declined";
                     const isExpanded = !!frDetailsExpanded[m.finishRequestId];
                     const fmtFR = d => d ? new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
-                    return <div key={m.id} style={{ padding: "8px 14px" }}>
-                      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radius, overflow: "hidden", maxWidth: 560 }}>
+                    // Delivered as an incoming message bubble from TRAQS itself:
+                    // system badge, then the card carrying the bubble's tail radius.
+                    return <div key={m.id} style={{ display: "flex", gap: 10, padding: "8px 14px", alignItems: "flex-end" }}>
+                      {systemChatBadge}
+                      {/* width:100% + a shared max keeps every request bubble the same
+                          size. Sizing to content made each card as wide as its longest
+                          line, so two cards side by side never matched. */}
+                      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: "22px 22px 22px 6px", overflow: "hidden", width: "100%", maxWidth: REQUEST_BUBBLE_W, flexShrink: 1, minWidth: 0 }}>
                         {/* Card header */}
                         <div style={{ padding: "14px 18px 12px", borderBottom: `1px solid ${T.border}`, background: T.card, display: "flex", alignItems: "flex-start", gap: 12 }}>
                           <span style={{ flexShrink: 0, lineHeight: 0 }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg></span>
@@ -18930,8 +18991,9 @@ ${jobsCtx || "No jobs found."}`;
                             <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Requested by <strong style={{ color: T.text }}>{frReq?.byName || m.authorName}</strong> · {ts}</div>
                           </div>
                           {isPending && <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b33", borderRadius: 12, padding: "3px 10px", flexShrink: 0 }}>Pending</span>}
-                          {isApproved && <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#10b98118", border: "1px solid #10b98133", borderRadius: 12, padding: "3px 10px", flexShrink: 0 }}>Approved</span>}
-                          {isDeclined && <span style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", background: "#ef444418", border: "1px solid #ef444433", borderRadius: 12, padding: "3px 10px", flexShrink: 0 }}>Declined</span>}
+                          {/* No corner chip once decided — the decision is the full-width
+                              pill down in the body, next to the Undo button. Pending keeps
+                              its chip, since it has no pill of its own. */}
                         </div>
                         {/* Body */}
                         <div style={{ padding: "14px 18px" }}>
@@ -18995,12 +19057,15 @@ ${jobsCtx || "No jobs found."}`;
                             </div></div></div>
                           </>}
                           {/* Resolution card — shown after decision */}
-                          {(isApproved || isDeclined) && <div style={{ padding: "12px 14px", borderRadius: T.radiusXs, background: isApproved ? "#10b98110" : "#ef444410", border: `1px solid ${isApproved ? "#10b98130" : "#ef444430"}`, marginBottom: 4 }}>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: isApproved ? "#10b981" : "#ef4444" }}>
-                              {isApproved ? "Approved" : "Declined"} by {frReq.resolvedByName} · {new Date(frReq.resolvedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
-                            </div>
-                            {isDeclined && frReq.declineReason && <div style={{ fontSize: 12, color: T.textSec, marginTop: 4 }}>Reason: {frReq.declineReason}</div>}
+                          {/* frReq can be absent while the status came from the
+                              fallback above, so every field here is optional and the
+                              "by … · when" tail is dropped rather than rendered empty. */}
+                          {/* The decision, as a full-width pill sized to match the Undo
+                              button below it so the two read as a pair. */}
+                          {(isApproved || isDeclined) && <div style={{ width: "100%", boxSizing: "border-box", padding: "13px 14px", borderRadius: T.radiusPill, background: isApproved ? "#10b98118" : "#ef444418", border: `1px solid ${isApproved ? "#10b98155" : "#ef444455"}`, textAlign: "center", fontSize: 14, fontWeight: 700, letterSpacing: "-0.045em", color: isApproved ? "#10b981" : "#ef4444", marginTop: 4 }}>
+                            {isApproved ? "Approved" : "Denied"}{frResolvedName ? ` by ${frResolvedName}` : ""}
                           </div>}
+                          {isDeclined && frResolvedRow?.declineReason && <div style={{ fontSize: 12, color: T.textSec, textAlign: "center", marginTop: 6 }}>Reason: {frResolvedRow.declineReason}</div>}
                           {/* Undo — admin only, after approval: reopens the job so it returns to the schedule */}
                           {isAdmin && isApproved && <button onClick={() => adminUndoJobFinish(m.jobId, m.panelId, m.opId || null, m.finishRequestId)} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%", padding: "12px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}66`, background: "transparent", color: T.accent, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, marginTop: 4 }}>
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.86"/></svg>
@@ -19029,8 +19094,8 @@ ${jobsCtx || "No jobs found."}`;
                               </div>;
                             }
                             return <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-                              <button onClick={() => setFinishDeclineState(prev => ({ ...prev, [m.finishRequestId]: { showInput: true, reason: "" } }))} style={{ flex: 1, padding: "18px 14px", borderRadius: T.radiusPill, border: "none", background: brandGrad("#ef4444"), color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "-0.045em" }}>✕ Decline</button>
-                              <button onClick={() => adminApproveJobFinish(m.jobId, m.panelId, m.opId || null, m.finishRequestId)} style={{ flex: 1, padding: "18px 14px", borderRadius: T.radiusPill, border: "none", background: brandGrad("#10b981"), color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "-0.045em" }}>✓ Approve</button>
+                              <button onClick={() => setFinishDeclineState(prev => ({ ...prev, [m.finishRequestId]: { showInput: true, reason: "" } }))} style={{ flex: 1, padding: "18px 14px", borderRadius: T.radiusPill, border: "none", background: brandGrad("#ef4444"), color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "-0.045em" }}>Deny</button>
+                              <button onClick={() => adminApproveJobFinish(m.jobId, m.panelId, m.opId || null, m.finishRequestId)} style={{ flex: 1, padding: "18px 14px", borderRadius: T.radiusPill, border: "none", background: brandGrad("#10b981"), color: "#fff", fontSize: 16, fontWeight: 700, cursor: "pointer", fontFamily: T.font, letterSpacing: "-0.045em" }}>Complete</button>
                             </div>;
                           })()}
                         </div>
@@ -19052,8 +19117,9 @@ ${jobsCtx || "No jobs found."}`;
                     const rangeTO = toStartD === toEndD ? fmtTO(toStartD) : `${fmtTO(toStartD)} – ${fmtTO(toEndD)}`;
                     const toPending = toStatus === "pending";
                     const denying = toDeny === m.timeOffRequestId;
-                    return <div key={m.id} style={{ padding: "8px 14px" }}>
-                      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radius, overflow: "hidden", maxWidth: 460 }}>
+                    return <div key={m.id} style={{ display: "flex", gap: 10, padding: "8px 14px", alignItems: "flex-end" }}>
+                      {systemChatBadge}
+                      <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: "22px 22px 22px 6px", overflow: "hidden", width: "100%", maxWidth: REQUEST_BUBBLE_W, flexShrink: 1, minWidth: 0 }}>
                         <div style={{ padding: "13px 16px 11px", borderBottom: `1px solid ${T.border}`, background: T.card, display: "flex", alignItems: "center", gap: 11 }}>
                           <span style={{ flexShrink: 0, lineHeight: 0, color: toClr }}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
                           <div style={{ flex: 1, minWidth: 0 }}>
@@ -19061,8 +19127,7 @@ ${jobsCtx || "No jobs found."}`;
                             <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>from <strong style={{ color: T.text }}>{toName}</strong> · {ts}</div>
                           </div>
                           {toPending && <span style={{ fontSize: 11, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b33", borderRadius: 12, padding: "3px 10px", flexShrink: 0 }}>Pending</span>}
-                          {toStatus === "approved" && <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", background: "#10b98118", border: "1px solid #10b98133", borderRadius: 12, padding: "3px 10px", flexShrink: 0 }}>Approved</span>}
-                          {toStatus === "denied" && <span style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", background: "#ef444418", border: "1px solid #ef444433", borderRadius: 12, padding: "3px 10px", flexShrink: 0 }}>Denied</span>}
+                          {/* Decided states get the full-width pill in the body instead. */}
                           {toStatus === "cancelled" && <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, background: T.border, borderRadius: 12, padding: "3px 10px", flexShrink: 0 }}>Cancelled</span>}
                         </div>
                         <div style={{ padding: "14px 16px" }}>
@@ -19071,7 +19136,12 @@ ${jobsCtx || "No jobs found."}`;
                             <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{rangeTO}</span>
                           </div>
                           {toNoteV && <div style={{ fontSize: 13, color: T.textSec, marginBottom: 12, lineHeight: 1.5 }}>{toNoteV}</div>}
-                          {toReq && toStatus !== "pending" && toReq.decidedByName && <div style={{ fontSize: 12, color: T.textDim }}>{toStatus === "approved" ? "Approved" : toStatus === "denied" ? "Denied" : "Updated"} by {toReq.decidedByName}{toReq.denialReason ? ` · “${toReq.denialReason}”` : ""}</div>}
+                          {/* Same treatment as the completion bubble's resolution line. */}
+                          {/* Same full-width decision pill as the completion bubble. */}
+                          {toStatus !== "pending" && <div style={{ width: "100%", boxSizing: "border-box", padding: "13px 14px", borderRadius: T.radiusPill, background: toStatus === "approved" ? "#10b98118" : toStatus === "denied" ? "#ef444418" : T.surface, border: `1px solid ${toStatus === "approved" ? "#10b98155" : toStatus === "denied" ? "#ef444455" : T.border}`, textAlign: "center", fontSize: 14, fontWeight: 700, letterSpacing: "-0.045em", color: toStatus === "approved" ? "#10b981" : toStatus === "denied" ? "#ef4444" : T.textDim }}>
+                            {toStatus === "approved" ? "Approved" : toStatus === "denied" ? "Denied" : "Cancelled"}{toReq?.decidedByName ? ` by ${toReq.decidedByName}` : ""}
+                          </div>}
+                          {toReq && toStatus !== "pending" && toReq.denialReason && <div style={{ fontSize: 12, color: T.textSec, textAlign: "center", marginTop: 6 }}>Reason: {toReq.denialReason}</div>}
                           {isAdmin && toPending && (denying
                             ? <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
                                 <input autoFocus value={toDenyReason} onChange={e => setToDenyReason(e.target.value)} placeholder="Reason (optional)…" onKeyDown={e => { if (e.key === "Enter") decideTimeOff(m.timeOffRequestId, "deny", toDenyReason); if (e.key === "Escape") { setToDeny(null); setToDenyReason(""); } }} style={{ padding: "9px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }} />

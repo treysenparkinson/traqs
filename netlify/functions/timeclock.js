@@ -1635,19 +1635,48 @@ export async function handler(event) {
       let tasks;
       try { tasks = await readJson(tasksKey) ?? []; } catch { return err(500, "Failed to read tasks"); }
 
+      // A finishRequests[] entry is what the chat bubble reads to render its
+      // Complete/Deny pills. Writing only `pendingFinish` left an iOS request
+      // visible in the Time Stamp Requests tab and NOWHERE else — no bubble, so
+      // no way for a desktop admin to act on it. Mirrors the desktop's own
+      // requestFinishApproval, and keeps pendingFinish for iOS's existing UI.
+      const requestId = `fr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const at = new Date().toISOString();
+
+      let people = [];
+      try { people = (await readJson(peopleKey)) ?? []; } catch { people = []; }
+      const nameOf = id => people.find(p => String(p.id) === String(id))?.name || null;
+
+      // This endpoint is PIN/kiosk-style (no bearer token), so the requester is
+      // whatever the caller supplied, else the op's first team member — the
+      // person actually working it.
+      let byId = body.personId ?? null;
+      let byName = body.personName ?? null;
       let updated = false;
+      let jobTitle = "", panelTitle = "", opTitle = "", jobNumber = null;
+
       tasks = tasks.map(job => {
-        if (job.id !== jobId) return job;
+        if (String(job.id) !== String(jobId)) return job;
+        jobTitle = job.title || ""; jobNumber = job.jobNumber ?? null;
         return {
           ...job,
           subs: (job.subs || []).map(panel => {
-            if (panel.id !== panelId) return panel;
+            if (String(panel.id) !== String(panelId)) return panel;
+            panelTitle = panel.title || "";
             return {
               ...panel,
               subs: (panel.subs || []).map(op => {
-                if (op.id !== opId) return op;
+                if (String(op.id) !== String(opId)) return op;
                 updated = true;
-                return { ...op, pendingFinish: true };
+                opTitle = op.title || "";
+                if (byId == null) byId = (op.team || [])[0] ?? null;
+                const entry = { id: requestId, by: byId, byName: byName || nameOf(byId) || "Field", at, status: "pending" };
+                return {
+                  ...op,
+                  pendingFinish: true,
+                  finishRequest: { requestId, by: entry.by, byName: entry.byName, at },
+                  finishRequests: [...(op.finishRequests || []), entry],
+                };
               }),
             };
           }),
@@ -1656,7 +1685,61 @@ export async function handler(event) {
 
       if (!updated) return err(404, "Operation not found");
       try { await writeStampedArray(tasksKey, tasks); } catch { return err(500, "Failed to save tasks"); }
-      return json(200, { ok: true });
+
+      byName = byName || nameOf(byId) || "Field";
+
+      // Drop it into the same "Completion Requests" group the desktop uses, so
+      // web- and iOS-originated requests land in one thread. Matched by name
+      // because that is how the desktop's ensureCompletionGroup finds it.
+      try {
+        const groupsKey = `orgs/${orgCode}/groups.json`;
+        let groups = (await readJson(groupsKey)) ?? [];
+        if (!Array.isArray(groups)) groups = [];
+        const adminIds = people.filter(p => p.userRole === "admin").map(p => p.id);
+        const want = [...new Set([...adminIds, ...(byId != null ? [byId] : [])])];
+        let grp = groups.find(g => g.name === "Completion Requests");
+        if (!grp) {
+          grp = { id: `grp_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, name: "Completion Requests", memberIds: want, createdBy: byId, createdAt: at };
+          groups = [...groups, grp];
+          await writeJson(groupsKey, groups);
+        } else {
+          const missing = want.filter(id => !(grp.memberIds || []).some(m => String(m) === String(id)));
+          if (missing.length) {
+            grp = { ...grp, memberIds: [...(grp.memberIds || []), ...missing] };
+            groups = groups.map(g => (g.id === grp.id ? grp : g));
+            await writeJson(groupsKey, groups);
+          }
+        }
+
+        const messagesKey = `orgs/${orgCode}/messages.json`;
+        let messages = (await readJson(messagesKey)) ?? [];
+        if (!Array.isArray(messages)) messages = [];
+        const jobNumTxt = jobNumber ? `Job #${jobNumber} — ` : "";
+        const contextLabel = [panelTitle, opTitle].filter(Boolean).join(" › ") || jobTitle;
+        messages.push({
+          id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+          threadKey: `group:${grp.id}`,
+          scope: "group",
+          jobId, panelId, opId,
+          text: `Completion requested by ${byName} for ${jobNumTxt}${contextLabel}`,
+          authorId: byId == null ? null : String(byId),
+          authorName: byName,
+          authorColor: "#4169e1",
+          participantIds: grp.memberIds || [],
+          attachments: [],
+          timestamp: at,
+          type: "finish_request",
+          finishRequestId: requestId,
+        });
+        await writeJson(messagesKey, messages.slice(-2000));
+        await publishChange(orgCode, "messages", { ids: [] });
+        await publishChange(orgCode, "groups", { ids: [] });
+      } catch (e) {
+        // The request itself is saved; only the chat bubble failed to post.
+        console.warn("finishRequest bubble failed", e);
+      }
+
+      return json(200, { ok: true, requestId });
     }
 
     return err(400, "Unknown action");
