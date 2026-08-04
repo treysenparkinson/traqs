@@ -503,6 +503,25 @@ export const fetchTimeclock = async (getToken, orgCode) => {
   return res.json();
 };
 
+// Job-clock session rows — the authoritative record of production time, and what
+// the schedule's grey worked-stripe is drawn from.
+//
+// The app used to hydrate these from IndexedDB only, so a cold profile or a
+// stalled sync cursor left the array empty; the stripe then silently fell back
+// to the cumulative loggedHours counter on each task and under-reported.
+//
+// Scoped like the payroll GET: admins get the whole org, everyone else gets
+// their own rows. That asymmetry is why the counter is still consulted as a
+// floor — a non-admin cannot see co-workers' sessions and would otherwise draw a
+// stripe covering only their own share of the work.
+export const fetchProductionHours = async (getToken, orgCode) => {
+  const res = await fetch(`${BASE}/timeclock?dataset=productionhours`, {
+    headers: await authReadHeaders(getToken, orgCode),
+  });
+  if (!res.ok) throw new Error(`fetchProductionHours failed: ${res.status}`);
+  return res.json();
+};
+
 export const clockInAction = (payload, orgCode) =>
   fetch(`${BASE}/timeclock`, {
     method: "POST",

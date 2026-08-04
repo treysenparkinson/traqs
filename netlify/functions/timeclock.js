@@ -44,6 +44,31 @@ function hoursElapsed(isoStart, isoEnd) {
   return Math.max(0, Math.round((ms / 3600000) * 100) / 100);
 }
 
+// The calendar day an instant falls on IN THE SHOP'S timezone.
+//
+// `iso.slice(0, 10)` reads the day off a UTC timestamp, which is the shop's day
+// only for shops on UTC. In Mountain time (UTC-6) everything after 18:00 local
+// is stamped with tomorrow's date: a real 18:23-21:53 shift was filed under the
+// next day, so "yesterday" reported 8.7h of a 12.2h day and the missing 3.5h
+// showed up on a day the worker had not started yet.
+//
+// Falls back to the UTC slice when the org has no timeZone configured, so orgs
+// that have not set one keep exactly their current behaviour rather than
+// silently shifting to a timezone nobody chose.
+function orgLocalDay(iso, timeZone) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso || "").slice(0, 10);
+  if (!timeZone) return d.toISOString().slice(0, 10);
+  try {
+    // en-CA formats as YYYY-MM-DD, matching the keys used everywhere else.
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+    }).format(d);
+  } catch {
+    return d.toISOString().slice(0, 10);   // bad IANA name — don't lose the row
+  }
+}
+
 // Sum closed LUNCH ranges from a session's events. Open ranges are closed at `endIso` so
 // a worker who clocks out while still on lunch has that final stretch excluded too.
 //
@@ -100,6 +125,42 @@ function netHoursForPunch(clockIn, clockOut, personRows) {
   const grossMs = new Date(clockOut) - new Date(clockIn);
   const netMs = grossMs - pausedMsFromRows(personRows, clockIn, clockOut);
   return Math.max(0, Math.round((netMs / 3600000) * 100) / 100);
+}
+
+// Add `delta` hours to one PANEL's counter.
+//
+// Panels are the one scope nothing ever maintained: jobClockOut credited the job
+// and the op, the pay clock-out credited the job, and the worked-hours override
+// writes the op. So a panel bar had no counter of its own and fell back entirely
+// to the production rows — which a non-admin only ever receives their own share
+// of, so a panel several people worked greyed in at one person's contribution.
+//
+// Op and job counters are deliberately NOT touched here. Both already have
+// writers, and the only caller of adminJobHours ("Set Worked Hours") sets
+// op.loggedHours to the exact total it wants before sending the delta; crediting
+// it again here would double-count the admin's own correction.
+//
+// Incremental rather than derived, because these counters legitimately hold
+// hours no session row explains — the override offers "Nobody — job progress
+// only", and ops worked before productionhours.json existed still carry their
+// totals (one op here holds 68.3h against zero rows). Summing rows would delete
+// both, which is why the schedule reads max(counter, rows) instead.
+function creditPanelHours(tasks, panelId, delta) {
+  const d = Math.round((Number(delta) || 0) * 100) / 100;
+  // No scope, no credit — a null panelId must not fall through to "every panel".
+  if (!d || panelId == null) return tasks;
+  return (tasks || []).map(job => {
+    if (!Array.isArray(job?.subs)) return job;
+    let touched = false;
+    const subs = job.subs.map(panel => {
+      if (!panel || String(panel.id) !== String(panelId)) return panel;
+      touched = true;
+      // Clamped at 0: a walk-back larger than the counter must not go negative.
+      const next = Math.max(0, Math.round(((Number(panel.loggedHours) || 0) + d) * 100) / 100);
+      return { ...panel, loggedHours: next };
+    });
+    return touched ? { ...job, subs } : job;
+  });
 }
 
 // Stamp entity-array writes so timeclock's server-side mutations (clock
@@ -237,6 +298,29 @@ export async function handler(event) {
   // the app can report job hours within a pay period — separate from the
   // cumulative loggedHours totals kept on each job/op in tasks.json.
   const prodKey = `orgs/${orgCode}/productionhours.json`;
+
+  // Shop timezone, for stamping a row's calendar day. Read at most once per
+  // invocation and only when a write actually needs it — clock actions are
+  // low-frequency, so one extra GET on those paths is cheaper than threading
+  // the value through every call site.
+  let _orgTz;
+  const getOrgTimeZone = async () => {
+    if (_orgTz !== undefined) return _orgTz;
+    try { _orgTz = (await readJson(settingsKey))?.timeZone || null; } catch { _orgTz = null; }
+    return _orgTz;
+  };
+
+  // Move a panel counter by `delta`. Non-fatal by design: the session rows are
+  // the record of record, so a failure here leaves the counter behind rather than
+  // failing an action the user already completed.
+  const creditPanel = async (panelId, delta) => {
+    if (!delta || panelId == null) return;
+    try {
+      const tasks = await readJson(tasksKey) ?? [];
+      if (!Array.isArray(tasks)) return;
+      await writeStampedArray(tasksKey, creditPanelHours(tasks, panelId, delta));
+    } catch { /* non-fatal */ }
+  };
 
   // ── GET ──────────────────────────────────────────────────────────────────
   // Payroll-grade PII. Membership required, AND non-admins can only see
@@ -868,6 +952,37 @@ export async function handler(event) {
       jcoPeople[jcoIdx] = { ...jcoPerson, activeJobClock: null };
       try { await writeStampedArray(peopleKey, jcoPeople); } catch { return err(500, "Failed to save"); }
 
+      // Session row first — it is the record of record, so it should land even if
+      // the counter update below fails.
+      if (jcoHours > 0 && jcoJobId) {
+        try {
+          const { jobTitle: jcoJobTitle, panelTitle: jcoPanelTitle, opTitle: jcoOpTitle } = jcoPerson.activeJobClock || {};
+          const prodSource = body.source === "kiosk" ? "kiosk" : "ios-app";
+          const orgTimeZone = await getOrgTimeZone();
+          let sessions = await readJson(prodKey) ?? [];
+          if (!Array.isArray(sessions)) sessions = [];
+          sessions.push({
+            id: `js_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            personId: jcoPId,
+            jobId: jcoJobId,
+            panelId: jcoPanelId ?? null,
+            opId: jcoOpId ?? null,
+            jobTitle: jcoJobTitle ?? null,
+            panelTitle: jcoPanelTitle ?? null,
+            opTitle: jcoOpTitle ?? null,
+            clockIn: jcoClockIn,
+            clockOut: jcoClockOut,
+            hours: jcoHours,
+            date: orgLocalDay(jcoClockIn, orgTimeZone),
+            source: prodSource,
+          });
+          // productionhours.json IS a /sync entity now; writeStampedArray stamps
+          // it, publishes the 'productionhours' channel (+ the legacy 'timeclock'
+          // alias), and fires the silent background-sync push.
+          await writeStampedArray(prodKey, sessions);
+        } catch { /* non-fatal */ }
+      }
+
       if (jcoHours > 0 && jcoJobId) {
         try {
           let tasks = await readJson(tasksKey) ?? [];
@@ -886,37 +1001,9 @@ export async function handler(event) {
             }) : job.subs;
             return { ...job, loggedHours: newJobHours, subs: newSubs };
           });
+          // Panels were never credited by anything — see creditPanelHours.
+          tasks = creditPanelHours(tasks, jcoPanelId, jcoHours);
           await writeStampedArray(tasksKey, tasks);
-        } catch { /* non-fatal */ }
-      }
-
-      // Append a timestamped job-session row so pay-period job hours can be
-      // reported per person (the loggedHours totals above are cumulative only).
-      if (jcoHours > 0 && jcoJobId) {
-        try {
-          const { jobTitle: jcoJobTitle, panelTitle: jcoPanelTitle, opTitle: jcoOpTitle } = jcoPerson.activeJobClock || {};
-          const prodSource = body.source === "kiosk" ? "kiosk" : "ios-app";
-          let sessions = await readJson(prodKey) ?? [];
-          if (!Array.isArray(sessions)) sessions = [];
-          sessions.push({
-            id: `js_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-            personId: jcoPId,
-            jobId: jcoJobId,
-            panelId: jcoPanelId ?? null,
-            opId: jcoOpId ?? null,
-            jobTitle: jcoJobTitle ?? null,
-            panelTitle: jcoPanelTitle ?? null,
-            opTitle: jcoOpTitle ?? null,
-            clockIn: jcoClockIn,
-            clockOut: jcoClockOut,
-            hours: jcoHours,
-            date: jcoClockIn.slice(0, 10),
-            source: prodSource,
-          });
-          // productionhours.json IS a /sync entity now; writeStampedArray stamps
-          // it, publishes the 'productionhours' channel (+ the legacy 'timeclock'
-          // alias), and fires the silent background-sync push.
-          await writeStampedArray(prodKey, sessions);
         } catch { /* non-fatal */ }
       }
 
@@ -1022,9 +1109,27 @@ export async function handler(event) {
           if (toRemove <= 0) break;
           const h = Number(s.hours) || 0;
           if (h <= toRemove) { sessions[i] = { ...s, deletedAt: stamp }; toRemove -= h; }
-          else { sessions[i] = { ...s, hours: Math.round((h - toRemove) * 100) / 100 }; toRemove = 0; }
+          else {
+            // Pull clockOut back with the reduced hours. Rewriting `hours` alone
+            // left the row self-contradictory — a 4.21h span reading 0.21h — and
+            // anything reading the span rather than the field saw the original
+            // over-credit.
+            const nextH = Math.round((h - toRemove) * 100) / 100;
+            const inMs = new Date(s.clockIn).getTime();
+            sessions[i] = {
+              ...s,
+              hours: nextH,
+              ...(Number.isNaN(inMs) ? {} : { clockOut: new Date(inMs + nextH * 3600000).toISOString() }),
+            };
+            toRemove = 0;
+          }
         }
         try { await writeStampedArray(prodKey, sessions); } catch { return err(500, "Failed to save production hours"); }
+        // `(-mjhHours) - toRemove` is what was ACTUALLY removed: if the op had
+        // less manual credit on file than the walk-back asked for, only the part
+        // that existed came off, and the counter must move by that much and no
+        // more. (Op counter untouched — the caller already set it.)
+        await creditPanel(panelId, -((-mjhHours) - toRemove));
         return json(200, { ok: true, credited: mjhHours });
       }
 
@@ -1043,6 +1148,12 @@ export async function handler(event) {
       sessions.push(added);
 
       try { await writeStampedArray(prodKey, sessions); } catch { return err(500, "Failed to save production hours"); }
+      // `date` needs no timezone treatment here: clockIn is noon UTC, which is
+      // the same calendar day in every timezone the shop could plausibly be in,
+      // and mjhDate is the day the admin actually picked.
+      // Panel only — the caller already wrote op.loggedHours to the exact total
+      // the admin typed, so crediting the op here would double it.
+      await creditPanel(panelId, mjhHours);
       return json(200, { ok: true, credited: mjhHours, session: added });
     }
 

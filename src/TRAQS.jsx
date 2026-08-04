@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, UL_LOGO_WHITE } from "./logo.js";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme } from "./push.js";
 import { HexColorPicker } from "react-colorful";
@@ -9,6 +9,7 @@ import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
 import { breakHoursByDay, producedHoursByScope } from "./statsMath.js";
+import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
@@ -139,12 +140,21 @@ const WORKED_STRIPE = "repeating-linear-gradient(135deg, rgba(255,255,255,0.18) 
 // True when an op is locked — either by manual toggle OR by being fully worked (loggedHours >= hpd).
 const isOpLocked = (op) => !!op?.locked || ((op?.hpd || 0) > 0 && (op?.loggedHours || 0) >= op.hpd);
 // Derives the worked / remaining state of an op for rendering + drag gating.
-// `produced` is the hours actually recorded against this task in the production
-// session rows. It wins over the `loggedHours` counter whenever it's higher:
-// several write paths bump only `job.loggedHours`, so the counter drifts below
-// the real production record and the bar under-greys (11h logged, 4.3h striped).
-// Taking the max rather than replacing outright keeps historical bars whose
-// counter predates the session rows from suddenly reading zero.
+//
+// `produced` is the hours recorded against this task in the production session
+// rows; `loggedHours` is the counter stored on the task itself. The max of the
+// two is deliberate, and BOTH terms are load-bearing:
+//
+//  • produced can exceed the counter — job.loggedHours is still incremented in
+//    place by two different write paths, so it drifts. (op/panel counters are
+//    now derived server-side from the session rows, so they no longer do.)
+//  • the counter can exceed produced — the session GET is scoped, so a
+//    non-admin only ever receives their OWN rows. Summing just those would draw
+//    a stripe covering one person's share of work several people did. The
+//    counter is stored on the task, so everyone sees the true org-wide total.
+//
+// It also keeps historical bars whose counter predates the session rows from
+// suddenly reading zero.
 const deriveWorkedState = (t, produced = 0) => {
   const hpd = t?.hpd || 0;
   const recorded = Math.max(t?.loggedHours || 0, produced || 0);
@@ -4535,12 +4545,22 @@ Extraction rules:
       .map(p => ({ ...p, label: `${fmtMD(p.start)} – ${fmtY(p.end)}` }));
   }, [timeclock, orgSettings.payDates]);
   const [productionHours, setProductionHours] = useState([]); // job-clock sessions (js_ rows) — powers the Analytics efficiency graph
+  // True once the server copy has landed. The cache reads below must not clobber
+  // it with an older slice: IndexedDB hydration and the authoritative GET race,
+  // and whichever resolves last used to win.
+  const [productionHoursLoaded, setProductionHoursLoaded] = useState(false);
+  const productionHoursLoadedRef = useRef(false);
+  useEffect(() => { productionHoursLoadedRef.current = productionHoursLoaded; }, [productionHoursLoaded]);
   // Production hours totalled by op / panel / job from those same session rows.
   // The schedule's worked-stripe used to read the `loggedHours` counter, which
   // several write paths never update, so a bar could show 4.3h striped against
   // 11h of real production. Reading the sessions makes the schedule and the
   // Analytics production number agree by construction.
   const producedScopes = useMemo(() => producedHoursByScope(productionHours), [productionHours]);
+  // Zone used to bucket clock records into days. The org's configured zone if set,
+  // otherwise this device's — anything but UTC, which puts an evening shift on
+  // the next day for every shop west of Greenwich.
+  const statsTimeZone = useMemo(() => resolveTimeZone(orgSettings?.timeZone), [orgSettings?.timeZone]);
   // Hours recorded against one task, matched at its own level: an op bar counts
   // its own sessions, a panel bar every session beneath it, a job bar all of them.
   const producedFor = useCallback((t) => {
@@ -4781,7 +4801,8 @@ Extraction rules:
         setPeople(np);
         setClients(cC || []);
         if (Array.isArray(cTC)) setTimeclock(cTC);
-        if (Array.isArray(cPH)) setProductionHours(cPH);
+        // Cold-hydrate paint only — never over the server copy if it already won the race.
+        if (Array.isArray(cPH) && !productionHoursLoadedRef.current) setProductionHours(cPH);
         const match = auth0User?.email
           ? np.find(p => p.email && p.email.toLowerCase() === auth0User.email.toLowerCase())
           : null;
@@ -4791,6 +4812,20 @@ Extraction rules:
     })();
 
     fetchTimeclock(getToken, orgCode).then(d => { if (Array.isArray(d)) setTimeclock(d); }).catch(() => {});
+    // Job-clock sessions, from the server rather than only from IndexedDB. These
+    // drive the schedule's grey worked-stripe; when the cache slice was the only
+    // source, an empty slice left the stripe reading the drifting loggedHours
+    // counter with nothing to indicate the real rows had never arrived.
+    // Folded back through mergeFullSlice so the cache cannot later overwrite this
+    // authoritative copy with an older one.
+    fetchProductionHours(getToken, orgCode)
+      .then(async d => {
+        if (!Array.isArray(d)) return;
+        setProductionHours(d);
+        setProductionHoursLoaded(true);
+        try { await mergeFullSlice("productionhours", d); } catch { /* cache is best-effort */ }
+      })
+      .catch(e => console.warn("[productionhours] authoritative fetch failed:", e?.message || e));
     Promise.all([fetchTasks(getToken, orgCode), fetchPeople(getToken, orgCode), fetchClients(getToken, orgCode)])
       .then(([t, p, c]) => {
         const safeT = Array.isArray(t) ? t : [];
@@ -4829,6 +4864,11 @@ Extraction rules:
 
     // Seed/refresh the IndexedDB cache + sync cursor in the background so the
     // NEXT cold-open is instant and Ably deltas have a cursor to work from.
+    // This slice read is now a refresh on top of an authoritative base rather
+    // than the only source of it: the GET above folds its rows in via
+    // mergeFullSlice, so whichever of the two lands last, the cache is a superset
+    // of the server copy. The `.length` guard still matters for a cold profile,
+    // where the slice is empty and must not blank out a fetch that succeeded.
     deltaSync()
       .then(() => readSlice("productionhours"))
       .then(ph => { if (Array.isArray(ph) && ph.length) setProductionHours(ph); })
@@ -13824,7 +13864,14 @@ ${jobsCtx || "No jobs found."}`;
       return out;
     };
     const renderEfficiency = (personId) => {
-      const dayOf = e => e.date || (e.clockIn ? String(e.clockIn).slice(0, 10) : null);
+      // DERIVE the day rather than trusting the stored `date`, and derive it the
+      // same way for both datasets. This function buckets pay rows and production
+      // rows into the same columns, but the two files stamp `date` differently:
+      // production rows are now stamped in shop-local time, while payhours `date`
+      // is still a UTC slice (moving it would move punches between pay periods —
+      // a payroll decision, not a display one). Reading each row's own field would
+      // put a late shift's pay in one column and its production in the next.
+      const dayOf = e => (e.clockIn ? localDay(e.clockIn, statsTimeZone) : e.date || null);
       const payOk = e => !e.eventType && e.clockIn && e.clockOut && (personId == null || String(e.personId) === String(personId));
       const prodOk = s => (personId == null || String(s.personId) === String(personId));
       // Live accrual from OPEN clocks — grows the graph while someone is clocked
@@ -13867,7 +13914,7 @@ ${jobsCtx || "No jobs found."}`;
                 else if (ev.type === "breakEnd" && brkOpen != null) { brkMs += Math.max(0, ev.t - brkOpen); brkOpen = null; }
               });
             if (brkOpen != null) brkMs += Math.max(0, statsNow - brkOpen);
-            liveAdds.push({ day: String(ac.clockIn).slice(0, 10), pay: Math.max(0, ms / 3600000), prod: 0, brk: Math.max(0, brkMs / 3600000) });
+            liveAdds.push({ day: localDay(ac.clockIn, statsTimeZone), pay: Math.max(0, ms / 3600000), prod: 0, brk: Math.max(0, brkMs / 3600000) });
           }
         }
         const jc = p.activeJobClock;
@@ -13876,7 +13923,7 @@ ${jobsCtx || "No jobs found."}`;
           if (s) {
             let ms = statsNow - s - (jc.totalPausedMs || 0);
             if (jc.pausedAt) ms -= (statsNow - new Date(jc.pausedAt).getTime());
-            liveAdds.push({ day: String(jc.clockIn).slice(0, 10), pay: 0, prod: Math.max(0, ms / 3600000), brk: 0 });
+            liveAdds.push({ day: localDay(jc.clockIn, statsTimeZone), pay: 0, prod: Math.max(0, ms / 3600000), brk: 0 });
           }
         }
       });
@@ -13886,7 +13933,7 @@ ${jobsCtx || "No jobs found."}`;
       // and one shared cursor lost most of the break time whenever two people
       // were on break at once. Mirrors StatsMath.breakHoursByDay on iOS so both
       // platforms report the same number.
-      const breakByDay = breakHoursByDay(timeclock, personId);
+      const breakByDay = breakHoursByDay(timeclock, personId, statsTimeZone);
       const rows = efficiencyBuckets().map(b => {
         const set = new Set(b.days);
         let pay = timeclock.filter(e => payOk(e) && set.has(dayOf(e))).reduce((a, e) => a + (e.hours || 0), 0);
@@ -14677,7 +14724,14 @@ ${jobsCtx || "No jobs found."}`;
         // No cap — the pay-period filter already bounds it and the card scrolls.
         .sort((a, b) => String(b.clockIn || b.date).localeCompare(String(a.clockIn || a.date)))
         .map(e => {
-          const sess = productionHours.filter(s => String(s.personId) === String(P.id) && s.date === e.date);
+          // Match on the derived local day, not the two stored `date` fields:
+          // production rows are stamped shop-local and payhours rows UTC, so a
+          // late shift's session would miss its own punch and the row would lose
+          // its job/op label.
+          const eDay = e.clockIn ? localDay(e.clockIn, statsTimeZone) : e.date;
+          const sess = productionHours.filter(s =>
+            String(s.personId) === String(P.id)
+            && (s.clockIn ? localDay(s.clockIn, statsTimeZone) : s.date) === eDay);
           return { ...e, jobTitle: sess[0]?.jobTitle || null, opTitle: sess[0]?.opTitle || null, open: !e.clockOut };
         }),
     ];

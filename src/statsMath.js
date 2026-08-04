@@ -2,6 +2,8 @@
 // exercised directly. Mirrors `StatsMath` in the iOS app — the two platforms
 // report the same numbers only if they run the same algorithm.
 
+import { localDay } from "./localDay.js";
+
 /**
  * Paid break hours bucketed by the calendar day each break STARTED.
  *
@@ -16,14 +18,16 @@
  * An unpaired start is ignored rather than guessed at — the live accrual covers
  * a break that is still open right now.
  *
- * Days are keyed UTC (`toISOString().slice(0, 10)`), unchanged from the previous
- * implementation.
+ * Days are keyed by the shop's calendar day (see localDay.js). They used to be
+ * keyed UTC, which put an evening break on the following day at any negative
+ * offset — the same off-by-one that misfiled whole evening shifts.
  *
  * @param {Array} timeclock  pay-clock rows, event rows included
  * @param {string|null} personId  null = the whole team
+ * @param {string|null} timeZone  IANA zone; falsy keeps the old UTC keying
  * @returns {Object<string, number>} "YYYY-MM-DD" → hours
  */
-export function breakHoursByDay(timeclock, personId) {
+export function breakHoursByDay(timeclock, personId, timeZone = null) {
   const byPerson = new Map();
   (timeclock || [])
     .filter(e => e && !e.deletedAt
@@ -44,7 +48,7 @@ export function breakHoursByDay(timeclock, personId) {
     for (const ev of rows) {
       if (ev.type === "breakStart") open = ev.t;
       else if (open != null) {
-        const day = new Date(open).toISOString().slice(0, 10);
+        const day = localDay(new Date(open).toISOString(), timeZone);
         out[day] = (out[day] || 0) + Math.max(0, (ev.t - open) / 3600000);
         open = null;
       }
