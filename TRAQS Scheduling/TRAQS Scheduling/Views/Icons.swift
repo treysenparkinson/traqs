@@ -144,9 +144,21 @@ struct NavGlyph: View {
         }
     }
 
+    /// Per-glyph stroke correction, applied on top of `stroke`. The bars are
+    /// three bare vertical lines with no enclosing outline to give them mass, so
+    /// at the shared width they read lighter than the other four. Lives here
+    /// rather than at the call site so every use of the icon gets it.
+    private var strokeScale: CGFloat {
+        switch icon {
+        case .stats: return 1.3
+        default:     return 1
+        }
+    }
+
     private var style: StrokeStyle {
         // The desktop sets strokeLinecap/strokeLinejoin="round" on all of them.
-        StrokeStyle(lineWidth: stroke * (size / 20), lineCap: .round, lineJoin: .round)
+        StrokeStyle(lineWidth: stroke * strokeScale * (size / 20),
+                    lineCap: .round, lineJoin: .round)
     }
 
     var body: some View {
@@ -203,12 +215,20 @@ private struct HomeGlyph: Shape {
     }
 }
 
-// Jobs — bulleted list. Rules: <path d="M8.8 3.9h12.2"/> etc.
+// Jobs — bulleted list.
+//
+// Row baselines, shared by the rules and the bullets so the two layers can't
+// drift apart. The desktop sets these at 3.9 / 12 / 20.1; iOS pulls them in to
+// a 6.8-unit gap so the three rows read as one stacked block at 23pt rather
+// than three loose lines. Centred on 12, so the glyph stays optically centred.
+private let jobsRowY: [CGFloat] = [5.2, 12.0, 18.8]
+
+// Rules: <path d="M8.8 3.9h12.2"/> etc.
 private struct JobsRulesGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         navGlyphPath(in: rect) { p in
             // The bottom rule is deliberately short (h8.2) — a ragged last line.
-            for (y, endX) in [(3.9, 21.0), (12.0, 21.0), (20.1, 17.0)] {
+            for (y, endX) in zip(jobsRowY, [21.0, 21.0, 17.0] as [CGFloat]) {
                 p.move(to: CGPoint(x: 8.8, y: y))
                 p.addLine(to: CGPoint(x: endX, y: y))
             }
@@ -220,7 +240,7 @@ private struct JobsRulesGlyph: Shape {
 private struct JobsBulletsGlyph: Shape {
     func path(in rect: CGRect) -> Path {
         navGlyphPath(in: rect) { p in
-            for y in [3.9, 12.0, 20.1] {
+            for y in jobsRowY {
                 p.addEllipse(in: CGRect(x: 3.7 - 1.7, y: y - 1.7, width: 3.4, height: 3.4))
             }
         }
