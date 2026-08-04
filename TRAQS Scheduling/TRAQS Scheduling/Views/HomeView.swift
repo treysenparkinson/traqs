@@ -225,10 +225,13 @@ private struct ShiftStatusHero: View {
     var body: some View {
         Button(action: onOpen) {
             VStack(spacing: 10) {
+                // Title sits at the box's leading edge like every other card's.
+                // The clock and pill below stay centred — that's the VStack's own
+                // alignment, which this frame deliberately overrides only here.
                 Text("This shift")
                     .font(.custom(TFontName.bold.rawValue, size: 15))
                     .foregroundStyle(Color(hex: T.ink))
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer(minLength: 0)
 
@@ -268,7 +271,7 @@ private struct NewMessagesCard: View {
                 Text("Messages")
                     .font(.custom(TFontName.bold.rawValue, size: 15))
                     .foregroundStyle(Color(hex: T.ink))
-                    .frame(maxWidth: .infinity, alignment: .center)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 if senders.isEmpty {
                     Spacer(minLength: 0)
