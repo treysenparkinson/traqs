@@ -11068,6 +11068,25 @@ ${jobsCtx || "No jobs found."}`;
           }
         `}</style>
 
+        {/* Pinned background image — the same layer frostScroll gives every other
+            page, sticky inside this scroller so the frosted cards' backdrop-filter
+            samples it in the same stacking context.
+
+            Placement is load-bearing. It has to come BEFORE the content and the
+            content has to carry zIndex:1, exactly as frostScroll orders them.
+            Positioned siblings at z-index auto/0 paint in DOM order, so with this
+            after the content wrapper the image covered the whole dashboard — which
+            the old blob wash got away with only because blurred rgba blobs are
+            transparent enough to read through. An image is not.
+
+            Dashboard used to paint that wash unconditionally and sat in a permanent
+            Liquid look whatever bgMode said. Liquid now comes from the single
+            LiquidBackground on the content panel, behind this view as it is behind
+            the others; Color shows the panel's T.bg through; Image gets this. */}
+        {T.adaptive && T.bgImage && <div aria-hidden="true" style={{ position: "sticky", top: 0, height: 0, zIndex: 0, pointerEvents: "none" }}>
+          <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: viewScrollH || "100vh", backgroundImage: `linear-gradient(0deg, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}), url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center" }} />
+        </div>}
+
         {/* minHeight:100% + flex column is what lets the grid below claim all the
             leftover vertical space. Without it the grid was only as tall as its
             content and the page ended two-thirds of the way down.
@@ -11076,7 +11095,7 @@ ${jobsCtx || "No jobs found."}`;
             past their content and the cards clipped their own bottoms with no
             way to scroll to them. minHeight keeps the fills-the-screen look on a
             tall display while letting the page grow and scroll on a short one. */}
-        <div style={{ position: "relative", minHeight: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", padding: isMobile ? "14px 14px 26px" : "22px 26px 26px" }}>
+        <div style={{ position: "relative", zIndex: 1, minHeight: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", padding: isMobile ? "14px 14px 26px" : "22px 26px 26px" }}>
           {/* The greeting is not here — it lives as a direct child of the scroll
               container below, deliberately; see the comment there. (The frosted
               glow that used to share that placement is gone: the background now
@@ -11360,20 +11379,6 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           )}
         </div>
-
-        {/* Pinned background image, identical to the layer frostScroll gives every
-            other page — sticky inside this scroller so the frosted cards'
-            backdrop-filter samples it in the same stacking context.
-
-            This used to be a hard-coded five-blob wash that ran no matter what the
-            theme said, so Dashboard was permanently in Liquid while every other
-            page honoured bgMode. The Liquid wash now comes from the one
-            LiquidBackground on the content panel, which sits behind this view like
-            it does behind the others; Color mode shows the panel's T.bg through;
-            and Image mode gets the layer below. Nothing here overrides the theme. */}
-        {T.adaptive && T.bgImage && <div aria-hidden="true" style={{ position: "sticky", top: 0, height: 0, zIndex: 0, pointerEvents: "none" }}>
-          <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: viewScrollH || "100vh", backgroundImage: `linear-gradient(0deg, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}), url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center" }} />
-        </div>}
 
         {/* Greeting. Sits HERE — a direct child of the scroll container — rather
             than inside the padded wrapper above, and that placement is the whole
