@@ -21152,11 +21152,17 @@ ${jobsCtx || "No jobs found."}`;
     const recentImgs = [...new Set([dc.bgImage, ...bgImageHistory].filter(Boolean))].slice(0, 6);
     const ROSTER = 132;
     const BARC = ["#f97316", "#22c55e", "#a855f7", "#ec4899", "#ef4444", pT.accent];
+    // Six groups, 20 people, 28 bars — against 4 / 8 / 9 before, so the mockup
+    // reads as a staffed shop rather than a nearly-empty week. Each row is one
+    // person; `c` indexes BARC (0-5 only). One row is deliberately left empty —
+    // somebody unassigned is normal, and it shows the row styling with no bar on it.
     const SCHED_GROUPS = [
-      [ [{ l: 28, w: 18, c: 0 }], [{ l: 4, w: 14, c: 0 }, { l: 58, w: 20, c: 1 }], [{ l: 42, w: 12, c: 2 }] ],
-      [ [{ l: 10, w: 22, c: 0 }], [{ l: 54, w: 16, c: 3 }] ],
-      [ [{ l: 18, w: 10, c: 1 }, { l: 68, w: 16, c: 4 }] ],
-      [ [], [{ l: 34, w: 24, c: 2 }] ],
+      [ [{ l: 28, w: 18, c: 0 }], [{ l: 4, w: 14, c: 0 }, { l: 58, w: 20, c: 1 }], [{ l: 42, w: 12, c: 2 }], [{ l: 12, w: 20, c: 3 }, { l: 70, w: 14, c: 5 }] ],
+      [ [{ l: 10, w: 22, c: 0 }], [{ l: 54, w: 16, c: 3 }], [{ l: 30, w: 26, c: 4 }], [{ l: 2, w: 12, c: 2 }, { l: 46, w: 18, c: 1 }] ],
+      [ [{ l: 18, w: 10, c: 1 }, { l: 68, w: 16, c: 4 }], [{ l: 38, w: 22, c: 5 }], [{ l: 6, w: 16, c: 3 }, { l: 62, w: 22, c: 0 }] ],
+      [ [], [{ l: 34, w: 24, c: 2 }], [{ l: 14, w: 18, c: 5 }, { l: 66, w: 12, c: 1 }], [{ l: 50, w: 20, c: 4 }] ],
+      [ [{ l: 22, w: 14, c: 3 }, { l: 56, w: 24, c: 0 }], [{ l: 8, w: 18, c: 2 }], [{ l: 40, w: 16, c: 5 }] ],
+      [ [{ l: 30, w: 20, c: 1 }], [{ l: 2, w: 10, c: 4 }, { l: 44, w: 14, c: 3 }, { l: 74, w: 12, c: 0 }] ],
     ];
     const PRI_PAL = ["#10b981", "#f59e0b", "#f43f5e"];
     const CLIENT_PAL = ["#3b82f6", "#a855f7", "#ec4899", "#06b6d4", "#84cc16"];
@@ -21383,7 +21389,12 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
                       <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 20, padding: "7px 14px" }}>+ New Job</span>
                     </div>
-                    {[[70, 56, 82], [62, 78, 48, 66], [74, 50, 60]].map((rowWidths, sec) => {
+                    {/* Five job groups of 3-5 rows — 20 rows against the 10 this had.
+                        Row count only has to be plausible, not fit: the panel clips,
+                        so the extra rows read as a list that continues past the frame,
+                        which is what a real Jobs page looks like. Widths vary per row
+                        so no two title placeholders line up. */}
+                    {[[70, 56, 82, 64], [62, 78, 48, 66, 74], [74, 50, 60, 68], [58, 72, 46, 80], [66, 54, 76]].map((rowWidths, sec) => {
                       const COLS = "1.7fr 0.5fr 1fr 0.9fr 0.8fr 0.8fr 1.2fr 0.5fr";
                       return <div key={sec}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 7 }}>
@@ -22188,11 +22199,15 @@ ${jobsCtx || "No jobs found."}`;
       // ({ l: left%, w: width%, c: index into BARC }).
       const ROSTER = 132;
       const BARC = ["#f97316", "#22c55e", "#a855f7", "#ec4899", "#ef4444", pT.accent];
+      // Kept in step with the full-page settings copy above — same six groups, 20
+      // people, 28 bars. See the comment there for what the shape means.
       const SCHED_GROUPS = [
-        [ [{ l: 28, w: 18, c: 0 }], [{ l: 4, w: 14, c: 0 }, { l: 58, w: 20, c: 1 }], [{ l: 42, w: 12, c: 2 }] ],
-        [ [{ l: 10, w: 22, c: 0 }], [{ l: 54, w: 16, c: 3 }] ],
-        [ [{ l: 18, w: 10, c: 1 }, { l: 68, w: 16, c: 4 }] ],
-        [ [], [{ l: 34, w: 24, c: 2 }] ],
+        [ [{ l: 28, w: 18, c: 0 }], [{ l: 4, w: 14, c: 0 }, { l: 58, w: 20, c: 1 }], [{ l: 42, w: 12, c: 2 }], [{ l: 12, w: 20, c: 3 }, { l: 70, w: 14, c: 5 }] ],
+        [ [{ l: 10, w: 22, c: 0 }], [{ l: 54, w: 16, c: 3 }], [{ l: 30, w: 26, c: 4 }], [{ l: 2, w: 12, c: 2 }, { l: 46, w: 18, c: 1 }] ],
+        [ [{ l: 18, w: 10, c: 1 }, { l: 68, w: 16, c: 4 }], [{ l: 38, w: 22, c: 5 }], [{ l: 6, w: 16, c: 3 }, { l: 62, w: 22, c: 0 }] ],
+        [ [], [{ l: 34, w: 24, c: 2 }], [{ l: 14, w: 18, c: 5 }, { l: 66, w: 12, c: 1 }], [{ l: 50, w: 20, c: 4 }] ],
+        [ [{ l: 22, w: 14, c: 3 }, { l: 56, w: 24, c: 0 }], [{ l: 8, w: 18, c: 2 }], [{ l: 40, w: 16, c: 5 }] ],
+        [ [{ l: 30, w: 20, c: 1 }], [{ l: 2, w: 10, c: 4 }, { l: 44, w: 14, c: 3 }, { l: 74, w: 12, c: 0 }] ],
       ];
       // Jobs-mockup color columns (priority + client), so the System Elements mode is visible
       // on the jobs page too. system = multi palettes; adaptive = accent (cells as shades);
@@ -22430,7 +22445,12 @@ ${jobsCtx || "No jobs found."}`;
                       <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
                         <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: pT.accentText, background: pT.accent, borderRadius: 20, padding: "7px 14px" }}>+ New Job</span>
                       </div>
-                      {[[70, 56, 82], [62, 78, 48, 66], [74, 50, 60]].map((rowWidths, sec) => {
+                      {/* Five job groups of 3-5 rows — 20 rows against the 10 this had.
+                        Row count only has to be plausible, not fit: the panel clips,
+                        so the extra rows read as a list that continues past the frame,
+                        which is what a real Jobs page looks like. Widths vary per row
+                        so no two title placeholders line up. */}
+                    {[[70, 56, 82, 64], [62, 78, 48, 66, 74], [74, 50, 60, 68], [58, 72, 46, 80], [66, 54, 76]].map((rowWidths, sec) => {
                         const COLS = "1.7fr 0.5fr 1fr 0.9fr 0.8fr 0.8fr 1.2fr 0.5fr";
                         return <div key={sec}>
                           {/* group header — blank label + count chip */}
