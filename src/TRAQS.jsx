@@ -7688,13 +7688,9 @@ ${jobsCtx || "No jobs found."}`;
     }
     setTasks(newTasks);
     saveTasks(newTasks, getToken, orgCode).catch(console.warn);
-    const grp = await ensureCompletionGroup();
-    postMessage({
-      threadKey: `group:${grp.id}`, scope: "group", jobId,
-      text: `Completion undone by ${loggedInUser.name} — "${label}" reopened and back on the schedule.`,
-      authorId: loggedInUser.id, authorName: loggedInUser.name,
-      authorColor: elColor(loggedInUser.color) || "#64748b", participantIds: grp.memberIds, attachments: [],
-    }, getToken, orgCode).then(msg => setMessages(prev => [...prev, msg])).catch(console.warn);
+    // No follow-up message, same as approve and decline. Undoing returns the
+    // request to pending, so the bubble drops its decision pill and shows the
+    // Deny/Complete pills again — the state change is visible on the request.
   };
 
   async function sendReminder(item, note) {
