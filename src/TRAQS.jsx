@@ -3065,10 +3065,26 @@ Extraction rules:
         (panel.subs || []).forEach(op => {
           if (op.start && (op.team || []).length > 0 && op.startHour == null) {
             const person = (op.team || [])[0];
-            const key = `${person}|${op.start}`;
-            const seeded = importEndClockByKey.has(key)
-              ? importEndClockByKey.get(key)
-              : getNextStartHour(person, op.start, op.id);
+            // Same rollover as getNextStartSlot, but consulting the map as well so
+            // ops imported in this batch stack against each other too — they are not
+            // in `tasks` yet, so getNextStartHour alone cannot see them. Without the
+            // roll, a person whose day is already full seeded the op AT end-of-day.
+            let day = sNextBD(op.start);
+            let seeded = workStartH;
+            for (let hop = 0; hop < 260; hop++) {
+              const key = `${person}|${day}`;
+              seeded = importEndClockByKey.has(key)
+                ? importEndClockByKey.get(key)
+                : getNextStartHour(person, day, op.id);
+              if (seeded < workEndH) break;
+              day = sNextBD(addD(day, 1));
+            }
+            if (day !== op.start) {
+              // Shift the end by the same number of calendar days so the roll moves
+              // the op without silently changing how long it runs.
+              if (op.end) op.end = addD(op.end, diffD(op.start, day));
+              op.start = day;
+            }
             op.startHour = seeded;
             // How many clock-hours this op consumes on its START day.
             // Single-day op: total hours converted from productive to clock-time.
@@ -3077,7 +3093,7 @@ Extraction rules:
             const endClockH = op.start === op.end
               ? Math.min(workEndH, seeded + totalClockH)
               : workEndH;
-            importEndClockByKey.set(key, endClockH);
+            importEndClockByKey.set(`${person}|${op.start}`, endClockH);
           }
         });
       });
@@ -3771,6 +3787,25 @@ Extraction rules:
   const sAddBD  = (ds, n) => addBD(ds, n, schedOpts);
   const sNextBD = ds      => nextBD(ds, schedOpts);
   const sDiffBD = (a, b)  => diffBD(a, b, schedOpts);
+  // Where a new op should actually land for `personId` when seeded from `dateStr`:
+  // the first working day that still has room, and the hour it frees up.
+  // getNextStartHour on its own reports where the person's booked work ends and
+  // will happily return an hour at or past workEndH once their day is full — which
+  // seeded ops OUTSIDE the working day, and on a Friday sent the whole thing over
+  // the weekend. Rolling the day forward is the only way to honour a full day; the
+  // hour is never capped in place, since two ops sharing an hour would overlap.
+  // A late-but-real hour is left alone — that op just runs into the next working
+  // day, which is the intended split.
+  const getNextStartSlot = (personId, dateStr, excludeOpId) => {
+    let day = sNextBD(dateStr); // also rolls a start that itself landed on a non-working day
+    // Bounded so a pathological workDays/holidays set can't spin forever.
+    for (let hop = 0; hop < 260; hop++) {
+      const h = getNextStartHour(personId, day, excludeOpId);
+      if (h < workEndH) return { start: day, startHour: h };
+      day = sNextBD(addD(day, 1));
+    }
+    return { start: day, startHour: workStartH };
+  };
   // Duration of an operation in working days given org's hrs/day
   const opDurBD = op => Math.max(1, Math.ceil((op?.hpd || orgSettings.hpd) / orgSettings.hpd));
   // Job hours/progress helpers — used by both renderTasks and the export modal
@@ -6373,15 +6408,23 @@ Extraction rules:
           }
           if (blocked) continue;
 
-          // Clear — place here
-          const finalEnd = addBD(slotStart, duration);
-          const _selfDayMaxH = finalEnd === slotStart
+          // Conflict-free, but the day may still be out of HOURS. getNextStartHour
+          // reports where the person's booked work ends and will return workEndH or
+          // later once their day is full — which starts the op outside the working
+          // day and, on a Friday, throws its whole span over the weekend. Advance a
+          // day and re-run every check above rather than placing it here; the hour
+          // can't be capped in place, since two ops sharing an hour would overlap.
+          const _selfDayMaxH = slotEnd === slotStart
             ? (selfBusy[pid] || []).filter(b => b.start === slotStart && b.endHour != null).reduce((m, b) => Math.max(m, b.endHour), workStartH)
             : workStartH;
           const _autoStartH = Math.max(
             (op.team || []).length > 0 ? getNextStartHour((op.team || [])[0], slotStart) : workStartH,
             _selfDayMaxH
           );
+          if (_autoStartH >= workEndH) { slotStart = addBD(slotStart, 1); continue; }
+
+          // Clear — place here
+          const finalEnd = addBD(slotStart, duration);
           const _autoClockH = productiveHoursPerDay > 0 ? ((op.hpd || 0) / productiveHoursPerDay) * totalWorkH : 0;
           const _autoFirstDayH = workEndH - _autoStartH;
           let _rawAutoEndH;
@@ -7083,9 +7126,21 @@ ${jobsCtx || "No jobs found."}`;
       return isGeneralTask
       ? { ...panel, id: pid, color: pColor }
       : { ...panel, id: pid, color: pColor, subs: (panel.subs || []).map(op => {
-          const _sh = op.startHour ?? (op.start && (op.team || []).length > 0
-            ? getNextStartHour((op.team || [])[0], op.start, op.id)
-            : workStartH);
+          // A start on a non-working day is never valid, whatever hour it carries —
+          // an op sitting on a Saturday at 2:30pm is precisely how work ended up on
+          // the weekend. Rolled BEFORE the slot lookup so stacking is measured
+          // against the working day the op will really occupy. Unconditional: gating
+          // this on `startHour == null` skipped every op that already had an hour,
+          // which is most of them.
+          const _rolledStart = op.start ? sNextBD(op.start) : op.start;
+          // Seeding an op with no explicit hour can move its start day again: if the
+          // person's day is already full, the slot rolls on rather than handing back
+          // an hour past workEndH. An hour the user set themselves is honoured.
+          const _slot = (op.startHour == null && _rolledStart && (op.team || []).length > 0)
+            ? getNextStartSlot((op.team || [])[0], _rolledStart, op.id)
+            : null;
+          const _opStart = _slot ? _slot.start : _rolledStart;
+          const _sh = op.startHour ?? (_slot ? _slot.startHour : workStartH);
           const _totalClockH = productiveHoursPerDay > 0 ? ((op.hpd || 0) / productiveHoursPerDay) * totalWorkH : 0;
           const _firstDayAvailH = workEndH - _sh;
           let _rawEndH;
@@ -7096,14 +7151,14 @@ ${jobsCtx || "No jobs found."}`;
             while (_rem > totalWorkH) _rem -= totalWorkH;
             _rawEndH = workStartH + _rem;
           }
-          let _opEnd = op.start || op.end;
-          if (op.start && _totalClockH > _firstDayAvailH) {
+          let _opEnd = _opStart || op.end;
+          if (_opStart && _totalClockH > _firstDayAvailH) {
             let _rem0 = _totalClockH - _firstDayAvailH;
-            let _day0 = op.start;
+            let _day0 = _opStart;
             while (_rem0 > totalWorkH) { _rem0 -= totalWorkH; _day0 = sAddBD(_day0, 1); }
             _opEnd = sAddBD(_day0, 1);
           }
-          return { ...op, id: op.id || uid(), color: op.color || pColor, end: _opEnd, startHour: _sh, endHour: Math.round(_rawEndH * 2) / 2 };
+          return { ...op, id: op.id || uid(), color: op.color || pColor, ...(_opStart !== op.start ? { start: _opStart } : {}), end: _opEnd, startHour: _sh, endHour: Math.round(_rawEndH * 2) / 2 };
         }) };
     }) };
     if (withIds.id) updTask(withIds.id, withIds, parentId);
@@ -8964,7 +9019,12 @@ ${jobsCtx || "No jobs found."}`;
                     return segs.map((seg, si, allSegs) => {
                     const sL = Math.max(0, dToX(seg.start));
                     const sR = Math.min(dToX(seg.end) + cW - 2, totalWidth);
-                    const sW = Math.max(barH, sR - sL);
+                    // No barH floor: a segment ends where its last working day ends, so
+                    // padding a narrow one out to bar-height put the bar on the
+                    // non-working column that closed the segment. Segments are a full
+                    // day wide unless the window edge clipped them, and a clipped
+                    // segment reading narrow is correct.
+                    const sW = Math.max(0, sR - sL);
                     const isFirst = si === 0, isLast = si === allSegs.length - 1;
                     const _segCalDays = diffD(seg.start, seg.end) + 1;
                     const _segWorkedDays = Math.max(0, Math.min(_workedRemainingDays, _segCalDays));
@@ -12309,17 +12369,21 @@ ${jobsCtx || "No jobs found."}`;
                     let _wRem = _ghostWidthPct;
                     _segs.forEach((seg, si) => {
                       const isFirst = si === 0;
-                      const isLast = si === _segs.length - 1;
                       const _segIdx = days.indexOf(seg.start);
                       const segLeft = (_segIdx >= 0 ? _segIdx : diffD(tStart, seg.start)) / nDays * 100 + (isFirst ? _ghostHourOffW : 0);
                       const _segEndIdx = days.indexOf(seg.end);
                       const _segRightPct = (_segEndIdx >= 0 ? _segEndIdx + 1 : diffD(tStart, seg.end) + 1) / nDays * 100;
                       const _segAvailW = _segRightPct - segLeft;
-                      const segW = isLast ? Math.max(0, _wRem) : Math.max(0.5, Math.min(_wRem, _segAvailW));
+                      // Every piece is capped at its own columns. The last piece used to
+                      // absorb the whole remaining budget with no cap, and the 0.5%
+                      // visibility floor could exceed a narrow segment — either way the
+                      // ghost previewed a landing that covered a non-working column.
+                      const _ghostFloor = Math.min(0.5, Math.max(0, _segAvailW));
+                      const segW = Math.max(_ghostFloor, Math.min(_segAvailW, _wRem));
                       _wRem = Math.max(0, _wRem - segW);
                       if (segW <= 0) return;
                       const _gi = ghosts.length;
-                      ghosts.push(<div key={`team-ghost-${_gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${Math.max(segW, 0.5)}% - 4px)`, height: rH - 8, borderRadius: 26, border: `2px dashed ${gc}`, background: gc + (hasOverlap ? "55" : "18"), boxShadow: `0 0 ${hasOverlap ? 24 : 16}px ${gc}${hasOverlap ? "BB" : "66"}`, pointerEvents: "none", zIndex: 35 }} />);
+                      ghosts.push(<div key={`team-ghost-${_gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 26, border: `2px dashed ${gc}`, background: gc + (hasOverlap ? "55" : "18"), boxShadow: `0 0 ${hasOverlap ? 24 : 16}px ${gc}${hasOverlap ? "BB" : "66"}`, pointerEvents: "none", zIndex: 35 }} />);
                     });
                   }
                   (groupSnaps || []).forEach(gs => {
@@ -12479,7 +12543,13 @@ ${jobsCtx || "No jobs found."}`;
                   // heals as soon as the true end is panned into view.
                   const _endsInView = _segsEnd <= tEnd;
                   const firstBarSeg = barSegs[0] || { start: _layoutStart, end: _layoutEnd };
-                  const _baseXPct = diffD(tStart, _layoutStart) / nDays * 100;
+                  // Anchor on the first segment's start, not _layoutStart. Segments
+                  // only ever cover working days, so when the start itself lands on a
+                  // weekend or holiday the two differ — and anchoring on _layoutStart
+                  // put the bar's left edge on the non-working column while _wFirst
+                  // still ran to the segment's right edge, painting straight across it.
+                  const _startsOnLayoutStart = firstBarSeg.start === _layoutStart;
+                  const _baseXPct = diffD(tStart, firstBarSeg.start) / nDays * 100;
                   const _calDays0 = Math.max(diffD(firstBarSeg.start, firstBarSeg.end) + 1, 1);
                   // PTO isn't hours-budgeted — let it fill its full day span (no hpd cap).
                   const _wBudget = bar.type === "pto" ? 100 : Math.max(0.03 / nDays * 100, (_barHpd / productiveHoursPerDay) / nDays * 100);
@@ -12491,7 +12561,12 @@ ${jobsCtx || "No jobs found."}`;
                   const stackIdx = _effectiveSingleDay ? (singleDayStacking[bar.start]?.indexOf(bar.id) ?? 0) : 0;
                   const stackShift = (_effectiveSingleDay && stackIdx > 0 && !isHourPositioned) ? stackIdx * _wBudget : 0;
                   const _oneDayPct = 1 / nDays * 100;
-                  const _hourOffsetPct = ((_barStartH - workStartH) / totalWorkH) * _oneDayPct;
+                  // The start hour only means something on the day the bar actually
+                  // starts. If the start rolled off a non-working day onto the next
+                  // working one, the offset would push the bar forward inside a day it
+                  // has no claim on — the roll already placed it, so it begins at
+                  // work-start there.
+                  const _hourOffsetPct = _startsOnLayoutStart ? ((_barStartH - workStartH) / totalWorkH) * _oneDayPct : 0;
                   const x = (_baseXPct + _hourOffsetPct + stackShift) + "%";
                   const _segRightPct = (diffD(tStart, firstBarSeg.end) + 1) / nDays * 100;
                   const _xNum = _baseXPct + _hourOffsetPct + stackShift;
@@ -13637,7 +13712,10 @@ ${jobsCtx || "No jobs found."}`;
                   /* "New job" dot — a sibling of the bar (not a child, which the bar's overflow:hidden
                      would clip). Tucked just inside the bar's top-right corner so it stays fully
                      visible (no clipping by the rows'/gantt's overflow:hidden edges). */
-                  isNew && <span key={barKey + "-new"} className="tq-new-pulse" title="New job — added in the last 24h" style={{ position: "absolute", left: `calc(${x} + ${w} - 10px)`, top: 4, zIndex: 8, width: 9, height: 9, borderRadius: "50%", background: "#0a84ff", boxSizing: "border-box", pointerEvents: "none" }} />,
+                  /* Hidden when the first piece has no width: the dot is placed from that
+                     piece's right edge, so with w=0 it would sit 10px BEFORE the bar's
+                     own left edge — out on the non-working column, with no bar to pin it. */
+                  isNew && _wFirst > 0 && <span key={barKey + "-new"} className="tq-new-pulse" title="New job — added in the last 24h" style={{ position: "absolute", left: `calc(${x} + ${w} - 10px)`, top: 4, zIndex: 8, width: 9, height: 9, borderRadius: "50%", background: "#0a84ff", boxSizing: "border-box", pointerEvents: "none" }} />,
                   ...barSegs.slice(1).map((seg, si) => {
                     const tailX = (diffD(tStart, seg.start) / nDays * 100) + "%";
                     // Only the segment that actually holds the bar's end gets the
@@ -13648,7 +13726,10 @@ ${jobsCtx || "No jobs found."}`;
                     const _segAvailW = _segCalDays / nDays * 100;
                     // Last-segment width must include any full workdays preceding the end day in the segment
                     // (weekdaySegments groups contiguous workdays into one range, e.g., Mon-Tue is one segment).
-                    const _tailWNum = Math.max(0, isLastSeg ? ((_segCalDays - 1) + (_barEndHour - workStartH) / totalWorkH) * _oneDayPct : Math.min(_wRemainingBudget, _segAvailW));
+                    // Capped at _segAvailW either way: a segment ends where its last
+                    // working day ends, so no width the hours imply may reach past it
+                    // into the non-working column that closed the segment.
+                    const _tailWNum = Math.max(0, Math.min(_segAvailW, isLastSeg ? ((_segCalDays - 1) + (_barEndHour - workStartH) / totalWorkH) * _oneDayPct : _wRemainingBudget));
                     const tailW = _tailWNum + "%";
                     _wRemainingBudget = Math.max(0, _wRemainingBudget - _tailWNum);
                     const isPto2 = bar.type === "pto";
