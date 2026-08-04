@@ -998,9 +998,15 @@ private struct EfficiencyCard: View {
 private struct WeeklyBars: View {
     let days: [EffDay]
     private let barsHeight: CGFloat = 96
-    private let maxValue: Double = 9   // a full workday ≈ a full bar (matches Hours)
 
     var body: some View {
+        // Scale to the tallest bar in THIS dataset. A fixed per-person ceiling
+        // (this was 9h, "a full workday ≈ a full bar") pegged every bar on the
+        // org dashboard, where each bar sums the whole shop — 15 workers put
+        // ~120h/day against a 9h ceiling, so all fourteen bars drew full height
+        // and the chart carried no information. Computed once here rather than
+        // per bar: the view sits inside a 5s timeline.
+        let maxValue = StatsMath.barMax(days.flatMap { [$0.pay, $0.job] })
         HStack(alignment: .bottom, spacing: 8) {
             ForEach(days) { d in
                 VStack(spacing: 6) {
@@ -1009,8 +1015,8 @@ private struct WeeklyBars: View {
                         .foregroundStyle(d.diff < 0 ? Color(hex: T.red) : Color(hex: T.green))
                         .tnum()
                     HStack(alignment: .bottom, spacing: 3) {
-                        bar(value: d.pay, base: Color(hex: T.accentGradientStart))
-                        bar(value: d.job, base: Color(hex: T.accentGradientEnd))
+                        bar(value: d.pay, max: maxValue, base: Color(hex: T.accentGradientStart))
+                        bar(value: d.job, max: maxValue, base: Color(hex: T.accentGradientEnd))
                     }
                     .frame(height: barsHeight)
                     Text(d.label)
@@ -1024,7 +1030,7 @@ private struct WeeklyBars: View {
 
     /// One bar, styled like the Hours-page day bars: rounded, vertical-gradient
     /// fill grown from the bottom, with a short muted stub when there's no data.
-    private func bar(value: Double, base: Color) -> some View {
+    private func bar(value: Double, max maxValue: Double, base: Color) -> some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
             RoundedRectangle(cornerRadius: 6, style: .continuous)

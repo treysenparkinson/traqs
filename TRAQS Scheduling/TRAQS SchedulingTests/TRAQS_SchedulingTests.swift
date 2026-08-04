@@ -193,3 +193,18 @@ struct StatsMathWeekTests {
         #expect(week.start == startOfDay("2026-07-27T00:00:00Z"))
     }
 }
+
+struct StatsMathBarScaleTests {
+
+    /// A fixed 9-hour ceiling pegged every bar on the org dashboard, where each
+    /// bar sums the whole shop.
+    @Test func chartScalesToItsOwnTallestBar() {
+        #expect(StatsMath.barMax([8, 6, 7.5, 4]) == 8)
+        #expect(StatsMath.barMax([120, 96, 140, 88]) == 140)
+    }
+
+    @Test func emptyWeekFloorsAtOne() {
+        #expect(StatsMath.barMax([]) == 1)
+        #expect(StatsMath.barMax([0, 0, 0]) == 1)
+    }
+}

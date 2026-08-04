@@ -74,4 +74,16 @@ enum StatsMath {
             ?? start.addingTimeInterval(7 * 86_400)
         return DateInterval(start: start, end: end)
     }
+
+    // MARK: - Chart scale
+
+    /// Tallest value a bar chart has to draw, floored at 1 so an empty week
+    /// still divides cleanly.
+    ///
+    /// Self-scaling because one fixed ceiling cannot serve both views: the org
+    /// dashboard sums every worker into each bar, so a per-person ceiling pegged
+    /// all fourteen bars at full height and the chart showed nothing.
+    static func barMax(_ values: [Double]) -> Double {
+        max(values.max() ?? 1, 1)
+    }
 }
