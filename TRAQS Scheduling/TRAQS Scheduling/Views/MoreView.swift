@@ -436,7 +436,7 @@ struct MoreView: View {
                     info: "Operations they're assigned to that are finished.")
             StatBox(label: "In Progress", value: "\(pOps.filter { $0.status == .inProgress }.count)",
                     info: "Operations they're assigned to that are currently in progress.")
-            StatBox(label: "Hours", value: String(format: "%.1fh", jobPeriodHours), caption: "this pay period",
+            StatBox(label: "Hours", value: String(format: "%.1fh", jobPeriodHours),
                     info: "Job hours logged this pay period.")
         }
     }
