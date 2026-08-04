@@ -7015,7 +7015,10 @@ ${jobsCtx || "No jobs found."}`;
     { id: "timestamp", icon: <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 6.6 12 12 15.6 13.8"/></svg>, label: "Time Clock" },
     { id: "analytics", icon: <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18.4" y1="21" x2="18.4" y2="9.75"/><line x1="12" y1="21" x2="12" y2="3"/><line x1="5.6" y1="21" x2="5.6" y2="14.25"/></svg>, label: "Analytics" },
     { id: "clients", icon: <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="11.4" height="18" rx="3.3"/><rect x="14.4" y="9.6" width="6.6" height="11.4" rx="2.7"/><path d="M6.2 8.2h5"/><path d="M6.2 12.8h5"/></svg>, label: "Clients" },
-    { id: "messages", icon: <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5c0 4.29-4.04 7.76-9 7.76-1.08 0-2.12-.17-3.08-.47L4.2 20.8l1.2-3.46C3.9 15.8 3 13.8 3 11.5 3 7.3 7 3.8 12 3.8s9 3.47 9 7.7z"/></svg>, label: "Messages" },
+    // Rounded-rectangle bubble, not the round one this used to be: it matches the
+    // iOS tab bar (SF Symbols `message`, which can't be embedded here — this is
+    // the closest SVG to it) and the five other chat glyphs already in this file.
+    { id: "messages", icon: <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Messages" },
   ];
   const ctxDeps = ctxMenu ? (ctxMenu.item.deps || []).map(did => allItems.find(x => x.id === did)).filter(Boolean) : [];
   const ctxBlocks = ctxMenu ? allItems.filter(x => (x.deps || []).includes(ctxMenu.item.id)) : [];
