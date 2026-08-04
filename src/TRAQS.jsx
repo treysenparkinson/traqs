@@ -1097,11 +1097,19 @@ input[type="range"].tq-pill-range::-moz-range-thumb {
 /* ── Liquid background ──────────────────────────────────────────────────────
    Global so both the Dashboard hero and the universal background option can use
    them. Four paths at four tempos; because the periods don't divide evenly the
-   overlaps keep re-mixing instead of settling into a loop you can spot. */
-@keyframes tqLiquidA { 0% { transform: translate(0,0) scale(1); } 25% { transform: translate(26%,17%) scale(1.32); } 55% { transform: translate(-19%,28%) scale(0.8); } 80% { transform: translate(15%,-16%) scale(1.18); } 100% { transform: translate(0,0) scale(1); } }
-@keyframes tqLiquidB { 0% { transform: translate(0,0) scale(1.06); } 30% { transform: translate(-30%,22%) scale(0.78); } 60% { transform: translate(22%,-19%) scale(1.38); } 85% { transform: translate(-13%,12%) scale(0.94); } 100% { transform: translate(0,0) scale(1.06); } }
-@keyframes tqLiquidC { 0% { transform: translate(0,0) scale(0.95); } 35% { transform: translate(29%,-24%) scale(1.3); } 65% { transform: translate(-25%,-12%) scale(1.06); } 100% { transform: translate(0,0) scale(0.95); } }
-@keyframes tqLiquidD { 0% { transform: translate(0,0) scale(1.1); } 40% { transform: translate(-24%,-26%) scale(0.82); } 70% { transform: translate(27%,19%) scale(1.34); } 100% { transform: translate(0,0) scale(1.1); } }
+   overlaps keep re-mixing instead of settling into a loop you can spot.
+
+   Travel is roughly 1.5x what it was and each path gained a waypoint, so a blob
+   visits more of the panel and takes a less predictable route to get there. The
+   percentages are relative to the BLOB's own box, not the container — these are
+   30-48% wide, so 40% of self is only ~15% of the panel, which is why the numbers
+   look larger than the motion reads. Kept under ~45%: past that a blob clears its
+   corner entirely and the wash goes visibly patchy before a neighbour drifts in
+   to cover. 0% and 100% stay identical, or the loop jumps. */
+@keyframes tqLiquidA { 0% { transform: translate(0,0) scale(1); } 20% { transform: translate(38%,24%) scale(1.34); } 40% { transform: translate(-14%,42%) scale(0.86); } 60% { transform: translate(-34%,10%) scale(1.22); } 80% { transform: translate(22%,-26%) scale(0.92); } 100% { transform: translate(0,0) scale(1); } }
+@keyframes tqLiquidB { 0% { transform: translate(0,0) scale(1.06); } 22% { transform: translate(-42%,30%) scale(0.8); } 44% { transform: translate(-10%,-34%) scale(1.4); } 66% { transform: translate(34%,-8%) scale(0.9); } 85% { transform: translate(18%,26%) scale(1.18); } 100% { transform: translate(0,0) scale(1.06); } }
+@keyframes tqLiquidC { 0% { transform: translate(0,0) scale(0.95); } 25% { transform: translate(40%,-32%) scale(1.32); } 50% { transform: translate(6%,34%) scale(0.84); } 75% { transform: translate(-36%,-14%) scale(1.16); } 100% { transform: translate(0,0) scale(0.95); } }
+@keyframes tqLiquidD { 0% { transform: translate(0,0) scale(1.1); } 28% { transform: translate(-34%,-36%) scale(0.82); } 52% { transform: translate(30%,-18%) scale(1.36); } 76% { transform: translate(36%,28%) scale(0.94); } 100% { transform: translate(0,0) scale(1.1); } }
 .tq-liquid-blob { position: absolute; border-radius: 50%; filter: blur(80px); }
 @media (prefers-reduced-motion: reduce) {
   /* A perpetual ambient loop is exactly what this preference asks us not to
@@ -1206,12 +1214,17 @@ function companionHue(hex) {
 function LiquidBackground({ color, companion, base = null, fixed = false, opacity = 1, radius = 0 }) {
   const c = color || "#4169e1";
   const c2 = companion || companionHue(c);
+  // Tempos are ~25% quicker than they were. The longer paths above would otherwise
+  // read as SLOWER, not livelier — same seconds spread over more distance means a
+  // lazier crawl per blob. Still coprime-ish (13/16/14/19/11) so the five never
+  // line up into a pattern you can catch, and still slow enough to stay ambient
+  // behind content rather than pulling the eye off it.
   const blobs = [
-    { w: "48%", pb: "36%", left: "4%", top: "2%", bg: hexA(c, 0.55), anim: "tqLiquidA 17s" },
-    { w: "40%", pb: "32%", right: "2%", top: "-4%", bg: hexA(c2, 0.5), anim: "tqLiquidB 21s" },
-    { w: "44%", pb: "34%", left: "26%", top: "22%", bg: hexA(c2, 0.34), anim: "tqLiquidC 19s" },
-    { w: "34%", pb: "28%", right: "18%", top: "34%", bg: hexA(c, 0.34), anim: "tqLiquidD 25s" },
-    { w: "30%", pb: "26%", left: "12%", top: "46%", bg: hexA(c, 0.3), anim: "tqLiquidB 15s reverse" },
+    { w: "48%", pb: "36%", left: "4%", top: "2%", bg: hexA(c, 0.55), anim: "tqLiquidA 13s" },
+    { w: "40%", pb: "32%", right: "2%", top: "-4%", bg: hexA(c2, 0.5), anim: "tqLiquidB 16s" },
+    { w: "44%", pb: "34%", left: "26%", top: "22%", bg: hexA(c2, 0.34), anim: "tqLiquidC 14s" },
+    { w: "34%", pb: "28%", right: "18%", top: "34%", bg: hexA(c, 0.34), anim: "tqLiquidD 19s" },
+    { w: "30%", pb: "26%", left: "12%", top: "46%", bg: hexA(c, 0.3), anim: "tqLiquidB 11s reverse" },
   ];
   return (
     // borderRadius matters: the blobs are blurred and GPU-composited, and when
