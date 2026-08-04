@@ -333,11 +333,15 @@ private struct TabBarIcon: View {
     var keyW: CGFloat
 
     var body: some View {
-        Image(systemName: tab.icon.sfName)
-            .font(.system(size: 23, weight: isSelected ? .semibold : .regular))
-            // Readable on the accent fill when the highlighter is on this tab;
-            // primary ink otherwise.
-            .foregroundStyle(isSelected ? T.onAccent : Color(hex: T.ink))
+        // Traced from the desktop sidebar rather than an SF Symbol lookalike, so
+        // the bar reads as the same app as the browser. Selection thickens the
+        // stroke — the equivalent of the old .regular → .semibold bump.
+        NavGlyph(icon: tab.icon,
+                 size: 23,
+                 // Readable on the accent fill when the highlighter is on this
+                 // tab; primary ink otherwise.
+                 color: isSelected ? T.onAccent : Color(hex: T.ink),
+                 stroke: isSelected ? 2.3 : 1.9)
             .frame(width: keyW, height: 48)
             .overlay(alignment: .topTrailing) {
                 if badge > 0 {
