@@ -167,13 +167,13 @@ private struct TodayDateCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             // No "TODAY'S DATE" label above this — the date and the week strip
-            // under it say what the card is. Centred with an explicit frame
-            // rather than by flipping the VStack's alignment, so the week strip
-            // below keeps laying out exactly as it did.
+            // under it say what the card is. Leading-aligned like every other
+            // card's heading, set by an explicit frame rather than the VStack's
+            // alignment so the week strip below is unaffected either way.
             Text(dateLine)
                 .font(.custom(TFontName.bold.rawValue, size: 22))
                 .foregroundStyle(Color(hex: T.ink))
-                .frame(maxWidth: .infinity, alignment: .center)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 6) {
                 ForEach(weekDays, id: \.self) { d in
@@ -330,20 +330,20 @@ private struct SuggestedJobCard: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            // Task pills and job name both centered. No trailing Spacer — that's
-            // what was pinning the pill row to the leading edge.
+            // Task pills and job name both start at the leading edge, matching the
+            // other Home cards. The CTA below stays full-width.
             HStack(spacing: 8) {
                 TagPill(label: task.title.uppercased(), kind: .indigo)
                 TagPill(label: isActive ? "Active" : "Up next",
                         kind: isActive ? .indigo : .green, dot: isActive)
             }
-            .frame(maxWidth: .infinity, alignment: .center)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(task.job.title.isEmpty ? task.title : task.job.title)
                 .font(.custom(TFontName.bold.rawValue, size: 20))
                 .foregroundStyle(Color(hex: T.ink))
                 .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .center)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             GradientCTA(verticalPadding: 12, action: onJump) {
                 HStack(spacing: 6) {
