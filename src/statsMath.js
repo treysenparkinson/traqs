@@ -52,3 +52,43 @@ export function breakHoursByDay(timeclock, personId) {
   }
   return out;
 }
+
+/**
+ * Production hours actually recorded, totalled by op, by panel and by job.
+ *
+ * The session rows are the authoritative record of production: every job clock
+ * out and every manual hours credit appends one. The `loggedHours` counters
+ * carried on each job/op are a parallel, incrementally-maintained tally that
+ * several write paths never touch — the pay-clock clock-out paths credit
+ * `job.loggedHours` only, and `jobClockOut` credits an op only when the clock
+ * carried an `opId`. So the counter drifts BELOW the real record: a job with
+ * 11h of sessions showed 4.3h striped on the schedule.
+ *
+ * Summing here means the schedule and the Analytics production number are
+ * computed from the same rows and agree by construction, rather than by two
+ * counters happening to stay in step.
+ *
+ * A session clocked at panel level carries no `opId`; it still counts toward
+ * its panel and job. Ids are keyed as strings so older numeric ids and current
+ * string ids land in the same bucket.
+ *
+ * @param {Array} sessions  production session rows (jobsessions.json)
+ * @returns {{byOp: Map<string, number>, byPanel: Map<string, number>, byJob: Map<string, number>}}
+ */
+export function producedHoursByScope(sessions) {
+  const byOp = new Map(), byPanel = new Map(), byJob = new Map();
+  const add = (map, key, h) => {
+    if (key == null || key === "") return;
+    const k = String(key);
+    map.set(k, (map.get(k) || 0) + h);
+  };
+  for (const s of sessions || []) {
+    if (!s || s.deletedAt) continue;
+    const h = Number(s.hours) || 0;
+    if (!h) continue;
+    add(byOp, s.opId, h);
+    add(byPanel, s.panelId, h);
+    add(byJob, s.jobId, h);
+  }
+  return { byOp, byPanel, byJob };
+}

@@ -8,7 +8,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
-import { breakHoursByDay } from "./statsMath.js";
+import { breakHoursByDay, producedHoursByScope } from "./statsMath.js";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
 
@@ -138,9 +138,16 @@ const WORKED_STRIPE = "repeating-linear-gradient(135deg, rgba(255,255,255,0.18) 
 // True when an op is locked — either by manual toggle OR by being fully worked (loggedHours >= hpd).
 const isOpLocked = (op) => !!op?.locked || ((op?.hpd || 0) > 0 && (op?.loggedHours || 0) >= op.hpd);
 // Derives the worked / remaining state of an op for rendering + drag gating.
-const deriveWorkedState = (t) => {
+// `produced` is the hours actually recorded against this task in the production
+// session rows. It wins over the `loggedHours` counter whenever it's higher:
+// several write paths bump only `job.loggedHours`, so the counter drifts below
+// the real production record and the bar under-greys (11h logged, 4.3h striped).
+// Taking the max rather than replacing outright keeps historical bars whose
+// counter predates the session rows from suddenly reading zero.
+const deriveWorkedState = (t, produced = 0) => {
   const hpd = t?.hpd || 0;
-  const logged = Math.min(Math.max(0, t?.loggedHours || 0), hpd);
+  const recorded = Math.max(t?.loggedHours || 0, produced || 0);
+  const logged = Math.min(Math.max(0, recorded), hpd);
   return {
     workedHpd: logged,
     remainingHpd: Math.max(0, hpd - logged),
@@ -4505,6 +4512,22 @@ Extraction rules:
       .map(p => ({ ...p, label: `${fmtMD(p.start)} – ${fmtY(p.end)}` }));
   }, [timeclock, orgSettings.payDates]);
   const [productionHours, setProductionHours] = useState([]); // job-clock sessions (js_ rows) — powers the Analytics efficiency graph
+  // Production hours totalled by op / panel / job from those same session rows.
+  // The schedule's worked-stripe used to read the `loggedHours` counter, which
+  // several write paths never update, so a bar could show 4.3h striped against
+  // 11h of real production. Reading the sessions makes the schedule and the
+  // Analytics production number agree by construction.
+  const producedScopes = useMemo(() => producedHoursByScope(productionHours), [productionHours]);
+  // Hours recorded against one task, matched at its own level: an op bar counts
+  // its own sessions, a panel bar every session beneath it, a job bar all of them.
+  const producedFor = useCallback((t) => {
+    if (!t) return 0;
+    const id = String(t.id);
+    return producedScopes.byOp.get(id)
+        ?? producedScopes.byPanel.get(id)
+        ?? producedScopes.byJob.get(id)
+        ?? 0;
+  }, [producedScopes]);
   const [dataLoading, setDataLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   // Gates the autosave: doSave refuses to fire until the initial S3 load
@@ -7943,7 +7966,7 @@ ${jobsCtx || "No jobs found."}`;
       const itemBDOpts = { workDays: itemWorkDays, holidays: orgSettings.holidays };
       // If this is a partially-worked op being moved, the drag preview represents only the
       // remaining hours (worked portion stays anchored; commit will split the op).
-      const _dragItemWS = item.level === 2 ? deriveWorkedState(item) : null;
+      const _dragItemWS = item.level === 2 ? deriveWorkedState(item, producedFor(item)) : null;
       const _isPartialDrag = !!(_dragItemWS && _dragItemWS.isPartiallyWorked && mode === "move");
       // Capture working-day duration once at drag start. For partial-drag, use remaining-hours duration.
       const wdDuration = _isPartialDrag
@@ -8021,7 +8044,7 @@ ${jobsCtx || "No jobs found."}`;
         // ── Auto-split on drag-end for partially-worked ops (Gantt) ──
         // Only when moving an op (level 2) with logged hours, to a new position.
         if (mode === "move" && item.level === 2 && newStart !== os) {
-          const _splitWS = deriveWorkedState(item);
+          const _splitWS = deriveWorkedState(item, producedFor(item));
           if (_splitWS.isPartiallyWorked) {
             const osH = item.startHour ?? workStartH;
             const _calcEnd = (startDate, startHourArg, hpdAmt) => {
@@ -8517,7 +8540,7 @@ ${jobsCtx || "No jobs found."}`;
                 const barColor = r.color || T.accent;
                 const barBg = r.level === 1 ? barColor + "cc" : barColor;
                 const barTextColor = accentText(barColor);
-                const ws = deriveWorkedState(r);
+                const ws = deriveWorkedState(r, producedFor(r));
                 const _totalCalDays = segs.reduce((s, sg) => s + diffD(sg.start, sg.end) + 1, 0);
                 let _workedRemainingDays = ws.workedFraction * _totalCalDays;
                 return segs.map((seg, si) => {
@@ -8710,7 +8733,7 @@ ${jobsCtx || "No jobs found."}`;
                   {/* Bar — split at non-working days */}
                   {inRange && (() => {
                     const segs = weekdaySegments(r.start, r.end, gStart, gEnd, orgSettings.workDays);
-                    const ws = deriveWorkedState(r);
+                    const ws = deriveWorkedState(r, producedFor(r));
                     const _totalCalDays = segs.reduce((s, sg) => s + diffD(sg.start, sg.end) + 1, 0);
                     let _workedRemainingDays = ws.workedFraction * _totalCalDays;
                     return segs.map((seg, si, allSegs) => {
@@ -12219,7 +12242,7 @@ ${jobsCtx || "No jobs found."}`;
                     const _dragTeamSz = Math.max(1, (bar.task?.team || []).length);
                     // If the bar is partially worked, the drag ghost represents only the remaining hours —
                     // the worked portion stays anchored visually and is split off on commit.
-                    const _dragWS = deriveWorkedState(bar.task);
+                    const _dragWS = deriveWorkedState(bar.task, producedFor(bar.task));
                     const _effectiveHpdForDrag = _dragWS.isPartiallyWorked ? _dragWS.remainingHpd : (bar.task?.hpd || 0);
                     const _dragBarHpd = _effectiveHpdForDrag > 0 ? _effectiveHpdForDrag / _dragTeamSz : productiveHoursPerDay;
                     // When partially worked, the user grabs the REMAINING piece, which begins where the
@@ -12727,7 +12750,7 @@ ${jobsCtx || "No jobs found."}`;
                         // the drop. The drag is based on the remaining-start (_dragBaseStart), so compare
                         // against that — and if it didn't actually move, do nothing (don't shift the
                         // whole bar via the non-split path below).
-                        const _splitWS = deriveWorkedState(bar.task);
+                        const _splitWS = deriveWorkedState(bar.task, producedFor(bar.task));
                         if (_splitWS.isPartiallyWorked) {
                           // A pure vertical drag (straight down onto another person) leaves the
                           // dates identical, so this no-op guard used to swallow the reassign
@@ -13225,7 +13248,7 @@ ${jobsCtx || "No jobs found."}`;
                     };
                     document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
                   };
-                  const ws = !isPto ? deriveWorkedState(bar.task) : null;
+                  const ws = !isPto ? deriveWorkedState(bar.task, producedFor(bar.task)) : null;
                   const barLocked = !isPto && bar.task && ws && ws.displayLocked;
                   // Worked-overlay budget: percent-of-timeline width covered by the striped portion.
                   // Distributes across multi-segment bars in lockstep with the bar's own width budget.
