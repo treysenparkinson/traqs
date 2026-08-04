@@ -11004,21 +11004,17 @@ ${jobsCtx || "No jobs found."}`;
     //     materialises on exactly the frame they mount, narrowing this box by
     //     ~15px, which reflows the whole grid AND drags the greeting sideways
     //     mid-flight since its anchor is a percentage of this width.
+    // The scroller carries viewScrollRef — the same ref every frostScroll page
+    // uses — so the pinned background layer inside it is measured by the existing
+    // observer instead of needing one of its own. Only one view is mounted at a
+    // time, which is what makes sharing a single ref safe.
     return (
-      <div style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto", scrollbarGutter: "stable" }}>
+      <div ref={viewScrollRef} style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto", scrollbarGutter: "stable" }}>
         <style>{`
-          /* Opacity ONLY. The drift keyframes below own transform, and two
-             animations on one element can't both drive the same property —
-             the later one silently wins. Splitting them lets a blob fade in
-             and drift at the same time. */
-          @keyframes dashGlowIn { from { opacity: 0; } to { opacity: 1; } }
-          /* Liquid tie-dye: each blob wanders a different path at a different
-             tempo, so the overlaps keep re-mixing instead of settling into a
-             fixed pattern. Long durations (24-38s) keep it ambient. */
-          @keyframes dashDriftA { 0% { transform: translate(0,0) scale(1); } 25% { transform: translate(26%,17%) scale(1.32); } 55% { transform: translate(-19%,28%) scale(0.8); } 80% { transform: translate(15%,-16%) scale(1.18); } 100% { transform: translate(0,0) scale(1); } }
-          @keyframes dashDriftB { 0% { transform: translate(0,0) scale(1.06); } 30% { transform: translate(-30%,22%) scale(0.78); } 60% { transform: translate(22%,-19%) scale(1.38); } 85% { transform: translate(-13%,12%) scale(0.94); } 100% { transform: translate(0,0) scale(1.06); } }
-          @keyframes dashDriftC { 0% { transform: translate(0,0) scale(0.95); } 35% { transform: translate(29%,-24%) scale(1.3); } 65% { transform: translate(-25%,-12%) scale(1.06); } 100% { transform: translate(0,0) scale(0.95); } }
-          @keyframes dashDriftD { 0% { transform: translate(0,0) scale(1.1); } 40% { transform: translate(-24%,-26%) scale(0.82); } 70% { transform: translate(27%,19%) scale(1.34); } 100% { transform: translate(0,0) scale(1.1); } }
+          /* dashGlowIn + dashDriftA..D lived here for the hard-coded blob wash
+             this view used to paint over the theme. The wash is gone — Liquid mode
+             is drawn once by LiquidBackground on the content panel (tqLiquidA..D),
+             which is what every other page already sat on top of. */
           @keyframes dashHelloIn { from { opacity: 0; } to { opacity: 1; } }
           @keyframes dashCardIn { from { opacity: 0; transform: translateY(18px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
           /* One full in-hold-out cycle per stat, restarted by the key change. */
@@ -11064,12 +11060,11 @@ ${jobsCtx || "No jobs found."}`;
             background-color: var(--tq-accent-soft, rgba(65,105,225,0.18)) !important;
             color: var(--tq-accent) !important;
           }
-          .dash-blob { position: absolute; border-radius: 50%; filter: blur(80px); will-change: transform; }
           @media (prefers-reduced-motion: reduce) {
             .dash-card { animation-duration: 0.01ms !important; }
-            /* Kill the perpetual drift outright — a slow ambient loop is exactly
-               what this preference is asking us not to run. */
-            .dash-blob { animation: dashGlowIn 0.01ms both !important; }
+            /* The .dash-blob rules that used to be here went with the wash. The
+               shared LiquidBackground already stops its own drift under this
+               preference (see .tq-liquid-blob in the global sheet). */
           }
         `}</style>
 
@@ -11082,9 +11077,10 @@ ${jobsCtx || "No jobs found."}`;
             way to scroll to them. minHeight keeps the fills-the-screen look on a
             tall display while letting the page grow and scroll on a short one. */}
         <div style={{ position: "relative", minHeight: "100%", boxSizing: "border-box", display: "flex", flexDirection: "column", padding: isMobile ? "14px 14px 26px" : "22px 26px 26px" }}>
-          {/* Neither the frosted glow nor the greeting is here. Both live as
-              direct children of the scroll container below, deliberately — see
-              the comments there. */}
+          {/* The greeting is not here — it lives as a direct child of the scroll
+              container below, deliberately; see the comment there. (The frosted
+              glow that used to share that placement is gone: the background now
+              comes from the theme like every other page's.) */}
 
           {/* The Replay button that used to sit here was a testing aid; the intro
               still plays once per app load, so a page refresh replays it. */}
@@ -11365,27 +11361,19 @@ ${jobsCtx || "No jobs found."}`;
           )}
         </div>
 
-        {/* Frosted glow — colour only, sitting BEHIND everything. Never applied
-            to the text itself, which stays crisp on top of it.
+        {/* Pinned background image, identical to the layer frostScroll gives every
+            other page — sticky inside this scroller so the frosted cards'
+            backdrop-filter samples it in the same stacking context.
 
-            Sits HERE, beside the greeting and outside the padded wrapper, for the
-            same reason the greeting does. Every blob is placed with a percentage
-            `top`, which resolves against its containing block's HEIGHT. Inside the
-            wrapper that height jumps ~40% the instant the panels mount, so all
-            five blobs lurched downward at once — a very visible shove of the whole
-            background, mid-blur(80px) drift. Anchored to the scroll container, whose
-            box is the visible viewport and never grows, the wash simply holds still
-            while the panels arrive. */}
-        <div aria-hidden="true" style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none", zIndex: 0 }}>
-          {/* Five overlapping blobs, each on its own path and tempo. The
-              accent leads (twice, different sizes) so the wash still reads as
-              the org's colour rather than a generic rainbow. */}
-          <div className="dash-blob" style={{ width: "48%", paddingBottom: "36%", left: "4%", top: "2%", background: hexA(T.accent, 0.55), animation: dashAnimate ? "dashGlowIn 1.6s ease-out both, dashDriftA 11s ease-in-out infinite" : "dashDriftA 11s ease-in-out infinite" }} />
-          <div className="dash-blob" style={{ width: "40%", paddingBottom: "32%", right: "2%", top: "-4%", background: hexA("#6366f1", 0.45), animation: dashAnimate ? "dashGlowIn 1.6s ease-out 120ms both, dashDriftB 13s ease-in-out infinite" : "dashDriftB 13s ease-in-out infinite" }} />
-          <div className="dash-blob" style={{ width: "44%", paddingBottom: "34%", left: "26%", top: "22%", background: hexA("#10b981", 0.34), animation: dashAnimate ? "dashGlowIn 1.6s ease-out 240ms both, dashDriftC 12s ease-in-out infinite" : "dashDriftC 12s ease-in-out infinite" }} />
-          <div className="dash-blob" style={{ width: "34%", paddingBottom: "28%", right: "18%", top: "34%", background: hexA("#ec4899", 0.3), animation: dashAnimate ? "dashGlowIn 1.6s ease-out 340ms both, dashDriftD 16s ease-in-out infinite" : "dashDriftD 16s ease-in-out infinite" }} />
-          <div className="dash-blob" style={{ width: "30%", paddingBottom: "26%", left: "12%", top: "44%", background: hexA(T.accent, 0.34), animation: dashAnimate ? "dashGlowIn 1.6s ease-out 430ms both, dashDriftB 9s ease-in-out infinite reverse" : "dashDriftB 9s ease-in-out infinite reverse" }} />
-        </div>
+            This used to be a hard-coded five-blob wash that ran no matter what the
+            theme said, so Dashboard was permanently in Liquid while every other
+            page honoured bgMode. The Liquid wash now comes from the one
+            LiquidBackground on the content panel, which sits behind this view like
+            it does behind the others; Color mode shows the panel's T.bg through;
+            and Image mode gets the layer below. Nothing here overrides the theme. */}
+        {T.adaptive && T.bgImage && <div aria-hidden="true" style={{ position: "sticky", top: 0, height: 0, zIndex: 0, pointerEvents: "none" }}>
+          <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: viewScrollH || "100vh", backgroundImage: `linear-gradient(0deg, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}), url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center" }} />
+        </div>}
 
         {/* Greeting. Sits HERE — a direct child of the scroll container — rather
             than inside the padded wrapper above, and that placement is the whole
