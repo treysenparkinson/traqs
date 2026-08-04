@@ -2,10 +2,10 @@ import SwiftUI
 
 // MARK: - TRAQS Icon Set
 // Map the desktop's Lucide-style icon names to SF Symbols of similar geometry.
-// Most glyphs use SF Symbols (system, scaled, stroked). The five NAV glyphs —
-// home, jobs, hours, stats, chat — are hand-traced from the web app's sidebar
-// SVGs instead, so the two apps show the same icon rather than a lookalike
-// (see "Desktop-parity nav glyphs" below).
+// Most glyphs use SF Symbols (system, scaled, stroked). Four of the nav glyphs —
+// home, jobs, hours, stats — are hand-traced from the web app's sidebar SVGs
+// instead, so the two apps show the same icon rather than a lookalike (see
+// "Desktop-parity nav glyphs" below). Messages stays on SF Symbols.
 
 enum TIcon: String {
     case home
@@ -61,9 +61,11 @@ enum TIcon: String {
     }
 
     /// True for the glyphs drawn from the desktop SVGs rather than SF Symbols.
+    /// `.chat` is deliberately NOT here — the desktop's speech bubble was traced
+    /// and then reverted to SF Symbols' `message` by preference.
     var isNavGlyph: Bool {
         switch self {
-        case .home, .jobs, .hours, .stats, .chat: return true
+        case .home, .jobs, .hours, .stats: return true
         default: return false
         }
     }
@@ -97,11 +99,12 @@ struct TIconView: View {
 }
 
 // MARK: - Desktop-parity nav glyphs
-// The five nav glyphs are traced point-for-point from the web app's sidebar
-// SVGs (`views` in src/TRAQS.jsx) so the phone and the browser show the SAME
-// icon, not two different takes on the same idea. SF Symbols got close on some
-// (clock, message) and not at all on others — Jobs was a briefcase against the
-// desktop's bulleted list, Analytics was horizontal bars against vertical ones.
+// These are traced point-for-point from the web app's sidebar SVGs (`views` in
+// src/TRAQS.jsx) so the phone and the browser show the SAME icon, not two
+// different takes on the same idea. SF Symbols got close on some (clock) and not
+// at all on others — Jobs was a briefcase against the desktop's bulleted list,
+// Analytics was horizontal bars against vertical ones. Messages is the one that
+// stayed an SF Symbol; its traced bubble is in git at 61f5c9a if it's wanted.
 //
 // GEOMETRY CONTRACT — keep this if you add a glyph. Paths are authored in the
 // desktop's 24-unit viewBox, and the desktop normalizes every sidebar glyph so
@@ -175,8 +178,6 @@ struct NavGlyph: View {
                 ClockGlyph().stroke(color, style: style)
             case .stats:
                 BarsGlyph().stroke(color, style: style)
-            case .chat:
-                BubbleGlyph().stroke(color, style: style)
             default:
                 EmptyView()
             }
@@ -267,36 +268,6 @@ private struct BarsGlyph: Shape {
                 p.move(to: CGPoint(x: x, y: 21))
                 p.addLine(to: CGPoint(x: x, y: top))
             }
-        }
-    }
-}
-
-// Messages — rounded speech bubble with a tail at the lower left.
-// <path d="M21 11.5c0 4.29-4.04 7.76-9 7.76-1.08 0-2.12-.17-3.08-.47L4.2 20.8l1.2-3.46C3.9 15.8 3 13.8 3 11.5 3 7.3 7 3.8 12 3.8s9 3.47 9 7.7z"/>
-private struct BubbleGlyph: Shape {
-    func path(in rect: CGRect) -> Path {
-        navGlyphPath(in: rect) { p in
-            p.move(to: CGPoint(x: 21, y: 11.5))
-            p.addCurve(to: CGPoint(x: 12, y: 19.26),
-                       control1: CGPoint(x: 21, y: 15.79),
-                       control2: CGPoint(x: 16.96, y: 19.26))
-            p.addCurve(to: CGPoint(x: 8.92, y: 18.79),
-                       control1: CGPoint(x: 10.92, y: 19.26),
-                       control2: CGPoint(x: 9.88, y: 19.09))
-            p.addLine(to: CGPoint(x: 4.2, y: 20.8))   // tail tip
-            p.addLine(to: CGPoint(x: 5.4, y: 17.34))
-            p.addCurve(to: CGPoint(x: 3, y: 11.5),
-                       control1: CGPoint(x: 3.9, y: 15.8),
-                       control2: CGPoint(x: 3, y: 13.8))
-            p.addCurve(to: CGPoint(x: 12, y: 3.8),
-                       control1: CGPoint(x: 3, y: 7.3),
-                       control2: CGPoint(x: 7, y: 3.8))
-            // The SVG's `s9 3.47 9 7.7` — the smooth cubic's first control is
-            // the reflection of the previous one: 2×(12,3.8) − (7,3.8).
-            p.addCurve(to: CGPoint(x: 21, y: 11.5),
-                       control1: CGPoint(x: 17, y: 3.8),
-                       control2: CGPoint(x: 21, y: 7.27))
-            p.closeSubpath()
         }
     }
 }

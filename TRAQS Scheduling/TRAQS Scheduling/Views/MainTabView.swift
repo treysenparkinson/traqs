@@ -333,15 +333,16 @@ private struct TabBarIcon: View {
     var keyW: CGFloat
 
     var body: some View {
-        // Traced from the desktop sidebar rather than an SF Symbol lookalike, so
-        // the bar reads as the same app as the browser. Selection thickens the
-        // stroke — the equivalent of the old .regular → .semibold bump.
-        NavGlyph(icon: tab.icon,
-                 size: 23,
-                 // Readable on the accent fill when the highlighter is on this
-                 // tab; primary ink otherwise.
-                 color: isSelected ? T.onAccent : Color(hex: T.ink),
-                 stroke: isSelected ? 2.3 : 1.9)
+        // Via TIconView, not a glyph type directly: four of the five tabs are
+        // traced from the desktop sidebar and Messages is still an SF Symbol, so
+        // the dispatch has to stay in one place. For the traced glyphs the
+        // weight becomes a stroke width; for Messages it stays a symbol weight.
+        TIconView(icon: tab.icon,
+                  size: 23,
+                  // Readable on the accent fill when the highlighter is on this
+                  // tab; primary ink otherwise.
+                  color: isSelected ? T.onAccent : Color(hex: T.ink),
+                  weight: isSelected ? .semibold : .regular)
             .frame(width: keyW, height: 48)
             .overlay(alignment: .topTrailing) {
                 if badge > 0 {
