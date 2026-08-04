@@ -42,7 +42,7 @@ struct MoreView: View {
                 }
                 .overlay(alignment: .center) {
                     if let name = selectedWorkerName {
-                        Text("\(name)'s Stats")
+                        Text("\(name)'s Analytics")
                             .font(TTypo.smBold(15))
                             .foregroundStyle(Color(hex: T.ink))
                             .lineLimit(1)
@@ -186,14 +186,19 @@ struct MoreView: View {
         .task { appState.warmStatsData() }
     }
 
-    // MARK: Title (Stats + selected week in accent)
+    // MARK: Title (Analytics + selected week in accent)
 
     private var statsTitle: some View {
         HStack(alignment: .center, spacing: 10) {
-            Text("Stats")
+            Text("Analytics")
                 .font(.custom(TFontName.extrabold.rawValue, size: 56))
                 .tracking(-4)
                 .foregroundStyle(Color(hex: T.ink))
+                // "Analytics" is nearly twice the width of the old "Stats" and
+                // shares this row with the week range, so it shrinks to fit on
+                // narrower phones rather than truncating or pushing the week off.
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
             Spacer(minLength: 8)
             Text(weekLabel)
                 .font(TTypo.smBold(15))
@@ -1050,7 +1055,7 @@ private struct NonAdminEmpty: View {
     var body: some View {
         VStack(spacing: 12) {
             TIconView(icon: .stats, size: 44, color: Color(hex: T.hair))
-            Text("Stats are admin-only")
+            Text("Analytics are admin-only")
                 .font(TTypo.h3(18))
                 .foregroundStyle(Color(hex: T.ink))
             Text("Check back when you're a dispatcher.")
