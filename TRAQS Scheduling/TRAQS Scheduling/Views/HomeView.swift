@@ -166,15 +166,14 @@ private struct TodayDateCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("TODAY'S DATE")
-                    .font(TTypo.xsBold(11))
-                    .tLabel(tracking: 1.4)
-                    .foregroundStyle(Color(hex: T.muted))
-                Text(dateLine)
-                    .font(.custom(TFontName.bold.rawValue, size: 22))
-                    .foregroundStyle(Color(hex: T.ink))
-            }
+            // No "TODAY'S DATE" label above this — the date and the week strip
+            // under it say what the card is. Centred with an explicit frame
+            // rather than by flipping the VStack's alignment, so the week strip
+            // below keeps laying out exactly as it did.
+            Text(dateLine)
+                .font(.custom(TFontName.bold.rawValue, size: 22))
+                .foregroundStyle(Color(hex: T.ink))
+                .frame(maxWidth: .infinity, alignment: .center)
 
             HStack(spacing: 6) {
                 ForEach(weekDays, id: \.self) { d in
