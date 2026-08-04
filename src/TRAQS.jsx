@@ -15888,7 +15888,9 @@ ${jobsCtx || "No jobs found."}`;
         const breakEvents = (person.activeClockIn.events || [])
           .filter(ev => ev && (ev.type === "breakStart" || ev.type === "breakEnd") && ev.ts)
           .map(ev => ({ eventType: ev.type, timestamp: ev.ts }));
-        activeEntry = { id: "__active__", personId: person.id, date: ac.slice(0, 10), clockIn: ac, origClockIn: ac, _active: true, events: lunchEvents, breakEvents };
+        // clockOut starts empty — it only becomes non-empty when the admin adds
+        // the missing OUT punch, which is what Save turns into a real clock-out.
+        activeEntry = { id: "__active__", personId: person.id, date: ac.slice(0, 10), clockIn: ac, origClockIn: ac, clockOut: "", _active: true, events: lunchEvents, breakEvents };
       }
       setTsPersonEditModal({ person, sessions, activeEntry, saving: false });
     };
@@ -15950,14 +15952,20 @@ ${jobsCtx || "No jobs found."}`;
       };
       // Live net hours for the open shift from the DRAFT (edited) lunch punches +
       // the read-only break pauses, clamped at "now" — so the running total
-      // updates as the admin edits lunch, before the save round-trip.
+      // updates as the admin edits lunch, before the save round-trip. Once a
+      // drafted OUT punch exists the window ends there instead of at "now", so
+      // the total previews the shift the save is about to write.
       const activeNetHours = (entry) => {
         if (!entry?.clockIn) return 0;
-        const nowIso = new Date().toISOString();
-        const grossMs = new Date(nowIso) - new Date(entry.clockIn);
+        const endIso = entry.clockOut || new Date().toISOString();
+        const grossMs = new Date(endIso) - new Date(entry.clockIn);
         const evs = [...(entry.events || []), ...(entry.breakEvents || [])];
-        return Math.max(0, Math.round(((grossMs - pausedMs(evs, entry.clockIn, nowIso)) / 3600000) * 100) / 100);
+        return Math.max(0, Math.round(((grossMs - pausedMs(evs, entry.clockIn, endIso)) / 3600000) * 100) / 100);
       };
+      // A drafted OUT punch is only valid strictly after the clock-in — the
+      // backend would otherwise stamp a zero/negative-length shift.
+      const activeOutInvalid = !!(activeEntry?.clockOut && activeEntry.clockIn
+        && new Date(activeEntry.clockOut) <= new Date(activeEntry.clockIn));
 
       // ── Draft mutators ────────────────────────────────────────────────────
       const patchSession = (sid, patch) => setTsPersonEditModal(m => ({ ...m, sessions: m.sessions.map(s => s.id === sid ? { ...s, ...patch } : s) }));
@@ -15991,6 +15999,22 @@ ${jobsCtx || "No jobs found."}`;
         return { ...m, addMenuFor: null, activeEntry: { ...m.activeEntry, events: [...m.activeEntry.events, { id: tmpId, eventType, timestamp: mid, origTimestamp: null, _new: true }].sort((a, b) => a.timestamp.localeCompare(b.timestamp)) } };
       });
       const ACTIVE_ADD_CHOICES = ADD_CHOICES.filter(c => c.type === "lunchStart" || c.type === "lunchEnd");
+
+      // ── Open-shift OUT punch ──────────────────────────────────────────────
+      // The "they forgot to clock out" fix. Held as a draft on activeEntry and
+      // applied by Save (last, after the start-time and lunch edits) via
+      // adminClockOut, which is what actually converts the open session into a
+      // completed entry. Defaults to now, or to the last punch in the shift if
+      // that is somehow later, so the row is never born invalid.
+      const addActiveOut = () => setTsPersonEditModal(m => {
+        const ae = m.activeEntry;
+        const latest = [ae.clockIn, ...(ae.events || []).filter(ev => !ev._deleted).map(ev => ev.timestamp), ...(ae.breakEvents || []).map(ev => ev.timestamp)]
+          .map(t => new Date(t).getTime())
+          .filter(t => !Number.isNaN(t));
+        const floor = latest.length ? Math.max(...latest) : Date.now();
+        return { ...m, addMenuFor: null, activeEntry: { ...ae, clockOut: new Date(Math.max(Date.now(), floor + 60000)).toISOString() } };
+      });
+      const clearActiveOut = () => setTsPersonEditModal(m => ({ ...m, activeEntry: { ...m.activeEntry, clockOut: "" } }));
 
       // ── Delete a whole past shift ─────────────────────────────────────────
       // Applied IMMEDIATELY rather than deferred to Save, unlike every other
@@ -16115,11 +16139,36 @@ ${jobsCtx || "No jobs found."}`;
               if (r?.ok && r.activeClockIn) latestActive = r.activeClockIn;
             }
           }
-          if (latestActive) setPeople(pp => pp.map(p => p.id === person.id ? { ...p, activeClockIn: latestActive } : p));
+          // 5) Open-shift OUT punch LAST. adminClockOut folds whatever
+          //    activeClockIn holds at that moment (start time + lunch events)
+          //    into the completed entry's net hours, so steps 1 and 4 have to
+          //    have landed first — and once it runs there is no open session
+          //    left for them to edit.
+          let clockedOut = false;
+          if (activeEntry?.clockOut) {
+            if (activeOutInvalid) {
+              errors.push("The out punch has to be after the clock-in time.");
+            } else {
+              const r = await adminClockOutAction({ personId: resolvedPid, clockOutTime: activeEntry.clockOut }, getToken, orgCode);
+              if (r?.ok) clockedOut = true;
+              else errors.push(r?.error || "Couldn't add the out punch");
+            }
+          }
+          // A completed clock-out wins over latestActive — writing the stale open
+          // session back would put the person on the clock again locally.
+          if (clockedOut) setPeople(pp => pp.map(p => sameId(p.id, person.id) ? { ...p, activeClockIn: null } : p));
+          else if (latestActive) setPeople(pp => pp.map(p => sameId(p.id, person.id) ? { ...p, activeClockIn: latestActive } : p));
           // Re-pull so hours + events reflect the server's recomputed truth
           // (also lands via real-time on other devices).
           try { const fresh = await fetchTimeclock(getToken, orgCode); if (Array.isArray(fresh)) setTimeclock(fresh); } catch { /* real-time will reconcile */ }
-          if (errors.length) { alert(errors.join("\n")); setTsPersonEditModal(m => ({ ...m, saving: false })); return; }
+          if (errors.length) {
+            alert(errors.join("\n"));
+            // If the clock-out itself succeeded, drop the open-shift draft: the
+            // session no longer exists server-side, and a retry Save would only
+            // come back with "Not currently clocked in".
+            setTsPersonEditModal(m => (m ? { ...m, saving: false, ...(clockedOut ? { activeEntry: null } : {}) } : m));
+            return;
+          }
           setTsPersonEditModal(null);
         } catch { alert("Network error"); setTsPersonEditModal(m => ({ ...m, saving: false })); }
       };
@@ -16156,7 +16205,7 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
                     <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{fmtDayHeader(date)}</span>
                     <span style={{ fontSize: 11, fontWeight: 700, color: T.accent, fontFamily: T.mono }} title="Day total — all sessions, net of lunch/breaks">
-                      {dayTotal(items).toFixed(2)}h{items.some(it => it._active) ? " · running" : ""}
+                      {dayTotal(items).toFixed(2)}h{items.some(it => it._active && !it.clockOut) ? " · running" : ""}
                     </span>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -16171,8 +16220,10 @@ ${jobsCtx || "No jobs found."}`;
                         return (
                           <div key={it.id} style={{ background: "#10b98110", borderRadius: T.radiusSm, border: `1px solid #10b98155`, padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
-                              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, color: "#10b981" }}><span style={{ width: 6, height: 6, borderRadius: 8, background: "#10b981" }} />On the clock</span>
-                              <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", fontFamily: T.mono }}>{activeNetHours(it).toFixed(2)}h</span>
+                              {it.clockOut
+                                ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, color: "#ef4444" }}><span style={{ width: 6, height: 6, borderRadius: 8, background: "#ef4444" }} />Clocking out on save</span>
+                                : <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, color: "#10b981" }}><span style={{ width: 6, height: 6, borderRadius: 8, background: "#10b981" }} />On the clock</span>}
+                              <span style={{ fontSize: 12, fontWeight: 700, color: it.clockOut ? T.accent : "#10b981", fontFamily: T.mono }}>{activeNetHours(it).toFixed(2)}h</span>
                             </div>
                             {punchRow({ key: "in", label: "In", color: "#10b981", value: it.clockIn, onChange: v => setTsPersonEditModal(m => ({ ...m, activeEntry: { ...m.activeEntry, clockIn: v } })) })}
                             {evRows.map(ev => punchRow({
@@ -16184,20 +16235,39 @@ ${jobsCtx || "No jobs found."}`;
                               onDelete: ev._lock ? undefined : (() => removeActiveEvent(ev.id)),
                               locked: ev._lock,
                             }))}
-                            <div style={{ position: "relative", paddingLeft: 2 }}>
+                            {/* The forgotten clock-out. Deleting the row just drops
+                                the draft — the person stays on the clock, since
+                                nothing was written yet. */}
+                            {it.clockOut && punchRow({ key: "out", label: "Out", color: "#ef4444", value: it.clockOut,
+                              onChange: v => setTsPersonEditModal(m => ({ ...m, activeEntry: { ...m.activeEntry, clockOut: v } })),
+                              onDelete: clearActiveOut })}
+                            {activeOutInvalid && (
+                              <div style={{ fontSize: 10.5, fontWeight: 600, color: "#ef4444", paddingLeft: 2 }}>The out punch has to be after the {fmtTime(it.clockIn)} clock-in.</div>
+                            )}
+                            <div style={{ position: "relative", paddingLeft: 2, display: "flex", flexWrap: "wrap", gap: 6 }}>
                               <button onClick={() => setTsPersonEditModal(m => ({ ...m, addMenuFor: m.addMenuFor === it.id ? null : it.id }))} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: T.radiusPill, border: `1px dashed ${T.border}`, background: "none", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                                 Add lunch punch
                               </button>
+                              {!it.clockOut && (
+                                <button onClick={addActiveOut} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: T.radiusPill, border: `1px dashed #ef444488`, background: "none", color: "#ef4444", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
+                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                  Add out punch
+                                </button>
+                              )}
                               {addMenuFor === it.id && (
-                                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8, flexBasis: "100%" }}>
                                   {ACTIVE_ADD_CHOICES.map(c => (
                                     <button key={c.type} onClick={() => addActiveEvent(c.type)} style={{ padding: "5px 11px", borderRadius: T.radiusPill, border: `1px solid ${(EVENT_META[c.type]?.color || T.accent)}55`, background: (EVENT_META[c.type]?.color || T.accent) + "12", color: EVENT_META[c.type]?.color || T.accent, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>{c.label}</button>
                                   ))}
                                 </div>
                               )}
                             </div>
-                            <div style={{ fontSize: 10.5, color: T.textDim, paddingLeft: 2 }}>Break punches become editable after clock-out.</div>
+                            <div style={{ fontSize: 10.5, color: T.textDim, paddingLeft: 2 }}>
+                              {it.clockOut
+                                ? "Saving will clock them out at this time. Break punches become editable after that."
+                                : "Break punches become editable after clock-out."}
+                            </div>
                           </div>
                         );
                       }
@@ -16247,7 +16317,7 @@ ${jobsCtx || "No jobs found."}`;
                               Suppressed while someone is already clocked in, since
                               the server refuses a second open session. */}
                           {punchRow({ key: "out", label: "Out", color: "#ef4444", value: it.clockOut, onChange: v => patchSession(it.id, { clockOut: v }),
-                            onDelete: activeEntry ? null : () => setTsPersonEditModal(m => ({ ...m, confirmReopen: { id: it.id, date: it.date, out: it.clockOut } })), locked })}
+                            onDelete: (activeEntry || !it.clockOut) ? null : () => setTsPersonEditModal(m => ({ ...m, confirmReopen: { id: it.id, date: it.date, out: it.clockOut } })), locked })}
                           {canAdd && (
                             <div style={{ position: "relative", paddingLeft: 2 }}>
                               <button onClick={() => setTsPersonEditModal(m => ({ ...m, addMenuFor: m.addMenuFor === it.id ? null : it.id }))} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: T.radiusPill, border: `1px dashed ${T.border}`, background: "none", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
@@ -16274,7 +16344,7 @@ ${jobsCtx || "No jobs found."}`;
             {/* Footer */}
             <div style={{ padding: "16px 24px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
               <button onClick={() => setTsPersonEditModal(null)} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.systemText || T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-              <button onClick={saveAll} disabled={saving} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: saving ? "not-allowed" : "pointer", fontFamily: T.font, opacity: saving ? 0.7 : 1 }}>
+              <button onClick={saveAll} disabled={saving || activeOutInvalid} title={activeOutInvalid ? "The out punch has to be after the clock-in time." : undefined} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: (saving || activeOutInvalid) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: (saving || activeOutInvalid) ? 0.7 : 1 }}>
                 {saving ? "Saving…" : "Save Changes"}
               </button>
             </div>
