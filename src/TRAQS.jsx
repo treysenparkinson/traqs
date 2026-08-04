@@ -7034,13 +7034,28 @@ ${jobsCtx || "No jobs found."}`;
   // 20 (rect edge 21 minus half its stroke), so its centre is 14.7 — NOT 15, and
   // not the rect's own centre, which is what made the digit look low.
   //
-  // Digits are lining figures: cap height, no descender. So the baseline sits half
-  // a cap height BELOW the centre, and cap height is ~0.72em across the UI sans
-  // stack (Inter .727 / SF .70 / Helvetica .717). Deriving it from the font size
-  // rather than hard-coding a y keeps the two-digit case centred too, since that
-  // one renders a size smaller to fit the tile.
+  // Digits are lining figures: cap height, no descender. The baseline therefore
+  // sits BELOW that centre by the distance from the baseline to the middle of the
+  // digit's ink — which is (yMax + yMin) / 2, NOT half the ink height, because the
+  // ink is not symmetric about the baseline.
+  //
+  // Measured out of the shipped font rather than assumed: DM Sans Bold
+  // (unitsPerEm 1000, OS/2 capHeight 700) inks its digits from yMin -12 to
+  // yMax 712, so the offset is (712 + -12) / 2 = 350 units = 0.350em. That holds
+  // for flat-topped digits too — "4" runs 0..700, and (700 + 0) / 2 is also 350 —
+  // so every date centres identically.
+  //
+  // This was 0.36, from assuming half a ~0.72em cap height, which sat the digit
+  // 0.07px low; the note justifying that 0.72em cited Inter .727 / SF .70 /
+  // Helvetica .717, none of which is the app's font (see Fonts/DMSans-Bold.ttf in
+  // the iOS bundle). Halving the 0.724em ink height instead gives 0.362 and is
+  // just as wrong in the same direction — hence spelling out (yMax + yMin) / 2
+  // above, which is the only form that stays correct per-glyph.
+  //
+  // Deriving it from the font size rather than hard-coding a y keeps the two-digit
+  // case centred too, since that one renders a size smaller to fit the tile.
   const dateFs = todayDateNum > 9 ? 9.5 : 10.5;
-  const dateBaseline = 14.7 + dateFs * 0.36;
+  const dateBaseline = 14.7 + dateFs * 0.35;
   // All sidebar glyphs are normalized to one optical box: geometry stays inside
   // 3..21 of the 24-unit viewBox so that, once the 2px stroke halo is added, every
   // icon inks the same 20x20 area centered on (12,12). Without this the stock
