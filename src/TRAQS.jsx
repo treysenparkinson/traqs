@@ -9,6 +9,7 @@ import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
 import { breakHoursByDay, producedHoursByScope } from "./statsMath.js";
+import { placeContextMenu } from "./menuPlacement.js";
 
 const COLORS = ["#6366f1","#f43f5e","#10b981","#f59e0b","#8b5cf6","#ec4899","#14b8a6","#f97316","#3b82f6","#84cc16"];
 
@@ -536,6 +537,14 @@ animStyle.textContent = `
   60%  { opacity: 1; transform: scale(1.02) translateY(2px);   filter: blur(0);   }
   100% { opacity: 1; transform: scale(1)    translateY(0);     filter: blur(0);   }
 }
+/* Mirror of ctxMenuIn for a menu anchored ABOVE the pointer — it rises into
+   place instead of dropping, so the motion still reads as coming from the
+   cursor rather than sliding across it. */
+@keyframes ctxMenuInUp {
+  0%   { opacity: 0; transform: scale(0.90) translateY(10px);  filter: blur(3px); }
+  60%  { opacity: 1; transform: scale(1.02) translateY(-2px);  filter: blur(0);   }
+  100% { opacity: 1; transform: scale(1)    translateY(0);     filter: blur(0);   }
+}
 /* Options editor list: keep overflow hidden while the menu/grid expands (so no scrollbar
    flickers in for a frame), then switch to auto via a delayed discrete keyframe. */
 .tq-opt-scroll { overflow-x: hidden; overflow-y: hidden; animation: tqOptScrollOn 0s 0.42s forwards; }
@@ -667,6 +676,9 @@ animStyle.textContent = `
 .anim-modal-box   { animation: bcPageIn 0.30s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .anim-delete-box  { animation: deleteShake 0.52s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 .anim-ctx         { animation: ctxMenuIn   0.26s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+/* Same entrance for a menu that flipped ABOVE its anchor: it grows upward from
+   the pointer rather than dropping down through it. */
+.anim-ctx-up      { animation: ctxMenuInUp 0.26s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 .anim-header      { animation: headerSlide 0.42s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .anim-filter      { animation: filterSlide 0.36s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both; }
 .anim-drop        { animation: dropIn      0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
@@ -1735,7 +1747,18 @@ function EmployeeCard({ person, img, dot, onOpen, onCtx }) {
   );
 }
 
-function CtxMenuItem({ icon, label, sub, onClick, animIdx }) { return <div onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", transition: "background 0.15s", ...(animIdx !== undefined ? { animation: `toolDrop 0.14s ${animIdx * 38}ms both ease-out` } : {}) }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}><span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.textSec, lineHeight: 0 }}>{icon}</span><div style={{ flex: 1 }}><div style={{ fontSize: 14, color: T.text, fontWeight: 500 }}>{label}</div>{sub && <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{sub}</div>}</div></div>; }
+// Cascade direction for context-menu rows. A menu that opened downward deals its
+// rows top-to-bottom; one that flipped ABOVE its anchor deals them bottom-to-top,
+// so the cascade always travels away from the pointer instead of running back
+// toward it. `count` comes from measuring the rendered rows — it's 0 on the first
+// (hidden) paint, which simply means no reversal until the menu has been placed.
+const CtxAnimContext = createContext({ up: false, count: 0 });
+function ctxRowAnim(animIdx, up, count) {
+  if (animIdx === undefined) return {};
+  const idx = up && count > 0 ? Math.max(0, count - 1 - animIdx) : animIdx;
+  return { animation: `${up ? "toolDropUp" : "toolDrop"} 0.14s ${idx * 38}ms both ease-out` };
+}
+function CtxMenuItem({ icon, label, sub, onClick, animIdx }) { const _ctxAnim = useContext(CtxAnimContext); return <div data-ctx-row onClick={onClick} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", cursor: "pointer", transition: "background 0.15s", ...ctxRowAnim(animIdx, _ctxAnim.up, _ctxAnim.count) }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}><span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.textSec, lineHeight: 0 }}>{icon}</span><div style={{ flex: 1 }}><div style={{ fontSize: 14, color: T.text, fontWeight: 500 }}>{label}</div>{sub && <div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>{sub}</div>}</div></div>; }
 
 /** Reusable sliding-pill toggle. options=[{value,label}], value=active key */
 function SlidingPill({ options, value, onChange, size = "md", style: sx = {} }) {
@@ -6997,6 +7020,29 @@ ${jobsCtx || "No jobs found."}`;
   const ctxDeps = ctxMenu ? (ctxMenu.item.deps || []).map(did => allItems.find(x => x.id === did)).filter(Boolean) : [];
   const ctxBlocks = ctxMenu ? allItems.filter(x => (x.deps || []).includes(ctxMenu.item.id)) : [];
   const handleCtx = (e, item, source = "gantt") => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, item, source }); };
+  // Context-menu placement, decided from the menu's MEASURED height rather than
+  // a guess: the item list varies with type and permissions, so no constant is
+  // right for every menu. First paint renders it hidden at its natural height,
+  // this measures it, and the second paint positions it. `null` = not yet
+  // measured, which is what keeps the unplaced first frame invisible.
+  const ctxMenuRef = useRef(null);
+  const [ctxPlace, setCtxPlace] = useState(null);
+  useLayoutEffect(() => {
+    if (!ctxMenu) { setCtxPlace(null); return; }
+    const el = ctxMenuRef.current;
+    if (!el) return;
+    setCtxPlace({
+      ...placeContextMenu({
+        y: ctxMenu.y,
+        viewportHeight: window.innerHeight,
+        menuHeight: el.scrollHeight,
+      }),
+      // Row count drives the reversed cascade when the menu flips up. Counted
+      // from the DOM because the rows are built from inline conditionals, so
+      // there's no static total to read.
+      count: el.querySelectorAll("[data-ctx-row]").length,
+    });
+  }, [ctxMenu]);
 
   // Copy item from context menu into clipboard
   const copyItem = (item) => {
@@ -24699,10 +24745,10 @@ ${jobsCtx || "No jobs found."}`;
 
     {/* Shared context menu */}
     <FadeOnClose open={!!ctxMenu}>{ctxMenu && (() => {
-      const spaceBelow = window.innerHeight - ctxMenu.y - 12;
-      const spaceAbove = ctxMenu.y - 12;
-      const flipUp = spaceBelow < 300 && spaceAbove > spaceBelow;
-      const maxH = flipUp ? Math.min(spaceAbove, window.innerHeight - 32) : Math.min(spaceBelow, window.innerHeight - 32);
+      // Measured placement (see ctxPlace above). Until the first measure lands
+      // the menu renders hidden, so it never flashes in the wrong spot.
+      const flipUp = !!ctxPlace?.up;
+      const maxH = ctxPlace?.maxHeight;
       const vPos = flipUp ? { bottom: window.innerHeight - ctxMenu.y } : { top: ctxMenu.y };
       const it = ctxMenu.item;
       const isOp = it.level === 2 || (it.isSub && it.pid && !tasks.find(x => x.id === it.id));
@@ -24720,7 +24766,19 @@ ${jobsCtx || "No jobs found."}`;
       if (isJob) { const job = tasks.find(j => j.id === it.id); if (job) (job.subs||[]).forEach(pnl => (pnl.subs||[]).forEach(op => { logCount += (op.moveLog||[]).length; })); }
       else if (isPanel) { tasks.forEach(job => { const pnl = (job.subs||[]).find(s => s.id === it.id); if (pnl) (pnl.subs||[]).forEach(op => { logCount += (op.moveLog||[]).length; }); }); }
       let _ci = -1; const ci = () => ++_ci;
-      return <div className="anim-ctx" onClick={e => e.stopPropagation()} style={{ position: "fixed", left: isMobile ? 16 : Math.min(ctxMenu.x, window.innerWidth - 268), ...(isMobile ? { bottom: 16, right: 16 } : vPos), zIndex: 9999, minWidth: isMobile ? "auto" : 252, width: isMobile ? "calc(100% - 32px)" : "auto", maxHeight: isMobile ? "80vh" : maxH, overflowY: "auto", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, overflow: "hidden", padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)", fontFamily: T.font }}>
+      // The div stays the OUTERMOST element: FadeOnClose applies its close
+      // animation via cloneElement(style), which would land on a context
+      // provider and quietly do nothing.
+      return <div ref={ctxMenuRef} className={flipUp ? "anim-ctx-up" : "anim-ctx"} onClick={e => e.stopPropagation()} style={{ position: "fixed", left: isMobile ? 16 : Math.min(ctxMenu.x, window.innerWidth - 268), ...(isMobile ? { bottom: 16, right: 16 } : vPos), zIndex: 9999, minWidth: isMobile ? "auto" : 252, width: isMobile ? "calc(100% - 32px)" : "auto", maxHeight: isMobile ? "80vh" : maxH, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg,
+        // overflowX hidden keeps the rounded corners clean; overflowY MUST stay
+        // scrollable. These were previously followed by an `overflow: "hidden"`
+        // shorthand, which silently reset the Y axis — so a menu taller than
+        // maxHeight was clipped with no way to reach the rows below the cut.
+        overflowX: "hidden", overflowY: "auto",
+        // Hidden until measured, so the first (unplaced) paint is never seen.
+        visibility: ctxPlace ? "visible" : "hidden",
+        padding: "6px 0", boxShadow: "0 16px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)", fontFamily: T.font }}>
+      <CtxAnimContext.Provider value={{ up: flipUp, count: ctxPlace?.count || 0 }}>
       {/* Header */}
       {(() => {
         let parentJobTitle = null, parentPanelTitle = null, panelId = null, siblingOpCount = 0, curDepsMode = "free";
@@ -24818,10 +24876,11 @@ ${jobsCtx || "No jobs found."}`;
           deleteTarget.pid = it.isSub ? it.pid : null;
         }
         setConfirmDelete(deleteTarget);
-      }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", animation: `toolDrop 0.14s ${ci() * 38}ms both ease-out` }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+      }} data-ctx-row style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", ...ctxRowAnim(ci(), flipUp, ctxPlace?.count || 0) }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
         <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
         <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Delete</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Permanently remove this item</div></div>
       </div>}
+    </CtxAnimContext.Provider>
     </div>;
     })()}</FadeOnClose>
     {/* Reassign Operation Modal */}
