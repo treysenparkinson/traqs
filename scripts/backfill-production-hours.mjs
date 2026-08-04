@@ -6,6 +6,12 @@
 //                    only ever increased, never lowered.
 //   2. productionhours.json — restamp `date` to the shop's calendar day. It was
 //                    a UTC slice, so evening work was filed on the next day.
+//   2b. payhours.json — same restamp. This is the one that surfaced in the log: a
+//                    6:23pm punch stored as the NEXT day read as "today's
+//                    clock-in". Rows whose corrected day lands in a different PAY
+//                    PERIOD are held back and listed — correcting a day is a bug
+//                    fix, moving hours between periods restates payroll. Pass
+//                    --allow-period-change to include them.
 //   3. settings.json — set `timeZone`, which the server now reads to stamp new
 //                    rows. Without it the server keeps its UTC fallback.
 //
@@ -42,6 +48,9 @@ const APPLY = args.includes("--apply");
 // after confirming no "Nobody — job progress only" history matters). The default
 // only ever raises, so it can never delete recorded progress.
 const EXACT = args.includes("--exact");
+// Move payhours rows whose corrected day lands in a DIFFERENT pay period. Off by
+// default: that restates payroll totals, which is a decision for whoever runs pay.
+const ALLOW_PERIOD_CHANGE = args.includes("--allow-period-change");
 const ORG = flag("org");
 const TZ = flag("tz");
 if (!ORG || !TZ) {
@@ -86,10 +95,11 @@ const round = h => Math.round(h * 100) / 100;
 
 console.log(`org=${ORG}  tz=${TZ}  mode=${APPLY ? "APPLY" : "DRY RUN"}\n`);
 
-const [tasks, sessions, settings] = await Promise.all([
+const [tasks, sessions, settings, pay] = await Promise.all([
   getJson("tasks.json"),
   getJson("productionhours.json"),
   getJson("settings.json").catch(() => ({})),
+  getJson("payhours.json"),
 ]);
 
 // ── 1. session dates ───────────────────────────────────────────────────────
@@ -162,6 +172,71 @@ if (lowered.length) {
   for (const c of lowered) console.log(`     ${c.job} / ${c.title}: ${c.from} -> ${c.to}`);
 }
 
+// ── 2b. payhours dates ─────────────────────────────────────────────────────
+// Same UTC-slice bug as the production rows, and the one that showed up in the
+// log: a 6:23pm punch was stamped with the NEXT day, so it appeared as "today's
+// clock-in" on a day the worker had not started.
+//
+// Riskier than the production rows, because a punch's `date` decides which PAY
+// PERIOD it falls in. Any row whose corrected date would cross a period boundary
+// is reported and the script ABORTS rather than quietly restating someone's
+// payroll. Confirmed rows are called out for the same reason.
+const payPeriodOf = (ds, payDates = [5, 20]) => {
+  const [d1, d2] = [...payDates].map(Number).sort((a, b) => a - b);
+  const t = new Date(ds + "T00:00:00");
+  const y = t.getFullYear(), m = t.getMonth(), day = t.getDate();
+  const toDS = dt => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+  if (day >= d1 && day < d2) return toDS(new Date(y, m, d1));
+  if (day >= d2) return toDS(new Date(y, m, d2));
+  return toDS(new Date(y, m - 1, d2));
+};
+const payDates = settings?.payDates || [5, 20];
+
+// First pass only classifies — nothing is rewritten until the period check below
+// has decided which rows are safe to move.
+const payChanges = [];
+for (const e of pay) {
+  if (!e || e.deletedAt) continue;
+  const src = e.clockIn || e.timestamp;          // punches carry clockIn, event rows a timestamp
+  if (!src) continue;
+  const want = localDay(src, TZ);
+  if (e.date === want) continue;
+  payChanges.push({
+    id: e.id, from: e.date, to: want, src, hours: e.hours, kind: e.eventType || "punch",
+    person: e.personId, confirmed: !!e.confirmed,
+    periodFrom: payPeriodOf(e.date, payDates), periodTo: payPeriodOf(want, payDates),
+  });
+}
+
+console.log(`\n── payhours dates: ${payChanges.length} of ${pay.length} rows move ──`);
+for (const c of payChanges) {
+  const flags = [c.confirmed ? "CONFIRMED" : null, c.periodFrom !== c.periodTo ? "PERIOD CHANGE" : null].filter(Boolean);
+  console.log(`   ${c.from} -> ${c.to}  ${String(c.kind).padEnd(11)} person=${String(c.person).padEnd(4)} ${c.src}${flags.length ? "   [" + flags.join(", ") + "]" : ""}`);
+}
+// Rows whose corrected day lands in a different pay period are HELD BACK unless
+// explicitly allowed. Fixing the day someone's shift is filed under is a bug fix;
+// moving hours between pay periods restates payroll, which is not this script's
+// call to make. Holding them back keeps the rest of the correction available.
+const crossers = payChanges.filter(c => c.periodFrom !== c.periodTo);
+const heldIds = new Set(ALLOW_PERIOD_CHANGE ? [] : crossers.map(c => c.id));
+if (crossers.length) {
+  console.log(`\n   ${crossers.length} row(s) would change PAY PERIOD — ${ALLOW_PERIOD_CHANGE ? "INCLUDED (--allow-period-change)" : "HELD BACK"}:`);
+  for (const c of crossers) {
+    console.log(`     ${c.id}  ${c.from} -> ${c.to}   period ${c.periodFrom} -> ${c.periodTo}   ${c.hours ?? "-"}h${c.confirmed ? "   CONFIRMED" : ""}`);
+  }
+  if (!ALLOW_PERIOD_CHANGE) console.log(`   Pass --allow-period-change to move these too.`);
+}
+const confirmedMoves = payChanges.filter(c => c.confirmed && !heldIds.has(c.id));
+if (confirmedMoves.length) {
+  console.log(`\n   note: ${confirmedMoves.length} row(s) being moved are on a CONFIRMED timesheet.`);
+  console.log(`   Their pay period is unchanged, so the period total stands — only the day moves.`);
+}
+const payApplied = payChanges.filter(c => !heldIds.has(c.id));
+console.log(`\n   -> ${payApplied.length} of ${payChanges.length} payhours rows will be written.`);
+
+const wanted = new Map(payApplied.map(c => [c.id, c.to]));
+const nextPay = pay.map(e => (e && wanted.has(e.id) ? { ...e, date: wanted.get(e.id) } : e));
+
 // ── 3. settings ────────────────────────────────────────────────────────────
 const tzChanged = settings?.timeZone !== TZ;
 console.log(`\n── settings.timeZone: ${settings?.timeZone ?? "unset"} -> ${TZ}  ${tzChanged ? "(change)" : "(no change)"} ──`);
@@ -172,6 +247,7 @@ if (!APPLY) {
 }
 
 if (dateChanges.length) await putJson("productionhours.json", nextSessions);
+if (payApplied.length) await putJson("payhours.json", nextPay);
 if (counterChanges.length) await putJson("tasks.json", nextTasks);
 if (tzChanged) await putJson("settings.json", { ...settings, timeZone: TZ });
 console.log("\nAPPLIED.");

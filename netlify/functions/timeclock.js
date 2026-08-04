@@ -363,6 +363,20 @@ export async function handler(event) {
     const { action } = body;
     if (!action) return err(400, "Missing action");
 
+    // Every `date` stamped below is the SHOP's calendar day, not the UTC one.
+    //
+    // These were all `iso.slice(0, 10)`, which reads the day off a UTC timestamp.
+    // At UTC-6 that files everything from 18:00 local onward under tomorrow: a
+    // 6:23pm punch was stored as the next day and then showed up in the log as
+    // "today's clock-in", on a day the worker had not started yet.
+    //
+    // Resolved once here rather than per site so the helper is SYNCHRONOUS. Several
+    // of the stamps below sit inside non-async .map() callbacks where `await` is a
+    // syntax error, and a lazily-awaited helper would silently not fit there. One
+    // extra settings read per POST is cheap — clock actions are low-frequency.
+    const orgTz = await getOrgTimeZone();
+    const localDayOf = (iso) => orgLocalDay(iso, orgTz);
+
     // ── Admin actions (Bearer token, no PIN) ──────────────────────────────
     if (action === "adminClockOut" || action === "adminClockIn" || action === "adminEditEntry" || action === "adminEditActiveClockIn") {
       let _m;
@@ -411,7 +425,7 @@ export async function handler(event) {
         const clockOut = clockOutTime || new Date().toISOString();
         const { clockIn, jobRefs = [], events = [], source: acSource = "kiosk" } = person.activeClockIn;
         const hours = hoursElapsedMinusPauses(clockIn, clockOut, events);
-        const dateStr = clockIn.slice(0, 10);
+        const dateStr = localDayOf(clockIn);
 
         const entry = {
           id: `tc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -472,7 +486,7 @@ export async function handler(event) {
           if (e.id !== entryId) return e;
           found = true;
           const hours = netHoursForPunch(clockIn, clockOut, editPersonRows);
-          return { ...e, clockIn, clockOut, hours, date: clockIn.slice(0, 10) };
+          return { ...e, clockIn, clockOut, hours, date: localDayOf(clockIn) };
         });
 
         if (!found) return err(404, "Entry not found");
@@ -621,7 +635,7 @@ export async function handler(event) {
           if (!isLunch(row.eventType)) return err(409, "Breaks on an in-progress shift can be edited after clock-out.");
           if (!(openOld && openNew)) return err(409, "Keep the lunch within the same shift.");
           if (newMs > Date.now() + 60000) return err(400, "Lunch time can't be in the future.");
-          log = log.map(e => (e.id === eventId ? { ...e, timestamp, date: timestamp.slice(0, 10) } : e));
+          log = log.map(e => (e.id === eventId ? { ...e, timestamp, date: localDayOf(timestamp) } : e));
           try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
           const activeClockIn = await syncOpenShiftLunch(pid);
           return json(200, { ok: true, event: log.find(e => e.id === eventId), entries: [], activeClockIn });
@@ -629,7 +643,7 @@ export async function handler(event) {
 
         const oldOwner = ownerPunch(pid, oldMs);
         if (oldOwner?.confirmed) return err(409, "This entry is in a confirmed timesheet. Re-open the timesheet to edit it.");
-        log = log.map(e => (e.id === eventId ? { ...e, timestamp, date: timestamp.slice(0, 10) } : e));
+        log = log.map(e => (e.id === eventId ? { ...e, timestamp, date: localDayOf(timestamp) } : e));
         const newOwner = ownerPunch(pid, newMs); // resolved against the mutated log
         if (newOwner?.confirmed) return err(409, "That time falls inside a confirmed timesheet. Re-open it first.");
 
@@ -649,7 +663,7 @@ export async function handler(event) {
         if (onOpenShift(personId, tsMs)) {
           if (!isLunch(eventType)) return err(409, "Breaks on an in-progress shift can be added after clock-out.");
           if (tsMs > Date.now() + 60000) return err(400, "Lunch time can't be in the future.");
-          const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(personId), date: timestamp.slice(0, 10), eventType, timestamp };
+          const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(personId), date: localDayOf(timestamp), eventType, timestamp };
           log.push(evt);
           try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
           const activeClockIn = await syncOpenShiftLunch(personId);
@@ -660,7 +674,7 @@ export async function handler(event) {
         if (!owner) return err(409, "That time isn't inside a completed clock in/out for this person.");
         if (owner.confirmed) return err(409, "This entry is in a confirmed timesheet. Re-open the timesheet to edit it.");
 
-        const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(personId), date: timestamp.slice(0, 10), eventType, timestamp };
+        const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(personId), date: localDayOf(timestamp), eventType, timestamp };
         log.push(evt);
         const entries = recomputeOwners([owner.id]);
         try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
@@ -864,7 +878,7 @@ export async function handler(event) {
       );
       try { await writeStampedArray(peopleKey, albPeople); } catch { return err(500, "Failed to save"); }
 
-      const albEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: albPersonId, date: albTimestamp.slice(0, 10), eventType: evtType, timestamp: albTimestamp };
+      const albEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: albPersonId, date: localDayOf(albTimestamp), eventType: evtType, timestamp: albTimestamp };
       let albLog; try { albLog = await readJson(payKey) ?? []; } catch { albLog = []; }
       albLog.push(albEvt); try { await writeStampedArray(payKey, albLog); } catch { /* non-fatal */ }
 
@@ -958,7 +972,6 @@ export async function handler(event) {
         try {
           const { jobTitle: jcoJobTitle, panelTitle: jcoPanelTitle, opTitle: jcoOpTitle } = jcoPerson.activeJobClock || {};
           const prodSource = body.source === "kiosk" ? "kiosk" : "ios-app";
-          const orgTimeZone = await getOrgTimeZone();
           let sessions = await readJson(prodKey) ?? [];
           if (!Array.isArray(sessions)) sessions = [];
           sessions.push({
@@ -973,7 +986,7 @@ export async function handler(event) {
             clockIn: jcoClockIn,
             clockOut: jcoClockOut,
             hours: jcoHours,
-            date: orgLocalDay(jcoClockIn, orgTimeZone),
+            date: localDayOf(jcoClockIn),
             source: prodSource,
           });
           // productionhours.json IS a /sync entity now; writeStampedArray stamps
@@ -1088,7 +1101,7 @@ export async function handler(event) {
       if (!mjhPid || !opId) return err(400, "Missing personId or opId");
       const mjhHours = Math.round((Number(hours) || 0) * 100) / 100;
       if (!Number.isFinite(mjhHours)) return err(400, "Invalid hours");
-      const mjhDate = (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) ? date : new Date().toISOString().slice(0, 10);
+      const mjhDate = (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) ? date : localDayOf(new Date().toISOString());
 
       let sessions;
       try { sessions = await readJson(prodKey) ?? []; } catch { return err(500, "Failed to read production hours"); }
@@ -1101,9 +1114,15 @@ export async function handler(event) {
         // Remove |mjhHours| of manual credit, newest first. A row only partly
         // consumed is rewritten with the remainder rather than dropped whole.
         let toRemove = -mjhHours;
+        // POSITIVE manual rows only. The compensating negatives written below are
+        // themselves source:"manual", and consuming one would run this backwards:
+        // `h <= toRemove` is true for any negative h, so it would tombstone a -2.05
+        // correction and then do `toRemove -= -2.05`, INCREASING what is still to be
+        // removed and re-applying an erase that had already been recorded.
         const mine = sessions
           .map((s, i) => ({ s, i }))
-          .filter(({ s }) => s && !s.deletedAt && s.source === "manual" && String(s.opId) === String(opId))
+          .filter(({ s }) => s && !s.deletedAt && s.source === "manual"
+            && (Number(s.hours) || 0) > 0 && String(s.opId) === String(opId))
           .sort((a, b) => String(b.s.clockIn).localeCompare(String(a.s.clockIn)));
         for (const { s, i } of mine) {
           if (toRemove <= 0) break;
@@ -1124,13 +1143,46 @@ export async function handler(event) {
             toRemove = 0;
           }
         }
+        // Anything the manual rows could not absorb becomes a compensating negative
+        // row. Without this, erasing hours only worked when there was manual credit
+        // to consume — the normal case is time that was genuinely CLOCKED, and there
+        // the walk-back found nothing to take and silently did nothing while the UI
+        // reported success.
+        //
+        // A negative row rather than editing the clocked sessions: the clock-in and
+        // clock-out of real work are the audit trail and must stay intact. The sums
+        // that feed every total are plain additions, so a -2.05 row reduces them by
+        // exactly 2.05 while leaving the history readable.
+        if (toRemove > 0) {
+          // Capped at what the op actually has left, or an over-erase would drive the
+          // total NEGATIVE: asking to remove 10h from an op holding 2h wrote a -8h row
+          // and left it at -8h instead of 0. Sum the op's remaining live rows (the
+          // manual consumption above has already been applied to `sessions`).
+          const opTotal = sessions.reduce((a, s) =>
+            (s && !s.deletedAt && String(s.opId) === String(opId)) ? a + (Number(s.hours) || 0) : a, 0);
+          const adj = Math.round(Math.min(toRemove, Math.max(0, opTotal)) * 100) / 100;
+          if (adj > 0) {
+            const adjStart = new Date(mjhDate + "T12:00:00.000Z");
+            sessions.push({
+              id: "js_" + Date.now() + "_" + Math.random().toString(36).slice(2, 7),
+              personId: mjhPid, jobId: jobId ?? null, panelId: panelId ?? null, opId,
+              jobTitle: jobTitle ?? null, panelTitle: panelTitle ?? null, opTitle: opTitle ?? null,
+              clockIn: adjStart.toISOString(),
+              clockOut: adjStart.toISOString(),      // zero span — a correction, not a shift
+              hours: -adj,
+              date: mjhDate, source: "manual", adjustment: true,
+              enteredBy: _mjh.personId ?? null, enteredAt: stamp,
+            });
+            toRemove -= adj;
+          }
+        }
         try { await writeStampedArray(prodKey, sessions); } catch { return err(500, "Failed to save production hours"); }
-        // `(-mjhHours) - toRemove` is what was ACTUALLY removed: if the op had
-        // less manual credit on file than the walk-back asked for, only the part
-        // that existed came off, and the counter must move by that much and no
-        // more. (Op counter untouched — the caller already set it.)
-        await creditPanel(panelId, -((-mjhHours) - toRemove));
-        return json(200, { ok: true, credited: mjhHours });
+        // What was ACTUALLY removed, between the consumed manual rows and the capped
+        // adjustment — not the full request, which may have exceeded what existed.
+        // (Op counter untouched — the caller already set it.)
+        const mjhRemoved = Math.round(((-mjhHours) - toRemove) * 100) / 100;
+        await creditPanel(panelId, -mjhRemoved);
+        return json(200, { ok: true, credited: -mjhRemoved });
       }
 
       // Span from noon so the row lands on the requested day in every timezone —
@@ -1184,7 +1236,7 @@ export async function handler(event) {
       try { await writeStampedArray(peopleKey, bbPeople); } catch { return err(500, "Failed to save"); }
 
       // Log to payhours.json for payroll records.
-      const bbEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(bbPId), date: bbStart.slice(0, 10), eventType: "breakStart", timestamp: bbStart };
+      const bbEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(bbPId), date: localDayOf(bbStart), eventType: "breakStart", timestamp: bbStart };
       let bbLog; try { bbLog = await readJson(payKey) ?? []; } catch { bbLog = []; }
       bbLog.push(bbEvt); try { await writeStampedArray(payKey, bbLog); } catch { }
 
@@ -1210,7 +1262,7 @@ export async function handler(event) {
       bcPeople[bcIdx] = applyAutoJobPause({ ...bcPeople[bcIdx], activeBreak: null }, "break", false, new Date().toISOString());
       try { await writeStampedArray(peopleKey, bcPeople); } catch { return err(500, "Failed to save"); }
 
-      const bcEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(bcPId), date: bcEnd.slice(0, 10), eventType: "breakEnd", timestamp: bcEnd };
+      const bcEvt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: String(bcPId), date: localDayOf(bcEnd), eventType: "breakEnd", timestamp: bcEnd };
       let bcLog; try { bcLog = await readJson(payKey) ?? []; } catch { bcLog = []; }
       bcLog.push(bcEvt); try { await writeStampedArray(payKey, bcLog); } catch { }
 
@@ -1321,7 +1373,7 @@ export async function handler(event) {
       const entry = {
         id: `tc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         personId: pcPId,
-        date: clockIn.slice(0, 10),
+        date: localDayOf(clockIn),
         clockIn,
         clockOut,
         hours,
@@ -1393,7 +1445,7 @@ export async function handler(event) {
         });
       } catch (e) { return err(e.status || 500, e.status ? e.message : "Failed to save"); }
 
-      const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: plPId, date: timestamp.slice(0, 10), eventType: starting ? "lunchStart" : "lunchEnd", timestamp };
+      const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId: plPId, date: localDayOf(timestamp), eventType: starting ? "lunchStart" : "lunchEnd", timestamp };
       let plLog; try { plLog = await readJson(payKey) ?? []; } catch { plLog = []; }
       plLog.push(evt); try { await writeStampedArray(payKey, plLog); } catch { /* non-fatal — the shift event is already on the person record */ }
       return json(200, { ok: true, event: evt });
@@ -1477,7 +1529,7 @@ export async function handler(event) {
       const clockOut = new Date().toISOString();
       const { clockIn, jobRefs = [], events = [], source: acSource = "kiosk" } = person.activeClockIn;
       const hours = hoursElapsedMinusPauses(clockIn, clockOut, events);
-      const dateStr = clockIn.slice(0, 10);
+      const dateStr = localDayOf(clockIn);
 
       const entry = {
         id: `tc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -1524,7 +1576,7 @@ export async function handler(event) {
       const timestamp = new Date().toISOString();
       people[personIdx] = applyLunchJobPause({ ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "lunchStart", ts: timestamp }] } }, true, timestamp);
       try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save"); }
-      const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: timestamp.slice(0, 10), eventType: "lunchStart", timestamp };
+      const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: localDayOf(timestamp), eventType: "lunchStart", timestamp };
       let log1; try { log1 = await readJson(payKey) ?? []; } catch { log1 = []; }
       log1.push(evt); try { await writeStampedArray(payKey, log1); } catch { }
       return json(200, { ok: true, event: evt });
@@ -1539,7 +1591,7 @@ export async function handler(event) {
       const timestamp = new Date().toISOString();
       people[personIdx] = applyLunchJobPause({ ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "lunchEnd", ts: timestamp }] } }, false, timestamp);
       try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save"); }
-      const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: timestamp.slice(0, 10), eventType: "lunchEnd", timestamp };
+      const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: localDayOf(timestamp), eventType: "lunchEnd", timestamp };
       let log2; try { log2 = await readJson(payKey) ?? []; } catch { log2 = []; }
       log2.push(evt); try { await writeStampedArray(payKey, log2); } catch { }
       return json(200, { ok: true, event: evt });
@@ -1554,7 +1606,7 @@ export async function handler(event) {
       const timestamp = new Date().toISOString();
       people[personIdx] = applyAutoJobPause({ ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "breakStart", ts: timestamp }] } }, "break", true, timestamp);
       try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save"); }
-      const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: timestamp.slice(0, 10), eventType: "breakStart", timestamp };
+      const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: localDayOf(timestamp), eventType: "breakStart", timestamp };
       let log3; try { log3 = await readJson(payKey) ?? []; } catch { log3 = []; }
       log3.push(evt); try { await writeStampedArray(payKey, log3); } catch { }
       return json(200, { ok: true, event: evt });
@@ -1569,7 +1621,7 @@ export async function handler(event) {
       const timestamp = new Date().toISOString();
       people[personIdx] = applyAutoJobPause({ ...person, activeClockIn: { ...person.activeClockIn, events: [...events, { type: "breakEnd", ts: timestamp }] } }, "break", false, timestamp);
       try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save"); }
-      const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: timestamp.slice(0, 10), eventType: "breakEnd", timestamp };
+      const evt = { id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`, personId, date: localDayOf(timestamp), eventType: "breakEnd", timestamp };
       let log4; try { log4 = await readJson(payKey) ?? []; } catch { log4 = []; }
       log4.push(evt); try { await writeStampedArray(payKey, log4); } catch { }
       return json(200, { ok: true, event: evt });

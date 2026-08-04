@@ -196,5 +196,96 @@ setJobClock("2026-08-03T15:00:00.000Z");
   ok("sibling op untouched", globalThis.__S3[K.tasks][0].subs[1].subs[0].loggedHours, undefined);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\n9. Evening PAY punch lands on the local day (the misfiled-log bug)");
+{
+  const runClockOut = async (inIso, outIso, tz) => {
+    reset({ timeZone: tz });
+    globalThis.__S3[K.people][0].activeClockIn = { clockIn: inIso, jobRefs: [], events: [], source: "kiosk" };
+    const OrigDate = Date;
+    globalThis.Date = class extends OrigDate {
+      constructor(...a) { return a.length ? new OrigDate(...a) : new OrigDate(outIso); }
+      static now() { return new OrigDate(outIso).getTime(); }
+    };
+    await post({ action: "clockOut", personId: 99, pin: "1234" });
+    globalThis.Date = OrigDate;
+    return globalThis.__S3[K.pay].filter(e => !e.eventType);
+  };
+  // 18:23 -> 21:53 Mountain on Aug 3 == 00:23 -> 03:53 UTC on Aug 4.
+  let rows = await runClockOut("2026-08-04T00:23:07.000Z", "2026-08-04T03:53:45.000Z", "America/Denver");
+  ok("punch row written", rows.length, 1);
+  ok("date is the local day it was worked", rows[0]?.date, "2026-08-03");
+  ok("hours unaffected", rows[0]?.hours, 3.51);
+
+  // 23:59 local Aug 3 is still Aug 3.
+  rows = await runClockOut("2026-08-04T05:00:00.000Z", "2026-08-04T05:59:00.000Z", "America/Denver");
+  ok("23:00-23:59 local stays on Aug 3", rows[0]?.date, "2026-08-03");
+
+  // Just past local midnight belongs to Aug 4.
+  rows = await runClockOut("2026-08-04T06:10:00.000Z", "2026-08-04T07:00:00.000Z", "America/Denver");
+  ok("00:10 local rolls to Aug 4", rows[0]?.date, "2026-08-04");
+
+  // No org timezone -> unchanged UTC behaviour.
+  rows = await runClockOut("2026-08-04T00:23:07.000Z", "2026-08-04T03:53:45.000Z", null);
+  ok("unset timeZone keeps the old UTC date", rows[0]?.date, "2026-08-04");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\n10. Erasing hours when there is no manual credit to walk back");
+{
+  reset();
+  // A CLOCKED session, not a manual one — the normal case, and the one that
+  // matters: the walk-back only ever consumed rows with source === "manual", so
+  // erasing time an op had actually clocked silently did nothing.
+  globalThis.__S3[K.prod] = [{
+    id: "js_clocked", personId: 99, jobId: "JOB", panelId: "PANEL", opId: "OP",
+    clockIn: "2026-08-03T15:00:00.000Z", clockOut: "2026-08-03T22:00:00.000Z",
+    hours: 10.08, date: "2026-08-03", source: "ios-app",
+  }];
+  // Seed the panel counter to match, as a real clock-out would have. creditPanel is
+  // incremental, so without this the decrement just clamps at 0 and proves nothing.
+  panel().loggedHours = 10.08;
+  const before = sum();
+  const r = await post({
+    action: "adminJobHours", personId: 99, jobId: "JOB", panelId: "PANEL", opId: "OP",
+    hours: -2.05, date: "2026-08-04",
+  });
+  ok("server reports the walk-back", r.body.credited, -2.05);
+  ok("rows before", before, 10.08);
+  ok("rows after — the erase must stick", sum(), 8.03);
+  ok("the clocked row itself is untouched", globalThis.__S3[K.prod][0].hours, 10.08);
+  ok("panel counter followed", panel().loggedHours, 8.03);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\n11. A compensating adjustment is not itself consumed by the next erase");
+{
+  reset();
+  globalThis.__S3[K.prod] = [{
+    id: 'js_clocked', personId: 99, jobId: 'JOB', panelId: 'PANEL', opId: 'OP',
+    clockIn: '2026-08-03T15:00:00.000Z', clockOut: '2026-08-03T22:00:00.000Z',
+    hours: 10, date: '2026-08-03', source: 'ios-app',
+  }];
+  await post({ action: 'adminJobHours', personId: 99, jobId: 'JOB', panelId: 'PANEL', opId: 'OP', hours: -2, date: '2026-08-04' });
+  ok('after first erase', sum(), 8);
+  await post({ action: 'adminJobHours', personId: 99, jobId: 'JOB', panelId: 'PANEL', opId: 'OP', hours: -3, date: '2026-08-04' });
+  ok('after second erase (must be 5, not 10)', sum(), 5);
+  ok('two adjustment rows recorded', globalThis.__S3[K.prod].filter(r => r.adjustment && !r.deletedAt).length, 2);
+  ok('clocked row still intact', globalThis.__S3[K.prod][0].hours, 10);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\n12. Giving hours then erasing them consumes the manual credit first");
+{
+  reset();
+  await post({ action: 'adminJobHours', personId: 99, jobId: 'JOB', panelId: 'PANEL', opId: 'OP', hours: 4, date: '2026-08-04' });
+  ok('after giving 4h', sum(), 4);
+  await post({ action: 'adminJobHours', personId: 99, jobId: 'JOB', panelId: 'PANEL', opId: 'OP', hours: -4, date: '2026-08-04' });
+  ok('after erasing 4h', sum(), 0);
+  ok('consumed the credit, no adjustment row needed', globalThis.__S3[K.prod].filter(r => r.adjustment && !r.deletedAt).length, 0);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
+
+

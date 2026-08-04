@@ -137,8 +137,16 @@ const optIcon = o => (o && typeof o === "object") ? o.icon : null;
 const toOptObjs = names => (names || []).map((o, i) => (o && typeof o === "object") ? o : (o === "—" ? { name: "—" } : { name: o, color: OPT_PALETTE[i % OPT_PALETTE.length], icon: "○" }));
 // Striped overlay used to render the "worked / locked" portion of a bar across all views.
 const WORKED_STRIPE = "repeating-linear-gradient(135deg, rgba(255,255,255,0.18) 0, rgba(255,255,255,0.18) 5px, rgba(0,0,0,0.28) 5px, rgba(0,0,0,0.28) 10px)";
-// True when an op is locked — either by manual toggle OR by being fully worked (loggedHours >= hpd).
-const isOpLocked = (op) => !!op?.locked || ((op?.hpd || 0) > 0 && (op?.loggedHours || 0) >= op.hpd);
+// True when an op is locked. The MANUAL toggle only (see toggleLock / the padlock
+// in the op modal).
+//
+// This used to also lock any op whose loggedHours had reached its hpd, which made
+// hitting the estimate behave like finishing: the bar stopped being draggable,
+// stopped blocking-and-pushing correctly, and dropped out of auto-scheduling. An
+// op is only done when someone REQUESTS completion (pendingFinish -> finish
+// approval -> status Finished). Running long is not a completion, it is an
+// overrun, and an overrun still has to be movable — usually more so.
+const isOpLocked = (op) => !!op?.locked;
 // Derives the worked / remaining state of an op for rendering + drag gating.
 //
 // `produced` is the hours recorded against this task in the production session
@@ -155,17 +163,48 @@ const isOpLocked = (op) => !!op?.locked || ((op?.hpd || 0) > 0 && (op?.loggedHou
 //
 // It also keeps historical bars whose counter predates the session rows from
 // suddenly reading zero.
-const deriveWorkedState = (t, produced = 0) => {
+//
+// `live` is the running clock — hours somebody is putting in RIGHT NOW that no
+// counter or session row knows about yet, since both are only written at
+// clock-out. Without it the bar sat perfectly still while you worked, which is why
+// iOS read 87% against the web's 67% on the same op: iOS adds the live session.
+//
+// The two groups below are deliberately split, and the split is the important part
+// of this function:
+//
+//   COMMITTED-ONLY values feed the drag/split arithmetic, which PERSISTS what it
+//   computes (dragging a partly-worked op splits it, sizing the moved half from
+//   remainingHpd). A live figure must never reach those — it would be baked into
+//   tasks.json and then counted a second time when the session is credited at
+//   clock-out.
+//
+//   DISPLAY values include the live clock, because the whole point is that the
+//   grey fill grows while you work.
+//
+// Neither `isFullyWorked` nor `displayLocked` keys off hours any more. Reaching the
+// estimate is not completion — only a completion request is (pendingFinish ->
+// approval -> status Finished). An op past its estimate is overdue, not done, and
+// `rawFraction`/`overrunFraction` expose how far past so the bar can keep growing
+// rather than silently pinning at 100%.
+const deriveWorkedState = (t, produced = 0, live = 0) => {
   const hpd = t?.hpd || 0;
-  const recorded = Math.max(t?.loggedHours || 0, produced || 0);
-  const logged = Math.min(Math.max(0, recorded), hpd);
+  const committed = Math.max(0, Math.max(t?.loggedHours || 0, produced || 0));
+  const shown = committed + Math.max(0, live || 0);
+  const rawFraction = hpd > 0 ? shown / hpd : 0;
   return {
-    workedHpd: logged,
-    remainingHpd: Math.max(0, hpd - logged),
-    workedFraction: hpd > 0 ? logged / hpd : 0,
-    isFullyWorked: hpd > 0 && logged >= hpd,
-    isPartiallyWorked: logged > 0 && logged < hpd,
-    displayLocked: !!t?.locked || (hpd > 0 && logged >= hpd),
+    // ── committed only — safe to persist ──
+    workedHpd: Math.min(committed, hpd),
+    remainingHpd: Math.max(0, hpd - committed),
+    isPartiallyWorked: committed > 0 && committed < hpd,
+    // ── display, live included ──
+    workedFraction: hpd > 0 ? Math.min(1, rawFraction) : 0,   // 0..1, fills the bar
+    overrunFraction: Math.max(0, rawFraction - 1),            // >0 once past estimate
+    rawFraction,
+    workedHoursShown: shown,
+    isOverdueHours: hpd > 0 && shown > hpd,
+    // ── completion is a decision, not a threshold ──
+    isFullyWorked: t?.status === "Finished",
+    displayLocked: !!t?.locked,
   };
 };
 // ─── Fast TRAQS (AI import) helpers ────────────────────────────────────────
@@ -3835,24 +3874,73 @@ Extraction rules:
     const iv = setInterval(() => setProgressTick(t => (t + 1) | 0), 30000);
     return () => clearInterval(iv);
   }, [people]);
-  // Logged + estimate for a single op. Live timer is added in for the worker currently clocked in.
-  // Logged is capped at the estimate so an op can't push aggregate progress past 100%.
+  // Hours somebody is putting into an op RIGHT NOW, not yet in any counter or
+  // session row — both are only written at clock-out, so without this every
+  // progress visual sits frozen for the whole shift.
+  //
+  // Sums EVERY worker on the op, not just the first: two people can be clocked
+  // into the same op, and `people.find` credited only one of them.
+  //
+  // Subtracts an OPEN pause as well as totalPausedMs. Only the closed total is
+  // banked, so a worker who is on lunch right now would otherwise keep accruing
+  // job time for the length of the lunch.
+  // Indexed by opId once per people change, because the schedule calls this for
+  // EVERY bar and a linear scan of the roster per bar is O(bars x people) on the
+  // heaviest view in the app. Only the clock list is memoised — the elapsed maths
+  // still runs at call time, or the number would freeze at whatever it was when
+  // `people` last changed.
+  const _activeJobClocksByOp = useMemo(() => {
+    const byOp = new Map();
+    for (const p of people) {
+      const jc = p.activeJobClock;
+      if (!jc?.clockIn || jc.opId == null) continue;
+      const k = String(jc.opId);
+      if (!byOp.has(k)) byOp.set(k, []);
+      byOp.get(k).push(jc);
+    }
+    return byOp;
+  }, [people]);
+  const liveOpHours = (op) => {
+    if (!op?.id) return 0;
+    const clocks = _activeJobClocksByOp.get(String(op.id));
+    if (!clocks) return 0;
+    const now = Date.now();
+    let total = 0;
+    for (const jc of clocks) {
+      const started = new Date(jc.clockIn).getTime();
+      if (!Number.isFinite(started)) continue;
+      let h = (now - started) / 3600000 - (jc.totalPausedMs || 0) / 3600000;
+      if (jc.pausedAt) {
+        const pausedSince = new Date(jc.pausedAt).getTime();
+        if (Number.isFinite(pausedSince)) h -= Math.max(0, (now - pausedSince) / 3600000);
+      }
+      total += Math.max(0, h);
+    }
+    return total;
+  };
+  // Logged + estimate for a single op. Live timer is added in for anyone currently clocked in.
+  // Logged is capped at the estimate so an op can't push aggregate progress past 100% — the
+  // overrun shows on the schedule bar instead (see deriveWorkedState.overrunFraction).
   const _opHoursPair = (op) => {
     const est = Math.max(0.0001, op.hpd || orgSettings.hpd);
     if (op.status === "Finished") return { logged: est, est };
     if (op.pendingFinish) return { logged: est * 0.99, est };
-    // Logged = JOB-clock time recorded against THIS op (op.loggedHours, credited by jobClockOut) —
-    // NOT payroll hours. The payroll clock logs a whole session against every job selected at
-    // clock-in, which over-counts and isn't job-specific; this is the precise time the worker
-    // logged into this exact op. Add the live elapsed for anyone currently clocked into it.
-    const logged = Math.max(0, op.loggedHours || 0);
-    const jc = people.find(p => p.activeJobClock?.opId === op.id && p.activeJobClock?.clockIn)?.activeJobClock;
-    const liveElapsed = jc ? Math.max(0,
-      (Date.now() - new Date(jc.clockIn).getTime()) / 3600000
-      - (jc.totalPausedMs || 0) / 3600000
-      - (jc.pausedAt ? (Date.now() - new Date(jc.pausedAt).getTime()) / 3600000 : 0)  // exclude the open pause
-    ) : 0;
-    return { logged: Math.min(est, logged + liveElapsed), est };
+    // Logged = JOB-clock time recorded against THIS op — NOT payroll hours. The payroll clock
+    // logs a whole session against every job selected at clock-in, which over-counts and isn't
+    // job-specific; this is the precise time the worker logged into this exact op.
+    //
+    // Take the greater of the production session rows and the op.loggedHours counter, the same
+    // rule deriveWorkedState uses for the grey stripe. Reading the counter alone — which is what
+    // this did — meant the number and the stripe on one card disagreed: the counter drifts below
+    // the rows (a concurrent tasks.json save drops a credit), so an op with 10.08h of sessions
+    // reported 8.2h and 55% while its own stripe greyed to the full 10.08h.
+    //
+    // Both terms matter. Sessions can exceed the counter through that drift; the counter can
+    // exceed sessions because the session GET is scoped — a non-admin receives only their OWN
+    // rows — and because "Set Worked Hours" can credit progress to nobody, which writes the
+    // counter and no row at all.
+    const logged = Math.max(0, op.loggedHours || 0, producedFor(op));
+    return { logged: Math.min(est, logged + liveOpHours(op)), est };
   };
   const _opPct = (op) => {
     if (op.status === "Finished") return 100;
@@ -4391,7 +4479,10 @@ Extraction rules:
   // Display-only status override for sub-ops: shows "Paused" when hours are logged but no one is clocked in
   const getOpDisplayStatus = (op) => {
     if (op.status === "Finished") return "Finished";
-    if ((op.loggedHours || 0) > 0) {
+    // Session rows count as logged time too — on the counter alone, an op whose
+    // credit was lost to a concurrent tasks.json save read "Not Started" while its
+    // own bar greyed in with hours against it.
+    if ((op.loggedHours || 0) > 0 || producedFor(op) > 0) {
       const isActivelyClocked = people.some(p => p.activeJobClock?.opId === op.id);
       return isActivelyClocked ? "In Progress" : "Paused";
     }
@@ -8100,7 +8191,7 @@ ${jobsCtx || "No jobs found."}`;
       const itemBDOpts = { workDays: itemWorkDays, holidays: orgSettings.holidays };
       // If this is a partially-worked op being moved, the drag preview represents only the
       // remaining hours (worked portion stays anchored; commit will split the op).
-      const _dragItemWS = item.level === 2 ? deriveWorkedState(item, producedFor(item)) : null;
+      const _dragItemWS = item.level === 2 ? deriveWorkedState(item, producedFor(item), liveOpHours(item)) : null;
       const _isPartialDrag = !!(_dragItemWS && _dragItemWS.isPartiallyWorked && mode === "move");
       // Capture working-day duration once at drag start. For partial-drag, use remaining-hours duration.
       const wdDuration = _isPartialDrag
@@ -8178,7 +8269,7 @@ ${jobsCtx || "No jobs found."}`;
         // ── Auto-split on drag-end for partially-worked ops (Gantt) ──
         // Only when moving an op (level 2) with logged hours, to a new position.
         if (mode === "move" && item.level === 2 && newStart !== os) {
-          const _splitWS = deriveWorkedState(item, producedFor(item));
+          const _splitWS = deriveWorkedState(item, producedFor(item), liveOpHours(item));
           if (_splitWS.isPartiallyWorked) {
             const osH = item.startHour ?? workStartH;
             const _calcEnd = (startDate, startHourArg, hpdAmt) => {
@@ -8674,7 +8765,7 @@ ${jobsCtx || "No jobs found."}`;
                 const barColor = r.color || T.accent;
                 const barBg = r.level === 1 ? barColor + "cc" : barColor;
                 const barTextColor = accentText(barColor);
-                const ws = deriveWorkedState(r, producedFor(r));
+                const ws = deriveWorkedState(r, producedFor(r), liveOpHours(r));
                 const _totalCalDays = segs.reduce((s, sg) => s + diffD(sg.start, sg.end) + 1, 0);
                 let _workedRemainingDays = ws.workedFraction * _totalCalDays;
                 return segs.map((seg, si) => {
@@ -8867,7 +8958,7 @@ ${jobsCtx || "No jobs found."}`;
                   {/* Bar — split at non-working days */}
                   {inRange && (() => {
                     const segs = weekdaySegments(r.start, r.end, gStart, gEnd, orgSettings.workDays);
-                    const ws = deriveWorkedState(r, producedFor(r));
+                    const ws = deriveWorkedState(r, producedFor(r), liveOpHours(r));
                     const _totalCalDays = segs.reduce((s, sg) => s + diffD(sg.start, sg.end) + 1, 0);
                     let _workedRemainingDays = ws.workedFraction * _totalCalDays;
                     return segs.map((seg, si, allSegs) => {
@@ -12267,7 +12358,21 @@ ${jobsCtx || "No jobs found."}`;
                   const nDays = days.length;
                   const _opStart = bar.task?.start; const _opEnd = bar.task?.end;
                   const _barTeamSz = Math.max(1, (bar.task?.team || []).length);
-                  const _barHpd = (bar.task?.hpd || 0) > 0 ? bar.task.hpd / _barTeamSz : productiveHoursPerDay;
+                  // Worked state for this bar, computed ONCE here because the bar's own
+                  // geometry now depends on it (below) as well as its stripe.
+                  const _barWS = (bar.type === "task" && bar.task) ? deriveWorkedState(bar.task, producedFor(bar.task), liveOpHours(bar.task)) : null;
+                  // An op past its estimate keeps GROWING rather than pinning at 100%.
+                  // Everything about a bar's length — its day span, its width budget,
+                  // its end hour — is derived from this hours budget and NOT from the
+                  // task's stored end date, so feeding the overrun in here is what makes
+                  // the bar physically extend on the schedule. Divided by team size for
+                  // the same reason hpd is: the budget is per-person, worked hours are
+                  // the team's total. Finished ops never extend.
+                  const _overrunPerPerson = (_barWS && !_barWS.isFullyWorked)
+                    ? Math.max(0, _barWS.workedHoursShown - (bar.task?.hpd || 0)) / _barTeamSz
+                    : 0;
+                  const _isOverrunning = _overrunPerPerson > 0;
+                  const _barHpd = ((bar.task?.hpd || 0) > 0 ? bar.task.hpd / _barTeamSz : productiveHoursPerDay) + _overrunPerPerson;
                   const _barStartH = bar.task?.startHour ?? workStartH;
                   const isSingleDayPartial = (tMode === "month" || tMode === "week") && bar.type === "task" && _opStart && _opEnd && _opStart === _opEnd && _barHpd <= productiveHoursPerDay;
                   const isHourPositioned = (tMode === "month" || tMode === "week") && bar.type === "task" && bar.task?.startHour != null && bar.task.startHour > workStartH;
@@ -12280,7 +12385,13 @@ ${jobsCtx || "No jobs found."}`;
                   const _willOverflowWeekend = isSingleDayPartial && isHourPositioned && (_offsetH + _barClockH) > totalWorkH && !isWorkDay(addD(bar.end, 1), _barWorkDays);
                   // Always derive the bar's visual end from hpd + current workDays so the bar adapts
                   // when the org's working-days set changes, regardless of what the task's stored end says.
-                  const _visualWorkDays = (!isSingleDayPartial && bar.type === "task" && _opStart && _opEnd && _opStart !== _opEnd)
+                  // `|| _isOverrunning` so a ONE-DAY op that runs long extends into the
+                  // following days too. Without it the day-span calculation was skipped
+                  // for same-start-and-end ops, the segment list stayed one day wide, and
+                  // the inflated width budget just got clipped at that column's edge —
+                  // the overrun would have been invisible on exactly the short ops most
+                  // likely to overrun.
+                  const _visualWorkDays = (!isSingleDayPartial && bar.type === "task" && _opStart && _opEnd && (_opStart !== _opEnd || _isOverrunning))
                     ? (() => {
                         if (!isHourPositioned) return Math.max(1, Math.ceil(_barHpd / productiveHoursPerDay));
                         const _vClockH = productiveHoursPerDay > 0 ? (_barHpd / productiveHoursPerDay) * totalWorkH : 0;
@@ -12369,7 +12480,7 @@ ${jobsCtx || "No jobs found."}`;
                     const _dragTeamSz = Math.max(1, (bar.task?.team || []).length);
                     // If the bar is partially worked, the drag ghost represents only the remaining hours —
                     // the worked portion stays anchored visually and is split off on commit.
-                    const _dragWS = deriveWorkedState(bar.task, producedFor(bar.task));
+                    const _dragWS = _barWS || deriveWorkedState(bar.task, producedFor(bar.task), liveOpHours(bar.task));
                     const _effectiveHpdForDrag = _dragWS.isPartiallyWorked ? _dragWS.remainingHpd : (bar.task?.hpd || 0);
                     const _dragBarHpd = _effectiveHpdForDrag > 0 ? _effectiveHpdForDrag / _dragTeamSz : productiveHoursPerDay;
                     // When partially worked, the user grabs the REMAINING piece, which begins where the
@@ -12877,7 +12988,7 @@ ${jobsCtx || "No jobs found."}`;
                         // the drop. The drag is based on the remaining-start (_dragBaseStart), so compare
                         // against that — and if it didn't actually move, do nothing (don't shift the
                         // whole bar via the non-split path below).
-                        const _splitWS = deriveWorkedState(bar.task, producedFor(bar.task));
+                        const _splitWS = deriveWorkedState(bar.task, producedFor(bar.task), liveOpHours(bar.task));
                         if (_splitWS.isPartiallyWorked) {
                           // A pure vertical drag (straight down onto another person) leaves the
                           // dates identical, so this no-op guard used to swallow the reassign
@@ -13375,7 +13486,7 @@ ${jobsCtx || "No jobs found."}`;
                     };
                     document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
                   };
-                  const ws = !isPto ? deriveWorkedState(bar.task, producedFor(bar.task)) : null;
+                  const ws = !isPto ? _barWS : null;
                   const barLocked = !isPto && bar.task && ws && ws.displayLocked;
                   // Worked-overlay budget: percent-of-timeline width covered by the striped portion.
                   // Distributes across multi-segment bars in lockstep with the bar's own width budget.
@@ -13593,7 +13704,10 @@ ${jobsCtx || "No jobs found."}`;
                 const liveElapsed = (jcLive?.clockIn && jcLive?.opId === todayBar.task?.id)
                   ? Math.max(0, (Date.now() - new Date(jcLive.clockIn).getTime()) / 3600000 - (jcLive.totalPausedMs || 0) / 3600000)
                   : 0;
-                const loggedHours = (todayBar.task?.loggedHours || 0) + liveElapsed;
+                // Same max() as _opHoursPair and deriveWorkedState — the counter alone drifts
+                // below the session rows, so this card under-reported the very hours the worker
+                // is standing there logging.
+                const loggedHours = Math.max(todayBar.task?.loggedHours || 0, producedFor(todayBar.task)) + liveElapsed;
                 const progressPct = Math.min(100, totalHours > 0 ? (loggedHours / totalHours) * 100 : 0);
                 return (
                   <div key={person.id} className="tq-frost" style={{ minWidth: 230, maxWidth: 230, flexShrink: 0, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "14px 14px 12px", display: "flex", flexDirection: "column", gap: 10, fontFamily: T.font }}>
@@ -15223,15 +15337,36 @@ ${jobsCtx || "No jobs found."}`;
     // ── Day timeline builder — used for event log display ─────────────────────
     // allDayEntries: all timeclock records for a person+date (clock entries + event entries)
     // Returns array of { kind:"single"|"range", label, color, ts?, start?, end? }
-    const buildDayTimeline = (allDayEntriesRaw) => {
+    // Timeline lines for a day, or for ONE punch within it when `entry` is given.
+    //
+    // This used to take the day's first punch via .find() and ignore the rest, so a
+    // second shift was invisible: clock in at 8:21, out at 5:39, back in at 6:23 —
+    // and the log showed only the 8:21/5:39 pair. Worse, the per-entry callers pass
+    // the whole day's rows, so BOTH cards rendered that same first punch.
+    //
+    // With `entry`: that punch's IN/OUT plus only the events inside its window, which
+    // is what a per-punch card should show. Without it: every punch in the day,
+    // interleaved with the events in true chronological order (the old code appended
+    // clockOut after all events, which only happened to look right for a single shift).
+    const buildDayTimeline = (allDayEntriesRaw, entry = null) => {
       const allDayEntries = allDayEntriesRaw.filter(e => !e.deletedAt); // never surface tombstoned punches
-      const clockEntry = allDayEntries.find(e => e.clockIn && !e.eventType);
-      const evts = allDayEntries.filter(e => e.eventType).sort((a, b) => a.timestamp.localeCompare(b.timestamp));
-      if (!clockEntry && evts.length === 0) return [];
-      const ordered = [];
-      if (clockEntry?.clockIn) ordered.push({ type: "clockIn", ts: clockEntry.clockIn });
-      evts.forEach(e => ordered.push({ type: e.eventType, ts: e.timestamp }));
-      if (clockEntry?.clockOut) ordered.push({ type: "clockOut", ts: clockEntry.clockOut });
+      const punches = entry
+        ? (entry.deletedAt ? [] : [entry])
+        : allDayEntries.filter(e => e.clockIn && !e.eventType);
+      let evts = allDayEntries.filter(e => e.eventType && e.timestamp);
+      if (entry) {
+        // Only what happened during THIS shift. An open shift has no clockOut, so
+        // everything from its clock-in onward belongs to it.
+        evts = evts.filter(e => e.timestamp >= entry.clockIn && (!entry.clockOut || e.timestamp <= entry.clockOut));
+      }
+      if (!punches.length && evts.length === 0) return [];
+      const ordered = [
+        ...punches.flatMap(p => [
+          ...(p.clockIn ? [{ type: "clockIn", ts: p.clockIn }] : []),
+          ...(p.clockOut ? [{ type: "clockOut", ts: p.clockOut }] : []),
+        ]),
+        ...evts.map(e => ({ type: e.eventType, ts: e.timestamp })),
+      ].sort((a, b) => String(a.ts).localeCompare(String(b.ts)));
       const lines = [];
       let lunchStart = null, breakStart = null;
       for (const ev of ordered) {
@@ -16939,7 +17074,7 @@ ${jobsCtx || "No jobs found."}`;
                             {isExpTS && (
                               <div style={{ padding: "0 16px 14px", borderTop: `1px solid ${T.border}` }}>
                                 {pEntries.length === 0 ? <div style={{ fontSize: 12, color: T.textDim, padding: "8px 0" }}>No entries this period.</div> : pEntries.map(e => {
-                                  const tl = buildDayTimeline(timeclock.filter(x => String(x.personId) === String(person.id) && x.date === e.date));
+                                  const tl = buildDayTimeline(timeclock.filter(x => String(x.personId) === String(person.id) && x.date === e.date), e);
                                   return (
                                     <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "7px 0", borderBottom: `1px solid ${T.border}10`, fontSize: 12 }}>
                                       <span style={{ color: T.textDim, minWidth: 40, paddingTop: 1 }}>{e.date.slice(5)}</span>
@@ -16996,7 +17131,7 @@ ${jobsCtx || "No jobs found."}`;
                         <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{dayTotal.toFixed(2)}h</span>
                       </div>
                       {entries.map(e => {
-                        const tl = buildDayTimeline(timeclock.filter(x => String(x.personId) === String(loggedInUser.id) && x.date === e.date));
+                        const tl = buildDayTimeline(timeclock.filter(x => String(x.personId) === String(loggedInUser.id) && x.date === e.date), e);
                         return (
                           <div key={e.id} style={{ background: T.card, borderRadius: T.radiusXs, border: `1px solid ${T.borderLight}`, padding: "10px 14px", marginBottom: 5 }}>
                             <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: (e.jobRefs||[]).length > 0 ? 5 : 0 }}>
@@ -17534,7 +17669,7 @@ ${jobsCtx || "No jobs found."}`;
                                     </div>
                                   );
                                 }
-                                const tl5 = buildDayTimeline(timeclock.filter(x => String(x.personId) === String(e.personId) && x.date === e.date));
+                                const tl5 = buildDayTimeline(timeclock.filter(x => String(x.personId) === String(e.personId) && x.date === e.date), e);
                                 return (
                                   <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "7px 16px 7px 28px", borderTop: `1px solid ${T.border}15`, fontSize: 12 }}>
                                     <div style={{ fontFamily: T.mono, display: "flex", flexDirection: "column", gap: 1, flex: 1 }}>
@@ -17642,7 +17777,7 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                   <div style={{ padding: "0 16px" }}>
                     {entries.map((e, i) => {
-                      const tl6 = buildDayTimeline(timeclock.filter(x => String(x.personId) === String(loggedInUser.id) && x.date === e.date));
+                      const tl6 = buildDayTimeline(timeclock.filter(x => String(x.personId) === String(loggedInUser.id) && x.date === e.date), e);
                       return (
                         <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 0", borderBottom: i < entries.length - 1 ? `1px solid ${T.border}` : "none", fontSize: 13 }}>
                           <div style={{ width: 7, height: 7, borderRadius: 8, background: T.accent, flexShrink: 0, marginTop: 4 }} />
@@ -23519,30 +23654,65 @@ ${jobsCtx || "No jobs found."}`;
     {workedHoursModal && (() => {
       const { op, panel, parentJob } = workedHoursModal;
       const totalHours = Math.max(0, op.hpd || productiveHoursPerDay);
-      const val = Math.max(0, Math.min(totalHours, workedHoursInput || 0));
-      const remaining = Math.round((totalHours - val) * 100) / 100;
+      // What the schedule bar is showing right now: committed hours PLUS the running
+      // clock. Reported read-only below, because the editable value has to stay
+      // committed-only — seeding the field with live hours and then saving would
+      // credit the running session as a manual entry, and clock-out would credit the
+      // same hours a second time. This is why the modal read 67% while the bar read
+      // 87%: the bar counts the live session, the field deliberately doesn't.
+      const liveNow = liveOpHours(op);
+      const committedNow = Math.max(0, op.loggedHours || 0, producedFor(op));
+      const shownTotal = committedNow + liveNow;
+      // Allow recording MORE than the estimate. The field used to cap at hpd, so once
+      // an op ran long there was no way to enter the hours it actually took — which
+      // contradicts an overrun being a normal state rather than a completion.
+      const inputMax = Math.max(totalHours, Math.ceil(shownTotal * 2) / 2);
+      const val = Math.max(0, Math.min(inputMax, workedHoursInput || 0));
+      // Deliberately NOT clamped at 100: an op at 18h of a 15h estimate reads 120%,
+      // which is the number a supervisor needs to see.
       const pct = totalHours > 0 ? Math.round((val / totalHours) * 100) : 0;
+      // Signed, so the "Remaining" tile can flip to an overrun instead of sitting at
+      // 0h and pretending an op that went 3h long finished exactly on estimate.
+      const remaining = Math.round((totalHours - val) * 100) / 100;
+      const isOver = remaining < 0;
       const workerNames = (op.team || []).map(id => { const p = people.find(x => x.id === id); return p ? p.name : null; }).filter(Boolean);
-      // Set loggedHours directly — it's what deriveWorkedState uses to grey out the
-      // worked portion. No date change, so the bar stays exactly where it is (no
-      // recalcBounds). This is a manual correction/override of recorded progress.
+      // The field is the op's ACTUAL worked total, running clock included — this menu
+      // exists to correct over-worked or forgotten time, so it has to open showing the
+      // same number the schedule bar shows, and `val` is read as "make the total this".
+      //
+      // The subtlety is that a live session is credited AGAIN at clock-out. So the
+      // number written to the counter is the target minus what is still on the clock,
+      // and the live hours land on top of it later:
+      //
+      //   counter := val - live          rows += val - (committed + live)
+      //   shown now = (val - live) + live               = val   ✓
+      //   after clock-out = (val - live) + live         = val   ✓  (no double count)
+      //
+      // With nobody clocked in, live is 0 and both collapse to the obvious
+      // counter := val, delta := val - committed.
       const applyWorked = () => {
+        const r2 = (x) => Math.round(x * 100) / 100;
+        const liveAtSave = liveOpHours(op);
+        const committedAtSave = Math.max(0, op.loggedHours || 0, producedFor(op));
+        // Clamped at 0: asking for a total below what is currently on the clock is
+        // self-contradictory, and a negative counter would corrupt every aggregate.
+        const committedTarget = Math.max(0, r2(val - liveAtSave));
         setTasks(prev => {
           const updated = prev.map(j => {
             if (j.id !== parentJob.id) return j;
             return { ...j, subs: (j.subs || []).map(pnl => {
               if (pnl.id !== panel.id) return pnl;
-              return { ...pnl, subs: (pnl.subs || []).map(o => o.id === op.id ? { ...o, loggedHours: val } : o) };
+              return { ...pnl, subs: (pnl.subs || []).map(o => o.id === op.id ? { ...o, loggedHours: committedTarget } : o) };
             })};
           });
           saveTasks(updated, getToken, orgCode).catch(console.warn);
           return updated;
         });
-        // Credit the CHANGE in worked hours as production time, so the person's
-        // efficiency reflects work they did but never clocked. Sending the delta
-        // (not the new total) means the hours added are exactly the hours the
-        // admin just typed — and repeated edits accumulate instead of clashing.
-        const creditDelta = Math.round((val - (op.loggedHours || 0)) * 100) / 100;
+        // Credit (or walk back) the CHANGE as production time, so the person's
+        // efficiency reflects work they really did. Measured against the same
+        // live-inclusive total the field was seeded with, so leaving the value alone
+        // sends nothing at all rather than re-crediting the running session.
+        const creditDelta = r2(val - (committedAtSave + liveAtSave));
         if (workedHoursWho && creditDelta !== 0) {
           adminJobHoursAction({
             personId: workedHoursWho, jobId: parentJob.id, panelId: panel.id, opId: op.id,
@@ -23568,13 +23738,20 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ marginBottom: 18 }}>
             <div style={{ fontSize: 13, color: T.textSec, marginBottom: 10, fontWeight: 500 }}>Hours worked of <strong style={{ color: T.text }}>{totalHours}h</strong></div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <input type="number" min={0} max={totalHours} step={0.5} value={workedHoursInput} onChange={e => setWorkedHoursInput(e.target.value === "" ? 0 : parseFloat(e.target.value))} style={{ width: 110, padding: "10px 12px", border: `1px solid ${T.border}`, borderRadius: T.radiusPill, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 15, fontWeight: 700, fontFamily: T.font }} />
-              <span style={{ fontSize: 13, color: T.textSec }}>hours ({pct}% done)</span>
+              <input type="number" min={0} max={inputMax} step={0.5} value={workedHoursInput} onChange={e => setWorkedHoursInput(e.target.value === "" ? 0 : parseFloat(e.target.value))} style={{ width: 110, padding: "10px 12px", border: `1px solid ${T.border}`, borderRadius: T.radiusPill, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 15, fontWeight: 700, fontFamily: T.font }} />
+              <span style={{ fontSize: 13, color: pct > 100 ? "#f59e0b" : T.textSec }}>hours ({pct}% done{pct > 100 ? " — over estimate" : ""})</span>
             </div>
-            <input type="range" min={0} max={totalHours} step={0.5} value={val} onChange={e => setWorkedHoursInput(parseFloat(e.target.value))} style={{ width: "100%", accentColor: T.accent, cursor: "pointer", marginTop: 14 }} />
+            <input type="range" min={0} max={inputMax} step={0.5} value={val} onChange={e => setWorkedHoursInput(parseFloat(e.target.value))} style={{ width: "100%", accentColor: T.accent, cursor: "pointer", marginTop: 14 }} />
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: T.textDim, marginTop: 4 }}>
-              <span>0h</span><span>{totalHours}h</span>
+              <span>0h</span>{inputMax > totalHours && <span style={{ color: T.textSec }}>estimate {totalHours}h</span>}<span>{inputMax}h</span>
             </div>
+            {/* No explanatory banner here, by request. The behaviour is unchanged
+                without it: the field is seeded with the live-inclusive actual and
+                applyWorked subtracts the running hours back out before writing (see
+                the counter := val - live reasoning there, which recomputes live at
+                save time rather than reusing anything from here). `liveNow` and
+                `committedNow` above are still load-bearing — they feed `shownTotal`,
+                which sets `inputMax` so an overrun is reachable on the slider. */}
           </div>
           {/* Who gets credited. Manual hours are the fix for a forgotten job
               clock, so they have to land on a person or that person's efficiency
@@ -23618,8 +23795,8 @@ ${jobsCtx || "No jobs found."}`;
               {workerNames.length > 0 && <div style={{ fontSize: 11, color: T.textDim, marginTop: 3 }}>{workerNames.join(", ")}</div>}
             </div>
             <div style={{ flex: 1, padding: "12px 14px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusXs }}>
-              <div style={{ fontSize: 11, color: T.textDim, marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Remaining</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{remaining}h</div>
+              <div style={{ fontSize: 11, color: T.textDim, marginBottom: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{isOver ? "Over estimate" : "Remaining"}</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: isOver ? "#f59e0b" : T.text }}>{isOver ? `+${Math.abs(remaining)}` : remaining}h</div>
             </div>
           </div>
           <div style={{ display: "flex", gap: 10 }}>
@@ -24972,7 +25149,7 @@ ${jobsCtx || "No jobs found."}`;
       {can("editJobs") && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01"/></svg>} label="Reschedule" sub="Reopen job to pick a new start date" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } if (!job) return; setModalStep(2); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setRescheduleSelection((job.subs || []).map(p => p.id)); setModal({ type: "edit", data: { ...job, isReschedule: true, _rescheduleStartDate: TD }, parentId: null }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Split Job */}
       {can("editJobs") && isOp && (it.hpd || 0) > 1 && it.status !== "Finished" && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>} label="Split Job" sub="Divide this op into two at a set hour" onClick={() => { let panel = null, parentJob = null, freshOp = null; for (const j of tasks) { for (const pnl of (j.subs||[])) { const found = (pnl.subs||[]).find(o => o.id === it.id); if (found) { panel = pnl; parentJob = j; freshOp = found; break; } } if (panel) break; } if (!panel || !parentJob || !freshOp) return; setSplitHour(Math.round((freshOp.hpd || productiveHoursPerDay) / 2)); setSplitModal({ op: freshOp, panel, parentJob }); setCtxMenu(null); }} animIdx={ci()} />}
-      {can("editJobs") && isOp && it.status !== "Finished" && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 13.5"/></svg>} label="Set Worked Hours" sub="Manually mark hours done (greys out that portion)" onClick={() => { let panel = null, parentJob = null, freshOp = null; for (const j of tasks) { for (const pnl of (j.subs||[])) { const found = (pnl.subs||[]).find(o => o.id === it.id); if (found) { panel = pnl; parentJob = j; freshOp = found; break; } } if (panel) break; } if (!panel || !parentJob || !freshOp) return; setWorkedHoursInput(Math.min(freshOp.loggedHours || 0, freshOp.hpd || 0)); setWorkedHoursWho(String((freshOp.team || [])[0] ?? "")); setWorkedHoursDate(TD); setWorkedHoursModal({ op: freshOp, panel, parentJob }); setCtxMenu(null); }} animIdx={ci()} />}
+      {can("editJobs") && isOp && it.status !== "Finished" && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 13.5"/></svg>} label="Set Worked Hours" sub="Manually mark hours done (greys out that portion)" onClick={() => { let panel = null, parentJob = null, freshOp = null; for (const j of tasks) { for (const pnl of (j.subs||[])) { const found = (pnl.subs||[]).find(o => o.id === it.id); if (found) { panel = pnl; parentJob = j; freshOp = found; break; } } if (panel) break; } if (!panel || !parentJob || !freshOp) return; setWorkedHoursInput(Math.round((Math.max(freshOp.loggedHours || 0, producedFor(freshOp)) + liveOpHours(freshOp)) * 100) / 100); setWorkedHoursWho(String((freshOp.team || [])[0] ?? "")); setWorkedHoursDate(TD); setWorkedHoursModal({ op: freshOp, panel, parentJob }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Request Completion — lowest level bar with no children */}
       {liveChildCount === 0 && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>} label="Request Completion" sub="Send to all admins for review and approval" onClick={() => { setFinishApproval({ id: it.id, pid: it.pid || null, title: it.title, jobNumber: it.jobNumber || null }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Delete */}
