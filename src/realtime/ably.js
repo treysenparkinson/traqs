@@ -130,9 +130,11 @@ function presenceChannel() {
 function attachTyping() {
   if (typingAttached) return;
   const ch = presenceChannel();
-  if (!ch) return;
+  if (!ch) return;                       // no client yet — connect() calls us again
   typingAttached = true;
+  console.debug(`[ably] typing subscribed on org-${orgCode}:presence`);
   ch.subscribe(TYPING_EVENT, (msg) => {
+    console.debug("[ably] typing received", msg?.data);
     for (const cb of typingHandlers) {
       try { cb(msg?.data); } catch (e) { console.error("[ably] typing handler error:", e); }
     }
@@ -143,12 +145,19 @@ function attachTyping() {
 /// publish must never interrupt composing.
 export function publishTyping({ threadKey, personId, name }) {
   const ch = presenceChannel();
-  if (!ch || !threadKey || !personId) return;
-  try {
-    ch.publish(TYPING_EVENT, { threadKey, personId: String(personId), name: name || "" });
-  } catch (e) {
-    console.warn("[ably] typing publish failed:", e?.message || e);
+  if (!ch) {
+    // The single most likely reason typing appears "broken": no client yet, or
+    // real-time degraded. Say so instead of returning silently.
+    console.warn("[ably] typing NOT published — no presence channel",
+                 { hasClient: !!client, degraded, orgCode });
+    return;
   }
+  if (!threadKey || !personId) return;
+  // publish() rejects ASYNCHRONOUSLY (capability denial, channel failure), so a
+  // try/catch around the call could never see those — they were being swallowed.
+  Promise.resolve(ch.publish(TYPING_EVENT, { threadKey, personId: String(personId), name: name || "" }))
+    .then(() => console.debug("[ably] typing published", { threadKey, personId }))
+    .catch(e => console.warn("[ably] typing publish REJECTED:", e?.message || e));
 }
 
 /// Subscribe to typing events. `cb` receives { threadKey, personId, name }.

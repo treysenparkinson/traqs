@@ -620,6 +620,14 @@ animStyle.textContent = `
   from { opacity: 0; transform: scale(0.97); filter: blur(6px); }
   to   { opacity: 1; transform: scale(1);    filter: blur(0); }
 }
+/* Typing indicator: rises and fades in like an arriving message. It unmounts when
+   typing stops, so there's no exit animation to run — the lease TTL is what makes
+   the disappearance feel deliberate rather than abrupt. */
+@keyframes typingIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.tq-typing-in { animation: typingIn 0.2s ease-out; }
 @keyframes headerSlide {
   0%   { opacity: 0; transform: translateY(-14px); filter: blur(3px); }
   100% { opacity: 1; transform: translateY(0);     filter: blur(0);   }
@@ -19416,11 +19424,13 @@ ${jobsCtx || "No jobs found."}`;
                     ))}
                   </div>
                 )}
-                {/* Typing indicator — sits directly above the composer and fades in, so it
-                    doesn't shift the message list or the input when it appears. */}
+                {/* Typing indicator. Mounted only while someone is actually typing —
+                    it used to be an always-present fixed-height row that reserved its
+                    space, which left an empty line above the composer at all times. */}
                 {(() => {
                   const label = typingLabel(chatThread?.threadKey);
-                  return <div style={{ height: 18, marginBottom: 2, paddingLeft: 6, fontSize: 12, color: T.textDim, fontFamily: T.font, fontStyle: "italic", opacity: label ? 1 : 0, transition: "opacity 0.22s ease", pointerEvents: "none" }}>{label}</div>;
+                  if (!label) return null;
+                  return <div className="tq-typing-in" style={{ marginBottom: 4, paddingLeft: 8, fontSize: 12, color: T.textDim, fontFamily: T.font, fontStyle: "italic", pointerEvents: "none" }}>{label}</div>;
                 })()}
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <input ref={chatFileInputRef} type="file" multiple accept="image/*,.pdf,.txt,.csv,.xlsx,.xls" style={{ display: "none" }} onChange={handleChatFileSelect} />
