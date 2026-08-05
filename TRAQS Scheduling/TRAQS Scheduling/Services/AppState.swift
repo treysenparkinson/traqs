@@ -836,15 +836,45 @@ class AppState {
         }
     }
 
-    func markThreadRead(_ threadKey: String) {
-        threadReadAt[threadKey] = Date.nowISO()
+    /// Newest message timestamp in a thread, on the SERVER's clock.
+    func newestTimestamp(in threadKey: String) -> String? {
+        var newest: String?
+        for m in messages where m.threadKey == threadKey {
+            if newest == nil || isoGreater(m.timestamp, than: newest!) { newest = m.timestamp }
+        }
+        return newest
+    }
+
+    /// Mark a thread read locally, returning the timestamp stamped so the caller
+    /// can send the SAME value to the server.
+    ///
+    /// Stamps the newest message's timestamp, NOT `Date.nowISO()`. Unread is
+    /// computed by comparing server message timestamps against this cursor, so a
+    /// device-clock value put the two on different clocks: a device running even
+    /// slightly behind the server left every freshly-arrived message comparing as
+    /// newer than the cursor, which is why a thread kept counting unread while you
+    /// were sitting in it. It also broke sync the other way — a device-now cursor
+    /// can be AHEAD of the true server cursor, and `refreshReadReceipts` only
+    /// adopts the server's value when it's greater, so reads from another device
+    /// were silently discarded.
+    ///
+    /// Monotonic: never moves a cursor backwards.
+    @discardableResult
+    func markThreadRead(_ threadKey: String) -> String {
+        let at = newestTimestamp(in: threadKey) ?? Date.nowISO()
+        let current = threadReadAt[threadKey] ?? ""
+        if isoGreater(at, than: current) { threadReadAt[threadKey] = at }
+        return threadReadAt[threadKey] ?? at
     }
 
     func markAllThreadsRead() {
-        let nowISO = Date.nowISO()
-        // Compute unique threadKeys from current messages, then stamp each.
+        // Per-thread newest timestamp rather than one device-now stamp for all —
+        // same clock-mismatch reasoning as markThreadRead.
         var map = threadReadAt
-        for k in Set(messages.map { $0.threadKey }) { map[k] = nowISO }
+        for k in Set(messages.map { $0.threadKey }) {
+            let at = newestTimestamp(in: k) ?? Date.nowISO()
+            if isoGreater(at, than: map[k] ?? "") { map[k] = at }
+        }
         threadReadAt = map
     }
 

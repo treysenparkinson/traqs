@@ -945,10 +945,17 @@ struct ThreadDetailView: View {
         return f.string(from: d)
     }
 
-    /// Report the thread read up to its newest message so the sender sees
-    /// "Read". Deduped on the newest timestamp so we don't POST every poll.
+    /// Advance BOTH read cursors — the local one behind the inbox badge and the
+    /// server one behind the sender's "Read" — to the same timestamp.
+    ///
+    /// Marking locally here rather than separately is the point: the two were
+    /// stamped from different clocks (device now vs. the newest message), so a
+    /// thread could keep counting unread while open. markThreadRead now returns
+    /// what it stamped, and that exact value goes to the server.
+    ///
+    /// The POST is deduped on that timestamp so an idle poll doesn't re-send.
     private func markThreadReadNow() async {
-        let at = liveMessages.last?.timestamp ?? Date.nowISO()
+        let at = appState.markThreadRead(threadKey)
         guard at != lastMarkedReadAt else { return }
         lastMarkedReadAt = at
         await appState.markThreadReadServer(threadKey, at: at)
@@ -1046,7 +1053,8 @@ struct ThreadDetailView: View {
                     if !didInitialScroll || isAtBottom || (liveMessages.last.map(isMyMessage) ?? false) {
                         scrollToBottom(proxy, animated: didInitialScroll)
                     }
-                    appState.markThreadRead(threadKey)   // keep inbox badge clear while viewing
+                    // markThreadReadNow does the local mark too, so the badge stays
+                    // clear while viewing without a second, differently-stamped call.
                     Task { await markThreadReadNow() }
                 }
                 .onChange(of: liveMessages.last?.id) {

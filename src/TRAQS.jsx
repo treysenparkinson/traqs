@@ -5223,6 +5223,28 @@ Extraction rules:
     return () => clearInterval(id);
   }, [view, orgCode]);
 
+  // Adopt MY OWN server read cursor into `lastRead`, so a thread read on another
+  // device (iOS, another browser) clears the badge here too. readReceipts was
+  // being fetched purely to render the sender's "Read" state and never fed back
+  // into the local cursor, so this side of the sync simply didn't exist — iOS has
+  // always done it. Monotonic, so it can't undo a local read.
+  useEffect(() => {
+    const myId = loggedInUser?.id;
+    if (!myId) return;
+    setLastRead(prev => {
+      let next = prev, changed = false;
+      for (const [threadKey, cursors] of Object.entries(readReceipts || {})) {
+        const serverAt = cursors?.[String(myId)] ?? cursors?.[myId];
+        if (serverAt && serverAt > (prev[threadKey] || "")) {
+          if (!changed) { next = { ...prev }; changed = true; }
+          next[threadKey] = serverAt;
+        }
+      }
+      if (changed) localStorage.setItem("tq_last_read", JSON.stringify(next));
+      return changed ? next : prev;
+    });
+  }, [readReceipts, loggedInUser?.id]);
+
   // Time-off requests: everyone loads + polls (admins get all, members get
   // their own) so the chat bubble can show live status + Approve/Deny.
   useEffect(() => {
@@ -7370,12 +7392,45 @@ ${jobsCtx || "No jobs found."}`;
     markThreadRead(threadKey);
   }
 
+  // Mark every thread read, each at ITS OWN newest message timestamp rather than
+  // one browser-clock "now" for all of them — same clock-mismatch reasoning as
+  // markThreadRead. Was duplicated inline behind both "Mark all read" buttons.
+  function markAllThreadsRead() {
+    const newest = {};
+    for (const m of messages) {
+      if (!newest[m.threadKey] || m.timestamp > newest[m.threadKey]) newest[m.threadKey] = m.timestamp;
+    }
+    setLastRead(prev => {
+      const next = { ...prev };
+      for (const [tk, at] of Object.entries(newest)) {
+        if (at > (next[tk] || "")) next[tk] = at;
+      }
+      localStorage.setItem("tq_last_read", JSON.stringify(next));
+      return next;
+    });
+  }
+
+  // Stamps the thread's NEWEST MESSAGE timestamp, not `new Date()`. Unread is
+  // `m.timestamp > lastRead[tk]`, comparing server timestamps against this cursor,
+  // so a browser-clock value put the two on different clocks: a machine running
+  // even slightly behind the server left freshly-arrived messages comparing as
+  // newer than the cursor, so a thread kept counting unread while you were reading
+  // it. It also broke cross-device sync — a browser-now cursor can sit AHEAD of the
+  // real server cursor, and the server's value is only adopted when it's greater,
+  // so a read from another device was discarded.
+  //
+  // Monotonic: never moves a cursor backwards.
   function markThreadRead(threadKey) {
-    const now = new Date().toISOString();
-    const updated = { ...lastRead, [threadKey]: now };
+    const newest = messages.reduce(
+      (acc, m) => (m.threadKey === threadKey && m.timestamp > acc ? m.timestamp : acc),
+      "");
+    const at = newest || new Date().toISOString();   // no messages yet → now is fine
+    const prev = lastRead[threadKey] || "";
+    if (at <= prev) return;                          // already read this far
+    const updated = { ...lastRead, [threadKey]: at };
     setLastRead(updated);
     localStorage.setItem("tq_last_read", JSON.stringify(updated));
-    markThreadReadServer(threadKey, now, getToken, orgCode).catch(() => {});
+    markThreadReadServer(threadKey, at, getToken, orgCode).catch(() => {});
   }
 
   async function sendChatMessage() {
@@ -18622,7 +18677,7 @@ ${jobsCtx || "No jobs found."}`;
         <div onClick={e => e.stopPropagation()} style={{ position: "fixed", top: 56, right: 12, width: "min(300px, calc(100vw - 24px))", maxHeight: "60vh", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, overflow: "hidden", display: "flex", flexDirection: "column", fontFamily: T.font }}>
           <div style={{ padding: "12px 16px 10px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "-0.045em", textTransform: "uppercase" }}>Notifications</div>
-            {unreadByThread.length > 0 && <button onClick={() => { const all = {}; messages.forEach(m => { all[m.threadKey] = new Date().toISOString(); }); setLastRead(p => ({ ...p, ...all })); localStorage.setItem("tq_last_read", JSON.stringify({ ...lastRead, ...all })); }} style={{ background: "none", border: "none", fontSize: 11, color: T.accent, cursor: "pointer", fontFamily: T.font, fontWeight: 600 }}>Mark all read</button>}
+            {unreadByThread.length > 0 && <button onClick={markAllThreadsRead} style={{ background: "none", border: "none", fontSize: 11, color: T.accent, cursor: "pointer", fontFamily: T.font, fontWeight: 600 }}>Mark all read</button>}
           </div>
           <div style={{ overflow: "auto" }}>
             {!hasNotifs && <div style={{ padding: "28px 18px", textAlign: "center", color: T.textDim, fontSize: 13 }}>All caught up!</div>}
@@ -22155,7 +22210,7 @@ ${jobsCtx || "No jobs found."}`;
           <FadeOnClose open={notifOpen}><div className="anim-drop" onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 80, top: 60, width: 320, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, overflow: "hidden", fontFamily: T.font }}>
             <div style={{ padding: "14px 18px 10px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "-0.045em", textTransform: "uppercase" }}>Notifications</div>
-              {unreadByThread.length > 0 && <button onClick={() => { const all = {}; messages.forEach(m => { all[m.threadKey] = new Date().toISOString(); }); setLastRead(p => ({ ...p, ...all })); localStorage.setItem("tq_last_read", JSON.stringify({ ...lastRead, ...all })); }} style={{ background: "none", border: "none", fontSize: 11, color: T.accent, cursor: "pointer", fontFamily: T.font }}>Mark all read</button>}
+              {unreadByThread.length > 0 && <button onClick={markAllThreadsRead} style={{ background: "none", border: "none", fontSize: 11, color: T.accent, cursor: "pointer", fontFamily: T.font }}>Mark all read</button>}
             </div>
             {!hasNotifs && (
               <div style={{ padding: "28px 18px", textAlign: "center", color: T.textDim, fontSize: 13 }}>All caught up!</div>
