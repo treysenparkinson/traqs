@@ -537,9 +537,11 @@ private struct PayClockControls: View {
     }
 
     // Shared capsule label for the clocked-in buttons.
-    // `outline: true` → an accent-gradient OUTLINE button (transparent fill; the
-    // icon, label, and border all in the customization accent gradient).
-    // Otherwise → a solid gradient fill of `fill`.
+    // `outline: true` → a frosted-glass button with an accent-gradient border and
+    // matching icon/label (Lunch and Break). The fill used to be Color.clear,
+    // which read as a hole once the pages went to glass over a moving wash.
+    // Otherwise → a solid gradient fill of `fill` (Clock Out), which stays solid:
+    // it's the destructive action and needs to read as the most present thing here.
     @ViewBuilder
     private func pill(icon: String, text: String, fill: Color,
                       outline: Bool = false, busy: Bool = false) -> some View {
@@ -560,7 +562,7 @@ private struct PayClockControls: View {
         if outline {
             content
                 .foregroundStyle(Color(hex: T.accent).verticalGradient())
-                .background(Capsule().fill(Color.clear))
+                .background(Capsule().glassFill())
                 .overlay(Capsule().strokeBorder(Color(hex: T.accent).verticalGradient(), lineWidth: 1.5))
         } else {
             content

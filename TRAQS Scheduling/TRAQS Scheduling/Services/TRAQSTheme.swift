@@ -99,7 +99,7 @@ enum T {
     // `var`, not `let`: the track is preset-driven (see BgPreset.track and
     // applyBgToT). A single mid-grey couldn't work for both — on frosted glass it
     // read as a dirty smudge over a light surface and vanished into a dark one.
-    static var progressTrack = "#EFF1F7"
+    static var progressTrack = "#F7F9FD"
     static let presenceWork  = "#3B82F6"
     static let presenceBreak = "#F5A623"
     static let presenceIdle  = "#9AA0AC"

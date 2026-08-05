@@ -16,8 +16,12 @@ struct BgPreset: Identifiable {
     let muted: String
     /// Unfilled part of a progress ring or bar. Per-preset rather than one fixed
     /// grey: on glass, a mid-grey track reads as a dirty smudge on a light
-    /// surface and disappears entirely on a dark one, so each preset names its
-    /// own — light and clean on light, dark on dark.
+    /// surface and disappears entirely on a dark one.
+    ///
+    /// Each preset pushes AWAY from mid-grey, toward its own extreme — near-white
+    /// on White, near-black on Charcoal. On Charcoal that puts the track *below*
+    /// the surface value, so it reads as a recessed groove rather than a raised
+    /// grey band.
     let track: String
     let isLight: Bool
 }
@@ -44,10 +48,10 @@ final class ThemeSettings {
     static let bgPresets: [BgPreset] = [
         BgPreset(id: 100, name: "White",
                  bg: "#F4F6FA", surface: "#FFFFFF", card: "#FFFFFF", border: "#E6E8EE",
-                 text: "#0B0B0C", muted: "#6E6E73", track: "#EFF1F7", isLight: true),
+                 text: "#0B0B0C", muted: "#6E6E73", track: "#F7F9FD", isLight: true),
         BgPreset(id: 11,  name: "Charcoal",
                  bg: "#1F1F1F", surface: "#2A2A2A", card: "#333333", border: "#3F3F3F",
-                 text: "#E8E8E8", muted: "#9CA3AF", track: "#3A3A3D", isLight: false),
+                 text: "#E8E8E8", muted: "#9CA3AF", track: "#202023", isLight: false),
     ]
 
     static let defaultBgPresetId: Int = 100
