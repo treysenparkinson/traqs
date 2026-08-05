@@ -8,12 +8,6 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
-
-// Typing indicator timings. The TTL must stay comfortably above the publish
-// interval: each event is a lease the receiver expires, so if they were close a
-// continuous typist's indicator would blink out between publishes.
-const TYPING_PUBLISH_MS = 2200;   // at most one publish per this long while typing
-const TYPING_TTL_MS     = 5000;   // an entry with no refresh for this long lapses
 import { breakHoursByDay, producedHoursByScope } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
@@ -620,14 +614,6 @@ animStyle.textContent = `
   from { opacity: 0; transform: scale(0.97); filter: blur(6px); }
   to   { opacity: 1; transform: scale(1);    filter: blur(0); }
 }
-/* Typing indicator: rises and fades in like an arriving message. It unmounts when
-   typing stops, so there's no exit animation to run — the lease TTL is what makes
-   the disappearance feel deliberate rather than abrupt. */
-@keyframes typingIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.tq-typing-in { animation: typingIn 0.2s ease-out; }
 @keyframes headerSlide {
   0%   { opacity: 0; transform: translateY(-14px); filter: blur(3px); }
   100% { opacity: 1; transform: translateY(0);     filter: blur(0);   }
@@ -5079,10 +5065,6 @@ Extraction rules:
   // Server-side read cursors: { [threadKey]: { [personId]: ISO } }. Drives the
   // Sending/Sent/Read delivery status shown under my latest message.
   const [readReceipts, setReadReceipts] = useState({});
-  // Who's typing, per thread: { [threadKey]: { [personId]: { name, at } } }.
-  // Purely in-memory and short-lived — see the typing effects below.
-  const [typingByThread, setTypingByThread] = useState({});
-  const lastTypingSentRef = useRef(0);
   // Optimistic messages that are mid-POST. Rendered inline (with a "Sending…"
   // status) then dropped once the server copy lands. Kept in a SEPARATE array
   // from `messages` so a realtime/poll refresh (which replaces `messages`
@@ -5240,78 +5222,6 @@ Extraction rules:
     }, 15000);
     return () => clearInterval(id);
   }, [view, orgCode]);
-
-  // ─── Typing indicators ─────────────────────────────────────────────────────
-  // Receive: record who's typing with a timestamp. Never trust a "stopped"
-  // signal — a sender that closes the tab mid-word would leave the indicator on
-  // forever. Instead each event is a lease that the sweeper below expires.
-  useEffect(() => {
-    if (!orgCode) return;
-    return realtime.subscribeTyping(d => {
-      if (!d?.threadKey || !d?.personId) return;
-      if (String(d.personId) === String(loggedInUser?.id)) return;   // ignore my own echo
-      setTypingByThread(prev => ({
-        ...prev,
-        [d.threadKey]: { ...(prev[d.threadKey] || {}), [d.personId]: { name: d.name || "", at: Date.now() } },
-      }));
-    });
-  }, [orgCode, loggedInUser?.id]);
-
-  // Expire stale leases. TYPING_TTL is comfortably longer than the publish
-  // interval, so a continuously-typing sender is always refreshed before their
-  // entry lapses and the indicator doesn't flicker between keystrokes.
-  //
-  // The timer exists ONLY while something is leased, and never calls the setter
-  // unless an entry has actually expired. Both guards matter: this whole screen is
-  // one enormous component, and when a state updater returns the same value React
-  // still re-renders the component once before bailing out — so an unconditional
-  // 1.2s tick re-rendered everything every 1.2s, which read as the page constantly
-  // refreshing (flicker, lost input focus, jumping scroll).
-  useEffect(() => {
-    const leased = Object.values(typingByThread).some(byPerson => Object.keys(byPerson).length > 0);
-    if (!leased) return;                       // nobody typing → no timer at all
-    const id = setInterval(() => {
-      const cutoff = Date.now() - TYPING_TTL_MS;
-      // Decide against the captured snapshot first. Entries only ever get staler as
-      // `cutoff` advances, so this is safe and keeps the common tick allocation-free.
-      const anyStale = Object.values(typingByThread)
-        .some(byPerson => Object.values(byPerson).some(info => info.at < cutoff));
-      if (!anyStale) return;                   // don't touch state on a quiet tick
-      setTypingByThread(prev => {
-        const next = {};
-        for (const [tk, byPerson] of Object.entries(prev)) {
-          const kept = Object.fromEntries(Object.entries(byPerson).filter(([, i]) => i.at >= cutoff));
-          if (Object.keys(kept).length) next[tk] = kept;
-        }
-        return next;
-      });
-    }, 1200);
-    return () => clearInterval(id);
-  }, [typingByThread]);
-
-  // Send: throttled to one publish per TYPING_PUBLISH_MS of continuous typing, so
-  // a fast typist emits a couple of events per sentence rather than one per key.
-  function notifyTyping() {
-    if (!chatThread?.threadKey || !loggedInUser) return;
-    const now = Date.now();
-    if (now - lastTypingSentRef.current < TYPING_PUBLISH_MS) return;
-    lastTypingSentRef.current = now;
-    realtime.publishTyping({
-      threadKey: chatThread.threadKey,
-      personId: loggedInUser.id,
-      name: (loggedInUser.name || "").split(" ")[0],
-    });
-  }
-
-  /// "Alex is typing…" / "Alex & Sam are typing…" / "3 people are typing…"
-  function typingLabel(threadKey) {
-    const names = Object.values(typingByThread[threadKey] || {})
-      .map(v => v.name).filter(Boolean);
-    if (!names.length) return "";
-    if (names.length === 1) return `${names[0]} is typing…`;
-    if (names.length === 2) return `${names[0]} & ${names[1]} are typing…`;
-    return `${names.length} people are typing…`;
-  }
 
   // Adopt MY OWN server read cursor into `lastRead`, so a thread read on another
   // device (iOS, another browser) clears the badge here too. readReceipts was
@@ -19424,14 +19334,6 @@ ${jobsCtx || "No jobs found."}`;
                     ))}
                   </div>
                 )}
-                {/* Typing indicator. Mounted only while someone is actually typing —
-                    it used to be an always-present fixed-height row that reserved its
-                    space, which left an empty line above the composer at all times. */}
-                {(() => {
-                  const label = typingLabel(chatThread?.threadKey);
-                  if (!label) return null;
-                  return <div className="tq-typing-in" style={{ marginBottom: 4, paddingLeft: 8, fontSize: 12, color: T.textDim, fontFamily: T.font, fontStyle: "italic", pointerEvents: "none" }}>{label}</div>;
-                })()}
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <input ref={chatFileInputRef} type="file" multiple accept="image/*,.pdf,.txt,.csv,.xlsx,.xls" style={{ display: "none" }} onChange={handleChatFileSelect} />
                   <Tip label="Attach file"><button onClick={() => chatFileInputRef.current?.click()} disabled={chatUploading} style={{ width: 38, height: 38, borderRadius: T.radiusPill, background: chatUploading ? T.accent + "15" : T.surface, border: `1px solid ${T.border}`, cursor: chatUploading ? "wait" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.15s", color: chatUploading ? T.accent : T.textDim }}>
@@ -19440,7 +19342,7 @@ ${jobsCtx || "No jobs found."}`;
                       : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
                     }
                   </button></Tip>
-                  <textarea value={chatInput} onChange={e => { setChatInput(e.target.value); notifyTyping(); }} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }} placeholder="Type a message… (Enter to send)" rows={1} style={{ flex: 1, height: 38, background: `var(--tq-field-bg, ${T.surface})`, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, padding: "8px 16px", color: T.text, fontSize: 15, fontFamily: T.font, resize: "none", outline: "none", lineHeight: 1.35, boxSizing: "border-box" }} />
+                  <textarea value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }} placeholder="Type a message… (Enter to send)" rows={1} style={{ flex: 1, height: 38, background: `var(--tq-field-bg, ${T.surface})`, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, padding: "8px 16px", color: T.text, fontSize: 15, fontFamily: T.font, resize: "none", outline: "none", lineHeight: 1.35, boxSizing: "border-box" }} />
                   <button onClick={sendChatMessage} disabled={(!chatInput.trim() && !chatAttachments.length) || chatSending || chatUploading} style={{ width: 38, height: 38, borderRadius: T.radiusPill, background: (chatInput.trim() || chatAttachments.length) && !chatSending && !chatUploading ? brandGrad(T.accent) : T.border, border: "none", cursor: (chatInput.trim() || chatAttachments.length) && !chatSending && !chatUploading ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "background 0.15s" }}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
                   </button>

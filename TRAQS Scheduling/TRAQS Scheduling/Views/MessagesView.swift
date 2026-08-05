@@ -945,41 +945,6 @@ struct ThreadDetailView: View {
         return f.string(from: d)
     }
 
-    /// "Alex is typing…" above the composer, fading in and out.
-    ///
-    /// The row keeps its height whether or not anyone is typing, so the message list
-    /// and composer don't jump when it appears — only the opacity changes.
-    ///
-    /// `typingTick` is read so this re-evaluates on every typing event: AppState's
-    /// lease dictionary is private, so @Observable can't see into it, and the tick is
-    /// what makes the dependency visible. A 1s timeline then drives expiry, since a
-    /// lease lapsing is the passage of time rather than a state change.
-    private var typingIndicator: some View {
-        TimelineView(.periodic(from: .now, by: 1)) { _ in
-            let _ = appState.typingTick
-            let names = appState.typingNames(in: threadKey)
-            Text(typingText(names))
-                .font(TTypo.xs(12))
-                .italic()
-                .foregroundStyle(Color(hex: T.muted))
-                .frame(height: 16, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8)
-                .opacity(names.isEmpty ? 0 : 1)
-                .animation(.easeInOut(duration: 0.22), value: names.isEmpty)
-                .allowsHitTesting(false)
-        }
-    }
-
-    private func typingText(_ names: [String]) -> String {
-        switch names.count {
-        case 0:  return " "                                   // keeps the row's height
-        case 1:  return "\(names[0]) is typing…"
-        case 2:  return "\(names[0]) & \(names[1]) are typing…"
-        default: return "\(names.count) people are typing…"
-        }
-    }
-
     /// Advance BOTH read cursors — the local one behind the inbox badge and the
     /// server one behind the sender's "Read" — to the same timestamp.
     ///
@@ -1149,8 +1114,6 @@ struct ThreadDetailView: View {
                 // avoidance raises it while the (windowed) header stays put.
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     VStack(spacing: 8) {
-                        typingIndicator
-
                         // Pending attachment preview (thumbnail + remove) above the row.
                         if hasAttachment {
                             HStack {
@@ -1185,12 +1148,6 @@ struct ThreadDetailView: View {
                             TextField("Message…", text: $newText, axis: .vertical)
                                 .textFieldStyle(.plain)
                                 .focused($composerFocused)
-                                // Announce typing as they write. AppState throttles,
-                                // so this fires per keystroke but publishes rarely.
-                                .onChange(of: newText) { _, new in
-                                    guard !new.isEmpty else { return }
-                                    appState.publishTyping(threadKey: threadKey)
-                                }
                                 .font(TTypo.sm(14))
                                 .foregroundColor(Color(hex: T.ink))
                                 .padding(.horizontal, 16)

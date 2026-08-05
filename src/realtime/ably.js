@@ -78,9 +78,6 @@ export async function connect(ctx) {
     }
   });
 
-  // Any typing handlers registered before the client existed attach now.
-  attachTyping();
-
   return client;
 }
 
@@ -96,79 +93,6 @@ export function subscribe(entity, cb) {
   return () => { try { ch.unsubscribe("changed", handler); } catch {} };
 }
 
-// ─── Typing indicators ───────────────────────────────────────────────────────
-//
-// These ride the `org-{orgCode}:presence` channel, which is the ONE channel
-// ably-token.js grants clients publish on (data channels are subscribe-only, since
-// real writes go through the Netlify functions). So typing goes client-to-client
-// with no function call and no per-keystroke server round trip.
-//
-// Deliberately ephemeral: nothing is stored anywhere. A receiver shows the
-// indicator on a timer and lets it lapse, so a sender that goes away mid-typing —
-// closed tab, dead connection — can't leave it stuck on.
-const TYPING_EVENT = "typing";
-
-// Handlers are registered independently of the connection, and the channel
-// subscription is attached whenever the client exists. This split is load-bearing:
-// connect() is async and assigns `client` partway through, while callers subscribe
-// as soon as they know the orgCode — which is earlier. Attaching directly in
-// subscribeTyping() therefore found no client, returned a no-op, and never retried,
-// so typing silently never worked.
-const typingHandlers = new Set();
-let typingAttached = false;
-
-function presenceChannel() {
-  if (!client || degraded || !orgCode) return null;
-  const name = `org-${orgCode}:presence`;
-  let ch = channels.get(name);
-  if (!ch) { ch = client.channels.get(name); channels.set(name, ch); }
-  return ch;
-}
-
-// One channel subscription fanning out to every handler. Called from connect() and
-// from subscribeTyping(), whichever happens second.
-function attachTyping() {
-  if (typingAttached) return;
-  const ch = presenceChannel();
-  if (!ch) return;                       // no client yet — connect() calls us again
-  typingAttached = true;
-  console.debug(`[ably] typing subscribed on org-${orgCode}:presence`);
-  ch.subscribe(TYPING_EVENT, (msg) => {
-    console.debug("[ably] typing received", msg?.data);
-    for (const cb of typingHandlers) {
-      try { cb(msg?.data); } catch (e) { console.error("[ably] typing handler error:", e); }
-    }
-  });
-}
-
-/// Announce that `personId` is typing in `threadKey`. Fire-and-forget: a failed
-/// publish must never interrupt composing.
-export function publishTyping({ threadKey, personId, name }) {
-  const ch = presenceChannel();
-  if (!ch) {
-    // The single most likely reason typing appears "broken": no client yet, or
-    // real-time degraded. Say so instead of returning silently.
-    console.warn("[ably] typing NOT published — no presence channel",
-                 { hasClient: !!client, degraded, orgCode });
-    return;
-  }
-  if (!threadKey || !personId) return;
-  // publish() rejects ASYNCHRONOUSLY (capability denial, channel failure), so a
-  // try/catch around the call could never see those — they were being swallowed.
-  Promise.resolve(ch.publish(TYPING_EVENT, { threadKey, personId: String(personId), name: name || "" }))
-    .then(() => console.debug("[ably] typing published", { threadKey, personId }))
-    .catch(e => console.warn("[ably] typing publish REJECTED:", e?.message || e));
-}
-
-/// Subscribe to typing events. `cb` receives { threadKey, personId, name }.
-/// Safe to call BEFORE connect() — the handler is held and attached once the
-/// client exists. Returns an unsubscribe function.
-export function subscribeTyping(cb) {
-  typingHandlers.add(cb);
-  attachTyping();                       // no-op until the client exists
-  return () => { typingHandlers.delete(cb); };
-}
-
 // Cleanly tear down on logout so the next login reconnects fresh.
 export function disconnect() {
   try { client?.close(); } catch {}
@@ -176,5 +100,4 @@ export function disconnect() {
   orgCode = null;
   degraded = false;
   channels.clear();
-  typingAttached = false;   // next connect() must re-attach the presence subscription
 }

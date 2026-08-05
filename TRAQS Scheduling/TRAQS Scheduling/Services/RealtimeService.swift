@@ -152,84 +152,11 @@ final class RealtimeService {
             Task { @MainActor in self?.onReads?() }
         }
 
-        // A typing handler registered before the client existed attaches now.
-        attachTyping()
-    }
-
-    // MARK: - Typing indicators
-    //
-    // These ride `org-{orgCode}:presence`, the ONE channel ably-token.js grants
-    // clients publish on (data channels are subscribe-only, because real writes go
-    // through the Netlify functions and publish server-side). So typing is
-    // client-to-client: no function call, no per-keystroke round trip.
-    //
-    // Deliberately ephemeral — nothing is persisted. A receiver holds each event as
-    // a short lease and lets it lapse, so a sender that disappears mid-word can't
-    // leave the indicator stuck on. There is no "stopped typing" signal to miss.
-    private static let typingEvent = "typing"
-    private var typingChannel: ARTRealtimeChannel?
-    private var typingAttached = false
-    private var onTyping: ((_ threadKey: String, _ personId: String, _ name: String) -> Void)?
-
-    /// Lazily join the presence channel. Safe to call repeatedly.
-    private func presenceChannel() -> ARTRealtimeChannel? {
-        guard let client, !degraded, !orgCode.isEmpty else { return nil }
-        if let typingChannel { return typingChannel }
-        let ch = client.channels.get("org-\(orgCode):presence")
-        typingChannel = ch
-        channels.append(ch)          // so disconnect() tears it down with the rest
-        return ch
-    }
-
-    /// Register the typing handler. Safe to call BEFORE connect() — the handler is
-    /// held and the channel subscription attaches once the client exists.
-    ///
-    /// Registration is split from attachment deliberately: subscribing directly here
-    /// found no client whenever this ran before connect() finished, returned without
-    /// subscribing, and never retried — so typing silently never arrived.
-    func observeTyping(_ handler: @escaping (_ threadKey: String, _ personId: String, _ name: String) -> Void) {
-        onTyping = handler
-        attachTyping()
-    }
-
-    /// Subscribe the presence channel once. Called from `observeTyping` and from the
-    /// end of `connect`, whichever happens second.
-    private func attachTyping() {
-        guard !typingAttached, onTyping != nil, let ch = presenceChannel() else { return }
-        typingAttached = true
-        print("[ably] typing subscribed on org-\(orgCode):presence")
-        ch.subscribe(Self.typingEvent) { [weak self] msg in
-            print("[ably] typing received \(String(describing: msg.data))")
-            guard let d = msg.data as? [String: Any],
-                  let threadKey = d["threadKey"] as? String,
-                  let personId = d["personId"] as? String else { return }
-            let name = (d["name"] as? String) ?? ""
-            Task { @MainActor in self?.onTyping?(threadKey, personId, name) }
-        }
-    }
-
-    /// Announce that `personId` is typing in `threadKey`. Fire-and-forget — a failed
-    /// publish must never interrupt composing.
-    func publishTyping(threadKey: String, personId: String, name: String) {
-        guard let ch = presenceChannel() else {
-            // The likeliest reason typing looks broken: no client yet, or degraded.
-            print("[ably] typing NOT published — no presence channel (client: \(client != nil), degraded: \(degraded), org: \"\(orgCode)\")")
-            return
-        }
-        // The completion carries capability/attach failures that are otherwise silent.
-        ch.publish(Self.typingEvent,
-                   data: ["threadKey": threadKey, "personId": personId, "name": name]) { err in
-            if let err { print("[ably] typing publish REJECTED: \(err.message)") }
-            else { print("[ably] typing published \(threadKey)") }
-        }
     }
 
     func disconnect() {
         for ch in channels { ch.unsubscribe() }
         channels.removeAll()
-        typingChannel = nil
-        typingAttached = false   // next connect() must re-attach
-        onTyping = nil
         client?.close()
         client = nil
         orgCode = ""
