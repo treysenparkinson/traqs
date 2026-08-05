@@ -173,7 +173,8 @@ struct MessagesView: View {
         // iOS threads were keyed by name — to the group's display name.
         if key.hasPrefix("group:") {
             let ref = String(key.dropFirst(6))
-            return appState.groups.first(where: { $0.id == ref || $0.name == ref })?.name
+            return appState.groups.first(where: { $0.id == ref || $0.name == ref })?
+                .displayName(people: appState.people, myId: appState.currentPersonId)
         }
         return nil
     }
@@ -346,7 +347,10 @@ struct MessagesView: View {
                     } else {
                         var members = recipientIds
                         if !members.contains(myId) { members.insert(myId, at: 0) }
-                        let name = groupName ?? "Group"
+                        // "" and not "Group": storing that literal made a group
+                        // genuinely NAMED "Group", which then deduped onto every
+                        // other unnamed group. Empty means "derive from members".
+                        let name = groupName ?? ""
                         Task {
                             guard let g = await appState.createGroup(name: name, memberIds: members) else { return }
                             await MainActor.run { navigationPath.append("group:\(g.id)") }
@@ -656,7 +660,10 @@ struct MessageThread: Identifiable {
         if key.hasPrefix("job:")   { return "Job: \(key.dropFirst(4))" }
         if key.hasPrefix("panel:") { return "Panel: \(key.dropFirst(6))" }
         if key.hasPrefix("op:")    { return "Op: \(key.dropFirst(3))" }
-        if key.hasPrefix("group:") { return String(key.dropFirst(6)) }
+        // Group threads are keyed by id, so dropping the prefix yields a UUID, not
+        // a name. Callers set `resolvedTitle` from ChatGroup.displayName; this is
+        // only the last resort when the group isn't loaded yet.
+        if key.hasPrefix("group:") { return "Group" }
         if key.hasPrefix("dm:")    { return "Direct Message" }
         return key
     }
@@ -802,7 +809,10 @@ struct ThreadDetailView: View {
         }
         if threadKey.hasPrefix("group:") {
             let ref = String(threadKey.dropFirst(6))
-            return appState.groups.first(where: { $0.id == ref || $0.name == ref })?.name ?? ref
+            // NOT `?? ref` — threads are keyed by group id, so an unresolved group
+            // used to render its UUID as the title.
+            return appState.groups.first(where: { $0.id == ref || $0.name == ref })?
+                .displayName(people: appState.people, myId: appState.currentPersonId) ?? "Group"
         }
         if threadKey.hasPrefix("job:")   { return "Job: \(threadKey.dropFirst(4))" }
         if threadKey.hasPrefix("panel:") { return "Panel: \(threadKey.dropFirst(6))" }
@@ -1325,13 +1335,16 @@ struct ThreadDetailView: View {
         guard !ids.isEmpty else { return }
         withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { appState.showThreadMembers = false }
         if threadKey.hasPrefix("group:") {
-            let name = String(threadKey.dropFirst(6))
-            Task { await appState.addGroupMembers(groupName: name, add: ids) }
+            // The group's ID — thread keys are keyed by id, not name.
+            let ref = String(threadKey.dropFirst(6))
+            Task { await appState.addGroupMembers(groupRef: ref, add: ids) }
         } else if threadKey.hasPrefix("dm:") {
             let members = Array(Set(threadParticipants.map { $0.id }).union(ids))
-            let name = suggestedGroupName(memberIds: members)
             Task {
-                guard let g = await appState.createGroup(name: name, memberIds: members) else { return }
+                // Unnamed on purpose: the title then derives from whoever is in it,
+                // so it stays right as people are added. Storing a snapshot of the
+                // names here would freeze the old roster into the title.
+                guard let g = await appState.createGroup(name: "", memberIds: members) else { return }
                 await MainActor.run { onOpenThread("group:\(g.id)") }
             }
         }
@@ -1339,15 +1352,6 @@ struct ThreadDetailView: View {
 
     /// Readable auto-name for a group spun up from a DM: comma-joined first
     /// names, truncated with "+N" past three.
-    private func suggestedGroupName(memberIds: [String]) -> String {
-        let names = memberIds.compactMap { id in
-            appState.people.first(where: { $0.id == id })?.name
-                .split(separator: " ").first.map(String.init)
-        }
-        guard !names.isEmpty else { return "New Group" }
-        if names.count <= 3 { return names.joined(separator: ", ") }
-        return names.prefix(3).joined(separator: ", ") + " +\(names.count - 3)"
-    }
 
     private func personInitials(_ name: String) -> String {
         name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }.joined()
@@ -2568,6 +2572,20 @@ struct NewGroupSheet: View {
     @State private var groupName = ""
     @State private var selectedIds: Set<String> = []
 
+    private var others: [Person] {
+        appState.people.filter { $0.id != appState.currentPersonId }
+    }
+
+    /// The placeholder doubles as a live preview of the title this group will get if
+    /// the field is left empty, so "optional" doesn't read as "unnamed".
+    private var namePlaceholder: String {
+        selectedIds.isEmpty
+            ? "Optional — named after its members"
+            : ChatGroup.memberNamesLine(memberIds: Array(selectedIds),
+                                        people: appState.people,
+                                        myId: appState.currentPersonId)
+    }
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -2590,13 +2608,20 @@ struct NewGroupSheet: View {
                         }
                         .padding(.top, 16)
 
-                        // Group name
+                        // Group name — OPTIONAL. Left blank, the group takes its
+                        // title from its members (ChatGroup.displayName), which is
+                        // also what the web has always done.
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("Group Name")
-                                .font(.caption.bold())
-                                .foregroundColor(Color(hex: T.muted))
-                                .padding(.horizontal, 16)
-                            TextField("e.g. Electrical Team, Project Alpha…", text: $groupName)
+                            HStack(spacing: 6) {
+                                Text("Group Name")
+                                    .font(.caption.bold())
+                                    .foregroundColor(Color(hex: T.muted))
+                                Text("OPTIONAL")
+                                    .font(.caption2.bold())
+                                    .foregroundColor(Color(hex: T.muted).opacity(0.7))
+                            }
+                            .padding(.horizontal, 16)
+                            TextField(namePlaceholder, text: $groupName)
                                 .textFieldStyle(.plain)
                                 .foregroundColor(Color(hex: T.text))
                                 .padding(12)
@@ -2613,51 +2638,25 @@ struct NewGroupSheet: View {
                                 .foregroundColor(Color(hex: T.muted))
                                 .padding(.horizontal, 16)
 
-                            ForEach(appState.people.filter { $0.id != appState.currentPersonId }) { person in
-                                Button {
-                                    if selectedIds.contains(person.id) {
-                                        selectedIds.remove(person.id)
-                                    } else {
-                                        selectedIds.insert(person.id)
-                                    }
-                                } label: {
-                                    HStack(spacing: 12) {
-                                        Circle()
-                                            .fill(Color(hex: person.color))
-                                            .frame(width: 36, height: 36)
-                                            .overlay(
-                                                Text(String(person.name.prefix(1)).uppercased())
-                                                    .font(.subheadline.bold())
-                                                    .foregroundColor(Color(hex: person.color).readableText)
-                                            )
-                                        VStack(alignment: .leading, spacing: 2) {
-                                            Text(person.name)
-                                                .font(.subheadline.bold())
-                                                .foregroundColor(Color(hex: T.text))
-                                            Text(person.role)
-                                                .font(.caption)
-                                                .foregroundColor(Color(hex: T.muted))
-                                        }
-                                        Spacer()
-                                        Image(systemName: selectedIds.contains(person.id) ? "checkmark.circle.fill" : "circle")
-                                            .foregroundColor(selectedIds.contains(person.id) ? Color(hex: T.accent) : Color(hex: T.muted))
-                                    }
-                                    .padding(12)
-                                    .background(Color(hex: T.card))
-                                    .cornerRadius(10)
-                                    .overlay(RoundedRectangle(cornerRadius: 10).stroke(
-                                        selectedIds.contains(person.id) ? Color(hex: T.accent).opacity(0.4) : Color(hex: T.border),
-                                        lineWidth: 1
-                                    ))
+                            // 3-up grid of square cards. Three keeps the avatar
+                            // readable and a full first name visible while a whole
+                            // roster still scans in a few rows.
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10),
+                                                     count: 3),
+                                      spacing: 10) {
+                                ForEach(others) { person in
+                                    memberCard(person)
                                 }
-                                .buttonStyle(.plain)
-                                .padding(.horizontal, 16)
                             }
+                            .padding(.horizontal, 16)
                         }
 
                         Button {
+                            // Members, not the name, are what a group needs — an
+                            // empty name is passed straight through and means
+                            // "derive the title from the members".
+                            guard !selectedIds.isEmpty else { return }
                             let name = groupName.trimmingCharacters(in: .whitespaces)
-                            guard !name.isEmpty else { return }
                             // Always include the current user in the
                             // group; selectedIds only contains the OTHER
                             // people the creator picked.
@@ -2672,12 +2671,12 @@ struct NewGroupSheet: View {
                                 .fontWeight(.semibold)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 14)
-                                .background(groupName.trimmingCharacters(in: .whitespaces).isEmpty ? Color(hex: T.border) : Color(hex: T.accent))
+                                .background(selectedIds.isEmpty ? Color(hex: T.border) : Color(hex: T.accent))
                                 .foregroundColor(T.onAccent)
                                 .cornerRadius(12)
                         }
                         .buttonStyle(.plain)
-                        .disabled(groupName.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .disabled(selectedIds.isEmpty)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 24)
                     }
@@ -2694,6 +2693,56 @@ struct NewGroupSheet: View {
                 }
             }
         }
+    }
+
+    /// One selectable person as a square card — profile photo (initials when
+    /// there's none) over their first name, with selection carried by the card
+    /// itself rather than a separate checkmark.
+    @ViewBuilder
+    private func memberCard(_ person: Person) -> some View {
+        let selected = selectedIds.contains(person.id)
+        Button {
+            if selected { selectedIds.remove(person.id) } else { selectedIds.insert(person.id) }
+        } label: {
+            VStack(spacing: 8) {
+                Avatar(initials: initials(person),
+                       size: 46,
+                       fill: .personFill(person.color),
+                       imageData: person.image)
+                    .overlay(alignment: .bottomTrailing) {
+                        if selected {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(Color(hex: T.accent), Color(hex: T.surface))
+                                .offset(x: 3, y: 3)
+                        }
+                    }
+
+                // First name only — a full name wraps to two lines at this width
+                // and makes the cards different heights.
+                Text(person.name.split(separator: " ").first.map(String.init) ?? person.name)
+                    .font(.caption.bold())
+                    .foregroundColor(Color(hex: selected ? T.accent : T.text))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 6)
+            .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous)
+                .fill(selected ? Color(hex: T.accent).opacity(0.12) : Color.clear))
+            .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous)
+                .strokeBorder(selected ? Color(hex: T.accent) : Color(hex: T.border),
+                              lineWidth: selected ? 2 : 1))
+            .contentShape(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func initials(_ p: Person) -> String {
+        let parts = p.name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
+        let j = parts.joined()
+        return j.isEmpty ? "?" : j
     }
 }
 
@@ -2775,19 +2824,6 @@ struct NewMessageSheet: View {
         return base.filter { $0.name.lowercased().contains(q) || $0.role.lowercased().contains(q) }
     }
     private var isGroup: Bool { selectedIds.count > 1 }
-
-    /// Auto name for a group when the user leaves the name blank — first names of
-    /// the selected people, e.g. "Alex & Sam" or "Alex, Sam +2".
-    private var autoGroupName: String {
-        let names = appState.people.filter { selectedIds.contains($0.id) }
-            .map { String($0.name.split(separator: " ").first ?? Substring($0.name)) }
-        switch names.count {
-        case 0:  return "Group"
-        case 1:  return names[0]
-        case 2:  return "\(names[0]) & \(names[1])"
-        default: return "\(names.prefix(2).joined(separator: ", ")) +\(names.count - 2)"
-        }
-    }
 
     private func initials(_ p: Person) -> String {
         let parts = p.name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
@@ -2899,11 +2935,13 @@ struct NewMessageSheet: View {
     private func start() {
         let ids = Array(selectedIds)
         guard !ids.isEmpty else { return }
-        // Group name is auto-derived (irrelevant to the user — only membership
-        // matters); nil for a 1:1 DM.
-        let name: String? = ids.count > 1 ? autoGroupName : nil
+        // Always nil. This sheet has no name field, and a group created here is
+        // left unnamed so its title derives from its members via
+        // ChatGroup.displayName — which keeps the title right as people are added,
+        // where a snapshot taken now would go stale. Naming happens in
+        // NewGroupSheet.
         dismiss()
-        onStart(ids, name)
+        onStart(ids, nil)
     }
 
     // One selectable recipient — frosted rounded row with the person's avatar

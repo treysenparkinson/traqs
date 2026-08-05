@@ -876,6 +876,42 @@ struct ChatGroup: Codable, Identifiable, Equatable {
     }
 }
 
+extension ChatGroup {
+    /// What to show for this group, ANYWHERE — thread list, thread header, pickers.
+    ///
+    /// Naming is optional and the web has historically created groups with no
+    /// `name` at all, so `name` decodes to "" far more often than not. Reading
+    /// `.name` directly is therefore a bug: it renders blank for most groups, and
+    /// callers that fell back to the thread key ended up showing a raw UUID.
+    /// Always come through here.
+    func displayName(people: [Person], myId: String?) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return trimmed }
+        return ChatGroup.memberNamesLine(memberIds: memberIds, people: people, myId: myId)
+    }
+
+    /// "Alice, Bob, Carol +4" — first names, in `memberIds` order, viewer excluded.
+    ///
+    /// Order follows memberIds rather than being sorted, so a group's title stays
+    /// put instead of reshuffling when somebody is renamed. `+N` counts the
+    /// remaining OTHERS (the viewer is dropped before counting), so a group of you
+    /// plus three shows three names and no suffix.
+    ///
+    /// Capped at three because the untruncated line runs wider than a thread row
+    /// and gets clipped mid-name, at which point groups stop being tellable apart.
+    static func memberNamesLine(memberIds: [String], people: [Person], myId: String?) -> String {
+        let names = memberIds
+            .filter { $0 != myId }
+            .compactMap { id in
+                people.first(where: { $0.id == id })?.name
+                    .split(separator: " ").first.map(String.init)
+            }
+        guard !names.isEmpty else { return "Group" }
+        if names.count <= 3 { return names.joined(separator: ", ") }
+        return names.prefix(3).joined(separator: ", ") + " +\(names.count - 3)"
+    }
+}
+
 // MARK: - Template
 
 struct TemplateOp: Codable {

@@ -1016,7 +1016,7 @@ class AppState {
         guard let me = currentPerson, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
         let members = Array(Set(people.filter { $0.isAdmin }.map(\.id) + [me.id]))
         guard let created = await createGroup(name: "Completion Requests", memberIds: members) else { return }
-        await addGroupMembers(groupName: "Completion Requests", add: members)   // ensure new admins/requester are in
+        await addGroupMembers(groupRef: "Completion Requests", add: members)   // ensure new admins/requester are in
         let group = groups.first(where: { $0.id == created.id }) ?? created
 
         let reqId = UUID().uuidString
@@ -1049,7 +1049,7 @@ class AppState {
         guard let me = currentPerson, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
         let members = Array(Set(people.filter { $0.isAdmin }.map(\.id) + [me.id]))
         guard let created = await createGroup(name: "Completion Requests", memberIds: members) else { return }
-        await addGroupMembers(groupName: "Completion Requests", add: members)
+        await addGroupMembers(groupRef: "Completion Requests", add: members)
         let group = groups.first(where: { $0.id == created.id }) ?? created
 
         let reqId = UUID().uuidString
@@ -1445,13 +1445,20 @@ class AppState {
     /// the web app (`group:${group.id}`) — keying by name diverged from web, so a
     /// group chat created on one platform never converged with the other.
     @discardableResult
+    /// `name` is OPTIONAL — pass "" for an unnamed group, which then takes its
+    /// title from its members via `ChatGroup.displayName`.
     func createGroup(name: String, memberIds: [String]) async -> ChatGroup? {
         guard let api else { return nil }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        // Reuse an existing same-named group instead of creating a duplicate —
-        // and hand its id back so navigation targets the real thread.
-        if let existing = groups.first(where: { $0.name == trimmed }) { return existing }
+        // Reuse an existing same-named group instead of creating a duplicate — and
+        // hand its id back so navigation targets the real thread.
+        //
+        // Only when a name was actually given. Unnamed groups all share the empty
+        // name, so an unconditional check would fold every one of them into
+        // whichever was created first.
+        if !trimmed.isEmpty, let existing = groups.first(where: { $0.name == trimmed }) {
+            return existing
+        }
         let group = ChatGroup(id: UUID().uuidString, name: trimmed, memberIds: memberIds)
         // Optimistic local update so the inbox surfaces the new group
         // immediately. The server save runs in the background.
@@ -1470,9 +1477,13 @@ class AppState {
     /// the thread's participant list reflects it immediately; the server save
     /// runs in the background. No-op if the group is missing or everyone named
     /// is already a member.
-    func addGroupMembers(groupName: String, add ids: [String]) async {
+    /// `groupRef` is an id OR a name. Callers with a thread key pass the id (thread
+    /// keys are keyed by id); the "Completion Requests" system group is looked up
+    /// by its well-known name. Named `groupRef` rather than `groupName` because a
+    /// name is no longer guaranteed to exist or to be unique.
+    func addGroupMembers(groupRef: String, add ids: [String]) async {
         guard let api else { return }
-        guard let idx = groups.firstIndex(where: { $0.name == groupName || $0.id == groupName }) else { return }
+        guard let idx = groups.firstIndex(where: { $0.id == groupRef || $0.name == groupRef }) else { return }
         let newIds = ids.filter { !groups[idx].memberIds.contains($0) }
         guard !newIds.isEmpty else { return }
         var updated = groups
