@@ -31,7 +31,7 @@ struct MoreView: View {
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             VStack(spacing: 0) {
                 // Sticky header. Calendar jumps weeks; the person button (admins)

@@ -175,13 +175,34 @@ struct LiquidBackground: View {
     /// barely register over a short splash). Higher runs the same paths faster
     /// and travels further, so the wash visibly churns during a load-up.
     var energy: Double = 1
+    /// Blob footprint, as a fraction of the full-bleed ladder. 1 (the default,
+    /// and the splash) is the original geometry: blobs wide enough to hang off
+    /// alternating edges and meet in the middle, covering the canvas completely.
+    ///
+    /// Below 1 they shrink AND scatter across the width instead of hugging the
+    /// edges — shrinking alone would strand the centre bare. The gaps that opens
+    /// are the point: they're how the ground reads through, so this is the dial
+    /// for the background-to-colour ratio. Roughly, coverage ≈ 9 ellipses of
+    /// 0.76·0.34·scale², so 0.55 leaves about half the canvas as ground.
+    var blobScale: Double = 1
+    /// Weight the hue ladder toward the primary instead of cycling the three
+    /// tones evenly. Splits the pigment about 56/22/22 rather than 33/33/33, so
+    /// the accent dominates and the derived tones merely accent it.
+    var primaryWeighted: Bool = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(ThemeSettings.self) private var theme
 
     /// Blur tightens as the wash thickens — a heavy blur is what turns pigment
-    /// back into haze, so the two have to move together.
-    private var blurRadius: CGFloat { max(44, 80 / thickness) }
+    /// back into haze, so the two have to move together — and scales with the
+    /// blob's own footprint, because a blur sized for a full-bleed blob would
+    /// dissolve a small one completely. At `blobScale: 1` this is exactly the
+    /// original `max(44, 80 / thickness)`.
+    private var blurRadius: CGFloat { scale * max(44, 80 / thickness) }
+
+    /// Clamped so a caller can't collapse the wash to nothing or inflate it past
+    /// the geometry the ladder was designed around.
+    private var scale: Double { max(0.2, min(1, blobScale)) }
     /// Excursions grow with energy, but sub-linearly — at full tilt the blobs
     /// should surge, not fly off the canvas.
     private var amplitude: Double { min(1.7, 1 + (energy - 1) * 0.25) }
@@ -202,23 +223,43 @@ struct LiquidBackground: View {
         //
         // Durations are 13–29s with no shared factors, so the eight paths never
         // line back up and the field keeps re-mixing instead of visibly looping.
-        // The three hues cycle down the ladder so no one colour owns a region.
-        let hues = [c, c2, c3, c2, c, c3, c2, c, c3]
+        // The hues cycle down the ladder so no one colour owns a region — evenly
+        // by default, or weighted 5:2:2 toward the primary when asked.
+        let hues = primaryWeighted ? [c, c2, c, c3, c, c2, c, c3, c]
+                                   : [c, c2, c3, c2, c, c3, c2, c, c3]
         let alphas = [0.55, 0.50, 0.38, 0.34, 0.42, 0.34, 0.38, 0.44, 0.36]
         let paths = [LiquidPath.a, LiquidPath.b, LiquidPath.c, LiquidPath.d,
                      LiquidPath.reversed(LiquidPath.b), LiquidPath.reversed(LiquidPath.a),
                      LiquidPath.reversed(LiquidPath.c), LiquidPath.reversed(LiquidPath.d),
                      LiquidPath.a]
         let durations: [Double] = [17, 21, 19, 25, 15, 23, 13, 27, 29]
+
+        let w = 0.76 * scale
+        let h = 0.34 * scale
+        let fullBleed = scale >= 1
+
+        // Shrunk blobs can't reach the edges from the edges, so they scatter
+        // across the width at successive heights: left, middle, right, and back,
+        // with a couple bleeding slightly off each side so the margins aren't
+        // systematically paler than the centre.
+        let scatter: [Double] = [-0.08, 0.34, 0.66, 0.12, 0.48, 0.72, -0.04, 0.40, 0.58]
+
         return (0..<9).map { i in
             let fromLeading = i % 2 == 0
             return BlobSpec(
                 id: i,
-                w: 0.76,
-                h: 0.34,
-                leading: fromLeading ? -0.12 : nil,
-                trailing: fromLeading ? nil : -0.12,
-                top: -0.16 + Double(i) * 0.13,
+                w: w,
+                h: h,
+                // Full bleed hangs off alternating edges; scattered places the
+                // leading edge outright.
+                leading: fullBleed ? (fromLeading ? -0.12 : nil) : scatter[i],
+                trailing: fullBleed ? (fromLeading ? nil : -0.12) : nil,
+                // The full-bleed ladder's fixed 0.13 step is tuned to 0.34-tall
+                // blobs. A shrunk one needs its own spacing or the wash would
+                // bunch in the top third: spread the nine evenly top to bottom,
+                // half a blob off each end, keeping a slight vertical overlap.
+                top: fullBleed ? (-0.16 + Double(i) * 0.13)
+                               : (-h * 0.5 + Double(i) * ((1 + h) / 9)),
                 hex: hues[i],
                 alpha: a(alphas[i]),
                 stops: paths[i],

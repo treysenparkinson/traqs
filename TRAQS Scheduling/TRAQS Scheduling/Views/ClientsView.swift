@@ -29,7 +29,7 @@ struct ClientsView: View {
     var body: some View {
         NavigationSplitView {
             ZStack {
-                AmbientBackground()
+                PageBackground()
 
                 VStack(spacing: 0) {
                     // Persistent header — search slides in below it; add lives in the trailing slot.
@@ -82,7 +82,7 @@ struct ClientsView: View {
                 ClientDetailView(client: client)
             } else {
                 ZStack {
-                    AmbientBackground()
+                    PageBackground()
                     ContentUnavailableView("Select a Client", systemImage: "building.2", description: Text("Choose a client to view details."))
                 }
             }
@@ -162,7 +162,7 @@ struct ClientDetailView: View {
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {

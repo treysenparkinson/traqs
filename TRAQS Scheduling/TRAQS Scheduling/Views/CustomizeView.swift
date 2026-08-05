@@ -11,7 +11,7 @@ struct CustomizeView: View {
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             ScrollView {
                 VStack(spacing: 24) {
@@ -59,6 +59,14 @@ struct CustomizeView: View {
                                 if index < presets.count - 1 {
                                     SLine().padding(.leading, 70)
                                 }
+                            }
+
+                            // The wash layers OVER whichever preset is picked
+                            // rather than replacing it, so it belongs in this
+                            // card rather than as a third preset row.
+                            SLine().padding(.leading, 70)
+                            LiquidToggleRow(isOn: theme.liquidBackground) { on in
+                                theme.setLiquidBackground(on)
                             }
                         }
                         .frostedCard(radius: T.cornerMd)
@@ -143,6 +151,35 @@ private struct AccentSwatch: View {
                         radius: isSelected ? T.skyShadowRadius : 0, x: 0, y: isSelected ? T.skyShadowY : 0)
         }
         .buttonStyle(.plain)
+    }
+}
+
+// Liquid-wash on/off. Same padding as BgPresetRow so it reads as another row of
+// the same card. Previews live via setLiquidBackground and is committed or
+// reverted by the card's Save / back-out paths, exactly like the presets.
+private struct LiquidToggleRow: View {
+    let isOn: Bool
+    let onChange: (Bool) -> Void
+
+    var body: some View {
+        HStack(spacing: 14) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Liquid Motion")
+                    .font(TTypo.smBold(15))
+                    .foregroundColor(Color(hex: T.ink))
+                Text("Drifting colour wash in your accent")
+                    .font(TTypo.xs(12))
+                    .foregroundColor(Color(hex: T.muted))
+            }
+
+            Spacer()
+
+            Toggle("", isOn: Binding(get: { isOn }, set: { onChange($0) }))
+                .labelsHidden()
+                .tint(Color(hex: T.accent))
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
     }
 }
 

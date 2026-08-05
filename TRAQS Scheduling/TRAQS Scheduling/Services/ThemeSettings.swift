@@ -47,16 +47,25 @@ final class ThemeSettings {
 
     static let defaultBgPresetId: Int = 100
     static let defaultAccent: String = "#3B82F6"
+    /// On by default — the liquid wash IS the intended look of the app; the
+    /// static canvas is the opt-out.
+    static let defaultLiquidBackground: Bool = true
 
     var accent: String = ThemeSettings.defaultAccent
     var bgPresetId: Int = ThemeSettings.defaultBgPresetId
+    /// Whether pages render the drifting liquid wash (`PageBackground`) instead
+    /// of the static ambient canvas. Unlike accent/preset this feeds no T.*
+    /// token — views read it directly — so it has no `applyToT` counterpart.
+    var liquidBackground: Bool = ThemeSettings.defaultLiquidBackground
     var version: Int = 0
 
     // Last *saved* theme, captured when the customizer opens (`beginPreview`).
-    // Live edits change `accent`/`bgPresetId` for an immediate preview without
-    // persisting; Save commits them, backing out reverts to these snapshots.
+    // Live edits change `accent`/`bgPresetId`/`liquidBackground` for an immediate
+    // preview without persisting; Save commits them, backing out reverts to
+    // these snapshots.
     private var savedAccent: String = ThemeSettings.defaultAccent
     private var savedBgPresetId: Int = ThemeSettings.defaultBgPresetId
+    private var savedLiquidBackground: Bool = ThemeSettings.defaultLiquidBackground
 
     var currentBgPreset: BgPreset {
         ThemeSettings.bgPresets.first(where: { $0.id == bgPresetId }) ?? ThemeSettings.bgPresets[0]
@@ -76,8 +85,14 @@ final class ThemeSettings {
         } else {
             bgPresetId = ThemeSettings.defaultBgPresetId
         }
+        // `object(forKey:) as? Bool`, NOT `bool(forKey:)` — the latter returns
+        // false for a key that was never written, which would silently ship the
+        // liquid wash OFF for every existing user.
+        liquidBackground = (UserDefaults.standard.object(forKey: "themeLiquidBackground") as? Bool)
+            ?? ThemeSettings.defaultLiquidBackground
         savedAccent = accent
         savedBgPresetId = bgPresetId
+        savedLiquidBackground = liquidBackground
         applyToT()
     }
 
@@ -95,9 +110,16 @@ final class ThemeSettings {
         applyBgToT(currentBgPreset)
     }
 
+    /// Live preview only (see `setAccent`). Persists on `commitChanges()`. No
+    /// `applyToT` call — this flag isn't part of the token table.
+    func setLiquidBackground(_ on: Bool) {
+        liquidBackground = on
+    }
+
     func reset() {
         setAccent(ThemeSettings.defaultAccent)
         setBgPreset(ThemeSettings.defaultBgPresetId)
+        setLiquidBackground(ThemeSettings.defaultLiquidBackground)
         commitChanges()
     }
 
@@ -106,6 +128,7 @@ final class ThemeSettings {
     func beginPreview() {
         savedAccent = accent
         savedBgPresetId = bgPresetId
+        savedLiquidBackground = liquidBackground
     }
 
     /// Revert a live preview back to the last saved theme (customizer closed
@@ -113,6 +136,7 @@ final class ThemeSettings {
     func cancelPreview() {
         accent = savedAccent
         bgPresetId = savedBgPresetId
+        liquidBackground = savedLiquidBackground
         applyToT()
     }
 
@@ -121,8 +145,10 @@ final class ThemeSettings {
     func commitChanges() {
         UserDefaults.standard.set(accent, forKey: "themeAccent")
         UserDefaults.standard.set(bgPresetId, forKey: "themeBgPreset")
+        UserDefaults.standard.set(liquidBackground, forKey: "themeLiquidBackground")
         savedAccent = accent
         savedBgPresetId = bgPresetId
+        savedLiquidBackground = liquidBackground
         version += 1
     }
 

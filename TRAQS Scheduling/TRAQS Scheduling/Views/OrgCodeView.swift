@@ -17,7 +17,7 @@ struct OrgCodeView: View {
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             VStack(spacing: 28) {
                 Spacer()

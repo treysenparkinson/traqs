@@ -1,7 +1,7 @@
 import SwiftUI
 
 // MARK: - TeamView · TRAQS Revamp
-// Frosted team roster matched to the Team wireframe: AmbientBackground canvas,
+// Frosted team roster matched to the Team wireframe: PageBackground canvas,
 // TRAQSNavHeader + PageTitle, a presence filter chip row (All / On job / Break /
 // Idle), and frosted rows with gradient avatars (+ presence dot) and a bright
 // status TagPill. STYLING ONLY — every @State, binding, action closure, sheet,
@@ -130,7 +130,7 @@ struct TeamView: View {
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             VStack(spacing: 0) {
                 // Sticky revamp header (wordmark + optional add action).
@@ -392,7 +392,7 @@ struct PersonDetailView: View {
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {

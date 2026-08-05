@@ -642,23 +642,93 @@ struct GlowBlob: View {
     }
 }
 
-// ── AmbientBackground: tinted vertical canvas + faint glow blobs ───────────
-// Replaces the flat `Color(hex: T.bg)` page paint. Glows show only on light bg
-// presets (they'd muddy a dark canvas), gated by ThemeSettings.isLightTheme.
-struct AmbientBackground: View {
+// ── PageBackground: the canvas behind every page ────────────────────────────
+//
+// The single branch point for the app's two canvases, so the 22 call sites don't
+// each have to choose: the drifting liquid wash when the user has it on (the
+// default), the static ambient canvas when off. Flipping
+// ThemeSettings.liquidBackground re-skins the whole app at once.
+//
+// Named for the job rather than the look, because the look is now conditional —
+// this used to be `AmbientBackground`, which described only one of the two.
+struct PageBackground: View {
     @Environment(ThemeSettings.self) private var themeSettings
+
+    // ── The three dials that set the canvas's balance ──
+    //
+    // Target is roughly 50% ground / 30% accent / 20% derived tones.
+    //
+    // `blobScale` is what buys the 50% ground: nine ellipses of 0.76·0.34·scale²
+    // cover about half the canvas at 0.55, so the rest reads as the mode's own
+    // near-white or near-black. This is the dial for background-vs-colour —
+    // NOT thickness, which only fades pigment and blurs it into haze.
+    //
+    // `primaryWeighted` then splits that colour 56/22/22 toward the accent,
+    // landing close to the 30/20 half of the target.
+
+    /// Smaller, distinct blobs rather than a full-bleed wash. See above.
+    private let liquidBlobScale: Double = 0.55
+
+    /// Pigment density. Back UP from the earlier 0.85: with the blobs now small
+    /// enough to leave half the canvas bare, the overall colour is set by
+    /// coverage, so the pigment can stay dense enough that each blob reads as a
+    /// distinct shape — the splash's look — instead of dissolving into haze.
+    /// Blur scales with blob size now, so this no longer trades one for the other.
+    private let liquidThickness: Double = 1.15
+
+    /// Close to the splash's 3.4, since the ask was for that kind of visible
+    /// churn. Also widens travel via LiquidBackground's `amplitude` (1.5x here),
+    /// which keeps the smaller blobs roaming the whole screen rather than each
+    /// patrolling its own patch.
+    private let liquidEnergy: Double = 3.0
+
+    var body: some View {
+        if themeSettings.liquidBackground {
+            // The underlying paths are 13–29s with no shared factors, so however
+            // fast they're driven the field keeps re-mixing rather than visibly
+            // looping.
+            //
+            // Blob hues come from theme.accent by default, with companion and
+            // tertiary tones derived inside LiquidBackground — all three stay in
+            // the accent's own warm/cool family, so the wash can't clash with it.
+            LiquidBackground(base: AmbientCanvas.ground(light: themeSettings.isLightTheme),
+                             thickness: liquidThickness,
+                             energy: liquidEnergy,
+                             blobScale: liquidBlobScale,
+                             primaryWeighted: true)
+                .ignoresSafeArea()
+        } else {
+            AmbientCanvas()
+        }
+    }
+}
+
+// ── AmbientCanvas: tinted vertical canvas + faint glow blob ─────────────────
+// The non-liquid branch of PageBackground, unchanged from when it was the only
+// page paint. Glows show only on light bg presets (they'd muddy a dark canvas),
+// gated by ThemeSettings.isLightTheme.
+private struct AmbientCanvas: View {
+    @Environment(ThemeSettings.self) private var themeSettings
+
+    /// The ground both canvases sit on: the light presets' vertical gradient, or
+    /// a dark preset's flat paint. Shared with PageBackground so the liquid wash
+    /// is laid over exactly the ground the static canvas would have painted,
+    /// and switching the toggle doesn't change what's underneath.
+    static func ground(light: Bool) -> AnyShapeStyle {
+        light
+            ? AnyShapeStyle(LinearGradient(colors: [Color(hex: T.bgGradTop),
+                                                    Color(hex: T.bgGradBottom)],
+                                           startPoint: .top, endPoint: .bottom))
+            : AnyShapeStyle(Color(hex: T.bg))
+    }
+
     var body: some View {
         // Read accent too so a live Customize accent change (which only
         // shifts the glow tint, not isLightTheme) still re-renders here.
         let _ = themeSettings.accent
         let light = themeSettings.isLightTheme
         ZStack {
-            if light {
-                LinearGradient(colors: [Color(hex: T.bgGradTop), Color(hex: T.bgGradBottom)],
-                               startPoint: .top, endPoint: .bottom)
-            } else {
-                Color(hex: T.bg)
-            }
+            Rectangle().fill(AmbientCanvas.ground(light: light))
             if light {
                 // Upper-right glow only. The lower glow pooled a soft color
                 // band at the bottom of pages with empty space (e.g. Home),

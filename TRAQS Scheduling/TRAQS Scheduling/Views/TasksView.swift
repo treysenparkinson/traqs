@@ -1723,7 +1723,7 @@ private struct LogTimeConfirmSheet: View {
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             VStack(alignment: .leading, spacing: 0) {
                 Spacer().frame(height: 24)

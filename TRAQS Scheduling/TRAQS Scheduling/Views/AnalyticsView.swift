@@ -121,7 +121,7 @@ struct AnalyticsView: View {
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             VStack(spacing: 0) {
                 TRAQSNavHeader()

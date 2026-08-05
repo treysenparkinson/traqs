@@ -24,7 +24,7 @@ struct JobsHubView: View {
     var body: some View {
         NavigationStack(path: $path) {
             ZStack {
-                AmbientBackground()
+                PageBackground()
 
                 VStack(spacing: 0) {
                     // Persistent header. The leading trailing-button is mode

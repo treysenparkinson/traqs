@@ -1117,7 +1117,7 @@ private struct DatePickerSheet: View {
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
             VStack(spacing: 16) {
                 Text("Jump to date")
                     .font(TTypo.xsBold(11))

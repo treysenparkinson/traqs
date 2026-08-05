@@ -181,7 +181,7 @@ struct MessagesView: View {
     var body: some View {
         NavigationStack(path: $navigationPath) {
             ZStack {
-                AmbientBackground()
+                PageBackground()
 
                 VStack(spacing: 0) {
                     // Sticky header.
@@ -2790,7 +2790,7 @@ struct NewMessageSheet: View {
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             ScrollView {
                 VStack(spacing: 16) {

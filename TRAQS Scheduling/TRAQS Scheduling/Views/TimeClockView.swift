@@ -53,7 +53,7 @@ struct TimeClockView: View {
             // overlays, so unlike the end-job photo cover they blur their own
             // page directly instead of going through appNav.modalBlur.
             Group {
-            AmbientBackground()
+            PageBackground()
 
             VStack(spacing: 0) {
                 TRAQSNavHeader {

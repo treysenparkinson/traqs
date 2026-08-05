@@ -105,22 +105,51 @@ what it modifies. It calls `setLiquidBackground`, so it previews live exactly li
 accent swatches and preset rows, and is committed or reverted by the existing Save /
 back-out paths.
 
-### 4. Tuning: `energy: 1`, `thickness` 1.0–1.2
+### 4. Tuning: small scattered blobs at ~50% ground
 
-The splash's own comment (`SplashView.swift:65-67`) describes its settings as "thicker and
-much faster than the ambient page setting" — it runs at ~3.4× because the web's long paths
-move almost imperceptibly across 2.4s. Behind an entire app that tuning would compete with
-content the user is reading all day.
+Target balance: **~50% ground / 30% primary accent / 20% derived tones**, with the
+distinct, visibly churning blobs of the splash rather than a diffuse wash.
 
-The page canvas therefore uses:
+Reaching that needed two changes to `LiquidBackground` itself, because the existing knobs
+could not express it:
 
-- `energy: 1` — the web's ambient tempo. Durations are 13–29s with no shared factors, so
-  the paths never line back up and the field keeps re-mixing instead of visibly looping.
-- `thickness` 1.0–1.2 — enough pigment to read as colour, not enough to become the
-  subject. Start at 1.1 and settle it by eye in the simulator; this is the one value
-  expected to need adjustment after seeing it.
+- **`thickness` is not the colour dial.** It fades pigment *and* widens the blur
+  (`blurRadius = max(44, 80 / thickness)`), so lowering it yields the same colour as haze
+  rather than less colour.
+- **Blob size was hardcoded** at `w: 0.76, h: 0.34`, with blur in absolute points — so
+  shrinking blobs under a fixed 100pt blur would dissolve them entirely.
 
-Motion should be noticeable only if you look for it.
+New parameters, both defaulting to today's behaviour so the splash is untouched:
+
+| Parameter | Default | Page canvas | Effect |
+| --- | --- | --- | --- |
+| `blobScale` | `1` | `0.55` | Shrinks blobs **and** re-lays them out. THE dial for ground-vs-colour. |
+| `primaryWeighted` | `false` | `true` | Hue ladder 5:2:2 toward the primary instead of an even 3:3:3. |
+
+`blobScale` cannot be a pure size multiplier. The original geometry covers the canvas by
+hanging wide blobs off *alternating edges* so neighbours meet in the middle; shrunk, that
+strands the centre bare. Below 1 the blobs therefore scatter across the width at
+successive heights, and take their own vertical spacing — the fixed 0.13 step is tuned to
+0.34-tall blobs and would bunch smaller ones into the top third. Blur also scales with
+blob footprint now, which is what keeps a small blob reading as a shape.
+
+The arithmetic behind the balance: nine ellipses of `0.76 · 0.34 · scale²` cover ≈55% of
+the canvas before overlap, so `0.55` leaves roughly half as ground — the mode's own
+near-white or near-black. The 5:2:2 ladder then splits that colour 56/22/22, giving about
+28% primary and 22% derived.
+
+Final page values: `blobScale: 0.55`, `thickness: 1.15`, `energy: 3.0`,
+`primaryWeighted: true`.
+
+`thickness` ends up *higher* than the 1.1 first planned, not lower. Once coverage sets the
+overall colour, pigment is free to stay dense enough that each blob reads as a distinct
+shape. `energy: 3.0` sits near the splash's 3.4 deliberately — the ask was for that kind
+of visible churn — and also widens travel via `amplitude` (1.5× here), which keeps the
+smaller blobs roaming the whole screen instead of each patrolling its own patch.
+
+**Splash equivalence is by construction, not by inspection.** At `blobScale: 1` every
+derived value reduces to its original expression, including
+`blurRadius = 1 × max(44, 80 / thickness)`. `SplashView` has no edits.
 
 ## Risks
 
@@ -143,7 +172,8 @@ phase 2 stacks ~119 blur passes on top of it.
 | File | Change |
 | --- | --- |
 | `Services/ThemeSettings.swift` | `liquidBackground` flag + all five lifecycle hooks |
-| `Views/Primitives.swift` | `AmbientBackground` → `PageBackground` branch + private `AmbientCanvas` |
+| `Views/Primitives.swift` | `AmbientBackground` → `PageBackground` branch + private `AmbientCanvas`; the three tuning dials |
+| `Views/LiquidBackground.swift` | `blobScale` + `primaryWeighted`; blur scaled to blob footprint; scattered layout below full size |
 | `Views/CustomizeView.swift` | toggle row |
 | 22 call sites, 18 files | `AmbientBackground()` → `PageBackground()` (mechanical) |
 

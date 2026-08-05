@@ -16,7 +16,7 @@ struct TimeOffView: View {
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             VStack(spacing: 0) {
                 // Sticky header — chevron.left back button (matches AdminView).

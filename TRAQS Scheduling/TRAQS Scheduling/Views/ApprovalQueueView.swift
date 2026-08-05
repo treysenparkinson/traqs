@@ -73,7 +73,7 @@ struct ApprovalQueueView: View {
     var body: some View {
         NavigationStack(path: $path) {
             ZStack {
-                AmbientBackground()
+                PageBackground()
                 VStack(spacing: 0) {
                     header
                     PageTitle(title: "Approval Queue", size: 34, tracking: -2)   // smaller, one line, slightly looser letters

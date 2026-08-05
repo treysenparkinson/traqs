@@ -34,7 +34,7 @@ struct EditProfileView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                AmbientBackground()
+                PageBackground()
                 ScrollView {
                     VStack(spacing: 22) {
                         VStack(spacing: 12) {

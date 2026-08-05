@@ -47,7 +47,7 @@ struct JobDetailView: View {
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             ScrollViewReader { proxy in
             ScrollView {
