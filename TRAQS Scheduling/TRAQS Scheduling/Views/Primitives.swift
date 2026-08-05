@@ -191,6 +191,32 @@ struct LiveSheen: View {
     }
 }
 
+// ── HeaderGlassCircle: the one header icon button ───────────────────────────
+//
+// Every circular icon button in a page header goes through this, so they are all
+// Liquid Glass and all EXACTLY the same size. They had drifted to 32 / 34 / 36 /
+// 38 across pages, and several were flat chips rather than glass.
+//
+// The fixed square frame is the point: sizing a circle by padding a glyph makes
+// its diameter depend on that glyph's intrinsic width, so a chevron and a
+// magnifier end up different sizes. Pass just the glyph.
+//
+// NOT for per-row buttons inside lists (a card's overflow menu, for instance).
+// One interactive-glass pass per row down a long list is a measured cost this
+// codebase has already backed out of once.
+struct HeaderGlassCircle<Content: View>: View {
+    /// One number for every header control in the app. Change here, not per site.
+    static var diameter: CGFloat { 38 }
+
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        content()
+            .frame(width: Self.diameter, height: Self.diameter)
+            .glassEffect(.regular.interactive(), in: Circle())
+    }
+}
+
 // ── SLine: hairline divider ────────────────────────────────────────────────
 
 struct SLine: View {

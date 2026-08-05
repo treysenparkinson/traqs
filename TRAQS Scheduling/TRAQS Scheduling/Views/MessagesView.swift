@@ -398,16 +398,19 @@ struct MessagesView: View {
         .onDisappear { appNav.hideTabBar = false }
     }
 
-    /// Uniform 38×38 glass circle used for EVERY Messages-header icon button, so
-    /// they're guaranteed identical regardless of each glyph's intrinsic width.
+    /// Every Messages-header icon button, sized and styled by HeaderGlassCircle
+    /// along with the rest of the app's header controls.
+    ///
+    /// These were flattened to plain chips once because four interactive-glass
+    /// circles in one header row were the main "glassEffect updated multiple times
+    /// per frame" source on this page. They're glass again by request — bounded at
+    /// four in a static header rather than one per list row, but if that warning
+    /// returns this row is where it comes from.
     @ViewBuilder
     private func headerGlassCircle(_ icon: TIcon) -> some View {
-        TIconView(icon: icon, size: 18, color: Color(hex: T.ink))
-            .frame(width: 38, height: 38)
-            // Flat chip (was interactive glass ×4 in one header row — the main
-            // "glassEffect updated multiple times per frame" source on Messages).
-            .background(Circle().fill(Color(hex: T.surface)))
-            .overlay(Circle().strokeBorder(Color(hex: T.border), lineWidth: 1))
+        HeaderGlassCircle {
+            TIconView(icon: icon, size: 18, color: Color(hex: T.ink))
+        }
     }
 
     /// Header filter button whose tap opens a native menu of chat filters.
@@ -961,7 +964,7 @@ struct ThreadDetailView: View {
     var body: some View {
         ZStack(alignment: .top) {
             // Flat page background, full-screen behind the status bar / home indicator.
-            Color(hex: T.bg).ignoresSafeArea()
+            PageBackground()
 
             ScrollViewReader { proxy in
                 ScrollView {
@@ -1692,7 +1695,7 @@ private struct AttachmentViewer: View {
 
     var body: some View {
         ZStack {
-            Color(hex: T.bg).ignoresSafeArea()
+            PageBackground()
             switch state {
             case .loading:
                 VStack(spacing: 14) {
@@ -1926,7 +1929,10 @@ struct MessageBubble: View {
                                         .shadow(color: Color(hex: T.ctaGlowColor).opacity(T.ctaGlowOpacity * 0.7),
                                                 radius: T.ctaGlowRadius * 0.6, x: 0, y: T.ctaGlowY * 0.6)
                                 } else {
-                                    shape.fill(Color(hex: T.surface))
+                                    // Received messages are frosted glass; sent ones
+                                    // keep the solid brand gradient, which is what
+                                    // makes the two sides read apart at a glance.
+                                    shape.glassFill()
                                         .overlay(shape.strokeBorder(Color(hex: T.border), lineWidth: 1))
                                         .compositingGroup()
                                         .shadow(color: .black.opacity(T.ambientShadowOpacity),
@@ -2304,11 +2310,11 @@ struct ThreadTopBar: View {
     var body: some View {
         HStack(spacing: 12) {
             Button(action: onBack) {
-                Image(systemName: "chevron.left")
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(Color(hex: T.ink))
-                    .frame(width: 38, height: 38)
-                    .glassEffect(.regular.interactive(), in: Circle())
+                HeaderGlassCircle {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Color(hex: T.ink))
+                }
             }
             .buttonStyle(.plain)
 
@@ -2464,7 +2470,7 @@ struct AddPeopleSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(hex: T.bg).ignoresSafeArea()
+                PageBackground()
 
                 VStack(spacing: 0) {
                     SearchBar(text: $search,
@@ -2565,7 +2571,7 @@ struct NewGroupSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(hex: T.bg).ignoresSafeArea()
+                PageBackground()
 
                 ScrollView {
                     VStack(spacing: 24) {
@@ -2701,7 +2707,7 @@ struct NewDMSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color(hex: T.bg).ignoresSafeArea()
+                PageBackground()
                 List {
                     ForEach(appState.people.filter { $0.id != appState.currentPersonId }) { person in
                         Button {

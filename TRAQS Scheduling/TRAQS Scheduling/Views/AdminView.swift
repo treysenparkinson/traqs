@@ -47,12 +47,11 @@ struct AdminView: View {
                 // Sticky header
                 HStack(spacing: 12) {
                     Button { dismiss() } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(Color(hex: T.ink))
-                            .frame(width: 34, height: 34)
-                            .background(Circle().fill(Color(hex: T.surface)))
-                            .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
+                        HeaderGlassCircle {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(Color(hex: T.ink))
+                        }
                     }
                     .buttonStyle(.plain)
                     Spacer()

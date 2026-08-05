@@ -78,12 +78,11 @@ struct ScheduleJobSheet: View {
             }
             Spacer()
             Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(hex: T.muted))
-                    .frame(width: 32, height: 32)
-                    .background(Circle().fill(Color(hex: T.surface)))
-                    .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
+                HeaderGlassCircle {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(hex: T.muted))
+                }
             }
             .buttonStyle(.plain)
         }

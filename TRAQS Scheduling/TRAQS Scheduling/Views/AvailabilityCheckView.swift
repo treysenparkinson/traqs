@@ -264,11 +264,11 @@ struct AvailabilityCheckButton: View {
                 Label("Check for availability", systemImage: "clock.arrow.circlepath")
             }
         } label: {
-            Image(systemName: "clock.arrow.circlepath")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Color(hex: T.accent))
-                .padding(9)
-                .glassEffect(.regular.interactive(), in: Circle())
+            HeaderGlassCircle {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color(hex: T.accent))
+            }
         }
         .buttonStyle(.plain)
     }

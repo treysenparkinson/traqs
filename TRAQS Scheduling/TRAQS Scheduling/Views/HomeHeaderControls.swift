@@ -17,20 +17,19 @@ struct HomeHeaderControls: View {
     }
 }
 
-// Shared 36×36 Liquid Glass circle label. A fixed glyph box keeps the circle the
-// exact same size regardless of the SF Symbol's intrinsic width, so the Admin,
-// Settings, and Profile controls all match (36 = 22 glyph box + 7 padding ×2).
+// Liquid Glass circle label. Sizing lives in HeaderGlassCircle so these match
+// every other header control in the app — they used to be 36 here while other
+// pages ran 32, 34 and 38.
 private struct GlassCircleIcon: View {
     let systemName: String
     var color: Color = Color(hex: T.accent)
 
     var body: some View {
-        Image(systemName: systemName)
-            .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(color)
-            .frame(width: 22, height: 22)
-            .padding(7)
-            .glassEffect(.regular.interactive(), in: Circle())
+        HeaderGlassCircle {
+            Image(systemName: systemName)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(color)
+        }
     }
 }
 

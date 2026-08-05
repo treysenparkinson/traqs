@@ -112,11 +112,11 @@ struct ApprovalQueueView: View {
     /// Circular Apple "liquid glass" icon button.
     private func glassButton(_ systemName: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(Color(hex: enabled ? T.ink : T.muted))
-                .frame(width: 38, height: 38)
-                .glassEffect(.regular.interactive(), in: Circle())
+            HeaderGlassCircle {
+                Image(systemName: systemName)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(Color(hex: enabled ? T.ink : T.muted))
+            }
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
