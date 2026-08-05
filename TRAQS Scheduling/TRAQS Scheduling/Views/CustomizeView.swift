@@ -65,8 +65,17 @@ struct CustomizeView: View {
                             // rather than replacing it, so it belongs in this
                             // card rather than as a third preset row.
                             SLine().padding(.leading, 70)
-                            LiquidToggleRow(isOn: theme.liquidBackground) { on in
+                            ToggleRow(title: "Liquid Motion",
+                                      subtitle: "Drifting colour wash in your accent",
+                                      isOn: theme.liquidBackground) { on in
                                 theme.setLiquidBackground(on)
+                            }
+
+                            SLine().padding(.leading, 70)
+                            ToggleRow(title: "Frosted Glass",
+                                      subtitle: "Translucent cards. Off gives solid white or black.",
+                                      isOn: theme.frostedGlass) { on in
+                                theme.setFrostedGlass(on)
                             }
                         }
                         .frostedCard(radius: T.cornerMd)
@@ -154,20 +163,22 @@ private struct AccentSwatch: View {
     }
 }
 
-// Liquid-wash on/off. Same padding as BgPresetRow so it reads as another row of
-// the same card. Previews live via setLiquidBackground and is committed or
-// reverted by the card's Save / back-out paths, exactly like the presets.
-private struct LiquidToggleRow: View {
+// A look toggle. Same padding as BgPresetRow so it reads as another row of the
+// same card. Previews live and is committed or reverted by the card's Save /
+// back-out paths, exactly like the presets.
+private struct ToggleRow: View {
+    let title: String
+    let subtitle: String
     let isOn: Bool
     let onChange: (Bool) -> Void
 
     var body: some View {
         HStack(spacing: 14) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Liquid Motion")
+                Text(title)
                     .font(TTypo.smBold(15))
                     .foregroundColor(Color(hex: T.ink))
-                Text("Drifting colour wash in your accent")
+                Text(subtitle)
                     .font(TTypo.xs(12))
                     .foregroundColor(Color(hex: T.muted))
             }

@@ -95,6 +95,17 @@ enum T {
     static let pillGreenBg  = "#D8F2DE"; static let pillGreenFg  = "#2F9E54"
     static let pillNeutralBg = "#ECEDF2"; static let pillNeutralFg = "#8A8A95"
 
+    // ── Frosted glass on/off ──
+    // Mirrors ThemeSettings.frostedGlass. Lives on T because the glass helpers
+    // include `Shape.glassFill()`, a Shape extension — it has no view context, so
+    // it can't read @Environment. Views that need to RE-RENDER when this flips
+    // still have to observe `theme.frostedGlass`; see FrostedCard and SBox.
+    //
+    // Does NOT cover the nav bar (deliberately always frosted), modals
+    // (GlassPanel) or header buttons (HeaderGlassCircle) — that's chrome, and it
+    // was glass before the app-wide conversion too.
+    static var glassEnabled: Bool = true
+
     // ── Progress track + presence dots ──
     // `var`, not `let`: the track is preset-driven (see BgPreset.track and
     // applyBgToT). A single mid-grey couldn't work for both — on frosted glass it

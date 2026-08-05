@@ -59,6 +59,8 @@ final class ThemeSettings {
     /// On by default — the liquid wash IS the intended look of the app; the
     /// static canvas is the opt-out.
     static let defaultLiquidBackground: Bool = true
+    /// Likewise for glass: on is the intended look, solid is the opt-out.
+    static let defaultFrostedGlass: Bool = true
 
     var accent: String = ThemeSettings.defaultAccent
     var bgPresetId: Int = ThemeSettings.defaultBgPresetId
@@ -66,6 +68,14 @@ final class ThemeSettings {
     /// of the static ambient canvas. Unlike accent/preset this feeds no T.*
     /// token — views read it directly — so it has no `applyToT` counterpart.
     var liquidBackground: Bool = ThemeSettings.defaultLiquidBackground
+    /// Whether content surfaces — cards, rows, list boxes, message bubbles — are
+    /// frosted glass or the flat opaque surface colour they used to be.
+    ///
+    /// Excludes the nav bar, which stays frosted always, and likewise the modals
+    /// (GlassPanel) and header buttons (HeaderGlassCircle): that's chrome, and it
+    /// was glass before the app-wide conversion too. Mirrored into T.glassEnabled
+    /// because the glass helpers include a Shape extension with no view context.
+    var frostedGlass: Bool = ThemeSettings.defaultFrostedGlass
     var version: Int = 0
 
     // Last *saved* theme, captured when the customizer opens (`beginPreview`).
@@ -75,6 +85,7 @@ final class ThemeSettings {
     private var savedAccent: String = ThemeSettings.defaultAccent
     private var savedBgPresetId: Int = ThemeSettings.defaultBgPresetId
     private var savedLiquidBackground: Bool = ThemeSettings.defaultLiquidBackground
+    private var savedFrostedGlass: Bool = ThemeSettings.defaultFrostedGlass
 
     var currentBgPreset: BgPreset {
         ThemeSettings.bgPresets.first(where: { $0.id == bgPresetId }) ?? ThemeSettings.bgPresets[0]
@@ -99,9 +110,12 @@ final class ThemeSettings {
         // liquid wash OFF for every existing user.
         liquidBackground = (UserDefaults.standard.object(forKey: "themeLiquidBackground") as? Bool)
             ?? ThemeSettings.defaultLiquidBackground
+        frostedGlass = (UserDefaults.standard.object(forKey: "themeFrostedGlass") as? Bool)
+            ?? ThemeSettings.defaultFrostedGlass
         savedAccent = accent
         savedBgPresetId = bgPresetId
         savedLiquidBackground = liquidBackground
+        savedFrostedGlass = frostedGlass
         applyToT()
     }
 
@@ -125,10 +139,17 @@ final class ThemeSettings {
         liquidBackground = on
     }
 
+    /// Live preview only (see `setAccent`). Persists on `commitChanges()`.
+    func setFrostedGlass(_ on: Bool) {
+        frostedGlass = on
+        applyGlassToT()
+    }
+
     func reset() {
         setAccent(ThemeSettings.defaultAccent)
         setBgPreset(ThemeSettings.defaultBgPresetId)
         setLiquidBackground(ThemeSettings.defaultLiquidBackground)
+        setFrostedGlass(ThemeSettings.defaultFrostedGlass)
         commitChanges()
     }
 
@@ -138,6 +159,7 @@ final class ThemeSettings {
         savedAccent = accent
         savedBgPresetId = bgPresetId
         savedLiquidBackground = liquidBackground
+        savedFrostedGlass = frostedGlass
     }
 
     /// Revert a live preview back to the last saved theme (customizer closed
@@ -146,6 +168,7 @@ final class ThemeSettings {
         accent = savedAccent
         bgPresetId = savedBgPresetId
         liquidBackground = savedLiquidBackground
+        frostedGlass = savedFrostedGlass
         applyToT()
     }
 
@@ -155,15 +178,22 @@ final class ThemeSettings {
         UserDefaults.standard.set(accent, forKey: "themeAccent")
         UserDefaults.standard.set(bgPresetId, forKey: "themeBgPreset")
         UserDefaults.standard.set(liquidBackground, forKey: "themeLiquidBackground")
+        UserDefaults.standard.set(frostedGlass, forKey: "themeFrostedGlass")
         savedAccent = accent
         savedBgPresetId = bgPresetId
         savedLiquidBackground = liquidBackground
+        savedFrostedGlass = frostedGlass
         version += 1
     }
 
     private func applyToT() {
         applyAccentToT()
         applyBgToT(currentBgPreset)
+        applyGlassToT()
+    }
+
+    private func applyGlassToT() {
+        T.glassEnabled = frostedGlass
     }
 
     /// Set `T.accent` AND the derived signature-gradient stops + glow tints so the

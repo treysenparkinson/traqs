@@ -86,6 +86,9 @@ enum SBoxSize { case sm, md, lg, pill
 }
 
 struct SBox<Content: View>: View {
+    // Observed only so a Customize glass toggle re-renders these immediately —
+    // glassFill() reads a T.* global that SwiftUI can't track.
+    @Environment(ThemeSettings.self) private var theme
     var size: SBoxSize = .md
     var radius: CGFloat? = nil       // override the size's default corner radius
     var fill: Color? = nil           // nil = white SURFACE
@@ -103,6 +106,7 @@ struct SBox<Content: View>: View {
     private var effectiveRadius: CGFloat { radius ?? size.radius }
 
     var body: some View {
+        _ = theme.frostedGlass
         let shape = RoundedRectangle(cornerRadius: effectiveRadius, style: .continuous)
         // Amber (paused) wins over active/sky so a paused active card reads as
         // on-break. `active` uses the brand indigo; `sky` keeps the legacy accent.
@@ -894,7 +898,9 @@ struct FrostedCard: ViewModifier {
         // Touch the theme so a live Customize background/accent change
         // re-renders every surface immediately (the T.* tokens it
         // reads aren't observable on their own).
-        _ = theme.bgPresetId; _ = theme.accent
+        // frostedGlass touched too: glassFill() reads the T.* global, which
+        // SwiftUI can't see as a dependency, so the observation has to happen here.
+        _ = theme.bgPresetId; _ = theme.accent; _ = theme.frostedGlass
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         // Real frosted glass, the same recipe as the modals — see GlassPanel and
         // `glassSurfaceTint`. This is what carries the app-wide glass look: it
@@ -907,12 +913,7 @@ struct FrostedCard: ViewModifier {
         // matters more on glass than it did on an opaque fill, since it's what
         // keeps a card's edge findable against a moving background.
         return content
-            .background {
-                ZStack {
-                    shape.fill(.ultraThinMaterial)
-                    shape.fill(Color(hex: T.surface).opacity(glassSurfaceTint))
-                }
-            }
+            .background(shape.glassFill())
             .overlay(shape.strokeBorder(Color(hex: T.border), lineWidth: 1))
     }
 }
@@ -965,11 +966,20 @@ extension Shape {
     /// For containers only. Buttons, text fields, chips and status marks keep
     /// solid fills: they need to read as opaque objects ON the glass, and an input
     /// you're typing into shouldn't have moving colour behind the caret.
+    /// - Parameter solidFallback: what to fall back to with glass switched off.
+    ///   `true` (default) paints the flat opaque surface these all had before —
+    ///   white on light presets, near-black on dark. Pass `false` for something
+    ///   that was TRANSPARENT before the conversion (the Lunch/Break outline
+    ///   buttons), where a solid fill would be wrong rather than merely different.
     @ViewBuilder
-    func glassFill() -> some View {
-        ZStack {
-            fill(.ultraThinMaterial)
-            fill(Color(hex: T.surface).opacity(glassSurfaceTint))
+    func glassFill(solidFallback: Bool = true) -> some View {
+        if T.glassEnabled {
+            ZStack {
+                fill(.ultraThinMaterial)
+                fill(Color(hex: T.surface).opacity(glassSurfaceTint))
+            }
+        } else {
+            fill(solidFallback ? Color(hex: T.surface) : .clear)
         }
     }
 }
@@ -1065,18 +1075,13 @@ let modalPageBlurRadius: CGFloat = 3
 struct FrostedPill: ViewModifier {
     @Environment(ThemeSettings.self) private var theme
     func body(content: Content) -> some View {
-        _ = theme.bgPresetId; _ = theme.accent
+        _ = theme.bgPresetId; _ = theme.accent; _ = theme.frostedGlass
         let shape = Capsule(style: .continuous)
         // The capsule variant of FrostedCard — same glass recipe, same reason for
         // skipping the shadow/compositingGroup (these render per-row in the
         // Messages inbox).
         return content
-            .background {
-                ZStack {
-                    shape.fill(.ultraThinMaterial)
-                    shape.fill(Color(hex: T.surface).opacity(glassSurfaceTint))
-                }
-            }
+            .background(shape.glassFill())
             .overlay(shape.strokeBorder(Color(hex: T.border), lineWidth: 1))
     }
 }
