@@ -65,6 +65,7 @@ struct TasksView: View {
                             NavigationLink(value: task.job) {
                                 TaskCardV1(task: task, onOpen: { onOpenJob(task.job) })
                             }
+                            .zoomSource(id: task.job.id)
                             .buttonStyle(.plain)
                         }
                     }
@@ -385,6 +386,7 @@ struct TasksView: View {
                 NavigationLink(value: task.job) {
                     TaskCardV1(task: task, onOpen: { onOpenJob(task.job) })
                 }
+                .zoomSource(id: task.job.id)
                 .buttonStyle(.plain)
             }
         }
@@ -740,6 +742,7 @@ private struct DayGroupedTaskList: View {
                             NavigationLink(value: task.job) {
                                 TaskCardV1(task: task)
                             }
+                            .zoomSource(id: task.job.id)
                             .buttonStyle(.plain)
                         }
                     }
@@ -1665,6 +1668,7 @@ private struct AllJobsCard: View {
                         NavigationLink(value: task.job) {
                             TaskCardV1(task: task)
                         }
+                        .zoomSource(id: task.job.id)
                         .buttonStyle(.plain)
                     }
                 }

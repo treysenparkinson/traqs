@@ -191,6 +191,54 @@ struct LiveSheen: View {
     }
 }
 
+// ── Zoom navigation transitions ─────────────────────────────────────────────
+//
+// The system morph Apple uses when pushing a detail screen: the tapped card
+// expands into the destination instead of sliding over it. Needs a source view
+// and the destination to share one Namespace, which is awkward here because the
+// destination lives on the NavigationStack (JobsHubView) while the cards are
+// several views deep (TasksView's sections). Carrying the namespace in the
+// environment avoids threading a Namespace.ID parameter through every level.
+//
+// This works for PUSHES inside a tab. It does not apply tab-to-tab: each tab is
+// its own navigation root with nothing shared to morph between — Apple's own apps
+// don't morph between tab roots either.
+private struct ZoomNamespaceKey: EnvironmentKey {
+    static let defaultValue: Namespace.ID? = nil
+}
+
+extension EnvironmentValues {
+    /// Set by whichever view owns the NavigationStack and its
+    /// `navigationTransition(.zoom(...))` destinations.
+    var zoomNamespace: Namespace.ID? {
+        get { self[ZoomNamespaceKey.self] }
+        set { self[ZoomNamespaceKey.self] = newValue }
+    }
+}
+
+extension View {
+    /// Marks this view as the thing a pushed detail screen should zoom OUT of.
+    /// `id` must match the id the destination passes to `.navigationTransition`.
+    /// A no-op when no namespace is in the environment, so a card used outside a
+    /// zoom-enabled stack still renders normally.
+    func zoomSource(id: String) -> some View {
+        modifier(ZoomSource(id: id))
+    }
+}
+
+private struct ZoomSource: ViewModifier {
+    @Environment(\.zoomNamespace) private var namespace
+    let id: String
+
+    func body(content: Content) -> some View {
+        if let namespace {
+            content.matchedTransitionSource(id: id, in: namespace)
+        } else {
+            content
+        }
+    }
+}
+
 // ── HeaderGlassCircle: the one header icon button ───────────────────────────
 //
 // Every circular icon button in a page header goes through this, so they are all

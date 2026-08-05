@@ -14,6 +14,9 @@ struct JobsHubView: View {
 
     // Navigation + chrome state, lifted here so it survives a list↔gantt swap.
     @State private var path: [Job] = []
+    /// Shared with the job cards (via the environment) so pushing a job zooms out
+    /// of the tapped card instead of sliding a new screen over it.
+    @Namespace private var zoomNS
     @State private var showApprovals = false
     @State private var showAvailability = false
     @State private var showSearch = false
@@ -25,6 +28,8 @@ struct JobsHubView: View {
         NavigationStack(path: $path) {
             ZStack {
                 PageBackground()
+                // Hand the zoom namespace to the cards, which sit several views
+                // deep in TasksView's sections — see `zoomSource(id:)`.
 
                 VStack(spacing: 0) {
                     // Persistent header. The leading trailing-button is mode
@@ -127,8 +132,15 @@ struct JobsHubView: View {
             .safeAreaInset(edge: .bottom) {
                 Color.clear.frame(height: appNav.hideTabBar ? 0 : tabPillBottomInset)
             }
-            .navigationDestination(for: Job.self) { JobDetailView(job: $0) }
+            // The system zoom morph: the detail screen grows out of the card that
+            // was tapped. `sourceID` must match the id each card passes to
+            // `.zoomSource(id:)`.
+            .navigationDestination(for: Job.self) { job in
+                JobDetailView(job: job)
+                    .navigationTransition(.zoom(sourceID: job.id, in: zoomNS))
+            }
             .toolbar(.hidden, for: .navigationBar)
+            .environment(\.zoomNamespace, zoomNS)
             .task {
                 appState.foregroundSync()   // pull the latest jobs on open
                 await appState.refreshOrgSettings()
