@@ -5252,25 +5252,34 @@ Extraction rules:
   // Expire stale leases. TYPING_TTL is comfortably longer than the publish
   // interval, so a continuously-typing sender is always refreshed before their
   // entry lapses and the indicator doesn't flicker between keystrokes.
+  //
+  // The timer exists ONLY while something is leased, and never calls the setter
+  // unless an entry has actually expired. Both guards matter: this whole screen is
+  // one enormous component, and when a state updater returns the same value React
+  // still re-renders the component once before bailing out — so an unconditional
+  // 1.2s tick re-rendered everything every 1.2s, which read as the page constantly
+  // refreshing (flicker, lost input focus, jumping scroll).
   useEffect(() => {
+    const leased = Object.values(typingByThread).some(byPerson => Object.keys(byPerson).length > 0);
+    if (!leased) return;                       // nobody typing → no timer at all
     const id = setInterval(() => {
       const cutoff = Date.now() - TYPING_TTL_MS;
+      // Decide against the captured snapshot first. Entries only ever get staler as
+      // `cutoff` advances, so this is safe and keeps the common tick allocation-free.
+      const anyStale = Object.values(typingByThread)
+        .some(byPerson => Object.values(byPerson).some(info => info.at < cutoff));
+      if (!anyStale) return;                   // don't touch state on a quiet tick
       setTypingByThread(prev => {
-        let next = prev, changed = false;
+        const next = {};
         for (const [tk, byPerson] of Object.entries(prev)) {
-          for (const [pid, info] of Object.entries(byPerson)) {
-            if (info.at < cutoff) {
-              if (!changed) { next = { ...prev, [tk]: { ...byPerson } }; changed = true; }
-              else if (next[tk] === prev[tk]) next[tk] = { ...byPerson };
-              delete next[tk][pid];
-            }
-          }
+          const kept = Object.fromEntries(Object.entries(byPerson).filter(([, i]) => i.at >= cutoff));
+          if (Object.keys(kept).length) next[tk] = kept;
         }
-        return changed ? next : prev;
+        return next;
       });
     }, 1200);
     return () => clearInterval(id);
-  }, []);
+  }, [typingByThread]);
 
   // Send: throttled to one publish per TYPING_PUBLISH_MS of continuous typing, so
   // a fast typist emits a couple of events per sentence rather than one per key.
