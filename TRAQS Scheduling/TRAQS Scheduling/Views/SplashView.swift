@@ -62,15 +62,15 @@ struct SplashView: View {
             .ignoresSafeArea()
 
             // ── The liquid wash (replaces the design's four static blobs) ──
-            // Blob size and pigment come from LiquidTuning, the same values the
-            // page canvas uses, so the splash resolves into the background it's
-            // loading instead of a heavier one. Only the tempo differs — the
-            // 13–29s paths move almost imperceptibly across 2.4s, so the load-up
-            // drives them faster with correspondingly bigger travel.
-            LiquidBackground(thickness: LiquidTuning.thickness,
-                             energy: LiquidTuning.splashEnergy,
-                             blobScale: LiquidTuning.blobScale,
-                             primaryWeighted: LiquidTuning.primaryWeighted)
+            // Thicker and much faster than the ambient page setting: the web's
+            // 17–25s paths move almost imperceptibly over a 2.4s splash, so the
+            // load-up drives them at ~3.4× with correspondingly bigger travel.
+            //
+            // Deliberately NOT the page canvas's LiquidTuning values. Matching
+            // them was tried and the splash lost its punch — a full-bleed, heavier
+            // wash is what reads in 2.4s, where the page needs to stay quiet
+            // behind content all day.
+            LiquidBackground(thickness: 1.6, energy: 3.4)
                 .ignoresSafeArea()
                 .opacity(poolIn ? 1 : 0)
 

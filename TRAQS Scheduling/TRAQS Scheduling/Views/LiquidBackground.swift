@@ -15,13 +15,10 @@ import SwiftUI
 
 // MARK: Tuning
 //
-// One place for the wash's look, shared by the page canvas (PageBackground) and
-// the load-up screen (SplashView). They ran different blob sizes and pigment
-// before, so the splash resolved into a visibly different background than the app
-// it was loading — the hand-off read as two designs rather than one.
-//
-// Only ENERGY differs between the two now: the splash drives the same paths
-// faster because it's on screen for ~2.4s and would otherwise look static.
+// The PAGE canvas's look (PageBackground). The splash deliberately does NOT use
+// these — it passes its own heavier, full-bleed values inline. Sharing them was
+// tried and cost the load-up its punch: a 2.4s appearance needs more presence
+// than a background that sits behind content all day.
 enum LiquidTuning {
     /// Blob footprint. Leaves roughly half the canvas as ground — see
     /// `LiquidBackground.blobScale`.
@@ -35,8 +32,6 @@ enum LiquidTuning {
 
     /// Behind pages: noticeable drift without competing with content.
     static let pageEnergy: Double = 3.0
-    /// On the splash: faster, because the 13–29s paths barely register in 2.4s.
-    static let splashEnergy: Double = 3.6
 }
 
 // MARK: Colour maths (ports of hexToHsl / hslToHex / companionHue)
