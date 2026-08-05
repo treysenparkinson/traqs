@@ -2963,6 +2963,8 @@ struct NewMessageSheet: View {
 
     @State private var selectedIds: Set<String> = []
     @State private var query = ""
+    /// Optional, and only meaningful once this is a group — one recipient is a DM.
+    @State private var groupName = ""
 
     private var others: [Person] {
         let base = appState.people.filter { $0.id != appState.currentPersonId }
@@ -2972,9 +2974,12 @@ struct NewMessageSheet: View {
     }
     private var isGroup: Bool { selectedIds.count > 1 }
 
-    private func initials(_ p: Person) -> String {
-        let parts = p.name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
-        let j = parts.joined(); return j.isEmpty ? "?" : j
+    /// Live preview of the title an unnamed group gets — the same rule the inbox
+    /// and thread header use, so the sheet can't promise a title they won't show.
+    private var namePlaceholder: String {
+        ChatGroup.memberNamesLine(memberIds: Array(selectedIds),
+                                  people: appState.people,
+                                  myId: appState.currentPersonId)
     }
 
     var body: some View {
@@ -3008,17 +3013,39 @@ struct NewMessageSheet: View {
                         .background(Capsule(style: .continuous).fill(Color(hex: T.surface)))
                         .overlay(Capsule(style: .continuous).strokeBorder(Color(hex: T.hair), lineWidth: 1))
 
-                        VStack(spacing: 8) {
-                            ForEach(others) { person in
-                                recipientRow(person)
+                        // Same card grid as New Group / Edit Group.
+                        MemberPickerGrid(people: others, selectedIds: $selectedIds)
+
+                        if others.isEmpty {
+                            Text("No people match “\(query)”")
+                                .font(TTypo.sm(13))
+                                .foregroundStyle(Color(hex: T.muted))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 20)
+                        }
+
+                        // Naming only appears once there are two or more people —
+                        // a single recipient is a DM, which has nothing to name.
+                        if isGroup {
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(spacing: 6) {
+                                    Text("Group Name")
+                                        .font(.caption.bold())
+                                        .foregroundColor(Color(hex: T.muted))
+                                    Text("OPTIONAL")
+                                        .font(.caption2.bold())
+                                        .foregroundColor(Color(hex: T.muted).opacity(0.7))
+                                }
+                                TextField(namePlaceholder, text: $groupName)
+                                    .textFieldStyle(.plain)
+                                    .font(TTypo.sm(14))
+                                    .foregroundStyle(Color(hex: T.ink))
+                                    .padding(.horizontal, 16).padding(.vertical, 12)
+                                    .background(Capsule(style: .continuous).fill(Color(hex: T.surface)))
+                                    .overlay(Capsule(style: .continuous).strokeBorder(Color(hex: T.hair), lineWidth: 1))
                             }
-                            if others.isEmpty {
-                                Text("No people match “\(query)”")
-                                    .font(TTypo.sm(13))
-                                    .foregroundStyle(Color(hex: T.muted))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 20)
-                            }
+                            .padding(.top, 6)
+                            .transition(.opacity.combined(with: .move(edge: .bottom)))
                         }
                     }
                 }
@@ -3082,61 +3109,15 @@ struct NewMessageSheet: View {
     private func start() {
         let ids = Array(selectedIds)
         guard !ids.isEmpty else { return }
-        // Always nil. This sheet has no name field, and a group created here is
-        // left unnamed so its title derives from its members via
-        // ChatGroup.displayName — which keeps the title right as people are added,
-        // where a snapshot taken now would go stale. Naming happens in
-        // NewGroupSheet.
+        // nil for a DM (nothing to name) and for a group left unnamed, which then
+        // derives its title from its members — that stays correct as people are
+        // added, where a snapshot taken now would go stale.
+        let trimmed = groupName.trimmingCharacters(in: .whitespaces)
+        let name: String? = (ids.count > 1 && !trimmed.isEmpty) ? trimmed : nil
         dismiss()
-        onStart(ids, nil)
+        onStart(ids, name)
     }
 
-    // One selectable recipient — frosted rounded row with the person's avatar
-    // (profile photo when set), name/role, and a gradient check when selected.
-    private func recipientRow(_ person: Person) -> some View {
-        let selected = selectedIds.contains(person.id)
-        return Button {
-            withAnimation(.easeInOut(duration: 0.15)) {
-                if selected { selectedIds.remove(person.id) } else { selectedIds.insert(person.id) }
-            }
-        } label: {
-            HStack(spacing: 10) {
-                Avatar(initials: initials(person), size: 36,
-                       fill: .personFill(person.color), imageData: person.image)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(person.name)
-                        .font(TTypo.smBold(14))
-                        .foregroundStyle(Color(hex: T.ink))
-                        .lineLimit(1)
-                    if !person.role.isEmpty {
-                        Text(person.role)
-                            .font(TTypo.xs(11))
-                            .foregroundStyle(Color(hex: T.muted))
-                            .lineLimit(1)
-                    }
-                }
-                Spacer(minLength: 8)
-                ZStack {
-                    if selected {
-                        Circle().fill(T.brandGradient())
-                        Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(T.onGradient)
-                    } else {
-                        Circle().strokeBorder(Color(hex: T.hair), lineWidth: 1.5)
-                    }
-                }
-                .frame(width: 22, height: 22)
-            }
-            .padding(.vertical, 14)
-            .padding(.horizontal, 12)
-            .background(Capsule(style: .continuous).fill(Color(hex: T.surface)))
-            .overlay(
-                Capsule(style: .continuous)
-                    .strokeBorder(selected ? Color(hex: T.accentGradientStart) : Color(hex: T.hair),
-                                  lineWidth: selected ? 1.6 : 1)
-            )
-        }
-        .buttonStyle(.plain)
-    }
 }
 
 // MARK: - Helpers
