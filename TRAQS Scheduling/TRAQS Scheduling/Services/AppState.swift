@@ -519,6 +519,10 @@ class AppState {
     /// fresh sync arrived do we fall back to a heavy loadAll.
     func handleForeground() {
         isForeground = true
+        // Cheap and idempotent: writePushToken no-ops when the roster already has
+        // this id. It's here so a device whose registration never landed heals on
+        // the next open instead of staying pushless for the session.
+        registerPushTokenIfNeeded()
         foregroundSync()          // immediate deltaSync + rehydrate
         updateDegradedPoll()      // start the fallback poll if realtime is down
         let last = syncService?.lastSuccessfulSyncAt
@@ -1627,21 +1631,63 @@ class AppState {
     // ran. Poll the SDK for up to ~10s post-login since the subscription ID
     // isn't always ready immediately after init.
     private var pushRegisterTask: Task<Void, Never>?
+    private var pushSubObserver: PushSubscriptionObserver?
 
+    /// Write this device's OneSignal subscription id to the roster, which is what
+    /// actually opts it into native pushes — the server skips anyone whose record
+    /// has no `pushToken`.
+    ///
+    /// Two ways this used to fail permanently and silently, both of which look like
+    /// "notifications sometimes don't arrive on my phone" while desktop web push
+    /// (separate subscriptions) keeps working:
+    ///
+    ///  1. The poll gave up after 10s. If APNs registration was slow, the user was
+    ///     still on the permission prompt, or the network was poor, the id simply
+    ///     wasn't there yet — and nothing ever tried again for the whole session.
+    ///  2. `writePushToken` needs the person in `people`. At first login the roster
+    ///     often hasn't loaded when the id resolves, so the write was skipped and,
+    ///     again, never retried.
+    ///
+    /// So the poll now waits for BOTH the id and the roster entry, logs if it still
+    /// gives up, an observer catches an id that arrives later or changes (reinstall,
+    /// token rotation), and `handleForeground` retries each time the app is opened.
     func registerPushTokenIfNeeded() {
+        observePushSubscription()
         pushRegisterTask?.cancel()
         pushRegisterTask = Task { [weak self] in
             guard let self else { return }
             for _ in 0..<20 {
                 if Task.isCancelled { return }
                 let id = OneSignal.User.pushSubscription.id
-                if let id, !id.isEmpty {
+                let rosterReady = self.currentPersonId.map { pid in
+                    self.people.contains(where: { $0.id == pid })
+                } ?? false
+                if let id, !id.isEmpty, rosterReady {
                     await self.writePushToken(id)
                     return
                 }
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }
+            if !Task.isCancelled {
+                // Not fatal — the observer and the next foreground both retry — but
+                // say so, because until it lands this device gets no native push.
+                print("[onesignal] pushToken NOT registered after 10s (subscriptionId=\(OneSignal.User.pushSubscription.id ?? "nil"), personId=\(self.currentPersonId ?? "nil"), peopleLoaded=\(!self.people.isEmpty)). Will retry on subscription change / next foreground.")
+            }
         }
+    }
+
+    /// Catch a subscription id that shows up after the poll window, or changes later
+    /// (reinstall, restored backup, APNs token rotation). Without this, a device
+    /// whose id changed keeps a stale token in the roster and silently stops
+    /// receiving pushes.
+    private func observePushSubscription() {
+        guard pushSubObserver == nil else { return }
+        let obs = PushSubscriptionObserver { [weak self] id in
+            guard let self, let id, !id.isEmpty else { return }
+            Task { @MainActor in await self.writePushToken(id) }
+        }
+        pushSubObserver = obs
+        OneSignal.User.pushSubscription.addObserver(obs)
     }
 
     private func writePushToken(_ token: String) async {
@@ -2734,5 +2780,22 @@ extension AppState {
               let panel = job.subs.first(where: { $0.id == jc.panelId }) else { return nil }
         let op = jc.opId.flatMap { oid in panel.subs.first(where: { $0.id == oid }) }
         return TaskAssignment(job: job, panel: panel, op: op)
+    }
+}
+
+/// Bridges OneSignal's push-subscription observer to a closure.
+///
+/// OneSignal requires an object conforming to `OSPushSubscriptionObserver`, and
+/// AppState can't conform directly — it's a `@MainActor @Observable` class while the
+/// callback arrives off-actor — so this thin NSObject adapter hops back to main,
+/// the same pattern PushClickHandler uses for notification taps.
+final class PushSubscriptionObserver: NSObject, OSPushSubscriptionObserver {
+    private let onChange: (String?) -> Void
+    init(_ onChange: @escaping (String?) -> Void) { self.onChange = onChange }
+
+    func onPushSubscriptionDidChange(state: OSPushSubscriptionChangedState) {
+        let id = state.current.id
+        let cb = onChange
+        Task { @MainActor in cb(id) }
     }
 }
