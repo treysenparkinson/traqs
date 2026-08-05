@@ -2977,14 +2977,6 @@ struct NewMessageSheet: View {
     }
     private var isGroup: Bool { selectedIds.count > 1 }
 
-    /// Live preview of the title an unnamed group gets — the same rule the inbox
-    /// and thread header use, so the sheet can't promise a title they won't show.
-    private var namePlaceholder: String {
-        ChatGroup.memberNamesLine(memberIds: Array(selectedIds),
-                                  people: appState.people,
-                                  myId: appState.currentPersonId)
-    }
-
     /// Whether the name field owns the top row, with search demoted to a circle.
     ///
     /// Requires a group to name, search not open (two side-by-side text fields in
@@ -3041,11 +3033,9 @@ struct NewMessageSheet: View {
         .overlay(Capsule(style: .continuous).strokeBorder(Color(hex: T.hair), lineWidth: 1))
     }
 
-    /// Pill-shaped group name field, filling the row beside the search circle. The
-    /// placeholder is the derived title, so leaving it blank reads as a choice
-    /// rather than an omission.
+    /// Pill-shaped group name field, filling the row beside the search circle.
     private var groupNamePill: some View {
-        TextField(namePlaceholder, text: $groupName)
+        TextField("Group Name…", text: $groupName)
             .textFieldStyle(.plain)
             .font(TTypo.smBold(14))
             .foregroundStyle(Color(hex: T.ink))
