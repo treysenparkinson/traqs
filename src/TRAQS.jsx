@@ -24841,7 +24841,7 @@ ${jobsCtx || "No jobs found."}`;
           {(() => {
             const fs = isMobile ? 30 : 44;
             const capH = fs; // match the wordmark to the full font size of "FAST"
-            const logoW = Math.round(capH * 2.755); // TRAQS wordmark aspect ratio 810:294 (see logo.js)
+            const logoW = Math.round(capH * 2.664); // TRAQS wordmark aspect ratio 810:304 (see logo.js)
             return (
               <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: isMobile ? 10 : 14, marginBottom: 10, marginTop: isMobile ? 4 : 12, filter: `drop-shadow(0 0 14px ${T.accent}99) drop-shadow(0 0 36px ${T.accent}55)`, width: "100%" }}>
                 <span style={{ fontSize: fs, fontWeight: 900, color: T.accent, letterSpacing: "-0.045em", fontFamily: T.font, lineHeight: 1, display: "inline-flex", alignItems: "center", height: capH }}>FAST</span>
