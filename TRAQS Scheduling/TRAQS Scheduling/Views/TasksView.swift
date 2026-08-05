@@ -1271,7 +1271,9 @@ struct TaskCardV1: View {
         // Keep the rectangular "square" card footprint but round the corners
         // a lot more so it reads as a soft rounded-square, not a boxy panel.
         // Uses the shared hero radius so every page's cards match.
-        SBox(size: .lg, radius: T.cornerHero, active: isActive, frosted: true, liveSheen: task.isMine) {
+        // No liveSheen: the accent glow it added to "your" cards fought the liquid
+        // wash showing through the glass, reading as a smudge rather than a cue.
+        SBox(size: .lg, radius: T.cornerHero, active: isActive, frosted: true) {
             VStack(alignment: .leading, spacing: 0) {
                 // Top row: bright type + status pills ···· date · chevron
                 HStack(spacing: 6) {
