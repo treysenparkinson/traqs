@@ -26297,10 +26297,10 @@ ${jobsCtx || "No jobs found."}`;
             glow is drawn OUTSIDE its border box, so with the grid flush against an
             overflow:auto container the glow on the edge rows was clipped off.
             Yourself is excluded — saveNewGroup adds you regardless. */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 22, maxHeight: 330, overflowY: "auto", padding: 6 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 22, maxHeight: 340, overflowY: "auto", padding: 20 }}>
           {people.filter(p => String(p.id) !== String(loggedInUser?.id)).map(p => {
             const sel = newGroupPeople.includes(p.id);
-            return <button key={p.id} onClick={() => setNewGroupPeople(prev => sel ? prev.filter(id => id !== p.id) : [...prev, p.id])} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "14px 6px", borderRadius: T.radiusSm, border: `${sel ? 2 : 1}px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", boxShadow: sel ? `0 0 0 4px ${T.accent}22, 0 4px 14px ${T.accent}33` : "none", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
+            return <button key={p.id} onClick={() => setNewGroupPeople(prev => sel ? prev.filter(id => id !== p.id) : [...prev, p.id])} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "14px 6px", borderRadius: T.radiusSm, border: `${sel ? 2 : 1}px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", boxShadow: sel ? `0 0 0 2px ${hexA(T.accent, 0.5)}, 0 0 16px ${hexA(T.accent, 0.45)}` : "none", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
               <div style={{ position: "relative", lineHeight: 0 }}>
                 <PersonAvatar person={p} size={44} />
                 {sel && <span style={{ position: "absolute", right: -2, bottom: -2, width: 16, height: 16, borderRadius: "50%", background: T.accent, color: "#fff", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${T.card}` }}>✓</span>}
@@ -26340,10 +26340,10 @@ ${jobsCtx || "No jobs found."}`;
         {/* Same 3-up card grid as New Group, including the inner padding that keeps
             a selected card's glow from being clipped by the scroll box. Yourself is
             excluded: saveEditGroup keeps you a member regardless. */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 24, maxHeight: 330, overflowY: "auto", padding: 6 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 24, maxHeight: 340, overflowY: "auto", padding: 20 }}>
           {people.filter(p => String(p.id) !== String(loggedInUser?.id)).map(p => {
             const sel = editGroupModal.memberIds.includes(p.id);
-            return <button key={p.id} onClick={() => setEditGroupModal(prev => ({ ...prev, memberIds: sel ? prev.memberIds.filter(id => id !== p.id) : [...prev.memberIds, p.id] }))} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "14px 6px", borderRadius: T.radiusSm, border: `${sel ? 2 : 1}px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", boxShadow: sel ? `0 0 0 4px ${T.accent}22, 0 4px 14px ${T.accent}33` : "none", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
+            return <button key={p.id} onClick={() => setEditGroupModal(prev => ({ ...prev, memberIds: sel ? prev.memberIds.filter(id => id !== p.id) : [...prev.memberIds, p.id] }))} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "14px 6px", borderRadius: T.radiusSm, border: `${sel ? 2 : 1}px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", boxShadow: sel ? `0 0 0 2px ${hexA(T.accent, 0.5)}, 0 0 16px ${hexA(T.accent, 0.45)}` : "none", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
               <div style={{ position: "relative", lineHeight: 0 }}>
                 <PersonAvatar person={p} size={44} />
                 {sel && <span style={{ position: "absolute", right: -2, bottom: -2, width: 16, height: 16, borderRadius: "50%", background: T.accent, color: "#fff", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${T.card}` }}>✓</span>}
