@@ -66,14 +66,13 @@ struct CustomizeView: View {
                             // card rather than as a third preset row.
                             SLine().padding(.leading, 70)
                             ToggleRow(title: "Liquid Motion",
-                                      subtitle: "Drifting colour wash in your accent",
                                       isOn: theme.liquidBackground) { on in
                                 theme.setLiquidBackground(on)
                             }
 
                             SLine().padding(.leading, 70)
                             ToggleRow(title: "Frosted Glass",
-                                      subtitle: "Translucent cards. Off gives solid white or black.",
+                                      subtitle: "*Does not change navigation bar",
                                       isOn: theme.frostedGlass) { on in
                                 theme.setFrostedGlass(on)
                             }
@@ -168,7 +167,8 @@ private struct AccentSwatch: View {
 // back-out paths, exactly like the presets.
 private struct ToggleRow: View {
     let title: String
-    let subtitle: String
+    /// Optional — most rows are self-explanatory from the title alone.
+    var subtitle: String? = nil
     let isOn: Bool
     let onChange: (Bool) -> Void
 
@@ -178,9 +178,11 @@ private struct ToggleRow: View {
                 Text(title)
                     .font(TTypo.smBold(15))
                     .foregroundColor(Color(hex: T.ink))
-                Text(subtitle)
-                    .font(TTypo.xs(12))
-                    .foregroundColor(Color(hex: T.muted))
+                if let subtitle {
+                    Text(subtitle)
+                        .font(TTypo.xs(12))
+                        .foregroundColor(Color(hex: T.muted))
+                }
             }
 
             Spacer()
