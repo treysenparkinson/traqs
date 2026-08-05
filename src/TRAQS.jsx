@@ -26277,8 +26277,8 @@ ${jobsCtx || "No jobs found."}`;
 
     {/* ── New Group Modal ───────────────────────────────────────────────────── */}
     {newGroupModal && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
-      <div className="anim-modal" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: T.radiusHero, padding: 28, width: "100%", maxWidth: 420, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
-        <h3 style={{ margin: "0 0 18px", fontSize: 18, fontWeight: 700, color: T.text }}>New Group</h3>
+      <div className="anim-modal" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: T.radiusHero, padding: 32, width: "100%", maxWidth: 660, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
+        <h3 style={{ margin: "0 0 18px", fontSize: 22, fontWeight: 700, color: T.text }}>New Group</h3>
 
         {/* No label above it: the placeholder carries both what the field is and
             that it's optional, so a heading would only repeat itself. */}
@@ -26286,7 +26286,7 @@ ${jobsCtx || "No jobs found."}`;
           value={newGroupName}
           onChange={e => setNewGroupName(e.target.value)}
           placeholder="Group Name... (opt.)"
-          style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", marginBottom: 20, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontFamily: T.font, fontSize: 14 }}
+          style={{ width: "100%", boxSizing: "border-box", padding: "13px 16px", marginBottom: 24, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontFamily: T.font, fontSize: 14 }}
         />
 
         <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 12 }}>Members</label>
@@ -26297,16 +26297,16 @@ ${jobsCtx || "No jobs found."}`;
             glow is drawn OUTSIDE its border box, so with the grid flush against an
             overflow:auto container the glow on the edge rows was clipped off.
             Yourself is excluded — saveNewGroup adds you regardless. */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 22, maxHeight: 340, overflowY: "auto", padding: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18, marginBottom: 26, maxHeight: 470, overflowY: "auto", padding: 22 }}>
           {people.filter(p => String(p.id) !== String(loggedInUser?.id)).map(p => {
             const sel = newGroupPeople.includes(p.id);
-            return <button key={p.id} onClick={() => setNewGroupPeople(prev => sel ? prev.filter(id => id !== p.id) : [...prev, p.id])} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "14px 6px", borderRadius: T.radiusSm, border: `${sel ? 2 : 1}px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", boxShadow: sel ? `0 0 0 2px ${hexA(T.accent, 0.5)}, 0 0 16px ${hexA(T.accent, 0.45)}` : "none", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
+            return <button key={p.id} onClick={() => setNewGroupPeople(prev => sel ? prev.filter(id => id !== p.id) : [...prev, p.id])} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "24px 12px", borderRadius: T.radiusSm, border: `${sel ? 2 : 1}px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", boxShadow: sel ? `0 0 0 2px ${hexA(T.accent, 0.5)}, 0 0 16px ${hexA(T.accent, 0.45)}` : "none", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
               <div style={{ position: "relative", lineHeight: 0 }}>
-                <PersonAvatar person={p} size={44} />
-                {sel && <span style={{ position: "absolute", right: -2, bottom: -2, width: 16, height: 16, borderRadius: "50%", background: T.accent, color: "#fff", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${T.card}` }}>✓</span>}
+                <PersonAvatar person={p} size={64} />
+                {sel && <span style={{ position: "absolute", right: -3, bottom: -3, width: 21, height: 21, borderRadius: "50%", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${T.card}` }}>✓</span>}
               </div>
               {/* First name only — a full name wraps and makes the cards uneven. */}
-              <span style={{ fontSize: 12, fontWeight: sel ? 700 : 500, color: sel ? T.accent : T.textSec, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{(p.name || "").split(" ")[0]}</span>
+              <span style={{ fontSize: 14, fontWeight: sel ? 700 : 500, color: sel ? T.accent : T.textSec, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{(p.name || "").split(" ")[0]}</span>
             </button>;
           })}
         </div>
@@ -26319,9 +26319,9 @@ ${jobsCtx || "No jobs found."}`;
 
     {/* ── Edit Group Modal ──────────────────────────────────────────────────── */}
     {editGroupModal && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <div className="anim-modal" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: T.radiusHero, padding: 28, width: "100%", maxWidth: 420, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
+      <div className="anim-modal" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: T.radiusHero, padding: 32, width: "100%", maxWidth: 660, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Edit Group</h3>
+          <h3 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: T.text }}>Edit Group</h3>
           <button onClick={() => setEditGroupModal(null)} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 22, cursor: "pointer", padding: 4, lineHeight: 1 }}>✕</button>
         </div>
         <p style={{ margin: "0 0 22px", fontSize: 13, color: T.textDim }}>Rename it, or add and remove members. Clear the name to go back to titling it after its members.</p>
@@ -26333,22 +26333,22 @@ ${jobsCtx || "No jobs found."}`;
           value={editGroupModal.name}
           onChange={e => setEditGroupModal(prev => ({ ...prev, name: e.target.value }))}
           placeholder={memberNamesLine(editGroupModal.memberIds)}
-          style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", marginBottom: 22, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontFamily: T.font, fontSize: 14 }}
+          style={{ width: "100%", boxSizing: "border-box", padding: "13px 16px", marginBottom: 24, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontFamily: T.font, fontSize: 14 }}
         />
 
         <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 12 }}>Members</label>
         {/* Same 3-up card grid as New Group, including the inner padding that keeps
             a selected card's glow from being clipped by the scroll box. Yourself is
             excluded: saveEditGroup keeps you a member regardless. */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 24, maxHeight: 340, overflowY: "auto", padding: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18, marginBottom: 28, maxHeight: 470, overflowY: "auto", padding: 22 }}>
           {people.filter(p => String(p.id) !== String(loggedInUser?.id)).map(p => {
             const sel = editGroupModal.memberIds.includes(p.id);
-            return <button key={p.id} onClick={() => setEditGroupModal(prev => ({ ...prev, memberIds: sel ? prev.memberIds.filter(id => id !== p.id) : [...prev.memberIds, p.id] }))} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "14px 6px", borderRadius: T.radiusSm, border: `${sel ? 2 : 1}px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", boxShadow: sel ? `0 0 0 2px ${hexA(T.accent, 0.5)}, 0 0 16px ${hexA(T.accent, 0.45)}` : "none", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
+            return <button key={p.id} onClick={() => setEditGroupModal(prev => ({ ...prev, memberIds: sel ? prev.memberIds.filter(id => id !== p.id) : [...prev.memberIds, p.id] }))} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, padding: "24px 12px", borderRadius: T.radiusSm, border: `${sel ? 2 : 1}px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", boxShadow: sel ? `0 0 0 2px ${hexA(T.accent, 0.5)}, 0 0 16px ${hexA(T.accent, 0.45)}` : "none", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
               <div style={{ position: "relative", lineHeight: 0 }}>
-                <PersonAvatar person={p} size={44} />
-                {sel && <span style={{ position: "absolute", right: -2, bottom: -2, width: 16, height: 16, borderRadius: "50%", background: T.accent, color: "#fff", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${T.card}` }}>✓</span>}
+                <PersonAvatar person={p} size={64} />
+                {sel && <span style={{ position: "absolute", right: -3, bottom: -3, width: 21, height: 21, borderRadius: "50%", background: T.accent, color: "#fff", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${T.card}` }}>✓</span>}
               </div>
-              <span style={{ fontSize: 12, fontWeight: sel ? 700 : 500, color: sel ? T.accent : T.textSec, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{(p.name || "").split(" ")[0]}</span>
+              <span style={{ fontSize: 14, fontWeight: sel ? 700 : 500, color: sel ? T.accent : T.textSec, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{(p.name || "").split(" ")[0]}</span>
             </button>;
           })}
         </div>
