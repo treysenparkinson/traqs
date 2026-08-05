@@ -751,33 +751,8 @@ struct GlowBlob: View {
 struct PageBackground: View {
     @Environment(ThemeSettings.self) private var themeSettings
 
-    // ── The three dials that set the canvas's balance ──
-    //
-    // Target is roughly 50% ground / 30% accent / 20% derived tones.
-    //
-    // `blobScale` is what buys the 50% ground: nine ellipses of 0.76·0.34·scale²
-    // cover about half the canvas at 0.55, so the rest reads as the mode's own
-    // near-white or near-black. This is the dial for background-vs-colour —
-    // NOT thickness, which only fades pigment and blurs it into haze.
-    //
-    // `primaryWeighted` then splits that colour 56/22/22 toward the accent,
-    // landing close to the 30/20 half of the target.
-
-    /// Smaller, distinct blobs rather than a full-bleed wash. See above.
-    private let liquidBlobScale: Double = 0.55
-
-    /// Pigment density. Back UP from the earlier 0.85: with the blobs now small
-    /// enough to leave half the canvas bare, the overall colour is set by
-    /// coverage, so the pigment can stay dense enough that each blob reads as a
-    /// distinct shape — the splash's look — instead of dissolving into haze.
-    /// Blur scales with blob size now, so this no longer trades one for the other.
-    private let liquidThickness: Double = 1.15
-
-    /// Close to the splash's 3.4, since the ask was for that kind of visible
-    /// churn. Also widens travel via LiquidBackground's `amplitude` (1.5x here),
-    /// which keeps the smaller blobs roaming the whole screen rather than each
-    /// patrolling its own patch.
-    private let liquidEnergy: Double = 3.0
+    // Look lives in LiquidTuning, shared with the splash so the load-up resolves
+    // into the same background it was loading rather than a different one.
 
     var body: some View {
         if themeSettings.liquidBackground {
@@ -789,10 +764,10 @@ struct PageBackground: View {
             // tertiary tones derived inside LiquidBackground — all three stay in
             // the accent's own warm/cool family, so the wash can't clash with it.
             LiquidBackground(base: AmbientCanvas.ground(light: themeSettings.isLightTheme),
-                             thickness: liquidThickness,
-                             energy: liquidEnergy,
-                             blobScale: liquidBlobScale,
-                             primaryWeighted: true)
+                             thickness: LiquidTuning.thickness,
+                             energy: LiquidTuning.pageEnergy,
+                             blobScale: LiquidTuning.blobScale,
+                             primaryWeighted: LiquidTuning.primaryWeighted)
                 .ignoresSafeArea()
         } else {
             AmbientCanvas()
@@ -966,20 +941,17 @@ extension Shape {
     /// For containers only. Buttons, text fields, chips and status marks keep
     /// solid fills: they need to read as opaque objects ON the glass, and an input
     /// you're typing into shouldn't have moving colour behind the caret.
-    /// - Parameter solidFallback: what to fall back to with glass switched off.
-    ///   `true` (default) paints the flat opaque surface these all had before —
-    ///   white on light presets, near-black on dark. Pass `false` for something
-    ///   that was TRANSPARENT before the conversion (the Lunch/Break outline
-    ///   buttons), where a solid fill would be wrong rather than merely different.
+    /// With glass switched off this paints the flat opaque surface colour — white
+    /// on light presets, near-black on Charcoal.
     @ViewBuilder
-    func glassFill(solidFallback: Bool = true) -> some View {
+    func glassFill() -> some View {
         if T.glassEnabled {
             ZStack {
                 fill(.ultraThinMaterial)
                 fill(Color(hex: T.surface).opacity(glassSurfaceTint))
             }
         } else {
-            fill(solidFallback ? Color(hex: T.surface) : .clear)
+            fill(Color(hex: T.surface))
         }
     }
 }
@@ -994,17 +966,18 @@ struct GlassPanel: ViewModifier {
         // Touch the theme so a live Customize change re-tints the surface (the
         // T.* tokens it reads aren't observable on their own) — same reason
         // FrostedCard does this.
-        _ = theme.bgPresetId; _ = theme.accent
+        // frostedGlass included: glassFill() reads a T.* global SwiftUI can't
+        // track, so the dependency has to be declared here or the toggle wouldn't
+        // re-render open modals.
+        _ = theme.bgPresetId; _ = theme.accent; _ = theme.frostedGlass
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         return content
-            .background {
-                ZStack {
-                    shape.fill(.ultraThinMaterial)
-                    shape.fill(Color(hex: T.surface).opacity(glassSurfaceTint))
-                }
-            }
-            // Modals float over content, so they need their own lift. Cards
-            // deliberately skip this — see FrostedCard.
+            // Follows the Customize toggle like every other surface — solid when
+            // glass is off. The nav bar is the only exemption.
+            .background(shape.glassFill())
+            // Modals float over content, so they need their own lift regardless —
+            // more so when solid, since there's then no frost separating them from
+            // the page. Cards deliberately skip this — see FrostedCard.
             .compositingGroup()
             .shadow(color: .black.opacity(0.22), radius: 24, x: 0, y: 10)
     }

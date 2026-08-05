@@ -562,10 +562,9 @@ private struct PayClockControls: View {
         if outline {
             content
                 .foregroundStyle(Color(hex: T.accent).verticalGradient())
-                // Glass off restores a CLEAR fill, not a solid one — these were
-                // transparent outline buttons before, and a solid capsule here
-                // would read as a second filled action next to Clock Out.
-                .background(Capsule().glassFill(solidFallback: false))
+                // Glass off → a solid surface capsule, keeping the accent outline
+                // and label.
+                .background(Capsule().glassFill())
                 .overlay(Capsule().strokeBorder(Color(hex: T.accent).verticalGradient(), lineWidth: 1.5))
         } else {
             content
