@@ -26278,18 +26278,14 @@ ${jobsCtx || "No jobs found."}`;
     {/* ── New Group Modal ───────────────────────────────────────────────────── */}
     {newGroupModal && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
       <div className="anim-modal" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: T.radiusHero, padding: 28, width: "100%", maxWidth: 420, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
-        <h3 style={{ margin: "0 0 6px", fontSize: 18, fontWeight: 700, color: T.text }}>New Group</h3>
-        <p style={{ margin: "0 0 22px", fontSize: 13, color: T.textDim }}>Pick who else is in it — you're included automatically. Naming it is optional; left blank, it's titled after its members.</p>
+        <h3 style={{ margin: "0 0 18px", fontSize: 18, fontWeight: 700, color: T.text }}>New Group</h3>
 
-        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>
-          Name <span style={{ fontWeight: 500, color: T.textDim, textTransform: "none", letterSpacing: 0 }}>— optional</span>
-        </label>
-        {/* Placeholder previews the title this group gets if the field is left
-            empty, so "optional" doesn't read as "unnamed". */}
+        {/* No label above it: the placeholder carries both what the field is and
+            that it's optional, so a heading would only repeat itself. */}
         <input
           value={newGroupName}
           onChange={e => setNewGroupName(e.target.value)}
-          placeholder={newGroupPeople.length ? memberNamesLine([...newGroupPeople, loggedInUser?.id]) : "e.g. Electrical Team"}
+          placeholder="Group Name... (opt.)"
           style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", marginBottom: 20, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontFamily: T.font, fontSize: 14 }}
         />
 
