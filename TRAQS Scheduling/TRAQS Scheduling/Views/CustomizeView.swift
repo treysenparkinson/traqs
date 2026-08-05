@@ -72,7 +72,7 @@ struct CustomizeView: View {
 
                             SLine().padding(.leading, 70)
                             ToggleRow(title: "Frosted Glass",
-                                      subtitle: "*Enabled for Navigation bar at all times",
+                                      subtitle: "*Enabled for Navigation bar and popups at all times",
                                       isOn: theme.frostedGlass) { on in
                                 theme.setFrostedGlass(on)
                             }

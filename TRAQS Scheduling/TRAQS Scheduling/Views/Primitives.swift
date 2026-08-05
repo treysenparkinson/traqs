@@ -966,18 +966,22 @@ struct GlassPanel: ViewModifier {
         // Touch the theme so a live Customize change re-tints the surface (the
         // T.* tokens it reads aren't observable on their own) — same reason
         // FrostedCard does this.
-        // frostedGlass included: glassFill() reads a T.* global SwiftUI can't
-        // track, so the dependency has to be declared here or the toggle wouldn't
-        // re-render open modals.
-        _ = theme.bgPresetId; _ = theme.accent; _ = theme.frostedGlass
+        _ = theme.bgPresetId; _ = theme.accent
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         return content
-            // Follows the Customize toggle like every other surface — solid when
-            // glass is off. The nav bar is the only exemption.
-            .background(shape.glassFill())
-            // Modals float over content, so they need their own lift regardless —
-            // more so when solid, since there's then no frost separating them from
-            // the page. Cards deliberately skip this — see FrostedCard.
+            // ALWAYS frosted — deliberately NOT `glassFill()`, so the Customize
+            // toggle can't turn modals solid. Along with the nav bar, popups are
+            // exempt: the glass is what tells you a modal is floating over the page
+            // rather than being part of it. The toggle governs page CONTENT —
+            // cards, list boxes, message bubbles, thread rows.
+            .background {
+                ZStack {
+                    shape.fill(.ultraThinMaterial)
+                    shape.fill(Color(hex: T.surface).opacity(glassSurfaceTint))
+                }
+            }
+            // Modals float over content, so they need their own lift. Cards
+            // deliberately skip this — see FrostedCard.
             .compositingGroup()
             .shadow(color: .black.opacity(0.22), radius: 24, x: 0, y: 10)
     }

@@ -68,13 +68,17 @@ final class ThemeSettings {
     /// of the static ambient canvas. Unlike accent/preset this feeds no T.*
     /// token — views read it directly — so it has no `applyToT` counterpart.
     var liquidBackground: Bool = ThemeSettings.defaultLiquidBackground
-    /// Whether content surfaces — cards, rows, list boxes, message bubbles — are
-    /// frosted glass or the flat opaque surface colour they used to be.
+    /// Whether page CONTENT is frosted glass or the flat opaque surface colour it
+    /// used to be: job cards, the boxes on each page, received message bubbles,
+    /// and the inbox thread rows.
     ///
-    /// Excludes the nav bar, which stays frosted always, and likewise the modals
-    /// (GlassPanel) and header buttons (HeaderGlassCircle): that's chrome, and it
-    /// was glass before the app-wide conversion too. Mirrored into T.glassEnabled
-    /// because the glass helpers include a Shape extension with no view context.
+    /// Chrome is exempt and stays frosted whatever this says — the nav bar, the
+    /// popups (GlassPanel) and the header buttons (HeaderGlassCircle). On a modal
+    /// the glass is what signals it's floating over the page rather than part of
+    /// it, so it isn't a look to opt out of.
+    ///
+    /// Mirrored into T.glassEnabled because the glass helpers include a Shape
+    /// extension, which has no view context and so can't read @Environment.
     var frostedGlass: Bool = ThemeSettings.defaultFrostedGlass
     var version: Int = 0
 

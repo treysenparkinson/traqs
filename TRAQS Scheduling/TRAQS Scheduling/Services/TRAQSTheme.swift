@@ -116,9 +116,9 @@ enum T {
     // it can't read @Environment. Views that need to RE-RENDER when this flips
     // still have to observe `theme.frostedGlass`; see FrostedCard and SBox.
     //
-    // Does NOT cover the nav bar (deliberately always frosted), modals
-    // (GlassPanel) or header buttons (HeaderGlassCircle) — that's chrome, and it
-    // was glass before the app-wide conversion too.
+    // Covers page CONTENT only — cards, page boxes, message bubbles, thread rows.
+    // The nav bar, the popups (GlassPanel) and the header buttons
+    // (HeaderGlassCircle) are chrome and stay frosted regardless.
     static var glassEnabled: Bool = true
 
     // ── Progress track + presence dots ──
