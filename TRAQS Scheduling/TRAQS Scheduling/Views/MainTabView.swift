@@ -44,19 +44,31 @@ struct MainTabView: View {
             // scoped to it. Held inline here, a tab change invalidated
             // MainTabView's whole body — which recomputed the unread badge and
             // rebuilt the modifier chain around all five tabs on every tap.
-            TabHost()
-                // Phase 6: subtle sync-status indicator, just below the nav header.
-                .overlay(alignment: .top) {
-                    SyncStatusDot().padding(.top, 52)
-                }
+            // Page + nav bar, grouped so a modal can blur BOTH as one layer.
+            // A .fullScreenCover (e.g. the end-job photo prompt) is its own
+            // presentation and so can't blur the page from the inside — it sets
+            // appNav.modalBlur and this does it out here instead. The cover
+            // itself is unaffected by this blur and stays sharp.
+            Group {
+                TabHost()
+                    // Phase 6: subtle sync-status indicator, just below the nav header.
+                    .overlay(alignment: .top) {
+                        SyncStatusDot().padding(.top, 52)
+                    }
 
-            // TRAQS frosted floating pill (icon-only).
-            if !appNav.hideTabBar {
-                TRAQSTabBar()
-                    .padding(.bottom, 1)
-                    .offset(y: 10)   // sit lower toward the bottom edge
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                // TRAQS frosted floating pill (icon-only).
+                if !appNav.hideTabBar {
+                    TRAQSTabBar()
+                        .padding(.bottom, 1)
+                        .offset(y: 10)   // sit lower toward the bottom edge
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        // An in-page modal blurs the page from inside TabHost,
+                        // which can't reach the bar out here — so it blurs the
+                        // bar through this instead, and the two match.
+                        .modalPageBlur(appNav.blurTabBar)
+                }
             }
+            .modalPageBlur(appNav.modalBlur)
 
             // Global blocking-action loading overlay (clock in/out). Above all.
             if let label = appState.clockActionLabel {
@@ -67,6 +79,9 @@ struct MainTabView: View {
         }
         .animation(.spring(response: 0.34, dampingFraction: 0.86), value: appNav.hideTabBar)
         .animation(.easeInOut(duration: 0.18), value: appState.clockActionLabel)
+        // Blur eases in/out with the modal it belongs to rather than snapping.
+        .animation(.easeInOut(duration: 0.2), value: appNav.modalBlur)
+        .animation(.easeInOut(duration: 0.2), value: appNav.blurTabBar)
         // A tapped time-off push flips appNav.openTimeOffPage → present the Time
         // Off page and reset the flag so it fires once. `initial: true` also
         // catches a cold-start tap where the flag is already set.

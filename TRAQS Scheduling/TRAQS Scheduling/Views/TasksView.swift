@@ -1373,7 +1373,10 @@ struct TaskCardV1: View {
                 // Dismiss by clearing the item binding (reliable), then clock
                 // out on the app-level state — which outlives this card view,
                 // so the job still ends even if the card re-renders away.
-                endJobTarget = nil
+                // Animations off again so it doesn't slide back down; the
+                // overlay has already faded itself out by this point.
+                withTransaction(Transaction.noAnimation) { endJobTarget = nil }
+                appNav.modalBlur = false
                 if clockOut {
                     // Drive the STOP button's "STOPPING…" spinner while the
                     // clock-out is in flight (set after the overlay closes so
@@ -1385,6 +1388,9 @@ struct TaskCardV1: View {
                     }
                 }
             }
+            // Failsafe: if this card is torn down while the prompt is up, the
+            // onClose above never runs and the whole app would stay blurred.
+            .onDisappear { appNav.modalBlur = false }
         }
         // Request Completion send feedback — Sending… then an animated Sent ✓.
         .overlay {
@@ -1471,11 +1477,21 @@ struct TaskCardV1: View {
                         dimmed: false,
                         verticalPadding: 12,
                         action: {
-                            endJobTarget = PanelPhotoTarget(
-                                jobId: task.job.id,
-                                panelId: task.panel.id,
-                                panelTitle: task.panel.title,
-                                opId: task.op?.id)
+                            // Blur the page (and nav bar) behind the prompt. The
+                            // cover is its own presentation so it can't do this
+                            // itself; MainTabView watches this flag.
+                            appNav.modalBlur = true
+                            // Present with animations disabled so the cover
+                            // doesn't slide up from the bottom — the overlay
+                            // fades and scales in at the centre under its own
+                            // steam instead (EndJobPhotoOverlay.onAppear).
+                            withTransaction(Transaction.noAnimation) {
+                                endJobTarget = PanelPhotoTarget(
+                                    jobId: task.job.id,
+                                    panelId: task.panel.id,
+                                    panelTitle: task.panel.title,
+                                    opId: task.op?.id)
+                            }
                         }) {
                 HStack(spacing: 6) {
                     if isStopping {

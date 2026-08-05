@@ -749,7 +749,109 @@ extension View {
     func frostedPill() -> some View {
         modifier(FrostedPill())
     }
+    /// Real frosted glass, for modal surfaces. See `GlassPanel`.
+    func glassPanel(radius: CGFloat = 36) -> some View {
+        modifier(GlassPanel(radius: radius))
+    }
 }
+
+// ── GlassPanel: REAL frosted glass, for modal surfaces ─────────────────────
+//
+// Not to be confused with `frostedCard`, which despite its name paints an
+// opaque surface fill with no blur — right for the content-dense pages it's
+// used on, wrong for a modal floating over them.
+//
+// This is the recipe the nav bar uses: a real blur (.ultraThinMaterial) plus a
+// surface tint. The tint is the transparency knob — lower lets more through,
+// but the blur keeps it properly frosted either way. `.glassEffect(.clear)`
+// was tried and reads as barely-there glass, not frost.
+//
+// Used by the break/lunch banner, the clock PIN pad, and the end-job photo
+// prompt, so all three modals read as the same material.
+struct GlassPanel: ViewModifier {
+    @Environment(ThemeSettings.self) private var theme
+    /// Default 36 — softer than any card on a page, so a modal reads as a
+    /// floating pebble rather than another panel.
+    var radius: CGFloat = 36
+
+    func body(content: Content) -> some View {
+        // Touch the theme so a live Customize change re-tints the surface (the
+        // T.* tokens it reads aren't observable on their own) — same reason
+        // FrostedCard does this.
+        _ = theme.bgPresetId; _ = theme.accent
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        return content
+            .background {
+                ZStack {
+                    shape.fill(.ultraThinMaterial)
+                    shape.fill(Color(hex: T.surface).opacity(0.22))
+                }
+            }
+            // Modals float over content, so they need their own lift.
+            .compositingGroup()
+            .shadow(color: .black.opacity(0.22), radius: 24, x: 0, y: 10)
+    }
+}
+
+extension Transaction {
+    /// Suppresses the animation a state change would otherwise drive. Wrap a
+    /// `.fullScreenCover` / `.sheet` binding change in
+    /// `withTransaction(.noAnimation) { … }` to kill the system's slide-up so
+    /// the presented view can run its own entrance instead.
+    static var noAnimation: Transaction {
+        var t = Transaction()
+        t.disablesAnimations = true
+        return t
+    }
+}
+
+// ── Modal backdrop: an invisible tap-catcher + a page blur ──────────────────
+//
+// Separating a modal from the page is done by BLURRING THE PAGE ITSELF
+// (`.modalPageBlur`), not by laying anything over it. There's no darkening
+// tint, and the scrim itself draws nothing at all.
+//
+// Why not a material scrim: a material only blurs content inside its own render
+// surface. `.ultraThinMaterial` over a `.fullScreenCover`'s clear background
+// has nothing behind it to sample — it can't reach across a presentation
+// boundary — so it rendered as a flat wash and the page stayed perfectly sharp.
+// Fading a material's opacity to get a "slight" blur doesn't work either: it
+// cross-fades a fully-blurred layer with the sharp original, which reads as
+// haze rather than as a small blur radius. `.blur(radius:)` on the content is
+// the only thing that actually gives a gentle blur, and it has to be applied by
+// whoever OWNS the content.
+
+/// Full-screen, completely invisible tap target that sits under a modal card so
+/// a tap outside it dismisses. Draws nothing — see the note above.
+struct ModalScrim: View {
+    /// Tap handler. Omit to swallow taps without acting on them (e.g. while an
+    /// upload is in flight and dismissal must be blocked).
+    var onTap: (() -> Void)?
+
+    var body: some View {
+        Rectangle()
+            .fill(.clear)
+            .ignoresSafeArea()
+            .contentShape(Rectangle())
+            .onTapGesture { onTap?() }
+    }
+}
+
+extension View {
+    /// Blurs THIS content while a modal is over it. Apply to the page behind a
+    /// modal — never to the modal itself, which must stay sharp.
+    ///
+    /// A presented `.fullScreenCover` is a separate presentation, so it is not
+    /// affected by this and stays crisp automatically. For an in-hierarchy
+    /// overlay, group the page content and blur only that group.
+    func modalPageBlur(_ active: Bool) -> some View {
+        blur(radius: active ? modalPageBlurRadius : 0)
+    }
+}
+
+/// How much to blur the page behind a modal. Small on purpose — a little reads
+/// as depth, more reads as the page being taken away. THE dial for this.
+let modalPageBlurRadius: CGFloat = 3
 
 // Flat 2D pill — the capsule variant of FrostedCard (surface fill + flat
 // hairline border + ambient float shadow, with capsule ends).

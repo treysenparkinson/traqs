@@ -60,41 +60,73 @@ from the two existing hand-rolled copies so nothing shifts visually:
 `ClockActionBanner` and `ClockPinOverlay` both switch to it and lose their local copies.
 Neither should change appearance; that is the check for this step.
 
-### 2. `ModalScrim` — fade-in dim plus backdrop blur
+### 2. Modal backdrop — an invisible tap-catcher plus a page blur
 
-New view in `Views/Primitives.swift`. Takes a `progress: Double` (0 → 1) driving both
-layers together, and an optional `onTap` closure:
+There is no tint of any kind, and the scrim draws nothing. Separation comes entirely from
+blurring the page behind the modal.
 
-- `Rectangle().fill(.ultraThinMaterial)` — samples and blurs the content behind
-- `Color.black.opacity(0.22 * progress)` — the tint
-- whole thing `.opacity(progress)`, `.ignoresSafeArea()`, `.contentShape(Rectangle())`
+Two pieces in `Views/Primitives.swift`:
 
-**Why a material and not `.blur()`:** `.blur()` has to be applied to the content being
-blurred. `EndJobPhotoOverlay` is presented in a `.fullScreenCover`, a separate view
-hierarchy with no handle on the Jobs list underneath it, so `.blur()` is unavailable
-there. A material samples the real window backdrop through the cover's
-`.presentationBackground(.clear)`, so it is the one approach that works identically at
-all three call sites.
+- `ModalScrim(onTap:)` — a full-screen, fully transparent tap target that sits under a
+  modal card so a tap outside it dismisses. `.fill(.clear)` +
+  `.contentShape(Rectangle())`, so it still catches every tap while drawing nothing.
+- `.modalPageBlur(_ active: Bool)` — `.blur(radius: active ? 3 : 0)`, applied to the
+  page **by whoever owns the page**. The radius is one constant,
+  `modalPageBlurRadius`, and it is the only dial.
 
-**Known tension:** the cards are themselves `.ultraThinMaterial`. With the same material
-behind them, a card samples an already-blurred, already-dimmed scrim, so it renders
-flatter and loses some of the texture that makes it read as glass over content. This is
-why the tint is `0.22` rather than the `0.32` the PIN pad uses today — the blur now does
-the separation work, so less tint is needed. If the blur reads too weakly in the
-simulator the adjustment is the material tier (`.thinMaterial`, then `.regularMaterial`);
-a material's blur radius is not directly settable, so that tier is the only dial.
+**A material scrim does NOT work here, and this was established by testing, not
+theory.** The first implementation used `Rectangle().fill(.ultraThinMaterial)` on the
+assumption that a material samples the real window backdrop through a cover's
+`.presentationBackground(.clear)`. It does not. A material only blurs content inside its
+own render surface, and `.fullScreenCover` is a separate presentation — so the scrim had
+nothing behind it to sample, rendered as a flat wash, and the page stayed perfectly
+sharp.
+
+Fading a material's opacity to get a *slight* blur is also the wrong tool: it cross-fades
+a fully-blurred layer against the sharp original, which reads as haze rather than as a
+small blur radius. `.blur(radius:)` on the content is the only thing that produces a
+genuinely gentle blur.
+
+Because `.blur()` must be applied to the content being blurred, each modal reaches its
+page differently:
+
+| Modal | How the page gets blurred |
+| --- | --- |
+| End-job photo prompt (`.fullScreenCover`) | Can't blur the page from inside a separate presentation, so it sets `appNav.modalBlur` and `MainTabView` blurs `TabHost` + `TRAQSTabBar` as one group. The cover is unaffected by that blur and stays sharp automatically. |
+| Clock PIN pads (in-hierarchy) | `TimeClockView` groups its own page content and applies `.modalPageBlur` directly. The nav bar is hidden outright for these, so there's nothing more to reach. |
+| Lunch/break shout (in-hierarchy) | Same page blur as the PIN pads, **plus** `appNav.blurTabBar`, because the bar stays visible for this one (see §5) and is a sibling out in `MainTabView`, out of reach from inside the page. |
+
+`modalBlur` and `blurTabBar` have to stay separate: `modalBlur` blurs the whole
+`TabHost` group, and an in-hierarchy modal lives *inside* `TabHost`, so reusing it would
+blur the modal along with everything else.
+
+`appNav.modalBlur` is cleared both in the photo prompt's `onClose` and in an
+`.onDisappear` failsafe — without the latter, a card torn down while the prompt is up
+would leave the entire app blurred with no way back.
 
 ### 3. Photo prompt restyle — `Views/PanelPhotoSheet.swift`
 
 - card: `.frostedCard(radius: T.cornerHero)` → `.glassPanel(radius: 36)`, matching the
   banner's softer pebble radius rather than `T.cornerHero`'s 30
 - backdrop: the local `Color.black.opacity(appear ? 0.45 : 0)` → `ModalScrim`, tap still
-  calls `onClose(false)` and is still suppressed while `isWorking`
-- entrance: `easeOut(0.22)` / `scaleEffect(0.92)` → `spring(response: 0.34, dampingFraction: 0.72)`
-  / `scaleEffect(0.88)`, matching the banner
-- unchanged: the 176pt dashed attachment square and its photo/file preview states, the
-  `GradientCTA` **End Job** button with its `hasPhoto` gating and `Ending…` spinner, the
-  **Skip** bypass, the panel title line, and the error text slot
+  calls the cancel path and is still suppressed while `isWorking`
+- entrance: **fades and scales up in place at the centre**, not the cover's slide-up from
+  the bottom. `.fullScreenCover` animates its own presentation, so both setting and
+  clearing `endJobTarget` are wrapped in `withTransaction(.noAnimation)` (a small
+  `Transaction` extension) to suppress that, leaving the overlay's own
+  `spring(response: 0.34, dampingFraction: 0.72)` / `scaleEffect(0.88)` as the only
+  entrance — the same spring the banner uses. A matching `dismiss(clockOut:)` fades out
+  over 0.18s before handing back to the caller; without it, killing the cover's animation
+  would make the card vanish in a single frame on the way out.
+- cancel: a 36pt glass `xmark` in the card's top-left, placed exactly like the PIN pad's
+  (after the glass, before the outer frame, so it sits on the card rather than out in the
+  backdrop). Backing out was previously only possible by tapping the backdrop, which
+  nothing advertised. The card gains 28pt of top padding so the message clears it.
+- the attachment square keeps its 176pt size and its photo/file preview states, but
+  **loses its dashed border** — that outline read as clutter next to the glass "+". The
+  soft tinted panel remains as the frame.
+- unchanged: the `GradientCTA` **End Job** button with its `hasPhoto` gating and `Ending…`
+  spinner, the **Skip** bypass, the panel title line, and the error text slot
 
 ### 4. Liquid Glass source menu — `Views/PanelPhotoSheet.swift`
 
@@ -125,23 +157,37 @@ re-merging on close — recognisably Liquid Glass, but not a literal single-blob
 
 In the order the user asked for — after the photo prompt is done.
 
-- `ClockPinOverlay` (`Views/TimeClockView.swift:646`): `Color.black.opacity(0.32)` →
-  `ModalScrim`. Tap-to-cancel and the `submitting` suppression are preserved.
+- `ClockPinOverlay`: `Color.black.opacity(0.32)` → `ModalScrim`, plus the page blur.
+  Tap-to-cancel and the `submitting` suppression are preserved. The nav bar continues to
+  hide outright while a pad is up, as it already did.
 - `ClockActionBanner`: gains a scrim it does not currently have. **This is a deliberate
   behaviour change.** Today the banner's backdrop is `Color.clear.allowsHitTesting(false)`
   (`ClockActionBanner.swift:81`) so the page behind stays visible and tappable; a scrim
   swallows those taps for as long as the banner is up. Acceptable because tap-anywhere
   dismissal and the 1.6s `autoDismissAfter` both already exist, so nothing can get
   stuck — but the page is untouchable for up to 1.6s, where it previously was not.
+- **The nav bar stays put for the banner and blurs in place** rather than sliding away.
+  An earlier revision slid it off via `hideTabBar`; blurring it alongside the page reads
+  better and avoids the bottom safe-area inset collapsing and re-expanding over the
+  banner's 1.6s life, which made page content jump.
+
+  Consequence to be aware of: with the bar visible it renders *above* the banner in
+  `MainTabView`'s ZStack, and the banner's tap-catcher doesn't cover it, so a tab tap
+  still works while the shout is up. The two never overlap visually — the banner is
+  centred at 260pt wide, the bar sits at the bottom edge — so this is left as-is rather
+  than blocked.
 
 ## Files touched
 
 | File | Change |
 | --- | --- |
-| `Views/Primitives.swift` | add `glassPanel(radius:)` and `ModalScrim` |
-| `Views/PanelPhotoSheet.swift` | glass card, scrim, spring entrance, Liquid Glass source menu |
+| `Views/Primitives.swift` | add `glassPanel(radius:)`, `ModalScrim`, `.modalPageBlur`, `Transaction.noAnimation` |
+| `Views/PanelPhotoSheet.swift` | glass card, cancel X, centre fade, Liquid Glass source menu, no dashed border |
 | `Views/ClockActionBanner.swift` | use `glassPanel`, add scrim |
-| `Views/TimeClockView.swift` | `ClockPinOverlay` uses `glassPanel` + scrim |
+| `Views/TimeClockView.swift` | `ClockPinOverlay` uses `glassPanel` + scrim; page content grouped and blurred; bar blurs (not hides) for the banner |
+| `Views/MainTabView.swift` | group page + nav bar for `modalBlur`; blur the bar alone for `blurTabBar` |
+| `Views/TasksView.swift` | drive `modalBlur`, suppress the cover's slide, `.onDisappear` failsafe |
+| `Services/AppNav.swift` | add `modalBlur` and `blurTabBar` |
 
 ## Verification
 
@@ -153,11 +199,15 @@ Visual checks, in order:
 
 1. Break/lunch banner and PIN pad are unchanged after the `glassPanel` extraction
    (step 1 in isolation).
-2. The scrim's blur actually reads through the `fullScreenCover` on the photo prompt.
-   This is the one item a compile cannot confirm and the most likely thing to need
-   adjustment.
-3. Cards still read as glass over the blurred scrim rather than blur-on-blur mush; if
-   not, raise the material tier per §2.
-4. The `+` → pills morph, and back.
-5. All three sources still attach: camera, photo album, file. **End Job** stays disabled
-   until something is attached, and **Skip** still ends the job without a photo.
+2. **The page behind each modal is actually blurred.** This is the item a compile cannot
+   confirm and the one that has already been wrong once — the first material-based
+   attempt left the page perfectly sharp (§2). Check all three modals, and check that the
+   nav bar blurs with the page for the photo prompt and the lunch/break shout.
+3. The modals themselves stay sharp — nothing blurs the modal along with its page.
+4. The photo prompt fades in at the centre; no slide from the bottom, in or out.
+5. The `+` → pills morph, and back.
+6. All three sources still attach: camera, photo album, file. **End Job** stays disabled
+   until something is attached, **Skip** still ends the job without a photo, and the X
+   backs out without ending it.
+7. The blur clears on every exit path — including cancelling via the X, via the backdrop,
+   and after a completed End Job. A stuck `modalBlur` blurs the whole app.

@@ -41,38 +41,47 @@ struct EndJobPhotoOverlay: View {
     @State private var pickedImage: UIImage?
     @State private var pickedFile: PickedFile?
     @State private var photoItem: PhotosPickerItem?
-    @State private var showSourceDialog = false
     @State private var showCamera = false
     @State private var showFiles = false
     @State private var showLibrary = false
     @State private var isWorking = false
     @State private var errorText: String?
-    @State private var appear = false   // drives the fade/scale-in
+    @State private var appear = false     // drives the fade/scale-in
+    /// Whether the Liquid Glass source menu is expanded out of the "+".
+    @State private var menuOpen = false
+    /// Ties the "+" and the three source pills together so the glass morphs
+    /// between them instead of cross-fading.
+    @Namespace private var glassNS
 
     private var hasPhoto: Bool { pickedImage != nil || pickedFile != nil }
 
     var body: some View {
         ZStack {
-            // Dimmed backdrop. Tapping it cancels the end-job (nothing has
-            // happened yet — the clock-out only fires from the buttons below).
-            Color.black.opacity(appear ? 0.45 : 0)
-                .ignoresSafeArea()
-                .onTapGesture { if !isWorking { onClose(false) } }
+            // Invisible tap-catcher. The page behind is blurred by MainTabView
+            // via appNav.modalBlur — this cover is its own presentation, so it
+            // can't blur the page itself (see the note above ModalScrim).
+            //
+            // A tap cancels the end-job (nothing has happened yet — the
+            // clock-out only fires from the buttons below), except while the
+            // menu is open, where a tap is far more likely aimed at dismissing
+            // the menu than at abandoning the clock-out.
+            ModalScrim {
+                guard !isWorking else { return }
+                if menuOpen { setMenu(false) } else { dismiss(clockOut: false) }
+            }
 
             card
-                .scaleEffect(appear ? 1 : 0.92)
+                .scaleEffect(appear ? 1 : 0.88)
                 .opacity(appear ? 1 : 0)
         }
         .presentationBackground(.clear)   // let the jobs screen show through
-        .onAppear { withAnimation(.easeOut(duration: 0.22)) { appear = true } }
-        .confirmationDialog("Add a photo", isPresented: $showSourceDialog, titleVisibility: .visible) {
-            Button("Take Photo") {
-                if UIImagePickerController.isSourceTypeAvailable(.camera) { showCamera = true }
-                else { errorText = "No camera available on this device." }
-            }
-            Button("Photo Album") { showLibrary = true }
-            Button("Choose File") { showFiles = true }
-            Button("Cancel", role: .cancel) {}
+        .onAppear {
+            // Fades and scales up in place at the centre. The cover itself is
+            // presented with animations disabled (see TaskCardV1's STOP action),
+            // so this is the ONLY entrance animation — without it the card would
+            // just pop in. Same spring as the break/lunch banner, so the two
+            // modals arrive with the same weight.
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.72)) { appear = true }
         }
         .sheet(isPresented: $showCamera) {
             CameraPicker { image in pickedImage = image; pickedFile = nil; errorText = nil }
@@ -98,7 +107,7 @@ struct EndJobPhotoOverlay: View {
                 .font(TTypo.sm(12))
                 .foregroundStyle(Color(hex: T.muted))
 
-            attachmentSquare
+            attachmentArea
 
             if let errorText {
                 Text(errorText)
@@ -134,28 +143,60 @@ struct EndJobPhotoOverlay: View {
                 .disabled(isWorking)
         }
         .padding(20)
+        // Extra headroom so the message clears the cancel X in the corner.
+        .padding(.top, 28)
         .frame(maxWidth: 320)
-        .frostedCard(radius: T.cornerHero)
+        // Real frosted glass at the break/lunch banner's radius — this used to
+        // be .frostedCard(), which despite the name is an opaque surface fill
+        // with no blur, so this modal read as a flat panel next to the banner
+        // and the PIN pad.
+        .glassPanel()
+        // Cancel, anchored INSIDE the card's top-left (attached after the glass
+        // but before the outer frame/padding, so it sits on the card rather than
+        // floating out in the backdrop). Same placement as the PIN pad's X.
+        .overlay(alignment: .topLeading) { cancelButton }
         .padding(.horizontal, 32)
     }
 
-    /// The square attachment window: dashed dropzone with a "+", or the chosen
-    /// photo/file once selected. Tapping it opens the source action sheet.
-    private var attachmentSquare: some View {
-        Button { showSourceDialog = true } label: {
+    /// Backing out of the end-job was previously only possible by tapping the
+    /// backdrop, which nothing advertised. This makes it obvious.
+    private var cancelButton: some View {
+        Button { dismiss(clockOut: false) } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Color(hex: T.ink))
+                .frame(width: 36, height: 36)
+                .glassEffect(.regular.interactive(), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isWorking)
+        .padding(12)
+    }
+
+    // MARK: Attachment area + Liquid Glass source menu
+
+    /// The square attachment window: dashed dropzone holding a glass "+", or
+    /// the chosen photo/file once selected. Tapping it expands the "+" into the
+    /// three source pills.
+    ///
+    /// The whole thing lives in a `GlassEffectContainer` so the "+" and the
+    /// pills — which share `glassNS` via `.glassEffectID` — morph into each
+    /// other rather than cross-fading. This replaced a `.confirmationDialog`,
+    /// whose stock action sheet looked unrelated to every other surface here.
+    private var attachmentArea: some View {
+        let shape = RoundedRectangle(cornerRadius: T.cornerMd)
+        return GlassEffectContainer(spacing: 16) {
             ZStack {
-                RoundedRectangle(cornerRadius: T.cornerMd)
-                    .fill(Color(hex: T.pillIndigoBg).opacity(0.6))
-                RoundedRectangle(cornerRadius: T.cornerMd)
-                    .strokeBorder(Color(hex: T.border),
-                                  style: StrokeStyle(lineWidth: 2, dash: hasPhoto ? [] : [6]))
+                // Soft tinted panel, no border — the dashed dropzone outline it
+                // used to carry read as clutter next to the glass "+".
+                shape.fill(Color(hex: T.pillIndigoBg).opacity(0.6))
 
                 if let img = pickedImage {
                     Image(uiImage: img)
                         .resizable()
                         .scaledToFill()
                         .frame(width: 176, height: 176)
-                        .clipShape(RoundedRectangle(cornerRadius: T.cornerMd))
+                        .clipShape(shape)
                 } else if pickedFile != nil {
                     VStack(spacing: 8) {
                         Image(systemName: "doc.fill")
@@ -165,17 +206,105 @@ struct EndJobPhotoOverlay: View {
                             .font(TTypo.xs(12))
                             .foregroundStyle(Color(hex: T.muted))
                     }
+                }
+
+                if menuOpen {
+                    // Catches taps that land in the dropzone but miss a pill —
+                    // those mean "never mind", not "cancel the clock-out".
+                    Rectangle()
+                        .fill(.clear)
+                        .contentShape(Rectangle())
+                        .onTapGesture { setMenu(false) }
+
+                    sourceMenu
                 } else {
-                    Image(systemName: "plus")
-                        .font(.system(size: 46, weight: .light))
-                        .foregroundStyle(Color(hex: T.accent))
+                    openMenuButton
                 }
             }
             .frame(width: 176, height: 176)
-            .contentShape(RoundedRectangle(cornerRadius: T.cornerMd))
+        }
+    }
+
+    /// Closed state. The full square stays tappable (as it did when this opened
+    /// an action sheet), so an already-attached photo can be replaced; the glass
+    /// "+" is only drawn when there's nothing attached yet.
+    private var openMenuButton: some View {
+        Button { setMenu(true) } label: {
+            ZStack {
+                if !hasPhoto {
+                    Image(systemName: "plus")
+                        .font(.system(size: 34, weight: .light))
+                        .foregroundStyle(Color(hex: T.accent))
+                        .frame(width: 78, height: 78)
+                        .glassEffect(.regular.interactive(), in: Circle())
+                        .glassEffectID("source.anchor", in: glassNS)
+                }
+            }
+            .frame(width: 176, height: 176)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(isWorking)
+    }
+
+    /// Open state — the three sources as glass capsules. Each keeps its own
+    /// `glassEffectID` so the container can split the "+" into them and merge
+    /// them back on close.
+    private var sourceMenu: some View {
+        VStack(spacing: 10) {
+            sourcePill("Take Photo", icon: "camera", id: "source.camera") {
+                if UIImagePickerController.isSourceTypeAvailable(.camera) { showCamera = true }
+                else { errorText = "No camera available on this device." }
+            }
+            sourcePill("Photo Album", icon: "photo.on.rectangle", id: "source.library") {
+                showLibrary = true
+            }
+            sourcePill("Choose File", icon: "folder", id: "source.files") {
+                showFiles = true
+            }
+        }
+        .padding(.horizontal, 14)
+    }
+
+    private func sourcePill(_ title: String,
+                            icon: String,
+                            id: String,
+                            action: @escaping () -> Void) -> some View {
+        Button {
+            setMenu(false)
+            action()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: icon).font(.system(size: 13, weight: .semibold))
+                Text(title).font(TTypo.bodyBold(14))
+            }
+            .foregroundStyle(Color(hex: T.ink))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 11)
+            .glassEffect(.regular.interactive(), in: Capsule())
+            .glassEffectID(id, in: glassNS)
+        }
+        .buttonStyle(.plain)
+        .disabled(isWorking)
+    }
+
+    /// Open/close the source menu. The animation is what drives the glass
+    /// morph — without it the pills would simply pop in.
+    private func setMenu(_ open: Bool) {
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.74)) { menuOpen = open }
+    }
+
+    // MARK: Dismissal
+
+    /// Fade out, THEN hand back to the caller. The cover is presented and
+    /// cleared with animations disabled so it never slides, which means the
+    /// card has to run its own exit — otherwise it would vanish in one frame.
+    private func dismiss(clockOut: Bool) {
+        withAnimation(.easeOut(duration: 0.18)) { appear = false }
+        Task {
+            try? await Task.sleep(nanoseconds: 180_000_000)
+            onClose(clockOut)
+        }
     }
 
     // MARK: Source handlers
@@ -242,7 +371,7 @@ struct EndJobPhotoOverlay: View {
                             filename: filename(ext: ext.isEmpty ? "dat" : ext), mimeType: file.mime, data: file.data)
                     }
                 }
-                await MainActor.run { isWorking = false; onClose(true) }
+                await MainActor.run { isWorking = false; dismiss(clockOut: true) }
             } catch {
                 await MainActor.run { isWorking = false; errorText = error.localizedDescription }
             }

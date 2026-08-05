@@ -48,6 +48,11 @@ struct TimeClockView: View {
         let _ = liveRefresh
         let _ = appState.people.count
         return ZStack {
+            // Page content, grouped so the PIN pads and the lunch/break shout
+            // can blur it while staying sharp themselves. These are in-hierarchy
+            // overlays, so unlike the end-job photo cover they blur their own
+            // page directly instead of going through appNav.modalBlur.
+            Group {
             AmbientBackground()
 
             VStack(spacing: 0) {
@@ -169,6 +174,8 @@ struct TimeClockView: View {
             .task {
                 await appState.refreshTimeclock(personId: appState.currentPersonId)
             }
+            }
+            .modalPageBlur(showPinPrompt || showClockOutPin || banner != nil)
 
             // PIN entry for clock-in (task 2) — an overlay rather than a second
             // .sheet, since the view already presents the Settings sheet.
@@ -230,13 +237,22 @@ struct TimeClockView: View {
         }
         // Hide the bottom nav pill while either PIN pad is up; it slides back in
         // (MainTabView animates hideTabBar) when the pad is dismissed.
+        //
+        // The lunch/break shout is different: the bar STAYS, and blurs along
+        // with the page behind it instead of sliding away. The shout is centered
+        // and the bar sits at the bottom edge, so they never overlap.
         .onChange(of: showPinPrompt)   { _, _ in syncTabBar() }
         .onChange(of: showClockOutPin) { _, _ in syncTabBar() }
-        .onDisappear { appNav.hideTabBar = false }
+        .onChange(of: banner)          { _, _ in syncTabBar() }
+        .onDisappear {
+            appNav.hideTabBar = false
+            appNav.blurTabBar = false
+        }
     }
 
     private func syncTabBar() {
         appNav.hideTabBar = showPinPrompt || showClockOutPin
+        appNav.blurTabBar = banner != nil
     }
 
     /// Show the big confirmation. Replaces whatever is on screen so a fast
@@ -639,14 +655,13 @@ private struct ClockPinOverlay: View {
         // Touch the theme so a live Customize accent change re-renders the
         // surface tint below (the T.* tokens aren't observable on their own).
         _ = theme.accent
-        let shape = RoundedRectangle(cornerRadius: T.cornerHero, style: .continuous)
         return ZStack {
-            // Lighter than the old 0.55: the card is real glass now, and a heavy
-            // scrim is what it blurs, so a dark backdrop turned the frost muddy.
-            Color.black.opacity(0.32)
-                .ignoresSafeArea()
-                .contentShape(Rectangle())
-                .onTapGesture { if !submitting { onCancel() } }
+            // Dimmed and blurred, the same backdrop as the break/lunch banner
+            // and the end-job photo prompt. Its tint is lighter than the flat
+            // 0.32 this used to be: the card is real glass and a heavy scrim is
+            // what it blurs, so the blur now does the separating and extra tint
+            // would only turn the frost muddy.
+            ModalScrim { if !submitting { onCancel() } }
 
             VStack(spacing: 18) {
                 VStack(spacing: 4) {
@@ -695,20 +710,12 @@ private struct ClockPinOverlay: View {
                 }
             }
             .padding(30)
-            // Frosted glass, the same recipe as the break/lunch banner: a real
-            // blur (.ultraThinMaterial) plus a surface tint, which is the
-            // transparency knob. This used to be .frostedCard(), which despite
-            // the name is an opaque surface fill — no blur, nothing showing
-            // through — so the PIN pad read as a flat panel next to the
-            // break/lunch popups it sits alongside.
-            .background {
-                ZStack {
-                    shape.fill(.ultraThinMaterial)
-                    shape.fill(Color(hex: T.surface).opacity(0.22))
-                }
-            }
-            .compositingGroup()
-            .shadow(color: .black.opacity(0.22), radius: 24, x: 0, y: 10)
+            // Real frosted glass — the shared recipe, the same one the
+            // break/lunch banner and the end-job photo prompt use. This used to
+            // be .frostedCard(), which despite the name is an opaque surface
+            // fill — no blur, nothing showing through — so the PIN pad read as a
+            // flat panel next to the break/lunch popups it sits alongside.
+            .glassPanel(radius: T.cornerHero)
             // Cancel/close = a Liquid Glass X anchored INSIDE the card's top-left
             // (attached before the outer frame/padding so it sits on the card,
             // not floating out in the dimmed backdrop).

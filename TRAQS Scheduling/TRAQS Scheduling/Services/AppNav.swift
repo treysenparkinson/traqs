@@ -24,6 +24,20 @@ final class AppNav {
     /// Driven by the owning tab; MainTabView animates the bar out/in.
     var hideTabBar: Bool = false
 
+    /// Set while a modal presented in its OWN window (a .fullScreenCover) is up,
+    /// so MainTabView can blur the whole page — nav bar included — behind it.
+    /// A modal can't blur the page from inside a separate presentation, so the
+    /// blur has to be driven from out here. See the note above `ModalScrim`.
+    var modalBlur: Bool = false
+
+    /// Set while an IN-HIERARCHY modal (the lunch/break shout) is up. Such a
+    /// modal lives inside the page, so it blurs its own content with
+    /// `.modalPageBlur` and can't use `modalBlur` — that would blur the modal
+    /// along with everything else. The nav bar is the one thing it can't reach
+    /// from in there, since the bar is its sibling out in MainTabView, so this
+    /// blurs just the bar to match.
+    var blurTabBar: Bool = false
+
     /// Which view the merged Jobs tab shows — list (TasksView) or gantt (GanttView).
     /// Persists across tab switches; reset to `.list` for job deep links so the
     /// list view's deep-link consumer can resolve the tapped job (see below).

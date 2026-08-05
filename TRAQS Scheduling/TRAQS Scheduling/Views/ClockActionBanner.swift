@@ -72,13 +72,17 @@ struct ClockActionBanner: View {
         // reason FrostedCard does this.
         _ = theme.accent
 
-        // No dimming backdrop — the card just appears over the page, and the
-        // rest of the screen stays visible and tappable. The clear spacer fills
-        // the whole screen (safe area included) so the card lands on the TRUE
-        // center, not the center of whatever container it was dropped into; it
-        // takes no taps, so the page underneath stays live.
+        // Dimmed and blurred backdrop, matching the PIN pad and the end-job
+        // photo prompt. This DOES swallow taps for as long as the banner is up,
+        // where the page underneath used to stay live — acceptable because a tap
+        // anywhere dismisses and `autoDismissAfter` closes it regardless, so the
+        // page is never unreachable for more than a moment.
+        //
+        // The scrim also fills the whole screen (safe area included), so the
+        // card lands on the TRUE center rather than the center of whatever
+        // container it was dropped into.
         return ZStack {
-            Color.clear.allowsHitTesting(false)
+            ModalScrim { onDismiss() }
             card
         }
         .ignoresSafeArea()
@@ -86,7 +90,7 @@ struct ClockActionBanner: View {
 
     private var card: some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        return VStack(spacing: 10) {
+        return VStack(spacing: 10) {   // `shape` is the tap/hit shape below
             Image(systemName: kind.icon)
                 .font(.system(size: 34, weight: .bold))
                 .foregroundStyle(T.brandGradient(start: .top, end: .bottom))
@@ -117,20 +121,9 @@ struct ClockActionBanner: View {
         .padding(.vertical, 24)
         .padding(.horizontal, 26)
         .frame(maxWidth: 260)
-        // Frosted glass, built the same way as the nav bar: a real blur
-        // (.ultraThinMaterial) plus a surface tint. The tint is the
-        // transparency knob — lower lets more through, but the blur keeps
-        // it properly frosted either way. `.glassEffect(.clear)` was tried
-        // and reads as barely-there glass, not frost.
-        .background {
-            ZStack {
-                shape.fill(.ultraThinMaterial)
-                shape.fill(Color(hex: T.surface).opacity(0.22))
-            }
-        }
-        // Without a dimming backdrop the card needs its own lift off the page.
-        .compositingGroup()
-        .shadow(color: .black.opacity(0.22), radius: 24, x: 0, y: 10)
+        // Real frosted glass — the shared recipe, also used by the PIN pad and
+        // the end-job photo prompt.
+        .glassPanel(radius: radius)
         .scaleEffect(shown ? 1 : 0.88)
         .opacity(shown ? 1 : 0)
         .contentShape(shape)
