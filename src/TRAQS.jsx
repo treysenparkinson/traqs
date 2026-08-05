@@ -5121,6 +5121,8 @@ Extraction rules:
   const [groups, setGroups] = useState([]);
   const [newGroupModal, setNewGroupModal] = useState(false);
   const [newGroupPeople, setNewGroupPeople] = useState([]);
+  // Optional — blank means the group is titled after its members.
+  const [newGroupName, setNewGroupName] = useState("");
   const [newGroupSaving, setNewGroupSaving] = useState(false);
   const [editGroupModal, setEditGroupModal] = useState(null); // { groupId, memberIds }
   const [editJobModal, setEditJobModal] = useState(null);
@@ -8043,19 +8045,38 @@ ${jobsCtx || "No jobs found."}`;
 
   // Groups aren't named — a group IS its people, so its title is just the other
   // members' names. Accepts a group record or a bare list of member ids.
-  function groupTitle(groupOrIds) {
-    const ids = Array.isArray(groupOrIds) ? groupOrIds : (groupOrIds?.memberIds || []);
-    const names = ids
+  // "Alice, Bob, Carol +4" — member first names in memberIds order, viewer
+  // excluded. Order follows memberIds rather than being sorted so a group's title
+  // stays put instead of reshuffling when somebody is renamed, and `+N` counts the
+  // remaining OTHERS (the viewer is dropped first), so a group of you plus three
+  // shows three names and no suffix.
+  //
+  // Capped at three: the untruncated line ran wider than a thread row, got clipped
+  // mid-name, and left groups impossible to tell apart.
+  function memberNamesLine(ids) {
+    const names = (ids || [])
       .filter(id => String(id) !== String(loggedInUser?.id))
       .map(id => people.find(p => String(p.id) === String(id))?.name)
-      .filter(Boolean);
-    return names.join(", ") || "Group";
+      .filter(Boolean)
+      .map(n => n.split(" ")[0]);
+    if (!names.length) return "Group";
+    if (names.length <= 3) return names.join(", ");
+    return `${names.slice(0, 3).join(", ")} +${names.length - 3}`;
+  }
+
+  // What to show for a group ANYWHERE — thread list, header, pickers. Naming is
+  // optional, so honour it when present and fall back to the members otherwise.
+  // Must take the GROUP, not just its ids, or the name is invisible — which is the
+  // bug this replaced: a name typed on iOS never appeared here.
+  function groupDisplayName(group) {
+    const named = (group?.name || "").trim();
+    return named || memberNamesLine(group?.memberIds || []);
   }
 
   function getThreadTitle(threadKey, scope, jobId, panelId, opId) {
     if (scope === "group" || threadKey?.startsWith("group:")) {
       const gId = threadKey?.replace("group:", "") || jobId;
-      const group = groups.find(g => g.id === gId); return group ? groupTitle(group) : "Group";
+      const group = groups.find(g => g.id === gId); return group ? groupDisplayName(group) : "Group";
     }
     if (scope === "job" || threadKey?.startsWith("job:")) {
       const job = tasks.find(j => j.id === jobId);
@@ -8084,16 +8105,28 @@ ${jobsCtx || "No jobs found."}`;
     setNewGroupSaving(true);
     // The creator is always a member, whether or not they picked themselves.
     const memberIds = [...new Set([...newGroupPeople, loggedInUser.id])];
-    // No `name` — groups are identified by their members (see groupTitle).
-    const newGroup = { id: uid(), memberIds, createdBy: loggedInUser.id, createdAt: new Date().toISOString() };
+    // `name` is OPTIONAL: stored when the user typed one, omitted otherwise, in
+    // which case groupDisplayName falls back to the members. It used to be dropped
+    // unconditionally, which meant a name typed on iOS was invisible here and iOS
+    // showed the raw group id for anything created here.
+    const trimmedName = (newGroupName || "").trim();
+    const newGroup = {
+      id: uid(),
+      ...(trimmedName ? { name: trimmedName } : {}),
+      memberIds,
+      createdBy: loggedInUser.id,
+      createdAt: new Date().toISOString(),
+    };
     const updated = [...(Array.isArray(groups) ? groups : []), newGroup];
     try {
       await saveGroups(updated, getToken, orgCode);
       setGroups(updated);
-      setNewGroupModal(false); setNewGroupPeople([]);
+      setNewGroupModal(false); setNewGroupPeople([]); setNewGroupName("");
       const participants = people.filter(p => memberIds.includes(p.id));
       const threadKey = `group:${newGroup.id}`;
-      setChatThread({ threadKey, title: groupTitle(memberIds), scope: "group", groupId: newGroup.id, participants });
+      // The group, not just its ids — otherwise a group you just NAMED opens with
+      // the member line as its header.
+      setChatThread({ threadKey, title: groupDisplayName(newGroup), scope: "group", groupId: newGroup.id, participants });
       markThreadRead(threadKey);
     } catch (e) {
       console.error("Failed to save group:", e);
@@ -8114,7 +8147,11 @@ ${jobsCtx || "No jobs found."}`;
       setGroups(updated);
       if (chatThread?.groupId === editGroupModal.groupId) {
         const participants = people.filter(p => editGroupModal.memberIds.includes(p.id));
-        setChatThread(ct => ({ ...ct, title: groupTitle(editGroupModal.memberIds), participants }));
+        // Retitle from the UPDATED group so a named group keeps its name. Passing
+        // the member ids alone overwrote the name with the member line whenever
+        // anyone edited the roster.
+        const g = updated.find(x => String(x.id) === String(editGroupModal.groupId));
+        setChatThread(ct => ({ ...ct, title: groupDisplayName(g), participants }));
       }
       setEditGroupModal(null);
     } catch (e) {
@@ -18823,7 +18860,7 @@ ${jobsCtx || "No jobs found."}`;
     // Group chip: a small stack of the (other) members' avatars.
     const groupChip = (g) => { const members = (g.memberIds || []).filter(id => String(id) !== String(loggedInUser?.id)).map(id => people.find(p => String(p.id) === String(id))).filter(Boolean); if (members.length <= 1) return avatarChip(members[0], 38); return <div style={{ position: "relative", width: 38, height: 38, flexShrink: 0 }}><div style={{ position: "absolute", right: 0, bottom: 0, borderRadius: "50%", border: `2px solid ${T.card}` }}>{avatarChip(members[1], 23)}</div><div style={{ position: "absolute", left: 0, top: 0, borderRadius: "50%", border: `2px solid ${T.card}` }}>{avatarChip(members[0], 23)}</div></div>; };
     const convoThreads = [
-      ...myGroups.map(g => { const tk = `group:${g.id}`; const latest = messages.filter(m => m.threadKey === tk).sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0]; return { kind: "group", threadKey: tk, title: groupTitle(g), latest, group: g }; }),
+      ...myGroups.map(g => { const tk = `group:${g.id}`; const latest = messages.filter(m => m.threadKey === tk).sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0]; return { kind: "group", threadKey: tk, title: groupDisplayName(g), latest, group: g }; }),
       ...dmThreads.map(t => { const otherId = String(t.threadKey).slice(3).split("_").find(id => String(id) !== String(loggedInUser?.id)); const person = people.find(p => String(p.id) === String(otherId)); return { kind: "dm", threadKey: t.threadKey, title: getThreadTitle(t.threadKey, "dm"), latest: t.latest, group: null, person }; }),
     ].sort((a, b) => {
       const ap = (a.kind === "group" ? pinnedGroups.includes(a.group.id) : pinnedThreads.includes(a.threadKey)) ? 0 : 1;
@@ -26236,19 +26273,39 @@ ${jobsCtx || "No jobs found."}`;
     {newGroupModal && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
       <div className="anim-modal" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: T.radiusHero, padding: 28, width: "100%", maxWidth: 420, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
         <h3 style={{ margin: "0 0 6px", fontSize: 18, fontWeight: 700, color: T.text }}>New Group</h3>
-        <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textDim }}>Pick who's in it — the group is named after its members</p>
+        <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textDim }}>Pick who's in it. Naming it is optional — left blank, it's titled after its members.</p>
+
+        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>
+          Name <span style={{ fontWeight: 500, color: T.textDim, textTransform: "none", letterSpacing: 0 }}>— optional</span>
+        </label>
+        {/* Placeholder previews the title this group gets if the field is left
+            empty, so "optional" doesn't read as "unnamed". */}
+        <input
+          value={newGroupName}
+          onChange={e => setNewGroupName(e.target.value)}
+          placeholder={newGroupPeople.length ? memberNamesLine([...newGroupPeople, loggedInUser?.id]) : "e.g. Electrical Team"}
+          style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", marginBottom: 20, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontFamily: T.font, fontSize: 14 }}
+        />
+
         <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>Members</label>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
+        {/* 3-up grid of square cards — photo over first name, selection carried by
+            the card. Three keeps the avatar readable and a full first name visible
+            while a whole roster still scans in a few rows. */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 20, maxHeight: 320, overflowY: "auto" }}>
           {people.map(p => {
             const sel = newGroupPeople.includes(p.id);
-            return <button key={p.id} onClick={() => setNewGroupPeople(prev => sel ? prev.filter(id => id !== p.id) : [...prev, p.id])} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 12px 6px 8px", borderRadius: T.radiusPill, border: `2px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
-              <PersonAvatar person={p} size={24} />
-              <span style={{ fontSize: 13, fontWeight: sel ? 600 : 400, color: sel ? T.accent : T.textSec }}>{p.name}</span>
+            return <button key={p.id} onClick={() => setNewGroupPeople(prev => sel ? prev.filter(id => id !== p.id) : [...prev, p.id])} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "14px 6px", borderRadius: T.radiusSm, border: `${sel ? 2 : 1}px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
+              <div style={{ position: "relative", lineHeight: 0 }}>
+                <PersonAvatar person={p} size={44} />
+                {sel && <span style={{ position: "absolute", right: -2, bottom: -2, width: 16, height: 16, borderRadius: "50%", background: T.accent, color: "#fff", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${T.card}` }}>✓</span>}
+              </div>
+              {/* First name only — a full name wraps and makes the cards uneven. */}
+              <span style={{ fontSize: 12, fontWeight: sel ? 700 : 500, color: sel ? T.accent : T.textSec, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{(p.name || "").split(" ")[0]}</span>
             </button>;
           })}
         </div>
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <Btn variant="ghost" onClick={() => { setNewGroupModal(false); setNewGroupPeople([]); }}>Cancel</Btn>
+          <Btn variant="ghost" onClick={() => { setNewGroupModal(false); setNewGroupPeople([]); setNewGroupName(""); }}>Cancel</Btn>
           <Btn onClick={saveNewGroup} disabled={!newGroupPeople.length || newGroupSaving}>{newGroupSaving ? "Creating…" : "Create Group"}</Btn>
         </div>
       </div>
