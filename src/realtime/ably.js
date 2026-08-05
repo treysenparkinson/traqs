@@ -93,6 +93,48 @@ export function subscribe(entity, cb) {
   return () => { try { ch.unsubscribe("changed", handler); } catch {} };
 }
 
+// ─── Typing indicators ───────────────────────────────────────────────────────
+//
+// These ride the `org-{orgCode}:presence` channel, which is the ONE channel
+// ably-token.js grants clients publish on (data channels are subscribe-only, since
+// real writes go through the Netlify functions). So typing goes client-to-client
+// with no function call and no per-keystroke server round trip.
+//
+// Deliberately ephemeral: nothing is stored anywhere. A receiver shows the
+// indicator on a timer and lets it lapse, so a sender that goes away mid-typing —
+// closed tab, dead connection — can't leave it stuck on.
+const TYPING_EVENT = "typing";
+
+function presenceChannel() {
+  if (!client || degraded || !orgCode) return null;
+  const name = `org-${orgCode}:presence`;
+  let ch = channels.get(name);
+  if (!ch) { ch = client.channels.get(name); channels.set(name, ch); }
+  return ch;
+}
+
+/// Announce that `personId` is typing in `threadKey`. Fire-and-forget: a failed
+/// publish must never interrupt composing.
+export function publishTyping({ threadKey, personId, name }) {
+  const ch = presenceChannel();
+  if (!ch || !threadKey || !personId) return;
+  try {
+    ch.publish(TYPING_EVENT, { threadKey, personId: String(personId), name: name || "" });
+  } catch (e) {
+    console.warn("[ably] typing publish failed:", e?.message || e);
+  }
+}
+
+/// Subscribe to typing events. `cb` receives { threadKey, personId, name }.
+/// Returns an unsubscribe function.
+export function subscribeTyping(cb) {
+  const ch = presenceChannel();
+  if (!ch) return () => {};
+  const handler = (msg) => { try { cb(msg?.data); } catch (e) { console.error("[ably] typing handler error:", e); } };
+  ch.subscribe(TYPING_EVENT, handler);
+  return () => { try { ch.unsubscribe(TYPING_EVENT, handler); } catch {} };
+}
+
 // Cleanly tear down on logout so the next login reconnects fresh.
 export function disconnect() {
   try { client?.close(); } catch {}

@@ -234,6 +234,10 @@ class AppState {
                                    onStatus: { [weak self] s in self?.setRealtimeStatus(s) },
                                    onTimeoff: { [weak self] in Task { await self?.refreshTimeOffRequests() } },
                                    onReads: { [weak self] in Task { await self?.refreshReadReceipts() } })
+            // Typing rides the presence channel, so it's wired after connect.
+            self.realtime.observeTyping { [weak self] threadKey, personId, name in
+                self?.noteTyping(threadKey: threadKey, personId: personId, name: name)
+            }
         }
 
         updateDegradedPoll()   // starts the fallback poll until Ably connects
@@ -834,6 +838,57 @@ class AppState {
             UserDefaults.standard.set(threadReadAt, forKey: readStateKey)
             recomputeUnread()
         }
+    }
+
+    // MARK: - Typing indicators
+    //
+    // Ephemeral, in-memory only. Each incoming event is a LEASE with a local
+    // timestamp; `typingNames(in:)` ignores anything past its TTL, so a sender who
+    // backgrounds the app or drops connection mid-word can't leave the indicator
+    // stuck on. There is deliberately no "stopped typing" event to be missed.
+    //
+    // TTL is comfortably longer than the publish interval so a continuous typist is
+    // always refreshed before their lease lapses — otherwise the indicator would
+    // blink out between keystrokes.
+    static let typingPublishInterval: TimeInterval = 2.2
+    static let typingTTL: TimeInterval = 5.0
+
+    private struct TypingLease { let name: String; let at: Date }
+    /// threadKey → personId → lease
+    private var typingLeases: [String: [String: TypingLease]] = [:]
+    /// Bumped on every typing event so views observing AppState re-render; the
+    /// lease dictionary itself is private, and @Observable can't see into it.
+    private(set) var typingTick: Int = 0
+    private var lastTypingPublish: Date = .distantPast
+
+    /// First names currently typing in `threadKey`, excluding me and expired leases.
+    func typingNames(in threadKey: String) -> [String] {
+        let cutoff = Date().addingTimeInterval(-Self.typingTTL)
+        return (typingLeases[threadKey] ?? [:])
+            .filter { $0.key != currentPersonId && $0.value.at > cutoff }
+            .values
+            .map(\.name)
+            .filter { !$0.isEmpty }
+            .sorted()
+    }
+
+    func noteTyping(threadKey: String, personId: String, name: String) {
+        guard personId != currentPersonId else { return }   // ignore my own echo
+        var byPerson = typingLeases[threadKey] ?? [:]
+        byPerson[personId] = TypingLease(name: name, at: Date())
+        typingLeases[threadKey] = byPerson
+        typingTick &+= 1
+    }
+
+    /// Announce that I'm typing, throttled so a fast typist emits a couple of
+    /// events per sentence rather than one per keystroke.
+    func publishTyping(threadKey: String) {
+        guard let myId = currentPersonId else { return }
+        let now = Date()
+        guard now.timeIntervalSince(lastTypingPublish) >= Self.typingPublishInterval else { return }
+        lastTypingPublish = now
+        let first = (currentPerson?.name ?? "").split(separator: " ").first.map(String.init) ?? ""
+        realtime.publishTyping(threadKey: threadKey, personId: myId, name: first)
     }
 
     /// Newest message timestamp in a thread, on the SERVER's clock.

@@ -153,9 +153,57 @@ final class RealtimeService {
         }
     }
 
+    // MARK: - Typing indicators
+    //
+    // These ride `org-{orgCode}:presence`, the ONE channel ably-token.js grants
+    // clients publish on (data channels are subscribe-only, because real writes go
+    // through the Netlify functions and publish server-side). So typing is
+    // client-to-client: no function call, no per-keystroke round trip.
+    //
+    // Deliberately ephemeral — nothing is persisted. A receiver holds each event as
+    // a short lease and lets it lapse, so a sender that disappears mid-word can't
+    // leave the indicator stuck on. There is no "stopped typing" signal to miss.
+    private static let typingEvent = "typing"
+    private var typingChannel: ARTRealtimeChannel?
+    private var onTyping: ((_ threadKey: String, _ personId: String, _ name: String) -> Void)?
+
+    /// Lazily join the presence channel. Safe to call repeatedly.
+    private func presenceChannel() -> ARTRealtimeChannel? {
+        guard let client, !degraded, !orgCode.isEmpty else { return nil }
+        if let typingChannel { return typingChannel }
+        let ch = client.channels.get("org-\(orgCode):presence")
+        typingChannel = ch
+        channels.append(ch)          // so disconnect() tears it down with the rest
+        return ch
+    }
+
+    /// Start receiving typing events. Replaces any previous handler.
+    func observeTyping(_ handler: @escaping (_ threadKey: String, _ personId: String, _ name: String) -> Void) {
+        onTyping = handler
+        guard let ch = presenceChannel() else { return }
+        ch.subscribe(Self.typingEvent) { [weak self] msg in
+            guard let d = msg.data as? [String: Any],
+                  let threadKey = d["threadKey"] as? String,
+                  let personId = d["personId"] as? String else { return }
+            let name = (d["name"] as? String) ?? ""
+            Task { @MainActor in self?.onTyping?(threadKey, personId, name) }
+        }
+    }
+
+    /// Announce that `personId` is typing in `threadKey`. Fire-and-forget — a failed
+    /// publish must never interrupt composing.
+    func publishTyping(threadKey: String, personId: String, name: String) {
+        guard let ch = presenceChannel() else { return }
+        ch.publish(Self.typingEvent, data: ["threadKey": threadKey,
+                                            "personId": personId,
+                                            "name": name])
+    }
+
     func disconnect() {
         for ch in channels { ch.unsubscribe() }
         channels.removeAll()
+        typingChannel = nil
+        onTyping = nil
         client?.close()
         client = nil
         orgCode = ""
