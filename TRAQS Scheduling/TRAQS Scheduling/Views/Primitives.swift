@@ -109,7 +109,11 @@ struct SBox<Content: View>: View {
         let highlight: Color? = amber ? Color(hex: T.amber)
             : (active ? Color(hex: T.accentGradientStart)
                       : (sky ? Color(hex: T.sky) : nil))
-        let f = fill ?? (amber ? Color(hex: T.amber).opacity(0.06) : Color(hex: T.surface))
+        // nil here means "no explicit fill" → real frosted glass, the default for
+        // every SBox (which is what the Jobs list is built from). An explicit
+        // `fill`, or the amber paused state, keeps its solid tint: those are
+        // deliberate state colours and shouldn't be diluted into the glass.
+        let f: Color? = fill ?? (amber ? Color(hex: T.amber).opacity(0.06) : nil)
         let s = stroke ?? Color(hex: T.hair)
 
         // Broken into typed sub-views/helpers so the type-checker stays fast.
@@ -118,7 +122,9 @@ struct SBox<Content: View>: View {
         // card previously paid an offscreen pass on appear (state is conveyed
         // by the stroke ring, not the shadow).
         return content()
-            .background(shape.fill(f))
+            .background {
+                if let f { shape.fill(f) } else { shape.glassFill() }
+            }
             .overlay { glowOverlay(shape) }
             .overlay { strokeOverlay(shape, hairline: s, highlight: highlight) }
     }
@@ -294,7 +300,10 @@ struct Bar: View {
     var fill: Color = Color(hex: T.sky)
     /// When set, the filled portion paints with this gradient instead of `fill`.
     var gradient: LinearGradient? = nil
-    var track: Color = Color(hex: T.hair)   // theme-aware; stays correct on dark bg presets
+    /// Unfilled remainder. `progressTrack`, not `T.hair`: both are theme-aware,
+    /// but this is a chart track rather than a border, and the border colour is
+    /// tuned to sit on a surface — not to read through frosted glass.
+    var track: Color = Color(hex: T.progressTrack)
 
     var body: some View {
         GeometryReader { geo in

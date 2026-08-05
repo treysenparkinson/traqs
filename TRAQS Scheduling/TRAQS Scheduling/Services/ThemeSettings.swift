@@ -14,6 +14,11 @@ struct BgPreset: Identifiable {
     let border: String
     let text: String
     let muted: String
+    /// Unfilled part of a progress ring or bar. Per-preset rather than one fixed
+    /// grey: on glass, a mid-grey track reads as a dirty smudge on a light
+    /// surface and disappears entirely on a dark one, so each preset names its
+    /// own — light and clean on light, dark on dark.
+    let track: String
     let isLight: Bool
 }
 
@@ -39,10 +44,10 @@ final class ThemeSettings {
     static let bgPresets: [BgPreset] = [
         BgPreset(id: 100, name: "White",
                  bg: "#F4F6FA", surface: "#FFFFFF", card: "#FFFFFF", border: "#E6E8EE",
-                 text: "#0B0B0C", muted: "#6E6E73", isLight: true),
+                 text: "#0B0B0C", muted: "#6E6E73", track: "#EFF1F7", isLight: true),
         BgPreset(id: 11,  name: "Charcoal",
                  bg: "#1F1F1F", surface: "#2A2A2A", card: "#333333", border: "#3F3F3F",
-                 text: "#E8E8E8", muted: "#9CA3AF", isLight: false),
+                 text: "#E8E8E8", muted: "#9CA3AF", track: "#3A3A3D", isLight: false),
     ]
 
     static let defaultBgPresetId: Int = 100
@@ -174,6 +179,7 @@ final class ThemeSettings {
     private func applyBgToT(_ p: BgPreset) {
         T.bg = p.bg; T.surface = p.surface; T.card = p.card; T.border = p.border
         T.text = p.text; T.muted = p.muted
+        T.progressTrack = p.track
     }
 
     /// Derive a gradient end-stop from the chosen accent: KEEP the hue (no
