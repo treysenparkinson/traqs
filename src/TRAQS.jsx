@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, UL_LOGO_WHITE } from "./logo.js";
-import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme } from "./push.js";
+import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme, setActiveThread } from "./push.js";
 import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice } from "./db/sync.js";
@@ -5455,6 +5455,18 @@ Extraction rules:
   }, [quickChat?.threadKey, messages.length]);
   // Clear pending attachments when switching threads
   useEffect(() => { setChatAttachments([]); }, [chatThread?.threadKey]);
+
+  // Tell the service worker which thread is on screen so it can skip a desktop
+  // toast for a conversation already being read. Re-sent on an interval because
+  // the worker expires the value — a heartbeat that stops (tab closed, navigated
+  // away) must let notifications resume rather than silence them for good.
+  useEffect(() => {
+    const open = view === "messages" ? (chatThread?.threadKey || null) : null;
+    setActiveThread(open);
+    if (!open) return;
+    const id = setInterval(() => setActiveThread(open), 25000);
+    return () => { clearInterval(id); setActiveThread(null); };
+  }, [view, chatThread?.threadKey]);
   // While a thread is open in the Messages view, advance my server-side read
   // cursor to its newest message so the sender sees "Read". Deduped per-thread
   // on the newest timestamp so we don't POST on every poll/re-render. The
