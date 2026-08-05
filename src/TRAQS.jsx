@@ -5124,7 +5124,7 @@ Extraction rules:
   // Optional — blank means the group is titled after its members.
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupSaving, setNewGroupSaving] = useState(false);
-  const [editGroupModal, setEditGroupModal] = useState(null); // { groupId, memberIds }
+  const [editGroupModal, setEditGroupModal] = useState(null); // { groupId, memberIds, name }
   const [editJobModal, setEditJobModal] = useState(null);
   const [editDrag, setEditDrag] = useState(null); // drag-and-drop state for edit-job hierarchy: { kind:"panel"|"op", panelIdx, opIdx } source / over
   const [editAddedIds, setEditAddedIds] = useState(() => new Set()); // ids added during current edit session — drives "New" badge
@@ -8138,10 +8138,16 @@ ${jobsCtx || "No jobs found."}`;
 
   async function saveEditGroup() {
     if (!editGroupModal || !editGroupModal.memberIds.length) return;
-    const updated = groups.map(g => g.id === editGroupModal.groupId
-      ? { ...g, memberIds: editGroupModal.memberIds }
-      : g
-    );
+    // A cleared name has to DELETE the key, not store "". Keeping an empty string
+    // would leave the group technically named, and groupDisplayName trims before
+    // testing — but iOS dedupes new groups by exact name, so a stored "" is a trap
+    // worth not setting.
+    const editedName = (editGroupModal.name || "").trim();
+    const updated = groups.map(g => {
+      if (g.id !== editGroupModal.groupId) return g;
+      const { name: _drop, ...rest } = g;
+      return { ...rest, memberIds: editGroupModal.memberIds, ...(editedName ? { name: editedName } : {}) };
+    });
     try {
       await saveGroups(updated, getToken, orgCode);
       setGroups(updated);
@@ -25327,7 +25333,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
           <CtxMenuItem icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>} label="Edit Group" sub="Add or remove members" onClick={() => {
             const g = groups.find(g => g.id === groupCtxMenu.groupId);
-            if (g) setEditGroupModal({ groupId: g.id, memberIds: g.memberIds || [] });
+            if (g) setEditGroupModal({ groupId: g.id, memberIds: g.memberIds || [], name: g.name || "" });
             setGroupCtxMenu(null);
           }} animIdx={1} />
         </>}
@@ -26273,7 +26279,7 @@ ${jobsCtx || "No jobs found."}`;
     {newGroupModal && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
       <div className="anim-modal" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: T.radiusHero, padding: 28, width: "100%", maxWidth: 420, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
         <h3 style={{ margin: "0 0 6px", fontSize: 18, fontWeight: 700, color: T.text }}>New Group</h3>
-        <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textDim }}>Pick who's in it. Naming it is optional — left blank, it's titled after its members.</p>
+        <p style={{ margin: "0 0 22px", fontSize: 13, color: T.textDim }}>Pick who else is in it — you're included automatically. Naming it is optional; left blank, it's titled after its members.</p>
 
         <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>
           Name <span style={{ fontWeight: 500, color: T.textDim, textTransform: "none", letterSpacing: 0 }}>— optional</span>
@@ -26287,14 +26293,18 @@ ${jobsCtx || "No jobs found."}`;
           style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", marginBottom: 20, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontFamily: T.font, fontSize: 14 }}
         />
 
-        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>Members</label>
+        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 12 }}>Members</label>
         {/* 3-up grid of square cards — photo over first name, selection carried by
             the card. Three keeps the avatar readable and a full first name visible
-            while a whole roster still scans in a few rows. */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 20, maxHeight: 320, overflowY: "auto" }}>
-          {people.map(p => {
+            while a whole roster still scans in a few rows.
+            The padding inside the scroll box is load-bearing: a selected card's
+            glow is drawn OUTSIDE its border box, so with the grid flush against an
+            overflow:auto container the glow on the edge rows was clipped off.
+            Yourself is excluded — saveNewGroup adds you regardless. */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 22, maxHeight: 330, overflowY: "auto", padding: 6 }}>
+          {people.filter(p => String(p.id) !== String(loggedInUser?.id)).map(p => {
             const sel = newGroupPeople.includes(p.id);
-            return <button key={p.id} onClick={() => setNewGroupPeople(prev => sel ? prev.filter(id => id !== p.id) : [...prev, p.id])} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "14px 6px", borderRadius: T.radiusSm, border: `${sel ? 2 : 1}px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
+            return <button key={p.id} onClick={() => setNewGroupPeople(prev => sel ? prev.filter(id => id !== p.id) : [...prev, p.id])} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "14px 6px", borderRadius: T.radiusSm, border: `${sel ? 2 : 1}px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", boxShadow: sel ? `0 0 0 4px ${T.accent}22, 0 4px 14px ${T.accent}33` : "none", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
               <div style={{ position: "relative", lineHeight: 0 }}>
                 <PersonAvatar person={p} size={44} />
                 {sel && <span style={{ position: "absolute", right: -2, bottom: -2, width: 16, height: 16, borderRadius: "50%", background: T.accent, color: "#fff", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${T.card}` }}>✓</span>}
@@ -26318,14 +26328,31 @@ ${jobsCtx || "No jobs found."}`;
           <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Edit Group</h3>
           <button onClick={() => setEditGroupModal(null)} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 22, cursor: "pointer", padding: 4, lineHeight: 1 }}>✕</button>
         </div>
-        <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textDim }}>Add or remove members — the group is named after them</p>
-        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>Members</label>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 24 }}>
-          {people.map(p => {
+        <p style={{ margin: "0 0 22px", fontSize: 13, color: T.textDim }}>Rename it, or add and remove members. Clear the name to go back to titling it after its members.</p>
+
+        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 12 }}>
+          Name <span style={{ fontWeight: 500, color: T.textDim, textTransform: "none", letterSpacing: 0 }}>— optional</span>
+        </label>
+        <input
+          value={editGroupModal.name}
+          onChange={e => setEditGroupModal(prev => ({ ...prev, name: e.target.value }))}
+          placeholder={memberNamesLine(editGroupModal.memberIds)}
+          style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", marginBottom: 22, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.bg, color: T.text, fontFamily: T.font, fontSize: 14 }}
+        />
+
+        <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 12 }}>Members</label>
+        {/* Same 3-up card grid as New Group, including the inner padding that keeps
+            a selected card's glow from being clipped by the scroll box. Yourself is
+            excluded: saveEditGroup keeps you a member regardless. */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 24, maxHeight: 330, overflowY: "auto", padding: 6 }}>
+          {people.filter(p => String(p.id) !== String(loggedInUser?.id)).map(p => {
             const sel = editGroupModal.memberIds.includes(p.id);
-            return <button key={p.id} onClick={() => setEditGroupModal(prev => ({ ...prev, memberIds: sel ? prev.memberIds.filter(id => id !== p.id) : [...prev.memberIds, p.id] }))} style={{ display: "flex", alignItems: "center", gap: 7, padding: "6px 12px 6px 8px", borderRadius: T.radiusPill, border: `2px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
-              <PersonAvatar person={p} size={24} />
-              <span style={{ fontSize: 13, fontWeight: sel ? 600 : 400, color: sel ? T.accent : T.textSec }}>{p.name}</span>
+            return <button key={p.id} onClick={() => setEditGroupModal(prev => ({ ...prev, memberIds: sel ? prev.memberIds.filter(id => id !== p.id) : [...prev.memberIds, p.id] }))} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "14px 6px", borderRadius: T.radiusSm, border: `${sel ? 2 : 1}px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", boxShadow: sel ? `0 0 0 4px ${T.accent}22, 0 4px 14px ${T.accent}33` : "none", cursor: "pointer", fontFamily: T.font, transition: "all 0.15s" }}>
+              <div style={{ position: "relative", lineHeight: 0 }}>
+                <PersonAvatar person={p} size={44} />
+                {sel && <span style={{ position: "absolute", right: -2, bottom: -2, width: 16, height: 16, borderRadius: "50%", background: T.accent, color: "#fff", fontSize: 10, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", border: `2px solid ${T.card}` }}>✓</span>}
+              </div>
+              <span style={{ fontSize: 12, fontWeight: sel ? 700 : 500, color: sel ? T.accent : T.textSec, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" }}>{(p.name || "").split(" ")[0]}</span>
             </button>;
           })}
         </div>
