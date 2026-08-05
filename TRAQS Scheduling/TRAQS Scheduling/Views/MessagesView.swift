@@ -1215,12 +1215,23 @@ struct ThreadDetailView: View {
         // its ▾ is tapped. Rendered here in the main window; toggled via the
         // shared appState.showThreadMembers flag from the overlay header.
         .overlay { peoplePopoverOverlay }
+        // A group thread gets the full Edit Group sheet — rename, add AND remove.
+        // Anything else (a DM spinning up a group) keeps the add-only picker, since
+        // there's no group to edit yet.
         .sheet(isPresented: $showAddPeople) {
-            AddPeopleSheet(excludedIds: Set(threadParticipants.map { $0.id })) { ids in
-                addPeople(ids)
+            if let group = editableGroup {
+                EditGroupSheet(group: group) { name, memberIds in
+                    Task { await appState.updateGroup(id: group.id, name: name, memberIds: memberIds) }
+                }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+            } else {
+                AddPeopleSheet(excludedIds: Set(threadParticipants.map { $0.id })) { ids in
+                    addPeople(ids)
+                }
+                .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
             }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
         }
         .toolbar(.hidden, for: .navigationBar)
         // Hand the current thread to the overlay header window; clear it on exit
@@ -1304,7 +1315,7 @@ struct ThreadDetailView: View {
                     }
                     // Add-person pill sits below the roster (reveals last).
                     if canAddPeople {
-                        AddPersonPill { showAddPeople = true }
+                        AddPersonPill(isGroup: editableGroup != nil) { showAddPeople = true }
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                             .animation(.spring(response: 0.32, dampingFraction: 0.74)
                                         .delay(Double(people.count) * 0.05), value: appState.showThreadMembers)
@@ -1329,24 +1340,28 @@ struct ThreadDetailView: View {
         threadKey.hasPrefix("group:") || threadKey.hasPrefix("dm:")
     }
 
+    /// The group this thread IS, when it's a group thread and the group has loaded.
+    /// Drives Edit Group vs the add-only picker.
+    private var editableGroup: ChatGroup? {
+        guard threadKey.hasPrefix("group:") else { return nil }
+        let ref = String(threadKey.dropFirst(6))
+        return appState.groups.first(where: { $0.id == ref || $0.name == ref })
+    }
+
     /// Add the picked people. Group → append + persist. DM → spin up a group
     /// from the pair + picks and open it (the original DM stays intact).
+    /// DM only. A group thread goes through EditGroupSheet instead, which SETS the
+    /// roster (so it can remove people) and can rename — hence no group branch here.
     private func addPeople(_ ids: [String]) {
-        guard !ids.isEmpty else { return }
+        guard !ids.isEmpty, threadKey.hasPrefix("dm:") else { return }
         withAnimation(.spring(response: 0.34, dampingFraction: 0.8)) { appState.showThreadMembers = false }
-        if threadKey.hasPrefix("group:") {
-            // The group's ID — thread keys are keyed by id, not name.
-            let ref = String(threadKey.dropFirst(6))
-            Task { await appState.addGroupMembers(groupRef: ref, add: ids) }
-        } else if threadKey.hasPrefix("dm:") {
-            let members = Array(Set(threadParticipants.map { $0.id }).union(ids))
-            Task {
-                // Unnamed on purpose: the title then derives from whoever is in it,
-                // so it stays right as people are added. Storing a snapshot of the
-                // names here would freeze the old roster into the title.
-                guard let g = await appState.createGroup(name: "", memberIds: members) else { return }
-                await MainActor.run { onOpenThread("group:\(g.id)") }
-            }
+        let members = Array(Set(threadParticipants.map { $0.id }).union(ids))
+        Task {
+            // Unnamed on purpose: the title then derives from whoever is in it, so
+            // it stays right as people are added. Storing a snapshot of the names
+            // here would freeze the old roster into the title.
+            guard let g = await appState.createGroup(name: "", memberIds: members) else { return }
+            await MainActor.run { onOpenThread("group:\(g.id)") }
         }
     }
 
@@ -2429,12 +2444,15 @@ private struct PersonPill: View {
 
 /// The "Add person" action pill below the roster — gradient, to stand out.
 private struct AddPersonPill: View {
+    /// A group thread opens Edit Group (rename + add/remove), so the pill can't
+    /// just say "Add person" there — it would undersell what the sheet does.
+    var isGroup: Bool = false
     let action: () -> Void
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
-                Image(systemName: "plus").font(.system(size: 14, weight: .bold))
-                Text("Add person").font(TTypo.smBold(14))
+                Image(systemName: isGroup ? "pencil" : "plus").font(.system(size: 14, weight: .bold))
+                Text(isGroup ? "Edit group" : "Add person").font(TTypo.smBold(14))
             }
             .foregroundStyle(T.onGradient)
             .padding(.horizontal, 18)
@@ -2452,6 +2470,193 @@ private struct AddPersonPill: View {
 /// Presented from the header popover's "Add person" pill. Lists all workers
 /// not already in the thread, with a search bar and multi-select; "Add" (top
 /// right) hands the picked ids back to the caller.
+// MARK: - Member picker grid
+//
+// The 3-up grid of square person cards shared by New Group and Edit Group, so the
+// two can't drift apart. Three per row keeps the photo readable and a full first
+// name visible while a whole roster still scans in a few rows.
+//
+// The caller decides who's listed — neither sheet lists the viewer, because both
+// save paths keep them a member regardless, so selecting yourself did nothing.
+struct MemberPickerGrid: View {
+    let people: [Person]
+    @Binding var selectedIds: Set<String>
+
+    var body: some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3),
+                  spacing: 10) {
+            ForEach(people) { person in
+                card(person)
+            }
+        }
+    }
+
+    /// Profile photo (initials when there's none) over the first name, with
+    /// selection carried by the card itself rather than a separate checkmark row.
+    @ViewBuilder
+    private func card(_ person: Person) -> some View {
+        let selected = selectedIds.contains(person.id)
+        Button {
+            if selected { selectedIds.remove(person.id) } else { selectedIds.insert(person.id) }
+        } label: {
+            VStack(spacing: 8) {
+                Avatar(initials: MemberPickerGrid.initials(person),
+                       size: 46,
+                       fill: .personFill(person.color),
+                       imageData: person.image)
+                    .overlay(alignment: .bottomTrailing) {
+                        if selected {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 16))
+                                .foregroundStyle(Color(hex: T.accent), Color(hex: T.surface))
+                                .offset(x: 3, y: 3)
+                        }
+                    }
+
+                // First name only — a full name wraps at this width and leaves the
+                // cards uneven heights.
+                Text(person.name.split(separator: " ").first.map(String.init) ?? person.name)
+                    .font(.caption.bold())
+                    .foregroundColor(Color(hex: selected ? T.accent : T.text))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .padding(.horizontal, 6)
+            .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous)
+                .fill(selected ? Color(hex: T.accent).opacity(0.12) : Color.clear))
+            .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous)
+                .strokeBorder(selected ? Color(hex: T.accent) : Color(hex: T.border),
+                              lineWidth: selected ? 2 : 1))
+            .contentShape(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    static func initials(_ p: Person) -> String {
+        let parts = p.name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
+        let j = parts.joined()
+        return j.isEmpty ? "?" : j
+    }
+}
+
+// MARK: - Edit Group Sheet
+//
+// iOS parity with the web's Edit Group modal: rename the group and add OR REMOVE
+// members. Group threads previously only had AddPeopleSheet, which could add and
+// nothing else — no rename, no removal.
+struct EditGroupSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+
+    let group: ChatGroup
+    /// (name, memberIds) — name may be empty, meaning "title it after its members".
+    let onSave: (String, [String]) -> Void
+
+    @State private var name: String
+    @State private var selectedIds: Set<String>
+
+    init(group: ChatGroup, onSave: @escaping (String, [String]) -> Void) {
+        self.group = group
+        self.onSave = onSave
+        _name = State(initialValue: group.name)
+        _selectedIds = State(initialValue: Set(group.memberIds))
+    }
+
+    private var others: [Person] {
+        appState.people.filter { $0.id != appState.currentPersonId }
+    }
+
+    /// Live preview of the title this group falls back to with the name cleared.
+    private var namePlaceholder: String {
+        ChatGroup.memberNamesLine(memberIds: Array(selectedIds),
+                                  people: appState.people,
+                                  myId: appState.currentPersonId)
+    }
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                PageBackground()
+
+                ScrollView {
+                    VStack(spacing: 24) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack(spacing: 6) {
+                                Text("Group Name")
+                                    .font(.caption.bold())
+                                    .foregroundColor(Color(hex: T.muted))
+                                Text("OPTIONAL")
+                                    .font(.caption2.bold())
+                                    .foregroundColor(Color(hex: T.muted).opacity(0.7))
+                            }
+                            .padding(.horizontal, 16)
+
+                            TextField(namePlaceholder, text: $name)
+                                .textFieldStyle(.plain)
+                                .foregroundColor(Color(hex: T.text))
+                                .padding(12)
+                                .background(RoundedRectangle(cornerRadius: 10).glassFill())
+                                .overlay(RoundedRectangle(cornerRadius: 10)
+                                    .stroke(Color(hex: T.border), lineWidth: 1))
+                                .padding(.horizontal, 16)
+
+                            Text("Clear it to go back to naming the group after its members.")
+                                .font(TTypo.xs(11))
+                                .foregroundColor(Color(hex: T.muted))
+                                .padding(.horizontal, 16)
+                        }
+                        .padding(.top, 12)
+
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Members")
+                                .font(.caption.bold())
+                                .foregroundColor(Color(hex: T.muted))
+                                .padding(.horizontal, 16)
+
+                            MemberPickerGrid(people: others, selectedIds: $selectedIds)
+                                .padding(.horizontal, 16)
+                        }
+
+                        Button {
+                            guard !selectedIds.isEmpty else { return }
+                            // The viewer stays a member whether or not they're in
+                            // selectedIds — they're never listed in the grid.
+                            var members = Array(selectedIds)
+                            if let me = appState.currentPersonId, !members.contains(me) {
+                                members.insert(me, at: 0)
+                            }
+                            dismiss()
+                            onSave(name.trimmingCharacters(in: .whitespaces), members)
+                        } label: {
+                            Text("Save Changes")
+                                .fontWeight(.semibold)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(selectedIds.isEmpty ? Color(hex: T.border) : Color(hex: T.accent))
+                                .foregroundColor(T.onAccent)
+                                .cornerRadius(12)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(selectedIds.isEmpty)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 24)
+                    }
+                }
+            }
+            .navigationTitle("Edit Group")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                        .foregroundColor(Color(hex: T.accent))
+                }
+            }
+        }
+    }
+}
+
 struct AddPeopleSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss
@@ -2638,17 +2843,8 @@ struct NewGroupSheet: View {
                                 .foregroundColor(Color(hex: T.muted))
                                 .padding(.horizontal, 16)
 
-                            // 3-up grid of square cards. Three keeps the avatar
-                            // readable and a full first name visible while a whole
-                            // roster still scans in a few rows.
-                            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10),
-                                                     count: 3),
-                                      spacing: 10) {
-                                ForEach(others) { person in
-                                    memberCard(person)
-                                }
-                            }
-                            .padding(.horizontal, 16)
+                            MemberPickerGrid(people: others, selectedIds: $selectedIds)
+                                .padding(.horizontal, 16)
                         }
 
                         Button {
@@ -2695,55 +2891,6 @@ struct NewGroupSheet: View {
         }
     }
 
-    /// One selectable person as a square card — profile photo (initials when
-    /// there's none) over their first name, with selection carried by the card
-    /// itself rather than a separate checkmark.
-    @ViewBuilder
-    private func memberCard(_ person: Person) -> some View {
-        let selected = selectedIds.contains(person.id)
-        Button {
-            if selected { selectedIds.remove(person.id) } else { selectedIds.insert(person.id) }
-        } label: {
-            VStack(spacing: 8) {
-                Avatar(initials: initials(person),
-                       size: 46,
-                       fill: .personFill(person.color),
-                       imageData: person.image)
-                    .overlay(alignment: .bottomTrailing) {
-                        if selected {
-                            Image(systemName: "checkmark.circle.fill")
-                                .font(.system(size: 16))
-                                .foregroundStyle(Color(hex: T.accent), Color(hex: T.surface))
-                                .offset(x: 3, y: 3)
-                        }
-                    }
-
-                // First name only — a full name wraps to two lines at this width
-                // and makes the cards different heights.
-                Text(person.name.split(separator: " ").first.map(String.init) ?? person.name)
-                    .font(.caption.bold())
-                    .foregroundColor(Color(hex: selected ? T.accent : T.text))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .padding(.horizontal, 6)
-            .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous)
-                .fill(selected ? Color(hex: T.accent).opacity(0.12) : Color.clear))
-            .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous)
-                .strokeBorder(selected ? Color(hex: T.accent) : Color(hex: T.border),
-                              lineWidth: selected ? 2 : 1))
-            .contentShape(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func initials(_ p: Person) -> String {
-        let parts = p.name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
-        let j = parts.joined()
-        return j.isEmpty ? "?" : j
-    }
 }
 
 // MARK: - New DM Sheet

@@ -1477,6 +1477,27 @@ class AppState {
     /// the thread's participant list reflects it immediately; the server save
     /// runs in the background. No-op if the group is missing or everyone named
     /// is already a member.
+    /// Rename a group and/or replace its roster. `name` may be empty, which means
+    /// "title it after its members" (see `ChatGroup.displayName`) — clearing the
+    /// field is a supported edit, not a no-op.
+    ///
+    /// Unlike `addGroupMembers` this SETS the roster, so it can remove people too.
+    /// Optimistic local update; the server save runs after.
+    func updateGroup(id: String, name: String, memberIds: [String]) async {
+        guard let api else { return }
+        guard let idx = groups.firstIndex(where: { $0.id == id }) else { return }
+        guard !memberIds.isEmpty else { return }   // a group with nobody in it isn't one
+        var updated = groups
+        updated[idx].name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated[idx].memberIds = memberIds
+        groups = updated
+        do {
+            try await api.saveGroups(updated)
+        } catch {
+            errorMessage = "Failed to update group: \(error.localizedDescription)"
+        }
+    }
+
     /// `groupRef` is an id OR a name. Callers with a thread key pass the id (thread
     /// keys are keyed by id); the "Completion Requests" system group is looked up
     /// by its well-known name. Named `groupRef` rather than `groupName` because a
