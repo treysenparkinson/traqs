@@ -23888,7 +23888,9 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         <div style={{ fontSize: 12, color: T.textDim, marginBottom: 18 }}>Pick the time this should take effect.</div>
         <DateField withTime value={clockTimeModal.ts} onChange={v => setClockTimeModal(m => ({ ...m, ts: v }))} />
-        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        {/* Cancel and a destructive confirm shouldn't sit 8px apart — that's close
+            enough to mis-tap. Also spaced off the date field above it. */}
+        <div style={{ display: "flex", gap: 14, justifyContent: "flex-end", marginTop: 18 }}>
           <button onClick={() => setClockTimeModal(null)} style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
           <button onClick={async () => {
             const { personId, action, ts } = clockTimeModal;
