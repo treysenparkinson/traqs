@@ -52,7 +52,9 @@ struct TRAQS_SchedulingApp: App {
                     // Register the notification-tap listener once. OneSignal
                     // replays a cold-start tap as soon as this is added, so a
                     // push that launched the app still deep-links correctly.
-                    appNav.registerPushHandlers()
+                    // The provider lets the foreground listener suppress a push for
+                    // the thread already on screen.
+                    appNav.registerPushHandlers(activeThreadKey: { appState.activeMessageThread?.id })
                 }
                 .onChange(of: appState.currentPersonId, initial: true) { _, personId in
                     // `initial: true` is critical — without it, this only

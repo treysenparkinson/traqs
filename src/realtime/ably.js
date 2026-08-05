@@ -78,6 +78,9 @@ export async function connect(ctx) {
     }
   });
 
+  // Any typing handlers registered before the client existed attach now.
+  attachTyping();
+
   return client;
 }
 
@@ -105,12 +108,35 @@ export function subscribe(entity, cb) {
 // closed tab, dead connection — can't leave it stuck on.
 const TYPING_EVENT = "typing";
 
+// Handlers are registered independently of the connection, and the channel
+// subscription is attached whenever the client exists. This split is load-bearing:
+// connect() is async and assigns `client` partway through, while callers subscribe
+// as soon as they know the orgCode — which is earlier. Attaching directly in
+// subscribeTyping() therefore found no client, returned a no-op, and never retried,
+// so typing silently never worked.
+const typingHandlers = new Set();
+let typingAttached = false;
+
 function presenceChannel() {
   if (!client || degraded || !orgCode) return null;
   const name = `org-${orgCode}:presence`;
   let ch = channels.get(name);
   if (!ch) { ch = client.channels.get(name); channels.set(name, ch); }
   return ch;
+}
+
+// One channel subscription fanning out to every handler. Called from connect() and
+// from subscribeTyping(), whichever happens second.
+function attachTyping() {
+  if (typingAttached) return;
+  const ch = presenceChannel();
+  if (!ch) return;
+  typingAttached = true;
+  ch.subscribe(TYPING_EVENT, (msg) => {
+    for (const cb of typingHandlers) {
+      try { cb(msg?.data); } catch (e) { console.error("[ably] typing handler error:", e); }
+    }
+  });
 }
 
 /// Announce that `personId` is typing in `threadKey`. Fire-and-forget: a failed
@@ -126,13 +152,12 @@ export function publishTyping({ threadKey, personId, name }) {
 }
 
 /// Subscribe to typing events. `cb` receives { threadKey, personId, name }.
-/// Returns an unsubscribe function.
+/// Safe to call BEFORE connect() — the handler is held and attached once the
+/// client exists. Returns an unsubscribe function.
 export function subscribeTyping(cb) {
-  const ch = presenceChannel();
-  if (!ch) return () => {};
-  const handler = (msg) => { try { cb(msg?.data); } catch (e) { console.error("[ably] typing handler error:", e); } };
-  ch.subscribe(TYPING_EVENT, handler);
-  return () => { try { ch.unsubscribe(TYPING_EVENT, handler); } catch {} };
+  typingHandlers.add(cb);
+  attachTyping();                       // no-op until the client exists
+  return () => { typingHandlers.delete(cb); };
 }
 
 // Cleanly tear down on logout so the next login reconnects fresh.
@@ -142,4 +167,5 @@ export function disconnect() {
   orgCode = null;
   degraded = false;
   channels.clear();
+  typingAttached = false;   // next connect() must re-attach the presence subscription
 }

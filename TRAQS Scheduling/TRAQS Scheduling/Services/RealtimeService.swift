@@ -151,6 +151,9 @@ final class RealtimeService {
         readsChannel.subscribe("changed") { [weak self] _ in
             Task { @MainActor in self?.onReads?() }
         }
+
+        // A typing handler registered before the client existed attaches now.
+        attachTyping()
     }
 
     // MARK: - Typing indicators
@@ -165,6 +168,7 @@ final class RealtimeService {
     // leave the indicator stuck on. There is no "stopped typing" signal to miss.
     private static let typingEvent = "typing"
     private var typingChannel: ARTRealtimeChannel?
+    private var typingAttached = false
     private var onTyping: ((_ threadKey: String, _ personId: String, _ name: String) -> Void)?
 
     /// Lazily join the presence channel. Safe to call repeatedly.
@@ -177,10 +181,22 @@ final class RealtimeService {
         return ch
     }
 
-    /// Start receiving typing events. Replaces any previous handler.
+    /// Register the typing handler. Safe to call BEFORE connect() — the handler is
+    /// held and the channel subscription attaches once the client exists.
+    ///
+    /// Registration is split from attachment deliberately: subscribing directly here
+    /// found no client whenever this ran before connect() finished, returned without
+    /// subscribing, and never retried — so typing silently never arrived.
     func observeTyping(_ handler: @escaping (_ threadKey: String, _ personId: String, _ name: String) -> Void) {
         onTyping = handler
-        guard let ch = presenceChannel() else { return }
+        attachTyping()
+    }
+
+    /// Subscribe the presence channel once. Called from `observeTyping` and from the
+    /// end of `connect`, whichever happens second.
+    private func attachTyping() {
+        guard !typingAttached, onTyping != nil, let ch = presenceChannel() else { return }
+        typingAttached = true
         ch.subscribe(Self.typingEvent) { [weak self] msg in
             guard let d = msg.data as? [String: Any],
                   let threadKey = d["threadKey"] as? String,
@@ -203,6 +219,7 @@ final class RealtimeService {
         for ch in channels { ch.unsubscribe() }
         channels.removeAll()
         typingChannel = nil
+        typingAttached = false   // next connect() must re-attach
         onTyping = nil
         client?.close()
         client = nil

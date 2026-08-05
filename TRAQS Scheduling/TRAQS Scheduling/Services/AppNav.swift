@@ -116,14 +116,47 @@ final class AppNav {
     // (v5) caches a cold-start click and replays it the instant a listener is
     // added, so this also covers "tapped while the app was killed".
     private var clickHandler: PushClickHandler?
+    /// Held so OneSignal's listener isn't deallocated (it holds only a weak ref).
+    private var foregroundHandler: PushForegroundHandler?
 
-    func registerPushHandlers() {
+    /// - Parameter activeThreadKey: the thread the user is currently reading, if
+    ///   any. Used to suppress a push for a conversation that's already on screen.
+    func registerPushHandlers(activeThreadKey: @escaping () -> String? = { nil }) {
         guard clickHandler == nil else { return }
         let handler = PushClickHandler { [weak self] data in
             self?.handleNotification(data)
         }
         clickHandler = handler
         OneSignal.Notifications.addClickListener(handler)
+
+        // Only a CLICK listener was registered before, so nothing stood between an
+        // incoming push and the banner while the app was open — a message push
+        // interrupted you in the very thread you were reading it in.
+        let foreground = PushForegroundHandler(activeThreadKey: activeThreadKey)
+        foregroundHandler = foreground
+        OneSignal.Notifications.addForegroundLifecycleListener(foreground)
+    }
+}
+
+/// Suppresses the banner for a message push whose thread is already open.
+///
+/// Foreground-only by construction: this listener is never invoked when the app is
+/// backgrounded, so a push you genuinely need still arrives. It also only ever
+/// suppresses when the thread keys MATCH — a push for any other conversation
+/// displays normally, even while you're reading a different one.
+final class PushForegroundHandler: NSObject, OSNotificationLifecycleListener {
+    private let activeThreadKey: () -> String?
+    init(activeThreadKey: @escaping () -> String?) { self.activeThreadKey = activeThreadKey }
+
+    func onWillDisplay(event: OSNotificationWillDisplayEvent) {
+        let data = event.notification.additionalData ?? [:]
+        guard let pushThread = data["threadKey"] as? String else { return }   // not a message push
+        // activeThreadKey reads @MainActor state; hop, decide, and preventDefault
+        // synchronously is not possible from a hop, so read it via the closure the
+        // caller supplied (it captures MainActor-isolated state and is only ever
+        // invoked from here, where OneSignal calls us on the main queue).
+        guard let open = activeThreadKey(), open == pushThread else { return }
+        event.preventDefault()
     }
 }
 
