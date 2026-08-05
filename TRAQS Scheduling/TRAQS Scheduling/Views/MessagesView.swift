@@ -2965,6 +2965,9 @@ struct NewMessageSheet: View {
     @State private var query = ""
     /// Optional, and only meaningful once this is a group — one recipient is a DM.
     @State private var groupName = ""
+    /// Search starts collapsed to a circle once there's a group name to show.
+    @State private var searchOpen = false
+    @FocusState private var searchFocused: Bool
 
     private var others: [Person] {
         let base = appState.people.filter { $0.id != appState.currentPersonId }
@@ -2980,6 +2983,76 @@ struct NewMessageSheet: View {
         ChatGroup.memberNamesLine(memberIds: Array(selectedIds),
                                   people: appState.people,
                                   myId: appState.currentPersonId)
+    }
+
+    /// Whether the name field owns the top row, with search demoted to a circle.
+    ///
+    /// Requires a group to name, search not open (two side-by-side text fields in
+    /// one row is too tight to type in), AND an empty query — with a query live the
+    /// grid is filtered, and collapsing the box that explains why would leave
+    /// people looking like they'd vanished.
+    private var nameHasTheRow: Bool {
+        isGroup && !searchOpen && query.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+
+    /// Circular search button — expands into the full-width field.
+    private var searchCircle: some View {
+        Button {
+            searchOpen = true
+            searchFocused = true
+        } label: {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color(hex: T.ink))
+                .frame(width: 44, height: 44)
+                .background(Circle().fill(Color(hex: T.surface)))
+                .overlay(Circle().strokeBorder(Color(hex: T.hair), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Full-width search field. Carries a collapse button only when there's a name
+    /// pill to collapse BACK to — otherwise it's the row's only occupant.
+    private var searchPill: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color(hex: T.muted))
+            TextField("Search people", text: $query)
+                .textFieldStyle(.plain)
+                .font(TTypo.sm(14))
+                .foregroundStyle(Color(hex: T.ink))
+                .focused($searchFocused)
+            if isGroup {
+                Button {
+                    query = ""
+                    searchOpen = false
+                    searchFocused = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(Color(hex: T.muted))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .background(Capsule(style: .continuous).fill(Color(hex: T.surface)))
+        .overlay(Capsule(style: .continuous).strokeBorder(Color(hex: T.hair), lineWidth: 1))
+    }
+
+    /// Pill-shaped group name field, filling the row beside the search circle. The
+    /// placeholder is the derived title, so leaving it blank reads as a choice
+    /// rather than an omission.
+    private var groupNamePill: some View {
+        TextField(namePlaceholder, text: $groupName)
+            .textFieldStyle(.plain)
+            .font(TTypo.smBold(14))
+            .foregroundStyle(Color(hex: T.ink))
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            .background(Capsule(style: .continuous).fill(Color(hex: T.surface)))
+            .overlay(Capsule(style: .continuous).strokeBorder(Color(hex: T.hair), lineWidth: 1))
     }
 
     var body: some View {
@@ -2999,19 +3072,19 @@ struct NewMessageSheet: View {
 
                     // Recipients — just tap who you want, then Create.
                     VStack(alignment: .leading, spacing: 10) {
-                        // Pill-shaped search field.
-                        HStack(spacing: 8) {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundStyle(Color(hex: T.muted))
-                            TextField("Search people", text: $query)
-                                .textFieldStyle(.plain)
-                                .font(TTypo.sm(14))
-                                .foregroundStyle(Color(hex: T.ink))
+                        // Top row. Once this is a group the name is the headline
+                        // control and search shrinks to a circle beside it; with
+                        // nothing to name, or while searching, search takes the
+                        // whole row instead of sitting next to an empty gap.
+                        HStack(spacing: 10) {
+                            if nameHasTheRow {
+                                searchCircle
+                                groupNamePill
+                            } else {
+                                searchPill
+                            }
                         }
-                        .padding(.horizontal, 16).padding(.vertical, 12)
-                        .background(Capsule(style: .continuous).fill(Color(hex: T.surface)))
-                        .overlay(Capsule(style: .continuous).strokeBorder(Color(hex: T.hair), lineWidth: 1))
+                        .animation(.spring(response: 0.34, dampingFraction: 0.82), value: nameHasTheRow)
 
                         // Same card grid as New Group / Edit Group.
                         MemberPickerGrid(people: others, selectedIds: $selectedIds)
@@ -3022,30 +3095,6 @@ struct NewMessageSheet: View {
                                 .foregroundStyle(Color(hex: T.muted))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 20)
-                        }
-
-                        // Naming only appears once there are two or more people —
-                        // a single recipient is a DM, which has nothing to name.
-                        if isGroup {
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack(spacing: 6) {
-                                    Text("Group Name")
-                                        .font(.caption.bold())
-                                        .foregroundColor(Color(hex: T.muted))
-                                    Text("OPTIONAL")
-                                        .font(.caption2.bold())
-                                        .foregroundColor(Color(hex: T.muted).opacity(0.7))
-                                }
-                                TextField(namePlaceholder, text: $groupName)
-                                    .textFieldStyle(.plain)
-                                    .font(TTypo.sm(14))
-                                    .foregroundStyle(Color(hex: T.ink))
-                                    .padding(.horizontal, 16).padding(.vertical, 12)
-                                    .background(Capsule(style: .continuous).fill(Color(hex: T.surface)))
-                                    .overlay(Capsule(style: .continuous).strokeBorder(Color(hex: T.hair), lineWidth: 1))
-                            }
-                            .padding(.top, 6)
-                            .transition(.opacity.combined(with: .move(edge: .bottom)))
                         }
                     }
                 }
