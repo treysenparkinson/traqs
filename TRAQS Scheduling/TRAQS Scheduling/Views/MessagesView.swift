@@ -575,9 +575,13 @@ private struct ChannelRow: View {
             } else if !participants.isEmpty {
                 ParticipantStack(people: participants,
                                  avatarSize: 26,
-                                 overlap: 10,
                                  maxShown: 3)
-                    .frame(width: 46, alignment: .leading)
+                    // minWidth, NOT width: three 26pt avatars are wider than 46,
+                    // and a fixed frame doesn't clip — the cluster simply spilled
+                    // out of it and sat on top of the thread title. A minimum keeps
+                    // group rows aligned with the 46pt DM avatar while letting a
+                    // "+N" cluster take the room it needs.
+                    .frame(minWidth: 46, alignment: .leading)
             } else {
                 // Fallback for a thread with no decodable participants
                 // (e.g. server returned messages whose authorIds don't
@@ -2343,6 +2347,12 @@ struct ThreadTopBar: View {
 
                     Text(title)
                         .font(TTypo.h3(20))
+                        // Matches the New Message title's letter spacing, which is
+                        // tracking(-3) at 46pt — i.e. -0.065em. Tracking is absolute
+                        // in points, so the same NUMBER at 20pt would be three times
+                        // as tight; -1.3 is that ratio carried over, which is what
+                        // makes the two read the same.
+                        .tracking(-1.3)
                         .foregroundStyle(Color(hex: T.ink))
                         .lineLimit(1)
                         .truncationMode(.tail)
@@ -2355,7 +2365,7 @@ struct ThreadTopBar: View {
                                size: 42, gradient: true)
                     } else if !participants.isEmpty {
                         ParticipantStack(people: participants,
-                                         avatarSize: 34, overlap: 12, maxShown: 3)
+                                         avatarSize: 34, maxShown: 3)
                     } else {
                         Avatar(initials: "#", size: 42, gradient: true)
                     }
@@ -2376,11 +2386,19 @@ struct ThreadTopBar: View {
 private struct ParticipantStack: View {
     let people: [Person]
     var avatarSize: CGFloat = 28
-    var overlap: CGFloat = 10
+    /// Nil = tuck them tightly, proportional to the avatar size. Scaling with the
+    /// size is the point: a fixed overlap that looks right on a 26pt avatar leaves
+    /// a 34pt one strung out, which is how the inbox and the thread header ended up
+    /// with visibly different clusters.
+    var overlap: CGFloat? = nil
     var maxShown: Int = 3
 
+    /// Each avatar shows ~40% of its width, so three read as one clustered mark
+    /// rather than three separate circles.
+    private var effectiveOverlap: CGFloat { overlap ?? avatarSize * 0.6 }
+
     var body: some View {
-        HStack(spacing: -overlap) {
+        HStack(spacing: -effectiveOverlap) {
             ForEach(Array(people.prefix(maxShown).enumerated()), id: \.element.id) { _, p in
                 // Each member's real avatar: their photo if set, else their
                 // preferred color (not a generic brand gradient).
@@ -3054,7 +3072,7 @@ struct NewMessageSheet: View {
                     // Big left-aligned title, matching the page titles elsewhere.
                     Text("New Message")
                         .font(.custom(TFontName.extrabold.rawValue, size: 46))
-                        .tracking(-1)
+                        .tracking(-3)
                         .foregroundStyle(Color(hex: T.ink))
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .multilineTextAlignment(.leading)
@@ -3094,7 +3112,7 @@ struct NewMessageSheet: View {
                 .padding(.horizontal, 16)
                 // On the whole stack, not the title, so the title and everything
                 // under it come down together.
-                .padding(.top, 18)
+                .padding(.top, 28)
                 // Clear the floating action bar so the last row stays reachable.
                 .padding(.bottom, 96)
                 .animation(.easeInOut(duration: 0.18), value: isGroup)
