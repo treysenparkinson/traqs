@@ -116,10 +116,15 @@ struct TRAQSHeaderLogo: View {
         HStack(spacing: 0) {
             TRAQSWordmark(size: size)
             // The bars mark as a trailing "=" — scaled from the tuned size-64
-            // lockup: bars 21/64, pulled left 13/64 to clear the wordmark PNG's
+            // lockup: bars 21/64, pulled left 15/64 to clear the wordmark PNG's
             // built-in right padding, nudged up 1/64 to sit level with the letters.
+            //
+            // The pull stays a FRACTION of size rather than a flat point value so
+            // the lockup holds together at every size it's rendered at (60 in the
+            // nav header, 44 via TRAQSNavLogo). 13→15/64 moves the bars ~1.9pt
+            // left at size 60.
             TRAQSBarsMark(size: size * (21.0 / 64.0))
-                .offset(x: -size * (13.0 / 64.0), y: -size * (1.0 / 64.0))
+                .offset(x: -size * (15.0 / 64.0), y: -size * (1.0 / 64.0))
         }
     }
 }
