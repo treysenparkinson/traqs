@@ -53,127 +53,127 @@ struct TimeClockView: View {
             // overlays, so unlike the end-job photo cover they blur their own
             // page directly instead of going through appNav.modalBlur.
             Group {
-            PageBackground()
+                PageBackground()
 
-            VStack(spacing: 0) {
-                TRAQSNavHeader {
-                    // Time Off lives here now (removed from the side drawer).
-                    Button { appNav.openTimeOffPage = true } label: {
-                        HStack(spacing: 6) {
-                            TIconView(icon: .cal, size: 14, color: Color(hex: T.ink))
-                            Text("Time Off")
-                                .font(TTypo.smBold(13))
-                                .foregroundStyle(Color(hex: T.ink))
+                VStack(spacing: 0) {
+                    TRAQSNavHeader {
+                        // Time Off lives here now (removed from the side drawer).
+                        Button { appNav.openTimeOffPage = true } label: {
+                            HStack(spacing: 6) {
+                                TIconView(icon: .cal, size: 14, color: Color(hex: T.ink))
+                                Text("Time Off")
+                                    .font(TTypo.smBold(13))
+                                    .foregroundStyle(Color(hex: T.ink))
+                            }
+                            .padding(.horizontal, 14)
+                            .frame(height: 36)
+                            .glassEffect(.regular.interactive(), in: Capsule())
                         }
-                        .padding(.horizontal, 14)
-                        .frame(height: 36)
-                        .glassEffect(.regular.interactive(), in: Capsule())
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
-                }
 
-                ScrollViewReader { _ in
-                  ScrollView {
-                    VStack(spacing: 0) {
+                    ScrollViewReader { _ in
+                      ScrollView {
+                        VStack(spacing: 0) {
 
-                        PageTitle(title: "Time Clock", subtitle: periodLabel)
-                            .padding(.top, pageTitleTopInset)
-                            .padding(.bottom, 10)
+                            PageTitle(title: "Time Clock", subtitle: periodLabel)
+                                .padding(.top, pageTitleTopInset)
+                                .padding(.bottom, 10)
 
-                        // ── Pay-clock hours: two rings side by side ──
-                        // Left: the whole pay period. Right: today only. Both are
-                        // time clocked in for pay, minus lunch. Each is its own
-                        // card so the two numbers read as peers.
-                        HStack(spacing: 12) {
-                            RingStatCard(title: "Pay period",
-                                         hours: payPeriodHours,
-                                         target: periodTarget)
-                            RingStatCard(title: "Today",
-                                         hours: todayHours,
-                                         target: dailyTarget)
-                        }
-                        .padding(.horizontal, 16)
-
-                        WeekBarsCard(days: dailyBars)
+                            // ── Pay-clock hours: two rings side by side ──
+                            // Left: the whole pay period. Right: today only. Both are
+                            // time clocked in for pay, minus lunch. Each is its own
+                            // card so the two numbers read as peers.
+                            HStack(spacing: 12) {
+                                RingStatCard(title: "Pay period",
+                                             hours: payPeriodHours,
+                                             target: periodTarget)
+                                RingStatCard(title: "Today",
+                                             hours: todayHours,
+                                             target: dailyTarget)
+                            }
                             .padding(.horizontal, 16)
-                            .padding(.top, 14)
 
-                        // ── Pay clock controls (admin opt-in via iosPayClockEnabled) ──
-                        // Sits below the bar graph so the hero number reads first.
-                        // Clocked out → one Clock In button. Clocked in → Lunch +
-                        // Break side by side, with a full-width Clock Out beneath.
-                        if showPayClock {
-                            PayClockControls(active: appState.payClockInActive,
-                                             onLunch: appState.payOnLunch,
-                                             onBreak: appState.isOnBreak,
-                                             source: appState.payClockInSource,
-                                             elapsed: payClockElapsed,
-                                             inFlight: appState.isPayClocking,
-                                             breakInFlight: breakBusy,
-                                             clockOutBlocked: appState.clockOutBlockedByJob,
-                                             onClockIn: {
-                                                 guard !appState.isPayClocking else { return }
-                                                 // task 2: require the person's PIN if they have one set.
-                                                 if appState.currentPerson?.hasPin == true {
-                                                     showPinPrompt = true
-                                                 } else {
-                                                     Task { await appState.payClockIn() }
-                                                 }
-                                             },
-                                             onClockOut: {
-                                                 guard !appState.isPayClocking else { return }
-                                                 // Clock Out is full-width now, so it's the easiest
-                                                 // thing on the page to hit by mistake — gate it
-                                                 // behind the PIN pad, or at minimum a confirm.
-                                                 if appState.currentPerson?.hasPin == true {
-                                                     showClockOutPin = true
-                                                 } else {
-                                                     showClockOutConfirm = true
-                                                 }
-                                             },
-                                             onLunchToggle: {
-                                                 guard !appState.isPayClocking else { return }
-                                                 let starting = !appState.payOnLunch
-                                                 Task {
-                                                     if await appState.payLunchToggle() {
-                                                         showBanner(starting ? .lunchStarted : .lunchEnded)
-                                                     }
-                                                 }
-                                             },
-                                             onBreakToggle: {
-                                                 guard !breakBusy else { return }
-                                                 let starting = !appState.isOnBreak
-                                                 breakBusy = true
-                                                 Task {
-                                                     let ok = starting ? await appState.startBreak()
-                                                                       : await appState.endBreak()
-                                                     breakBusy = false
-                                                     if ok { showBanner(starting ? .breakStarted : .breakEnded) }
-                                                 }
-                                             })
+                            WeekBarsCard(days: dailyBars)
                                 .padding(.horizontal, 16)
                                 .padding(.top, 14)
+
+                            // ── Pay clock controls (admin opt-in via iosPayClockEnabled) ──
+                            // Sits below the bar graph so the hero number reads first.
+                            // Clocked out → one Clock In button. Clocked in → Lunch +
+                            // Break side by side, with a full-width Clock Out beneath.
+                            if showPayClock {
+                                PayClockControls(active: appState.payClockInActive,
+                                                 onLunch: appState.payOnLunch,
+                                                 onBreak: appState.isOnBreak,
+                                                 source: appState.payClockInSource,
+                                                 elapsed: payClockElapsed,
+                                                 inFlight: appState.isPayClocking,
+                                                 breakInFlight: breakBusy,
+                                                 clockOutBlocked: appState.clockOutBlockedByJob,
+                                                 onClockIn: {
+                                                     guard !appState.isPayClocking else { return }
+                                                     // task 2: require the person's PIN if they have one set.
+                                                     if appState.currentPerson?.hasPin == true {
+                                                         showPinPrompt = true
+                                                     } else {
+                                                         Task { await appState.payClockIn() }
+                                                     }
+                                                 },
+                                                 onClockOut: {
+                                                     guard !appState.isPayClocking else { return }
+                                                     // Clock Out is full-width now, so it's the easiest
+                                                     // thing on the page to hit by mistake — gate it
+                                                     // behind the PIN pad, or at minimum a confirm.
+                                                     if appState.currentPerson?.hasPin == true {
+                                                         showClockOutPin = true
+                                                     } else {
+                                                         showClockOutConfirm = true
+                                                     }
+                                                 },
+                                                 onLunchToggle: {
+                                                     guard !appState.isPayClocking else { return }
+                                                     let starting = !appState.payOnLunch
+                                                     Task {
+                                                         if await appState.payLunchToggle() {
+                                                             showBanner(starting ? .lunchStarted : .lunchEnded)
+                                                         }
+                                                     }
+                                                 },
+                                                 onBreakToggle: {
+                                                     guard !breakBusy else { return }
+                                                     let starting = !appState.isOnBreak
+                                                     breakBusy = true
+                                                     Task {
+                                                         let ok = starting ? await appState.startBreak()
+                                                                           : await appState.endBreak()
+                                                         breakBusy = false
+                                                         if ok { showBanner(starting ? .breakStarted : .breakEnded) }
+                                                     }
+                                                 })
+                                    .padding(.horizontal, 16)
+                                    .padding(.top, 14)
+                            }
                         }
+                        .padding(.bottom, 24)
+                      }
+                      .scrollIndicators(.visible)
+                      .topFadeMask()
+                      .refreshable { await reload() }
                     }
-                    .padding(.bottom, 24)
-                  }
-                  .scrollIndicators(.visible)
-                  .topFadeMask()
-                  .refreshable { await reload() }
                 }
-            }
-            .onReceive(ticker) { if appNav.selected == .hours { now = $0 } }   // only tick while visible
-            // Force a re-render when live sync rehydrates data (e.g. an admin just
-            // enabled this person's mobile clock-in permission) so the pay-clock
-            // CTA appears without needing an app reopen.
-            .onReceive(NotificationCenter.default.publisher(for: .traqsDataRehydrated)) { _ in
-                liveRefresh &+= 1
-            }
-            // On-demand datasets (heavy): the live person/jobs come from loadAll
-            // elsewhere; here we only pull this person's clock + job-session logs.
-            .task {
-                await appState.refreshTimeclock(personId: appState.currentPersonId)
-            }
+                .onReceive(ticker) { if appNav.selected == .hours { now = $0 } }   // only tick while visible
+                // Force a re-render when live sync rehydrates data (e.g. an admin just
+                // enabled this person's mobile clock-in permission) so the pay-clock
+                // CTA appears without needing an app reopen.
+                .onReceive(NotificationCenter.default.publisher(for: .traqsDataRehydrated)) { _ in
+                    liveRefresh &+= 1
+                }
+                // On-demand datasets (heavy): the live person/jobs come from loadAll
+                // elsewhere; here we only pull this person's clock + job-session logs.
+                .task {
+                    await appState.refreshTimeclock(personId: appState.currentPersonId)
+                }
             }
             .modalPageBlur(showPinPrompt || showClockOutPin || banner != nil)
 
