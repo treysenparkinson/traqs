@@ -891,7 +891,7 @@ private struct MonthCalendar: View {
             }
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).fill(Color(hex: T.surface)))
+        .background(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).glassFill())
         .overlay(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
         .shadow(color: Color.black.opacity(T.raisedShadowOpacity),
                 radius: T.raisedShadowRadius, x: 0, y: T.raisedShadowY)
@@ -1030,7 +1030,7 @@ private struct YearHeatmap: View {
             }
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).fill(Color(hex: T.surface)))
+        .background(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).glassFill())
         .overlay(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
         .shadow(color: Color.black.opacity(T.raisedShadowOpacity),
                 radius: T.raisedShadowRadius, x: 0, y: T.raisedShadowY)
@@ -1859,7 +1859,7 @@ struct JobRow: View {
                 .tLabel(tracking: 0.8)
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
-        .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).fill(Color(hex: T.surface)))
+        .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).glassFill())
         .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
     }
 }

@@ -480,7 +480,7 @@ struct AvailabilityCheckSheet: View {
                     .font(TTypo.sm(14)).foregroundStyle(Color(hex: T.ink))
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.surface)))
+                    .background(RoundedRectangle(cornerRadius: T.cornerMd).glassFill())
                     .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.border)))
             }
 
@@ -592,7 +592,7 @@ struct AvailabilityCheckSheet: View {
                                 }
                                 .padding(12)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.surface)))
+                                .background(RoundedRectangle(cornerRadius: T.cornerMd).glassFill())
                                 .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.border)))
                             }
                             .buttonStyle(.plain)
@@ -646,14 +646,14 @@ struct AvailabilityCheckSheet: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.surface)))
+        .background(RoundedRectangle(cornerRadius: T.cornerMd).glassFill())
         .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.border)))
     }
 
     private func fieldCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: 10) { content() }
             .padding(14)
-            .background(RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.surface)))
+            .background(RoundedRectangle(cornerRadius: T.cornerMd).glassFill())
             .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.border)))
     }
 

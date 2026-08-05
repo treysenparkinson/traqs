@@ -20,7 +20,7 @@ struct TRAQSLoadingOverlay: View {
             }
             .padding(.vertical, 30)
             .padding(.horizontal, 44)
-            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Color(hex: T.surface)))
+            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).glassFill())
             .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
             .shadow(color: .black.opacity(0.28), radius: 26, y: 12)
         }

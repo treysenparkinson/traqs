@@ -803,10 +803,23 @@ struct FrostedCard: ViewModifier {
         // reads aren't observable on their own).
         _ = theme.bgPresetId; _ = theme.accent
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
-        // Flat 2D card — fill + hairline border, no shadow/compositingGroup
-        // (removed for GPU speed on content-dense pages).
+        // Real frosted glass, the same recipe as the modals — see GlassPanel and
+        // `glassSurfaceTint`. This is what carries the app-wide glass look: it
+        // backs ~50 surfaces, so changing it here beats converting each.
+        //
+        // Deliberately WITHOUT GlassPanel's compositingGroup + shadow. Those
+        // force an offscreen pass per surface, and this renders per-row down long
+        // lists (All Jobs can be the whole org's job list) where a modal renders
+        // once. The hairline border does the lifting instead — cheap, and it
+        // matters more on glass than it did on an opaque fill, since it's what
+        // keeps a card's edge findable against a moving background.
         return content
-            .background(shape.fill(Color(hex: T.surface)))
+            .background {
+                ZStack {
+                    shape.fill(.ultraThinMaterial)
+                    shape.fill(Color(hex: T.surface).opacity(glassSurfaceTint))
+                }
+            }
             .overlay(shape.strokeBorder(Color(hex: T.border), lineWidth: 1))
     }
 }
@@ -838,6 +851,36 @@ extension View {
 //
 // Used by the break/lunch banner, the clock PIN pad, and the end-job photo
 // prompt, so all three modals read as the same material.
+/// Surface tint laid over the blur on EVERY frosted-glass surface — modals,
+/// cards, pills. The transparency knob: lower lets more of the page through, but
+/// the blur keeps it frosted either way. One constant so the whole app's glass
+/// stays one material.
+///
+/// Watch this value now that pages have the liquid wash behind them. A modal
+/// floats over an already-blurred page, but a card sits directly on vivid moving
+/// colour while holding dense text — if body text starts to swim, this is the
+/// first thing to raise (0.35–0.45 makes cards notably more solid without
+/// turning them opaque).
+let glassSurfaceTint: Double = 0.22
+
+extension Shape {
+    /// Frosted-glass fill for a shape — a drop-in for `.fill(Color(hex: T.surface))`
+    /// on containers that build their own background and border rather than going
+    /// through `.frostedCard()`. Swapping just the fill leaves their existing
+    /// overlays, strokes and shadows untouched.
+    ///
+    /// For containers only. Buttons, text fields, chips and status marks keep
+    /// solid fills: they need to read as opaque objects ON the glass, and an input
+    /// you're typing into shouldn't have moving colour behind the caret.
+    @ViewBuilder
+    func glassFill() -> some View {
+        ZStack {
+            fill(.ultraThinMaterial)
+            fill(Color(hex: T.surface).opacity(glassSurfaceTint))
+        }
+    }
+}
+
 struct GlassPanel: ViewModifier {
     @Environment(ThemeSettings.self) private var theme
     /// Default 36 — softer than any card on a page, so a modal reads as a
@@ -854,10 +897,11 @@ struct GlassPanel: ViewModifier {
             .background {
                 ZStack {
                     shape.fill(.ultraThinMaterial)
-                    shape.fill(Color(hex: T.surface).opacity(0.22))
+                    shape.fill(Color(hex: T.surface).opacity(glassSurfaceTint))
                 }
             }
-            // Modals float over content, so they need their own lift.
+            // Modals float over content, so they need their own lift. Cards
+            // deliberately skip this — see FrostedCard.
             .compositingGroup()
             .shadow(color: .black.opacity(0.22), radius: 24, x: 0, y: 10)
     }
@@ -930,10 +974,16 @@ struct FrostedPill: ViewModifier {
     func body(content: Content) -> some View {
         _ = theme.bgPresetId; _ = theme.accent
         let shape = Capsule(style: .continuous)
-        // Flat 2D pill — fill + hairline border, no shadow/compositingGroup
-        // (removed for GPU speed; these render per-row in the Messages inbox).
+        // The capsule variant of FrostedCard — same glass recipe, same reason for
+        // skipping the shadow/compositingGroup (these render per-row in the
+        // Messages inbox).
         return content
-            .background(shape.fill(Color(hex: T.surface)))
+            .background {
+                ZStack {
+                    shape.fill(.ultraThinMaterial)
+                    shape.fill(Color(hex: T.surface).opacity(glassSurfaceTint))
+                }
+            }
             .overlay(shape.strokeBorder(Color(hex: T.border), lineWidth: 1))
     }
 }
