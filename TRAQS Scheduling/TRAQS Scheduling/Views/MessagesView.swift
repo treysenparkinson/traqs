@@ -3051,13 +3051,13 @@ struct NewMessageSheet: View {
 
             ScrollView {
                 VStack(spacing: 16) {
-                    // Big, centered title.
+                    // Big left-aligned title, matching the page titles elsewhere.
                     Text("New Message")
                         .font(.custom(TFontName.extrabold.rawValue, size: 46))
                         .tracking(-1)
                         .foregroundStyle(Color(hex: T.ink))
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .multilineTextAlignment(.leading)
                         .padding(.top, 8)
 
                     // Recipients — just tap who you want, then Create.
@@ -3075,6 +3075,9 @@ struct NewMessageSheet: View {
                             }
                         }
                         .animation(.spring(response: 0.34, dampingFraction: 0.82), value: nameHasTheRow)
+                        // Extra 20 on top of the VStack's own 16, so the title has
+                        // room to breathe before the inputs start.
+                        .padding(.top, 20)
 
                         // Same card grid as New Group / Edit Group.
                         MemberPickerGrid(people: others, selectedIds: $selectedIds)
