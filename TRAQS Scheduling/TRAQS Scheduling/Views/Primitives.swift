@@ -201,9 +201,10 @@ struct LiveSheen: View {
 // its diameter depend on that glyph's intrinsic width, so a chevron and a
 // magnifier end up different sizes. Pass just the glyph.
 //
-// NOT for per-row buttons inside lists (a card's overflow menu, for instance).
-// One interactive-glass pass per row down a long list is a measured cost this
-// codebase has already backed out of once.
+// Also used for the job card's overflow menu, which IS per-row. That's the one
+// place to watch: one interactive-glass pass per row down a long list is a cost
+// this codebase backed out of once before, so if All Jobs scrolling degrades,
+// re-flattening that button is the first move.
 struct HeaderGlassCircle<Content: View>: View {
     /// One number for every header control in the app. Change here, not per site.
     static var diameter: CGFloat { 38 }
@@ -494,13 +495,22 @@ struct IconBtn: View {
 
     var body: some View {
         Button(action: action) {
-            TIconView(icon: icon, size: size, color: iconColor)
-                .padding(pad)
-                // Flat chip (was interactive glass — clustered IconBtns were the
-                // last "glassEffect updated multiple times per frame" source on
-                // Jobs/Stats, and a lone glass button looks off amid flat cards).
-                .background(Circle().fill(fill ?? Color(hex: T.surface)))
-                .overlay(Circle().strokeBorder(stroke ?? Color(hex: T.border), lineWidth: 1))
+            if let fill {
+                // Explicit fill = a deliberate solid chip; leave it alone.
+                TIconView(icon: icon, size: size, color: iconColor)
+                    .padding(pad)
+                    .background(Circle().fill(fill))
+                    .overlay(Circle().strokeBorder(stroke ?? Color(hex: T.border), lineWidth: 1))
+            } else {
+                // Glass, and sized by HeaderGlassCircle so these match every other
+                // header control. They were flat chips because clustered IconBtns
+                // were the last "glassEffect updated multiple times per frame"
+                // source on Jobs/Stats — glass again by request; that's the row to
+                // look at if the warning comes back.
+                HeaderGlassCircle {
+                    TIconView(icon: icon, size: size, color: iconColor)
+                }
+            }
         }
         .buttonStyle(.plain)
     }

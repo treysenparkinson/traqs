@@ -22,7 +22,9 @@ struct HomeHeaderControls: View {
 // pages ran 32, 34 and 38.
 private struct GlassCircleIcon: View {
     let systemName: String
-    var color: Color = Color(hex: T.accent)
+    /// Ink by default — header glyphs read as plain black or white, and an accent
+    /// tint on a permanent control reads as a selected state.
+    var color: Color = Color(hex: T.ink)
 
     var body: some View {
         HeaderGlassCircle {
@@ -73,7 +75,9 @@ private struct SettingsGlassMenu: View {
                 Label("Log out", systemImage: "rectangle.portrait.and.arrow.right")
             }
         } label: {
-            GlassCircleIcon(systemName: "gearshape", color: Color(hex: T.accent))
+            // Ink, not accent: plain black on light presets, plain white on dark.
+            // The accent tint made the gear read as an active/selected state.
+            GlassCircleIcon(systemName: "gearshape", color: Color(hex: T.ink))
         }
         .buttonStyle(.plain)
         .sheet(isPresented: $showCustomize) { CustomizeView() }

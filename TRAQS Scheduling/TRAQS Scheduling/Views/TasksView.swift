@@ -1290,15 +1290,17 @@ struct TaskCardV1: View {
                         Divider()
                         Button { requestCompletion() } label: { Label("Request Completion", systemImage: "checkmark.seal") }
                     } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(Color(hex: T.muted))
-                            .frame(width: 30, height: 30)
-                            // Flat chip (was per-card interactive glass — one
-                            // offscreen glass pass per task row down the list).
-                            .background(Circle().fill(Color(hex: T.surface)))
-                            .overlay(Circle().strokeBorder(Color(hex: T.border), lineWidth: 1))
-                            .contentShape(Circle())
+                        // Glass, and the same size as every header control. This is
+                        // the one PER-ROW glass button in the app: it was flattened
+                        // once because it cost one offscreen glass pass per task row
+                        // down the list, and it's back by request. If All Jobs
+                        // scrolling degrades, this is the first thing to re-flatten.
+                        HeaderGlassCircle {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(Color(hex: T.muted))
+                        }
+                        .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
                 }
