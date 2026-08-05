@@ -3092,7 +3092,9 @@ struct NewMessageSheet: View {
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 8)
+                // On the whole stack, not the title, so the title and everything
+                // under it come down together.
+                .padding(.top, 18)
                 // Clear the floating action bar so the last row stays reachable.
                 .padding(.bottom, 96)
                 .animation(.easeInOut(duration: 0.18), value: isGroup)
