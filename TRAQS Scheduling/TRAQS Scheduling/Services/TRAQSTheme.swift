@@ -95,6 +95,21 @@ enum T {
     static let pillGreenBg  = "#D8F2DE"; static let pillGreenFg  = "#2F9E54"
     static let pillNeutralBg = "#ECEDF2"; static let pillNeutralFg = "#8A8A95"
 
+    // ── Neutral control fills ──
+    // For a control sitting ON a card: a keypad key, an unfilled PIN dot, a
+    // disabled button. Ink at low alpha rather than a fixed grey, which means it
+    // darkens a light surface and lightens a dark one, and it reads whether the
+    // card behind it is frosted glass or solid.
+    //
+    // Do NOT use progressTrack for these. That's a chart-track token and it's
+    // deliberately near-white on light presets, so anything using it as a control
+    // fill disappears into a white card.
+    static var controlFill: Color { Color(hex: ink).opacity(0.10) }
+    /// For small marks that need to carry at a glance — unfilled PIN dots.
+    static var controlFillStrong: Color { Color(hex: ink).opacity(0.20) }
+    /// Hairline around a control fill; gives the shape an edge on glass.
+    static var controlHairline: Color { Color(hex: ink).opacity(0.07) }
+
     // ── Frosted glass on/off ──
     // Mirrors ThemeSettings.frostedGlass. Lives on T because the glass helpers
     // include `Shape.glassFill()`, a Shape extension — it has no view context, so

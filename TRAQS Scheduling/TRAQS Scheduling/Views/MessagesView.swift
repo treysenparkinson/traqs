@@ -2875,7 +2875,11 @@ struct NewMessageSheet: View {
                         .padding(.horizontal, 24).padding(.vertical, 14)
                         .background(
                             RoundedRectangle(cornerRadius: 22, style: .continuous)
-                                .fill(selectedIds.isEmpty ? AnyShapeStyle(Color(hex: T.progressTrack))
+                                // Disabled = muted grey, not progressTrack: that
+                                // chart token is near-white on light presets, which
+                                // left this button invisible AND its white label
+                                // unreadable.
+                                .fill(selectedIds.isEmpty ? AnyShapeStyle(Color(hex: T.muted).opacity(0.5))
                                                           : AnyShapeStyle(T.brandGradient()))
                         )
                         .shadow(color: Color(hex: T.ctaGlowColor).opacity(selectedIds.isEmpty ? 0 : T.ctaGlowOpacity),

@@ -681,7 +681,7 @@ private struct ClockPinOverlay: View {
                 HStack(spacing: 12) {
                     ForEach(0..<max(pin.count, 4), id: \.self) { i in
                         Circle()
-                            .fill(i < pin.count ? Color(hex: T.accentGradientStart) : Color(hex: T.progressTrack))
+                            .fill(i < pin.count ? Color(hex: T.accentGradientStart) : T.controlFillStrong)
                             .frame(width: 12, height: 12)
                     }
                 }
@@ -754,7 +754,10 @@ private struct ClockPinOverlay: View {
                 .font(.custom(TFontName.bold.rawValue, size: 27))
                 .foregroundStyle(Color(hex: T.ink))
                 .frame(width: keySize, height: keySize)
-                .background(Circle().fill(Color(hex: T.progressTrack).opacity(0.4)))
+                // T.controlFill, not progressTrack: that token is near-white on
+                // light presets, so these keys had vanished into a white card.
+                .background(Circle().fill(T.controlFill))
+                .overlay(Circle().strokeBorder(T.controlHairline, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .disabled(submitting)
@@ -780,8 +783,10 @@ private struct ClockPinOverlay: View {
             .frame(width: keySize, height: keySize)
             .background(
                 Circle().fill(filled ? AnyShapeStyle(T.brandGradient())
-                                     : AnyShapeStyle(Color(hex: T.progressTrack).opacity(0.4)))
+                                     : AnyShapeStyle(T.controlFill))
             )
+            // Only the neutral key needs an edge; the confirm key has its gradient.
+            .overlay(Circle().strokeBorder(filled ? .clear : T.controlHairline, lineWidth: 1))
         }
         .buttonStyle(.plain)
         .disabled(submitting || (isConfirm && pin.isEmpty))
