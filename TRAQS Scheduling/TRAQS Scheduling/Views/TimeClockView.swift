@@ -102,6 +102,24 @@ struct TimeClockView: View {
                             // Sits below the bar graph so the hero number reads first.
                             // Clocked out → one Clock In button. Clocked in → Lunch +
                             // Break side by side, with a full-width Clock Out beneath.
+                            // Open break the Break toggle below can't reach —
+                            // see OpenBreakCard. Shown only when that toggle is
+                            // absent, so the two never double up.
+                            if appState.isOnBreak && !(showPayClock && appState.payClockInActive) {
+                                OpenBreakCard(startedAtISO: appState.myActiveBreak?.startedAt,
+                                              inFlight: breakBusy) {
+                                    guard !breakBusy else { return }
+                                    breakBusy = true
+                                    Task {
+                                        let ok = await appState.endBreak()
+                                        breakBusy = false
+                                        if ok { showBanner(.breakEnded) }
+                                    }
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.top, 14)
+                            }
+
                             if showPayClock {
                                 PayClockControls(active: appState.payClockInActive,
                                                  onLunch: appState.payOnLunch,
@@ -442,6 +460,69 @@ private struct RingStatCard: View {
         .padding(.vertical, 18)
         .padding(.horizontal, 12)
         .frostedCard()
+    }
+}
+
+// MARK: - Open break escape hatch
+
+// A break never auto-expires and `endBreak()` is the only thing that clears it,
+// but the Break toggle lives inside PayClockControls — so it disappears the
+// moment the worker clocks out, and never renders at all when the org has the
+// pay clock disabled (or the person is salaried / lacks clock permission). In
+// any of those cases an open break was unreachable from the phone and the
+// worker read "On Break" indefinitely on every status board. This card renders
+// exactly when that toggle can't.
+private struct OpenBreakCard: View {
+    let startedAtISO: String?
+    let inFlight: Bool
+    let onEnd: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "cup.and.saucer.fill")
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Color(hex: T.amber))
+
+            VStack(alignment: .leading, spacing: 2) {
+                // Counts up past the configured duration on purpose — an
+                // overrun should be obvious rather than silently capped.
+                TimelineView(.periodic(from: .now, by: 60)) { ctx in
+                    Text(headline(now: ctx.date))
+                        .font(TTypo.xsBold(13))
+                        .foregroundStyle(Color(hex: T.ink))
+                        .tnum()
+                }
+                Text("End your break to clear this status.")
+                    .font(TTypo.xs(11))
+                    .foregroundStyle(Color(hex: T.muted))
+            }
+
+            Spacer(minLength: 8)
+
+            Button(action: onEnd) {
+                HStack(spacing: 6) {
+                    if inFlight { ProgressView().controlSize(.small).tint(T.onColor(T.amber)) }
+                    Text("End Break").font(TTypo.xsBold(12)).tLabel(tracking: 0.4)
+                }
+                .foregroundStyle(T.onColor(T.amber))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(Capsule().fill(Color(hex: T.amber)))
+            }
+            .buttonStyle(.plain)
+            .disabled(inFlight)
+            .opacity(inFlight ? 0.6 : 1)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(14)
+        .frostedCard(radius: T.cornerMd)
+    }
+
+    private func headline(now: Date) -> String {
+        guard let iso = startedAtISO, let started = Date.fromFlexibleISO8601(iso) else { return "On break" }
+        let secs = max(0, Int(now.timeIntervalSince(started)))
+        let h = secs / 3600, m = (secs % 3600) / 60
+        return h > 0 ? "On break · \(h)h \(m)m" : "On break · \(m)m"
     }
 }
 

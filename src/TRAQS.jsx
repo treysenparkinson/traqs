@@ -4726,6 +4726,7 @@ Extraction rules:
   const [pinLoading, setPinLoading] = useState(false);
   const [tsElapsed, setTsElapsed] = useState("");
   const [tsJobElapsed, setTsJobElapsed] = useState("");
+  const [tsBreakElapsed, setTsBreakElapsed] = useState("");
   const [clockTick, setClockTick] = useState(0); // increments every 60s when any worker is actively clocked in — triggers re-renders for live progress display
   const [jobClockLoading, setJobClockLoading] = useState(false);
   const [startJobPickerOpen, setStartJobPickerOpen] = useState(false);
@@ -4827,6 +4828,21 @@ Extraction rules:
     return () => clearInterval(iv);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loggedInUser?.activeJobClock?.clockIn, loggedInUser?.activeJobClock?.totalPausedMs, loggedInUser?.activeJobClock?.pausedAt]);
+
+  // Break timer — a break has no auto-expiry, so this counts up past the
+  // configured duration on purpose (an overrun should be obvious to the worker).
+  useEffect(() => {
+    const startedAt = loggedInUser?.activeBreak?.startedAt;
+    if (!startedAt) { setTsBreakElapsed(""); return; }
+    const calc = () => {
+      const ms = Math.max(0, Date.now() - new Date(startedAt).getTime());
+      const h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+      setTsBreakElapsed(h > 0 ? `${h}h ${m}m` : `${m}m`);
+    };
+    calc();
+    const iv = setInterval(calc, 60000);
+    return () => clearInterval(iv);
+  }, [loggedInUser?.activeBreak?.startedAt]);
 
   // Tick every 60s whenever any worker is actively clocked in — keeps live progress fresh
   useEffect(() => {
@@ -5820,6 +5836,33 @@ Extraction rules:
       const res = await jobClockOutAction({ personId }, getTokenRef.current, orgCode);
       if (res?.ok) setPeople(pp => pp.map(p => p.id === personId ? { ...p, activeJobClock: null } : p));
       else alert(res?.error || "Failed to clock out");
+    } catch { alert("Network error"); }
+  };
+
+  // Admin: force a worker off break. Needed because "on break" has two
+  // independent representations and either can be left open:
+  //   • the lightweight `activeBreak` flag  → cleared by breakClear
+  //   • an open breakStart in activeClockIn.events → closed by adminBreakEnd
+  // Clears whichever is set, so one button unsticks any case.
+  const adminEndBreak = async (personId, personName) => {
+    if (!isAdmin) return;
+    if (!window.confirm(`End ${personName || "this worker"}'s break?`)) return;
+    const person = people.find(p => p.id === personId);
+    const evts = person?.activeClockIn?.events || [];
+    const lastBreakEvt = [...evts].reverse().find(e => e.type === "breakStart" || e.type === "breakEnd");
+    const eventOpen = lastBreakEvt?.type === "breakStart";
+    try {
+      if (person?.activeBreak) {
+        const res = await breakClearAction({ personId }, getTokenRef.current, orgCode);
+        if (!res?.ok) { alert(res?.error || "Failed to end break"); return; }
+        setPeople(pp => pp.map(p => p.id === personId ? { ...p, activeBreak: null } : p));
+      }
+      if (eventOpen) {
+        const res = await adminTimeclockEventAction({ action: "adminBreakEnd", personId }, getTokenRef.current, orgCode);
+        if (!res?.ok) { alert(res?.error || "Failed to close the break punch"); return; }
+        setPeople(pp => pp.map(p => p.id === personId ? { ...p, activeClockIn: res.activeClockIn } : p));
+        if (res.event) setTimeclock(tc => [...tc, res.event]);
+      }
     } catch { alert("Network error"); }
   };
 
@@ -9398,6 +9441,9 @@ ${jobsCtx || "No jobs found."}`;
               {detail && <div style={{ fontSize: 11, color: T.textDim, textAlign: "right", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{detail}</div>}
             </div>
           </div>
+          {/* Admin: force a worker off break — frees anyone left "On Break" after
+              their break outlived the shift it was taken in. */}
+          {status === "break" && isAdmin && <button onClick={() => adminEndBreak(p.id, p.name)} title="Force this worker off break (use if they're stuck On Break after clocking out or ending a job)" style={{ alignSelf: "flex-start", padding: "5px 12px", borderRadius: T.radiusPill, border: "1px solid #f59e0b40", background: "#f59e0b14", color: "#f59e0b", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>End break</button>}
           {/* Admin: force a worker off their active job — frees anyone stuck on a job that changed. */}
           {status === "job" && isAdmin && <button onClick={() => adminEndJobClock(p.id, p.name)} title="Force this worker off their active job (use if they're stuck after the job was moved/changed)" style={{ alignSelf: "flex-start", padding: "5px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.danger}40`, background: T.danger + "14", color: T.danger, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>End job</button>}
         </div>
@@ -17232,6 +17278,25 @@ ${jobsCtx || "No jobs found."}`;
 
           {/* Scrollable body */}
           <div style={{ flex: 1, overflowY: "auto", padding: "14px 16px 100px" }}>
+
+            {/* Open break with no active job — the escape hatch. The job-clock
+                cards below own the Break/End Break toggle, but they only render
+                while activeJobClock exists, and `activeBreak` can outlive it (it
+                doesn't even require a clock-in). Without this card a break left
+                open after ending a job or clocking out was unclearable from the
+                UI and the worker read "On Break" forever. */}
+            {loggedInUser.activeBreak && !loggedInUser.activeJobClock && (
+              <div style={{ background: "#f59e0b12", borderRadius: T.radius, border: "1px solid #f59e0b40", padding: "14px 16px", marginBottom: 16, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#f59e0b", boxShadow: "0 0 6px #f59e0b", flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 120 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#f59e0b" }}>On break{tsBreakElapsed ? ` — ${tsBreakElapsed}` : ""}</div>
+                  <div style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>You're not on a job. End your break to clear this status.</div>
+                </div>
+                <button onClick={handleEndBreak} disabled={jobClockLoading} style={{ padding: "10px 18px", borderRadius: T.radiusPill, border: "none", background: "#f59e0b", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1, flexShrink: 0 }}>
+                  {jobClockLoading ? "Ending…" : "End Break"}
+                </button>
+              </div>
+            )}
 
             {/* Pay period hours — read-only, all users see their own */}
             {loggedInUser.payType !== "salary" && (

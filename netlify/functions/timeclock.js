@@ -284,6 +284,31 @@ function applyAutoJobPause(person, reason, starting, nowIso) {
 // Back-compat alias for the lunch call sites.
 const applyLunchJobPause = (person, starting, nowIso) => applyAutoJobPause(person, "lunch", starting, nowIso);
 
+// The lightweight `activeBreak` flag has exactly one clearing path — the
+// breakClear action — and breaks never auto-expire (that is deliberate: an
+// overrunning break should stay visible to admins). So every action that ends
+// the state a break was taken in has to close the break too, or the flag
+// outlives the shift and personStatus() reports "On Break" forever for someone
+// who has gone home. Callers pair this with `activeBreak: null` on the person.
+//
+// Returns the payhours `breakEnd` row to append — breakBegin logs a standalone
+// `breakStart` for payroll, and leaving it unpaired makes the paid-break math
+// treat the break as still running. Returns null when no break was open.
+//
+// `localDay` must be the handler's own localDayOf: day stamps are org-local and
+// that closure is built per request from an awaited org timezone, so it cannot
+// be reached from module scope — it has to be passed in.
+function closeActiveBreak(person, personId, endIso, localDay) {
+  if (!person?.activeBreak) return null;
+  return {
+    id: `tce_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+    personId: String(personId),
+    date: localDay(endIso),
+    eventType: "breakEnd",
+    timestamp: endIso,
+  };
+}
+
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
@@ -442,9 +467,12 @@ export async function handler(event) {
         let log;
         try { log = await readJson(payKey) ?? []; } catch { log = []; }
         log.push(entry);
+        // An admin clocking someone out ends their open break too — see closeActiveBreak.
+        const acoBreakEnd = closeActiveBreak(person, personId, clockOut, localDayOf);
+        if (acoBreakEnd) log.push(acoBreakEnd);
         try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save clock entry"); }
 
-        people[personIdx] = { ...person, activeClockIn: null };
+        people[personIdx] = { ...person, activeClockIn: null, activeBreak: null };
         try { await writeStampedArray(peopleKey, people); } catch { /* non-fatal */ }
 
         // Update loggedHours on each job in tasks.json
@@ -963,8 +991,19 @@ export async function handler(event) {
       const jcoOpenPauseMs = jcoPausedAt ? Math.max(0, new Date(jcoClockOut) - new Date(jcoPausedAt)) : 0;
       const jcoHours = Math.max(0, Math.round(((jcoRawMs - jcoPausedMs - jcoOpenPauseMs) / 3600000) * 100) / 100);
 
-      jcoPeople[jcoIdx] = { ...jcoPerson, activeJobClock: null };
+      // A break taken on this job doesn't outlive the job — see closeActiveBreak.
+      // No pause bookkeeping needed: activeJobClock is dropped whole, and the
+      // in-flight pause was already billed out of jcoHours above.
+      const jcoBreakEnd = closeActiveBreak(jcoPerson, jcoPId, jcoClockOut, localDayOf);
+      jcoPeople[jcoIdx] = { ...jcoPerson, activeJobClock: null, activeBreak: null };
       try { await writeStampedArray(peopleKey, jcoPeople); } catch { return err(500, "Failed to save"); }
+      if (jcoBreakEnd) {
+        try {
+          const jcoPayLog = await readJson(payKey) ?? [];
+          jcoPayLog.push(jcoBreakEnd);
+          await writeStampedArray(payKey, jcoPayLog);
+        } catch { /* non-fatal — the flag is already cleared */ }
+      }
 
       // Session row first — it is the record of record, so it should land even if
       // the counter update below fails.
@@ -1385,12 +1424,16 @@ export async function handler(event) {
       let pcLog;
       try { pcLog = await readJson(payKey) ?? []; } catch { pcLog = []; }
       pcLog.push(entry);
+      // Going home ends any open break — see closeActiveBreak.
+      const pcBreakEnd = closeActiveBreak(pcPerson, pcPId, clockOut, localDayOf);
+      if (pcBreakEnd) pcLog.push(pcBreakEnd);
       try { await writeStampedArray(payKey, pcLog); } catch { return err(500, "Failed to save clock entry"); }
 
       // Clear the open shift on a FRESH read (single-person merge) — same
       // rationale as clock-in. Non-fatal: the punch above is already saved.
+      // `activeBreak` is cleared off the fresh copy for the same reason.
       try {
-        await mutatePersonFresh(peopleKey, pcPId, (fresh) => ({ ...fresh, activeClockIn: null }));
+        await mutatePersonFresh(peopleKey, pcPId, (fresh) => ({ ...fresh, activeClockIn: null, activeBreak: null }));
       } catch { /* non-fatal */ }
 
       // Mirror the kiosk clockOut: bump loggedHours on each referenced job.
@@ -1546,9 +1589,12 @@ export async function handler(event) {
       let log;
       try { log = await readJson(payKey) ?? []; } catch { log = []; }
       log.push(entry);
+      // Going home ends any open break — see closeActiveBreak.
+      const coBreakEnd = closeActiveBreak(person, personId, clockOut, localDayOf);
+      if (coBreakEnd) log.push(coBreakEnd);
       try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save clock entry"); }
 
-      people[personIdx] = { ...person, activeClockIn: null };
+      people[personIdx] = { ...person, activeClockIn: null, activeBreak: null };
       try { await writeStampedArray(peopleKey, people); } catch { /* non-fatal */ }
 
       // Update loggedHours on each job in tasks.json
