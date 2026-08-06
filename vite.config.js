@@ -23,6 +23,13 @@ const forceFullReload = {
 export default defineConfig({
   plugins: [react(), netlifyRedirects, forceFullReload],
   server: {
+    // Bind IPv4 explicitly. Vite's default host is "localhost", which Node 18+
+    // resolves to ::1 first — Vite then listens on [::1]:5173 ONLY. Netlify Dev
+    // probes 127.0.0.1:targetPort, never sees the framework come up ("Waiting
+    // for framework port 5173" forever), and falls back to its SPA rewrite: the
+    // browser asks for /src/main.jsx and gets index.html as text/html, so no
+    // module ever parses and the page renders blank (white screen).
+    host: "127.0.0.1",
     proxy: {
       "/api": {
         target: "http://localhost:8888",
