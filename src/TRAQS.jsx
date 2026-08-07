@@ -3638,6 +3638,11 @@ Extraction rules:
   }, [colPickerOpen]);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportSelOpen, setExportSelOpen] = useState(false);
+  // Set when the export sheet is opened FOR one job (the Export button on a job's
+  // details page) rather than from the toolbar. The sheet then drops its job picker —
+  // search, select/clear and the list — and offers only the formats, because the
+  // scope is already decided. Cleared whenever the sheet closes.
+  const [exportScopeJob, setExportScopeJob] = useState(null);
   const [bcModalState, setBcModalState] = useState("closed"); // "closed" | "open" | "closing"
   const [exportSelRows, setExportSelRows] = useState(new Set());
   const [exportSelSearch, setExportSelSearch] = useState("");
@@ -7177,6 +7182,19 @@ Extraction rules:
     if (!isMobile) (stack ? pushModal : setModal)(_clientEditEntry);
   };
   const closeClientEdit = () => { setClientModal(null); if (!isMobile) popModal(); };
+  // Export scoped to a single job — the Export button on a job's details page. Seeds
+  // the same sheet the toolbar opens, with this job already the selection, so PDF /
+  // CSV / Word all produce that one job. Stays an overlay on purpose: it sits ON TOP
+  // of the details page rather than replacing it, and the designer it hands off to is
+  // already full-screen.
+  const openJobExport = (job) => {
+    if (!job) return;
+    setExportScopeJob(job);
+    setExportSelRows(new Set([job.id]));
+    setExportSelSearch("");
+    setExportSelOpen(true);
+  };
+  const closeExportSheet = () => { setExportSelOpen(false); setExportScopeJob(null); };
   // Kept as a name for call sites that specifically mean "open the owning job";
   // openDetail resolves the same way now, so they are equivalent.
   const openJobDetail = openDetail;
@@ -21168,8 +21186,12 @@ ${jobsCtx || "No jobs found."}`;
           {asPage
             ? pageHead(fresh.title, {
                 onBack: closeModal,
-                // Stacks: Back from Edit returns to this details page rather than leaving.
-                right: dCanEdit ? <Btn size="sm" onClick={() => openEditStacked(fresh)}>Edit</Btn> : null,
+                right: <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                  {/* Export this job — opens the standard export sheet already scoped to it. */}
+                  <Btn size="sm" variant="ghost" onClick={() => openJobExport(fresh)}>Export</Btn>
+                  {/* Stacks: Back from Edit returns to this details page rather than leaving. */}
+                  {dCanEdit && <Btn size="sm" onClick={() => openEditStacked(fresh)}>Edit</Btn>}
+                </div>,
               })
             : <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 18 }}>
                 <HealthIcon t={fresh} size={22} style={{ flexShrink: 0, marginTop: 2 }} />
@@ -23675,32 +23697,34 @@ ${jobsCtx || "No jobs found."}`;
       // builds the print HTML live via buildLayoutHtml.
       const doPDF = () => { setExportLayout(seedLayout(exportData)); setExportPageIdx(0); resetExportHistory(); setExportPreview({ kind: "pdf", jobs: exportData, filename: "jobs_export.pdf", mime: "application/pdf" }); };
       const allVisibleSelected = visibleJobs.length > 0 && visibleJobs.every(j => exportSelRows.has(j.id));
-      return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10004, background: "rgba(0,0,0,0.72)", display: "flex", alignItems: "stretch", justifyContent: "center", fontFamily: T.font, padding: "32px 24px" }} onClick={() => setExportSelOpen(false)}>
+      return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10004, background: "rgba(0,0,0,0.72)", display: "flex", alignItems: "stretch", justifyContent: "center", fontFamily: T.font, padding: "32px 24px" }} onClick={closeExportSheet}>
         <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ width: "min(980px, 100%)", background: T.bg, display: "flex", flexDirection: "column", borderRadius: T.radius, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden" }}>
           {/* Header */}
           <div style={{ padding: "16px 24px 0", background: T.surface, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
               <div style={{ lineHeight: 0, color: T.accent }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>Export Jobs</div>
-                <div style={{ fontSize: 12, color: T.textDim }}>Click rows to select — highlighted rows will be exported</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>{exportScopeJob ? "Export Job" : "Export Jobs"}</div>
+                <div style={{ fontSize: 12, color: T.textDim }}>{exportScopeJob
+                  ? <>Exporting <strong style={{ color: T.text }}>{exportScopeJob.title}</strong>{exportScopeJob.jobNumber ? ` · ${exportScopeJob.jobNumber}` : ""} — pick a format</>
+                  : "Click rows to select — highlighted rows will be exported"}</div>
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 {exportSelRows.size > 0 && <span style={{ fontSize: 12, color: T.accent, fontWeight: 700, background: T.accent + "18", padding: "3px 10px", borderRadius: 12 }}>{exportSelRows.size} selected</span>}
-                <button onClick={() => setExportSelOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 22, lineHeight: 1, padding: "0 4px" }}>✕</button>
+                <button onClick={closeExportSheet} style={{ background: "none", border: "none", cursor: "pointer", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 22, lineHeight: 1, padding: "0 4px" }}>✕</button>
               </div>
             </div>
             {/* Toolbar */}
             <div style={{ display: "flex", gap: 8, alignItems: "center", paddingBottom: 12, flexWrap: "wrap" }}>
-              {/* Search */}
-              <div style={{ display: "flex", alignItems: "center", gap: 6, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "5px 10px", flex: "1 1 180px", maxWidth: 260 }}>
+              {/* Search — hidden when the sheet is scoped to one job; there is nothing to search. */}
+              {!exportScopeJob && <div style={{ display: "flex", alignItems: "center", gap: 6, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "5px 10px", flex: "1 1 180px", maxWidth: 260 }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <input className="tq-bare" value={exportSelSearch} onChange={e => setExportSelSearch(e.target.value)} placeholder="Filter jobs…" style={{ border: "none", background: "transparent", color: T.text, fontSize: 13, outline: "none", fontFamily: T.font, width: "100%" }} />
                 {exportSelSearch && <button onClick={() => setExportSelSearch("")} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), cursor: "pointer", fontSize: 14, padding: 0, lineHeight: 1 }}>✕</button>}
-              </div>
-              {/* Select / Clear */}
-              <button onClick={() => { if (allVisibleSelected) { setExportSelRows(prev => { const n = new Set(prev); visibleJobs.forEach(j => n.delete(j.id)); return n; }); } else { setExportSelRows(prev => { const n = new Set(prev); visibleJobs.forEach(j => n.add(j.id)); return n; }); } }} style={{ height: 30, padding: "0 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: allVisibleSelected ? T.accent + "22" : T.surface, color: allVisibleSelected ? T.accent : T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>{allVisibleSelected ? "Deselect All" : "Select All"}</button>
-              {exportSelRows.size > 0 && <button onClick={() => setExportSelRows(new Set())} style={{ height: 30, padding: "0 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: hexA(T.systemText || T.textSec, 0.8), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear</button>}
+              </div>}
+              {/* Select / Clear — nothing to select against when scoped to one job. */}
+              {!exportScopeJob && <button onClick={() => { if (allVisibleSelected) { setExportSelRows(prev => { const n = new Set(prev); visibleJobs.forEach(j => n.delete(j.id)); return n; }); } else { setExportSelRows(prev => { const n = new Set(prev); visibleJobs.forEach(j => n.add(j.id)); return n; }); } }} style={{ height: 30, padding: "0 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: allVisibleSelected ? T.accent + "22" : T.surface, color: allVisibleSelected ? T.accent : T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>{allVisibleSelected ? "Deselect All" : "Select All"}</button>}
+              {!exportScopeJob && exportSelRows.size > 0 && <button onClick={() => setExportSelRows(new Set())} style={{ height: 30, padding: "0 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: hexA(T.systemText || T.textSec, 0.8), fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear</button>}
               <div style={{ flex: 1 }} />
               {/* Export buttons */}
               <div style={{ display: "flex", gap: 6 }}>
@@ -23710,8 +23734,22 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             </div>
           </div>
-          {/* Job list */}
-          <div style={{ flex: 1, overflow: "auto" }}>
+          {/* Job list — replaced by a single confirmation line when the sheet is scoped
+              to one job, so it reads as "export this" rather than a picker with one row
+              already ticked. */}
+          {exportScopeJob
+            ? <div style={{ flex: 1, overflow: "auto", padding: "22px 24px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, borderLeft: `4px solid ${exportScopeJob.color || T.accent}` }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{exportScopeJob.title}</div>
+                    <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>
+                      {(exportScopeJob.subs || []).length} panel{(exportScopeJob.subs || []).length !== 1 ? "s" : ""} · {(exportScopeJob.subs || []).flatMap(p => p.subs || []).length} operations
+                    </div>
+                  </div>
+                  {exportScopeJob.jobNumber && <span style={{ fontSize: 12, fontFamily: T.mono, color: T.accent, background: T.accent + "15", borderRadius: T.radiusPill, padding: "3px 10px", flexShrink: 0 }}>{exportScopeJob.jobNumber}</span>}
+                </div>
+              </div>
+            : <div style={{ flex: 1, overflow: "auto" }}>
             {visibleJobs.length === 0 && <div style={{ padding: "48px 24px", textAlign: "center", color: T.textDim, fontSize: 14 }}>No jobs match your filter</div>}
             {visibleJobs.map(job => {
               const isSel = exportSelRows.has(job.id);
@@ -23748,14 +23786,14 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               </div>;
             })}
-          </div>
+          </div>}
           {/* Footer */}
           <div style={{ padding: "10px 24px", borderTop: `1px solid ${T.border}`, background: T.surface, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
             <span style={{ fontSize: 12, color: T.textDim }}>
               {exportSelRows.size > 0 ? <><strong style={{ color: T.accent }}>{exportSelRows.size}</strong> job{exportSelRows.size !== 1 ? "s" : ""} selected for export</> : <><strong style={{ color: T.text }}>{visibleJobs.length}</strong> job{visibleJobs.length !== 1 ? "s" : ""} — click rows to select a subset</>}
             </span>
             <div style={{ flex: 1 }} />
-            <button onClick={() => setExportSelOpen(false)} style={{ padding: "7px 18px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+            <button onClick={closeExportSheet} style={{ padding: "7px 18px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
           </div>
         </div>
       </div>;
@@ -23779,8 +23817,8 @@ ${jobsCtx || "No jobs found."}`;
       const saveTemplate = () => { if (!layout) return; setExportTplName(""); setExportTplNameOpen(true); };
       const deleteTemplate = id => setOrgSettings(s => ({ ...s, exportTemplates: (s.exportTemplates || []).filter(t => t.id !== id) }));
       const onLogoUpload = async e => { const f = e.target.files?.[0]; e.target.value = ""; if (!f) return; try { const data = await downscaleImage(f, 360, 0.92, "image/png"); pushExportHistory(); setExportLayout(L => L ? { ...L, logoDataUrl: data } : L); } catch { alert("Could not load that image."); } };
-      const downloadIt = () => { const content = ep.kind === "csv" ? ep.content : html; const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([content], { type: ep.mime })); a.download = ep.filename; a.click(); setExportPreview(null); setExportSelOpen(false); };
-      const printIt = () => { const w = window.open("", "_blank"); w.document.write(html); w.document.close(); w.focus(); setTimeout(() => { w.print(); setExportPreview(null); setExportSelOpen(false); }, 400); };
+      const downloadIt = () => { const content = ep.kind === "csv" ? ep.content : html; const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([content], { type: ep.mime })); a.download = ep.filename; a.click(); setExportPreview(null); closeExportSheet(); };
+      const printIt = () => { const w = window.open("", "_blank"); w.document.write(html); w.document.close(); w.focus(); setTimeout(() => { w.print(); setExportPreview(null); closeExportSheet(); }, 400); };
       const kindLabel = isPdf ? "PDF" : ep.kind === "word" ? "Word" : "CSV";
       const CANVAS_W = 760;
       const scale = dims ? Math.min(1, CANVAS_W / dims.w) : 1;
