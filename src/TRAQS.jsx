@@ -5229,6 +5229,41 @@ Extraction rules:
   const [attachmentsModal, setAttachmentsModal] = useState(null); // jobId
   const [attView, setAttView] = useState("large"); // "large" | "list" — View Details attachments layout
   const [detailSecClosed, setDetailSecClosed] = useState({ notes: true, att: true, analytics: true }); // View Details right-sidebar sections collapsed by key (Information open by default)
+  // ── Job details side panel width ─────────────────────────────────────────
+  // Drag its left edge to resize. Persisted, because a width you picked for how you
+  // read job data should not reset every reload. Clamped so it can't be dragged shut
+  // or wide enough to squeeze the panel list out of the left column.
+  const DETAIL_SIDE_MIN = 260, DETAIL_SIDE_MAX = 760;
+  const [detailSideW, setDetailSideW] = useState(() => {
+    const v = parseInt(localStorage.getItem("tq_detail_side_w") || "", 10);
+    return Number.isFinite(v) ? Math.min(DETAIL_SIDE_MAX, Math.max(DETAIL_SIDE_MIN, v)) : 340;
+  });
+  useEffect(() => { try { localStorage.setItem("tq_detail_side_w", String(detailSideW)); } catch { /* private mode */ } }, [detailSideW]);
+  const detailResizeRef = useRef(null);
+  const startDetailResize = (e) => {
+    e.preventDefault(); e.stopPropagation();
+    detailResizeRef.current = { x: e.clientX, w: detailSideW };
+    // Listeners go on the window, not the handle: the pointer routinely outruns a 6px
+    // strip mid-drag, and a handle-local listener would drop the drag the moment it did.
+    const move = (ev) => {
+      const d = detailResizeRef.current; if (!d) return;
+      // Panel is on the RIGHT, so dragging left (negative delta) makes it wider.
+      setDetailSideW(Math.min(DETAIL_SIDE_MAX, Math.max(DETAIL_SIDE_MIN, d.w - (ev.clientX - d.x))));
+    };
+    const up = () => {
+      detailResizeRef.current = null;
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    // Held on the body for the whole drag so the cursor doesn't flicker back to a
+    // caret over text, and so dragging can't select the page content underneath.
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
   const [pinnedThreads, setPinnedThreads] = useState(() => { try { return JSON.parse(localStorage.getItem("tq_pinned_threads") || "[]"); } catch { return []; } });
   const [threadCtxMenu, setThreadCtxMenu] = useState(null);
   const [dmCtxMenu, setDmCtxMenu] = useState(null);
@@ -7024,6 +7059,19 @@ Extraction rules:
   // Closing the Edit page pops one level, so it lands back on the job details page
   // when it was stacked from there, and on the plain view when it wasn't.
   const closeEditJob = () => { setEditJobModal(null); if (!isMobile) popModal(); };
+  // Navigating leaves the stack. A detail page takes over the content panel, so
+  // without this, picking a different item in the sidebar switched `view` underneath
+  // and nothing appeared to happen until you had backed all the way out.
+  // useLayoutEffect, not useEffect, so the stack is gone before paint and the new
+  // view never flashes behind the old page. Keyed on `view` rather than wired into
+  // switchView, so every route in — sidebar, notification jumps, search results —
+  // behaves the same. Returning the same array when already empty avoids a pointless
+  // re-render on views that were never stacked. The Edit draft is separate state and
+  // has to go too, or it would still be sitting there on the next open.
+  useLayoutEffect(() => {
+    setModalStack(prev => (prev.length ? [] : prev));
+    setEditJobModal(prev => (prev ? null : prev));
+  }, [view]);
   const _loadEditDraft = (t) => {
     // Locate the freshest copy of the job from tasks so we always edit the latest data
     const live = tasks.find(x => x.id === t.id) || t;
@@ -21038,7 +21086,12 @@ ${jobsCtx || "No jobs found."}`;
             : <div style={{ fontSize: 13, color: T.textDim, padding: "24px 0" }}>This job has no panels yet.</div>}
         </div>
         {/* ── Right: Information · Notes · Attachments ── */}
-        <div style={{ width: isMobile ? "auto" : 340, flexShrink: 0, borderLeft: isMobile ? "none" : `1px solid ${T.border}`, borderTop: isMobile ? `1px solid ${T.border}` : "none", background: T.surface, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "16px 18px" : (asPage ? "20px 22px 22px" : "0 22px 22px"), display: "flex", flexDirection: "column", gap: 4 }}>
+        {/* Resize handle — a sibling flex item, so it is full height for free and needs
+            no positioning tricks. 7px to be grabbable (a 1px border is not), pulled back
+            over the panel's border with a negative margin so it costs no layout width. */}
+        {!isMobile && <div onMouseDown={startDetailResize} title="Drag to resize"
+          style={{ width: 7, marginRight: -7, flexShrink: 0, cursor: "col-resize", zIndex: 5, position: "relative" }} />}
+        <div style={{ width: isMobile ? "auto" : detailSideW, flexShrink: 0, borderLeft: isMobile ? "none" : `1px solid ${T.border}`, borderTop: isMobile ? `1px solid ${T.border}` : "none", background: T.surface, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "16px 18px" : (asPage ? "20px 22px 22px" : "0 22px 22px"), display: "flex", flexDirection: "column", gap: 4 }}>
           {/* Close-button header band — keeps the ✕ on its own row so the Information section
               header doesn't sit level with it. Not needed as a page: the ✕ became a Back
               pill in the LEFT column's title row, so reserving 56px here is dead space. */}
