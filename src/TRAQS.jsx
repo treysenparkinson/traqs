@@ -564,10 +564,13 @@ animStyle.textContent = `
 }
 /* "Someone is on this right now" dot — same construction as the new-job pulse (glow
    intensity, no expanding ring, which the rows' overflow:hidden would clip) but green,
-   and a touch faster so live work reads as more urgent than a day-old job. */
+   and a touch faster so live work reads as more urgent than a day-old job.
+   The glow extent MATCHES the blue dot exactly (8px blur / 2px spread). It was 9/3,
+   which reached past what the row's overflow:hidden allows and clipped the halo — the
+   blue values are what actually fit inside a bar row. */
 @keyframes tqLivePulse {
   0%, 100% { box-shadow: 0 0 3px 1px rgba(16,185,129,0.85); }
-  50%      { box-shadow: 0 0 9px 3px rgba(16,185,129,1); }
+  50%      { box-shadow: 0 0 8px 2px rgba(16,185,129,1); }
 }
 @keyframes cardPop {
   0%   { opacity: 0; transform: translateY(16px) scale(0.94); filter: blur(3px); }
@@ -12115,7 +12118,7 @@ ${jobsCtx || "No jobs found."}`;
     const jobLabel = st === "job" ? (jc?.jobTitle || jc?.opTitle || null) : null;
     return (
       <div title={jobLabel ? `${meta.label} — ${jobLabel}` : meta.label}
-        style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0, maxWidth: 210, padding: "3px 10px", borderRadius: T.radiusPill, background: meta.color + "18", border: `1px solid ${meta.color}44`, flexShrink: 0, boxSizing: "border-box" }}>
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0, maxWidth: 340, padding: "3px 10px", borderRadius: T.radiusPill, background: meta.color + "18", border: `1px solid ${meta.color}44`, flexShrink: 0, boxSizing: "border-box" }}>
         <span style={{ width: 6, height: 6, borderRadius: 6, background: meta.color, flexShrink: 0 }} />
         <span style={{ fontSize: size, fontWeight: 700, color: meta.color, whiteSpace: "nowrap", flexShrink: 0 }}>{meta.label}</span>
         {jobLabel && <span style={{ fontSize: size, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>· {jobLabel}</span>}
@@ -12137,7 +12140,18 @@ ${jobsCtx || "No jobs found."}`;
 
   const renderTeam = () => {
     const days = []; let dc = tStart; while (dc <= tEnd) { days.push(dc); dc = addD(dc, 1); }
-    const lW = isMobile ? 120 : 260, rH = 42, grpH = 36;
+    // Left column width. It was a fixed 260, sized for the utilization number the clock
+    // pill replaced — a pill naming a job needs far more, so names wrapped and the pill
+    // sat on top of them. Widen to fit the longest job title actually on the clock right
+    // now, so nothing has to truncate; ~6.2px per character at the pill's 11px type,
+    // plus the pill's own chrome ("On job", dot, padding) and the row's avatar/name
+    // block. Clamped so an absurd job title can't eat the whole schedule.
+    const _pillJobs = people
+      .map(p => (personStatus(p) === "job" ? (p.activeJobClock?.jobTitle || p.activeJobClock?.opTitle || "") : ""))
+      .filter(Boolean);
+    const _longestPillCh = _pillJobs.reduce((m, s) => Math.max(m, s.length), 0);
+    const _pillW = _longestPillCh ? 92 + Math.ceil(_longestPillCh * 6.2) : 76;
+    const lW = isMobile ? 120 : Math.min(520, Math.max(260, 168 + _pillW)), rH = 42, grpH = 36;
     const tAvail = Math.max((teamWidth || 1200) - lW, 200);
     const cW = isMobile ? Math.max(28, tAvail / Math.max(days.length, 1)) : tAvail / Math.max(days.length, 1);
     teamCWRef.current = cW;
@@ -12652,7 +12666,9 @@ ${jobsCtx || "No jobs found."}`;
                       <PersonAvatar person={p} size={28} label={p.teamNumber ? String(p.teamNumber).charAt(0).toUpperCase() : null} />
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name.split(" ")[0]}</div>
-                        <div style={{fontSize:11,color:T.textDim}}>{p.department} · {p.cap}h</div>
+                        {/* nowrap + ellipsis: without it "Admin · 8h" broke onto a second
+                            line inside a fixed-height row and collided with the pill. */}
+                        <div style={{fontSize:11,color:T.textDim,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.department} · {p.cap}h</div>
                       </div>
                       {personClockPill(p, { size: 11 })}
                     </div>
@@ -12861,7 +12877,7 @@ ${jobsCtx || "No jobs found."}`;
                 <PersonAvatar person={p} size={28} label={p.teamNumber ? (isNaN(String(p.teamNumber)) ? String(p.teamNumber).charAt(0).toUpperCase() : String(p.teamNumber)) : null} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div onClick={barSelectMode ? (e => { e.stopPropagation(); setSelectedSchedulePerson(prev => prev === p.id ? null : p.id); }) : undefined} style={{ fontSize: 13, fontWeight: 600, color: barSelectMode ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: barSelectMode ? "pointer" : "default" }}>{p.name.split(" ")[0]}</div>
-                  <div style={{ fontSize: 11, color: T.textDim }}>{p.department} · {p.cap}h{p.isTeamLead ? <span style={{ color: "#10b981", marginLeft: 4 }}>★ Lead</span> : ""}</div>
+                  <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.department} · {p.cap}h{p.isTeamLead ? <span style={{ color: "#10b981", marginLeft: 4 }}>★ Lead</span> : ""}</div>
                 </div>
                 {personClockPill(p, { size: 11 })}
                 {teamSelectMode && <div className="select-bubble-in" style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${selPeople.has(p.id) ? T.accent : T.border}`, background: selPeople.has(p.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, pointerEvents: "none", transition: "border-color 0.15s, background 0.15s", animationDelay: `${ri * 25}ms` }}>{selPeople.has(p.id) && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
@@ -14250,8 +14266,8 @@ ${jobsCtx || "No jobs found."}`;
                   // Live dot takes the corner; the new-job dot shifts left when both apply,
                   // so a job created today that someone is already working shows both signals
                   // rather than one hiding the other.
-                  isLive && _wFirst > 0 && <span key={barKey + "-live"} className="tq-live-pulse" title={`On the clock now — ${_liveCrew.map(p => p.name).join(", ")}`} style={{ position: "absolute", left: `calc(${x} + ${w} - 10px)`, top: 4, zIndex: 9, width: 9, height: 9, borderRadius: "50%", background: "#10b981", boxSizing: "border-box", pointerEvents: "none" }} />,
-                  isNew && _wFirst > 0 && <span key={barKey + "-new"} className="tq-new-pulse" title="New job — added in the last 24h" style={{ position: "absolute", left: `calc(${x} + ${w} - ${isLive ? 23 : 10}px)`, top: 4, zIndex: 8, width: 9, height: 9, borderRadius: "50%", background: "#0a84ff", boxSizing: "border-box", pointerEvents: "none" }} />,
+                  isLive && _wFirst > 0 && <span key={barKey + "-live"} className="tq-live-pulse" title={`On the clock now — ${_liveCrew.map(p => p.name).join(", ")}`} style={{ position: "absolute", left: `calc(${x} + ${w} - 10px)`, top: 9, zIndex: 9, width: 9, height: 9, borderRadius: "50%", background: "#10b981", boxSizing: "border-box", pointerEvents: "none" }} />,
+                  isNew && _wFirst > 0 && <span key={barKey + "-new"} className="tq-new-pulse" title="New job — added in the last 24h" style={{ position: "absolute", left: `calc(${x} + ${w} - ${isLive ? 23 : 10}px)`, top: 9, zIndex: 8, width: 9, height: 9, borderRadius: "50%", background: "#0a84ff", boxSizing: "border-box", pointerEvents: "none" }} />,
                   ...barSegs.slice(1).map((seg, si) => {
                     const tailX = (diffD(tStart, seg.start) / nDays * 100) + "%";
                     // Only the segment that actually holds the bar's end gets the
