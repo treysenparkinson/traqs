@@ -562,13 +562,16 @@ animStyle.textContent = `
   0%, 100% { box-shadow: 0 0 3px 1px rgba(10,132,255,0.85); }
   50%      { box-shadow: 0 0 8px 2px rgba(10,132,255,1); }
 }
-/* "Someone is on this right now" dot. NO glow, deliberately: bar rows are
-   overflow:hidden and the dot sits in the bar's top corner, so any halo gets sliced no
-   matter how it's tuned. It pulses opacity with a hair of scale instead — visible at a
-   glance, and nothing to clip because the dot never paints outside its own 9px box. */
+/* "Someone is on this right now" dot — solid, with a ring pulsing outward from it.
+   The ring is box-shadow SPREAD with zero blur, so it's a crisp expanding circle rather
+   than a glow, and it fades to fully transparent by the time it reaches 5px. That 5px
+   matters: the dot sits 4px below the top of an overflow:hidden row, so the ring only
+   crosses that edge in its last frames, where its alpha is already ~0 — the clipping
+   is there in principle and invisible in practice. Don't grow it. */
 @keyframes tqLivePulse {
-  0%, 100% { opacity: 1;    transform: scale(1); }
-  50%      { opacity: 0.45; transform: scale(1.12); }
+  0%   { box-shadow: 0 0 0 0   rgba(16,185,129,0.55); }
+  70%  { box-shadow: 0 0 0 5px rgba(16,185,129,0); }
+  100% { box-shadow: 0 0 0 0   rgba(16,185,129,0); }
 }
 @keyframes cardPop {
   0%   { opacity: 0; transform: translateY(16px) scale(0.94); filter: blur(3px); }
@@ -761,7 +764,7 @@ animStyle.textContent = `
 .anim-gantt-bar   { animation: ganttBarSlide 0.38s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .anim-spring      { animation: springPop   0.5s  cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 .tq-new-pulse     { animation: tqNewPulse 1.6s ease-out infinite; }
-.tq-live-pulse    { animation: tqLivePulse 1.2s ease-out infinite; }
+.tq-live-pulse    { animation: tqLivePulse 1.6s cubic-bezier(0.2, 0.6, 0.35, 1) infinite; }
 
 /* ── Chat message entrance (send/receive) ──────────────────────────────
    Mine grow and fade in from the bottom-right; incoming slide in from the
