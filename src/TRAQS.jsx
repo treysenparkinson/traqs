@@ -562,15 +562,13 @@ animStyle.textContent = `
   0%, 100% { box-shadow: 0 0 3px 1px rgba(10,132,255,0.85); }
   50%      { box-shadow: 0 0 8px 2px rgba(10,132,255,1); }
 }
-/* "Someone is on this right now" dot — same construction as the new-job pulse (glow
-   intensity, no expanding ring, which the rows' overflow:hidden would clip) but green,
-   and a touch faster so live work reads as more urgent than a day-old job.
-   The glow extent MATCHES the blue dot exactly (8px blur / 2px spread). It was 9/3,
-   which reached past what the row's overflow:hidden allows and clipped the halo — the
-   blue values are what actually fit inside a bar row. */
+/* "Someone is on this right now" dot. NO glow, deliberately: bar rows are
+   overflow:hidden and the dot sits in the bar's top corner, so any halo gets sliced no
+   matter how it's tuned. It pulses opacity with a hair of scale instead — visible at a
+   glance, and nothing to clip because the dot never paints outside its own 9px box. */
 @keyframes tqLivePulse {
-  0%, 100% { box-shadow: 0 0 3px 1px rgba(16,185,129,0.85); }
-  50%      { box-shadow: 0 0 8px 2px rgba(16,185,129,1); }
+  0%, 100% { opacity: 1;    transform: scale(1); }
+  50%      { opacity: 0.45; transform: scale(1.12); }
 }
 @keyframes cardPop {
   0%   { opacity: 0; transform: translateY(16px) scale(0.94); filter: blur(3px); }
@@ -14266,8 +14264,8 @@ ${jobsCtx || "No jobs found."}`;
                   // Live dot takes the corner; the new-job dot shifts left when both apply,
                   // so a job created today that someone is already working shows both signals
                   // rather than one hiding the other.
-                  isLive && _wFirst > 0 && <span key={barKey + "-live"} className="tq-live-pulse" title={`On the clock now — ${_liveCrew.map(p => p.name).join(", ")}`} style={{ position: "absolute", left: `calc(${x} + ${w} - 10px)`, top: 9, zIndex: 9, width: 9, height: 9, borderRadius: "50%", background: "#10b981", boxSizing: "border-box", pointerEvents: "none" }} />,
-                  isNew && _wFirst > 0 && <span key={barKey + "-new"} className="tq-new-pulse" title="New job — added in the last 24h" style={{ position: "absolute", left: `calc(${x} + ${w} - ${isLive ? 23 : 10}px)`, top: 9, zIndex: 8, width: 9, height: 9, borderRadius: "50%", background: "#0a84ff", boxSizing: "border-box", pointerEvents: "none" }} />,
+                  isLive && _wFirst > 0 && <span key={barKey + "-live"} className="tq-live-pulse" title={`On the clock now — ${_liveCrew.map(p => p.name).join(", ")}`} style={{ position: "absolute", left: `calc(${x} + ${w} - 10px)`, top: 4, zIndex: 9, width: 9, height: 9, borderRadius: "50%", background: "#10b981", boxSizing: "border-box", pointerEvents: "none" }} />,
+                  isNew && _wFirst > 0 && <span key={barKey + "-new"} className="tq-new-pulse" title="New job — added in the last 24h" style={{ position: "absolute", left: `calc(${x} + ${w} - ${isLive ? 23 : 10}px)`, top: 4, zIndex: 8, width: 9, height: 9, borderRadius: "50%", background: "#0a84ff", boxSizing: "border-box", pointerEvents: "none" }} />,
                   ...barSegs.slice(1).map((seg, si) => {
                     const tailX = (diffD(tStart, seg.start) / nDays * 100) + "%";
                     // Only the segment that actually holds the bar's end gets the
