@@ -10133,10 +10133,16 @@ ${jobsCtx || "No jobs found."}`;
         {/* Right: actions */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
           {taskSubView === "list" && <>
-            {/* Export button */}
-            <Tip label="Export">
-            <button onClick={() => { setExportSelOpen(true); setExportSelRows(new Set()); setExportSelSearch(""); setColPickerOpen(false); }} style={{ height: 34, width: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.accent}`, background: T.card, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, fontFamily: T.font }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            {/* Export button. Tooltip says what it does rather than repeating the label,
+                which is now visible on the button itself. */}
+            <Tip label="Export jobs to PDF, CSV or Word">
+            {/* Primary CTA, not a bare icon: the accent gradient fill every other primary
+                button uses, with the drawn download icon leading the label. It was a 34px
+                outline square that read as a tertiary tool. Icon strokes currentColor so it
+                follows the button text on any accent. */}
+            <button className="anim-btn" onClick={() => { setExportSelOpen(true); setExportSelRows(new Set()); setExportSelSearch(""); setColPickerOpen(false); }} style={{ height: 34, padding: "0 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, boxShadow: `0 5px 16px -5px ${hexA(T.accent, 0.55)}`, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, fontSize: 13, fontWeight: 700, fontFamily: T.font, whiteSpace: "nowrap", flexShrink: 0 }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+              Export
             </button>
             </Tip>
           </>}
