@@ -21025,8 +21025,13 @@ ${jobsCtx || "No jobs found."}`;
                 does not move and the row still measures to its content. The collapse
                 is unaffected — it is driven by grid-template-rows, and the padding is
                 cancelled to net zero in both states. */}
-            <div style={{ overflow: "hidden", minHeight: 0, padding: 26, margin: -26 }}>
-              <div style={{ paddingTop: 12, opacity: open ? 1 : 0, transition: "opacity 0.18s ease" }}>{body}</div>
+            {/* pointerEvents none on the clip box, auto on the content: the 26px of
+                padding above overlaps the header row, and as a transparent hit target it
+                swallowed clicks on the title — you could open a section but only the
+                chevron would close it. The padding must not catch anything; the content
+                inside it still does. */}
+            <div style={{ overflow: "hidden", minHeight: 0, padding: 26, margin: -26, pointerEvents: "none" }}>
+              <div style={{ paddingTop: 12, opacity: open ? 1 : 0, transition: "opacity 0.18s ease", pointerEvents: "auto" }}>{body}</div>
             </div>
           </div>
         </div>;
