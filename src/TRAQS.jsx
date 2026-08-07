@@ -7098,6 +7098,17 @@ Extraction rules:
     setEditPopBtn(null);
   };
   const openDetail = t => setModal({ type: "detail", data: t, parentId: null });
+  // Schedule bars carry the OPERATION, so clicking one used to land on the narrow
+  // op-level page. A bar reads as the job, so it should open the job's details.
+  // Bars are built with grandPid = the owning job's id; falling back to the item
+  // itself keeps this safe for callers that already hand over a job.
+  const openJobDetail = (item) => {
+    const job = (item?.grandPid && tasks.find(t => t.id === item.grandPid))
+      || (item?.pid && tasks.find(t => t.id === item.pid))
+      || tasks.find(t => t.id === item?.id)
+      || item;
+    openDetail(job);
+  };
 
   const AI_TOOLS = [
     { name: "update_job", description: "Update any field of an existing job: status, priority, dates, job number, notes, due date", input_schema: { type: "object", properties: { job_id: { type: "string", description: "The job_id from context" }, status: { type: "string", enum: STATUSES }, priority: { type: "string", enum: PRIORITIES }, start: { type: "string", description: "YYYY-MM-DD" }, end: { type: "string", description: "YYYY-MM-DD" }, due_date: { type: "string", description: "YYYY-MM-DD, or empty string to clear" }, job_number: { type: "string" }, notes: { type: "string" } }, required: ["job_id"] } },
@@ -12255,7 +12266,7 @@ ${jobsCtx || "No jobs found."}`;
         setTeamDayGhost(null);
         setDayDragInfo(null);
         setDayDragTarget(null);
-        if (!moved && mode === "move") openDetail(barTask);
+        if (!moved && mode === "move") openJobDetail(barTask);
       };
       document.addEventListener("mousemove", onM);
       document.addEventListener("mouseup", onU);
@@ -12929,7 +12940,7 @@ ${jobsCtx || "No jobs found."}`;
                   const isPto = bar.type === "pto";
                   const isExp = false;
                   const handleTeamDrag = (e) => {
-                    if (!can("moveJobs")) { if (!isPto && bar.task) openDetail(bar.task); return; }
+                    if (!can("moveJobs")) { if (!isPto && bar.task) openJobDetail(bar.task); return; }
                     if (isPto) {
                       // PTO drag
                       e.preventDefault();
@@ -13413,7 +13424,7 @@ ${jobsCtx || "No jobs found."}`;
                       document.removeEventListener("mousemove", onM);
                       document.removeEventListener("mouseup", onU);
                       isDraggingRef.current = false; setDropTarget(null); setTeamDragInfo(null);
-                      if (!moved) { if (barSelectMode && !isPto) { setSelBars(prev => { const n = new Set(prev); n.has(bar.id) ? n.delete(bar.id) : n.add(bar.id); return n; }); } else if (bar.task) { openDetail(bar.task); } return; }
+                      if (!moved) { if (barSelectMode && !isPto) { setSelBars(prev => { const n = new Set(prev); n.has(bar.id) ? n.delete(bar.id) : n.add(bar.id); return n; }); } else if (bar.task) { openJobDetail(bar.task); } return; }
                       // Can't move the SPECIFIC op someone is actively clocked into — they'd be
                       // stranded. Scoped to this op (bar.task.id): a clock on a sibling task in the
                       // same job must not block moving this independent one.
