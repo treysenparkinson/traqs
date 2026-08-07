@@ -21151,6 +21151,10 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ fontSize: 13, color: T.textDim, marginTop: -8, marginBottom: 18 }}>
             {job.title}{job.jobNumber ? ` · ${job.jobNumber}` : ""}
           </div>
+          {/* Body capped and centred like the edit pages — full-width rows across a wide
+              monitor put the person, the operation and the hours miles apart. Title and
+              subline stay full width at the top-left, same as Edit Job. */}
+          <div style={{ width: "100%", maxWidth: FIELD_COL_W, marginLeft: "auto", marginRight: "auto" }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 20 }}>
             {stat("Hours logged", fmtH(totalH), T.accent)}
             {stat("People", String(crew.length), "#10b981")}
@@ -21219,6 +21223,7 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                 ))}
               </div>}
+          </div>
         </div>
       </div></div>;
     }
