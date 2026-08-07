@@ -11152,12 +11152,26 @@ ${jobsCtx || "No jobs found."}`;
               </div>
               {completedJobs.length > 0 && <div style={{ border: `1px solid #10b98133`, borderRadius: T.radiusSm, overflow: "hidden" }}>
                 <div onClick={() => setClientCompletedExpanded(p => !p)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: "#10b98110", cursor: "pointer", userSelect: "none" }}>
-                  <span style={{ fontSize: 16 }}>{clientCompletedExpanded ? "📂" : "📁"}</span>
+                  {/* Drawn folder, not an emoji — emoji render in the system font, ignore
+                      the theme, and look different on every OS. One icon in both states;
+                      the chevron carries open/closed, same as the job page sections. */}
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <path d="M3 7a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9L11.5 7H19a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z" />
+                  </svg>
                   <span style={{ fontSize: 14, fontWeight: 700, color: "#10b981", flex: 1 }}>Completed Jobs</span>
                   <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98122", borderRadius: 16, padding: "1px 10px" }}>{completedJobs.length}</span>
-                  <span style={{ fontSize: 12, color: "#10b981", opacity: 0.7 }}>{clientCompletedExpanded ? "▲" : "▼"}</span>
+                  {/* Rotating chevron, matching the collapsible sections on the job page. */}
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                    style={{ flexShrink: 0, opacity: 0.75, transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)", transform: clientCompletedExpanded ? "rotate(180deg)" : "rotate(0deg)" }}>
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
                 </div>
-                {clientCompletedExpanded && <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "12px 14px", background: T.surface }}>
+                {/* Slides open on grid-template-rows 0fr↔1fr — the same collapse the job
+                    page sections use, so the two behave identically. The row height is the
+                    only animated property; the inner div clips while it runs. */}
+                <div style={{ display: "grid", gridTemplateRows: clientCompletedExpanded ? "1fr" : "0fr", transition: "grid-template-rows 0.26s cubic-bezier(0.4,0,0.2,1)", pointerEvents: clientCompletedExpanded ? "auto" : "none" }}>
+                <div style={{ overflow: "hidden", minHeight: 0 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "12px 14px", background: T.surface, opacity: clientCompletedExpanded ? 1 : 0, transition: "opacity 0.18s ease" }}>
                   {completedJobs.map(t => <div key={t.id} style={{ background: T.card, borderRadius: T.radiusSm, padding: "12px 14px", border: `1px solid #10b98122`, borderLeft: `4px solid #10b981` }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -11170,7 +11184,9 @@ ${jobsCtx || "No jobs found."}`;
                       {(t.subs || []).length > 0 && <span>{t.subs.length} panel{t.subs.length !== 1 ? "s" : ""}</span>}
                     </div>
                   </div>)}
-                </div>}
+                </div>
+                </div>
+                </div>
               </div>}
             </>;
           })()}
