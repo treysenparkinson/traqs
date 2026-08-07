@@ -1492,11 +1492,31 @@ const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", 
   const [anchor, setAnchor] = useState(null);
   useEffect(() => {
     if (!portal || !open) return;
-    const measure = () => { const r = trigRef.current?.getBoundingClientRect(); if (r) setAnchor({ left: r.left, top: r.bottom + 6, width: r.width }); };
+    // A portalled popup is position:fixed, so anything past the viewport edge is simply
+    // unreachable — you can't scroll the page to it. Flip above the trigger when there
+    // isn't room below, and clamp on both axes so it can never sit off-screen. Measures
+    // the real popup height once it exists, falling back to a close estimate on the
+    // first pass (290 wide, six week rows).
+    const POP_W = 290, POP_H_EST = 336, GAP = 6, EDGE = 8;
+    const measure = () => {
+      const r = trigRef.current?.getBoundingClientRect();
+      if (!r) return;
+      const h = popRef.current?.offsetHeight || POP_H_EST;
+      const roomBelow = window.innerHeight - r.bottom - GAP - EDGE;
+      const roomAbove = r.top - GAP - EDGE;
+      const openUp = roomBelow < h && roomAbove > roomBelow;
+      const rawTop = openUp ? r.top - GAP - h : r.bottom + GAP;
+      const top = Math.max(EDGE, Math.min(rawTop, window.innerHeight - h - EDGE));
+      const left = Math.max(EDGE, Math.min(r.left, window.innerWidth - POP_W - EDGE));
+      setAnchor({ left, top, width: r.width, maxH: Math.max(160, window.innerHeight - top - EDGE) });
+    };
     measure();
+    // Re-measure on the next frame, once the popup has mounted and its real height is
+    // known — the first pass can only use the estimate.
+    const raf = requestAnimationFrame(measure);
     window.addEventListener('scroll', measure, true);
     window.addEventListener('resize', measure);
-    return () => { window.removeEventListener('scroll', measure, true); window.removeEventListener('resize', measure); };
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('scroll', measure, true); window.removeEventListener('resize', measure); };
   }, [portal, open]);
   const wrapPop = (node) => (portal ? createPortal(node, document.body) : node);
   const popRef = useRef(null);
@@ -1540,7 +1560,7 @@ const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", 
       {/* wrapPop goes OUTSIDE FadeOnClose: on close FadeOnClose cloneElement()s
           its child and reads child.props.style, and a portal object has no
           .props — portalling the child threw a TypeError on every close. */}
-      {wrapPop(<FadeOnClose open={open}>{open && (<div ref={popRef} onClick={e => e.stopPropagation()} className="anim-drop" style={{ ...(portal ? { position: "fixed", left: anchor?.left ?? 0, top: anchor?.top ?? 0, minWidth: anchor?.width } : { position: "absolute", top: "calc(100% + 6px)", left: 0 }), zIndex: portal ? 10060 : 1500, background: T.surfaceSolid || T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 16px 48px rgba(0,0,0,0.5)", padding: 14, width: 290, fontFamily: T.font }}>
+      {wrapPop(<FadeOnClose open={open}>{open && (<div ref={popRef} onClick={e => e.stopPropagation()} className="anim-drop" style={{ ...(portal ? { position: "fixed", left: anchor?.left ?? 0, top: anchor?.top ?? 0, minWidth: anchor?.width, maxHeight: anchor?.maxH, overflowY: "auto" } : { position: "absolute", top: "calc(100% + 6px)", left: 0 }), zIndex: portal ? 10060 : 1500, background: T.surfaceSolid || T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, overflow: portal ? undefined : "hidden", boxShadow: "0 16px 48px rgba(0,0,0,0.5)", padding: 14, width: 290, fontFamily: T.font }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <button onClick={NAV(-1)} style={{ width: 30, height: 30, borderRadius: T.radiusPill, border: "none", background: "transparent", color: hexA(T.systemText || T.textSec, 0.8), cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
