@@ -10221,7 +10221,7 @@ ${jobsCtx || "No jobs found."}`;
                   const pEng = panel.engineering || {};
                   const engAllDone = hasEng && !!(pEng.designed && pEng.verified && pEng.sentToPerforex);
                   const pActiveStep = hasEng ? (!pEng.designed ? "designed" : !pEng.verified ? "verified" : "sentToPerforex") : null;
-                  return <div key={panel.id} style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${engAllDone ? "#10b98133" : hasEng ? T.accent + "33" : T.border}`, padding: 14, marginBottom: 8 }}>
+                  return <div key={panel.id} style={{ background: T.surface, borderRadius: T.radiusLg, border: `1px solid ${engAllDone ? "#10b98133" : hasEng ? T.accent + "33" : T.border}`, padding: 16, marginBottom: 8 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                       <HealthIcon t={panel} size={14} />
                       <span style={{ flex: 1, fontSize: 14, color: T.text, fontWeight: 600, fontFamily: T.mono }}>{panel.title}</span>
@@ -20177,7 +20177,9 @@ ${jobsCtx || "No jobs found."}`;
                 const hasSubs = (panel.subs||[]).length>0;
                 const panelHpdSum = hasSubs ? Math.round((panel.subs||[]).reduce((s,x) => s+(x.hpd??7.5),0)*10)/10 : null;
                 const isPanelSelected = !ed.isReschedule || rescheduleSelection.includes(panel.id);
-                return <div key={panel.id} style={{ background:T.bg, borderRadius:T.radiusSm, border:`1px solid ${T.border}`, padding:12, animation:"fadeIn 0.25s ease-out backwards", opacity:isPanelSelected?1:0.4, transition:"opacity 0.15s" }}>
+                // radiusLg, not radiusSm — the card wraps pill controls, and a 16px corner
+                // around 9999px pills reads as a box drawn around round things.
+                return <div key={panel.id} style={{ background:T.bg, borderRadius:T.radiusLg, border:`1px solid ${T.border}`, padding:16, animation:"fadeIn 0.25s ease-out backwards", opacity:isPanelSelected?1:0.4, transition:"opacity 0.15s" }}>
                   {/* Panel header row */}
                   <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:8 }}>
                     {ed.isReschedule && <input type="checkbox" checked={rescheduleSelection.includes(panel.id)} onChange={() => setRescheduleSelection(prev => prev.includes(panel.id) ? prev.filter(id => id !== panel.id) : [...prev, panel.id])} style={{ width:16, height:16, cursor:"pointer", accentColor:T.accent, flexShrink:0 }} />}
@@ -21092,7 +21094,7 @@ ${jobsCtx || "No jobs found."}`;
                 const pEng = panel.engineering || {};
                 const engAllDone = hasEng && !!(pEng.designed && pEng.verified && pEng.sentToPerforex);
                 const pActiveStep = hasEng ? (!pEng.designed ? "designed" : !pEng.verified ? "verified" : "sentToPerforex") : null;
-                return <div key={panel.id} style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${engAllDone ? "#10b98133" : hasEng ? T.accent + "33" : T.border}`, padding: 14, marginBottom: 8 }}>
+                return <div key={panel.id} style={{ background: T.surface, borderRadius: T.radiusLg, border: `1px solid ${engAllDone ? "#10b98133" : hasEng ? T.accent + "33" : T.border}`, padding: 16, marginBottom: 8 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                     <HealthIcon t={panel} size={14} />
                     <span style={{ flex: 1, fontSize: 14, color: T.text, fontWeight: 600, fontFamily: T.mono }}>{panel.title}</span>
