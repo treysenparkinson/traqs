@@ -21139,6 +21139,13 @@ ${jobsCtx || "No jobs found."}`;
         const last = days[days.length - 1];
         if (last && last.day === d) last.rows.push(r); else days.push({ day: d, rows: [r] });
       });
+      // Section headings at the same 18px/800 the job details sections use, so they
+      // read as dividers rather than field captions. The 11px uppercase they replaced
+      // was the same weight as the labels inside the cards, which is why the whole
+      // page ran together.
+      const sectionHead = (text, color) => (
+        <div style={{ fontSize: 18, fontWeight: 800, color: color || T.text, letterSpacing: "-0.045em", marginBottom: 12 }}>{text}</div>
+      );
       const stat = (label, value, color) => (
         <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, padding: "12px 16px", minWidth: 0 }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{label}</div>
@@ -21155,15 +21162,15 @@ ${jobsCtx || "No jobs found."}`;
               monitor put the person, the operation and the hours miles apart. Title and
               subline stay full width at the top-left, same as Edit Job. */}
           <div style={{ width: "100%", maxWidth: FIELD_COL_W, marginLeft: "auto", marginRight: "auto" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 38 }}>
             {stat("Hours logged", fmtH(totalH), T.accent)}
             {stat("People", String(crew.length), "#10b981")}
             {stat("Sessions", String(rows.length), "#8b5cf6")}
             {stat("On the clock", String(liveNow.length), liveNow.length ? "#10b981" : T.textDim)}
           </div>
 
-          {liveNow.length > 0 && <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: "#10b981", textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>On the clock now</div>
+          {liveNow.length > 0 && <div style={{ marginBottom: 38 }}>
+            {sectionHead("On the clock now", "#10b981")}
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {liveNow.map(p => (
                 <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", background: "#10b98110", border: `1px solid #10b98133`, borderRadius: T.radiusLg }}>
@@ -21177,8 +21184,8 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           </div>}
 
-          {crew.length > 0 && <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>Hours by person</div>
+          {crew.length > 0 && <div style={{ marginBottom: 38 }}>
+            {sectionHead("Hours by person")}
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {crew.map(({ person, pid, h }) => (
                 <div key={pid} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusLg }}>
@@ -21193,16 +21200,16 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           </div>}
 
-          <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>Log</div>
+          {sectionHead("Log")}
           {rows.length === 0
             ? <div style={{ padding: "36px 24px", textAlign: "center", color: T.textDim, fontSize: 13, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusLg }}>
                 No time has been logged to this job yet.
               </div>
-            : <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            : <div style={{ display: "flex", flexDirection: "column", gap: 22 }}>
                 {days.map(({ day, rows: dRows }) => (
                   <div key={day}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: T.textSec }}>{day ? fmtDate(day) : "Undated"}</span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 800, color: T.text, letterSpacing: "-0.02em" }}>{day ? fmtDate(day) : "Undated"}</span>
                       <div style={{ flex: 1, height: 1, background: T.border }} />
                       <span style={{ fontSize: 11, fontFamily: T.mono, color: T.textDim }}>{fmtH(dRows.reduce((s, r) => s + (Number(r.hours) || 0), 0))}h</span>
                     </div>
@@ -21309,10 +21316,21 @@ ${jobsCtx || "No jobs found."}`;
             ? pageHead(fresh.title, {
                 onBack: closeModal,
                 right: <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                  {/* Both of these STACK, so Back returns to this details page. */}
+                  {/* Export opens the standard export sheet already scoped to this job.
+                      Drawn icon, not an emoji — it inherits currentColor so it tracks the
+                      button's text in every theme. */}
+                  <Btn size="sm" variant="ghost" onClick={() => openJobExport(fresh)}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                      </svg>
+                      Export
+                    </span>
+                  </Btn>
+                  {/* Stacks, so Back returns to this details page. */}
                   <Btn size="sm" variant="ghost" onClick={() => pushModal({ type: "jobLog", data: fresh, parentId: null })}>Job Log</Btn>
-                  {/* Export opens the standard export sheet already scoped to this job. */}
-                  <Btn size="sm" variant="ghost" onClick={() => openJobExport(fresh)}>Export</Btn>
                   {dCanEdit && <Btn size="sm" onClick={() => openEditStacked(fresh)}>Edit</Btn>}
                 </div>,
               })
