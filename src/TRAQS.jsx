@@ -562,6 +562,13 @@ animStyle.textContent = `
   0%, 100% { box-shadow: 0 0 3px 1px rgba(10,132,255,0.85); }
   50%      { box-shadow: 0 0 8px 2px rgba(10,132,255,1); }
 }
+/* "Someone is on this right now" dot — same construction as the new-job pulse (glow
+   intensity, no expanding ring, which the rows' overflow:hidden would clip) but green,
+   and a touch faster so live work reads as more urgent than a day-old job. */
+@keyframes tqLivePulse {
+  0%, 100% { box-shadow: 0 0 3px 1px rgba(16,185,129,0.85); }
+  50%      { box-shadow: 0 0 9px 3px rgba(16,185,129,1); }
+}
 @keyframes cardPop {
   0%   { opacity: 0; transform: translateY(16px) scale(0.94); filter: blur(3px); }
   60%  { opacity: 1; transform: translateY(-3px) scale(1.01); filter: blur(0);   }
@@ -753,6 +760,7 @@ animStyle.textContent = `
 .anim-gantt-bar   { animation: ganttBarSlide 0.38s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .anim-spring      { animation: springPop   0.5s  cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 .tq-new-pulse     { animation: tqNewPulse 1.6s ease-out infinite; }
+.tq-live-pulse    { animation: tqLivePulse 1.2s ease-out infinite; }
 
 /* ── Chat message entrance (send/receive) ──────────────────────────────
    Mine grow and fade in from the bottom-right; incoming slide in from the
@@ -14192,6 +14200,10 @@ ${jobsCtx || "No jobs found."}`;
                   let _wRemainingBudget = Math.max(0, _wBudget - _wFirst);
                   // "NEW" badge — show on bars whose parent job was created within the last 24h.
                   const isNew = !isPto && bar.jobCreatedAt && (Date.now() - new Date(bar.jobCreatedAt).getTime()) < 86400000;
+                  // Someone is clocked into this operation right now. sameId, not === :
+                  // op ids are mixed string/number, so a strict compare misses live work.
+                  const _liveCrew = isPto ? [] : people.filter(p => p.activeJobClock?.clockIn && sameId(p.activeJobClock.opId, bar.task?.id));
+                  const isLive = _liveCrew.length > 0;
                   return [<div key={barKey}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
@@ -14218,7 +14230,11 @@ ${jobsCtx || "No jobs found."}`;
                   /* Hidden when the first piece has no width: the dot is placed from that
                      piece's right edge, so with w=0 it would sit 10px BEFORE the bar's
                      own left edge — out on the non-working column, with no bar to pin it. */
-                  isNew && _wFirst > 0 && <span key={barKey + "-new"} className="tq-new-pulse" title="New job — added in the last 24h" style={{ position: "absolute", left: `calc(${x} + ${w} - 10px)`, top: 4, zIndex: 8, width: 9, height: 9, borderRadius: "50%", background: "#0a84ff", boxSizing: "border-box", pointerEvents: "none" }} />,
+                  // Live dot takes the corner; the new-job dot shifts left when both apply,
+                  // so a job created today that someone is already working shows both signals
+                  // rather than one hiding the other.
+                  isLive && _wFirst > 0 && <span key={barKey + "-live"} className="tq-live-pulse" title={`On the clock now — ${_liveCrew.map(p => p.name).join(", ")}`} style={{ position: "absolute", left: `calc(${x} + ${w} - 10px)`, top: 4, zIndex: 9, width: 9, height: 9, borderRadius: "50%", background: "#10b981", boxSizing: "border-box", pointerEvents: "none" }} />,
+                  isNew && _wFirst > 0 && <span key={barKey + "-new"} className="tq-new-pulse" title="New job — added in the last 24h" style={{ position: "absolute", left: `calc(${x} + ${w} - ${isLive ? 23 : 10}px)`, top: 4, zIndex: 8, width: 9, height: 9, borderRadius: "50%", background: "#0a84ff", boxSizing: "border-box", pointerEvents: "none" }} />,
                   ...barSegs.slice(1).map((seg, si) => {
                     const tailX = (diffD(tStart, seg.start) / nDays * 100) + "%";
                     // Only the segment that actually holds the bar's end gets the
