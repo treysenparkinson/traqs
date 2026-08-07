@@ -20198,7 +20198,7 @@ ${jobsCtx || "No jobs found."}`;
                       {colorDropId===panel.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:300, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.22)", padding:10, width:208, display:"flex", flexDirection:"column", gap:8, animation:"menuIn 0.15s ease-out" }}>
                         <HexColorPicker color={panel.color||COLORS[pi%COLORS.length]} onChange={c => updatePanel({color:c})} style={{ width:"100%", height:160 }} />
                         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                          <div style={{ width:22, height:22, borderRadius:6, background:panel.color||COLORS[pi%COLORS.length], flexShrink:0, border:`1px solid ${T.border}` }} />
+                          <div style={{ width:22, height:22, borderRadius:11, background:panel.color||COLORS[pi%COLORS.length], flexShrink:0, border:`1px solid ${T.border}` }} />
                           <span style={{ fontSize:11, fontFamily:T.mono, color:T.textDim, flex:1, letterSpacing:"0.03em" }}>{panel.color||COLORS[pi%COLORS.length]}</span>
                           <button onClick={() => setColorDropId(null)} style={{ padding:"3px 10px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Done</button>
                         </div>
@@ -20216,8 +20216,8 @@ ${jobsCtx || "No jobs found."}`;
                       <Tip label="Estimated total hours for this operation"><span style={{ fontSize:11, color:hasSubs?T.accent:T.textDim, whiteSpace:"nowrap", width:24 }}>hrs</span></Tip>
                       {!hasSubs && <div style={{ position:"relative", flexShrink:0 }}>
                         <button onClick={e => { e.stopPropagation(); const opening=deptDropId!==panel.id; setDeptDropId(opening?panel.id:null); if(opening){ setDeptAddInput(""); setDeptAddMode(false); } }}
-                          style={{ display:"flex", alignItems:"center", gap:6, padding:"3px 8px", borderRadius:8, border:`1px solid ${panel.requiredDepartment?T.accent+"55":T.border}`, background:panel.requiredDepartment?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}>
-                          <span style={{ fontSize:11, color:panel.requiredDepartment?T.accent:T.textDim, fontWeight:600 }}>{panel.requiredDepartment||"Dept"}</span>
+                          style={{ display:"flex", alignItems:"center", gap:6, padding:"7px 12px", borderRadius:T.radiusPill, minWidth:92, justifyContent:"space-between", border:`1px solid ${panel.requiredDepartment?T.accent+"55":T.border}`, background:panel.requiredDepartment?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}>
+                          <span style={{ fontSize:13, color:panel.requiredDepartment?T.accent:T.textDim, fontWeight:600 }}>{panel.requiredDepartment||"Dept"}</span>
                           <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                         </button>
                         {deptDropId===panel.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
@@ -20237,7 +20237,7 @@ ${jobsCtx || "No jobs found."}`;
                             {deptAddMode
                               ? <div style={{ display:"flex", gap:4, padding:"4px 8px 6px" }}>
                                   <input value={deptAddInput} onChange={e=>setDeptAddInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updatePanel({requiredDepartment:v}); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); } if(e.key==="Escape"){ setDeptAddMode(false); setDeptAddInput(""); }}} placeholder="Department name…" style={{ flex:1, padding:"5px 8px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:12, fontFamily:T.font, outline:"none", minWidth:0 }} autoFocus />
-                                  <button onClick={()=>{ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updatePanel({requiredDepartment:v}); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); }} style={{ padding:"5px 10px", borderRadius:6, border:"none", background:T.accent, color:T.accentText, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Add</button>
+                                  <button onClick={()=>{ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updatePanel({requiredDepartment:v}); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); }} style={{ padding:"5px 10px", borderRadius:T.radiusPill, border:"none", background:T.accent, color:T.accentText, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Add</button>
                                 </div>
                               : <div onClick={()=>setDeptAddMode(true)} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 14px", cursor:"pointer", fontSize:12, color:T.accent, fontWeight:600, transition:"background 0.12s" }}
                                   onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
@@ -20247,7 +20247,7 @@ ${jobsCtx || "No jobs found."}`;
                           </div>
                         </div>}
                       </div>}
-                      <button onClick={() => { setAvailCheckPassed(false); setEd(p => ({ ...p, subs:(p.subs||[]).filter((_,j) => j!==pi) })); }} style={{ padding:"4px 8px", borderRadius:6, border: "none", background: "transparent", color:T.danger, fontSize:13, cursor:"pointer", lineHeight:1, flexShrink:0 }}>×</button>
+                      <button onClick={() => { setAvailCheckPassed(false); setEd(p => ({ ...p, subs:(p.subs||[]).filter((_,j) => j!==pi) })); }} style={{ padding:"4px 8px", borderRadius:T.radiusPill, border: "none", background: "transparent", color:T.danger, fontSize:13, cursor:"pointer", lineHeight:1, flexShrink:0 }}>×</button>
                     </div>
                   </div>
                   {hasSubs && (panel.team||[]).length>0 && (panel.subs||[]).every(sub => !(sub.team||[]).length) && <div style={{ margin:"0 0 8px", padding:"8px 12px", background:"#f59e0b15", border:"1px solid #f59e0b44", borderRadius:T.radiusXs, fontSize:12, color:"#f59e0b", lineHeight:1.5 }}>⚠ {panel.team.length} worker{panel.team.length>1?"s":""} assigned directly to this panel — but sub-operations now exist. Run <strong>Schedule & Assign</strong> to reassign at the sub-operation level.</div>}
@@ -20265,8 +20265,10 @@ ${jobsCtx || "No jobs found."}`;
                           <Tip label="Estimated total hours for this operation"><span style={{ fontSize:11, color:T.textDim, whiteSpace:"nowrap", width:24 }}>hrs</span></Tip>
                           <div style={{ position:"relative", flexShrink:0 }}>
                             <button onClick={e => { e.stopPropagation(); const opening=deptDropId!==sub.id; setDeptDropId(opening?sub.id:null); if(opening){ setDeptAddInput(""); setDeptAddMode(false); } }}
-                              style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:6, padding:"3px 8px", borderRadius:8, minWidth:76, border:`1px solid ${sub.requiredDepartment?T.accent+"55":T.border}`, background:sub.requiredDepartment?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s", whiteSpace:"nowrap" }}>
-                              <span style={{ fontSize:11, color:sub.requiredDepartment?T.accent:T.textDim, fontWeight:600 }}>{sub.requiredDepartment||"Dept"}</span>
+                              // Pill, and sized to match the hours and title inputs beside it
+                              // (7px vertical padding, 13px text) rather than the smaller box it was.
+                              style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:6, padding:"7px 12px", borderRadius:T.radiusPill, minWidth:92, border:`1px solid ${sub.requiredDepartment?T.accent+"55":T.border}`, background:sub.requiredDepartment?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s", whiteSpace:"nowrap" }}>
+                              <span style={{ fontSize:13, color:sub.requiredDepartment?T.accent:T.textDim, fontWeight:600 }}>{sub.requiredDepartment||"Dept"}</span>
                               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                             </button>
                             {deptDropId===sub.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
@@ -20286,7 +20288,7 @@ ${jobsCtx || "No jobs found."}`;
                                 {deptAddMode
                                   ? <div style={{ display:"flex", gap:4, padding:"4px 8px 6px" }}>
                                       <input value={deptAddInput} onChange={e=>setDeptAddInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updateSub({requiredDepartment:v}); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); } if(e.key==="Escape"){ setDeptAddMode(false); setDeptAddInput(""); }}} placeholder="Department name…" style={{ flex:1, padding:"5px 8px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:12, fontFamily:T.font, outline:"none", minWidth:0 }} autoFocus />
-                                      <button onClick={()=>{ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updateSub({requiredDepartment:v}); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); }} style={{ padding:"5px 10px", borderRadius:6, border:"none", background:T.accent, color:T.accentText, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Add</button>
+                                      <button onClick={()=>{ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updateSub({requiredDepartment:v}); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); }} style={{ padding:"5px 10px", borderRadius:T.radiusPill, border:"none", background:T.accent, color:T.accentText, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Add</button>
                                     </div>
                                   : <div onClick={()=>setDeptAddMode(true)} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 14px", cursor:"pointer", fontSize:12, color:T.accent, fontWeight:600, transition:"background 0.12s" }}
                                       onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
@@ -20296,7 +20298,7 @@ ${jobsCtx || "No jobs found."}`;
                               </div>
                             </div>}
                           </div>
-                          <button onClick={() => { setAvailCheckPassed(false); updatePanel({subs:(panel.subs||[]).filter((_,j) => j!==si)}); }} style={{ padding:"4px 8px", borderRadius:6, border: "none", background: "transparent", color:T.danger, fontSize:13, cursor:"pointer", lineHeight:1, flexShrink:0 }}>×</button>
+                          <button onClick={() => { setAvailCheckPassed(false); updatePanel({subs:(panel.subs||[]).filter((_,j) => j!==si)}); }} style={{ padding:"4px 8px", borderRadius:T.radiusPill, border: "none", background: "transparent", color:T.danger, fontSize:13, cursor:"pointer", lineHeight:1, flexShrink:0 }}>×</button>
                         </div>
                       </div>
                     </div>;
@@ -20305,7 +20307,7 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
                     <div style={{ position:"relative" }}>
                       <button onClick={e => { e.stopPropagation(); setSoDropPanelId(soDropPanelId===panel.id?null:panel.id); }}
-                        style={{ display:"flex", alignItems:"center", gap:6, padding:"3px 8px", borderRadius:8, border:`1px solid ${Object.keys(panel.signOffs||{}).length?T.accent+"55":T.border}`, background:Object.keys(panel.signOffs||{}).length?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}>
+                        style={{ display:"flex", alignItems:"center", gap:6, padding:"3px 8px", borderRadius:T.radiusPill, border:`1px solid ${Object.keys(panel.signOffs||{}).length?T.accent+"55":T.border}`, background:Object.keys(panel.signOffs||{}).length?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}>
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={Object.keys(panel.signOffs||{}).length?T.accent:T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
                         <span style={{ fontSize:11, color:Object.keys(panel.signOffs||{}).length?T.accent:T.textDim, fontWeight:600 }}>
                           {Object.keys(panel.signOffs||{}).length ? signOffTemplates.filter(t => panel.signOffs?.[t.id]!==undefined).map(t => t.name).join(", ") : "Sign-Off"}
@@ -20350,7 +20352,7 @@ ${jobsCtx || "No jobs found."}`;
                       const hasAny=linkedCount>0;
                       return <div style={{ position:"relative" }}>
                         <button onClick={e=>{ e.stopPropagation(); setDepsDropId(depsDropId===panel.id?null:panel.id); }}
-                          style={{ display:"flex", alignItems:"center", gap:6, padding:"3px 8px", borderRadius:8, border:`1px solid ${hasAny?T.accent+"55":T.border}`, background:hasAny?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}>
+                          style={{ display:"flex", alignItems:"center", gap:6, padding:"3px 8px", borderRadius:T.radiusPill, border:`1px solid ${hasAny?T.accent+"55":T.border}`, background:hasAny?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}>
                           {panel.depsMode === "locked"
                             ? <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={hasAny?T.accent:T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                             : panel.depsMode === "unlocked"
@@ -20407,7 +20409,7 @@ ${jobsCtx || "No jobs found."}`;
                       </div>;
                     })()}
                     </div>
-                    <button onClick={() => { setAvailCheckPassed(false); updatePanel({subs:[...(panel.subs||[]),{id:uid(),title:"",hpd:7.5,team:[],subs:[],status:"Not Started",pri:"High",start:"",end:"",notes:"",deps:[],requiredDepartment:""}]}); }} style={{ padding:"3px 10px", borderRadius:6, border:`1px solid ${T.border}`, background:"transparent", color:T.textDim, fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:T.font }}>+ Add Sub-operation</button>
+                    <button onClick={() => { setAvailCheckPassed(false); updatePanel({subs:[...(panel.subs||[]),{id:uid(),title:"",hpd:7.5,team:[],subs:[],status:"Not Started",pri:"High",start:"",end:"",notes:"",deps:[],requiredDepartment:""}]}); }} style={{ padding:"3px 10px", borderRadius:T.radiusPill, border:`1px solid ${T.border}`, background:"transparent", color:T.textDim, fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:T.font }}>+ Add Sub-operation</button>
                   </div>
                   </>}
                 </div>;
