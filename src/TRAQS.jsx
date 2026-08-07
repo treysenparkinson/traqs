@@ -22791,7 +22791,12 @@ ${jobsCtx || "No jobs found."}`;
           // schedule/grid keeps its scroll position and in-flight state while you're
           // on a detail page and when you come Back.
           const showModalPage = !!modal;
-          const hidden = { position: "absolute", inset: 0, visibility: "hidden", pointerEvents: "none" };
+          // opacity:0 is what actually hides it. `visibility: hidden` alone leaks, because
+          // visibility is inherited and a descendant may set `visibility: visible` to win
+          // back — the grid's expand chevrons do exactly that, so they bled through onto
+          // the page. Opacity applies to the whole subtree and cannot be overridden.
+          // Layout is retained (not display:none) so scroll position survives a round trip.
+          const hidden = { position: "absolute", inset: 0, opacity: 0, visibility: "hidden", pointerEvents: "none" };
           return (
             <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
               <style>{`@keyframes tqCFIn{from{opacity:0}to{opacity:1}}@keyframes tqCFOut{from{opacity:1}to{opacity:0}}`}</style>
