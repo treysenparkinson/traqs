@@ -27129,7 +27129,10 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             </div>
             {/* Footer — Reschedule button removed; Save now opens the floating tray when new ops exist */}
-            <div style={{ padding: "18px 32px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10, flexShrink: 0 }}>
+            {/* As a page: no top rule, and the two actions sit at opposite ends —
+                Cancel far left, Save far right. The overlay keeps its divider and
+                right-aligned pair. */}
+            <div style={{ padding: "18px 32px", borderTop: _ejPage ? "none" : `1px solid ${T.border}`, display: "flex", justifyContent: _ejPage ? "space-between" : "flex-end", gap: 10, flexShrink: 0 }}>
               <button onClick={closeEditJob} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
               <button onClick={saveEditJob} disabled={!ej.title.trim()} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "none", background: ej.title.trim() ? T.accent : T.border, color: ej.title.trim() ? T.accentText : T.textDim, fontSize: 13, fontWeight: 700, cursor: ej.title.trim() ? "pointer" : "not-allowed", fontFamily: T.font, transition: "background 0.15s" }}>Save</button>
             </div>
