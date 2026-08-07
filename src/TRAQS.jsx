@@ -21018,11 +21018,14 @@ ${jobsCtx || "No jobs found."}`;
               area (padding) so it collapses with the content instead of snapping. */}
           <div style={{ display: "grid", gridTemplateRows: open ? "1fr" : "0fr", transition: "grid-template-rows 0.26s cubic-bezier(0.4,0,0.2,1)", pointerEvents: open ? "auto" : "none" }}>
             {/* overflow:hidden is what makes the collapse animate, and it clips at the
-                PADDING box — with no side padding it sliced the hover halo off every
-                control in here (the glow is a 22px blur). Padding widens the clip box;
-                the equal negative margin pulls it back so the content column does not
-                move. Vertical clipping, the part the animation needs, is untouched. */}
-            <div style={{ overflow: "hidden", minHeight: 0, paddingLeft: 26, paddingRight: 26, marginLeft: -26, marginRight: -26 }}>
+                PADDING box — with no padding it sliced the hover halo off the controls
+                in here (the glow is a 22px blur): both sides, and the bottom off the
+                last field in the section. Padding on all four edges grows the clip box;
+                the equal negative margin on each pulls it back, so the content column
+                does not move and the row still measures to its content. The collapse
+                is unaffected — it is driven by grid-template-rows, and the padding is
+                cancelled to net zero in both states. */}
+            <div style={{ overflow: "hidden", minHeight: 0, padding: 26, margin: -26 }}>
               <div style={{ paddingTop: 12, opacity: open ? 1 : 0, transition: "opacity 0.18s ease" }}>{body}</div>
             </div>
           </div>
