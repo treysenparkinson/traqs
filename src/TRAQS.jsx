@@ -24255,7 +24255,10 @@ ${jobsCtx || "No jobs found."}`;
     })()}</FadeOnClose>
 
     {/* ── Client Detail Modal (top-level so position:fixed isn't trapped by AnimatedView's transform) ── */}
-    {renderClientDetailModal()}
+    {/* Mobile only. On desktop the profile renders as a page inside the content panel
+        (renderModal handles "clientDetail"), so mounting it here too drew it twice —
+        once in the panel and once at the app root, escaping the panel entirely. */}
+    {isMobile ? renderClientDetailModal() : null}
 
     {/* ── Admin Clock-In/Out Time-Picker Confirm Modal ── */}
     <FadeOnClose open={!!clockTimeModal} duration={220}>{clockTimeModal && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10014, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setClockTimeModal(null)}>
