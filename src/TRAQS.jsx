@@ -12152,7 +12152,7 @@ ${jobsCtx || "No jobs found."}`;
       .filter(Boolean);
     const _longestPillCh = _pillJobs.reduce((m, s) => Math.max(m, s.length), 0);
     const _pillW = _longestPillCh ? 92 + Math.ceil(_longestPillCh * 6.2) : 76;
-    const lW = isMobile ? 120 : Math.min(520, Math.max(260, 168 + _pillW)), rH = 42, grpH = 36;
+    const lW = isMobile ? 120 : Math.min(510, Math.max(250, 158 + _pillW)), rH = 42, grpH = 36;
     const tAvail = Math.max((teamWidth || 1200) - lW, 200);
     const cW = isMobile ? Math.max(28, tAvail / Math.max(days.length, 1)) : tAvail / Math.max(days.length, 1);
     teamCWRef.current = cW;
