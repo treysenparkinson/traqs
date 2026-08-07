@@ -26156,8 +26156,10 @@ ${jobsCtx || "No jobs found."}`;
           <InputField label="Email" value={ed.email} onChange={v => setClientModal(p => ({ ...p, email: v }))} />
           <div style={{ marginBottom: 20 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Notes</label><textarea value={ed.notes} onChange={e => setClientModal(p => ({ ...p, notes: e.target.value }))} rows={3} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 14, fontFamily: T.font, resize: "vertical", boxSizing: "border-box" }} /></div>
           <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", alignItems: "center" }}>
-            {ed.id && <Btn variant="danger" onClick={() => setConfirmDeleteClient(ed.id)} style={{ marginRight: "auto" }}>Delete Client</Btn>}
-            <Btn variant="ghost" onClick={closeClientEdit}>Cancel</Btn>
+            {/* Delete lives on the profile page, not in the editor. Cancel takes the
+                far-left slot it used to hold, leaving Save at the right — the same
+                split the Edit Job footer uses. */}
+            <Btn variant="ghost" onClick={closeClientEdit} style={{ marginRight: "auto" }}>Cancel</Btn>
             <Btn onClick={() => saveClient(ed)}>Save Client</Btn>
           </div>
           </div>
