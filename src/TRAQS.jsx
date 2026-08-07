@@ -9709,7 +9709,7 @@ ${jobsCtx || "No jobs found."}`;
     return <div style={{ display: "flex", flexDirection: "column", paddingTop: 6, gap: 0 }}>
       {/* Title */}
       <div style={{ display: "flex", alignItems: "baseline", gap: 14, marginBottom: 14, minHeight: 50, flexWrap: "wrap" }}>
-        <h1 style={pageTitleStyle}>Admin</h1>
+        <h1 style={pageTitle(14)}>Admin</h1>
         <div style={{ fontSize: 12.5, color: T.textDim }}>{headerLine}</div>
       </div>
       {/* Stat tiles */}
@@ -9855,7 +9855,7 @@ ${jobsCtx || "No jobs found."}`;
     const openPriEditor = (ev) => { ev.preventDefault(); ev.stopPropagation(); setColCtxMenu({ x: ev.clientX, y: ev.clientY, colId: "pri", isCustom: false, approvalMode: true }); };
     return <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingTop: 6 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, minHeight: 50, flexWrap: "wrap" }}>
-        <h1 style={{ ...pageTitleStyle, marginRight: 10 }}>{queueLabel}</h1>
+        <h1 style={pageTitle(10)}>{queueLabel}</h1>
         {fEntries.length > 0 && <span style={{ fontSize: 13, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 16, padding: "3px 12px", flexShrink: 0 }}>{fEntries.length}</span>}
         <div style={{ position: "relative", flex: 1, maxWidth: 320, minWidth: 160 }}>
           <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
@@ -10060,7 +10060,7 @@ ${jobsCtx || "No jobs found."}`;
       </>, document.body)}
       {/* ── Combined header bar ── */}
       <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto 1fr", alignItems: "center", gap: 6, minHeight: 50 }}>
-        <h1 style={{ ...pageTitleStyle, marginRight: 10 }}>Jobs</h1>
+        <h1 style={pageTitle(6)}>Jobs</h1>
         {/* Left: collapsible toolbar (list view only) */}
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           {taskSubView === "list" && <>
@@ -11013,7 +11013,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* Top bar */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, minHeight: 50, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
-        <h1 style={{ ...pageTitleStyle, marginRight: 10 }}>Clients</h1>
+        <h1 style={pageTitle(12)}>Clients</h1>
           <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
             <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
             <input value={clientSearch} onChange={e => setClientSearch(e.target.value)} placeholder="Search clients…" style={{ width: "100%", padding: "8px 10px 8px 30px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
@@ -11360,6 +11360,18 @@ ${jobsCtx || "No jobs found."}`;
   // One definition for every page so a title never shifts when you switch tabs.
   // Matches the Dashboard greeting exactly (44/28, ExtraBold, -0.07em) — that
   // greeting animates into this same resting spot, so the handoff is seamless.
+  // Reserved width for a page title. Sized past the longest common one so the
+  // actions after it land identically on Jobs, Schedule, Employees, Clients and the
+  // rest. Change it here and every page moves together.
+  const PAGE_TITLE_W = 300;
+  // Distance from the end of that reserve to the first thing after it. Every page
+  // header sets its own flex/grid gap — Analytics 0, Jobs 6, Approvals 10, Clients
+  // and Schedule 12, Admin 14, pageHeader 22 — so the reserve alone still left the
+  // first button in six different places. pageTitle() takes the header's own gap and
+  // makes up the difference, so the total is identical everywhere without each page
+  // carrying a hand-tuned margin that breaks the moment someone edits its gap.
+  const PAGE_TITLE_GAP = 22;
+  const pageTitle = (parentGap = 0) => ({ ...pageTitleStyle, marginRight: isMobile ? 0 : Math.max(0, PAGE_TITLE_GAP - parentGap) });
   const pageTitleStyle = {
     margin: 0,
     fontSize: isMobile ? 28 : 44,
@@ -11374,6 +11386,14 @@ ${jobsCtx || "No jobs found."}`;
     color: T.bgText || (isLight(T.bg) ? "#0f172a" : "#f1f5f9"),
     whiteSpace: "nowrap",
     flexShrink: 0,
+    // Every page title reserves the same width, so whatever follows it — toolbars,
+    // action buttons — begins at the same x on every page instead of sliding around
+    // with the length of the word. "Jobs" and "Employees" differ by ~150px, which is
+    // why the New Job and Add Employee buttons appeared to jump when you switched
+    // pages. minWidth rather than width: a title longer than the reserve still gets
+    // its space instead of being clipped, it just stops guaranteeing alignment past
+    // that point. Off on mobile, where 300px is most of the screen.
+    minWidth: isMobile ? 0 : PAGE_TITLE_W,
   };
   // `right` is whatever used to sit in the top-left — a toolbar, filters, a
   // count. It moves to the right of the title instead of above or below it.
@@ -11383,7 +11403,7 @@ ${jobsCtx || "No jobs found."}`;
   const pageHeader = (title, right = null, extra = {}, back = null) => (
     <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 12 : 22, marginBottom: isMobile ? 12 : 18, minHeight: isMobile ? 34 : 50, ...extra }}>
       {back}
-      <h1 style={pageTitleStyle}>{title}</h1>
+      <h1 style={pageTitle(22)}>{title}</h1>
       {right && <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>{right}</div>}
     </div>
   );
@@ -11428,7 +11448,7 @@ ${jobsCtx || "No jobs found."}`;
   const pageHead = (title, { onBack, right = null } = {}) => (
     <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 12 : 16, marginBottom: isMobile ? 12 : 18, minHeight: isMobile ? 34 : 50 }}>
       {backBtn(onBack)}
-      <h1 style={pageTitleStyle}>{title}</h1>
+      <h1 style={pageTitle(16)}>{title}</h1>
       <div style={{ flex: 1, minWidth: 0 }} />
       {right}
     </div>
@@ -12495,7 +12515,7 @@ ${jobsCtx || "No jobs found."}`;
     return <div>
       {/* Top nav */}
       <div style={{ display: "flex", gap: isMobile ? 6 : 12, marginBottom: isMobile ? 10 : 20, alignItems: "center", minHeight: 50, flexWrap: "wrap", position: "relative", minHeight: 44, justifyContent: isAdmin ? "flex-start" : "center" }}>
-        <h1 style={{ ...pageTitleStyle, marginRight: 10 }}>Schedule</h1>
+        <h1 style={pageTitle(12)}>Schedule</h1>
         {isAdmin && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Btn size="sm" style={{ minWidth: 78 }} onClick={() => { setBarSelectMode(m => !m); setSelBars(new Set()); }}>{barSelectMode ? "Done" : "Select"}</Btn>
           {/* Sliding "All / None" — same animation + style as the Jobs page Select toggle. */}
@@ -14973,7 +14993,7 @@ ${jobsCtx || "No jobs found."}`;
     return <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       {/* Header — employee picker (left) · period pill (centered across the page). Hours export moved to the Time Clock page. */}
       <div style={{ position: "relative", display: "flex", alignItems: "center", minHeight: 50, flexShrink: 0 }}>
-        <h1 style={{ ...pageTitleStyle, marginRight: 10 }}>Analytics</h1>
+        <h1 style={pageTitle(0)}>Analytics</h1>
         {employeePicker}
         <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)" }}>
           <SlidingPill
@@ -15431,12 +15451,17 @@ ${jobsCtx || "No jobs found."}`;
       document.body
     );
     // can() already folds in isAdmin, so a non-admin never sees this.
+    // Btn size="sm", not a hand-rolled button: it was 10px vertical padding against
+    // Btn's fixed 34px height, so it stood ~4px taller than New Job on the page before
+    // it, and marginLeft:auto threw it to the far right while every other page's CTA
+    // sits just after the title. Same component now, so it can't drift again.
     const addEmployeeBtn = !can("editPeople") ? null : (
-      <button onClick={() => setAddEmpDraft(blankEmployee())}
-        style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 7, padding: "10px 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 800, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
-        Add Employee
-      </button>
+      <Btn size="sm" onClick={() => setAddEmpDraft(blankEmployee())}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" style={{ flexShrink: 0 }}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
+          Add Employee
+        </span>
+      </Btn>
     );
 
 
