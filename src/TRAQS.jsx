@@ -20075,7 +20075,10 @@ ${jobsCtx || "No jobs found."}`;
           return { ...p, subs: [...existingSubs, ...newOps] };
         });
       };
-      return <div className={ovCls} style={ov}>{_pageBg}<div className={bxCls} style={{ ...bx(true), position: "relative", height: "90vh", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column", ...pageFill }} onClick={e => e.stopPropagation()}>{asPage ? null : cls}
+      {/* paddingTop 0 as a page: bx() reserves 54px of head-room for the FLOATING Back
+          pill, and this page uses pageHead instead — that reserve was pushing the title
+          54px below where the job details title sits. */}
+      return <div className={ovCls} style={ov}>{_pageBg}<div className={bxCls} style={{ ...bx(true), position: "relative", height: "90vh", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column", ...pageFill, ...(asPage ? { paddingTop: 0 } : {}) }} onClick={e => e.stopPropagation()}>{asPage ? null : cls}
         {/* ── Scrollable content (title + step indicator + step body) ── */}
         {/* As a page: pageHead gives the same big title with Back to its left that every
             other stacked page uses, and the body below is capped to FIELD_COL_W and
@@ -20091,7 +20094,9 @@ ${jobsCtx || "No jobs found."}`;
               const done = modalStep > n; const active = modalStep === n;
               return <div key={n} style={{ display:"flex", alignItems:"flex-start", flex: i>0 ? 1 : "none" }}>
                 {i > 0 && <div style={{ flex:1, height:2, background:done?T.accent:T.border, transition:"background 0.3s", marginTop:13 }} />}
-                <div onClick={() => done ? goStep(n) : undefined} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor:done?"pointer":"default" }}>
+                {/* Every step is reachable, not just completed ones — you can jump ahead
+                    to Schedule and back without walking the wizard. */}
+                <div onClick={() => { if (n !== modalStep) goStep(n); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor: n === modalStep ? "default" : "pointer" }}>
                   <div style={{ width:28, height:28, borderRadius:14, background:(done||active)?T.accent:"transparent", border:`2px solid ${(done||active)?T.accent:T.border}`, display:"flex", alignItems:"center", justifyContent:"center", color:(done||active)?T.accentText:T.textDim, fontSize:12, fontWeight:700, transition:"all 0.3s", flexShrink:0 }}>{done?"✓":n}</div>
                   <span style={{ fontSize:11, color:active?T.accent:T.textDim, fontWeight:active?700:400, whiteSpace:"nowrap" }}>{label}</span>
                 </div>
@@ -20828,7 +20833,10 @@ ${jobsCtx || "No jobs found."}`;
         </div>
 
         {/* ── Footer ── */}
-        <div style={{ padding:"16px 32px", borderTop:`1px solid ${T.border}`, background:T.card, flexShrink:0, display:"flex", gap:12, justifyContent:"space-between", alignItems:"center" }}>
+        {/* As a page: no rule and no card fill. The page is transparent so the background
+            shows through, and an opaque T.card strip read as a black bar across the
+            actions. The overlay keeps both. */}
+        <div style={{ padding:"16px 32px", borderTop: asPage ? "none" : `1px solid ${T.border}`, background: asPage ? "transparent" : T.card, flexShrink:0, display:"flex", gap:12, justifyContent:"space-between", alignItems:"center" }}>
           {modalStep === 1 && <>
             <Btn variant="ghost" onClick={closeModal}>Cancel</Btn>
             <Btn disabled={!ed.title.trim()||!ed.projectManagerId} onClick={() => { if(ed.title.trim()&&ed.projectManagerId) goStep(2); }} style={{ opacity:(!ed.title.trim()||!ed.projectManagerId)?0.4:1, cursor:(!ed.title.trim()||!ed.projectManagerId)?"not-allowed":"pointer" }}>Next: Operations →</Btn>
