@@ -12101,6 +12101,40 @@ ${jobsCtx || "No jobs found."}`;
     return () => ro.disconnect();
   }, [view]);
 
+  // Replaces the utilization % on the schedule rows. Utilization was a planning number
+  // — booked hours over capacity across the visible window — which told you nothing
+  // about right now. This says whether someone is on the clock and what they are on.
+  // Status and colours come from personStatus / PERSON_STATUS_META, the same pair the
+  // Time Clock board and the Dashboard read, so the three can't disagree.
+  const personClockPill = (person, { size = 12 } = {}) => {
+    const st = personStatus(person);
+    const meta = PERSON_STATUS_META[st] || PERSON_STATUS_META.offline;
+    const jc = person?.activeJobClock;
+    // Only "job" carries a title — on lunch or break the job clock may still be open,
+    // but naming it would read as though they were working it.
+    const jobLabel = st === "job" ? (jc?.jobTitle || jc?.opTitle || null) : null;
+    return (
+      <div title={jobLabel ? `${meta.label} — ${jobLabel}` : meta.label}
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0, maxWidth: 210, padding: "3px 10px", borderRadius: T.radiusPill, background: meta.color + "18", border: `1px solid ${meta.color}44`, flexShrink: 0, boxSizing: "border-box" }}>
+        <span style={{ width: 6, height: 6, borderRadius: 6, background: meta.color, flexShrink: 0 }} />
+        <span style={{ fontSize: size, fontWeight: 700, color: meta.color, whiteSpace: "nowrap", flexShrink: 0 }}>{meta.label}</span>
+        {jobLabel && <span style={{ fontSize: size, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>· {jobLabel}</span>}
+      </div>
+    );
+  };
+  // A group has no single clock state, so it reports how many of its people are on one.
+  const groupClockPill = (members, { size = 12 } = {}) => {
+    const on = (members || []).filter(p => personStatus(p) !== "offline").length;
+    const c = on > 0 ? "#10b981" : T.textDim;
+    return (
+      <div title={`${on} of ${(members || []).length} on the clock`}
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 10px", borderRadius: T.radiusPill, background: c + "18", border: `1px solid ${c}44`, flexShrink: 0 }}>
+        <span style={{ width: 6, height: 6, borderRadius: 6, background: c, flexShrink: 0 }} />
+        <span style={{ fontSize: size, fontWeight: 700, color: c, whiteSpace: "nowrap", fontFamily: T.mono }}>{on}/{(members || []).length}</span>
+      </div>
+    );
+  };
+
   const renderTeam = () => {
     const days = []; let dc = tStart; while (dc <= tEnd) { days.push(dc); dc = addD(dc, 1); }
     const lW = isMobile ? 120 : 260, rH = 42, grpH = 36;
@@ -12118,24 +12152,10 @@ ${jobsCtx || "No jobs found."}`;
         hGroups.push({ key, label: dt.toLocaleDateString("en-US", { month: "long", year: "numeric" }).toUpperCase(), start: i, span: 1 });
       } else hGroups[hGroups.length - 1].span++;
     });
-    // Calc utilization per person
-    const getUtil = (pid) => {
-      let totalCap = 0, totalBooked = 0;
-      days.forEach(day => {
-        const p = people.find(x => x.id === pid);
-        if (!p) return;
-        if (!isOff(pid, day) && orgSettings.workDays.includes(new Date(day + "T12:00:00").getDay())) {
-          totalCap += p.cap;
-          totalBooked += Math.min(p.cap, bookedHrs(pid, day));
-        }
-      });
-      return totalCap > 0 ? Math.round((totalBooked / totalCap) * 100) : 0;
-    };
-    // Calc group avg util
-    const grpUtil = (role) => {
-      const pp = roleMap[role]; if (!pp.length) return 0;
-      return Math.round(pp.reduce((s, p) => s + getUtil(p.id), 0) / pp.length);
-    };
+    // Utilization is gone from these rows — the clock pills replaced it. Its getUtil /
+    // grpUtil helpers went with it rather than being left to run: getUtil walked every
+    // visible day per person and grpUtil called it once more for every member of every
+    // group, on each render of the schedule, for a number nothing displays.
     // Get tasks for a person within visible range — parent tasks only
     const getPersonBars = (pid) => {
       const bars = [];
@@ -12306,11 +12326,12 @@ ${jobsCtx || "No jobs found."}`;
     const rowList = []; roles.forEach(role => {
       if (sFRole.length && !sFRole.map(r => r.toLowerCase()).includes(role?.toLowerCase())) return;
       const isC = !!tCollapsed[role];
-      rowList.push({ type: "group", role, util: grpUtil(role) });
+      // members ride along so the group row can report how many are on the clock.
+      rowList.push({ type: "group", role, members: roleMap[role] || [] });
       roleMap[role].forEach(p => {
         if (sFPers.length > 0 && !sFPers.includes(String(p.id))) return;
         const bars = isC ? [] : getPersonBars(p.id).filter(passesScheduleBarFilter);
-        rowList.push({ type: "person", person: p, util: getUtil(p.id), bars, hidden: isC });
+        rowList.push({ type: "person", person: p, bars, hidden: isC });
       });
     });
     // Precompute which task IDs are in a dep group — used to render the chain icon on bars
@@ -12558,12 +12579,11 @@ ${jobsCtx || "No jobs found."}`;
                 {rowList.map(row => {
                   if (row.type === "group") {
                     const isC = tCollapsed[row.role];
-                    const utilC = elColor(row.util > 60 ? "#10b981" : row.util > 30 ? "#f59e0b" : T.textDim);
                     return <div key={row.role} style={{display:"flex",height:grpH,borderBottom:`1px solid ${T.border}`,background:T.bg+"66"}}>
                       <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:10,padding:"0 16px",borderRight:`1px solid ${T.border}`,background:T.bg+"cc",cursor:"pointer",flexShrink:0}} onClick={()=>setTCollapsed(p=>({...p,[row.role]:!p[row.role]}))}>
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isC ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
                         <span style={{fontSize:14,fontWeight:700,color:T.text,flex:1}}>{row.role}</span>
-                        <span style={{fontSize:13,fontWeight:700,color:utilC,fontFamily:T.mono}}>{row.util}%</span>
+                        {groupClockPill(row.members, { size: 12 })}
                       </div>
                       <div style={{flex:1,display:"flex"}}>
                         {hours.map(h => <div key={h} style={{flex:1,height:"100%",background:h<7||h>=18?T.bg+"cc":T.bg+"44",borderRight:`1px solid ${T.bg}33`}}/>)}
@@ -12626,7 +12646,6 @@ ${jobsCtx || "No jobs found."}`;
                     if (!hasManual) cumH = rawE;
                     return { bar, rawS, rawE, hpd };
                   });
-                  const utilC = elColor(row.util > 60 ? "#10b981" : row.util > 30 ? "#f59e0b" : T.textDim);
                   const isDropTarget = dayDragTarget === p.id;
                   return <div key={p.id} style={{display:"flex",height:row.hidden ? 0 : rH,overflow:"hidden",borderBottom:row.hidden?"none":`1px solid ${T.bg}55`,background:isDropTarget?T.accent+"18":"transparent",outline:isDropTarget?`2px dashed ${T.accent}88`:"none",opacity:row.hidden?0:1,pointerEvents:row.hidden?"none":"auto",transition:"height 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.14s ease, background 0.1s"}}>
                     <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:8,padding:"0 10px 0 8px",borderRight:`1px solid ${T.border}`,background:T.surface,flexShrink:0}}>
@@ -12635,7 +12654,7 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name.split(" ")[0]}</div>
                         <div style={{fontSize:11,color:T.textDim}}>{p.department} · {p.cap}h</div>
                       </div>
-                      <span style={{fontSize:12,fontWeight:700,color:utilC,fontFamily:T.mono,flexShrink:0}}>{row.util}%</span>
+                      {personClockPill(p, { size: 11 })}
                     </div>
                     <div style={{flex:1,position:"relative",display:"flex"}}>
                       {hours.map(h => <div key={h} style={{flex:1,height:"100%",background:pOff?offColor+"12":h<7||h>=18?T.bg+"55":isToday&&Math.floor(nowH)===h?T.accent+"0a":"transparent",borderRight:`1px solid ${T.bg}22`,position:"relative"}}>
@@ -12709,13 +12728,12 @@ ${jobsCtx || "No jobs found."}`;
           {rowList.map((row, ri) => {
             if (row.type === "group") {
               const isC = tCollapsed[row.role];
-              const utilC = elColor(row.util > 60 ? "#10b981" : row.util > 30 ? "#f59e0b" : T.textDim);
               const isGroupDrop = rowDragId != null && rowDragOver?.type === "group" && rowDragOver.id === row.role;
               return <div key={row.role} data-rowtype="group" data-rowid={row.role} style={{ display: "flex", height: grpH, borderBottom: `1px solid ${T.border}`, background: isGroupDrop ? T.accent + "18" : schedSubBg, outline: isGroupDrop ? `2px dashed ${T.accent}66` : "none", transition: "background 0.1s" }}>
                 <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 10, padding: "0 16px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: isGroupDrop ? T.accent + "18" : schedSubBg, zIndex: 10, cursor: "pointer", transition: "background 0.1s" }} onClick={() => setTCollapsed(p => ({ ...p, [row.role]: !p[row.role] }))}>
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isC ? "rotate(-90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0 }}><polyline points="6 9 12 15 18 9"/></svg>
                   <span style={{ fontSize: 14, fontWeight: 700, color: T.text, flex: 1 }}>{row.role}</span>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: utilC, fontFamily: T.mono }}>{row.util}%</span>
+                  {groupClockPill(row.members, { size: 12 })}
                 </div>
                 {/* Department/title row — no day grid, just a clean band */}
                 <div style={{ flex: 1 }} />
@@ -12821,7 +12839,6 @@ ${jobsCtx || "No jobs found."}`;
                 carryH += Math.max(0, ws.workedHoursShown - (b.task.hpd || 0)) / tsz;
               }
             }
-            const utilC = elColor(row.util > 60 ? "#10b981" : row.util > 30 ? "#f59e0b" : T.textDim);
             const isDrop = dropTarget === p.id;
             const isBeingDragged = rowDragId === p.id;
             const isDragBefore = rowDragOver?.type === "person" && rowDragOver.id === p.id && rowDragOver.pos === "before";
@@ -12846,7 +12863,7 @@ ${jobsCtx || "No jobs found."}`;
                   <div onClick={barSelectMode ? (e => { e.stopPropagation(); setSelectedSchedulePerson(prev => prev === p.id ? null : p.id); }) : undefined} style={{ fontSize: 13, fontWeight: 600, color: barSelectMode ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: barSelectMode ? "pointer" : "default" }}>{p.name.split(" ")[0]}</div>
                   <div style={{ fontSize: 11, color: T.textDim }}>{p.department} · {p.cap}h{p.isTeamLead ? <span style={{ color: "#10b981", marginLeft: 4 }}>★ Lead</span> : ""}</div>
                 </div>
-                <span style={{ fontSize: 13, fontWeight: 700, color: utilC, fontFamily: T.mono, flexShrink: 0 }}>{row.util}%</span>
+                {personClockPill(p, { size: 11 })}
                 {teamSelectMode && <div className="select-bubble-in" style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${selPeople.has(p.id) ? T.accent : T.border}`, background: selPeople.has(p.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, pointerEvents: "none", transition: "border-color 0.15s, background 0.15s", animationDelay: `${ri * 25}ms` }}>{selPeople.has(p.id) && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
                 </div>
               </div>
