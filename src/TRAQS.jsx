@@ -21105,6 +21105,123 @@ ${jobsCtx || "No jobs found."}`;
           </>}
         </div>
       </div></div>; }
+    // ── Job Log ──────────────────────────────────────────────────────────────
+    // Who has worked this job and when. Sourced from the production session rows
+    // (js_ records written at job clock-out), which carry personId, the job/panel/op
+    // they were on, clock-in and clock-out times and the hours — everything the log
+    // needs without deriving anything.
+    if (modal.type === "jobLog") {
+      const job = jobOfItem(modal.data) || modal.data;
+      if (!job) return null;
+      const fmtH = n => (Math.round(n * 10) / 10).toFixed(1);
+      const fmtT = iso => iso ? new Date(iso).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "—";
+      // Match on any level: a session records all three ids, but older rows or ones
+      // written against a panel/op directly may not carry jobId.
+      const opIds = new Set((job.subs || []).flatMap(p => (p.subs || []).map(o => String(o.id))));
+      const panelIds = new Set((job.subs || []).map(p => String(p.id)));
+      const rows = (productionHours || [])
+        .filter(s => s && !s.deletedAt && (Number(s.hours) || 0) > 0
+          && (sameId(s.jobId, job.id) || opIds.has(String(s.opId)) || panelIds.has(String(s.panelId))))
+        .sort((a, b) => String(b.clockIn || b.date || "").localeCompare(String(a.clockIn || a.date || "")));
+      // Anyone on the clock right now has no session row yet — it's written at
+      // clock-out — so they'd be invisible in a log of who is working this job.
+      const liveNow = people.filter(p => p.activeJobClock?.clockIn && opIds.has(String(p.activeJobClock.opId)));
+      const totalH = rows.reduce((s, r) => s + (Number(r.hours) || 0), 0);
+      const byPerson = new Map();
+      rows.forEach(r => { const k = String(r.personId); byPerson.set(k, (byPerson.get(k) || 0) + (Number(r.hours) || 0)); });
+      const crew = [...byPerson.entries()]
+        .map(([pid, h]) => ({ person: people.find(p => sameId(p.id, pid)), pid, h }))
+        .sort((a, b) => b.h - a.h);
+      // Group chronologically by the day the session was recorded against.
+      const days = [];
+      rows.forEach(r => {
+        const d = r.date || String(r.clockIn || "").slice(0, 10);
+        const last = days[days.length - 1];
+        if (last && last.day === d) last.rows.push(r); else days.push({ day: d, rows: [r] });
+      });
+      const stat = (label, value, color) => (
+        <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, padding: "12px 16px", minWidth: 0 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{label}</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: color || T.text, marginTop: 3, fontFamily: T.mono }}>{value}</div>
+        </div>
+      );
+      return <div className={ovCls} style={ov}>{_pageBg}<div className={bxCls} style={{ ...bx(true), position: "relative", ...pageFill, padding: 0 }} onClick={e => e.stopPropagation()}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "34px 32px 28px" }}>
+          {pageHead("Job Log", { onBack: closeModal })}
+          <div style={{ fontSize: 13, color: T.textDim, marginTop: -8, marginBottom: 18 }}>
+            {job.title}{job.jobNumber ? ` · ${job.jobNumber}` : ""}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 20 }}>
+            {stat("Hours logged", fmtH(totalH), T.accent)}
+            {stat("People", String(crew.length), "#10b981")}
+            {stat("Sessions", String(rows.length), "#8b5cf6")}
+            {stat("On the clock", String(liveNow.length), liveNow.length ? "#10b981" : T.textDim)}
+          </div>
+
+          {liveNow.length > 0 && <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#10b981", textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>On the clock now</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {liveNow.map(p => (
+                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", background: "#10b98110", border: `1px solid #10b98133`, borderRadius: T.radiusLg }}>
+                  <span className="tq-live-pulse" style={{ width: 8, height: 8, borderRadius: 8, background: "#10b981", flexShrink: 0 }} />
+                  <PersonAvatar person={p} size={22} />
+                  <span style={{ fontSize: 13, fontWeight: 700, color: T.text, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
+                  <span style={{ fontSize: 12, color: T.textSec, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.activeJobClock?.opTitle || "—"}</span>
+                  <span style={{ fontSize: 11, fontFamily: T.mono, color: T.textDim, flexShrink: 0 }}>since {fmtT(p.activeJobClock?.clockIn)}</span>
+                </div>
+              ))}
+            </div>
+          </div>}
+
+          {crew.length > 0 && <div style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>Hours by person</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {crew.map(({ person, pid, h }) => (
+                <div key={pid} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusLg }}>
+                  {person ? <PersonAvatar person={person} size={22} /> : <span style={{ width: 22, height: 22, borderRadius: 22, background: T.border, flexShrink: 0 }} />}
+                  <span style={{ fontSize: 13, fontWeight: 700, color: T.text, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person?.name || "Unknown"}</span>
+                  <div style={{ width: 120, height: 5, borderRadius: 8, background: T.bg, overflow: "hidden", flexShrink: 0 }}>
+                    <div style={{ height: "100%", width: `${totalH > 0 ? (h / totalH) * 100 : 0}%`, background: T.accent, borderRadius: 8 }} />
+                  </div>
+                  <span style={{ fontSize: 12, fontWeight: 700, fontFamily: T.mono, color: T.accent, flexShrink: 0, minWidth: 48, textAlign: "right" }}>{fmtH(h)}h</span>
+                </div>
+              ))}
+            </div>
+          </div>}
+
+          <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>Log</div>
+          {rows.length === 0
+            ? <div style={{ padding: "36px 24px", textAlign: "center", color: T.textDim, fontSize: 13, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusLg }}>
+                No time has been logged to this job yet.
+              </div>
+            : <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {days.map(({ day, rows: dRows }) => (
+                  <div key={day}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: T.textSec }}>{day ? fmtDate(day) : "Undated"}</span>
+                      <div style={{ flex: 1, height: 1, background: T.border }} />
+                      <span style={{ fontSize: 11, fontFamily: T.mono, color: T.textDim }}>{fmtH(dRows.reduce((s, r) => s + (Number(r.hours) || 0), 0))}h</span>
+                    </div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {dRows.map(r => {
+                        const p = people.find(x => sameId(x.id, r.personId));
+                        return (
+                          <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusLg }}>
+                            {p ? <PersonAvatar person={p} size={20} /> : <span style={{ width: 20, height: 20, borderRadius: 20, background: T.border, flexShrink: 0 }} />}
+                            <span style={{ fontSize: 12.5, fontWeight: 600, color: T.text, minWidth: 0, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p?.name || "Unknown"}</span>
+                            <span style={{ fontSize: 12, color: T.textSec, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.opTitle || r.panelTitle || "—"}</span>
+                            <span style={{ fontSize: 11, fontFamily: T.mono, color: T.textDim, flexShrink: 0 }}>{fmtT(r.clockIn)} – {fmtT(r.clockOut)}</span>
+                            <span style={{ fontSize: 12, fontWeight: 700, fontFamily: T.mono, color: T.accent, flexShrink: 0, minWidth: 44, textAlign: "right" }}>{fmtH(Number(r.hours) || 0)}h</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>}
+        </div>
+      </div></div>;
+    }
     // Client profile renders through its own function, which is defined above this
     // one so it can be called from here. Client Edit lives further down the tree than
     // renderModal can reach, so it portals into the panel host instead (see the
@@ -21187,9 +21304,10 @@ ${jobsCtx || "No jobs found."}`;
             ? pageHead(fresh.title, {
                 onBack: closeModal,
                 right: <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                  {/* Export this job — opens the standard export sheet already scoped to it. */}
+                  {/* Both of these STACK, so Back returns to this details page. */}
+                  <Btn size="sm" variant="ghost" onClick={() => pushModal({ type: "jobLog", data: fresh, parentId: null })}>Job Log</Btn>
+                  {/* Export opens the standard export sheet already scoped to this job. */}
                   <Btn size="sm" variant="ghost" onClick={() => openJobExport(fresh)}>Export</Btn>
-                  {/* Stacks: Back from Edit returns to this details page rather than leaving. */}
                   {dCanEdit && <Btn size="sm" onClick={() => openEditStacked(fresh)}>Edit</Btn>}
                 </div>,
               })
