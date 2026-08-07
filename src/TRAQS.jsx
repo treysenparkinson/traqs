@@ -11156,6 +11156,33 @@ ${jobsCtx || "No jobs found."}`;
   // because a text field stretched across a 1900px monitor is unusable.
   const FIELD_COL_W = 1180;
 
+  // Pill-shaped Back. Solid tokens only — no translucent colour that could resolve
+  // white-on-white; it reads the same whatever it sits on, hover included.
+  // Takes its own onBack, and position overrides so the SAME pill can either float
+  // over a page or sit inline beside a title.
+  const backBtn = (onBack, extra = {}) => (
+    <button onClick={onBack} title="Back"
+      onMouseEnter={e => { e.currentTarget.style.background = T.surface; }}
+      onMouseLeave={e => { e.currentTarget.style.background = T.card; }}
+      style={{ display: "inline-flex", alignItems: "center", gap: 6, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: T.font, cursor: "pointer", padding: "8px 16px 8px 12px", lineHeight: 1, letterSpacing: "-0.02em", flexShrink: 0, ...extra }}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+      Back
+    </button>
+  );
+  // THE page header for every stacked page — Back pill, then the title in
+  // pageTitleStyle, at the same 34/32 offset frostScroll uses. One implementation on
+  // purpose: a second hand-rolled copy drifted by 0.8px because it omitted minHeight,
+  // and the title visibly jumped when you moved between pages. Anything that needs a
+  // page header calls this and passes its own onBack.
+  const pageHead = (title, { onBack, right = null } = {}) => (
+    <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 12 : 16, marginBottom: isMobile ? 12 : 18, minHeight: isMobile ? 34 : 50 }}>
+      {backBtn(onBack)}
+      <h1 style={pageTitleStyle}>{title}</h1>
+      <div style={{ flex: 1, minWidth: 0 }} />
+      {right}
+    </div>
+  );
+
   const pageBgLayer = () => (T.adaptive && T.bgImage) ? (
     <div aria-hidden="true" style={{ position: "sticky", top: 0, height: 0, zIndex: 0, pointerEvents: "none" }}>
       <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: viewScrollH || "100vh", backgroundImage: `linear-gradient(0deg, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}), url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center" }} />
@@ -19575,33 +19602,8 @@ ${jobsCtx || "No jobs found."}`;
     // pins (90vh, maxWidth 480/1500) and lets the card fill the page. zIndex 1 lifts
     // the content above the sticky background layer.
     const pageFill = asPage ? { height: "auto", maxHeight: "none", flex: 1, minHeight: 0, width: "100%", maxWidth: "none", zIndex: 1 } : {};
-    // Pill-shaped Back. Solid tokens only — no translucent colour that could resolve
-    // white-on-white; it reads the same whatever it sits on, hover included.
-    // backBtn() takes position overrides so the SAME pill can either float over a page
-    // or sit inline beside a title — a page with a real title uses the inline form.
-    const backBtn = (extra = {}) => (
-      <button onClick={closeModal} title="Back"
-        onMouseEnter={e => { e.currentTarget.style.background = T.surface; }}
-        onMouseLeave={e => { e.currentTarget.style.background = T.card; }}
-        style={{ display: "inline-flex", alignItems: "center", gap: 6, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: T.font, cursor: "pointer", padding: "8px 16px 8px 12px", lineHeight: 1, letterSpacing: "-0.02em", flexShrink: 0, ...extra }}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-        Back
-      </button>
-    );
-    // Universal page header: Back pill, then the title in pageTitleStyle, at the SAME
-    // 34/32 offset frostScroll uses — so a detail page's title lands in exactly the
-    // spot every other page's title does, and Back is always in the same place at the
-    // far left regardless of how long the title is. `right` trails on the far side.
-    const pageHead = (title, { right = null } = {}) => (
-      <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 12 : 16, marginBottom: isMobile ? 12 : 18, minHeight: isMobile ? 34 : 50 }}>
-        {backBtn()}
-        <h1 style={pageTitleStyle}>{title}</h1>
-        <div style={{ flex: 1, minWidth: 0 }} />
-        {right}
-      </div>
-    );
     const cls = asPage
-      ? backBtn({ position: "absolute", top: 16, left: 22, zIndex: 6 })
+      ? backBtn(closeModal, { position: "absolute", top: 16, left: 22, zIndex: 6 })
       : <button onClick={closeModal} style={{ background: "none", border: "none", color: T.text, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>;
     if (modal.type === "edit") { const [ed, setEd] = [modal.data, d => setModal(p => ({ ...p, data: typeof d === "function" ? d(p.data) : d }))];
       const addPanels = (count) => {
@@ -20984,6 +20986,7 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ flex: 1, minWidth: 0, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "52px 18px 18px" : (asPage ? "34px 32px 28px" : "30px 32px 28px") }}>
           {asPage
             ? pageHead(fresh.title, {
+                onBack: closeModal,
                 // Stacks: Back from Edit returns to this details page rather than leaving.
                 right: dCanEdit ? <Btn size="sm" onClick={() => openEditStacked(fresh)}>Edit</Btn> : null,
               })
@@ -26938,33 +26941,24 @@ ${jobsCtx || "No jobs found."}`;
             {/* Header */}
             {/* Header. As a page: page-sized title with Back to its right at the same
                 34/32 offset every other page title uses. As an overlay: unchanged. */}
-            <div style={{ padding: _ejPage ? "34px 32px 18px" : "20px 32px", borderBottom: _ejPage ? "none" : `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, gap: 16 }}>
-              {_ejPage
-                ? <>
-                    {/* Back FIRST, then the title — same order as pageHead, so Back sits in
-                        the identical spot on every page no matter the title's length. */}
-                    <button onClick={closeEditJob} title="Back"
-                      onMouseEnter={e => { e.currentTarget.style.background = T.surface; }}
-                      onMouseLeave={e => { e.currentTarget.style.background = T.card; }}
-                      style={{ display: "inline-flex", alignItems: "center", gap: 6, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: T.font, cursor: "pointer", padding: "8px 16px 8px 12px", lineHeight: 1, letterSpacing: "-0.02em", flexShrink: 0 }}>
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
-                      Back
-                    </button>
-                    <h1 style={pageTitleStyle}>Edit Job</h1>
-                    <div style={{ flex: 1, minWidth: 0 }} />
-                  </>
-                : <div>
+            {/* As a page this is pageHead — the exact same header the detail pages use,
+                so the title and Back pill land on identical pixels and nothing shifts
+                when you move between stacked pages. marginBottom on pageHead supplies
+                the gap, so the wrapper only carries the 34/32 page offset. */}
+            {_ejPage
+              ? <div style={{ padding: "34px 32px 0", flexShrink: 0 }}>{pageHead("Edit Job", { onBack: closeEditJob })}</div>
+              : <div style={{ padding: "20px 32px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, gap: 16 }}>
+                  <div>
                     <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>Edit Job</h3>
                     <div style={{ fontSize: 12, color: T.textDim, marginTop: 3 }}>Update job details and edit panels &amp; operations</div>
-                  </div>}
-              {/* Overlay keeps its Attachments shortcut and ✕; the page has neither. */}
-              {!_ejPage && <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: 12, flexShrink: 0 }}>
-                <button onClick={() => setAttachmentsModal(ej.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 13px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>
-                  Attachments{(() => { const n = (ej.subs || []).reduce((s, p) => s + (p.attachments?.length || 0), 0); return n ? ` (${n})` : ""; })()}
-                </button>
-                <button onClick={closeEditJob} style={{ background: "none", border: "none", color: T.text, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "2px 4px" }}>✕</button>
-              </div>}
-            </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: 12, flexShrink: 0 }}>
+                    <button onClick={() => setAttachmentsModal(ej.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 13px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>
+                      Attachments{(() => { const n = (ej.subs || []).reduce((s, p) => s + (p.attachments?.length || 0), 0); return n ? ` (${n})` : ""; })()}
+                    </button>
+                    <button onClick={closeEditJob} style={{ background: "none", border: "none", color: T.text, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "2px 4px" }}>✕</button>
+                  </div>
+                </div>}
             {/* Body */}
             {/* The fields are the ONLY thing capped — the page still fills the panel and
                 the title stays in the top-left corner. margin auto centres the column;
