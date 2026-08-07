@@ -21088,9 +21088,17 @@ ${jobsCtx || "No jobs found."}`;
         {/* ── Right: Information · Notes · Attachments ── */}
         {/* Resize handle — a sibling flex item, so it is full height for free and needs
             no positioning tricks. 7px to be grabbable (a 1px border is not), pulled back
-            over the panel's border with a negative margin so it costs no layout width. */}
+            over the panel's border with a negative margin so it costs no layout width.
+            The three bars are the affordance: without them the handle is invisible and
+            nobody discovers the panel resizes. Centred vertically, dimmed until hover. */}
         {!isMobile && <div onMouseDown={startDetailResize} title="Drag to resize"
-          style={{ width: 7, marginRight: -7, flexShrink: 0, cursor: "col-resize", zIndex: 5, position: "relative" }} />}
+          onMouseEnter={e => { const g = e.currentTarget.firstChild; if (g) g.style.opacity = "1"; }}
+          onMouseLeave={e => { const g = e.currentTarget.firstChild; if (g) g.style.opacity = "0.35"; }}
+          style={{ width: 7, marginRight: -7, flexShrink: 0, cursor: "col-resize", zIndex: 5, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div aria-hidden="true" style={{ display: "flex", flexDirection: "column", gap: 3, opacity: 0.35, transition: "opacity 0.15s ease", pointerEvents: "none" }}>
+            {[0, 1, 2].map(i => <span key={i} style={{ display: "block", width: 7, height: 1.5, borderRadius: 1, background: T.textDim }} />)}
+          </div>
+        </div>}
         {/* 30px of side padding, not 22. This panel scrolls, and an overflow scroller
             clips at its padding box — so the hover halo on the controls inside
             (.tq-drop is `0 6px 22px`, a 22px blur) was being sliced off at the right
