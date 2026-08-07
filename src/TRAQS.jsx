@@ -1540,7 +1540,7 @@ const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", 
       {/* wrapPop goes OUTSIDE FadeOnClose: on close FadeOnClose cloneElement()s
           its child and reads child.props.style, and a portal object has no
           .props — portalling the child threw a TypeError on every close. */}
-      {wrapPop(<FadeOnClose open={open}>{open && (<div ref={popRef} onClick={e => e.stopPropagation()} className="anim-drop" style={{ ...(portal ? { position: "fixed", left: anchor?.left ?? 0, top: anchor?.top ?? 0, minWidth: anchor?.width } : { position: "absolute", top: "calc(100% + 6px)", left: 0 }), zIndex: portal ? 10060 : 1500, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 16px 48px rgba(0,0,0,0.5)", padding: 14, width: 290, fontFamily: T.font }}>
+      {wrapPop(<FadeOnClose open={open}>{open && (<div ref={popRef} onClick={e => e.stopPropagation()} className="anim-drop" style={{ ...(portal ? { position: "fixed", left: anchor?.left ?? 0, top: anchor?.top ?? 0, minWidth: anchor?.width } : { position: "absolute", top: "calc(100% + 6px)", left: 0 }), zIndex: portal ? 10060 : 1500, background: T.surfaceSolid || T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 16px 48px rgba(0,0,0,0.5)", padding: 14, width: 290, fontFamily: T.font }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <button onClick={NAV(-1)} style={{ width: 30, height: 30, borderRadius: T.radiusPill, border: "none", background: "transparent", color: hexA(T.systemText || T.textSec, 0.8), cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
@@ -21841,7 +21841,10 @@ ${jobsCtx || "No jobs found."}`;
         <div className="tq-frost" style={stCard}>
           <div style={stLabel}>Holidays</div>
           <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-            <TraqsDatePicker compact value={holidayInput} onChange={v => setHolidayInput(v)} style={{ flex: 1 }} />
+            {/* portal: the calendar renders to document.body instead of inside the
+                settings card, so the card's overflow and stacking context can't clip it
+                or let the page show through it. */}
+            <TraqsDatePicker portal compact value={holidayInput} onChange={v => setHolidayInput(v)} style={{ flex: 1 }} />
             <Btn size="sm" onClick={() => { if (!holidayInput || (d.holidays || []).includes(holidayInput)) return; patchDraft(dd => ({ holidays: [...(dd.holidays || []), holidayInput].sort() })); setHolidayInput(""); }}>Add</Btn>
           </div>
           {(d.holidays || []).length === 0 && <div style={{ fontSize: 12, color: T.textDim, padding: "8px 0" }}>No holidays added</div>}
@@ -24733,7 +24736,10 @@ ${jobsCtx || "No jobs found."}`;
           <div>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "-0.045em", textTransform: "uppercase", marginBottom: 10 }}>Holidays</div>
             <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-              <TraqsDatePicker compact value={holidayInput} onChange={v => setHolidayInput(v)} style={{ flex: 1 }} />
+              {/* portal: the calendar renders to document.body instead of inside the
+                settings card, so the card's overflow and stacking context can't clip it
+                or let the page show through it. */}
+            <TraqsDatePicker portal compact value={holidayInput} onChange={v => setHolidayInput(v)} style={{ flex: 1 }} />
               <button onClick={() => { if (!holidayInput || orgSettings.holidays.includes(holidayInput)) return; setOrgSettings(s => ({ ...s, holidays: [...s.holidays, holidayInput].sort() })); setHolidayInput(""); }} style={{ padding: "7px 14px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Add</button>
             </div>
             {orgSettings.holidays.length === 0 && <div style={{ fontSize: 12, color: T.textDim, padding: "8px 0" }}>No holidays added</div>}
