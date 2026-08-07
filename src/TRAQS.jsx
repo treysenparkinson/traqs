@@ -3405,9 +3405,9 @@ Extraction rules:
   const tsSettingsRef = useRef(null);
   // ── Modal stack ──────────────────────────────────────────────────────────
   // Content popups render as full pages inside the content panel (desktop), so
-  // opening one FROM another has to nest rather than replace: "View Full Job"
-  // from an operation, Edit from a job. The stack is what makes Back walk that
-  // chain one step at a time.
+  // opening one FROM another has to nest rather than replace — Edit from a job,
+  // and the per-job export and log to come. The stack is what makes Back walk
+  // that chain one step at a time.
   //
   // `modal` is the top of the stack, so every existing read of it is unchanged.
   // setModal keeps its old contract too:
@@ -7097,18 +7097,31 @@ Extraction rules:
     setEditToast(null);
     setEditPopBtn(null);
   };
-  const openDetail = t => setModal({ type: "detail", data: t, parentId: null });
-  // Schedule bars carry the OPERATION, so clicking one used to land on the narrow
-  // op-level page. A bar reads as the job, so it should open the job's details.
-  // Bars are built with grandPid = the owning job's id; falling back to the item
-  // itself keeps this safe for callers that already hand over a job.
-  const openJobDetail = (item) => {
-    const job = (item?.grandPid && tasks.find(t => t.id === item.grandPid))
-      || (item?.pid && tasks.find(t => t.id === item.pid))
-      || tasks.find(t => t.id === item?.id)
-      || item;
-    openDetail(job);
+  // Resolves anything — job, panel or operation — to the JOB that owns it. The
+  // op-level detail page is gone; operations are read inside the job's page, so
+  // every entry point has to land on a job or the details page renders an item it
+  // can't describe. Ordered cheapest-first: already a job, then the ids bars and
+  // rows carry (grandPid = owning job on an op, pid = owning job on a panel), then
+  // a tree walk for items constructed without either.
+  const jobOfItem = (item) => {
+    if (!item) return item;
+    const sid = v => String(v);
+    const direct = tasks.find(t => sid(t.id) === sid(item.id));
+    if (direct) return direct;
+    if (item.grandPid) { const j = tasks.find(t => sid(t.id) === sid(item.grandPid)); if (j) return j; }
+    if (item.pid) { const j = tasks.find(t => sid(t.id) === sid(item.pid)); if (j) return j; }
+    for (const job of tasks) {
+      for (const panel of (job.subs || [])) {
+        if (sid(panel.id) === sid(item.id)) return job;
+        if ((panel.subs || []).some(op => sid(op.id) === sid(item.id))) return job;
+      }
+    }
+    return item;
   };
+  const openDetail = t => setModal({ type: "detail", data: jobOfItem(t), parentId: null });
+  // Kept as a name for call sites that specifically mean "open the owning job";
+  // openDetail resolves the same way now, so they are equivalent.
+  const openJobDetail = openDetail;
 
   const AI_TOOLS = [
     { name: "update_job", description: "Update any field of an existing job: status, priority, dates, job number, notes, due date", input_schema: { type: "object", properties: { job_id: { type: "string", description: "The job_id from context" }, status: { type: "string", enum: STATUSES }, priority: { type: "string", enum: PRIORITIES }, start: { type: "string", description: "YYYY-MM-DD" }, end: { type: "string", description: "YYYY-MM-DD" }, due_date: { type: "string", description: "YYYY-MM-DD, or empty string to clear" }, job_number: { type: "string" }, notes: { type: "string" } }, required: ["job_id"] } },
@@ -20886,135 +20899,6 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div></div>; }
     if (modal.type === "detail") { const t = modal.data; if (!t) return null; const fresh = allItems.find(x => x.id === t.id) || t;
-      // If this is an operation (level 2), show focused operation popup
-      if (fresh.level === 2 || (fresh.isSub && fresh.pid && !tasks.find(x => x.id === fresh.id))) {
-        // Find parent panel and job
-        let parentPanel = null, parentJob = null;
-        if (fresh.level === 1) {
-          // Direct sub of a job (no panel wrapper)
-          for (const job of tasks) {
-            if ((job.subs || []).find(s => s.id === fresh.id)) { parentJob = job; break; }
-          }
-        } else {
-          // level 2 — sub-operation nested inside a panel
-          for (const job of tasks) {
-            for (const panel of (job.subs || [])) {
-              const op = (panel.subs || []).find(o => o.id === fresh.id);
-              if (op) { parentPanel = panel; parentJob = job; break; }
-            }
-            if (parentJob) break;
-          }
-        }
-        const opData = parentPanel ? (parentPanel.subs || []).find(o => o.id === fresh.id) || fresh : fresh;
-        const assignee = (opData.team || [])[0];
-        const person = assignee ? people.find(x => x.id === assignee) : null;
-        const health = getHealth(opData);
-        const healthColor = HEALTH_DOT[health];
-        const healthLabel = health === "ontime" ? "On Time" : health === "behind" ? "Behind" : health === "critical" ? "Late" : "Done";
-        const client = parentJob && parentJob.clientId ? clients.find(c => c.id === parentJob.clientId) : null;
-        const isOpLocked = opData.locked;
-        return <div className={ovCls} style={ov}>{_pageBg}<div className={bxCls} style={{ ...bx(false), position: "relative", maxWidth: 480, ...pageFill }} onClick={e => e.stopPropagation()}>{cls}
-          {/* Health + Lock banner */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-            <div style={{ flex: 1, background: healthColor + "15", border: `1px solid ${healthColor}33`, borderRadius: T.radiusSm, padding: "10px 16px", display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ width: 10, height: 10, borderRadius: 8, background: healthColor, boxShadow: `0 0 8px ${healthColor}66` }} />
-              <span style={{ fontSize: 13, fontWeight: 700, color: healthColor }}>{healthLabel}</span>
-            </div>
-            {isOpLocked && <div style={{ background: "#f59e0b15", border: "1px solid #f59e0b33", borderRadius: T.radiusSm, padding: "10px 16px", display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
-              <span style={{ fontSize: 13, fontWeight: 700, color: "#f59e0b" }}>Locked</span>
-            </div>}
-          </div>
-          {/* Title */}
-          <h3 style={{ margin: "0 0 6px", color: T.text, fontSize: 22, fontWeight: 700 }}>{opData.title}{parentPanel ? ` – ${parentPanel.title}` : ""}</h3>
-          {parentJob && <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 14, color: T.textDim, marginBottom: 6 }}>{parentJob.title}</div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {parentJob.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 12, padding: "3px 10px", fontFamily: T.mono }}>Task # {parentJob.jobNumber}</span>}
-              {parentJob.poNumber && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98115", border: "1px solid #10b98133", borderRadius: 12, padding: "3px 10px", fontFamily: T.mono }}>PO # {parentJob.poNumber}</span>}
-            </div>
-          </div>}
-          {/* Assigned person */}
-          {person && <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, marginBottom: 16 }}>
-            <PersonAvatar person={person} size={36} />
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{person.name}</div>
-              <div style={{ fontSize: 12, color: T.textDim }}>{person.department}</div>
-            </div>
-          </div>}
-          {!person && <div style={{ padding: "14px 16px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, marginBottom: 16, fontSize: 14, color: T.textDim, fontStyle: "italic" }}>Unassigned</div>}
-          {/* Schedule */}
-          <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
-            <div style={{ flex: 1, padding: "12px 14px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}` }}>
-              <div style={{ fontSize: 11, color: T.textDim, fontWeight: 600, textTransform: "uppercase", marginBottom: 4 }}>Start</div>
-              <div style={{ fontSize: 15, color: T.text, fontWeight: 600, fontFamily: T.mono }}>{fm(opData.start)}</div>
-            </div>
-            <div style={{ flex: 1, padding: "12px 14px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}` }}>
-              <div style={{ fontSize: 11, color: T.textDim, fontWeight: 600, textTransform: "uppercase", marginBottom: 4 }}>End</div>
-              <div style={{ fontSize: 15, color: T.text, fontWeight: 600, fontFamily: T.mono }}>{fm(opData.end)}</div>
-            </div>
-            <div style={{ padding: "12px 14px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}` }}>
-              <div style={{ fontSize: 11, color: T.textDim, fontWeight: 600, textTransform: "uppercase", marginBottom: 4 }}>Hours/Day</div>
-              <div style={{ fontSize: 15, color: T.text, fontWeight: 600 }}>{opData.hpd || 8}h</div>
-            </div>
-          </div>
-          {/* Client */}
-          {client && <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, marginBottom: 16 }}>
-            <div style={{ width: 10, height: 10, borderRadius: 8, background: elColor(client.color) }} />
-            <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{client.name}</span>
-            {client.contact && <span style={{ fontSize: 12, color: T.textDim, marginLeft: "auto" }}>{client.contact}</span>}
-          </div>}
-          {/* Notes / description — always show, editable */}
-          {parentJob && <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 11, color: T.textDim, fontWeight: 600, textTransform: "uppercase", marginBottom: 6 }}>Notes</div>
-            <textarea defaultValue={parentJob.notes || ""} rows={3} placeholder="Add notes…" style={{ width: "100%", background: `var(--tq-field-bg, ${T.surface})`, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, color: T.text, fontSize: 14, padding: "12px 14px", fontFamily: T.font, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6, transition: "border-color 0.15s" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(parentJob.id, { notes: e.target.value }); }} />
-          </div>}
-          {/* Move Log / Schedule History */}
-          {(opData.moveLog || []).length > 0 && <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 11, color: T.textDim, fontWeight: 600, textTransform: "uppercase", marginBottom: 6 }}>Schedule History ({opData.moveLog.length})</div>
-            <div style={{ borderRadius: T.radiusSm, border: `1px solid ${T.border}`, overflow: "hidden", maxHeight: 280, overflowY: "auto" }}>
-              {[...(opData.moveLog)].reverse().map((log, i) => {
-                const realIdx = opData.moveLog.length - 1 - i;
-                return <div key={i} style={{ padding: "10px 14px", background: i % 2 === 0 ? T.surface : "transparent", borderBottom: i < opData.moveLog.length - 1 ? `1px solid ${T.border}` : "none" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: "#f59e0b" }}>{log.reason || "Schedule change"}</span>
-                    <span style={{ fontSize: 11, color: T.textDim, marginLeft: "auto" }}>{fm(log.date)}</span>
-                    {can("undoHistory") && <Tip label="Undo this change"><button onClick={() => {
-                      const opId = opData.id;
-                      setTasks(prev => prev.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, subs: (panel.subs || []).map(op => {
-                        if (op.id !== opId) return op;
-                        const newLog = [...(op.moveLog || [])];
-                        const entry = newLog[realIdx];
-                        if (!entry) return op;
-                        newLog.splice(realIdx, 1);
-                        const revertEntry = { fromStart: op.start, fromEnd: op.end, toStart: entry.fromStart, toEnd: entry.fromEnd, date: TD, movedBy: loggedInUser ? loggedInUser.name : "Admin", reason: "Undo: " + (entry.reason || "schedule change") };
-                        return { ...op, start: entry.fromStart, end: entry.fromEnd, moveLog: [...newLog, revertEntry] };
-                      }) })) })));
-                      closeModal();
-                    }} style={{ width: 24, height: 24, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: T.bgText, flexShrink: 0, transition: "all 0.15s" }}
-                      onMouseEnter={e => { e.currentTarget.style.borderColor = "#f59e0b"; e.currentTarget.style.color = "#f59e0b"; }}
-                      onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; }}
-                    >↩</button></Tip>}
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
-                    <span style={{ color: T.textDim, fontFamily: T.mono }}>{fm(log.fromStart)} – {fm(log.fromEnd)}</span>
-                    <span style={{ color: "#f59e0b" }}>→</span>
-                    <span style={{ color: "#f59e0b", fontWeight: 600, fontFamily: T.mono }}>{fm(log.toStart)} – {fm(log.toEnd)}</span>
-                  </div>
-                  <div style={{ fontSize: 11, color: T.textDim, marginTop: 3 }}>by {log.movedBy}</div>
-                </div>;
-              })}
-            </div>
-          </div>}
-          {/* Actions */}
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            {can("editJobs") && <Btn onClick={() => { closeModal(); if (parentJob) openEdit(parentJob, null); }}>Edit Job</Btn>}
-            {can("lockJobs") && parentPanel && <Btn variant={isOpLocked ? "warn" : "ghost"} onClick={() => { toggleLock(opData.id, parentPanel.id); closeModal(); }}>{isOpLocked ? <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display:"inline",verticalAlign:"middle",marginRight:4 }}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>Unlock</> : <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display:"inline",verticalAlign:"middle",marginRight:4 }}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Lock</>}</Btn>}
-            {/* Stacks instead of replacing: Back from the job returns to this operation. */}
-            {parentJob && <Btn variant="ghost" onClick={() => pushModal({ type: "detail", data: parentJob, parentId: null })}>View Full Job</Btn>}
-          </div>
-        </div></div>;
-      }
       // Job-level detail (existing)
       const parent = tasks.find(x => x.id === fresh.id);
       const dPanels = (parent && parent.subs) || [];
