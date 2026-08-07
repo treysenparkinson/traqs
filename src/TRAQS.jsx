@@ -2,7 +2,7 @@
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
-import { TRAQS_LOGO_BLUE, UL_LOGO_WHITE } from "./logo.js";
+import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme, setActiveThread } from "./push.js";
 import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
@@ -22213,7 +22213,13 @@ ${jobsCtx || "No jobs found."}`;
     {!isMobile && <div style={{ flexShrink: 0, padding: "18px 32px 18px 14px", display: "flex", alignItems: "center", gap: 18, background: Tc.surfaceSolid, position: "relative", zIndex: 101 }}>
       {/* Nudged down with a relative offset rather than margin so the brand strip
           keeps its height — a margin would grow the bar by the same 10px. */}
-      <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 40, objectFit: "contain", display: "block", filter: hexLum(Tc.surfaceSolid) > 0.5 ? "brightness(0)" : "none", flexShrink: 0, marginLeft: 45, position: "relative", top: 5 }} />
+      {/* Two cuts of the wordmark — the black one on paper, the white one on ink.
+          Replaces a brightness(0) filter on the white asset, which produced the same
+          pixels (it blackens colour but keeps alpha). Kept because the asset is now
+          the source of the colour instead of a filter, so a wordmark that ever stops
+          being flat single-colour will render correctly; the accent bar is a sibling
+          element and was never affected by the filter either way. */}
+      <img src={hexLum(Tc.surfaceSolid) > 0.5 ? TRAQS_LOGO_BLUE : TRAQS_LOGO_WHITE} alt="TRAQS" style={{ height: 40, objectFit: "contain", display: "block", flexShrink: 0, marginLeft: 45, position: "relative", top: 5 }} />
       {/* TRAQS bars mark — trailing "=" lockup (ported from iOS TRAQSBarsMark).
           3 grey bars + the 3rd (full-width) bar tracks the user's accent. */}
       <div aria-hidden="true" style={{ display: "flex", flexDirection: "column", gap: 2, marginLeft: -19, marginTop: 8, flexShrink: 0 }}>
