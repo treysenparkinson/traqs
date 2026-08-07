@@ -6025,6 +6025,9 @@ Extraction rules:
   };
   const [analyticsPerson, setAnalyticsPerson] = useState(null); // admin-only: null = Everyone (team overview); else a personId → that person's personal stats
   const [clientCompletedExpanded, setClientCompletedExpanded] = useState(false);
+  // Per-job panel/operation breakdown on the client profile. Keyed by job id so each
+  // card opens independently and a client with many jobs doesn't expand as one block.
+  const [clientJobExp, setClientJobExp] = useState({});
   const [jobSearch, setJobSearch] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [templateDeleteConfirm, setTemplateDeleteConfirm] = useState(null); // template object pending deletion
@@ -11139,6 +11142,59 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>{(t.team || []).slice(0, 4).map(id => <Badge key={id} t={pName(id)} c={T.accent} />)}{(t.team || []).length > 4 && <Badge t={`+${(t.team || []).length - 4}`} c={T.textDim} />}</div>
                   {can("editJobs") && <Btn variant="ghost" size="sm" onClick={() => { setSelClient(null); openEdit(t); }}>Edit</Btn>}
                 </div>
+                {/* Panel / operation breakdown. Collapsed by default — a client with a
+                    dozen jobs would otherwise open to a wall of rows. Same
+                    grid-template-rows slide as everything else that collapses here. */}
+                {(t.subs || []).length > 0 && (() => {
+                  const jobOps = (t.subs || []).flatMap(p => p.subs || []);
+                  const jExp = !!clientJobExp[t.id];
+                  return <>
+                    <div onClick={() => setClientJobExp(p => ({ ...p, [t.id]: !p[t.id] }))}
+                      style={{ display: "flex", alignItems: "center", gap: 7, marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}`, cursor: "pointer", userSelect: "none" }}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                        style={{ flexShrink: 0, transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)", transform: jExp ? "rotate(0deg)" : "rotate(-90deg)" }}>
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: T.textDim }}>
+                        {t.subs.length} panel{t.subs.length !== 1 ? "s" : ""} · {jobOps.length} operation{jobOps.length !== 1 ? "s" : ""}
+                      </span>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateRows: jExp ? "1fr" : "0fr", transition: "grid-template-rows 0.26s cubic-bezier(0.4,0,0.2,1)", pointerEvents: jExp ? "auto" : "none" }}>
+                      <div style={{ overflow: "hidden", minHeight: 0 }}>
+                        <div style={{ paddingTop: 10, display: "flex", flexDirection: "column", gap: 8, opacity: jExp ? 1 : 0, transition: "opacity 0.18s ease" }}>
+                          {(t.subs || []).map(panel => (
+                            <div key={panel.id} style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: "10px 12px" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: (panel.subs || []).length ? 8 : 0 }}>
+                                <span style={{ width: 6, height: 6, borderRadius: 6, background: staColorOf(getPanelDisplayStatus(panel)), flexShrink: 0 }} />
+                                <span style={{ fontSize: 12.5, fontWeight: 700, color: T.text, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{panel.title}</span>
+                                <span style={{ fontSize: 10.5, fontFamily: T.mono, color: T.textDim, flexShrink: 0 }}>{panel.start ? `${fm(panel.start)} → ${fm(panel.end)}` : "Unscheduled"}</span>
+                              </div>
+                              {(panel.subs || []).map(op => {
+                                // sameId, not === : person ids are mixed string/number across
+                                // web and iOS, so a strict compare silently drops assignees.
+                                const crew = (op.team || []).map(id => people.find(p => sameId(p.id, id))).filter(Boolean);
+                                return (
+                                  <div key={op.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0 6px 14px", borderTop: `1px solid ${T.border}55` }}>
+                                    <span style={{ width: 4, height: 4, borderRadius: 4, background: staColorOf(getOpDisplayStatus(op)), flexShrink: 0 }} />
+                                    <span style={{ fontSize: 12, color: T.textSec, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{op.title}</span>
+                                    <span style={{ fontSize: 10.5, fontFamily: T.mono, color: T.textDim, flexShrink: 0 }}>{op.hpd ?? orgSettings.hpd}h</span>
+                                    <span style={{ fontSize: 10.5, fontWeight: 700, color: staColorOf(getOpDisplayStatus(op)), flexShrink: 0, whiteSpace: "nowrap" }}>{getOpDisplayStatus(op)}</span>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, minWidth: 0 }}>
+                                      {crew.length === 0
+                                        ? <span style={{ fontSize: 10.5, color: T.textDim, fontStyle: "italic" }}>Unassigned</span>
+                                        : crew.slice(0, 3).map(p => <Tip key={p.id} label={p.name}><PersonAvatar person={p} size={18} /></Tip>)}
+                                      {crew.length > 3 && <span style={{ fontSize: 10.5, fontWeight: 700, color: T.textDim }}>+{crew.length - 3}</span>}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </>;
+                })()}
               </div>;
             };
             return <>
