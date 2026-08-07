@@ -11150,13 +11150,11 @@ ${jobsCtx || "No jobs found."}`;
   //            pinned per-scroller (that's how frostScroll does it) rather than on the
   //            panel; sized to viewScrollH and sticky so it holds while content scrolls
   // So: never set an opaque background on a page container, and render this inside it.
-  // Content caps for stacked pages. The page itself fills the panel — that's what
-  // carries the background edge to edge — but the content column is capped and
-  // centred inside it, because form rows stretched across a 1900px monitor are
-  // unreadable. Shared so every page lands on the same measure.
-  const PAGE_W = 760;        // single-column forms (dependencies, availability)
-  const PAGE_W_WIDE = 1280;  // multi-column forms (Edit Job, the new-job wizard)
-  const PAGE_W_SPLIT = 1500; // two-pane layouts that carry a side panel (job details)
+  // Cap for form FIELDS only. Pages themselves fill the panel edge to edge — that's
+  // what carries the background and keeps gaps off the right and bottom — and titles
+  // stay in the top-left corner. It's only the inputs that get capped and centred,
+  // because a text field stretched across a 1900px monitor is unusable.
+  const FIELD_COL_W = 1180;
 
   const pageBgLayer = () => (T.adaptive && T.bgImage) ? (
     <div aria-hidden="true" style={{ position: "sticky", top: 0, height: 0, zIndex: 0, pointerEvents: "none" }}>
@@ -19560,24 +19558,23 @@ ${jobsCtx || "No jobs found."}`;
     // through before the content appeared.
     const ovCls = asPage ? "" : "anim-modal-overlay";
     const bxCls = asPage ? "" : "anim-modal-box";
-    // The PAGE fills the panel (so the background runs edge to edge and there are no
-    // gaps at the right or bottom), but the CONTENT is capped and centred — full-width
-    // form rows stretched to ~1900px are unreadable. alignItems:center does the
-    // centring; PAGE_W / PAGE_W_WIDE are the caps.
+    // Zero padding — the detail runs to all four edges of the panel; the rounded
+    // header and sidebar are the only frame. The Back pill floats over the top-left
+    // instead of being padded in, so it costs no real estate on the right or bottom.
     // NO background colour: the content panel behind this already paints the solid
     // colour or the liquid wash, and covering it is what hid them.
     const ov = asPage
-      ? { position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start", overflowY: "auto", overflowX: "hidden", background: "transparent", padding: 0 }
+      ? { position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "flex-start", overflowY: "auto", overflowX: "hidden", background: "transparent", padding: 0 }
       : { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "8px", overflow: "auto" };
     const bx = (wide) => asPage
-      // No side padding — the cap does the insetting. Only top head-room, to clear the
-      // floating Back pill on pages that use it.
-      ? { background: "transparent", borderRadius: 0, padding: "54px 0 0", maxWidth: wide ? PAGE_W_WIDE : PAGE_W, width: "100%", border: "none", boxShadow: "none" }
+      // No max width and no side padding — the page fills. Only top head-room, to clear
+      // the floating Back pill on pages that use it.
+      ? { background: "transparent", borderRadius: 0, padding: "54px 0 0", maxWidth: "none", width: "100%", border: "none", boxShadow: "none" }
       : { background: T.card, borderRadius: 26, padding: "56px 18px 18px", maxWidth: wide ? 1000 : 600, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" };
-    // Spread AFTER bx() at every return site so it beats each one's own height pins
-    // (90vh). Deliberately does NOT set maxWidth — bx's cap stands. zIndex 1 lifts the
-    // content above the sticky background layer.
-    const pageFill = asPage ? { height: "auto", maxHeight: "none", flex: 1, minHeight: 0, width: "100%", zIndex: 1 } : {};
+    // Spread AFTER bx() at every return site so it beats each one's own width/height
+    // pins (90vh, maxWidth 480/1500) and lets the card fill the page. zIndex 1 lifts
+    // the content above the sticky background layer.
+    const pageFill = asPage ? { height: "auto", maxHeight: "none", flex: 1, minHeight: 0, width: "100%", maxWidth: "none", zIndex: 1 } : {};
     // Pill-shaped Back. Solid tokens only — no translucent colour that could resolve
     // white-on-white; it reads the same whatever it sits on, hover included.
     // backBtn() takes position overrides so the SAME pill can either float over a page
@@ -20981,7 +20978,7 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ fontSize: 9, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{label}</div>
         <div style={{ fontSize: 16, fontWeight: 700, color: color || T.text, marginTop: 3, fontFamily: T.mono }}>{val}</div>
       </div>;
-      return <div className={ovCls} style={ov}>{_pageBg}<div className={bxCls} style={{ ...bx(true), position: "relative", maxWidth: isMobile ? "100%" : PAGE_W_SPLIT, width: isMobile ? "100%" : "96vw", height: isMobile ? "auto" : "90vh", maxHeight: isMobile ? "none" : "90vh", padding: 0, overflow: isMobile ? "visible" : "hidden", display: "flex", flexDirection: isMobile ? "column" : "row", ...(asPage ? pageFill : {}) }} onClick={e => e.stopPropagation()}>{asPage ? null : cls}
+      return <div className={ovCls} style={ov}>{_pageBg}<div className={bxCls} style={{ ...bx(true), position: "relative", maxWidth: isMobile ? "100%" : 1500, width: isMobile ? "100%" : "96vw", height: isMobile ? "auto" : "90vh", maxHeight: isMobile ? "none" : "90vh", padding: 0, overflow: isMobile ? "visible" : "hidden", display: "flex", flexDirection: isMobile ? "column" : "row", ...(asPage ? pageFill : {}) }} onClick={e => e.stopPropagation()}>{asPage ? null : cls}
         {/* ── Left: panel / operation details ── */}
         {/* 34/32 as a page — the same padding frostScroll gives every other view, so this
             title sits in the identical spot as the Schedule and Employees titles. */}
@@ -26924,12 +26921,12 @@ ${jobsCtx || "No jobs found."}`;
       const _ejPage = !isMobile;
       return (
         <div className={_ejPage ? "" : "anim-modal-overlay"} style={_ejPage
-            ? { position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", alignItems: "center", overflowY: "auto", overflowX: "hidden", background: "transparent" }
+            ? { position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflowY: "auto", overflowX: "hidden", background: "transparent" }
             : { position: "fixed", inset: 0, zIndex: 2100, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)", display: "flex", alignItems: "stretch", justifyContent: "center", padding: 24 }}
           onClick={_ejPage ? undefined : () => setEditJobModal(null)}>
           {_ejPage ? pageBgLayer() : null}
           <div className={_ejPage ? "" : "anim-modal-box"} style={_ejPage
-              ? { position: "relative", zIndex: 1, background: "transparent", borderRadius: 0, width: "100%", maxWidth: PAGE_W_WIDE, flex: 1, minHeight: 0, border: "none", boxShadow: "none", display: "flex", flexDirection: "column", fontFamily: T.font }
+              ? { position: "relative", zIndex: 1, background: "transparent", borderRadius: 0, width: "100%", maxWidth: "none", flex: 1, minHeight: 0, border: "none", boxShadow: "none", display: "flex", flexDirection: "column", fontFamily: T.font }
               : { position: "relative", background: T.card, borderRadius: T.radius, width: "100%", maxWidth: 1400, maxHeight: "calc(100vh - 48px)", border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", display: "flex", flexDirection: "column", fontFamily: T.font }}
             onClick={e => e.stopPropagation()}>
             {editToast && <div key={editToast.key} style={{ position: "absolute", top: 16, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 10, padding: "10px 18px 10px 12px", borderRadius: 999, background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, letterSpacing: "-0.045em", fontFamily: T.font, boxShadow: "0 8px 28px rgba(0,0,0,0.4)", zIndex: 50, animation: "toastInOut 1.8s cubic-bezier(0.34, 1.56, 0.64, 1) both", pointerEvents: "none" }}>
@@ -26968,7 +26965,10 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             </div>
             {/* Body */}
-            <div style={{ padding: "24px 32px", display: "flex", flexDirection: "column", gap: 18, overflowY: "auto", flex: 1, minHeight: 0 }}>
+            {/* The fields are the ONLY thing capped — the page still fills the panel and
+                the title stays in the top-left corner. margin auto centres the column;
+                width 100% keeps it fluid below the cap so narrow windows are unaffected. */}
+            <div style={{ padding: "24px 32px", display: "flex", flexDirection: "column", gap: 18, overflowY: "auto", flex: 1, minHeight: 0, ...(_ejPage ? { width: "100%", maxWidth: FIELD_COL_W, marginLeft: "auto", marginRight: "auto", boxSizing: "border-box" } : {}) }}>
               {/* Job Name — full width */}
               <div>
                 {fieldLabel("Job Name")}
