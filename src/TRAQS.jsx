@@ -11178,8 +11178,12 @@ ${jobsCtx || "No jobs found."}`;
   };
   // `right` is whatever used to sit in the top-left — a toolbar, filters, a
   // count. It moves to the right of the title instead of above or below it.
-  const pageHeader = (title, right = null, extra = {}) => (
+  // `back` leads the row, ahead of the title, matching pageHead on the stacked
+  // pages: a page you can go back from puts Back in the same spot every time,
+  // and putting it after the title would move it with the title's length.
+  const pageHeader = (title, right = null, extra = {}, back = null) => (
     <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 12 : 22, marginBottom: isMobile ? 12 : 18, minHeight: isMobile ? 34 : 50, ...extra }}>
+      {back}
       <h1 style={pageTitleStyle}>{title}</h1>
       {right && <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>{right}</div>}
     </div>
@@ -15235,12 +15239,10 @@ ${jobsCtx || "No jobs found."}`;
       </div>;
     }
 
-    const picker = (
-      <button onClick={() => setEmpPersonId(null)} style={{ display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 16px 8px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: hexA(T.systemText || T.textSec, 0.8), fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
-        All Employees
-      </button>
-    );
+    // The same Back pill every stacked page uses, rather than a bespoke
+    // "All Employees" button — one component, so it can't drift in style or
+    // position. It leads the header row, ahead of the title.
+    const picker = backBtn(() => setEmpPersonId(null));
 
     // ── Period window for the performance stats ──────────────────────────────
     const today = new Date(TD + "T12:00:00");
@@ -15437,7 +15439,7 @@ ${jobsCtx || "No jobs found."}`;
     const clockedColor = cs.isOnBreak ? "#f59e0b" : cs.isClocked ? "#10b981" : T.textDim;
 
     return <div>
-      {pageHeader("Employees", picker)}{addEmployeeModal}{employeeCtxMenu}{employeeDeleteModal}
+      {pageHeader("Employees", null, {}, picker)}{addEmployeeModal}{employeeCtxMenu}{employeeDeleteModal}
 
       {/* ── Header card ── */}
       <div style={card({ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", marginBottom: 14 })}>
@@ -20073,10 +20075,17 @@ ${jobsCtx || "No jobs found."}`;
           return { ...p, subs: [...existingSubs, ...newOps] };
         });
       };
-      return <div className={ovCls} style={ov}>{_pageBg}<div className={bxCls} style={{ ...bx(true), position: "relative", height: "90vh", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column", ...pageFill }} onClick={e => e.stopPropagation()}>{cls}
+      return <div className={ovCls} style={ov}>{_pageBg}<div className={bxCls} style={{ ...bx(true), position: "relative", height: "90vh", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column", ...pageFill }} onClick={e => e.stopPropagation()}>{asPage ? null : cls}
         {/* ── Scrollable content (title + step indicator + step body) ── */}
-        <div style={{ flex:1, overflowY:"auto", padding:"24px 32px" }}>
-          <h3 style={{ margin: "0 0 20px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit Job" : "New Job"}</h3>
+        {/* As a page: pageHead gives the same big title with Back to its left that every
+            other stacked page uses, and the body below is capped to FIELD_COL_W and
+            centred so the inputs match Edit Job rather than stretching the panel. The
+            title stays full width at the top-left, outside the cap. */}
+        <div style={{ flex:1, overflowY:"auto", padding: asPage ? "34px 32px 24px" : "24px 32px" }}>
+          {asPage
+            ? pageHead(ed.id ? "Edit Job" : "New Job", { onBack: closeModal })
+            : <h3 style={{ margin: "0 0 20px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit Job" : "New Job"}</h3>}
+          <div style={asPage ? { width: "100%", maxWidth: FIELD_COL_W, marginLeft: "auto", marginRight: "auto" } : undefined}>
           <div style={{ display: "flex", alignItems: "flex-start", marginBottom: 20 }}>
             {[{n:1,label:"Job Details"},{n:2,label:"Operations"},{n:3,label:"Schedule"}].map(({n,label},i) => {
               const done = modalStep > n; const active = modalStep === n;
@@ -20815,6 +20824,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>}
           </div>}
 
+          </div>
         </div>
 
         {/* ── Footer ── */}
