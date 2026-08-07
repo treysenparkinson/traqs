@@ -3403,7 +3403,38 @@ Extraction rules:
   const askBarInputRef = useRef(null);
   const askBarRef = useRef(null);
   const tsSettingsRef = useRef(null);
-  const [modal, setModal] = useState(null);
+  // ── Modal stack ──────────────────────────────────────────────────────────
+  // Content popups render as full pages inside the content panel (desktop), so
+  // opening one FROM another has to nest rather than replace: "View Full Job"
+  // from an operation, Edit from a job. The stack is what makes Back walk that
+  // chain one step at a time.
+  //
+  // `modal` is the top of the stack, so every existing read of it is unchanged.
+  // setModal keeps its old contract too:
+  //   setModal(obj)  — open as a fresh single-entry stack (a top-level open)
+  //   setModal(fn)   — update the entry in place (the edit form's draft writes)
+  //   setModal(null) — close everything
+  // Nesting is explicit via pushModal, and Back is popModal.
+  //
+  // pagePortalHost is where pages whose JSX lives further down the tree than
+  // renderModal can reach (Edit Job is ~350 lines inside the return) portal into,
+  // so they land inside the panel with the header and sidebar intact. Callback
+  // ref into state so the portal re-renders once the node exists.
+  const [pagePortalHost, setPagePortalHost] = useState(null);
+  const [modalStack, setModalStack] = useState([]);
+  const modal = modalStack.length ? modalStack[modalStack.length - 1] : null;
+  const setModal = useCallback((v) => {
+    setModalStack(prev => {
+      if (typeof v === "function") {
+        if (!prev.length) return prev;
+        const next = v(prev[prev.length - 1]);
+        return next == null ? prev.slice(0, -1) : [...prev.slice(0, -1), next];
+      }
+      return v == null ? [] : [v];
+    });
+  }, []);
+  const pushModal = useCallback((m) => setModalStack(prev => [...prev, m]), []);
+  const popModal = useCallback(() => setModalStack(prev => prev.slice(0, -1)), []);
   const [engBlockError, setEngBlockError] = useState(null);
   const [personModal, setPersonModal] = useState(null);
   // Add Employee (Employees page). null = closed; otherwise the draft profile.
@@ -6983,7 +7014,17 @@ Extraction rules:
   const delClient = id => { setClients(p => p.filter(c => c.id !== id)); setTasks(p => p.map(t => t.clientId === id ? { ...t, clientId: null } : t)); };
   const goStep = (next) => { setStepDir(next > modalStep ? 1 : -1); setModalStep(next); };
   const openNew = (pid = null) => { setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [], color: randomJobColor() }, parentId: pid }); };
-  const openEdit = (t) => {
+  // Edit Job opens as its own page. From INSIDE the job details page it stacks, so
+  // Back returns to the details; opened from anywhere else it's a single page and
+  // Back leaves. `_editEntry` is the stack entry — the draft itself lives in
+  // editJobModal, which the page body reads.
+  const _editEntry = { type: "editJob", data: null, parentId: null };
+  const openEdit = (t) => { _loadEditDraft(t); if (!isMobile) setModal(_editEntry); };
+  const openEditStacked = (t) => { _loadEditDraft(t); if (!isMobile) pushModal(_editEntry); };
+  // Closing the Edit page pops one level, so it lands back on the job details page
+  // when it was stacked from there, and on the plain view when it wasn't.
+  const closeEditJob = () => { setEditJobModal(null); if (!isMobile) popModal(); };
+  const _loadEditDraft = (t) => {
     // Locate the freshest copy of the job from tasks so we always edit the latest data
     const live = tasks.find(x => x.id === t.id) || t;
     setEditJobModal({
@@ -7198,7 +7239,13 @@ ${jobsCtx || "No jobs found."}`;
   };
   const openDeps = id => setModal({ type: "deps", data: allItems.find(x => x.id === id), parentId: null });
   const openAvail = () => setModal({ type: "avail", data: null, parentId: null });
-  const closeModal = () => { setModal(null); setAiSuggestion(null); setAiLoading(false); setScheduleTeamMode("one"); setAvailCheckPassed(false); };
+  // Pops ONE level rather than clearing the stack, so this doubles as Back. With a
+  // single-entry stack (the common case) popping is identical to closing, which is
+  // why every existing caller keeps working untouched.
+  const closeModal = () => { popModal(); setAiSuggestion(null); setAiLoading(false); setScheduleTeamMode("one"); setAvailCheckPassed(false); };
+  // Leaves the whole stack regardless of depth — for actions that finish the entire
+  // flow instead of stepping back one screen.
+  const closeAllModals = () => { setModal(null); setAiSuggestion(null); setAiLoading(false); setScheduleTeamMode("one"); setAvailCheckPassed(false); };
   const saveTask = (ed, parentId) => {
     if (!ed.title.trim()) return;
     if (!parentId && !ed.projectManagerId) { alert("Please select a Project Manager before saving."); return; }
@@ -11093,6 +11140,22 @@ ${jobsCtx || "No jobs found."}`;
   // `title` renders through pageHeader at the very top of the scroll body, so
   // every frostScroll page inherits the same padding and therefore the same
   // on-screen position — no per-page alignment to keep in sync.
+  // Background for a stacked page, covering all three modes:
+  //   solid  — the content panel already paints T.bg behind every page, so the page
+  //            just has to stay TRANSPARENT and it shows through
+  //   liquid — LiquidBackground also renders at panel level (see contentPanelRef), so
+  //            same deal: any opaque background on the page hides it, which is exactly
+  //            what was happening
+  //   image  — the only one that needs a layer here, because image backgrounds are
+  //            pinned per-scroller (that's how frostScroll does it) rather than on the
+  //            panel; sized to viewScrollH and sticky so it holds while content scrolls
+  // So: never set an opaque background on a page container, and render this inside it.
+  const pageBgLayer = () => (T.adaptive && T.bgImage) ? (
+    <div aria-hidden="true" style={{ position: "sticky", top: 0, height: 0, zIndex: 0, pointerEvents: "none" }}>
+      <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: viewScrollH || "100vh", backgroundImage: `linear-gradient(0deg, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}), url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center" }} />
+    </div>
+  ) : null;
+
   const frostScroll = (children, pad = "34px 32px 28px", title = null) => (
     <div ref={viewScrollRef} style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto" }}>
       {T.adaptive && T.bgImage && <div aria-hidden="true" style={{ position: "sticky", top: 0, height: 0, zIndex: 0, pointerEvents: "none" }}>
@@ -19474,9 +19537,67 @@ ${jobsCtx || "No jobs found."}`;
   // ═══════════════════ MODALS ═══════════════════
   const renderModal = () => {
     if (!modal) return null;
-    const ov = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: isMobile ? "8px" : "40px 24px", overflow: "auto" };
-    const bx = (wide) => ({ background: T.card, borderRadius: isMobile ? 26 : T.radiusHero, padding: isMobile ? "56px 18px 18px" : "60px 32px 32px", maxWidth: wide ? 1000 : 600, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" });
-    const cls = <button onClick={closeModal} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>;
+    // Desktop renders content popups as full pages inside the content panel — the
+    // rounded header and sidebar stay put, only the page body swaps. Mobile keeps
+    // the original centred overlay, which is already a full-screen sheet there.
+    //
+    // Only the CHROME changes: `ov` stops being a fixed scrim and becomes the page
+    // body, `bx` drops the card's own background/border/shadow because the page is
+    // now the surface, and `cls` becomes the Back pill. Every modal body below is
+    // untouched, which is why all four types convert at once.
+    const asPage = !isMobile;
+    const _pageBg = asPage ? pageBgLayer() : null;
+    // Page mode drops the anim-modal-* classes entirely. Their fadeIn/bcPageIn
+    // animate the page in from transparent, which read as the background flashing
+    // through before the content appeared.
+    const ovCls = asPage ? "" : "anim-modal-overlay";
+    const bxCls = asPage ? "" : "anim-modal-box";
+    // Zero padding — the detail runs to all four edges of the panel; the rounded
+    // header and sidebar are the only frame. The Back pill floats over the top-left
+    // instead of being padded in, so it costs no real estate on the right or bottom.
+    // NO background colour: the content panel behind this already paints the solid
+    // colour or the liquid wash, and covering it is what hid them.
+    const ov = asPage
+      ? { position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "flex-start", overflowY: "auto", overflowX: "hidden", background: "transparent", padding: 0 }
+      : { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "8px", overflow: "auto" };
+    const bx = (wide) => asPage
+      // No max width and no side padding — content fills. Only top head-room, to clear
+      // the floating Back pill.
+      ? { background: "transparent", borderRadius: 0, padding: "54px 0 0", maxWidth: "none", width: "100%", border: "none", boxShadow: "none" }
+      : { background: T.card, borderRadius: 26, padding: "56px 18px 18px", maxWidth: wide ? 1000 : 600, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" };
+    // Spread AFTER bx() at every return site so it beats each one's own width/height
+    // pins (90vh, maxWidth 480/1500) and lets the card fill the page. zIndex 1 lifts
+    // the content above the sticky background layer.
+    const pageFill = asPage ? { height: "auto", maxHeight: "none", flex: 1, minHeight: 0, width: "100%", maxWidth: "none", zIndex: 1 } : {};
+    // Pill-shaped Back. Solid tokens only — no translucent colour that could resolve
+    // white-on-white; it reads the same whatever it sits on, hover included.
+    // backBtn() takes position overrides so the SAME pill can either float over a page
+    // or sit inline beside a title — a page with a real title uses the inline form.
+    const backBtn = (extra = {}) => (
+      <button onClick={closeModal} title="Back"
+        onMouseEnter={e => { e.currentTarget.style.background = T.surface; }}
+        onMouseLeave={e => { e.currentTarget.style.background = T.card; }}
+        style={{ display: "inline-flex", alignItems: "center", gap: 6, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: T.font, cursor: "pointer", padding: "8px 16px 8px 12px", lineHeight: 1, letterSpacing: "-0.02em", flexShrink: 0, ...extra }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+        Back
+      </button>
+    );
+    // Universal page header: title in pageTitleStyle with Back to its right, at the
+    // SAME 34/32 offset frostScroll uses — so a detail page's title lands in exactly
+    // the spot every other page's title does. `left` is an optional pre-title adornment
+    // (a health dot), `right` trails the Back pill.
+    const pageHead = (title, { left = null, right = null } = {}) => (
+      <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 12 : 16, marginBottom: isMobile ? 12 : 18, minHeight: isMobile ? 34 : 50 }}>
+        {left}
+        <h1 style={pageTitleStyle}>{title}</h1>
+        {backBtn()}
+        <div style={{ flex: 1, minWidth: 0 }} />
+        {right}
+      </div>
+    );
+    const cls = asPage
+      ? backBtn({ position: "absolute", top: 16, left: 22, zIndex: 6 })
+      : <button onClick={closeModal} style={{ background: "none", border: "none", color: T.text, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>;
     if (modal.type === "edit") { const [ed, setEd] = [modal.data, d => setModal(p => ({ ...p, data: typeof d === "function" ? d(p.data) : d }))];
       const addPanels = (count) => {
         const rawOps = (ed.customOps || []).filter(o => o.title && o.title.trim());
@@ -19897,7 +20018,7 @@ ${jobsCtx || "No jobs found."}`;
           return { ...p, subs: [...existingSubs, ...newOps] };
         });
       };
-      return <div className="anim-modal-overlay" style={ov}><div className="anim-modal-box" style={{ ...bx(true), position: "relative", height: "90vh", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>{cls}
+      return <div className={ovCls} style={ov}>{_pageBg}<div className={bxCls} style={{ ...bx(true), position: "relative", height: "90vh", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column", ...pageFill }} onClick={e => e.stopPropagation()}>{cls}
         {/* ── Scrollable content (title + step indicator + step body) ── */}
         <div style={{ flex:1, overflowY:"auto", padding:"24px 32px" }}>
           <h3 style={{ margin: "0 0 20px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit Job" : "New Job"}</h3>
@@ -20696,7 +20817,7 @@ ${jobsCtx || "No jobs found."}`;
         const healthLabel = health === "ontime" ? "On Time" : health === "behind" ? "Behind" : health === "critical" ? "Late" : "Done";
         const client = parentJob && parentJob.clientId ? clients.find(c => c.id === parentJob.clientId) : null;
         const isOpLocked = opData.locked;
-        return <div className="anim-modal-overlay" style={ov}><div className="anim-modal-box" style={{ ...bx(false), position: "relative", maxWidth: 480 }} onClick={e => e.stopPropagation()}>{cls}
+        return <div className={ovCls} style={ov}>{_pageBg}<div className={bxCls} style={{ ...bx(false), position: "relative", maxWidth: 480, ...pageFill }} onClick={e => e.stopPropagation()}>{cls}
           {/* Health + Lock banner */}
           <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
             <div style={{ flex: 1, background: healthColor + "15", border: `1px solid ${healthColor}33`, borderRadius: T.radiusSm, padding: "10px 16px", display: "flex", alignItems: "center", gap: 10 }}>
@@ -20793,7 +20914,8 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
             {can("editJobs") && <Btn onClick={() => { closeModal(); if (parentJob) openEdit(parentJob, null); }}>Edit Job</Btn>}
             {can("lockJobs") && parentPanel && <Btn variant={isOpLocked ? "warn" : "ghost"} onClick={() => { toggleLock(opData.id, parentPanel.id); closeModal(); }}>{isOpLocked ? <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display:"inline",verticalAlign:"middle",marginRight:4 }}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>Unlock</> : <><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display:"inline",verticalAlign:"middle",marginRight:4 }}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>Lock</>}</Btn>}
-            {parentJob && <Btn variant="ghost" onClick={() => { closeModal(); openDetail(parentJob); }}>View Full Job</Btn>}
+            {/* Stacks instead of replacing: Back from the job returns to this operation. */}
+            {parentJob && <Btn variant="ghost" onClick={() => pushModal({ type: "detail", data: parentJob, parentId: null })}>View Full Job</Btn>}
           </div>
         </div></div>;
       }
@@ -20850,14 +20972,22 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ fontSize: 9, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{label}</div>
         <div style={{ fontSize: 16, fontWeight: 700, color: color || T.text, marginTop: 3, fontFamily: T.mono }}>{val}</div>
       </div>;
-      return <div className="anim-modal-overlay" style={ov}><div className="anim-modal-box" style={{ ...bx(true), position: "relative", maxWidth: isMobile ? "100%" : 1500, width: isMobile ? "100%" : "96vw", height: isMobile ? "auto" : "90vh", maxHeight: isMobile ? "none" : "90vh", padding: 0, overflow: isMobile ? "visible" : "hidden", display: "flex", flexDirection: isMobile ? "column" : "row" }} onClick={e => e.stopPropagation()}>{cls}
+      return <div className={ovCls} style={ov}>{_pageBg}<div className={bxCls} style={{ ...bx(true), position: "relative", maxWidth: isMobile ? "100%" : 1500, width: isMobile ? "100%" : "96vw", height: isMobile ? "auto" : "90vh", maxHeight: isMobile ? "none" : "90vh", padding: 0, overflow: isMobile ? "visible" : "hidden", display: "flex", flexDirection: isMobile ? "column" : "row", ...(asPage ? pageFill : {}) }} onClick={e => e.stopPropagation()}>{asPage ? null : cls}
         {/* ── Left: panel / operation details ── */}
-        <div style={{ flex: 1, minWidth: 0, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "52px 18px 18px" : "30px 32px 28px" }}>
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 18 }}>
-            <HealthIcon t={fresh} size={22} style={{ flexShrink: 0, marginTop: 2 }} />
-            <h3 style={{ margin: 0, color: T.text, fontSize: 22, fontWeight: 700, lineHeight: 1.2, flex: 1, minWidth: 0 }}>{fresh.title}</h3>
-            {dCanEdit && <Btn size="sm" onClick={() => { openEdit(fresh, fresh.isSub ? fresh.pid : null); closeModal(); }}>Edit</Btn>}
-          </div>
+        {/* 34/32 as a page — the same padding frostScroll gives every other view, so this
+            title sits in the identical spot as the Schedule and Employees titles. */}
+        <div style={{ flex: 1, minWidth: 0, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "52px 18px 18px" : (asPage ? "34px 32px 28px" : "30px 32px 28px") }}>
+          {asPage
+            ? pageHead(fresh.title, {
+                left: <HealthIcon t={fresh} size={26} style={{ flexShrink: 0 }} />,
+                // Stacks: Back from Edit returns to this details page rather than leaving.
+                right: dCanEdit ? <Btn size="sm" onClick={() => openEditStacked(fresh)}>Edit</Btn> : null,
+              })
+            : <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 18 }}>
+                <HealthIcon t={fresh} size={22} style={{ flexShrink: 0, marginTop: 2 }} />
+                <h3 style={{ margin: 0, color: T.text, fontSize: 22, fontWeight: 700, lineHeight: 1.2, flex: 1, minWidth: 0 }}>{fresh.title}</h3>
+                {dCanEdit && <Btn size="sm" onClick={() => { openEdit(fresh, fresh.isSub ? fresh.pid : null); closeModal(); }}>Edit</Btn>}
+              </div>}
           {dPanels.length > 0
             ? <div>
               <h4 style={{ color: T.text, fontSize: 15, margin: "0 0 10px", fontWeight: 600 }}>Panels ({dPanels.length})</h4>
@@ -20901,10 +21031,11 @@ ${jobsCtx || "No jobs found."}`;
             : <div style={{ fontSize: 13, color: T.textDim, padding: "24px 0" }}>This job has no panels yet.</div>}
         </div>
         {/* ── Right: Information · Notes · Attachments ── */}
-        <div style={{ width: isMobile ? "auto" : 340, flexShrink: 0, borderLeft: isMobile ? "none" : `1px solid ${T.border}`, borderTop: isMobile ? `1px solid ${T.border}` : "none", background: T.surface, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "16px 18px" : "0 22px 22px", display: "flex", flexDirection: "column", gap: 4 }}>
+        <div style={{ width: isMobile ? "auto" : 340, flexShrink: 0, borderLeft: isMobile ? "none" : `1px solid ${T.border}`, borderTop: isMobile ? `1px solid ${T.border}` : "none", background: T.surface, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "16px 18px" : (asPage ? "20px 22px 22px" : "0 22px 22px"), display: "flex", flexDirection: "column", gap: 4 }}>
           {/* Close-button header band — keeps the ✕ on its own row so the Information section
-              header doesn't sit level with it. */}
-          {!isMobile && <div style={{ height: 56, flexShrink: 0 }} />}
+              header doesn't sit level with it. Not needed as a page: the ✕ became a Back
+              pill in the LEFT column's title row, so reserving 56px here is dead space. */}
+          {!isMobile && !asPage && <div style={{ height: 56, flexShrink: 0 }} />}
           {/* Information */}
           {sec("info", "Information", <>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -21005,7 +21136,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div></div>; }
     if (modal.type === "deps") { const item = modal.data; if (!item) return null; const fi = allItems.find(x => x.id === item.id) || item; const others = allItems.filter(x => x.id !== fi.id);
-      return <div className="anim-modal-overlay" style={ov}><div className="anim-modal-box" style={{ ...bx(false), position: "relative" }} onClick={e => e.stopPropagation()}>{cls}
+      return <div className={ovCls} style={ov}>{_pageBg}<div className={bxCls} style={{ ...bx(false), position: "relative", ...pageFill }} onClick={e => e.stopPropagation()}>{cls}
         <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 22, fontWeight: 700 }}>Dependencies</h3>
         <p style={{ fontSize: 14, color: T.textSec, marginBottom: 20 }}>Select tasks that must finish before <strong style={{ color: T.text }}>{fi.title}</strong> starts:</p>
         <div>{others.map(o => { const linked = (fi.deps || []).includes(o.id);
@@ -22654,11 +22785,24 @@ ${jobsCtx || "No jobs found."}`;
             const pos = (settingsTransitioning && !active) ? { position: "absolute", inset: 0 } : { flex: 1, minHeight: 0 };
             return { ...pos, display: "flex", flexDirection: "column", overflow: "hidden", animation: anim, pointerEvents: active ? "auto" : "none", zIndex: active ? 1 : 2 };
           };
+          // A content popup takes over the panel entirely — the rounded header and
+          // sidebar stay, the page body becomes the detail. No transition, per spec.
+          // The app layer stays MOUNTED underneath (hidden, not unmounted) so the
+          // schedule/grid keeps its scroll position and in-flight state while you're
+          // on a detail page and when you come Back.
+          const showModalPage = !!modal;
+          const hidden = { position: "absolute", inset: 0, visibility: "hidden", pointerEvents: "none" };
           return (
             <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
               <style>{`@keyframes tqCFIn{from{opacity:0}to{opacity:1}}@keyframes tqCFOut{from{opacity:1}to{opacity:0}}`}</style>
-              {showApp && <div style={layer(false)}><AnimatedView viewKey={view} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{view === "schedule" && frostScroll(renderTeam())}{view === "tasks" && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{renderTasks()}</div>}{view === "approvals" && canSeeApprovalQueue && frostScroll(renderApprovalQueue())}{view === "admin" && isAdmin && frostScroll(renderAdmin())}{view === "timestamp" && frostScroll(renderTimeStamp())}{view === "analytics" && frostScroll(renderAnalytics())}{view === "clients" && frostScroll(renderClients())}{view === "messages" && renderMessages()}{view === "dashboard" && renderDashboard()}{view === "employees" && frostScroll(renderEmployees())}</AnimatedView></div>}
-              {showSettings && <div style={layer(true)}>{renderSettingsPage()}</div>}
+              {showModalPage && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", zIndex: 3 }}>
+                {/* Portalled pages render into this host; the rest render inline. */}
+                {modal.type === "editJob"
+                  ? <div ref={setPagePortalHost} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }} />
+                  : renderModal()}
+              </div>}
+              {showApp && <div style={showModalPage ? { ...layer(false), ...hidden } : layer(false)}><AnimatedView viewKey={view} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{view === "schedule" && frostScroll(renderTeam())}{view === "tasks" && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{renderTasks()}</div>}{view === "approvals" && canSeeApprovalQueue && frostScroll(renderApprovalQueue())}{view === "admin" && isAdmin && frostScroll(renderAdmin())}{view === "timestamp" && frostScroll(renderTimeStamp())}{view === "analytics" && frostScroll(renderAnalytics())}{view === "clients" && frostScroll(renderClients())}{view === "messages" && renderMessages()}{view === "dashboard" && renderDashboard()}{view === "employees" && frostScroll(renderEmployees())}</AnimatedView></div>}
+              {showSettings && <div style={showModalPage ? { ...layer(true), ...hidden } : layer(true)}>{renderSettingsPage()}</div>}
             </div>
           );
         })()}
@@ -24828,7 +24972,9 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
     </div>}
-    <FadeOnClose open={!!modal} duration={220}>{renderModal()}</FadeOnClose>
+    {/* Mobile keeps the overlay. On desktop the modal renders as a page inside the
+        content panel instead, so mounting it here as well would render it twice. */}
+    <FadeOnClose open={isMobile && !!modal} duration={220}>{isMobile ? renderModal() : null}</FadeOnClose>
     {Array.isArray(saveTemplateModal) && (
       <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)",
         zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
@@ -26602,7 +26748,9 @@ ${jobsCtx || "No jobs found."}`;
     })()}
 
     {/* Edit Job modal — simple field update, no wizard */}
-    <FadeOnClose open={!!editJobModal} duration={220}>{editJobModal && (() => {
+    {/* Edit Job. On desktop this portals into the content panel as a page (see
+        pagePortalHost); on mobile it stays the original overlay. */}
+    {(() => { if (!editJobModal) return null; const _ejNode = (() => {
       const ej = editJobModal;
       const setEj = v => setEditJobModal(m => typeof v === "function" ? v(m) : { ...m, ...v });
       const saveEditJob = () => {
@@ -26658,7 +26806,7 @@ ${jobsCtx || "No jobs found."}`;
             setView("schedule");
           }
         }
-        setEditJobModal(null);
+        closeEditJob();
       };
       const flashToast = (msg) => {
         const key = Date.now() + Math.random();
@@ -26755,9 +26903,21 @@ ${jobsCtx || "No jobs found."}`;
       const fieldLabel = (text) => <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: T.textSec, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 6, fontFamily: T.font }}>{text}</label>;
       const fieldInput = (val, onChange, opts = {}) => <input value={val} onChange={e => onChange(e.target.value)} type={opts.type || "text"} placeholder={opts.placeholder || ""} style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.glassBorder}`, background: `var(--tq-field-bg, ${T.glass})`, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box", outline: "none", colorScheme: T.colorScheme, transition: "border 0.15s, box-shadow 0.15s" }} onFocus={e => { e.target.style.borderColor = T.accent + "66"; e.target.style.boxShadow = `0 0 0 3px ${T.accent}15`; }} onBlur={e => { e.target.style.borderColor = T.glassBorder; e.target.style.boxShadow = "none"; }} />;
       const clientOpts = clients.map(c => ({ value: c.id, label: c.name, color: elColor(c.color), sub: c.contact || "" }));
+      // Desktop renders this as a page inside the content panel; mobile keeps the overlay.
+      // As a page it stays TRANSPARENT so the panel's solid/liquid background shows
+      // through, adds the image layer itself, and drops the anim-modal-* classes whose
+      // fade-in was reading as the background flashing before the content appeared.
+      const _ejPage = !isMobile;
       return (
-        <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 2100, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)", display: "flex", alignItems: "stretch", justifyContent: "center", padding: 24 }} onClick={() => setEditJobModal(null)}>
-          <div className="anim-modal-box" style={{ position: "relative", background: T.card, borderRadius: T.radius, width: "100%", maxWidth: 1400, maxHeight: "calc(100vh - 48px)", border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", display: "flex", flexDirection: "column", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
+        <div className={_ejPage ? "" : "anim-modal-overlay"} style={_ejPage
+            ? { position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflowY: "auto", overflowX: "hidden", background: "transparent" }
+            : { position: "fixed", inset: 0, zIndex: 2100, background: "rgba(0,0,0,0.65)", backdropFilter: "blur(8px)", display: "flex", alignItems: "stretch", justifyContent: "center", padding: 24 }}
+          onClick={_ejPage ? undefined : () => setEditJobModal(null)}>
+          {_ejPage ? pageBgLayer() : null}
+          <div className={_ejPage ? "" : "anim-modal-box"} style={_ejPage
+              ? { position: "relative", zIndex: 1, background: "transparent", borderRadius: 0, width: "100%", maxWidth: "none", flex: 1, minHeight: 0, border: "none", boxShadow: "none", display: "flex", flexDirection: "column", fontFamily: T.font }
+              : { position: "relative", background: T.card, borderRadius: T.radius, width: "100%", maxWidth: 1400, maxHeight: "calc(100vh - 48px)", border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", display: "flex", flexDirection: "column", fontFamily: T.font }}
+            onClick={e => e.stopPropagation()}>
             {editToast && <div key={editToast.key} style={{ position: "absolute", top: 16, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 10, padding: "10px 18px 10px 12px", borderRadius: 999, background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, letterSpacing: "-0.045em", fontFamily: T.font, boxShadow: "0 8px 28px rgba(0,0,0,0.4)", zIndex: 50, animation: "toastInOut 1.8s cubic-bezier(0.34, 1.56, 0.64, 1) both", pointerEvents: "none" }}>
               <div style={{ width: 22, height: 22, borderRadius: "50%", background: T.accentText, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, animation: "checkPop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) 0.08s both" }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
@@ -26767,16 +26927,30 @@ ${jobsCtx || "No jobs found."}`;
               <span>{editToast.msg}</span>
             </div>}
             {/* Header */}
-            <div style={{ padding: "20px 32px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-              <div>
-                <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>Edit Job</h3>
-                <div style={{ fontSize: 12, color: T.textDim, marginTop: 3 }}>Update job details and edit panels &amp; operations</div>
-              </div>
+            {/* Header. As a page: page-sized title with Back to its right at the same
+                34/32 offset every other page title uses. As an overlay: unchanged. */}
+            <div style={{ padding: _ejPage ? "34px 32px 18px" : "20px 32px", borderBottom: _ejPage ? "none" : `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, gap: 16 }}>
+              {_ejPage
+                ? <>
+                    <h1 style={pageTitleStyle}>Edit Job</h1>
+                    <button onClick={closeEditJob} title="Back"
+                      onMouseEnter={e => { e.currentTarget.style.background = T.surface; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = T.card; }}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, color: T.text, fontSize: 13, fontWeight: 700, fontFamily: T.font, cursor: "pointer", padding: "8px 16px 8px 12px", lineHeight: 1, letterSpacing: "-0.02em", flexShrink: 0 }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+                      Back
+                    </button>
+                    <div style={{ flex: 1, minWidth: 0 }} />
+                  </>
+                : <div>
+                    <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>Edit Job</h3>
+                    <div style={{ fontSize: 12, color: T.textDim, marginTop: 3 }}>Update job details and edit panels &amp; operations</div>
+                  </div>}
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: 12, flexShrink: 0 }}>
-                <button onClick={() => setAttachmentsModal(ej.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 13px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: hexA(T.systemText || T.textSec, 0.8), fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>
+                <button onClick={() => setAttachmentsModal(ej.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 13px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>
                   Attachments{(() => { const n = (ej.subs || []).reduce((s, p) => s + (p.attachments?.length || 0), 0); return n ? ` (${n})` : ""; })()}
                 </button>
-                <button onClick={() => setEditJobModal(null)} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "2px 4px" }}>✕</button>
+                {!_ejPage && <button onClick={closeEditJob} style={{ background: "none", border: "none", color: T.text, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "2px 4px" }}>✕</button>}
               </div>
             </div>
             {/* Body */}
@@ -26940,13 +27114,19 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             {/* Footer — Reschedule button removed; Save now opens the floating tray when new ops exist */}
             <div style={{ padding: "18px 32px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10, flexShrink: 0 }}>
-              <button onClick={() => setEditJobModal(null)} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+              <button onClick={closeEditJob} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
               <button onClick={saveEditJob} disabled={!ej.title.trim()} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "none", background: ej.title.trim() ? T.accent : T.border, color: ej.title.trim() ? T.accentText : T.textDim, fontSize: 13, fontWeight: 700, cursor: ej.title.trim() ? "pointer" : "not-allowed", fontFamily: T.font, transition: "background 0.15s" }}>Save</button>
             </div>
           </div>
         </div>
       );
-    })()}</FadeOnClose>
+    })();
+      // Desktop waits for the host node rather than falling back to the overlay —
+      // the ref fires a frame after the page mounts, and rendering the overlay in
+      // that gap would flash a dark scrim over the page.
+      if (!isMobile) return pagePortalHost ? createPortal(_ejNode, pagePortalHost) : null;
+      return <FadeOnClose open={!!editJobModal} duration={220}>{_ejNode}</FadeOnClose>;
+    })()}
 
     {/* Reminder modal */}
     {reminderModal && (() => {
