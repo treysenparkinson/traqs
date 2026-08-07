@@ -20160,13 +20160,13 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display:"flex", gap:6, alignItems:"center" }}>
                 <button onClick={() => setScheduleTeamMode(m => m==="one"?"team":"one")}
                   title={scheduleTeamMode==="one"?"Switch to: Full Team per Op":"Switch to: 1 Person per Op"}
-                  style={{ padding:"5px 10px", borderRadius:T.radiusXs, border:`1px solid ${scheduleTeamMode==="team"?T.accent:T.textDim}55`, background:scheduleTeamMode==="team"?T.accent+"18":"transparent", color:scheduleTeamMode==="team"?T.accent:T.textDim, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, whiteSpace:"nowrap" }}>
+                  style={{ padding:"5px 12px", borderRadius:T.radiusPill, border:`1px solid ${scheduleTeamMode==="team"?T.accent:T.textDim}55`, background:scheduleTeamMode==="team"?T.accent+"18":"transparent", color:scheduleTeamMode==="team"?T.accent:T.textDim, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, whiteSpace:"nowrap" }}>
                   {scheduleTeamMode==="one"?"👤 1 Person/Op":"👥 Full Team/Op"}
                 </button>
                 <TemplateDrop templates={templates} onLoad={loadTemplate} onDeleteRequest={tpl => setTemplateDeleteConfirm(tpl)} />
                 <button onClick={() => { setTemplateNameInput(""); setSaveTemplateModal(ed.subs||[]); }}
                   disabled={!(ed.subs||[]).some(p => p.title?.trim())}
-                  style={{ padding:"5px 12px", borderRadius:T.radiusXs, border:`1px solid ${T.accent}44`, background:T.accent+"10", color:T.accent, fontSize:12, fontWeight:700, opacity:(ed.subs||[]).some(p => p.title?.trim())?1:0.4, cursor:(ed.subs||[]).some(p => p.title?.trim())?"pointer":"not-allowed", fontFamily:T.font }}>
+                  style={{ padding:"5px 14px", borderRadius:T.radiusPill, border:`1px solid ${T.accent}44`, background:T.accent+"10", color:T.accent, fontSize:12, fontWeight:700, opacity:(ed.subs||[]).some(p => p.title?.trim())?1:0.4, cursor:(ed.subs||[]).some(p => p.title?.trim())?"pointer":"not-allowed", fontFamily:T.font }}>
                   Save Template
                 </button>
               </div>
@@ -20416,7 +20416,7 @@ ${jobsCtx || "No jobs found."}`;
               })}
             </div>
             <button onClick={() => { setAvailCheckPassed(false); setEd(p => ({ ...p, subs:[...(p.subs||[]),{id:uid(),title:"Op-"+String((p.subs||[]).length+1).padStart(3,"0"),start:"",end:"",pri:"High",status:"Not Started",team:[],hpd:7.5,notes:"",deps:[],requiredDepartment:"",subs:[],color:p.color||randomJobColor()}] })); }}
-              style={{ display:"block", width:"100%", padding:"18px 0", borderRadius:T.radiusSm, border:`2px dashed ${T.accent}55`, background:T.accent+"08", color:T.accent, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}
+              style={{ display:"block", width:"100%", padding:"18px 0", borderRadius:T.radiusPill, border:`2px dashed ${T.accent}55`, background:T.accent+"08", color:T.accent, fontSize:16, fontWeight:800, cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}
               onMouseEnter={e => { e.currentTarget.style.background=T.accent+"18"; e.currentTarget.style.borderColor=T.accent; }}
               onMouseLeave={e => { e.currentTarget.style.background=T.accent+"08"; e.currentTarget.style.borderColor=T.accent+"55"; }}>
               + Add Operation
