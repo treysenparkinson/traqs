@@ -7044,7 +7044,7 @@ Extraction rules:
     if (!ed.name.trim()) return;
     if (ed.id && clients.find(c => c.id === ed.id)) setClients(p => p.map(c => c.id === ed.id ? ed : c));
     else setClients(p => [...p, { ...ed, id: "c" + Math.random().toString(36).substr(2, 6) }]);
-    setClientModal(null);
+    closeClientEdit();
   };
   const delClient = id => { setClients(p => p.filter(c => c.id !== id)); setTasks(p => p.map(t => t.clientId === id ? { ...t, clientId: null } : t)); };
   const goStep = (next) => { setStepDir(next > modalStep ? 1 : -1); setModalStep(next); };
@@ -7119,6 +7119,19 @@ Extraction rules:
     return item;
   };
   const openDetail = t => setModal({ type: "detail", data: jobOfItem(t), parentId: null });
+  // Clients ride the same stack as jobs: the profile is a page, and Edit stacks on
+  // top of it so Back returns to the profile rather than out to the list. Opened
+  // from the list Edit is a single page, same rule as jobs. The records themselves
+  // stay in selClient / clientModal; these entries just place them on the stack.
+  const _clientDetailEntry = { type: "clientDetail", data: null, parentId: null };
+  const _clientEditEntry = { type: "clientEdit", data: null, parentId: null };
+  const openClient = (id) => { setSelClient(id); if (!isMobile) setModal(_clientDetailEntry); };
+  const closeClient = () => { setSelClient(null); if (!isMobile) popModal(); };
+  const openClientEdit = (c, { stack = false } = {}) => {
+    setClientModal({ ...c });
+    if (!isMobile) (stack ? pushModal : setModal)(_clientEditEntry);
+  };
+  const closeClientEdit = () => { setClientModal(null); if (!isMobile) popModal(); };
   // Kept as a name for call sites that specifically mean "open the owning job";
   // openDetail resolves the same way now, so they are equivalent.
   const openJobDetail = openDetail;
@@ -10953,7 +10966,7 @@ ${jobsCtx || "No jobs found."}`;
           </>}
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
-          {can("manageClients") && !clientSelectMode && <Btn size="sm" onClick={() => setClientModal({ id: null, name: "", contact: "", email: "", phone: "", color: COLORS[Math.floor(Math.random() * 10)], notes: "" })}>+ Add</Btn>}
+          {can("manageClients") && !clientSelectMode && <Btn size="sm" onClick={() => openClientEdit({ id: null, name: "", contact: "", email: "", phone: "", color: COLORS[Math.floor(Math.random() * 10)], notes: "" })}>+ Add</Btn>}
         </div>
       </div>
 
@@ -10964,7 +10977,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ marginBottom: 4, opacity: 0.45 }}><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg></div>
             <h3 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.045em" }}>No clients yet</h3>
             <p style={{ margin: "2px auto 0", fontSize: 14, color: T.textSec, maxWidth: 240, lineHeight: 1.65 }}>Add your first client to organize jobs by company</p>
-            {can("manageClients") && <Btn size="sm" style={{ marginTop: 8 }} onClick={() => setClientModal({ id: null, name: "", contact: "", email: "", phone: "", color: COLORS[Math.floor(Math.random() * 10)], notes: "" })}>+ Add Client</Btn>}
+            {can("manageClients") && <Btn size="sm" style={{ marginTop: 8 }} onClick={() => openClientEdit({ id: null, name: "", contact: "", email: "", phone: "", color: COLORS[Math.floor(Math.random() * 10)], notes: "" })}>+ Add Client</Btn>}
           </div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 14 }}>
@@ -10974,7 +10987,7 @@ ${jobsCtx || "No jobs found."}`;
               const done = ct.filter(t => t.status === "Finished").length;
               const isSel = selClient === c.id;
               const isBulkSel = selClients.has(c.id);
-              return <div key={c.id} className={(isSel || isBulkSel) ? undefined : "tq-frost"} onClick={() => clientSelectMode ? setSelClients(prev => { const n = new Set(prev); n.has(c.id) ? n.delete(c.id) : n.add(c.id); return n; }) : setSelClient(isSel ? null : c.id)} style={{
+              return <div key={c.id} className={(isSel || isBulkSel) ? undefined : "tq-frost"} onClick={() => clientSelectMode ? setSelClients(prev => { const n = new Set(prev); n.has(c.id) ? n.delete(c.id) : n.add(c.id); return n; }) : (isSel ? closeClient() : openClient(c.id))} style={{
                 background: isBulkSel ? T.accent + "12" : isSel ? c.color + "18" : T.card,
                 borderRadius: T.radiusHero,
                 border: `1.5px solid ${isBulkSel ? T.accent + "55" : isSel ? c.color + "66" : T.border}`,
@@ -10992,7 +11005,7 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{ fontWeight: 700, fontSize: 16, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 2 }}>{c.name}</div>
                     {c.contact && <div style={{ fontSize: 13, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.contact}</div>}
                   </div>
-                  {!clientSelectMode && can("manageClients") && <button onClick={e => { e.stopPropagation(); setClientModal({ ...c }); }} style={{ cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: T.font, color: T.accentText, padding: "5px 13px", borderRadius: T.radiusPill, background: brandGrad(T.accent), border: "none", flexShrink: 0 }}>Edit</button>}
+                  {!clientSelectMode && can("manageClients") && <button onClick={e => { e.stopPropagation(); openClientEdit({ ...c }); }} style={{ cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: T.font, color: T.accentText, padding: "5px 13px", borderRadius: T.radiusPill, background: brandGrad(T.accent), border: "none", flexShrink: 0 }}>Edit</button>}
                 </div>
                 <div style={{ display: "flex", gap: 8, fontSize: 12 }}>
                   <div style={{ flex: 1, background: T.surface, borderRadius: T.radiusLg, padding: "10px 10px", textAlign: "center" }}>
@@ -11029,10 +11042,32 @@ ${jobsCtx || "No jobs found."}`;
     const completed = selTasks.filter(t => t.status === "Finished").length;
     const inProg = selTasks.filter(t => t.status === "In Progress").length;
     const totalHrs = selTasks.reduce((a, t) => a + (t.hpd || 0) * (diffD(t.start, t.end) + 1), 0);
-    return <FadeOnClose open={!!sel} duration={220}>{sel && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 10005, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 8 : "32px 40px", fontFamily: T.font }} onClick={() => setSelClient(null)}>
-      <div className="anim-modal-box" style={{ position: "relative", display: "flex", flexDirection: "column", width: "100%", maxWidth: 1100, height: "90vh", maxHeight: "90vh", background: T.card, borderRadius: isMobile ? 20 : 22, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
+    // Desktop renders the profile as a page in the content panel, same as the job
+    // details page: transparent so the panel's background shows through, no card
+    // chrome, no entry animation. Mobile keeps the overlay.
+    const asPage = !isMobile;
+    return <FadeOnClose open={!!sel} duration={asPage ? 0 : 220}>{sel && <div className={asPage ? "" : "anim-modal-overlay"} style={asPage
+        ? { position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", background: "transparent", fontFamily: T.font }
+        : { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 10005, display: "flex", alignItems: "center", justifyContent: "center", padding: 8, fontFamily: T.font }}
+      onClick={asPage ? undefined : () => setSelClient(null)}>
+      {asPage ? pageBgLayer() : null}
+      <div className={asPage ? "" : "anim-modal-box"} style={asPage
+          ? { position: "relative", zIndex: 1, display: "flex", flexDirection: "column", width: "100%", maxWidth: "none", flex: 1, minHeight: 0, background: "transparent", borderRadius: 0, border: "none", boxShadow: "none", overflow: "hidden" }
+          : { position: "relative", display: "flex", flexDirection: "column", width: "100%", maxWidth: 1100, height: "90vh", maxHeight: "90vh", background: T.card, borderRadius: 20, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
         {/* Sticky header bar */}
-        <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 24px", borderBottom: `1px solid ${T.border}`, background: T.surface, flexShrink: 0, borderTopLeftRadius: isMobile ? 14 : 16, borderTopRightRadius: isMobile ? 14 : 16 }}>
+        {/* As a page: the shared pageHead — Back pill, then the client name at page-title
+            size, at the same 34/32 offset every other page title uses. Actions trail on
+            the right. No rule and no surface fill, so the page background carries through. */}
+        {asPage
+          ? <div style={{ padding: "34px 32px 0", flexShrink: 0 }}>
+              {pageHead(sel.name, { onBack: closeClient, right: (
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
+                  {can("manageClients") && <Btn size="sm" onClick={() => openClientEdit(sel, { stack: true })}>Edit</Btn>}
+                  {can("manageClients") && <Btn variant="danger" size="sm" onClick={() => { delClient(sel.id); closeClient(); }}>Delete</Btn>}
+                </div>
+              ) })}
+            </div>
+          : <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 24px", borderBottom: `1px solid ${T.border}`, background: T.surface, flexShrink: 0, borderTopLeftRadius: 14, borderTopRightRadius: 14 }}>
           <div style={{ width: 42, height: 42, borderRadius: 16, background: elColor(sel.color) + "22", border: `2px solid ${elColor(sel.color)}55`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 700, color: elColor(sel.color), flexShrink: 0 }}>{sel.name.charAt(0)}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <h2 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel.name}</h2>
@@ -11045,12 +11080,12 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
             {can("manageClients") && <Btn size="sm" onClick={() => { setClientModal({ ...sel }); setSelClient(null); }}>Edit</Btn>}
             {can("manageClients") && <Btn variant="danger" size="sm" onClick={() => { delClient(sel.id); setSelClient(null); }}>Delete</Btn>}
-            <button onClick={() => setSelClient(null)} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 22, cursor: "pointer", padding: "0 4px", lineHeight: 1, marginLeft: 4 }}>✕</button>
+            <button onClick={closeClient} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 22, cursor: "pointer", padding: "0 4px", lineHeight: 1, marginLeft: 4 }}>✕</button>
           </div>
-        </div>
+        </div>}
 
         {/* Scrollable body */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "24px 28px" }}>
+        <div style={{ flex: 1, overflowY: "auto", padding: asPage ? "0 32px 28px" : "24px 28px" }}>
           {sel.notes && <div style={{ fontSize: 14, color: T.textSec, padding: 14, background: T.surface, borderRadius: T.radiusSm, marginBottom: 20, lineHeight: 1.6, border: `1px solid ${T.border}` }}>{sel.notes}</div>}
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 24 }}>
@@ -18579,7 +18614,7 @@ ${jobsCtx || "No jobs found."}`;
 
     const renderMobileClients = () => <div style={{ padding: "8px 12px 88px", overflow: "auto", flex: 1 }}>
       {can("editJobs") && <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
-        <button onClick={() => setClientModal({ id: null, name: "", contact: "", email: "", phone: "", notes: "", color: COLORS[Math.floor(Math.random() * COLORS.length)] })} style={{ background: brandGrad(T.accent), border: "none", color: T.accentText, borderRadius: T.radiusPill, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Client</button>
+        <button onClick={() => openClientEdit({ id: null, name: "", contact: "", email: "", phone: "", notes: "", color: COLORS[Math.floor(Math.random() * COLORS.length)] })} style={{ background: brandGrad(T.accent), border: "none", color: T.accentText, borderRadius: T.radiusPill, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Client</button>
       </div>}
       {clients.map(c => {
         const cTasks = tasks.filter(t => t.clientId === c.id);
@@ -18602,7 +18637,7 @@ ${jobsCtx || "No jobs found."}`;
             {c.contact && <div style={{ fontSize: 13, color: T.textSec, marginBottom: 4 }}>👤 {c.contact}</div>}
             {c.email && <div style={{ fontSize: 13, color: T.textSec, marginBottom: 4 }}>✉ {c.email}</div>}
             {c.phone && <div style={{ fontSize: 13, color: T.textSec, marginBottom: 8 }}>📞 {c.phone}</div>}
-            {can("editJobs") && <button onClick={() => setClientModal({ ...c })} style={{ background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: T.radiusPill, padding: "6px 14px", fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer", fontFamily: T.font, marginBottom: 10 }}>Edit Client</button>}
+            {can("editJobs") && <button onClick={() => openClientEdit({ ...c })} style={{ background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: T.radiusPill, padding: "6px 14px", fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer", fontFamily: T.font, marginBottom: 10 }}>Edit Client</button>}
             {cTasks.length > 0 && <>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", marginBottom: 6 }}>Jobs · {cTasks.length}</div>
               {cTasks.map(t => <div key={t.id} onClick={() => openDetail(t)} style={{ padding: "8px 10px", marginBottom: 4, background: T.bg, borderRadius: 12, cursor: "pointer", fontSize: 13, color: T.bgText, display: "flex", alignItems: "center", gap: 8 }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = T.bg}>
@@ -20898,6 +20933,12 @@ ${jobsCtx || "No jobs found."}`;
           </>}
         </div>
       </div></div>; }
+    // Client profile renders through its own function, which is defined above this
+    // one so it can be called from here. Client Edit lives further down the tree than
+    // renderModal can reach, so it portals into the panel host instead (see the
+    // content panel) and returns nothing here.
+    if (modal.type === "clientDetail") return renderClientDetailModal();
+    if (modal.type === "clientEdit") return null;
     if (modal.type === "detail") { const t = modal.data; if (!t) return null; const fresh = allItems.find(x => x.id === t.id) || t;
       // Job-level detail (existing)
       const parent = tasks.find(x => x.id === fresh.id);
@@ -22816,7 +22857,7 @@ ${jobsCtx || "No jobs found."}`;
               <style>{`@keyframes tqCFIn{from{opacity:0}to{opacity:1}}@keyframes tqCFOut{from{opacity:1}to{opacity:0}}`}</style>
               {showModalPage && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", zIndex: 3 }}>
                 {/* Portalled pages render into this host; the rest render inline. */}
-                {modal.type === "editJob"
+                {(modal.type === "editJob" || modal.type === "clientEdit")
                   ? <div ref={setPagePortalHost} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }} />
                   : renderModal()}
               </div>}
@@ -26071,12 +26112,27 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </div>}</FadeOnClose>
     {/* Client edit modal */}
+    {/* Client Edit. On desktop this portals into the content panel as a page (see
+        pagePortalHost); on mobile it stays the original overlay. */}
     {clientModal && (() => {
       const [ed, setEd] = [clientModal, d => setClientModal(typeof d === "function" ? d(clientModal) : d)];
-      return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }} >
-        <div className="anim-modal-box" style={{ background: T.card, borderRadius: isMobile ? 0 : 22, padding: isMobile ? "54px 16px 16px" : "60px 32px 32px", maxWidth: isMobile ? "100%" : 540, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }} onClick={e => e.stopPropagation()}>
-          <button onClick={() => setClientModal(null)} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
-          <h3 style={{ margin: "0 0 24px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit Client" : "New Client"}</h3>
+      const _cePage = !isMobile;
+      const _ceNode = <div className={_cePage ? "" : "anim-modal-overlay"} style={_cePage
+          ? { position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflowY: "auto", overflowX: "hidden", background: "transparent" }
+          : { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }} >
+        {_cePage ? pageBgLayer() : null}
+        <div className={_cePage ? "" : "anim-modal-box"} style={_cePage
+            ? { background: "transparent", borderRadius: 0, padding: 0, maxWidth: "none", width: "100%", border: "none", boxShadow: "none", position: "relative", zIndex: 1, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }
+            : { background: T.card, borderRadius: 0, padding: "54px 16px 16px", maxWidth: "100%", width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }} onClick={e => e.stopPropagation()}>
+          {/* As a page: the shared pageHead, and the fields capped to FIELD_COL_W and
+              centred — the same treatment Edit Job gets. Title stays top-left. */}
+          {_cePage
+            ? <div style={{ padding: "34px 32px 0", flexShrink: 0 }}>{pageHead(ed.id ? "Edit Client" : "New Client", { onBack: closeClientEdit })}</div>
+            : <>
+                <button onClick={closeClientEdit} style={{ background: "none", border: "none", color: T.text, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
+                <h3 style={{ margin: "0 0 24px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit Client" : "New Client"}</h3>
+              </>}
+          <div style={_cePage ? { width: "100%", maxWidth: FIELD_COL_W, marginLeft: "auto", marginRight: "auto", padding: "24px 32px", boxSizing: "border-box", overflowY: "auto", flex: 1, minHeight: 0 } : undefined}>
           <InputField label="Company Name" value={ed.name} onChange={v => setClientModal(p => ({ ...p, name: v }))} />
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
             <InputField label="Contact Person" value={ed.contact} onChange={v => setClientModal(p => ({ ...p, contact: v }))} />
@@ -26086,11 +26142,16 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ marginBottom: 20 }}><label style={{ display: "block", fontSize: 13, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Notes</label><textarea value={ed.notes} onChange={e => setClientModal(p => ({ ...p, notes: e.target.value }))} rows={3} style={{ width: "100%", padding: "12px 16px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 14, fontFamily: T.font, resize: "vertical", boxSizing: "border-box" }} /></div>
           <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", alignItems: "center" }}>
             {ed.id && <Btn variant="danger" onClick={() => setConfirmDeleteClient(ed.id)} style={{ marginRight: "auto" }}>Delete Client</Btn>}
-            <Btn variant="ghost" onClick={() => setClientModal(null)}>Cancel</Btn>
+            <Btn variant="ghost" onClick={closeClientEdit}>Cancel</Btn>
             <Btn onClick={() => saveClient(ed)}>Save Client</Btn>
+          </div>
           </div>
         </div>
       </div>;
+      // Desktop waits for the host node rather than falling back to the overlay — the
+      // ref fires a frame after the page mounts, and the overlay would flash a scrim.
+      if (!isMobile) return pagePortalHost ? createPortal(_ceNode, pagePortalHost) : null;
+      return _ceNode;
     })()}
     {/* Client delete confirm modal */}
     <FadeOnClose open={!!confirmDeleteClient} duration={220}>{confirmDeleteClient && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
@@ -26102,7 +26163,9 @@ ${jobsCtx || "No jobs found."}`;
         </p>
         <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
           <Btn variant="ghost" onClick={() => setConfirmDeleteClient(null)}>Cancel</Btn>
-          <Btn variant="danger" onClick={() => { delClient(confirmDeleteClient); setConfirmDeleteClient(null); setClientModal(null); setSelClient(null); }}>Delete</Btn>
+          {/* Deleting ends the whole flow rather than stepping back one screen — the
+              client the profile and edit pages describe no longer exists. */}
+          <Btn variant="danger" onClick={() => { delClient(confirmDeleteClient); setConfirmDeleteClient(null); setClientModal(null); setSelClient(null); if (!isMobile) setModal(null); }}>Delete</Btn>
         </div>
       </div>
     </div>}</FadeOnClose>
