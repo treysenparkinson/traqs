@@ -27027,7 +27027,14 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 <div>
                   {fieldLabel("Due Date")}
-                  {fieldInput(ej.dueDate, v => setEj({ dueDate: v }), { type: "date" })}
+                  {/* TraqsDatePicker, not a native input[type=date] — the native control
+                      renders the browser's own calendar chrome and date format, which is
+                      why this field didn't match the rest of the form. No `label` prop:
+                      fieldLabel above already provides the uppercase label every other
+                      field on this page uses, and the picker collapses its own margin
+                      when unlabelled. Portalled because the form body is an overflow-auto
+                      scroller that would otherwise clip the calendar popup. */}
+                  <TraqsDatePicker portal value={ej.dueDate || ""} onChange={v => setEj({ dueDate: v })} />
                 </div>
               </div>
               {/* Notes — full width */}
