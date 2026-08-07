@@ -3538,6 +3538,16 @@ Extraction rules:
   const [pasteConfirm, setPasteConfirm] = useState(null); // { x, y, startDate, endDate }
   const [reminderModal, setReminderModal] = useState(null);
   const [confirmDeleteClient, setConfirmDeleteClient] = useState(null); // client id
+  // Same 5-second arming the employee delete uses, so a destructive confirm behaves
+  // identically wherever it appears. Resets on every open, so a re-opened dialog is
+  // never already armed from last time.
+  const [clientDeleteArm, setClientDeleteArm] = useState(5);
+  useEffect(() => {
+    if (!confirmDeleteClient) return;
+    setClientDeleteArm(5);
+    const id = setInterval(() => setClientDeleteArm(n => (n <= 1 ? (clearInterval(id), 0) : n - 1)), 1000);
+    return () => clearInterval(id);
+  }, [confirmDeleteClient]);
   const [selTask, setSelTask] = useState(null);
   const [gridCell, setGridCell] = useState(null); // { id, col }
   const [expandedJobs, setExpandedJobs] = useState(new Set());
@@ -11063,7 +11073,9 @@ ${jobsCtx || "No jobs found."}`;
               {pageHead(sel.name, { onBack: closeClient, right: (
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
                   {can("manageClients") && <Btn size="sm" onClick={() => openClientEdit(sel, { stack: true })}>Edit</Btn>}
-                  {can("manageClients") && <Btn variant="danger" size="sm" onClick={() => { delClient(sel.id); closeClient(); }}>Delete</Btn>}
+                  {/* Confirms rather than deleting outright — this used to remove the
+                      client on a single click with nothing to stop it. */}
+                  {can("manageClients") && <Btn variant="danger" size="sm" onClick={() => setConfirmDeleteClient(sel.id)}>Delete</Btn>}
                 </div>
               ) })}
             </div>
@@ -11079,7 +11091,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
             {can("manageClients") && <Btn size="sm" onClick={() => { setClientModal({ ...sel }); setSelClient(null); }}>Edit</Btn>}
-            {can("manageClients") && <Btn variant="danger" size="sm" onClick={() => { delClient(sel.id); setSelClient(null); }}>Delete</Btn>}
+            {can("manageClients") && <Btn variant="danger" size="sm" onClick={() => setConfirmDeleteClient(sel.id)}>Delete</Btn>}
             <button onClick={closeClient} style={{ background: "none", border: "none", color: hexA(T.systemText || T.textDim, 0.65), fontSize: 22, cursor: "pointer", padding: "0 4px", lineHeight: 1, marginLeft: 4 }}>✕</button>
           </div>
         </div>}
@@ -26160,15 +26172,37 @@ ${jobsCtx || "No jobs found."}`;
     <FadeOnClose open={!!confirmDeleteClient} duration={220}>{confirmDeleteClient && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div className="anim-modal-box" style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 420, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, textAlign: "center" }} onClick={e => e.stopPropagation()}>
         <div style={{ width: 56, height: 56, borderRadius: 30, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.danger }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
-        <h3 style={{ margin: "0 0 8px", color: T.danger, fontSize: 20, fontWeight: 700 }}>Delete Client?</h3>
-        <p style={{ margin: "0 0 24px", fontSize: 14, color: T.textSec, lineHeight: 1.6 }}>
-          This will permanently delete <strong style={{ color: T.text }}>{clients.find(c => c.id === confirmDeleteClient)?.name}</strong> and remove them from all associated jobs. This cannot be undone.
-        </p>
-        <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-          <Btn variant="ghost" onClick={() => setConfirmDeleteClient(null)}>Cancel</Btn>
-          {/* Deleting ends the whole flow rather than stepping back one screen — the
-              client the profile and edit pages describe no longer exists. */}
-          <Btn variant="danger" onClick={() => { delClient(confirmDeleteClient); setConfirmDeleteClient(null); setClientModal(null); setSelClient(null); if (!isMobile) setModal(null); }}>Delete</Btn>
+        {(() => {
+          const _dc = clients.find(c => c.id === confirmDeleteClient);
+          // Count the jobs actually affected. delClient does NOT delete them — it clears
+          // their clientId — so the copy says unassigned, not deleted. Naming the number
+          // is the point: "all associated jobs" doesn't tell you if that's 0 or 40.
+          const _dcJobs = tasks.filter(t => t.clientId === confirmDeleteClient).length;
+          return <>
+            <h3 style={{ margin: "0 0 8px", color: T.danger, fontSize: 20, fontWeight: 700 }}>Delete {_dc?.name || "client"}?</h3>
+            <p style={{ margin: "0 0 24px", fontSize: 14, color: T.textSec, lineHeight: 1.6 }}>
+              <strong style={{ color: T.text }}>{_dc?.name}</strong> and all of their contact details will be permanently removed, and this can't be undone.
+              {_dcJobs > 0
+                ? <> Their <strong style={{ color: T.text }}>{_dcJobs} job{_dcJobs === 1 ? "" : "s"}</strong> will be kept, but every one of them loses this client and becomes unassigned.</>
+                : <> No jobs are assigned to this client.</>}
+            </p>
+          </>;
+        })()}
+        {/* Armed for 5 seconds, exactly like the employee delete — the button is inert
+            and counts down before it will fire, so this can't be dismissed by reflex.
+            Deleting ends the whole flow rather than stepping back one screen, because
+            the client the profile and edit pages describe no longer exists. */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <button onClick={() => setConfirmDeleteClient(null)}
+            style={{ padding: "11px 24px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.bg, color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+            Cancel
+          </button>
+          <button
+            disabled={clientDeleteArm > 0}
+            onClick={() => { delClient(confirmDeleteClient); setConfirmDeleteClient(null); setClientModal(null); setSelClient(null); if (!isMobile) setModal(null); }}
+            style={{ padding: "11px 26px", borderRadius: T.radiusPill, border: "none", background: clientDeleteArm > 0 ? T.border : "#ef4444", color: clientDeleteArm > 0 ? T.textDim : "#fff", fontSize: 13, fontWeight: 800, cursor: clientDeleteArm > 0 ? "not-allowed" : "pointer", fontFamily: T.font, minWidth: 132 }}>
+            {clientDeleteArm > 0 ? `Delete (${clientDeleteArm})` : "Delete forever"}
+          </button>
         </div>
       </div>
     </div>}</FadeOnClose>
