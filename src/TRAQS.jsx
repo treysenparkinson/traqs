@@ -21091,7 +21091,11 @@ ${jobsCtx || "No jobs found."}`;
             over the panel's border with a negative margin so it costs no layout width. */}
         {!isMobile && <div onMouseDown={startDetailResize} title="Drag to resize"
           style={{ width: 7, marginRight: -7, flexShrink: 0, cursor: "col-resize", zIndex: 5, position: "relative" }} />}
-        <div style={{ width: isMobile ? "auto" : detailSideW, flexShrink: 0, borderLeft: isMobile ? "none" : `1px solid ${T.border}`, borderTop: isMobile ? `1px solid ${T.border}` : "none", background: T.surface, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "16px 18px" : (asPage ? "20px 22px 22px" : "0 22px 22px"), display: "flex", flexDirection: "column", gap: 4 }}>
+        {/* 30px of side padding, not 22. This panel scrolls, and an overflow scroller
+            clips at its padding box — so the hover halo on the controls inside
+            (.tq-drop is `0 6px 22px`, a 22px blur) was being sliced off at the right
+            edge. The padding has to clear the blur radius for the glow to survive. */}
+        <div style={{ width: isMobile ? "auto" : detailSideW, flexShrink: 0, borderLeft: isMobile ? "none" : `1px solid ${T.border}`, borderTop: isMobile ? `1px solid ${T.border}` : "none", background: T.surface, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "16px 18px" : (asPage ? "20px 30px 30px" : "0 30px 30px"), display: "flex", flexDirection: "column", gap: 4 }}>
           {/* Close-button header band — keeps the ✕ on its own row so the Information section
               header doesn't sit level with it. Not needed as a page: the ✕ became a Back
               pill in the LEFT column's title row, so reserving 56px here is dead space. */}
@@ -21117,8 +21121,12 @@ ${jobsCtx || "No jobs found."}`;
                   {col.type === "select" && (col.options || []).length > 0
                     ? <SimpleDrop pill portal key={fresh.id + key} value={val} placeholder="—" options={[{ value: "", label: "—" }, ...(col.options || []).map(o => { const n = optName(o); return { value: n === "—" ? "" : n, label: n }; }).filter(o => o.value !== "")]} onChange={v => updTask(fresh.id, { [key]: v })} />
                     : col.type === "date"
-                    ? <DateField square compact value={val || ""} placeholder="—" onChange={v => updTask(fresh.id, { [key]: v })} />
-                    : <input className="tq-sq" key={fresh.id + key} type={col.type === "number" ? "number" : "text"} defaultValue={val} placeholder="—" style={{ padding: "6px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, fontFamily: col.type === "number" ? T.mono : T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { [key]: e.target.value }); }} />}
+                    ? <DateField compact value={val || ""} placeholder="—" onChange={v => updTask(fresh.id, { [key]: v })} />
+                    // No tq-sq here. That class is the opt-out from the app-wide pill
+                    // rule and exists for inline GRID-CELL editors, where a pill reads as
+                    // a floating chip in a table. This is the detail side panel, not a
+                    // cell — it should match the pill controls above it.
+                    : <input key={fresh.id + key} type={col.type === "number" ? "number" : "text"} defaultValue={val} placeholder="—" style={{ padding: "8px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, fontFamily: col.type === "number" ? T.mono : T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { [key]: e.target.value }); }} />}
                 </div>;
               })}
             </div>}
