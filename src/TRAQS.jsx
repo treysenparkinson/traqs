@@ -9983,7 +9983,7 @@ ${jobsCtx || "No jobs found."}`;
     // _opHrs / _panelHrs / _jobHrs / _opPct / _jobPct are defined at component level
 
 
-    return <div ref={viewScrollRef} style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto" }}>
+    return <div ref={viewScrollRef} style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto", scrollbarGutter: "stable" }}>
       {/* Pinned sharp background — lives INSIDE this scroller (the same stacking context as the
           frosted cards) so their backdrop-filter actually has the image to blur. A zero-height
           position:sticky wrapper locks to the scrollport (visually static, zero drift) and takes
@@ -11452,7 +11452,7 @@ ${jobsCtx || "No jobs found."}`;
   ) : null;
 
   const frostScroll = (children, pad = "34px 32px 28px", title = null) => (
-    <div ref={viewScrollRef} style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto" }}>
+    <div ref={viewScrollRef} style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto", scrollbarGutter: "stable" }}>
       {T.adaptive && T.bgImage && <div aria-hidden="true" style={{ position: "sticky", top: 0, height: 0, zIndex: 0, pointerEvents: "none" }}>
         <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: viewScrollH || "100vh", backgroundImage: `linear-gradient(0deg, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}), url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center" }} />
       </div>}
@@ -12505,7 +12505,10 @@ ${jobsCtx || "No jobs found."}`;
 
     return <div>
       {/* Top nav */}
-      <div style={{ display: "flex", gap: isMobile ? 6 : 12, marginBottom: isMobile ? 10 : 20, alignItems: "center", minHeight: 50, flexWrap: "wrap", position: "relative", minHeight: 44, justifyContent: isAdmin ? "flex-start" : "center" }}>
+      {/* One minHeight. It carried 50 and then 44 — the later key won, so this header
+          was 6px shorter than every other page's and its contents, buttons included,
+          sat 3px higher once alignItems centred them. */}
+      <div style={{ display: "flex", gap: isMobile ? 6 : 12, marginBottom: isMobile ? 10 : 20, alignItems: "center", minHeight: 50, flexWrap: "wrap", position: "relative", justifyContent: isAdmin ? "flex-start" : "center" }}>
         <h1 style={pageTitle()}>Schedule</h1>
         {isAdmin && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Btn size="sm" style={{ minWidth: 78 }} onClick={() => { setBarSelectMode(m => !m); setSelBars(new Set()); }}>{barSelectMode ? "Done" : "Select"}</Btn>
