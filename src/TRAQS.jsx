@@ -19588,15 +19588,14 @@ ${jobsCtx || "No jobs found."}`;
         Back
       </button>
     );
-    // Universal page header: title in pageTitleStyle with Back to its right, at the
-    // SAME 34/32 offset frostScroll uses — so a detail page's title lands in exactly
-    // the spot every other page's title does. `left` is an optional pre-title adornment
-    // (a health dot), `right` trails the Back pill.
-    const pageHead = (title, { left = null, right = null } = {}) => (
+    // Universal page header: Back pill, then the title in pageTitleStyle, at the SAME
+    // 34/32 offset frostScroll uses — so a detail page's title lands in exactly the
+    // spot every other page's title does, and Back is always in the same place at the
+    // far left regardless of how long the title is. `right` trails on the far side.
+    const pageHead = (title, { right = null } = {}) => (
       <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 12 : 16, marginBottom: isMobile ? 12 : 18, minHeight: isMobile ? 34 : 50 }}>
-        {left}
-        <h1 style={pageTitleStyle}>{title}</h1>
         {backBtn()}
+        <h1 style={pageTitleStyle}>{title}</h1>
         <div style={{ flex: 1, minWidth: 0 }} />
         {right}
       </div>
@@ -20985,7 +20984,6 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ flex: 1, minWidth: 0, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "52px 18px 18px" : (asPage ? "34px 32px 28px" : "30px 32px 28px") }}>
           {asPage
             ? pageHead(fresh.title, {
-                left: <HealthIcon t={fresh} size={26} style={{ flexShrink: 0 }} />,
                 // Stacks: Back from Edit returns to this details page rather than leaving.
                 right: dCanEdit ? <Btn size="sm" onClick={() => openEditStacked(fresh)}>Edit</Btn> : null,
               })
@@ -26943,7 +26941,8 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ padding: _ejPage ? "34px 32px 18px" : "20px 32px", borderBottom: _ejPage ? "none" : `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, gap: 16 }}>
               {_ejPage
                 ? <>
-                    <h1 style={pageTitleStyle}>Edit Job</h1>
+                    {/* Back FIRST, then the title — same order as pageHead, so Back sits in
+                        the identical spot on every page no matter the title's length. */}
                     <button onClick={closeEditJob} title="Back"
                       onMouseEnter={e => { e.currentTarget.style.background = T.surface; }}
                       onMouseLeave={e => { e.currentTarget.style.background = T.card; }}
@@ -26951,18 +26950,20 @@ ${jobsCtx || "No jobs found."}`;
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
                       Back
                     </button>
+                    <h1 style={pageTitleStyle}>Edit Job</h1>
                     <div style={{ flex: 1, minWidth: 0 }} />
                   </>
                 : <div>
                     <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text, lineHeight: 1.2 }}>Edit Job</h3>
                     <div style={{ fontSize: 12, color: T.textDim, marginTop: 3 }}>Update job details and edit panels &amp; operations</div>
                   </div>}
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: 12, flexShrink: 0 }}>
+              {/* Overlay keeps its Attachments shortcut and ✕; the page has neither. */}
+              {!_ejPage && <div style={{ display: "flex", alignItems: "center", gap: 10, marginLeft: 12, flexShrink: 0 }}>
                 <button onClick={() => setAttachmentsModal(ej.id)} style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 13px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>
                   Attachments{(() => { const n = (ej.subs || []).reduce((s, p) => s + (p.attachments?.length || 0), 0); return n ? ` (${n})` : ""; })()}
                 </button>
-                {!_ejPage && <button onClick={closeEditJob} style={{ background: "none", border: "none", color: T.text, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "2px 4px" }}>✕</button>}
-              </div>
+                <button onClick={closeEditJob} style={{ background: "none", border: "none", color: T.text, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "2px 4px" }}>✕</button>
+              </div>}
             </div>
             {/* Body */}
             {/* The fields are the ONLY thing capped — the page still fills the panel and
