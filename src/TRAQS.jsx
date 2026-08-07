@@ -20098,7 +20098,15 @@ ${jobsCtx || "No jobs found."}`;
                     to Schedule and back without walking the wizard. */}
                 <div onClick={() => { if (n !== modalStep) goStep(n); }} style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:4, cursor: n === modalStep ? "default" : "pointer" }}>
                   <div style={{ width:28, height:28, borderRadius:14, background:(done||active)?T.accent:"transparent", border:`2px solid ${(done||active)?T.accent:T.border}`, display:"flex", alignItems:"center", justifyContent:"center", color:(done||active)?T.accentText:T.textDim, fontSize:12, fontWeight:700, transition:"all 0.3s", flexShrink:0 }}>{done?"✓":n}</div>
-                  <span style={{ fontSize:11, color:active?T.accent:T.textDim, fontWeight:active?700:400, whiteSpace:"nowrap" }}>{label}</span>
+                  {/* The active step's label goes bold, and bold is WIDER — that changed
+                      the column width and nudged the whole indicator row sideways on every
+                      step change. Both copies share one grid cell, so the cell is always
+                      as wide as the bold text; the hidden copy holds that width and the
+                      visible one changes weight without moving anything. */}
+                  <span style={{ display:"grid", fontSize:11, whiteSpace:"nowrap" }}>
+                    <span style={{ gridArea:"1 / 1", color:active?T.accent:T.textDim, fontWeight:active?700:400, transition:"color 0.2s ease" }}>{label}</span>
+                    <span aria-hidden="true" style={{ gridArea:"1 / 1", fontWeight:700, visibility:"hidden", pointerEvents:"none" }}>{label}</span>
+                  </span>
                 </div>
               </div>;
             })}
