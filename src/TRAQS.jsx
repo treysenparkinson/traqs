@@ -21017,7 +21017,12 @@ ${jobsCtx || "No jobs found."}`;
           {/* grid-rows 0fr↔1fr is the only animated property; the top gap lives INSIDE the clipped
               area (padding) so it collapses with the content instead of snapping. */}
           <div style={{ display: "grid", gridTemplateRows: open ? "1fr" : "0fr", transition: "grid-template-rows 0.26s cubic-bezier(0.4,0,0.2,1)", pointerEvents: open ? "auto" : "none" }}>
-            <div style={{ overflow: "hidden", minHeight: 0 }}>
+            {/* overflow:hidden is what makes the collapse animate, and it clips at the
+                PADDING box — with no side padding it sliced the hover halo off every
+                control in here (the glow is a 22px blur). Padding widens the clip box;
+                the equal negative margin pulls it back so the content column does not
+                move. Vertical clipping, the part the animation needs, is untouched. */}
+            <div style={{ overflow: "hidden", minHeight: 0, paddingLeft: 26, paddingRight: 26, marginLeft: -26, marginRight: -26 }}>
               <div style={{ paddingTop: 12, opacity: open ? 1 : 0, transition: "opacity 0.18s ease" }}>{body}</div>
             </div>
           </div>
@@ -21096,7 +21101,7 @@ ${jobsCtx || "No jobs found."}`;
           onMouseLeave={e => { const g = e.currentTarget.firstChild; if (g) g.style.opacity = "0.35"; }}
           style={{ width: 7, marginRight: -7, flexShrink: 0, cursor: "col-resize", zIndex: 5, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div aria-hidden="true" style={{ display: "flex", flexDirection: "column", gap: 3, opacity: 0.35, transition: "opacity 0.15s ease", pointerEvents: "none" }}>
-            {[0, 1, 2].map(i => <span key={i} style={{ display: "block", width: 7, height: 1.5, borderRadius: 1, background: T.textDim }} />)}
+            {[0, 1, 2].map(i => <span key={i} style={{ display: "block", width: 3, height: 3, borderRadius: 3, background: T.textDim }} />)}
           </div>
         </div>}
         {/* 30px of side padding, not 22. This panel scrolls, and an overflow scroller
