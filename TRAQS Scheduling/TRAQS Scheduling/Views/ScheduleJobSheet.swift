@@ -210,7 +210,7 @@ struct ScheduleJobSheet: View {
             Spacer(minLength: 8)
             Text("\(oPct)%")
                 .font(TTypo.monoBold(11))
-                .foregroundStyle(Color(hex: T.muted))
+                .foregroundStyle(Color(hex: appState.isPctOverdue(oPct) ? T.amber : T.muted))
                 .tnum()
         }
         .padding(.vertical, 7)

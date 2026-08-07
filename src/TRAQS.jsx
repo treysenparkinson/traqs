@@ -513,6 +513,24 @@ const HEALTH_DOT = { ontime: "#10b981", behind: "#f59e0b", critical: "#ef4444", 
 const OP_COLORS = { Wire: "#3b82f6", Cut: "#f97316", Layout: "#8b5cf6" };
 const HEALTH_COLOR = { ontime: "#10b981", behind: "#f59e0b", critical: "#ef4444", done: "#10b981" };
 
+// ── Hours-driven progress ramp ───────────────────────────────────────────────
+// Progress is logged ÷ estimated hours and is NOT capped: an op worked past its
+// estimate keeps counting (130%, 200%). Above 100 the work is over estimate and
+// still open, so it reads overdue. That test doubles as "until it's completed"
+// with no status check here, because completion pins every level to exactly 100
+// (see _opPct / _panelPct / _jobPct) — a Finished item can never land above it.
+//
+// PCT_OVERDUE is the same amber the 40–79% band uses. The bands stay legible
+// because the bar fill differs: 40–79% is part-full, overdue is pinned full.
+const PCT_OVERDUE = "#f59e0b";
+const pctRampColor = (pct, belowFortyColor) =>
+  pct > 100 ? PCT_OVERDUE
+  : pct >= 80 ? "#10b981"
+  : pct >= 40 ? "#f59e0b"
+  : belowFortyColor;
+// Bars stop at full; the number carries the overrun.
+const pctBarWidth = (pct) => Math.max(0, Math.min(100, pct));
+
 
 
 const fontLink = document.createElement("link"); fontLink.rel = "stylesheet";
@@ -3954,12 +3972,19 @@ Extraction rules:
     return total;
   };
   // Logged + estimate for a single op. Live timer is added in for anyone currently clocked in.
-  // Logged is capped at the estimate so an op can't push aggregate progress past 100% — the
-  // overrun shows on the schedule bar instead (see deriveWorkedState.overrunFraction).
+  //
+  // Logged is NOT capped at the estimate. It used to be, to keep aggregate progress under
+  // 100%, which is exactly the behaviour being removed: an op worked past its estimate has
+  // to keep counting so the panel and job rolling it up read overdue too.
+  //
+  // Status does not feed progress — hours do, and progress feeds status (see
+  // getOpDisplayStatus). Finished is the single exception: completion pins the pair to the
+  // full estimate so a job closed under budget still reads 100%. pendingFinish used to pin
+  // to 99% of estimate and no longer does; a completion still awaiting approval reports the
+  // hours actually worked.
   const _opHoursPair = (op) => {
     const est = Math.max(0.0001, op.hpd || orgSettings.hpd);
     if (op.status === "Finished") return { logged: est, est };
-    if (op.pendingFinish) return { logged: est * 0.99, est };
     // Logged = JOB-clock time recorded against THIS op — NOT payroll hours. The payroll clock
     // logs a whole session against every job selected at clock-in, which over-counts and isn't
     // job-specific; this is the precise time the worker logged into this exact op.
@@ -3975,32 +4000,40 @@ Extraction rules:
     // rows — and because "Set Worked Hours" can credit progress to nobody, which writes the
     // counter and no row at all.
     const logged = Math.max(0, op.loggedHours || 0, producedFor(op));
-    return { logged: Math.min(est, logged + liveOpHours(op)), est };
+    return { logged: logged + liveOpHours(op), est };
   };
+  // Uncapped: 130% means 30% past the estimate and still open. Only Finished pins to 100.
+  // The old floors for In Progress (5%) and On Hold (2%) are gone — they were status
+  // dictating progress, and they made an op with no hours against it look started.
   const _opPct = (op) => {
     if (op.status === "Finished") return 100;
-    if (op.pendingFinish) return 99;
     const { logged, est } = _opHoursPair(op);
-    if (logged === 0) return op.status === "In Progress" ? 5 : op.status === "On Hold" ? 2 : 0;
-    return Math.min(98, Math.round(logged / est * 100));
+    if (logged === 0) return 0;
+    return Math.round(logged / est * 100);
   };
   // Weighted by estimate: total logged hours ÷ total estimated hours, so a 40h-op at 8h
   // counts proportionally more than a 4h-op at 2h. Matches "logged / estimate" intuition.
+  // Finished pins to 100 at every level, not just the op. Without it a job closed while an
+  // op sat at 140% would stay amber after completion, and "overdue until it's completed"
+  // is the whole point of the ramp. Uncapped otherwise, so a job over its estimate shows
+  // how far over.
   const _panelPct = (panel) => {
+    if (panel.status === "Finished") return 100;
     const ops = panel.subs || [];
-    if (!ops.length) return panel.status === "Finished" ? 100 : 0;
+    if (!ops.length) return 0;
     let logged = 0, est = 0;
     for (const op of ops) { const h = _opHoursPair(op); logged += h.logged; est += h.est; }
     if (est === 0) return 0;
-    return Math.min(100, Math.round(logged / est * 100));
+    return Math.round(logged / est * 100);
   };
   const _jobPct = (job) => {
+    if (job.status === "Finished") return 100;
     const ops = (job.subs || []).flatMap(p => p.subs || []);
-    if (!ops.length) return job.status === "Finished" ? 100 : 0;
+    if (!ops.length) return 0;
     let logged = 0, est = 0;
     for (const op of ops) { const h = _opHoursPair(op); logged += h.logged; est += h.est; }
     if (est === 0) return 0;
-    return Math.min(100, Math.round(logged / est * 100));
+    return Math.round(logged / est * 100);
   };
   // ─── Freeform export designer: shared block renderer + page/layout builders ──
   const EXPORT_PAGE = (orientation) => orientation === "landscape" ? { w: 1056, h: 816 } : { w: 816, h: 1056 };
@@ -10226,7 +10259,7 @@ ${jobsCtx || "No jobs found."}`;
         const opPct = _opPct;
         const panelPct = _panelPct;
         const jobPct = _jobPct;
-        const pctColor = (pct) => pct >= 80 ? "#10b981" : pct >= 40 ? "#f59e0b" : "#94a3b8";
+        const pctColor = (pct) => pctRampColor(pct, "#94a3b8");
 
         const renderStdCell = (colId, item, level, pid, jobId, panelId, jobColor, alwaysExpand = false, groupPrefix = "") => {
           const client = level === 0 && item.clientId ? clients.find(c => c.id === item.clientId) : null;
@@ -10354,7 +10387,7 @@ ${jobsCtx || "No jobs found."}`;
                   {level === 1 && <span style={{ fontSize: 9, color: T.textDim }}>{(item.subs || []).filter(o => o.status === "Finished").length}/{(item.subs || []).length}</span>}
                 </div>
                 <div style={{ height: 4, borderRadius: 8, background: T.border, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${pct}%`, borderRadius: 8, background: pc, transition: "width 0.3s" }} />
+                  <div style={{ height: "100%", width: `${pctBarWidth(pct)}%`, borderRadius: 8, background: pc, transition: "width 0.3s" }} />
                 </div>
               </div>
             );
@@ -15400,9 +15433,11 @@ ${jobsCtx || "No jobs found."}`;
                 rather than leaving a gap beneath it. */}
             <div style={{ marginTop: "auto", paddingTop: 14 }}>
               <div style={{ height: 7, borderRadius: 8, background: T.border + "66", overflow: "hidden" }}>
-                <div style={{ width: `${cw.pct}%`, height: "100%", background: brandGrad("#10b981"), transition: "width 0.3s" }} />
+                {/* Amber once past the estimate. This bar was hardcoded green, which hid the
+                    overrun on the one screen where the hours are actively being burned. */}
+                <div style={{ width: `${pctBarWidth(cw.pct)}%`, height: "100%", background: cw.pct > 100 ? PCT_OVERDUE : brandGrad("#10b981"), transition: "width 0.3s" }} />
               </div>
-              <div style={{ textAlign: "right", fontSize: 11, fontWeight: 700, color: T.textDim, marginTop: 5, fontFamily: T.mono }}>{cw.pct}%</div>
+              <div style={{ textAlign: "right", fontSize: 11, fontWeight: 700, color: cw.pct > 100 ? PCT_OVERDUE : T.textDim, marginTop: 5, fontFamily: T.mono }}>{cw.pct}%</div>
             </div>
           </>}
         </div>
@@ -20783,7 +20818,7 @@ ${jobsCtx || "No jobs found."}`;
       const dHealthLabel = dHealth === "ontime" ? "On Time" : dHealth === "behind" ? "Behind" : dHealth === "critical" ? "Late" : "Done";
       const dDeadline = fresh.dueDate || fresh.end;
       const dDaysLeft = dDeadline ? Math.round((new Date(dDeadline + "T12:00:00") - new Date(TD + "T12:00:00")) / 86400000) : null;
-      const dPctColor = dPct >= 80 ? "#10b981" : dPct >= 40 ? "#f59e0b" : T.accent;
+      const dPctColor = pctRampColor(dPct, T.accent);
       const infoRow = (label, node) => <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
         <span style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{label}</span>
         <span style={{ fontSize: 14, color: T.text, fontWeight: 400 }}>{node}</span>
@@ -20952,7 +20987,7 @@ ${jobsCtx || "No jobs found."}`;
                 </span>
               </div>
               <div style={{ height: 9, borderRadius: 8, background: T.bg, border: `1px solid ${T.border}`, overflow: "hidden" }}>
-                <div style={{ width: `${dPct}%`, height: "100%", background: dPctColor, borderRadius: 8, transition: "width 0.3s ease" }} />
+                <div style={{ width: `${pctBarWidth(dPct)}%`, height: "100%", background: dPctColor, borderRadius: 8, transition: "width 0.3s ease" }} />
               </div>
             </div>
             {/* Stats */}

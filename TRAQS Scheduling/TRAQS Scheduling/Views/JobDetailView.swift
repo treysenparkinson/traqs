@@ -398,12 +398,15 @@ struct OperationRow: View {
                     }
                     // Op-level hours-weighted progress (logged ÷ est.hpd).
                     let oPct = appState.opPct(op)
+                    let oOver = appState.isPctOverdue(oPct)
                     HStack(spacing: 6) {
-                        Bar(pct: Double(oPct), height: 5, gradient: T.brandGradient())
+                        Bar(pct: Double(oPct), height: 5,
+                            fill: Color(hex: T.amber),
+                            gradient: oOver ? nil : T.brandGradient())
                             .frame(maxWidth: 100)
                         Text("\(oPct)%")
                             .font(TTypo.monoBold(10)).tnum()
-                            .foregroundStyle(Color(hex: T.accentGradientStart))
+                            .foregroundStyle(Color(hex: oOver ? T.amber : T.accentGradientStart))
                     }
                     .padding(.top, 2)
                 }

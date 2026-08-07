@@ -1465,13 +1465,16 @@ struct TaskCardV1: View {
                 PausableTimeline(tab: .jobs, interval: 1) { date in
                     Text("\(elapsedLabel(at: date)) · \(Int(pct))%")
                         .font(TTypo.monoBold(13))
-                        .foregroundStyle(Color(hex: T.sky))
+                        .foregroundStyle(Color(hex: appState.isPctOverdue(Int(pct)) ? T.amber : T.sky))
                         .tnum()
                 }
             }
 
-            // Progress
-            Bar(pct: pct, height: 7, gradient: T.brandGradient())
+            // Progress — amber past the estimate, so the overrun is visible on the
+            // screen where the hours are actively being burned.
+            Bar(pct: pct, height: 7,
+                fill: Color(hex: T.amber),
+                gradient: appState.isPctOverdue(Int(pct)) ? nil : T.brandGradient())
 
             // STOP, full width. Break moved to the Time Clock page (next to
             // Lunch) — a break is a shift-level thing, not a per-job one, and
@@ -1545,10 +1548,12 @@ struct TaskCardV1: View {
                     Spacer()
                     Text("\(Int(pct))%")
                         .font(TTypo.monoBold(13))
-                        .foregroundStyle(Color(hex: T.muted))
+                        .foregroundStyle(Color(hex: appState.isPctOverdue(Int(pct)) ? T.amber : T.muted))
                         .tnum()
                 }
-                Bar(pct: pct, height: 7, fill: busyByOther ? Color(hex: T.statusInProgress) : dept.color)
+                Bar(pct: pct, height: 7,
+                    fill: appState.isPctOverdue(Int(pct)) ? Color(hex: T.amber)
+                          : busyByOther ? Color(hex: T.statusInProgress) : dept.color)
             }
             if busyByOther {
                 // Someone else is clocked into this work — block logging and

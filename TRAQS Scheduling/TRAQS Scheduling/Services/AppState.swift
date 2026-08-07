@@ -2448,15 +2448,21 @@ class AppState {
     // time for any worker currently clocked into the op so the bar creeps forward
     // between server polls.
 
-    /// Returns (logged, est) for a single op. Logged is capped at est so an op
-    /// can't push aggregate progress past 100%.
+    /// Returns (logged, est) for a single op. Logged is NOT capped at est — an op
+    /// worked past its estimate keeps counting so the panel and job rolling it up
+    /// read overdue too.
+    ///
+    /// Status does not feed progress; hours do, and progress feeds status. Finished
+    /// is the single exception: completion pins the pair to the full estimate so a
+    /// job closed under budget still reads 100%. pendingFinish used to pin to 99% of
+    /// estimate and no longer does — a completion awaiting approval reports the hours
+    /// actually worked.
     func opHoursPair(_ op: Operation) -> (logged: Double, est: Double) {
         // Fall back to the org's default workday length when an op didn't store hpd.
         let est = max(0.0001, op.hpd > 0 ? op.hpd : orgSettings.hpd)
         if op.status == .finished { return (est, est) }
-        if op.pendingFinish == true { return (est * 0.99, est) }
         let base = op.loggedHours ?? 0
-        return (min(est, base + liveElapsedHours(for: op)), est)
+        return (base + liveElapsedHours(for: op), est)
     }
 
     /// Live (not-yet-clocked-out) hours for whoever is currently clocked into
@@ -2471,18 +2477,14 @@ class AppState {
         return max(0, elapsedH - pausedH)
     }
 
+    /// Uncapped: 130 means 30% past the estimate and still open. Only Finished pins
+    /// to 100. The old floors for In Progress (5) and On Hold (2) are gone — they were
+    /// status dictating progress, and made an op with no hours against it look started.
     func opPct(_ op: Operation) -> Int {
         if op.status == .finished { return 100 }
-        if op.pendingFinish == true { return 99 }
         let h = opHoursPair(op)
-        if h.logged == 0 {
-            switch op.status {
-            case .inProgress: return 5
-            case .onHold:     return 2
-            default:          return 0
-            }
-        }
-        return min(98, Int((h.logged / h.est * 100).rounded()))
+        if h.logged == 0 { return 0 }
+        return Int((h.logged / h.est * 100).rounded())
     }
 
     /// Number of full op-days (fractional) recorded against an op from its
@@ -2516,24 +2518,34 @@ class AppState {
     }
 
     /// Panel progress: total logged hours ÷ total estimated hours across child ops.
+    /// Finished pins to 100 at every level, not just the op. Without it a job closed
+    /// while an op sat at 140% would stay amber after completion, and "overdue until
+    /// it's completed" is the point of the ramp. Uncapped otherwise.
     func panelPct(_ panel: Panel) -> Int {
+        if panel.status == .finished { return 100 }
         let ops = panel.subs
-        if ops.isEmpty { return panel.status == .finished ? 100 : 0 }
+        if ops.isEmpty { return 0 }
         var logged = 0.0, est = 0.0
         for op in ops { let h = opHoursPair(op); logged += h.logged; est += h.est }
         if est == 0 { return 0 }
-        return min(100, Int((logged / est * 100).rounded()))
+        return Int((logged / est * 100).rounded())
     }
 
     /// Job progress: total logged hours ÷ total estimated hours across all ops.
     func jobPct(_ job: Job) -> Int {
+        if job.status == .finished { return 100 }
         let ops = job.subs.flatMap { $0.subs }
-        if ops.isEmpty { return job.status == .finished ? 100 : 0 }
+        if ops.isEmpty { return 0 }
         var logged = 0.0, est = 0.0
         for op in ops { let h = opHoursPair(op); logged += h.logged; est += h.est }
         if est == 0 { return 0 }
-        return min(100, Int((logged / est * 100).rounded()))
+        return Int((logged / est * 100).rounded())
     }
+
+    /// Amber once past the estimate — see the web `pctRampColor`. Above 100 the work
+    /// is over estimate and still open; completion pins to exactly 100, so this needs
+    /// no status check to mean "overdue until it's completed".
+    func isPctOverdue(_ pct: Int) -> Bool { pct > 100 }
 }
 
 // MARK: - Engineering Step
