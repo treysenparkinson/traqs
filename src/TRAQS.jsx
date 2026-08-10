@@ -491,6 +491,124 @@ const addBD = (ds, n, { workDays = DEFAULT_WORK_DAYS, holidays = [] } = {}) => {
 const nextBD = (ds, { workDays = DEFAULT_WORK_DAYS, holidays = [] } = {}) => { let d = new Date(ds + "T12:00:00"); while (true) { const ds2 = toDS(d); if (workDays.includes(d.getDay()) && !holidays.includes(ds2)) break; d.setDate(d.getDate() + 1); } return toDS(d); };
 const diffBD = (a, b, { workDays = DEFAULT_WORK_DAYS, holidays = [] } = {}) => { let count = 0; let c = new Date(a + "T12:00:00"); const end = new Date(b + "T12:00:00"); while (c < end) { c.setDate(c.getDate() + 1); const ds2 = toDS(c); if (workDays.includes(c.getDay()) && !holidays.includes(ds2)) count++; } return count; };
 const diffD = (a, b) => Math.round((new Date(b + "T12:00:00") - new Date(a + "T12:00:00")) / 864e5);
+// ── Productive hours → wall-clock geometry ──────────────────────────────────
+// One minute. Exact fits must not roll over: a 1h op at 16:00 with a 17:00 quit
+// ends AT 17:00, and no accumulated float dust may push it onto the next day.
+const CLOCK_EPS = 1 / 60;
+// Normalises an org's breaks + lunch into the canonical unproductive windows of a
+// working day. productiveHoursPerDay is DERIVED from `deadH` so the time removed
+// from the day's capacity is exactly the time walkProductiveHours steps over —
+// computing the two independently let them disagree, and a full-day op then ran out
+// of hours before the day did and left a gap at the end of its column.
+//
+// Break entries are an ALLOWANCE, not a schedule: an org configures "two 15-minute
+// breaks" and workers take them whenever during the day. So every configured minute
+// counts against capacity, whatever time is on the entry — a 9h day with two 15-min
+// breaks and a 1h lunch is 7.5 productive hours, full stop.
+//
+// Placement still matters for geometry, since it decides WHERE in the day the
+// unproductive time falls. An entry whose time lands inside the working day is used
+// where it sits; anything left over (an entry timed outside working hours, or the
+// part of one that overruns the day's end) is floating time, and is banked at the
+// start of the day. Start, not end: parking it at the end would stop a full-day op
+// short of quitting time and reopen the very gap this is here to close, while at the
+// start it is already behind any op that begins later in the day.
+const buildDayWindows = (workStartH, workEndH, breaks, lunch) => {
+  const _phW = t => { const [h, m] = (t || "12:00").split(":").map(Number); return h + (m || 0) / 60; };
+  const raw = (breaks || [])
+    .filter(b => (b?.durationMinutes || 0) > 0)
+    .map(b => ({ start: _phW(b.time), dur: b.durationMinutes / 60 }));
+  const lnchMin = lunch?.durationMinutes ?? 60;
+  if (lnchMin > 0) raw.push({ start: _phW(lunch?.time), dur: lnchMin / 60 });
+  // Total configured unproductive time — the number that must come off the day.
+  // Never so much that the day has under an hour of work left in it.
+  const configuredH = Math.min(
+    raw.reduce((s, w) => s + w.dur, 0),
+    Math.max(0, (workEndH - workStartH) - 1)
+  );
+  const clipped = raw
+    .map(w => ({ start: Math.max(w.start, workStartH), end: Math.min(w.start + w.dur, workEndH) }))
+    .filter(w => w.end > w.start)
+    .sort((a, b) => a.start - b.start);
+  const merge = list => {
+    const out = [];
+    for (const w of list) {
+      const last = out[out.length - 1];
+      if (last && w.start <= last.end) last.end = Math.max(last.end, w.end);
+      else out.push({ ...w });
+    }
+    return out;
+  };
+  let merged = merge(clipped);
+  const placedH = merged.reduce((s, w) => s + (w.end - w.start), 0);
+  let remaining = Math.max(0, configuredH - placedH);
+  // Bank floating time into the day's earliest FREE minutes. Inserting a window and
+  // merging would let it be absorbed by one that already covers those minutes, and
+  // the allowance would silently vanish from the day's capacity.
+  if (remaining > 0) {
+    const out = [];
+    let cursor = workStartH;
+    for (const w of merged) {
+      if (remaining > 0 && w.start > cursor) {
+        const take = Math.min(remaining, w.start - cursor);
+        out.push({ start: cursor, end: cursor + take });
+        remaining -= take;
+      }
+      out.push({ start: w.start, end: w.end });
+      cursor = Math.max(cursor, w.end);
+    }
+    if (remaining > 0 && cursor < workEndH) {
+      out.push({ start: cursor, end: cursor + Math.min(remaining, workEndH - cursor) });
+    }
+    merged = merge(out.sort((a, b) => a.start - b.start));
+  }
+  const deadWindows = merged.map(w => ({ start: w.start, dur: w.end - w.start }));
+  return { workStartH, workEndH, deadWindows, deadH: deadWindows.reduce((s, w) => s + w.dur, 0) };
+};
+// Walks the working day from `startH`, spending `prodHours` of productive time and
+// stepping OVER lunch/breaks only when the work actually reaches them, rolling to
+// the next working day when the day runs out.
+//
+// This replaces a flat pro-rate — (prod / productivePerDay) * totalWorkH — that
+// smeared the whole day's unproductive time across every op in proportion to its
+// size. A 1-hour task inherited ~7 minutes of a lunch it never touches, which was
+// enough to make it "not fit" in a day it fits exactly: the bar got clipped short,
+// its span was computed as two days, and a zero-width dashed tail landed on the
+// next working day — across the weekend, for anything late on a Friday.
+//
+// cfg: { workStartH, workEndH, deadWindows: [{ start, dur }] sorted by start }
+// Returns { days, endHour, columns } — working days spanned, wall-clock end hour on
+// the final day, and total width in day-column units (the same axis the bar's left
+// offset uses, so offset + width closes exactly on the day boundary).
+const walkProductiveHours = (startH, prodHours, cfg) => {
+  const { workStartH, workEndH, deadWindows = [] } = cfg;
+  const dayLen = Math.max(0.0001, workEndH - workStartH);
+  let clock = Math.min(Math.max(startH, workStartH), workEndH);
+  const firstStart = clock;
+  let left = Math.max(0, prodHours);
+  let days = 1, guard = 0;
+  while (left > CLOCK_EPS && guard++ < 5000) {
+    for (const w of deadWindows) {
+      const wEnd = w.start + w.dur;
+      if (wEnd <= clock + CLOCK_EPS || w.start >= workEndH) continue; // behind us / after hours
+      const prodUntil = w.start - clock;
+      if (prodUntil > 0) {
+        if (left <= prodUntil + CLOCK_EPS) { clock += left; left = 0; break; }
+        left -= prodUntil;
+      }
+      clock = Math.max(clock, wEnd); // step over the window without spending against it
+    }
+    if (left <= CLOCK_EPS) break;
+    const tail = workEndH - clock;
+    if (left <= tail + CLOCK_EPS) { clock += left; left = 0; break; }
+    left -= tail;
+    days++; clock = workStartH;
+  }
+  const columns = days === 1
+    ? (clock - firstStart) / dayLen
+    : (workEndH - firstStart) / dayLen + (days - 2) + (clock - workStartH) / dayLen;
+  return { days, endHour: clock, columns: Math.max(0, columns) };
+};
 const fm = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const fmtDate = dateStr => { if (!dateStr) return "—"; return new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); };
 const uid = () => "t" + Math.random().toString(36).substr(2, 8);
@@ -3802,17 +3920,28 @@ Extraction rules:
     setColWidths(prev => { const cur = prev.slice(12, prev.length - 1); if (cur.length === n) return prev; return [...prev.slice(0, 12), ...Array.from({ length: n }, (_, i) => cur[i] ?? 120), prev[prev.length - 1]]; });
     setEngColWidths(prev => { const cur = prev.slice(9, prev.length - 1); if (cur.length === n) return prev; return [...prev.slice(0, 9), ...Array.from({ length: n }, (_, i) => cur[i] ?? 120), prev[prev.length - 1]]; });
   }, [customCols.length]); // eslint-disable-line react-hooks/exhaustive-deps
-  const productiveHoursPerDay = (() => {
-    const parseT = t => { const [h, m] = (t || "08:00").split(":").map(Number); return h * 60 + m; };
-    const blockMinutes = parseT(orgSettings.workEnd || "17:00") - parseT(orgSettings.workStart || "08:00");
-    const lunchMinutes = orgSettings.lunch?.durationMinutes ?? 60;
-    const breakMinutes = (orgSettings.breaks || []).reduce((sum, b) => sum + (b.durationMinutes || 0), 0);
-    return Math.max(1, (blockMinutes - lunchMinutes - breakMinutes) / 60);
-  })();
   const parseWorkHour = t => { const [h, m] = (t || "08:00").split(":").map(Number); return h + m / 60; };
   const workStartH = parseWorkHour(orgSettings.workStart || "08:00");
   const workEndH = parseWorkHour(orgSettings.workEnd || "17:00");
   const totalWorkH = Math.max(1, workEndH - workStartH);
+  // ── The working day's unproductive windows — ONE canonical set ──────────────
+  // Every break/lunch is clipped to the working day and overlaps are merged, so
+  // the time removed here is exactly the time walkProductiveHours steps over.
+  //
+  // productiveHoursPerDay is then DERIVED from this set rather than computed
+  // independently. It used to subtract every configured break and lunch flat, in
+  // full, whether or not the window fell inside working hours and whether or not
+  // two of them overlapped — while the walk can only step over a window the work
+  // actually reaches. Any disagreement between the two shows up as a bar that
+  // cannot span its own day: a full-day op ran out of hours before the day did,
+  // leaving a gap between the end of the card and the end of the column.
+  //
+  // Derived, the invariant holds by construction: an op whose hpd equals
+  // productiveHoursPerDay always ends exactly at workEnd and fills the column.
+  // For a 9h day with two 15-min breaks and a 1h lunch that is 7.5 productive
+  // hours painted across the full 9h width.
+  const dayWindowCfg = buildDayWindows(workStartH, workEndH, orgSettings.breaks, orgSettings.lunch);
+  const productiveHoursPerDay = Math.max(1, totalWorkH - dayWindowCfg.deadH);
   const breakH = (orgSettings.breaks || []).reduce((sum, b) => sum + (b.durationMinutes || 0), 0) / 60;
   const getNextStartHour = (personId, dateStr, excludeOpId) => {
     let latest = workStartH;
@@ -12292,7 +12421,14 @@ ${jobsCtx || "No jobs found."}`;
     const _longestPillCh = _pillJobs.reduce((m, s) => Math.max(m, s.length), 0);
     const _pillW = _longestPillCh ? 92 + Math.ceil(_longestPillCh * 6.2) : 76;
     const lW = isMobile ? 120 : Math.min(510, Math.max(250, 158 + _pillW)), rH = 42, grpH = 36;
-    const tAvail = Math.max((teamWidth || 1200) - lW, 200);
+    // teamWidth measures the OUTER wrapper, but in month mode the grid inside it is
+    // stretched to `monthZoom * 100%` and scrolls horizontally. Every consumer of cW
+    // converts between pixels and days — pan, wheel, bar drags, the pending-work drag
+    // ghost, and the short-bar handle sizing — so cW has to be the column's real
+    // on-screen width. Without the zoom factor all of them were off by exactly the
+    // zoom: at 2x, dragging a bar one column moved it two days.
+    const _zoomF = tMode === "month" ? monthZoom : 1;
+    const tAvail = Math.max((teamWidth || 1200) * _zoomF - lW, 200);
     const cW = isMobile ? Math.max(28, tAvail / Math.max(days.length, 1)) : tAvail / Math.max(days.length, 1);
     teamCWRef.current = cW;
     // Group people by department
@@ -12322,28 +12458,8 @@ ${jobsCtx || "No jobs found."}`;
         const hpd = (op.hpd || 0) > 0 ? op.hpd / teamSz : productiveHoursPerDay;
         const bdOpts = { workDays: orgSettings.workDays, holidays: orgSettings.holidays };
         const startH = op.startHour ?? workStartH;
-        const isHourPos = (tMode === "month" || tMode === "week") && op.startHour != null && op.startHour > workStartH;
-        if (op.start !== op.end) {
-          let wdays;
-          if (!isHourPos) {
-            wdays = Math.max(1, Math.ceil(hpd / productiveHoursPerDay));
-          } else {
-            const vClockH = productiveHoursPerDay > 0 ? (hpd / productiveHoursPerDay) * totalWorkH : 0;
-            const vFirstAvailH = workEndH - startH;
-            if (vClockH <= vFirstAvailH) wdays = 1;
-            else {
-              let rem = vClockH - vFirstAvailH; wdays = 1;
-              while (rem > totalWorkH) { rem -= totalWorkH; wdays++; }
-              wdays += 1;
-            }
-          }
-          return addBD(op.start, wdays - 1, bdOpts);
-        }
-        const isSingleDayPartial = (tMode === "month" || tMode === "week") && hpd <= productiveHoursPerDay;
-        const offsetH = startH - workStartH;
-        const clockH = (hpd / productiveHoursPerDay) * totalWorkH;
-        const overflowWeekend = isSingleDayPartial && isHourPos && (offsetH + clockH) > totalWorkH && !isWorkDay(addD(op.end, 1), orgSettings.workDays);
-        return overflowWeekend ? addBD(op.end, 1, bdOpts) : op.end;
+        const { days } = walkProductiveHours(startH, hpd, dayWindowCfg);
+        return addBD(op.start, days - 1, bdOpts);
       };
       // PTO bars
       const person = people.find(x => x.id === pid);
@@ -12696,9 +12812,42 @@ ${jobsCtx || "No jobs found."}`;
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
             <Tip label="Clear clipboard"><button onClick={() => setClipboard(null)} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button></Tip>
           </div>}
-          {tMode === "month" && <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.7 }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-            <input type="range" min={1} max={3} step={0.1} value={monthZoom} onChange={e => setMonthZoom(Number(e.target.value))} style={{ width: 80, cursor: "pointer", accentColor: T.accent }} />
+          {/* Zoom cluster. No `gap` on the row: the reset button collapses to zero
+              width when zoomed out, and a gap would leave a dead 5px hole behind it
+              instead of letting it disappear completely. Spacing is on the icon. */}
+          {tMode === "month" && <div style={{ display: "flex", alignItems: "center" }}>
+            {/* Reset — slides out to the left while zoomed, then fades itself away
+                once it has done its job, since at 1x there is nothing left to reset. */}
+            <Tip label="Reset zoom">
+              <button
+                onClick={() => setMonthZoom(1)}
+                tabIndex={monthZoom > 1 ? 0 : -1}
+                aria-hidden={monthZoom > 1 ? undefined : true}
+                aria-label="Reset zoom"
+                onMouseEnter={e => { e.currentTarget.style.color = T.accent; e.currentTarget.style.borderColor = T.accent + "88"; }}
+                onMouseLeave={e => { e.currentTarget.style.color = T.textSec; e.currentTarget.style.borderColor = T.border; }}
+                style={{
+                  flexShrink: 0, boxSizing: "border-box", overflow: "hidden", padding: 0,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  height: 22,
+                  width: monthZoom > 1 ? 50 : 0,
+                  marginRight: monthZoom > 1 ? 6 : 0,
+                  fontFamily: T.font, fontSize: 10.5, fontWeight: 700,
+                  letterSpacing: "-0.02em", whiteSpace: "nowrap",
+                  opacity: monthZoom > 1 ? 1 : 0,
+                  transform: monthZoom > 1 ? "none" : "translateX(6px)",
+                  pointerEvents: monthZoom > 1 ? "auto" : "none",
+                  cursor: "pointer",
+                  borderRadius: T.radiusPill,
+                  border: `1px solid ${monthZoom > 1 ? T.border : "transparent"}`,
+                  background: "transparent", color: T.textSec,
+                  transition: "width 0.24s cubic-bezier(0.22,1,0.36,1), margin-right 0.24s cubic-bezier(0.22,1,0.36,1), transform 0.24s cubic-bezier(0.22,1,0.36,1), opacity 0.18s ease, color 0.15s, border-color 0.15s",
+                }}>
+                Reset
+              </button>
+            </Tip>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.7, marginRight: 5 }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+            <Tip label="Zoom (double-click to reset)"><input type="range" min={1} max={6} step={0.1} value={monthZoom} onChange={e => setMonthZoom(Number(e.target.value))} onDoubleClick={() => setMonthZoom(1)} style={{ width: 190, cursor: "pointer", accentColor: T.accent }} /></Tip>
           </div>}
           <Btn size="sm" onClick={() => setBcModalState("open")} style={pageActionIconBtn}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></Btn>
           {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
@@ -12951,14 +13100,34 @@ ${jobsCtx || "No jobs found."}`;
             // Person row
             const p = row.person;
             const bars = (row.bars || []).filter((b, i, arr) => arr.findIndex(x => x.id === b.id) === i);
-            // Precompute stacking order for single-day partial-hour bars (month view only)
-            const singleDayStacking = {};
+            // Pack same-day partial-hour bars left-to-right within their day column.
+            // Resolves to a real START HOUR per bar rather than a shift measured in
+            // bar-widths: the old `stackIdx * _wBudget` multiplied by the moving bar's
+            // OWN width, so a short op after a long one overlapped it and a long op
+            // after a short one left a gap. A start hour also means a packed bar goes
+            // through exactly the same walk/segment/overflow path as an explicitly
+            // hour-placed one — including rolling onto the next working day once the
+            // day fills up — instead of being a special case layered on top.
+            // Bars with a stored startHour are honoured where they are and simply
+            // advance the cursor past themselves.
+            const singleDayStacking = {}; // { [date]: { [barId]: packedStartHour } }
             if (tMode === "month" || tMode === "week") {
               const _dayBars = bars.filter(b => { const _tsz = Math.max(1, (b.task?.team || []).length); const _phd = (b.task?.hpd || 0) > 0 ? b.task.hpd / _tsz : productiveHoursPerDay; return b.type === "task" && b.task?.start && b.task?.end && b.task.start === b.task.end && _phd > 0 && _phd <= productiveHoursPerDay; });
-              _dayBars.sort((a, b) => (a.task?.startHour ?? workStartH) - (b.task?.startHour ?? workStartH));
+              _dayBars.sort((a, b) => ((a.task?.startHour ?? workStartH) - (b.task?.startHour ?? workStartH)) || String(a.id).localeCompare(String(b.id)));
+              const _cursor = {};
               _dayBars.forEach(bar => {
-                if (!singleDayStacking[bar.start]) singleDayStacking[bar.start] = [];
-                singleDayStacking[bar.start].push(bar.id);
+                const d = bar.start;
+                if (!singleDayStacking[d]) { singleDayStacking[d] = {}; _cursor[d] = workStartH; }
+                const _tsz = Math.max(1, (bar.task?.team || []).length);
+                const _phd = (bar.task?.hpd || 0) > 0 ? bar.task.hpd / _tsz : productiveHoursPerDay;
+                const _stored = bar.task?.startHour;
+                const _startH = (_stored != null && _stored > workStartH) ? _stored : _cursor[d];
+                singleDayStacking[d][bar.id] = _startH;
+                const _w = walkProductiveHours(_startH, _phd, dayWindowCfg);
+                // A bar that spilled past today leaves no room behind it — the rest of
+                // the day is spoken for, so later bars start from the day's end (which
+                // their own walk then rolls onto the next working day).
+                _cursor[d] = Math.max(_cursor[d], _w.days > 1 ? workEndH : _w.endHour);
               });
             }
             // ── Overrun push-forward ────────────────────────────────────────────
@@ -13179,48 +13348,36 @@ ${jobsCtx || "No jobs found."}`;
                   const _pushWholeDays = _pushH > 0 ? Math.floor(_pushH / Math.max(0.0001, productiveHoursPerDay)) : 0;
                   let _layoutStart = _pushWholeDays > 0 ? addBD(bar.start, _pushWholeDays, _barBDOpts) : bar.start;
                   let _layoutEnd = _pushWholeDays > 0 ? addBD(bar.end, _pushWholeDays, _barBDOpts) : bar.end;
-                  let _pushedStartH = (bar.task?.startHour ?? workStartH) + (_pushH - _pushWholeDays * Math.max(0.0001, productiveHoursPerDay));
+                  // Base start hour: an explicitly placed hour wins, else the packed slot
+                  // from singleDayStacking, else the start of the working day.
+                  const _packedStartH = singleDayStacking[bar.start]?.[bar.id];
+                  const _baseStartH = bar.task?.startHour ?? _packedStartH ?? workStartH;
+                  let _pushedStartH = _baseStartH + (_pushH - _pushWholeDays * Math.max(0.0001, productiveHoursPerDay));
                   while (_pushH > 0 && totalWorkH > 0 && _pushedStartH >= workEndH) {
                     _pushedStartH -= totalWorkH;
                     _layoutStart = addBD(_layoutStart, 1, _barBDOpts);
                     _layoutEnd = addBD(_layoutEnd, 1, _barBDOpts);
                   }
-                  const _barStartH = _pushH > 0 ? _pushedStartH : (bar.task?.startHour ?? workStartH);
-                  const isSingleDayPartial = (tMode === "month" || tMode === "week") && bar.type === "task" && _opStart && _opEnd && _opStart === _opEnd && _barHpd <= productiveHoursPerDay;
-                  const isHourPositioned = (tMode === "month" || tMode === "week") && bar.type === "task" && bar.task?.startHour != null && bar.task.startHour > workStartH;
-                  const _offsetH = _barStartH - workStartH;
-                  const _barClockH = (_barHpd / productiveHoursPerDay) * totalWorkH;
-                  const _firstDayCapacity = isHourPositioned ? Math.max(0, (totalWorkH - _offsetH) / totalWorkH * productiveHoursPerDay) : productiveHoursPerDay;
-                  const _willOverflowWeekend = isSingleDayPartial && isHourPositioned && (_offsetH + _barClockH) > totalWorkH && !isWorkDay(addD(_layoutEnd, 1), _barWorkDays);
+                  const _barStartH = _pushH > 0 ? _pushedStartH : _baseStartH;
+                  // The single source of truth for this bar's length. Walking the day and
+                  // stepping over only the lunch/breaks the work actually reaches replaces
+                  // three separate approximations that disagreed with each other:
+                  // isSingleDayPartial / isHourPositioned / _willOverflowWeekend.
+                  const _walk = bar.type === "task"
+                    ? walkProductiveHours(_barStartH, _barHpd, dayWindowCfg)
+                    : null;
                   // Always derive the bar's visual end from hpd + current workDays so the bar adapts
                   // when the org's working-days set changes, regardless of what the task's stored end says.
-                  // `|| _isOverrunning` so a ONE-DAY op that runs long extends into the
-                  // following days too. Without it the day-span calculation was skipped
-                  // for same-start-and-end ops, the segment list stayed one day wide, and
-                  // the inflated width budget just got clipped at that column's edge —
-                  // the overrun would have been invisible on exactly the short ops most
-                  // likely to overrun.
-                  const _visualWorkDays = (!isSingleDayPartial && bar.type === "task" && _opStart && _opEnd && (_opStart !== _opEnd || _isOverrunning))
-                    ? (() => {
-                        if (!isHourPositioned) return Math.max(1, Math.ceil(_barHpd / productiveHoursPerDay));
-                        const _vClockH = productiveHoursPerDay > 0 ? (_barHpd / productiveHoursPerDay) * totalWorkH : 0;
-                        const _vFirstAvailH = workEndH - _barStartH;
-                        if (_vClockH <= _vFirstAvailH) return 1;
-                        let _vRem = _vClockH - _vFirstAvailH;
-                        let _vDays = 1;
-                        while (_vRem > totalWorkH) { _vRem -= totalWorkH; _vDays++; }
-                        return _vDays + 1;
-                      })()
-                    : null;
-                  const _effectiveSingleDay = isSingleDayPartial || (_visualWorkDays === 1 && _barHpd <= productiveHoursPerDay);
+                  // The walk covers what `|| _isOverrunning` used to special-case: _barHpd
+                  // already carries the overrun, so a ONE-DAY op that runs long extends into
+                  // the following days on its own rather than being clipped at its column.
+                  const _visualWorkDays = (_walk && _opStart && _opEnd) ? _walk.days : null;
                   // _layoutStart / _layoutEnd rather than bar.start / bar.end: everything
                   // from here down positions the bar, and it has to position the PUSHED
                   // bar. The stored dates are untouched.
                   const _segsEnd = _visualWorkDays != null
                     ? addBD(_layoutStart, _visualWorkDays - 1, _barBDOpts)
-                    : _willOverflowWeekend
-                      ? addBD(_layoutEnd, 1, _barBDOpts)
-                      : _layoutEnd;
+                    : _layoutEnd;
                   const barSegs = bar.type === "eng-chip" ? [] : weekdaySegments(_layoutStart, _segsEnd, tStart, tEnd, _barWorkDays, true);
                   // weekdaySegments clamps the end to the last visible day, and the
                   // segment it hands back carries no sign of having been truncated.
@@ -13239,14 +13396,13 @@ ${jobsCtx || "No jobs found."}`;
                   const _baseXPct = diffD(tStart, firstBarSeg.start) / nDays * 100;
                   const _calDays0 = Math.max(diffD(firstBarSeg.start, firstBarSeg.end) + 1, 1);
                   // PTO isn't hours-budgeted — let it fill its full day span (no hpd cap).
-                  const _wBudget = bar.type === "pto" ? 100 : Math.max(0.03 / nDays * 100, (_barHpd / productiveHoursPerDay) / nDays * 100);
-                  // Keyed on the STORED start, matching how singleDayStacking was built.
-                  // It only decides the order of same-day partial bars within a column,
-                  // so a pushed bar keeps its place in that order rather than jumping —
-                  // which is right, though a bar pushed onto a different day is stacked
-                  // against its original neighbours, not its new ones.
-                  const stackIdx = _effectiveSingleDay ? (singleDayStacking[bar.start]?.indexOf(bar.id) ?? 0) : 0;
-                  const stackShift = (_effectiveSingleDay && stackIdx > 0 && !isHourPositioned) ? stackIdx * _wBudget : 0;
+                  // For task bars the budget is the walk's WALL-CLOCK span, not a
+                  // productive-hours fraction. Widths and the left offset below have to
+                  // share one axis: the offset was always clock-based, so a productive
+                  // width made a bar ending exactly at quitting time land past its own
+                  // column's right edge — the mismatch that fabricated the overflow.
+                  // Packing now lives in the start hour, so there is no stackShift left.
+                  const _wBudget = bar.type === "pto" ? 100 : Math.max(0.03 / nDays * 100, (_walk ? _walk.columns : _barHpd / productiveHoursPerDay) / nDays * 100);
                   const _oneDayPct = 1 / nDays * 100;
                   // The start hour only means something on the day the bar actually
                   // starts. If the start rolled off a non-working day onto the next
@@ -13254,13 +13410,46 @@ ${jobsCtx || "No jobs found."}`;
                   // has no claim on — the roll already placed it, so it begins at
                   // work-start there.
                   const _hourOffsetPct = _startsOnLayoutStart ? ((_barStartH - workStartH) / totalWorkH) * _oneDayPct : 0;
-                  const x = (_baseXPct + _hourOffsetPct + stackShift) + "%";
+                  const x = (_baseXPct + _hourOffsetPct) + "%";
                   const _segRightPct = (diffD(tStart, firstBarSeg.end) + 1) / nDays * 100;
-                  const _xNum = _baseXPct + _hourOffsetPct + stackShift;
+                  const _xNum = _baseXPct + _hourOffsetPct;
                   // No 0.5% min floor — it would expand the first segment past _segRightPct (the column's right edge),
                   // causing the bar to bleed into the next column (e.g., the weekend gap after Friday).
                   const _wFirst = Math.max(0, Math.min(_wBudget, _segRightPct - _xNum));
                   const w = _wFirst + "%";
+                  // ── Short-bar affordances ───────────────────────────────────
+                  // A 1h op in a 9h day is 1/9th of a column: ~5px at month zoom.
+                  // Two 10px resize handles then cover it completely — and because
+                  // they stopPropagation, every mousedown resized instead of moved,
+                  // leaving no way to drag a short job at all. Below the threshold
+                  // the handles come off and the whole bar becomes the move target;
+                  // zoom to week/day and the bar grows past it, so they return.
+                  const _barPx = (_wFirst / 100) * nDays * cW;
+                  // Handles SCALE with the bar rather than being a fixed 10px that a
+                  // short job can't afford. Fixed-width was the whole bug: two 10px
+                  // handles on a ~5px month-zoom bar were clipped by overflow:hidden
+                  // into a stack covering it completely, and since they stopPropagation
+                  // every mousedown resized — there was no move target at all.
+                  //
+                  // A third of the bar per handle keeps a third free to drag in at any
+                  // zoom, so resizing a 1h job works as soon as you zoom in enough to
+                  // see it: ~6.7px handles at week zoom, the full 10px once a bar is
+                  // 30px or wider. Below 12px there is nothing meaningful to divide
+                  // into three, so those bars are move-only until you zoom in.
+                  // Measured after the floor below, since that is what actually gets
+                  // painted and therefore what there is to grab. The floor is 2px, not
+                  // 10: a 10px minimum made a 30-minute first day render WIDER than the
+                  // 1-hour continuation after it, which inverts the one thing the bar is
+                  // supposed to communicate. Width is duration; 2px only stops a sliver
+                  // rounding away to nothing.
+                  const _renderPx = _wFirst > 0 ? Math.max(_barPx, 2) : 0;
+                  const _handleW = Math.max(3, Math.min(10, _renderPx / 3));
+                  const _isNarrowBar = bar.type !== "pto" && _renderPx < 12;
+                  // 1px border instead of 1.5: on a 10px bar the heavier border was
+                  // most of the bar, which is what made short jobs read as chunky
+                  // blobs rather than short bars.
+                  const _thinBar = bar.type !== "pto" && _renderPx < 16;
+                  const _hideBarLabel = bar.type !== "pto" && _renderPx < 44;
                   // Engineering chip — render as compact pill, opens job detail
                   if (bar.type === "eng-chip") {
                     const chipJob = tasks.find(j => j.id === bar.jobId);
@@ -13325,12 +13514,8 @@ ${jobsCtx || "No jobs found."}`;
                     const _osHForDrag = bar.task.startHour ?? workStartH;
                     const _remOrigin = (() => {
                       if (!_dragWS.isPartiallyWorked) return { day: os, hour: _osHForDrag };
-                      const _clkH = productiveHoursPerDay > 0 ? (_dragWS.workedHpd / productiveHoursPerDay) * totalWorkH : 0;
-                      const _firstAvail = workEndH - _osHForDrag;
-                      if (_clkH <= _firstAvail) return { day: os, hour: Math.round((_osHForDrag + _clkH) * 2) / 2 };
-                      let _rem = _clkH - _firstAvail, _day = os;
-                      while (_rem > totalWorkH) { _rem -= totalWorkH; _day = sAddBD(_day, 1); }
-                      return { day: sAddBD(_day, 1), hour: Math.round((workStartH + _rem) * 2) / 2 };
+                      const _wk = walkProductiveHours(_osHForDrag, _dragWS.workedHpd, dayWindowCfg);
+                      return { day: sAddBD(os, _wk.days - 1), hour: _wk.endHour };
                     })();
                     const _dragBaseStart = _remOrigin.day;
                     const _dragBaseHour = _remOrigin.hour;
@@ -13502,11 +13687,7 @@ ${jobsCtx || "No jobs found."}`;
                               const mDropHour = Math.round(mHour * 2) / 2;
                               const _mTeamSz = Math.max(1, (m.personIds || []).length);
                               const _mPerHpd = (m.hpd || 0) > 0 ? m.hpd / _mTeamSz : productiveHoursPerDay;
-                              const _mTotalClockH = productiveHoursPerDay > 0 ? (_mPerHpd / productiveHoursPerDay) * totalWorkH : 0;
-                              const _mFirstAvailH = workEndH - mDropHour;
-                              let _mVDays;
-                              if (_mTotalClockH <= _mFirstAvailH) _mVDays = 1;
-                              else { let rem = _mTotalClockH - _mFirstAvailH; _mVDays = 1; while (rem > totalWorkH) { rem -= totalWorkH; _mVDays++; } _mVDays += 1; }
+                              const _mVDays = walkProductiveHours(mDropHour, _mPerHpd, dayWindowCfg).days;
                               return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: addBD(mSnap, _mVDays - 1, barBDOpts), wdDur: _mVDays, color: bar.color, dropHour: mDropHour, barHpd: _mPerHpd };
                             });
                             return { ...prev, translateX: pxDx2, translateY: pxDy2, snapStart: snapS2, snapEnd: snapE2, groupSnaps: groupSnaps2 };
@@ -13554,21 +13735,32 @@ ${jobsCtx || "No jobs found."}`;
                         } else {
                           const _contVal = pxDx / liveCW + _origColOffset;
                           const _colFrac = Math.min(0.9999, Math.max(0, _contVal - Math.floor(_contVal)));
-                          dropHour = Math.max(0, workStartH + _colFrac * totalWorkH);
+                          // Snap to the half hour. Continuous placement made the end of the
+                          // day unreachable in practice: at month zoom an hour is about 5px,
+                          // so landing exactly on 16:00 needed sub-pixel aim and every near
+                          // miss dribbled a few minutes into the next working day. Multi-drag
+                          // members already snapped this way; the dragged bar did not.
+                          dropHour = Math.round(Math.max(0, workStartH + _colFrac * totalWorkH) * 2) / 2;
                         }
-                        // Snap-forward: if the drop would leave only a sliver on the first day
-                        // (less than 2h before workEnd) AND the next day is non-working, advance
-                        // to the next workday's start so the bar doesn't begin with a tiny piece
-                        // right before a non-working day gap.
-                        if (dropHour > workEndH - 2) {
-                          let _walk = addD(snapS, 1);
-                          const _max = addD(snapS, 30);
-                          if (!isWorkDay(_walk, barWorkDays)) {
-                            while (_walk <= _max && !isWorkDay(_walk, barWorkDays)) _walk = addD(_walk, 1);
-                            snapS = _walk;
-                            dropHour = workStartH;
+                        // End-of-day magnet. The day's end is the end of every job whatever
+                        // its size, so a drop that would finish within half an hour of
+                        // quitting time is pulled flush to it rather than spilling a sliver
+                        // into the next day. Only applied when the job still fits in the day.
+                        if (_dragBarHpd > 0 && dropHour > workStartH) {
+                          const _fit = walkProductiveHours(dropHour, _dragBarHpd, dayWindowCfg);
+                          const _short = workEndH - _fit.endHour;
+                          if (_fit.days === 1 && _short > 0 && _short <= 0.5) {
+                            const _cand = dropHour + _short;
+                            const _candWalk = walkProductiveHours(_cand, _dragBarHpd, dayWindowCfg);
+                            if (_candWalk.days === 1 && _candWalk.endHour <= workEndH + CLOCK_EPS) dropHour = _cand;
                           }
                         }
+                        // No snap-forward. This used to bounce any drop later than 2h before
+                        // workEnd onto the next working day whenever the following day was
+                        // non-working — a fixed 2h window regardless of how long the job
+                        // actually was, so a 1h job could not be parked against Friday's 17:00
+                        // finish at all. Anything that genuinely does not fit now flows into
+                        // the next working day as a continuation (walkProductiveHours/_segsEnd).
                       }
                       // Unlocked: ghost tracks cursor freely past siblings. Overlap with a dep-group sibling
                       // turns the ghost red (see overlap detection below) and rejects the drop.
@@ -13586,7 +13778,9 @@ ${jobsCtx || "No jobs found."}`;
                           const hrOff = clock - bdOff * totalWorkH;
                           return { day: addBD(os, bdOff, barBDOpts), hour: Math.round((workStartH + hrOff) * 2) / 2 };
                         };
-                        const _ghostClockH = productiveHoursPerDay > 0 ? (_dragBarHpd / productiveHoursPerDay) * totalWorkH : 0;
+                        // Clock length on the dependency-snap axis, which counts working
+                        // hours only — the walk's column span scaled back into hours.
+                        const _ghostClockH = walkProductiveHours(dropHour ?? workStartH, _dragBarHpd, dayWindowCfg).columns * totalWorkH;
                         const _phiStart = _phi(snapS, dropHour);
                         const _phiEnd = _phiStart + _ghostClockH;
                         let _didSnap = false;
@@ -13610,8 +13804,12 @@ ${jobsCtx || "No jobs found."}`;
                           }
                         }
                       }
-                      const _dropProdOff = dropHour != null ? Math.max(0, dropHour - workStartH) / totalWorkH * productiveHoursPerDay : 0;
-                      const _liveVWD = _dragBarHpd > 0 ? Math.max(1, Math.ceil((_dropProdOff + _dragBarHpd) / productiveHoursPerDay)) : wdDuration;
+                      // Day span of the ghost, from the same walk the bar renders with. This
+                      // used to convert the drop hour into "productive hours already elapsed"
+                      // by flat pro-rate and add the op's hours to it, which made a 1h job
+                      // dropped at 16:00 look like a 2-day job — so it bounced to the next day
+                      // and could never be parked against the 17:00 finish.
+                      const _liveVWD = _dragBarHpd > 0 ? walkProductiveHours(dropHour ?? workStartH, _dragBarHpd, dayWindowCfg).days : wdDuration;
                       let snapE = addBD(snapS, _liveVWD - 1, barBDOpts);
                       // Group member ghost positions — locked moves all together; free/unlocked moves only dragged task
                       const _osH = bar.task?.startHour ?? workStartH;
@@ -13627,11 +13825,7 @@ ${jobsCtx || "No jobs found."}`;
                         const mDropHour = Math.round(mHour * 2) / 2;
                         const _mTeamSz = Math.max(1, (m.personIds || []).length);
                         const _mPerHpd = (m.hpd || 0) > 0 ? m.hpd / _mTeamSz : productiveHoursPerDay;
-                        const _mTotalClockH = productiveHoursPerDay > 0 ? (_mPerHpd / productiveHoursPerDay) * totalWorkH : 0;
-                        const _mFirstAvailH = workEndH - mDropHour;
-                        let _mVDays;
-                        if (_mTotalClockH <= _mFirstAvailH) _mVDays = 1;
-                        else { let rem = _mTotalClockH - _mFirstAvailH; _mVDays = 1; while (rem > totalWorkH) { rem -= totalWorkH; _mVDays++; } _mVDays += 1; }
+                        const _mVDays = walkProductiveHours(mDropHour, _mPerHpd, dayWindowCfg).days;
                         return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: addBD(mSnap, _mVDays - 1, barBDOpts), wdDur: _mVDays, color: bar.color, dropHour: mDropHour, barHpd: _mPerHpd };
                       });
                       // Multi-select drag — each member follows the same snap rules as the
@@ -13647,60 +13841,31 @@ ${jobsCtx || "No jobs found."}`;
                         const mDropHour = Math.round(mHour * 2) / 2;
                         const _mTeamSz = Math.max(1, (m.personIds || []).length);
                         const _mPerHpd = (m.hpd || 0) > 0 ? m.hpd / _mTeamSz : productiveHoursPerDay;
-                        const _mTotalClockH = productiveHoursPerDay > 0 ? (_mPerHpd / productiveHoursPerDay) * totalWorkH : 0;
-                        const _mFirstAvailH = workEndH - mDropHour;
-                        let _mVDays;
-                        if (_mTotalClockH <= _mFirstAvailH) _mVDays = 1;
-                        else { let rem = _mTotalClockH - _mFirstAvailH; _mVDays = 1; while (rem > totalWorkH) { rem -= totalWorkH; _mVDays++; } _mVDays += 1; }
+                        const _mVDays = walkProductiveHours(mDropHour, _mPerHpd, dayWindowCfg).days;
                         return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: addBD(mSnap, _mVDays - 1, barBDOpts), wdDur: _mVDays, color: bar.color, dropHour: mDropHour, barHpd: _mPerHpd };
                       }) : [];
                       const targetPid = lastDropPid || origPerson;
                       const movingTaskId = bar.task?.id;
                       // FREE DRAG — ghost follows cursor; turns red over conflicts; drop rejected if red.
                       // Visual extent of an op (date + hour) — matches bar render using team-divided hpd
+                      // One walk, same as the renderer — the ghost and the dropped bar have to
+                      // agree, and the five-branch approximation this replaced could not.
+                      // A stored endHour is honoured only when the op stays within one day;
+                      // past that the walk owns both the end date and the end hour.
                       const _opVisual = (op) => {
                         if (!op.start || !op.end) return { endDate: op.end || op.start, endHour: workEndH };
                         const _tSz = Math.max(1, (op.team || []).length);
                         const _h = (op.hpd || 0) > 0 ? op.hpd / _tSz : productiveHoursPerDay;
                         const _sH = op.startHour ?? workStartH;
-                        const _clockH = productiveHoursPerDay > 0 ? (_h / productiveHoursPerDay) * totalWorkH : 0;
-                        const _isHourPositioned = op.startHour != null && op.startHour > workStartH;
-                        const _hasStoredEnd = op.endHour != null && op.start !== op.end;
-                        const _singleDayPartial = op.start === op.end && _h <= productiveHoursPerDay;
-                        if (_singleDayPartial) return { endDate: op.start, endHour: _sH + _clockH };
-                        if (op.start === op.end) {
-                          if (op.endHour != null) return { endDate: op.start, endHour: op.endHour };
-                          return { endDate: op.start, endHour: Math.min(workEndH, _sH + _clockH) };
-                        }
-                        if (!_isHourPositioned && _hasStoredEnd) return { endDate: op.end, endHour: op.endHour };
-                        if (_isHourPositioned) {
-                          const _firstAvail = workEndH - _sH;
-                          if (_clockH <= _firstAvail) return { endDate: op.start, endHour: _sH + _clockH };
-                          let _rem = _clockH - _firstAvail;
-                          let _days = 1;
-                          while (_rem > totalWorkH) { _rem -= totalWorkH; _days++; }
-                          return { endDate: addBD(op.start, _days), endHour: workStartH + _rem };
-                        }
-                        const _baseDays = Math.max(1, Math.ceil(_h / productiveHoursPerDay));
-                        const _lastDayProd = _h - (_baseDays - 1) * productiveHoursPerDay;
-                        const _lastDayClock = productiveHoursPerDay > 0 ? (_lastDayProd / productiveHoursPerDay) * totalWorkH : totalWorkH;
-                        return { endDate: addBD(op.start, _baseDays - 1), endHour: workStartH + _lastDayClock };
+                        const _w = walkProductiveHours(_sH, _h, dayWindowCfg);
+                        if (_w.days === 1 && op.endHour != null) return { endDate: op.start, endHour: op.endHour };
+                        return { endDate: addBD(op.start, _w.days - 1, barBDOpts), endHour: _w.endHour };
                       };
                       // Ghost's own visual end (date + hour) from current snapS/dropHour/hpd
                       const _ghostDH = dropHour ?? workStartH;
-                      const _ghostClockH = productiveHoursPerDay > 0 ? (_dragBarHpd / productiveHoursPerDay) * totalWorkH : 0;
-                      const _ghostFirstAvail = workEndH - _ghostDH;
-                      let _ghostED, _ghostEH;
-                      if (_ghostClockH <= _ghostFirstAvail) {
-                        _ghostED = snapS;
-                        _ghostEH = _ghostDH + _ghostClockH;
-                      } else {
-                        let _rem = _ghostClockH - _ghostFirstAvail;
-                        let _days = 1;
-                        while (_rem > totalWorkH) { _rem -= totalWorkH; _days++; }
-                        _ghostED = addBD(snapS, _days);
-                        _ghostEH = workStartH + _rem;
-                      }
+                      const _ghostWalk = walkProductiveHours(_ghostDH, _dragBarHpd, dayWindowCfg);
+                      const _ghostED = addBD(snapS, _ghostWalk.days - 1, barBDOpts);
+                      const _ghostEH = _ghostWalk.endHour;
                       snapE = _ghostED;
                       // Lex-order interval overlap on (date, hour) — A overlaps B iff A.start < B.end AND A.end > B.start
                       let hasOverlap = false;
@@ -13812,17 +13977,8 @@ ${jobsCtx || "No jobs found."}`;
                         // (also dx-based) rather than the stale `days[_dayIdx]` lookup above.
                         effStart = teamDragLiveRef.current?.snapStart || newStart;
                         let finalHour = teamDragLiveRef.current?.dropHour ?? workStartH;
-                        // Snap-forward (final guard, mirrors onM): if drop would leave only a sliver
-                        // on the first day before a non-working day, advance to next workday start.
-                        if (finalHour > workEndH - 2) {
-                          let _walk = addD(effStart, 1);
-                          const _max = addD(effStart, 30);
-                          if (!isWorkDay(_walk, barWorkDays)) {
-                            while (_walk <= _max && !isWorkDay(_walk, barWorkDays)) _walk = addD(_walk, 1);
-                            effStart = _walk;
-                            finalHour = workStartH;
-                          }
-                        }
+                        // No snap-forward here either — the commit has to land the bar exactly
+                        // where the ghost showed it, and the ghost no longer bounces.
                         // ── Auto-split on drag-end for partially-worked ops ──
                         // If the bar has worked hours and the user moved the remaining piece, leave the
                         // worked portion anchored (locked) and spawn a new op for the remaining hours at
@@ -13838,15 +13994,8 @@ ${jobsCtx || "No jobs found."}`;
                           if (effStart === _dragBaseStart && finalHour === _dragBaseHour && !isReassign) { console.warn("[schedule-drag] no-op: dates and person unchanged"); return; }
                           // Compute end-date + end-hour for a given hpd starting at (startDate, startHourArg).
                           const _calcEnd = (startDate, startHourArg, hpdAmt) => {
-                            const _clkH = productiveHoursPerDay > 0 ? (hpdAmt / productiveHoursPerDay) * totalWorkH : 0;
-                            const _firstAvail = workEndH - startHourArg;
-                            if (_clkH <= _firstAvail) {
-                              return { end: startDate, endHour: Math.round((startHourArg + _clkH) * 2) / 2 };
-                            }
-                            let _rem = _clkH - _firstAvail;
-                            let _day = startDate;
-                            while (_rem > totalWorkH) { _rem -= totalWorkH; _day = sAddBD(_day, 1); }
-                            return { end: sAddBD(_day, 1), endHour: Math.round((workStartH + _rem) * 2) / 2 };
+                            const _wk = walkProductiveHours(startHourArg, hpdAmt, dayWindowCfg);
+                            return { end: sAddBD(startDate, _wk.days - 1), endHour: _wk.endHour };
                           };
                           const osH = bar.task.startHour ?? workStartH;
                           const workedEnds = _calcEnd(os, osH, _splitWS.workedHpd);
@@ -13892,26 +14041,14 @@ ${jobsCtx || "No jobs found."}`;
                           setTimeout(() => doSaveRef.current(), 0);
                           return;
                         }
-                        const _totalClockH0 = productiveHoursPerDay > 0 ? ((bar.task.hpd || 0) / productiveHoursPerDay) * totalWorkH : 0;
-                        const _firstDayAvailH0 = workEndH - finalHour;
-                        let _newEnd = effStart;
-                        if (_totalClockH0 > _firstDayAvailH0) {
-                          let _rem0 = _totalClockH0 - _firstDayAvailH0;
-                          let _day0 = effStart;
-                          while (_rem0 > totalWorkH) { _rem0 -= totalWorkH; _day0 = addBD(_day0, 1); }
-                          _newEnd = addBD(_day0, 1);
-                        }
-                        const _totalClockH = productiveHoursPerDay > 0 ? ((bar.task.hpd || 0) / productiveHoursPerDay) * totalWorkH : 0;
-                        const _firstDayAvailH = workEndH - finalHour;
-                        let _rawEndH;
-                        if (_totalClockH <= _firstDayAvailH) {
-                          _rawEndH = finalHour + _totalClockH;
-                        } else {
-                          let _rem = _totalClockH - _firstDayAvailH;
-                          while (_rem > totalWorkH) _rem -= totalWorkH;
-                          _rawEndH = workStartH + _rem;
-                        }
-                        const _endHour = Math.round(_rawEndH * 2) / 2;
+                        // Landing geometry from the walk — one source of truth with the ghost
+                        // above and the bar render. The end hour is NOT rounded to the half
+                        // hour: rounding a job that finishes at 17:00 could nudge it past the
+                        // day's end, and rounding a small final-day remainder down to workStart
+                        // collapsed the continuation to nothing.
+                        const _dropWalk = walkProductiveHours(finalHour, (bar.task.hpd || 0) / Math.max(1, (bar.task.team || []).length), dayWindowCfg);
+                        const _newEnd = addBD(effStart, _dropWalk.days - 1, barBDOpts);
+                        const _endHour = _dropWalk.endHour;
                         const _mWdDelta = effStart > os ? diffBD(os, effStart) : -diffBD(effStart, os);
                         const osH = bar.task.startHour ?? workStartH;
                         const _hourDelta = finalHour - osH;
@@ -13922,20 +14059,9 @@ ${jobsCtx || "No jobs found."}`;
                           while (mStartH < workStartH) { mStartH += totalWorkH; mStartDay = addBD(mStartDay, -1); }
                           const mStartHour = Math.round(mStartH * 2) / 2;
                           const _mPerHpd = (m.hpd || 0) > 0 ? m.hpd / Math.max(1, (m.personIds || []).length) : productiveHoursPerDay;
-                          const mTotalClockH = productiveHoursPerDay > 0 ? (_mPerHpd / productiveHoursPerDay) * totalWorkH : 0;
-                          const mFirstAvailH = workEndH - mStartHour;
-                          let mNewEnd = mStartDay;
-                          if (mTotalClockH > mFirstAvailH) {
-                            let rem = mTotalClockH - mFirstAvailH;
-                            let day = mStartDay;
-                            while (rem > totalWorkH) { rem -= totalWorkH; day = addBD(day, 1); }
-                            mNewEnd = addBD(day, 1);
-                          }
-                          let mRawEndH;
-                          if (mTotalClockH <= mFirstAvailH) mRawEndH = mStartHour + mTotalClockH;
-                          else { let rem = mTotalClockH - mFirstAvailH; while (rem > totalWorkH) rem -= totalWorkH; mRawEndH = workStartH + rem; }
-                          const mEndHour = Math.round(mRawEndH * 2) / 2;
-                          return { id: m.id, newStart: mStartDay, newEnd: mNewEnd, newStartHour: mStartHour, newEndHour: mEndHour };
+                          const mWalk = walkProductiveHours(mStartHour, _mPerHpd, dayWindowCfg);
+                          const mNewEnd = addBD(mStartDay, mWalk.days - 1, barBDOpts);
+                          return { id: m.id, newStart: mStartDay, newEnd: mNewEnd, newStartHour: mStartHour, newEndHour: mWalk.endHour };
                         };
                         const groupMonthMoves = (isGroupDrag && depsMode === "locked") ? groupMembers.map(_computeMonthMove) : [];
                         // Multi-select members also need their hour/end snaps applied in month
@@ -14158,20 +14284,8 @@ ${jobsCtx || "No jobs found."}`;
                     if (bar.task.endHour != null) {
                       oeH = bar.task.endHour;
                     } else {
-                      const _origClockH = productiveHoursPerDay > 0 ? (_origHpd / productiveHoursPerDay) * totalWorkH : 0;
-                      if (os === oe) {
-                        oeH = osH + _origClockH;
-                      } else {
-                        const _firstAvail = workEndH - osH;
-                        if (_origClockH <= _firstAvail) { oeH = osH + _origClockH; }
-                        else {
-                          let _rem = _origClockH - _firstAvail;
-                          while (_rem > totalWorkH) _rem -= totalWorkH;
-                          oeH = workStartH + _rem;
-                        }
-                      }
+                      oeH = walkProductiveHours(osH, _origHpd / Math.max(1, (bar.task.team || []).length), dayWindowCfg).endHour;
                     }
-                    oeH = Math.round(oeH * 2) / 2;
                     const taskPid2 = bar.task.pid || null;
                     const pending = { start: os, end: oe, startHour: osH, endHour: oeH, hpd: _origHpd };
                     let lastDx = 0;
@@ -14365,14 +14479,12 @@ ${jobsCtx || "No jobs found."}`;
                   const isBarSelected = barSelectMode && selBars.has(bar.id);
                   const inDepGroup = !isPto && depGroupTaskIds.has(bar.task?.id);
                   const barKey = bar.id + "_0_" + bar.start;
-                  const _barEndHour = bar.type === "pto" ? workEndH : bar.task?.endHour != null ? bar.task.endHour : (() => {
-                    const _totalClockH = productiveHoursPerDay > 0 ? (_barHpd / productiveHoursPerDay) * totalWorkH : 0;
-                    const _firstDayAvailH = workEndH - _barStartH;
-                    if (_totalClockH <= _firstDayAvailH) return Math.round((_barStartH + _totalClockH) * 2) / 2;
-                    let _rem = _totalClockH - _firstDayAvailH;
-                    while (_rem > totalWorkH) _rem -= totalWorkH;
-                    return Math.round((workStartH + _rem) * 2) / 2;
-                  })();
+                  // Exact walk value, NOT rounded to the nearest half hour: rounding a small
+                  // final-day remainder down to workStartH gave the tail segment width 0,
+                  // which still painted its 2px dashed border — the phantom nub on Monday.
+                  const _barEndHour = bar.type === "pto" ? workEndH
+                    : (bar.task?.endHour != null && _visualWorkDays === 1) ? bar.task.endHour
+                    : _walk ? _walk.endHour : workEndH;
                   let _wRemainingBudget = Math.max(0, _wBudget - _wFirst);
                   // "NEW" badge — show on bars whose parent job was created within the last 24h.
                   const isNew = !isPto && bar.jobCreatedAt && (Date.now() - new Date(bar.jobCreatedAt).getTime()) < 86400000;
@@ -14383,7 +14495,7 @@ ${jobsCtx || "No jobs found."}`;
                   return [<div key={barKey}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, height: rH - 8, boxSizing: "border-box", borderRadius: T.radiusXs, background: isPto ? `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${bc}` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : bar.unscheduled ? `1.5px dashed ${accentText(bc)}` : `1.5px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
+                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, minWidth: _wFirst > 0 ? 2 : 0, height: rH - 8, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: isPto ? `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${bc}` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : bar.unscheduled ? `1.5px dashed ${accentText(bc)}` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
                     onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
                     {!isPto && ws && ws.workedFraction > 0 && _wFirst > 0 && (() => {
                       const _segWorked = Math.max(0, Math.min(_workedRemainingBudget, _wFirst));
@@ -14392,13 +14504,13 @@ ${jobsCtx || "No jobs found."}`;
                       if (pctOfDiv <= 0) return null;
                       return <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pctOfDiv}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", borderTopLeftRadius: T.radiusXs, borderBottomLeftRadius: T.radiusXs, zIndex: 2 }} />;
                     })()}
-                    {can("moveJobs") && !barLocked && !_dragBlocked && !(ws && ws.workedHpd > 0) && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                    {barSegs.length === 1 && _endsInView && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                    {!_isNarrowBar && can("moveJobs") && !barLocked && !_dragBlocked && !(ws && ws.workedHpd > 0) && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                    {!_isNarrowBar && barSegs.length === 1 && _endsInView && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="6.5" fill="rgba(255,255,255,0.25)"/><polyline points="3,6.5 5.5,9 10,4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
                     {inDepGroup && !isBarSelected && (() => { const _panelId2 = bar.task?.level === 2 ? bar.task.pid : bar.task?.level === 1 ? bar.task.id : null; const _dm = _panelId2 ? tasks.flatMap(j => j.subs||[]).find(p => p.id === _panelId2)?.depsMode : undefined; const _locked = _dm === "locked"; return <Tip label={_locked ? "Locked — moves as a block with its group" : "Linked — moves with its dependency group"}><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.7, lineHeight: 0 }}>{_locked ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>}</span></Tip>; })()}
                     {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
-                    <span style={{ fontSize: 11, color: accentText(bc), fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>{isPto ? (<><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={accentText(bc)} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginRight: 5, verticalAlign: "-1.5px" }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>{bar.ptoType}{bar.title && bar.title !== bar.ptoType ? ` · ${bar.title}` : ""}</>) : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
-                    {!isPto && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: accentText(bc) === "#ffffff" ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)', fontFamily: T.mono, position: "relative", zIndex: 5 }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
+                    <span style={{ display: _hideBarLabel ? "none" : undefined, fontSize: 11, color: accentText(bc), fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>{isPto ? (<><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={accentText(bc)} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginRight: 5, verticalAlign: "-1.5px" }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>{bar.ptoType}{bar.title && bar.title !== bar.ptoType ? ` · ${bar.title}` : ""}</>) : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
+                    {!isPto && !_hideBarLabel && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: accentText(bc) === "#ffffff" ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)', fontFamily: T.mono, position: "relative", zIndex: 5 }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
                   </div>,
                   /* "New job" dot — a sibling of the bar (not a child, which the bar's overflow:hidden
                      would clip). Tucked just inside the bar's top-right corner so it stays fully
@@ -14427,12 +14539,23 @@ ${jobsCtx || "No jobs found."}`;
                     const _tailWNum = Math.max(0, Math.min(_segAvailW, isLastSeg ? ((_segCalDays - 1) + (_barEndHour - workStartH) / totalWorkH) * _oneDayPct : _wRemainingBudget));
                     const tailW = _tailWNum + "%";
                     _wRemainingBudget = Math.max(0, _wRemainingBudget - _tailWNum);
+                    // A tail with no width is not a continuation, it's a rounding artifact.
+                    // Rendering it anyway still painted the 2px dashed border, which is how
+                    // a job that fit inside Friday showed a nub on Monday.
+                    if (_tailWNum <= 0.0001) return null;
+                    // Continuation slivers render at their TRUE width. This carried the
+                    // same 10px floor as the head, which on a ~3.6px sliver painted it
+                    // nearly 3x too long and overstated how much work lands on that day.
+                    // The tail is an indicator, not a grab target — its only job is to
+                    // show that something spills onto the day — so accuracy wins and 2px
+                    // is just enough to guarantee it survives rounding to a real pixel.
+                    const _tailPx = Math.max((_tailWNum / 100) * nDays * cW, 2);
                     const isPto2 = bar.type === "pto";
                     const bc2 = bar.color;
                     return <div key={bar.id + "_t" + si + "_" + seg.start}
                       onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto2) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                       onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
-                      style={{ position: "absolute", top: 4, left: tailX, width: tailW, height: rH - 8, boxSizing: "border-box", borderRadius: T.radiusXs, background: isPto2 ? `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${bc2}` : bc2, border: isBarSelected ? `2px solid #fff` : isPto2 ? `1.5px solid ${bc2}` : `2px dashed ${bc2}cc`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : _dragBlocked ? "not-allowed" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
+                      style={{ position: "absolute", top: 4, left: tailX, width: tailW, minWidth: isPto2 ? 0 : 2, height: rH - 8, boxSizing: "border-box", borderRadius: isPto2 ? T.radiusXs : Math.min(T.radiusXs, _tailPx / 2), background: isPto2 ? `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${bc2}` : bc2, border: isBarSelected ? `2px solid #fff` : isPto2 ? `1.5px solid ${bc2}` : _tailPx < 8 ? "none" : `${_tailPx < 16 ? 1 : 2}px dashed ${bc2}cc`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : _dragBlocked ? "not-allowed" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
                       onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
                       {!isPto2 && ws && _workedRemainingBudget > 0 && _tailWNum > 0 && (() => {
                         const _segWorked = Math.max(0, Math.min(_workedRemainingBudget, _tailWNum));
@@ -14441,7 +14564,7 @@ ${jobsCtx || "No jobs found."}`;
                         if (pctOfDiv <= 0) return null;
                         return <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pctOfDiv}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", zIndex: 2 }} />;
                       })()}
-                      {isLastSeg && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                      {isLastSeg && _tailPx >= 12 && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: Math.max(3, Math.min(10, _tailPx / 3)), cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     </div>;
                   })];
                 })}
@@ -14638,27 +14761,19 @@ ${jobsCtx || "No jobs found."}`;
         const sAmpm = sH >= 12 ? "PM" : "AM"; const sH12 = sH > 12 ? sH - 12 : sH === 0 ? 12 : sH;
         const timeStr = `${sH12}:${String(sM).padStart(2, "0")} ${sAmpm}`;
         const startLabel = teamDragInfo.snapStart ? new Date(teamDragInfo.snapStart + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : "";
+        // Same walk the ghost and the drop use, so the time in the tooltip is the time
+        // the bar actually lands on — a 1h job dropped at 4pm reads "→ 5:00 PM", on the
+        // same day, instead of being reported as spilling into tomorrow.
         const _ttBarHpd = teamDragInfo.barHpd || 0;
-        const _ttTotalClockH = productiveHoursPerDay > 0 ? (_ttBarHpd / productiveHoursPerDay) * totalWorkH : 0;
-        const _ttFirstDayAvailH = workEndH - teamDragInfo.dropHour;
-        let endLabel, endTimeStr;
-        if (_ttTotalClockH <= _ttFirstDayAvailH) {
-          endLabel = startLabel;
-          const _rawEndH = Math.round((teamDragInfo.dropHour + _ttTotalClockH) * 2) / 2;
-          const eH = Math.floor(_rawEndH); const eM = (_rawEndH % 1) >= 0.5 ? 30 : 0;
-          const eAmpm = eH >= 12 ? "PM" : "AM"; const eH12 = eH > 12 ? eH - 12 : eH === 0 ? 12 : eH;
-          endTimeStr = `${eH12}:${String(eM).padStart(2, "0")} ${eAmpm}`;
-        } else {
-          let _rem = _ttTotalClockH - _ttFirstDayAvailH;
-          let _daysForward = 1;
-          while (_rem > totalWorkH) { _rem -= totalWorkH; _daysForward++; }
-          const _endDate = teamDragInfo.snapStart ? addBD(teamDragInfo.snapStart, _daysForward) : "";
-          endLabel = _endDate ? new Date(_endDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }) : startLabel;
-          const _rawEndH = Math.round((workStartH + _rem) * 2) / 2;
-          const eH = Math.floor(_rawEndH); const eM = (_rawEndH % 1) >= 0.5 ? 30 : 0;
-          const eAmpm = eH >= 12 ? "PM" : "AM"; const eH12 = eH > 12 ? eH - 12 : eH === 0 ? 12 : eH;
-          endTimeStr = `${eH12}:${String(eM).padStart(2, "0")} ${eAmpm}`;
-        }
+        const _ttWalk = walkProductiveHours(teamDragInfo.dropHour, _ttBarHpd, dayWindowCfg);
+        const _endDate = teamDragInfo.snapStart ? addBD(teamDragInfo.snapStart, _ttWalk.days - 1) : "";
+        const endLabel = (_ttWalk.days > 1 && _endDate)
+          ? new Date(_endDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
+          : startLabel;
+        const _rawEndH = Math.round(_ttWalk.endHour * 60) / 60;
+        const eH = Math.floor(_rawEndH + 1e-9); const eM = Math.round((_rawEndH - eH) * 60);
+        const eAmpm = eH >= 12 ? "PM" : "AM"; const eH12 = eH > 12 ? eH - 12 : eH === 0 ? 12 : eH;
+        const endTimeStr = `${eH12}:${String(eM).padStart(2, "0")} ${eAmpm}`;
         label = `${startLabel}  ·  ${timeStr}  →  ${endLabel}  ·  ${endTimeStr}`;
       }
       return <div style={{ position: "fixed", left: teamDragInfo.cursorX + 16, top: teamDragInfo.cursorY - 36, background: "rgba(10,10,20,0.92)", color: "#fff", fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 12, pointerEvents: "none", zIndex: 9999, whiteSpace: "nowrap", boxShadow: "0 4px 20px rgba(0,0,0,0.5)", border: `1px solid ${T.accent}66`, backdropFilter: "blur(4px)" }}>{label}</div>;
