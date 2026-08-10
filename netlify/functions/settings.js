@@ -32,7 +32,9 @@ export async function handler(event) {
   if (event.httpMethod === "POST") {
     let member;
     try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
-    if (!member.isAdmin) return err(403, "Only admins can change org settings");
+    // Was a coarse isAdmin check, which meant the orgSettings toggle did nothing
+    // on the server: a restricted admin with it switched off could still POST here.
+    try { requirePerm(member, "orgSettings"); } catch (e) { return err(e.statusCode, e.message); }
     try {
       let settings;
       try { settings = JSON.parse(event.body); } catch { return err(400, "Invalid JSON"); }
