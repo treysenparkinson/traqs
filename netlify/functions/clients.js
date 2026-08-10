@@ -1,4 +1,5 @@
 import { requireOrgMember } from "./_utils/auth.js";
+import { requirePerm } from "./_utils/can.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
