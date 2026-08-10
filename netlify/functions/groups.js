@@ -36,15 +36,6 @@ export async function handler(event) {
   }
 
   // POST — save full groups array (member of the named org required).
-  //
-  // Deliberately NOT admin-gated, unlike the other write endpoints. The worker
-  // completion-request flow creates and joins a "Completion Requests" group
-  // (AppState.swift requestJobCompletion/requestTaskCompletion), so requiring
-  // admin here would stop the floor asking for work to be signed off.
-  //
-  // FUTURE CLEANUP: move that group creation server-side — have the completion
-  // request itself provision the group — and this endpoint can then be tightened
-  // to admin-only with users read-only, as originally intended.
   if (event.httpMethod === "POST") {
     let member;
     try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }

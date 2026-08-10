@@ -1,42 +1,7 @@
 import { randomBytes } from "crypto";
 import { requireOrgMember } from "./_utils/auth.js";
-import { writeBinary, readBinaryWithMeta, readJson } from "./_utils/s3.js";
+import { writeBinary, readBinaryWithMeta } from "./_utils/s3.js";
 import { CORS, preflight, json, err } from "./_utils/cors.js";
-
-// How long after clocking out a worker may still attach their finish-of-job
-// photo. Long enough to take and upload a picture, short enough that the
-// allowance isn't a standing upload permission.
-const JOB_FINISH_WINDOW_MS = 5 * 60 * 1000;
-
-/**
- * True when the caller has just finished a shift: no open clock-in, and their
- * most recent clock-out is inside the window. Read from payhours.json, which is
- * the authoritative punch log — the person record only carries the OPEN punch.
- */
-async function recentlyClockedOut(member) {
-  const personId = member?.personId;
-  if (!personId) return false;
-  try {
-    const people = await readJson(`orgs/${member.orgCode}/people.json`) ?? [];
-    const me = (Array.isArray(people) ? people : []).find(p => String(p?.id) === String(personId));
-    // Still on the clock — the shift isn't finished, so this isn't a finish photo.
-    if (me?.activeClockIn) return false;
-
-    const rows = await readJson(`orgs/${member.orgCode}/payhours.json`) ?? [];
-    let latest = 0;
-    for (const e of Array.isArray(rows) ? rows : []) {
-      if (!e || e.deletedAt || e.eventType || !e.clockOut) continue;
-      if (String(e.personId) !== String(personId)) continue;
-      const t = new Date(e.clockOut).getTime();
-      if (Number.isFinite(t) && t > latest) latest = t;
-    }
-    return latest > 0 && (Date.now() - latest) <= JOB_FINISH_WINDOW_MS;
-  } catch (e) {
-    // Fail closed: if we can't prove they just clocked out, don't allow it.
-    console.warn("[attachment] clock-out check failed:", e?.message || e);
-    return false;
-  }
-}
 
 const ALLOWED_TYPES = new Set([
   "image/jpeg",
@@ -77,33 +42,9 @@ export async function handler(event) {
       return err(400, "Invalid JSON body");
     }
 
-    const { filename, mimeType, data, context } = body ?? {};
+    const { filename, mimeType, data } = body ?? {};
     if (!filename || !mimeType || !data) return err(400, "Missing required fields: filename, mimeType, data");
     if (!ALLOWED_TYPES.has(mimeType)) return err(400, "File type not allowed");
-
-    // ── Upload authorization ────────────────────────────────────────────────
-    // API contract: `context` declares what the upload is FOR. The endpoint had
-    // no such notion, so it could not tell a worker's finish-of-job photo from
-    // any other upload and allowed every member to post anything.
-    //
-    //   "jobFinish" — a worker's end-of-job photo. Allowed when they have just
-    //                 clocked out (within JOB_FINISH_WINDOW_MS) and are not
-    //                 currently on the clock. Admins always allowed.
-    //   "message"   — chat attachment. Any member.
-    //   "other"     — admins only.
-    //
-    // Unknown or missing context falls through to "other", so an old client that
-    // sends no context fails safe rather than keeping the old open behaviour.
-    const ctx = context === "jobFinish" || context === "message" ? context : "other";
-    if (ctx === "other" && !member.isAdmin) {
-      return err(403, "Only admins can upload this attachment");
-    }
-    if (ctx === "jobFinish" && !member.isAdmin) {
-      const allowed = await recentlyClockedOut(member);
-      if (!allowed) {
-        return err(403, "Job-finish photos can only be uploaded just after clocking out");
-      }
-    }
 
     let buffer;
     try {

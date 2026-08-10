@@ -1,5 +1,4 @@
 import { requireOrgMember } from "./_utils/auth.js";
-import { can } from "./_utils/can.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey } from "./_utils/org.js";
@@ -15,7 +14,7 @@ import { encryptPin, decryptPin } from "./_utils/pin.js";
 const PROTECTED_PERSON_FIELDS = [
   "timeOff", "payType", "cap", "adminPerms", "canClockInOut", "canSignOff",
   "noAutoSchedule", "autoSchedule", "teamNumber", "userRole", "role",
-  "department", "isEngineer",
+  "department", "isEngineer", "isTeamLead",
 ];
 
 // Normalize a person's activeBreak so an active break always carries a startedAt.
@@ -105,7 +104,7 @@ export async function handler(event) {
         return old ? old.userRole !== p.userRole : p.userRole === "admin";
       });
 
-      if (hasRoleChange && !can(member, "manageTeam")) {
+      if (hasRoleChange && !member.isAdmin) {
         return err(403, "Only admins can change user roles");
       }
 
@@ -134,7 +133,7 @@ export async function handler(event) {
         // pushToken) on their OWN record. Other people's records are preserved
         // verbatim, and escalation-sensitive fields on their own record are
         // pinned to the stored value. Admins bypass this.
-        if (!can(member, "manageTeam") && stored) {
+        if (!member.isAdmin && stored) {
           const isSelf = callerId != null && String(p.id) === callerId;
           if (!isSelf) {
             np = { ...stored };
@@ -169,7 +168,7 @@ export async function handler(event) {
       // Non-admins can't create people — drop any incoming record with no stored
       // counterpart. (They still send the full roster, so existing rows aren't
       // tombstoned by this.)
-      const safeMerged = can(member, "manageTeam") ? merged : merged.filter(p => existingMap.has(p.id));
+      const safeMerged = member.isAdmin ? merged : merged.filter(p => existingMap.has(p.id));
       const reconciled = reconcileDeletions(safeMerged, existing, tombstoneWithoutPin);
       await writeJson(s3Key, stampArray(reconciled, existing));
       await publishChange(member.orgCode, "people", { ids: changedIds(reconciled, existing) });
@@ -209,19 +208,19 @@ export async function handler(event) {
       // etc.). Admins can patch anyone. Without this gate, any authenticated
       // org member could overwrite a colleague's pushToken or department.
       const targetIsSelf = member.personId && String(member.personId) === String(personId);
-      if (!can(member, "manageTeam") && !targetIsSelf) {
+      if (!member.isAdmin && !targetIsSelf) {
         return err(403, "Can only modify your own profile");
       }
 
       // Role changes still require admin even via PATCH.
       if ("userRole" in allowedFields && allowedFields.userRole !== existing[idx].userRole) {
-        if (!can(member, "manageTeam")) return err(403, "Your account does not have permission to add, edit & remove team members");
+        if (!member.isAdmin) return err(403, "Only admins can change user roles");
       }
 
       // Non-admins may only patch SAFE profile fields on their own row — strip
       // any escalation-sensitive fields (PTO/pay/permissions/department/…) so a
       // self-PATCH can't bypass the timeoff.js approval flow or grant permissions.
-      if (!can(member, "manageTeam")) {
+      if (!member.isAdmin) {
         for (const k of PROTECTED_PERSON_FIELDS) delete allowedFields[k];
       }
 

@@ -1,6 +1,4 @@
 import { requireOrgMember } from "./_utils/auth.js";
-import { requirePerm, canApprove, canEngineer } from "./_utils/can.js";
-import { classifyTaskChanges } from "./_utils/task-perms.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
@@ -64,31 +62,6 @@ export async function handler(event) {
         if (Array.isArray(existing) && existing.some(r => r && !r.deletedAt)) {
           return err(409, "Refusing to overwrite non-empty tasks with empty array");
         }
-      }
-
-      // ── Permission check ────────────────────────────────────────────────
-      // This endpoint takes a whole-array replace, so the only way to tell a
-      // job creation from a bar drag is to diff against what is stored and
-      // demand the permission that matches. Before this, membership alone was
-      // enough: any worker could POST a replacement schedule, and the Jobs
-      // page hiding its buttons was the only thing stopping them.
-      //
-      // An unchanged tree is always allowed — autosave re-POSTs constantly and
-      // a no-op save must never 403.
-      try {
-        const cls = classifyTaskChanges(tasks, Array.isArray(existing) ? existing : []);
-        if (cls.changed) {
-          for (const key of cls.perms) requirePerm(member, key);
-          if (cls.needsApprove && !canApprove(member)) {
-            return err(403, "You do not have permission to sign off work");
-          }
-          if (cls.needsEngineer && !canEngineer(member)) {
-            return err(403, "Only engineers can change engineering steps");
-          }
-        }
-      } catch (e) {
-        if (e?.statusCode) return err(e.statusCode, e.message);
-        throw e;
       }
 
       // Turn client-side deletions (ids in `existing` but absent from the

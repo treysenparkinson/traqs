@@ -1,7 +1,6 @@
 import { readJson, writeJson, copyPrefix } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { requireOrgMember } from "./_utils/auth.js";
-import { requirePerm } from "./_utils/can.js";
 import { nowIso, stampObject } from "./_utils/timestamps.js";
 import { publishChange } from "./_utils/ably-publish.js";
 import { sendSilentPush } from "./_utils/push.js";
@@ -133,7 +132,7 @@ export async function handler(event) {
 
     // ── Update the display name only (no S3 prefix migration) ──
     if (newName && !newCode) {
-      try { requirePerm(member, "orgSettings"); } catch (e) { return err(e.statusCode, e.message); }
+      if (!member.isAdmin) return err(403, "Admin only");
       const trimmed = String(newName).trim();
       if (!trimmed) return err(400, "Name cannot be empty");
       if (trimmed.length > 80) return err(400, "Name too long (max 80 chars)");
@@ -156,7 +155,7 @@ export async function handler(event) {
     }
 
     // ── Rename the org code (existing path; optionally also update name) ──
-    try { requirePerm(member, "orgSettings"); } catch (e) { return err(e.statusCode, e.message); }
+    if (!member.isAdmin) return err(403, "Admin only");
     if (!isValidCode(newCode)) return err(400, "Invalid new code — must be 3–20 alphanumeric characters");
     if (newCode.toUpperCase() === currentCode.toUpperCase()) return err(400, "New code is the same as current code");
 

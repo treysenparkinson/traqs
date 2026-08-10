@@ -27,11 +27,7 @@ export async function handler(event) {
   }
 
   if (event.httpMethod === "POST") {
-    let member;
-    try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
-    // Was membership-only: any worker could rewrite the client list. The Clients
-    // page hides its buttons behind can("manageClients"), and now so does the API.
-    try { requirePerm(member, "manageClients"); } catch (e) { return err(e.statusCode, e.message); }
+    try { await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
     try {
       let clients;
       try { clients = JSON.parse(event.body); } catch { return err(400, "Invalid JSON"); }

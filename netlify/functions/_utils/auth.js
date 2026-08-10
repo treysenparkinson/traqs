@@ -302,22 +302,6 @@ export async function requireOrgMember(event) {
     email,
     personId: me?.id != null ? String(me.id) : null,
     isAdmin: (me?.userRole === "admin") || isOrgAdmin,
-    // Granular permissions, so the server can enforce the same toggles the web
-    // UI shows instead of trusting the client to hide its own buttons.
-    //
-    // `null` means UNRESTRICTED, matching the web's `adminPerms == null` branch.
-    // Two cases must resolve to null or they lock people out of their own org:
-    //   - legacy admins predate the toggles and have no adminPerms object;
-    //   - the bootstrap admin is an email in config.adminEmail(s) and may have
-    //     no person record at all, so there is nothing to read perms from.
-    // A restricted admin's `{}` is NOT nullish and is preserved as-is, which is
-    // what makes "admin with every toggle off" mean no write access.
-    adminPerms: isOrgAdmin ? null : (me?.adminPerms ?? null),
-    // Clock access is a per-person switch the UI hides a button for; the
-    // timeclock endpoint enforces it (see canClockIn in can.js).
-    canClockInOut: me?.canClockInOut !== false,
-    canSignOff: me?.canSignOff === true,
-    isEngineer: me?.isEngineer === true,
   };
   if (sub) _capAndSet(memberCache, MEMBER_MAX, `${sub}:${orgCode}`, { result, at: Date.now() });
   return { orgCode, ...result, payload };
