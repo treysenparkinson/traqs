@@ -8491,7 +8491,7 @@ ${jobsCtx || "No jobs found."}`;
           reader.readAsDataURL(file);
         });
         const att = await uploadAttachment(
-          { filename: file.name, mimeType: file.type || "application/octet-stream", data },
+          { filename: file.name, mimeType: file.type || "application/octet-stream", data, context: "message" },
           getToken, orgCode
         );
         setChatAttachments(prev => [...prev, att]);
@@ -8517,7 +8517,7 @@ ${jobsCtx || "No jobs found."}`;
     const date = new Date().toISOString().slice(0, 10);
     const safeTitle = ((panel?.title || "panel").trim().replace(/\s+/g, "_") || "panel");
     const filename = `${safeTitle}_${date}.jpg`;
-    const att = await uploadAttachment({ filename, mimeType: "image/jpeg", data }, getToken, orgCode);
+    const att = await uploadAttachment({ filename, mimeType: "image/jpeg", data, context: "jobFinish" }, getToken, orgCode);
     const meta = { ...att, filename, uploadedById: loggedInUser?.id || null, uploadedByName: loggedInUser?.name || "", uploadedAt: new Date().toISOString(), opId: target.opId || null };
     let nextTasks = null;
     setTasks(prev => {

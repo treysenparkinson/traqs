@@ -2253,7 +2253,7 @@ class AppState {
             throw APIError.unknown(NSError(domain: "TRAQS", code: 0,
                 userInfo: [NSLocalizedDescriptionKey: "Service unavailable — try again."]))
         }
-        let result = try await api.uploadAttachment(filename: filename, mimeType: mimeType, data: data)
+        let result = try await api.uploadAttachment(filename: filename, mimeType: mimeType, data: data, context: "jobFinish")
         let meta = PanelAttachment(
             key: result.key,
             filename: result.filename,
@@ -2281,7 +2281,7 @@ class AppState {
             throw APIError.unknown(NSError(domain: "TRAQS", code: 0,
                 userInfo: [NSLocalizedDescriptionKey: "Service unavailable — try again."]))
         }
-        let r = try await api.uploadAttachment(filename: filename, mimeType: mimeType, data: data)
+        let r = try await api.uploadAttachment(filename: filename, mimeType: mimeType, data: data, context: "message")
         return Attachment(key: r.key, filename: r.filename, mimeType: r.mimeType, size: r.size)
     }
 

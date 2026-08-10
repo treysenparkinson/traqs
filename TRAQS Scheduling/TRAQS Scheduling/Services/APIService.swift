@@ -357,12 +357,17 @@ struct APIService {
         let mimeType: String
         let size: Int
     }
-    func uploadAttachment(filename: String, mimeType: String, data: Data) async throws -> AttachmentResult {
+    /// `context` declares what the upload is FOR, and the server authorizes on it:
+    /// "jobFinish" (worker, just after clocking out), "message" (any member),
+    /// "other" (admins). An unrecognised or absent value is treated as "other".
+    func uploadAttachment(filename: String, mimeType: String, data: Data,
+                          context: String = "other") async throws -> AttachmentResult {
         let base64 = data.base64EncodedString()
         let body = try JSONSerialization.data(withJSONObject: [
             "filename": filename,
             "mimeType": mimeType,
             "data": "data:\(mimeType);base64,\(base64)",
+            "context": context,
         ])
         let req = try await request("attachment", method: "POST", body: body)
         let resp = try await perform(req)
