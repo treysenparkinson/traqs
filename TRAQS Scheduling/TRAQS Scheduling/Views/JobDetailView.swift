@@ -350,9 +350,26 @@ struct PanelCard: View {
 
 struct OperationRow: View {
     @Environment(AppState.self) private var appState
+    @State private var showTeamPicker = false
     let op: Operation
     let job: Job
     let panel: Panel
+
+    /// Reassign this op's crew.
+    ///
+    /// Deliberately NOT wrapped in performOptimistic. Job writes already carry
+    /// their own optimistic rollback: updateJobs snapshots into rollbackSnapshot
+    /// and persistJobs restores it if the save fails (AppState persistJobs catch).
+    /// performOptimistic wants a throwing serverCall to await, but job saves are
+    /// debounced and non-throwing — wrapping this would add a second, racing
+    /// rollback on top of the one that already works.
+    private func assignTeam(_ ids: Set<String>) {
+        var next = job
+        guard let pi = next.subs.firstIndex(where: { $0.id == panel.id }),
+              let oi = next.subs[pi].subs.firstIndex(where: { $0.id == op.id }) else { return }
+        next.subs[pi].subs[oi].team = Array(ids)
+        appState.updateJob(next)
+    }
     var highlighted: Bool = false
 
     private var allOps: [Operation] { job.subs.flatMap { $0.subs } }
@@ -412,9 +429,29 @@ struct OperationRow: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 6) {
-                    Text(op.team.compactMap { appState.person(id: $0)?.name }.joined(separator: ", "))
-                        .font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted))
-                        .lineLimit(1)
+                    // There is no op-level detail screen, so the crew line on the
+                    // card doubles as the editor when the user may reassign.
+                    if appState.can(.reassign) {
+                        Button { showTeamPicker = true } label: {
+                            HStack(spacing: 4) {
+                                Text(op.team.isEmpty
+                                     ? "Assign"
+                                     : op.team.compactMap { appState.person(id: $0)?.name }.joined(separator: ", "))
+                                    .font(TTypo.xs(11))
+                                    .foregroundStyle(Color(hex: op.team.isEmpty ? T.accent : T.muted))
+                                    .lineLimit(1)
+                                Image(systemName: "pencil")
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundStyle(Color(hex: T.muted))
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Text(op.team.compactMap { appState.person(id: $0)?.name }.joined(separator: ", "))
+                            .font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted))
+                            .lineLimit(1)
+                    }
                     if appState.clockedInPersonId != nil && op.pendingFinish != true {
                         Button {
                             Task {
@@ -446,6 +483,11 @@ struct OperationRow: View {
             }
         }
         .opacity(depsBlocked ? 0.55 : 1.0)
+        .sheet(isPresented: $showTeamPicker) {
+            TeamPicker(title: op.title, initial: op.team) { picked in
+                assignTeam(picked)
+            }
+        }
     }
 }
 

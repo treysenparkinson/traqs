@@ -19,11 +19,19 @@ struct JobEditView: View {
     @State private var color = "#7c3aed"
     @State private var editDeps: Set<String> = []
     @State private var isSaving = false
+    @State private var team: [String] = []
+    @State private var showTeamPicker = false
 
     private var isEditing: Bool { job != nil }
 
     private var canEditDeps: Bool {
         appState.can(.editJobs)
+    }
+
+    /// Handing work to a different person is a reassignment, which is its own
+    /// toggle — separate from editing the job's other fields.
+    private var canEditTeam: Bool {
+        appState.can(.reassign)
     }
 
     private var otherJobs: [Job] {
@@ -128,9 +136,32 @@ struct JobEditView: View {
                     }
                 }
 
+                // Team was previously preserved verbatim and only editable on
+                // desktop, which forced a trip to a laptop to reassign work.
+                if canEditTeam {
+                    Section("Team") {
+                        Button { showTeamPicker = true } label: {
+                            HStack {
+                                TeamSummary(ids: team)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
                 Section("Notes") {
                     TextEditor(text: $notes)
                         .frame(minHeight: 80)
+                }
+            }
+            .sheet(isPresented: $showTeamPicker) {
+                TeamPicker(title: "Job Team", initial: team) { picked in
+                    team = Array(picked)
                 }
             }
             .navigationTitle(isEditing ? "Edit Job" : "New Job")
@@ -167,6 +198,7 @@ struct JobEditView: View {
         notes = job.notes
         color = job.color
         editDeps = Set(job.deps)
+        team = job.team
     }
 
     private func save() {
@@ -193,6 +225,9 @@ struct JobEditView: View {
         updated.notes = notes
         updated.clientId = selectedClientId
         updated.deps = Array(editDeps)
+        // Only written when the user may reassign; otherwise the existing team
+        // rides through untouched exactly as before.
+        if canEditTeam { updated.team = team }
         let clientName = appState.clients.first(where: { $0.id == selectedClientId })?.name
         appState.updateJob(updated, sendNotification: true, clientName: clientName)
         isSaving = false
