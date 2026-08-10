@@ -907,9 +907,19 @@ struct ChatGroup: Codable, Identifiable, Equatable {
     var id: String
     var name: String
     var memberIds: [String]
+    /// Who created the group. The desktop writes this (and createdAt) on every
+    /// group it creates, but iOS did not decode either — and since saveGroups is
+    /// a whole-array replace that the server stores verbatim (no field-level
+    /// merge), any group edited from iOS came back with the creator stripped.
+    /// Carried here so the round-trip is lossless AND so "only the creator or an
+    /// admin may rename/delete" has something to check.
+    var createdBy: String?
+    var createdAt: String?
 
-    init(id: String, name: String, memberIds: [String]) {
+    init(id: String, name: String, memberIds: [String],
+         createdBy: String? = nil, createdAt: String? = nil) {
         self.id = id; self.name = name; self.memberIds = memberIds
+        self.createdBy = createdBy; self.createdAt = createdAt
     }
 
     init(from decoder: Decoder) throws {
@@ -917,6 +927,9 @@ struct ChatGroup: Codable, Identifiable, Equatable {
         id        = (try? c.decodeFlexID(forKey: .id)) ?? ""
         name      = (try? c.decode(String.self, forKey: .name)) ?? ""
         memberIds = c.decodeFlexIDs(forKey: .memberIds)
+        // Flex-decoded: person ids are mixed String/Int across the web app.
+        createdBy = (try? c.decodeFlexID(forKey: .createdBy))
+        createdAt = try? c.decodeIfPresent(String.self, forKey: .createdAt)
     }
 }
 

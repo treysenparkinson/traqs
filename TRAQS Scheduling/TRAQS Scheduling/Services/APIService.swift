@@ -268,9 +268,12 @@ struct APIService {
         return try decoder.decode([ChatGroup].self, from: data)
     }
 
-    func saveGroups(_ groups: [ChatGroup]) async throws {
+    /// `force` bypasses the endpoint's empty-overwrite guard. Needed only when
+    /// deleting your last group legitimately posts an empty array, which the
+    /// guard would otherwise refuse with a 409.
+    func saveGroups(_ groups: [ChatGroup], force: Bool = false) async throws {
         let body = try JSONEncoder().encode(groups)
-        let req = try await request("groups", method: "POST", body: body)
+        let req = try await request(force ? "groups?force=1" : "groups", method: "POST", body: body)
         _ = try await perform(req)
     }
 

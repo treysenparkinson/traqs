@@ -1492,7 +1492,10 @@ class AppState {
         if !trimmed.isEmpty, let existing = groups.first(where: { $0.name == trimmed }) {
             return existing
         }
-        let group = ChatGroup(id: UUID().uuidString, name: trimmed, memberIds: memberIds)
+        // Stamp the creator, matching what the desktop writes — it's what decides
+        // who may later rename or delete the group.
+        let group = ChatGroup(id: UUID().uuidString, name: trimmed, memberIds: memberIds,
+                              createdBy: currentPersonId, createdAt: Date.nowISO())
         // Optimistic local update so the inbox surfaces the new group
         // immediately. The server save runs in the background.
         var updated = groups
@@ -1520,6 +1523,14 @@ class AppState {
         guard let api else { return }
         guard let idx = groups.firstIndex(where: { $0.id == id }) else { return }
         guard !memberIds.isEmpty else { return }   // a group with nobody in it isn't one
+        // Was ungated: anyone in a group could rename it and remove anybody else.
+        // Renaming and changing the roster are now creator/admin actions; the one
+        // change a plain member may make is dropping THEMSELVES (leaving), which
+        // removeGroupMember handles.
+        let current = groups[idx]
+        let renaming = current.name != name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rosterChanged = Set(current.memberIds) != Set(memberIds)
+        if (renaming || rosterChanged) && !canAdministerGroup(current) { return }
         var updated = groups
         updated[idx].name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         updated[idx].memberIds = memberIds
@@ -1535,6 +1546,60 @@ class AppState {
     /// keys are keyed by id); the "Completion Requests" system group is looked up
     /// by its well-known name. Named `groupRef` rather than `groupName` because a
     /// name is no longer guaranteed to exist or to be unique.
+    // MARK: Group management
+    //
+    // All three go through saveGroups, which is a whole-array replace. Each keeps
+    // the optimistic-then-persist shape the surrounding group calls already use:
+    // update `groups` immediately, save in the background, restore on failure.
+    // Not performOptimistic — these need the pre-edit array captured before the
+    // mutation, which the helper's closure signature can express but which would
+    // read worse than the local snapshot the neighbouring methods already use.
+
+    /// May this person rename or delete the group? Creator or admin. Groups
+    /// created before createdBy was carried have no creator, so admins are the
+    /// only ones who can administer them — deliberately strict rather than
+    /// letting anyone rename an unowned group.
+    func canAdministerGroup(_ group: ChatGroup) -> Bool {
+        if isAdmin { return true }
+        guard let owner = group.createdBy, let me = currentPersonId else { return false }
+        return owner == me
+    }
+
+    /// Remove a member. Anyone may remove THEMSELVES (leave); removing someone
+    /// else takes creator or admin rights.
+    func removeGroupMember(groupId: String, personId: String) async {
+        guard let api else { return }
+        guard let idx = groups.firstIndex(where: { $0.id == groupId }) else { return }
+        let isSelf = personId == currentPersonId
+        guard isSelf || canAdministerGroup(groups[idx]) else { return }
+        let previous = groups
+        var updated = groups
+        updated[idx].memberIds.removeAll { $0 == personId }
+        groups = updated
+        do { try await api.saveGroups(updated) }
+        catch {
+            groups = previous
+            errorMessage = "Failed to update group: \(error.localizedDescription)"
+        }
+    }
+
+    /// Delete a group outright. `force=1` on the save is deliberate: deleting
+    /// your only group legitimately posts an empty array, which the endpoint's
+    /// empty-overwrite guard would otherwise refuse with a 409.
+    func deleteGroup(id: String) async {
+        guard let api else { return }
+        guard let idx = groups.firstIndex(where: { $0.id == id }),
+              canAdministerGroup(groups[idx]) else { return }
+        let previous = groups
+        let updated = groups.filter { $0.id != id }
+        groups = updated
+        do { try await api.saveGroups(updated, force: updated.isEmpty) }
+        catch {
+            groups = previous
+            errorMessage = "Failed to delete group: \(error.localizedDescription)"
+        }
+    }
+
     func addGroupMembers(groupRef: String, add ids: [String]) async {
         guard let api else { return }
         guard let idx = groups.firstIndex(where: { $0.id == groupRef || $0.name == groupRef }) else { return }

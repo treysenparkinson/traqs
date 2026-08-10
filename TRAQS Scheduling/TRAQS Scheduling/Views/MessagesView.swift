@@ -2476,6 +2476,8 @@ struct EditGroupSheet: View {
 
     @State private var name: String
     @State private var selectedIds: Set<String>
+    @State private var showLeaveConfirm = false
+    @State private var showDeleteConfirm = false
 
     init(group: ChatGroup, onSave: @escaping (String, [String]) -> Void) {
         self.group = group
@@ -2561,9 +2563,58 @@ struct EditGroupSheet: View {
                         .buttonStyle(.plain)
                         .disabled(selectedIds.isEmpty)
                         .padding(.horizontal, 16)
+
+                        // Leaving and deleting were the two gaps: renaming and
+                        // roster edits already lived above, but there was no way
+                        // to get OUT of a group or remove one entirely.
+                        VStack(spacing: 10) {
+                            Button {
+                                showLeaveConfirm = true
+                            } label: {
+                                Label("Leave Group", systemImage: "rectangle.portrait.and.arrow.right")
+                                    .font(TTypo.smBold(14))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    .foregroundColor(Color(hex: T.amber))
+                            }
+                            .buttonStyle(.plain)
+
+                            if appState.canAdministerGroup(group) {
+                                Button {
+                                    showDeleteConfirm = true
+                                } label: {
+                                    Label("Delete Group", systemImage: "trash")
+                                        .font(TTypo.smBold(14))
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                        .foregroundColor(Color(hex: T.danger))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 16)
                         .padding(.bottom, 24)
                     }
                 }
+            }
+            .confirmationDialog("Leave this group?", isPresented: $showLeaveConfirm, titleVisibility: .visible) {
+                Button("Leave", role: .destructive) {
+                    guard let me = appState.currentPersonId else { return }
+                    dismiss()
+                    Task { await appState.removeGroupMember(groupId: group.id, personId: me) }
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("You'll stop receiving messages from this group.")
+            }
+            .confirmationDialog("Delete this group?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
+                Button("Delete", role: .destructive) {
+                    dismiss()
+                    Task { await appState.deleteGroup(id: group.id) }
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This removes the group for everyone in it.")
             }
             .navigationTitle("Edit Group")
             .navigationBarTitleDisplayMode(.inline)
