@@ -7289,6 +7289,16 @@ Extraction rules:
     setExportSelOpen(true);
   };
   const closeExportSheet = () => { setExportSelOpen(false); setExportScopeJob(null); };
+  // Past Logs is a page on desktop, opened from the Time Clock page. setModal, not
+  // pushModal: the Time Clock is a plain view rather than a stacked page, so this is a
+  // top-level open and Back returns to it. Mobile keeps the portalled overlay, which is
+  // already a full-screen sheet there.
+  const openPastLogs = () => {
+    setPastLogsOffset(-1);
+    setPastLogsOpen(true);
+    if (!isMobile) setModal({ type: "pastLogs", data: null, parentId: null });
+  };
+  const closePastLogs = () => { setPastLogsOpen(false); if (!isMobile) popModal(); };
   // Kept as a name for call sites that specifically mean "open the owning job";
   // openDetail resolves the same way now, so they are equivalent.
   const openJobDetail = openDetail;
@@ -17273,14 +17283,22 @@ ${jobsCtx || "No jobs found."}`;
       const period = getActivePeriodAtOffset(TD, pastLogsOffset);
       const isCurrent = pastLogsOffset === 0;
       const staff = people.filter(p => p.payType !== "salary");
-      return createPortal(
-        <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10015, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflow: "auto" }} onClick={() => setPastLogsOpen(false)}>
-          <div style={{ background: T.card, borderRadius: 20, width: "100%", maxWidth: 620, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", animation: "slideUp 0.22s ease-out", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
+      // Desktop renders this as a page inside the content panel; mobile keeps the
+      // portalled overlay, which is already a full-screen sheet there.
+      const asPage = !isMobile;
+      const node = (
+        <div className={asPage ? "" : "anim-modal-overlay"} style={asPage
+          ? { position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflowY: "auto", overflowX: "hidden", background: "transparent", padding: "34px 32px 28px", fontFamily: T.font }
+          : { position: "fixed", inset: 0, zIndex: 10015, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflow: "auto" }} onClick={asPage ? undefined : closePastLogs}>
+          <div style={asPage
+            ? { background: "transparent", borderRadius: 0, width: "100%", maxWidth: FIELD_COL_W, marginLeft: "auto", marginRight: "auto", border: "none", boxShadow: "none", fontFamily: T.font }
+            : { background: T.card, borderRadius: 20, width: "100%", maxWidth: 620, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", animation: "slideUp 0.22s ease-out", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
             {/* Header */}
-            <div style={{ padding: "18px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+            {asPage && pageHead("Past Logs", { onBack: closePastLogs })}
+            <div style={{ display: asPage ? "none" : "flex", padding: "18px 24px", borderBottom: `1px solid ${T.border}`, alignItems: "center", gap: 12 }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
               <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Past Logs</span>
-              <button onClick={() => setPastLogsOpen(false)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 20, cursor: "pointer", lineHeight: 1, padding: "0 2px" }}>✕</button>
+              <button onClick={closePastLogs} style={{ background: "none", border: "none", color: T.textDim, fontSize: 20, cursor: "pointer", lineHeight: 1, padding: "0 2px" }}>✕</button>
             </div>
 
             {/* Pay-period selector */}
@@ -17339,9 +17357,11 @@ ${jobsCtx || "No jobs found."}`;
               })}
             </div>
           </div>
-        </div>,
-        document.body
+        </div>
       );
+      // As a page it renders inline where the content panel puts it; as an overlay it
+      // still portals to the body so position:fixed escapes any transformed ancestor.
+      return asPage ? node : createPortal(node, document.body);
     };
 
     // ── Job clock helpers ─────────────────────────────────────────────────────
@@ -17780,7 +17800,7 @@ ${jobsCtx || "No jobs found."}`;
           {/* Header */}
           <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0, background: T.surface }}>
             {isAdmin && (
-              <button onClick={() => { setPastLogsOffset(-1); setPastLogsOpen(true); }} title="Browse past pay-period logs" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 11px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>
+              <button onClick={openPastLogs} title="Browse past pay-period logs" style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "7px 11px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>
                 <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
                 Past Logs
               </button>
@@ -18251,7 +18271,8 @@ ${jobsCtx || "No jobs found."}`;
         {renderPersonEditModal()}
         {renderStartJobPicker()}
         {renderConfirmModal()}
-        {renderPastLogsModal()}
+        {/* Mobile only — on desktop this renders as a page via renderModal, and mounting it here too would draw it twice. */}
+        {isMobile ? renderPastLogsModal() : null}
         {/* Header — page title always; Past Logs / Export Hours / Confirm Time
             Sheet are admin-only and simply absent for everyone else. */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", minHeight: 50 }}>
@@ -18262,7 +18283,7 @@ ${jobsCtx || "No jobs found."}`;
                   chrome-coloured pill (T.systemBg fill, T.border ring, T.text label),
                   which on a page with a background image related to nothing behind it. */}
               {isAdmin && (
-            <button onClick={() => { setPastLogsOffset(-1); setPastLogsOpen(true); }} title="Browsepast pay-period logs" style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.surface, color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+            <button onClick={openPastLogs} title="Browse past pay-period logs" style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.surface, color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
               Past Logs
             </button> )}
@@ -21366,6 +21387,9 @@ ${jobsCtx || "No jobs found."}`;
     // one so it can be called from here. Client Edit lives further down the tree than
     // renderModal can reach, so it portals into the panel host instead (see the
     // content panel) and returns nothing here.
+    // Past Logs, like the client profile, renders through its own function defined
+    // above this one, so it can be called straight from here.
+    if (modal.type === "pastLogs") return renderPastLogsModal();
     if (modal.type === "clientDetail") return renderClientDetailModal();
     if (modal.type === "clientEdit") return null;
     if (modal.type === "detail") { const t = modal.data; if (!t) return null; const fresh = allItems.find(x => x.id === t.id) || t;
