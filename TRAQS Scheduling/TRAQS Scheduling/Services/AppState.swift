@@ -972,9 +972,51 @@ class AppState {
 
     /// Who may open the Approval Queue — mirrors desktop's
     /// `canSeeApprovalQueue = admin || canSignOff`.
+    /// Now includes engineers: the queue's original content IS the engineering
+    /// sign-off chain, so an engineer with neither admin nor canSignOff could
+    /// not open the one screen built for them.
     var canViewApprovalQueue: Bool {
         guard let p = currentPerson else { return false }
-        return p.isAdmin || p.canSignOff == true
+        return p.isAdmin || p.canSignOff == true || p.isEngineer == true
+    }
+
+    /// Finish requests this user may act on — anyone who can approve work.
+    ///
+    /// Job-level only: `finishRequests` lives on Job alone, and FinishRequestEntry
+    /// carries no panel/op reference, so which sub-unit a request came from isn't
+    /// recoverable from the model. requestTaskCompletion appends to the JOB even
+    /// when the worker tapped a specific op — the context is only in the chat
+    /// message it posts. Surfacing the job is therefore the honest granularity;
+    /// showing a panel name here would mean inventing one.
+    struct PendingFinish: Identifiable {
+        let job: Job
+        let request: FinishRequestEntry
+        var id: String { request.id }
+    }
+
+    /// Admin-gated, NOT canApproveWork. approveJobCompletion and
+    /// denyJobCompletion both guard on `me.isAdmin`, so listing these for a
+    /// canSignOff/isEngineer user would render buttons that silently do nothing.
+    /// Visibility is matched to what the mutation actually permits; widening it
+    /// means widening those two methods first, which is a security decision
+    /// rather than a queue one.
+    var pendingFinishRequests: [PendingFinish] {
+        guard isAdmin else { return [] }
+        var out: [PendingFinish] = []
+        for job in jobs {
+            for r in job.finishRequests ?? [] where r.status == "pending" {
+                out.append(PendingFinish(job: job, request: r))
+            }
+        }
+        return out.sorted { $0.request.at > $1.request.at }
+    }
+
+    /// Time-off awaiting a decision. Admin-only, matching timeoff.js, which
+    /// rejects a non-admin decision with 403 regardless of what the UI shows.
+    var pendingTimeOffRequests: [TimeOffRequest] {
+        guard isAdmin else { return [] }
+        return timeOffRequests.filter { $0.status == "pending" }
+            .sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") }
     }
 
     /// Count of panels awaiting an engineering sign-off step — drives the Jobs-tab
@@ -982,7 +1024,9 @@ class AppState {
     /// isn't fully signed off. Computed from `jobs` (@Observable), so it stays live
     /// via delta-sync and updates instantly after an optimistic signOff.
     var pendingApprovalCount: Int {
-        var n = 0
+        // Includes finish requests and time-off now that the queue lists them, so
+        // the badge matches what opening it actually shows.
+        var n = pendingFinishRequests.count + pendingTimeOffRequests.count
         for job in jobs {
             for panel in job.subs {
                 guard let eng = panel.engineering else { continue }

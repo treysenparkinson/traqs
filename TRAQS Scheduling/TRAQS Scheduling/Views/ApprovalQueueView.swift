@@ -123,12 +123,51 @@ struct ApprovalQueueView: View {
         .opacity(enabled ? 1 : 0.45)
     }
 
+    /// Finish requests and time-off, filtered by the same search box. Both are
+    /// already capability-gated in AppState, so an empty array here means either
+    /// nothing pending or no rights — the view doesn't need to know which.
+    private var finishItems: [AppState.PendingFinish] {
+        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
+        let all = appState.pendingFinishRequests
+        guard !q.isEmpty else { return all }
+        return all.filter {
+            $0.job.title.lowercased().contains(q)
+                || ($0.job.jobNumber ?? "").lowercased().contains(q)
+                || $0.request.byName.lowercased().contains(q)
+        }
+    }
+
+    private var timeOffItems: [TimeOffRequest] {
+        let q = search.trimmingCharacters(in: .whitespaces).lowercased()
+        let all = appState.pendingTimeOffRequests
+        guard !q.isEmpty else { return all }
+        return all.filter { $0.personName.lowercased().contains(q) || $0.type.lowercased().contains(q) }
+    }
+
+    private var nothingPending: Bool {
+        filtered.isEmpty && finishItems.isEmpty && timeOffItems.isEmpty
+    }
+
     @ViewBuilder private var content: some View {
-        if filtered.isEmpty {
+        if nothingPending {
             emptyState
         } else {
             ScrollView {
                 VStack(spacing: 0) {
+                    if !finishItems.isEmpty {
+                        TSectionTitle(title: "Finish Requests", action: "\(finishItems.count) PENDING")
+                        VStack(spacing: 12) {
+                            ForEach(finishItems) { FinishRequestRow(item: $0) }
+                        }
+                        .padding(.horizontal, 16)
+                    }
+                    if !timeOffItems.isEmpty {
+                        TSectionTitle(title: "Time Off", action: "\(timeOffItems.count) PENDING")
+                        VStack(spacing: 12) {
+                            ForEach(timeOffItems) { TimeOffQueueRow(request: $0) }
+                        }
+                        .padding(.horizontal, 16)
+                    }
                     ForEach(EngStep.allCases, id: \.self) { step in
                         let bucket = items(for: step)
                         if !bucket.isEmpty {
