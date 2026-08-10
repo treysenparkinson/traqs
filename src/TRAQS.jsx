@@ -17359,9 +17359,13 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
       );
-      // As a page it renders inline where the content panel puts it; as an overlay it
-      // still portals to the body so position:fixed escapes any transformed ancestor.
-      return asPage ? node : createPortal(node, document.body);
+      // As a page it portals into the content panel's host — this function lives inside
+      // renderTimeStamp, so renderModal can't call it directly the way it can the client
+      // profile. As an overlay it portals to the body so position:fixed escapes any
+      // transformed ancestor. Waits for the host node rather than falling back to the
+      // overlay, which would flash a scrim over the page for a frame.
+      if (asPage) return pagePortalHost ? createPortal(node, pagePortalHost) : null;
+      return createPortal(node, document.body);
     };
 
     // ── Job clock helpers ─────────────────────────────────────────────────────
@@ -18271,8 +18275,11 @@ ${jobsCtx || "No jobs found."}`;
         {renderPersonEditModal()}
         {renderStartJobPicker()}
         {renderConfirmModal()}
-        {/* Mobile only — on desktop this renders as a page via renderModal, and mounting it here too would draw it twice. */}
-        {isMobile ? renderPastLogsModal() : null}
+        {/* Called on both — the function itself decides where it lands: portalled into
+            the content panel as a page on desktop, portalled to the body as an overlay
+            on mobile. It has to run here either way, because it is scoped to
+            renderTimeStamp and renderModal cannot reach it. */}
+        {renderPastLogsModal()}
         {/* Header — page title always; Past Logs / Export Hours / Confirm Time
             Sheet are admin-only and simply absent for everyone else. */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", minHeight: 50 }}>
@@ -21387,9 +21394,9 @@ ${jobsCtx || "No jobs found."}`;
     // one so it can be called from here. Client Edit lives further down the tree than
     // renderModal can reach, so it portals into the panel host instead (see the
     // content panel) and returns nothing here.
-    // Past Logs, like the client profile, renders through its own function defined
-    // above this one, so it can be called straight from here.
-    if (modal.type === "pastLogs") return renderPastLogsModal();
+    // Past Logs is defined INSIDE renderTimeStamp, not at component scope, so it is not
+    // in scope here — it portals into the panel host instead, like Edit Job.
+    if (modal.type === "pastLogs") return null;
     if (modal.type === "clientDetail") return renderClientDetailModal();
     if (modal.type === "clientEdit") return null;
     if (modal.type === "detail") { const t = modal.data; if (!t) return null; const fresh = allItems.find(x => x.id === t.id) || t;
@@ -23336,7 +23343,7 @@ ${jobsCtx || "No jobs found."}`;
               <style>{`@keyframes tqCFIn{from{opacity:0}to{opacity:1}}@keyframes tqCFOut{from{opacity:1}to{opacity:0}}`}</style>
               {showModalPage && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", zIndex: 3 }}>
                 {/* Portalled pages render into this host; the rest render inline. */}
-                {(modal.type === "editJob" || modal.type === "clientEdit")
+                {(modal.type === "editJob" || modal.type === "clientEdit" || modal.type === "pastLogs")
                   ? <div ref={setPagePortalHost} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }} />
                   : renderModal()}
               </div>}
