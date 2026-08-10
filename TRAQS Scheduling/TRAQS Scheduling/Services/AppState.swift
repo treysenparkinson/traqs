@@ -2685,10 +2685,10 @@ class AppState {
     /// actually worked.
     func opHoursPair(_ op: Operation) -> (logged: Double, est: Double) {
         // Fall back to the org's default workday length when an op didn't store hpd.
-        let est = max(0.0001, op.hpd > 0 ? op.hpd : orgSettings.hpd)
-        if op.status == .finished { return (est, est) }
-        let base = op.loggedHours ?? 0
-        return (base + liveElapsedHours(for: op), est)
+        return HoursCalculator.opHoursPair(status: op.status, hpd: op.hpd,
+                                          loggedHours: op.loggedHours,
+                                          defaultHpd: orgSettings.hpd,
+                                          liveElapsed: liveElapsedHours(for: op))
     }
 
     /// Live (not-yet-clocked-out) hours for whoever is currently clocked into
@@ -2696,11 +2696,10 @@ class AppState {
     /// server polls. 0 when nobody is on the op's clock.
     private func liveElapsedHours(for op: Operation) -> Double {
         guard let activeP = people.first(where: { $0.activeJobClock?.opId == op.id && !($0.activeJobClock?.clockIn.isEmpty ?? true) }),
-              let jc = activeP.activeJobClock,
-              let started = Date.fromFlexibleISO8601(jc.clockIn) else { return 0 }
-        let elapsedH = Date().timeIntervalSince(started) / 3600
-        let pausedH = (jc.totalPausedMs ?? 0) / 3_600_000
-        return max(0, elapsedH - pausedH)
+              let jc = activeP.activeJobClock else { return 0 }
+        return HoursCalculator.liveElapsedHours(clockIn: jc.clockIn,
+                                                totalPausedMs: jc.totalPausedMs,
+                                                now: Date())
     }
 
     /// Uncapped: 130 means 30% past the estimate and still open. Only Finished pins
@@ -2935,10 +2934,9 @@ extension AppState {
     /// Live hours for the current pay shift — counts while clocked in, pauses
     /// for LUNCH only (mirrors the server's hoursElapsedMinusPauses).
     func liveShiftHours(now: Date) -> Double {
-        guard let c = currentPerson?.activeClockIn,
-              let s = parsedISO(c.clockIn) else { return 0 }
-        let totalMs = now.timeIntervalSince(s) * 1000
-        return max(0, (totalMs - Self.payPausedMs(c.events, end: now)) / 3_600_000)
+        guard let c = currentPerson?.activeClockIn else { return 0 }
+        return HoursCalculator.liveShiftHours(clockIn: c.clockIn, events: c.events,
+                                              now: now, parse: parsedISO)
     }
 
     /// Unpaid time inside an open pay shift. LUNCH ONLY — breaks are paid, so
@@ -2948,19 +2946,10 @@ extension AppState {
     /// of PRODUCTION time instead, not pay.
     ///
     /// An open lunch is closed at `end`, exactly as the server does at clock-out.
+    /// Delegates to HoursCalculator. Kept as an AppState entry point because
+    /// several call sites already reference AppState.payPausedMs.
     static func payPausedMs(_ events: [ClockEvent], end: Date) -> Double {
-        var paused = 0.0
-        var lunchOpen: Date?
-        for ev in events {
-            guard let t = Date.fromFlexibleISO8601(ev.ts) else { continue }
-            switch ev.type {
-            case "lunchStart": lunchOpen = t
-            case "lunchEnd":   if let l = lunchOpen { paused += max(0, t.timeIntervalSince(l) * 1000); lunchOpen = nil }
-            default: break
-            }
-        }
-        if let l = lunchOpen { paused += max(0, end.timeIntervalSince(l) * 1000) }
-        return paused
+        HoursCalculator.payPausedMs(events, end: end)
     }
 
     /// Current user's shift status from their time-clock (offline / clocked in
