@@ -955,6 +955,24 @@ select:not(.tq-sq) {
   border-radius: 9999px !important;
 }
 textarea:not(.tq-sq) { border-radius: 26px !important; }
+/* DEFAULT fill and text for every form control. 33 inputs across the app carried no
+   style attribute at all — including "Operation name" on the new-job wizard — so they
+   fell through to the user agent's field rendering while the field beside them used
+   --tq-field-bg. That is the "some inputs go clear, others are fine" case: nothing was
+   changing as you typed, the two were simply never the same colour.
+
+   Deliberately WITHOUT !important, unlike the radius rule above. Inline styles must
+   still win, so the ~120 controls that already set their own background keep it and
+   nothing restyles; this only reaches the ones that specified nothing. .tq-bare opts
+   out for inputs nested inside an already-filled pill (search boxes, the PIN pad, the
+   ask bar, inline grid editors), where a second fill would double up. The same
+   exclusion list as the radius rule covers the widgets the browser draws itself. */
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare),
+textarea:not(.tq-bare),
+select:not(.tq-bare) {
+  background-color: var(--tq-field-bg, transparent);
+  color: var(--tq-field-text, inherit);
+}
 /* Pills need side padding or the text collides with the curve. Only applied where
    the element didn't already set its own generous horizontal padding. */
 select:not(.tq-sq) { padding-left: 14px; padding-right: 12px; }
@@ -1368,13 +1386,21 @@ function placePopover(r, count, rowH = 35) {
 // wantsLightText() now owns, and leaving it in the file invites the split to come
 // back. Anything asking "is this light or dark?" for TEXT purposes must use
 // wantsLightText so every surface resolves the same way.
-// Text on an accent-coloured fill — job bars, filled buttons, badges. Was a THIRD
-// threshold for the same question (hexLum > 0.35), so an accent in the 0.179–0.35
-// band, which includes the default blue at L=0.234, got white text where black is
-// measurably more readable. Now the one rule, so a colour resolves the same whether
-// it's a page, a card or a job bar.
+// Text on an accent fill. Every primary button paints brandGrad(accent), which ends
+// ACCENT_FILL_DARKEST darker than the accent itself, so the decision has to be made
+// against that darkest stop and not against the flat colour. Judging the flat colour
+// puts black text on any accent sitting just above the crossover — #3b82f6 at
+// L=0.234 reads "black" flat, but its gradient bottoms out at L=0.137, which is
+// firmly white territory. That is the black-text-on-a-dark-button case.
+//
+// This is what the old hexLum > 0.35 threshold was doing by accident: an accent
+// needs roughly L>0.31 for its darkened end to clear the 0.179 crossover. Same
+// compensation, derived rather than guessed, and it reuses the one crossover so a
+// colour still resolves consistently everywhere.
+const ACCENT_FILL_DARKEST = -0.22; // keep in step with brandGrad's second stop
 function accentText(accent) {
-  try { return wantsLightText(accent) ? "#ffffff" : "#0f172a"; } catch { return "#ffffff"; }
+  try { return wantsLightText(blendHex(accent, ACCENT_FILL_DARKEST)) ? "#ffffff" : "#0f172a"; }
+  catch { return "#ffffff"; }
 }
 
 // Custom-theme inputs: bg (page background / image tint), accent (buttons/highlights),
@@ -2677,6 +2703,14 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     // shades across its fields. Anything wanting a different field colour sets
     // --tq-field-bg on its own container and every control inside follows.
     document.documentElement.style.setProperty("--tq-field-bg", T.surface);
+    // Companion to --tq-field-bg. A control that only got a background would still
+    // take its TEXT from the user agent, which is black — unreadable the moment the
+    // field colour is dark. Both travel together.
+    document.documentElement.style.setProperty("--tq-field-text", T.text);
+    // Native widgetry inside fields — autofill, number spinners, date pickers, the
+    // caret — is drawn by the browser from this, not from our CSS. Left unset it
+    // assumes light, so a dark theme got a white autofill wash over a dark field.
+    document.documentElement.style.setProperty("color-scheme", T.colorScheme || (wantsLightText(T.surface) ? "dark" : "light"));
     document.documentElement.style.setProperty("--tq-toggle-track", hexLum(T.surface) < 0.5 ? blendHex(T.surface, 0.30) : blendHex(T.surface, -0.14));
     document.documentElement.style.setProperty("--tq-accent", T.accent);
     document.documentElement.style.setProperty("--tq-accent-soft", hexA(T.accent, 0.18));
@@ -25469,7 +25503,9 @@ ${jobsCtx || "No jobs found."}`;
                 setSaveTemplateModal(false);
               }}
               style={{ flex: 1, padding: "10px 0", borderRadius: T.radiusPill, border: "none",
-                background: templateNameInput.trim() ? T.accent : T.border, color: T.accentText,
+                // Disabled swaps the fill to T.border but kept accentText, so the label
+                // was an accent-surface colour sitting on a border-surface one.
+                background: templateNameInput.trim() ? T.accent : T.border, color: templateNameInput.trim() ? T.accentText : T.textDim,
                 fontSize: 13, fontWeight: 700,
                 cursor: templateNameInput.trim() ? "pointer" : "not-allowed", fontFamily: T.font }}>
               Save
