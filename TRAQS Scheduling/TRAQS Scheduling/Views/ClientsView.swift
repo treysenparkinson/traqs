@@ -41,7 +41,9 @@ struct ClientsView: View {
                             }
                             if showSearch { searchFocused = true }
                         }
-                        IconBtn(icon: .plus, size: 18) { showAddClient = true }
+                        if appState.can(.manageClients) {
+                            IconBtn(icon: .plus, size: 18) { showAddClient = true }
+                        }
                     }
                     .background(Color(hex: T.bg))
 
@@ -265,9 +267,11 @@ struct ClientDetailView: View {
         .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Edit") { showEdit = true }
-                    .foregroundColor(Color(hex: T.accent))
+            if appState.can(.manageClients) {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Edit") { showEdit = true }
+                        .foregroundColor(Color(hex: T.accent))
+                }
             }
         }
         .sheet(isPresented: $showEdit) {

@@ -23,7 +23,7 @@ struct JobEditView: View {
     private var isEditing: Bool { job != nil }
 
     private var canEditDeps: Bool {
-        appState.isAdmin || (appState.currentPerson?.adminPerms?.editJobs == true)
+        appState.can(.editJobs)
     }
 
     private var otherJobs: [Job] {

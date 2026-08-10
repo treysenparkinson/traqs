@@ -345,11 +345,19 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
 
 // MARK: - Admin Permissions
 
+/// The granular admin toggles, mirroring the web's `adminPerms` object.
+///
+/// A missing key decodes to `false`, which is what makes an admin created with
+/// an empty `{}` hold no permissions until toggles are switched on. A *nil*
+/// AdminPerms on Person is different and means UNRESTRICTED — see `Person.can`.
+///
+/// `lockJobs` was removed: it had no lock UI on any surface and no call sites,
+/// so it was retired rather than left as a switch that gated nothing. An older
+/// payload carrying the key simply decodes without it.
 struct AdminPerms: Codable, Equatable {
     var editJobs: Bool
     var moveJobs: Bool
     var reassign: Bool
-    var lockJobs: Bool
     var manageTeam: Bool
     var manageClients: Bool
     var undoHistory: Bool
@@ -360,11 +368,28 @@ struct AdminPerms: Codable, Equatable {
         editJobs      = (try? c.decode(Bool.self, forKey: .editJobs)) ?? false
         moveJobs      = (try? c.decode(Bool.self, forKey: .moveJobs)) ?? false
         reassign      = (try? c.decode(Bool.self, forKey: .reassign)) ?? false
-        lockJobs      = (try? c.decode(Bool.self, forKey: .lockJobs)) ?? false
         manageTeam    = (try? c.decode(Bool.self, forKey: .manageTeam)) ?? false
         manageClients = (try? c.decode(Bool.self, forKey: .manageClients)) ?? false
         undoHistory   = (try? c.decode(Bool.self, forKey: .undoHistory)) ?? false
         orgSettings   = (try? c.decode(Bool.self, forKey: .orgSettings)) ?? false
+    }
+
+    /// Key-path lookup so `can(.editJobs)` reads the same as the web's
+    /// `can("editJobs")` rather than needing a switch at every call site.
+    enum Key: String, CaseIterable {
+        case editJobs, moveJobs, reassign, manageTeam, manageClients, undoHistory, orgSettings
+    }
+
+    subscript(key: Key) -> Bool {
+        switch key {
+        case .editJobs:      return editJobs
+        case .moveJobs:      return moveJobs
+        case .reassign:      return reassign
+        case .manageTeam:    return manageTeam
+        case .manageClients: return manageClients
+        case .undoHistory:   return undoHistory
+        case .orgSettings:   return orgSettings
+        }
     }
 }
 
@@ -633,7 +658,6 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
     var userRole: String
     var adminPerms: AdminPerms?
     var isEngineer: Bool?
-    var isTeamLead: Bool?
     var autoSchedule: Bool?   // iOS toggle: false = excluded from AI scheduling
     var noAutoSchedule: Bool? // desktop's canonical flag: true = excluded (inverse of autoSchedule)
     var teamNumber: Int?
@@ -657,6 +681,27 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
     var canSignOff: Bool?
 
     var isAdmin: Bool { userRole == "admin" }
+
+    /// Granular permission check — the SAME rule the web applies:
+    ///
+    ///     isAdmin && (adminPerms == nil || adminPerms[key] == true)
+    ///
+    /// This used to be `isAdmin || adminPerms?.editJobs == true` at two call
+    /// sites, which is OR, not AND: every admin passed no matter which toggles
+    /// were off, and only editJobs was ever consulted. Restricting an admin on
+    /// the web changed nothing here.
+    ///
+    /// A nil `adminPerms` means unrestricted, covering legacy admins created
+    /// before the toggles existed. Matches the server's can() in _utils/can.js.
+    func can(_ key: AdminPerms.Key) -> Bool {
+        guard isAdmin else { return false }
+        guard let perms = adminPerms else { return true }
+        return perms[key]
+    }
+
+    /// Sign-off / approval rights. Independent of the admin toggles: a non-admin
+    /// with canSignOff, or an engineer, may approve work.
+    var canApproveWork: Bool { isAdmin || canSignOff == true || isEngineer == true }
     /// Salaried employees don't punch a clock (Hours page + clock-in are hidden).
     var isSalary: Bool { (payType ?? "hourly").lowercased() == "salary" }
     /// Eligible for auto-scheduling / availability checks. Honors BOTH conventions:
@@ -682,7 +727,6 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         timeOff  = (try? c.decode([TimeOffEntry].self, forKey: .timeOff)) ?? []
         adminPerms    = try? c.decodeIfPresent(AdminPerms.self, forKey: .adminPerms)
         isEngineer    = try? c.decodeIfPresent(Bool.self, forKey: .isEngineer)
-        isTeamLead    = try? c.decodeIfPresent(Bool.self, forKey: .isTeamLead)
         autoSchedule  = try? c.decodeIfPresent(Bool.self, forKey: .autoSchedule)
         noAutoSchedule = try? c.decodeIfPresent(Bool.self, forKey: .noAutoSchedule)
         teamNumber    = try? c.decodeIfPresent(Int.self, forKey: .teamNumber)
@@ -701,7 +745,7 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
     // Explicit memberwise init (needed because init(from:) in struct body suppresses synthesis)
     init(id: String, name: String, role: String, email: String, cap: Double,
          color: String, userRole: String, adminPerms: AdminPerms? = nil,
-         isEngineer: Bool? = nil, isTeamLead: Bool? = nil,
+         isEngineer: Bool? = nil,
          autoSchedule: Bool? = nil, noAutoSchedule: Bool? = nil, teamNumber: Int? = nil,
          timeOff: [TimeOffEntry] = [], pushToken: String? = nil,
          activeClockIn: ActiveClockIn? = nil,
@@ -713,7 +757,7 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         self.id = id; self.name = name; self.role = role; self.email = email
         self.cap = cap; self.color = color; self.userRole = userRole
         self.adminPerms = adminPerms; self.isEngineer = isEngineer
-        self.isTeamLead = isTeamLead; self.autoSchedule = autoSchedule
+        self.autoSchedule = autoSchedule
         self.noAutoSchedule = noAutoSchedule
         self.teamNumber = teamNumber; self.timeOff = timeOff; self.pushToken = pushToken
         self.activeClockIn = activeClockIn

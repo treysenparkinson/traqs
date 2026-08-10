@@ -135,7 +135,7 @@ struct TeamView: View {
             VStack(spacing: 0) {
                 // Sticky revamp header (wordmark + optional add action).
                 TRAQSNavHeader {
-                    if appState.isAdmin {
+                    if appState.can(.manageTeam) {
                         IconBtn(icon: .plus, size: 18) { showAddPerson = true }
                     }
                 }
@@ -165,7 +165,7 @@ struct TeamView: View {
                             ForEach(filteredPeople) { person in
                                 PersonRow(person: person)
                                     .contextMenu {
-                                        if appState.isAdmin {
+                                        if appState.can(.manageTeam) {
                                             Button { personToEdit = person } label: {
                                                 Label("Edit", systemImage: "pencil")
                                             }
@@ -470,7 +470,7 @@ struct PersonDetailView: View {
         .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
-            if appState.isAdmin {
+            if appState.can(.manageTeam) {
                 ToolbarItem(placement: .primaryAction) {
                     Button("Edit") { showEdit = true }
                         .foregroundColor(Color(hex: T.accent))
@@ -514,7 +514,6 @@ struct PersonEditView: View {
     @State private var cap: Double = 8.0
     @State private var userRole = "user"
     @State private var isEngineer = false
-    @State private var isTeamLead = false
     @State private var color = "#7c3aed"
     @State private var showSuccess = false
 
@@ -535,7 +534,6 @@ struct PersonEditView: View {
                     }
                     Stepper("Capacity: \(Int(cap))h/day", value: $cap, in: 1...16, step: 0.5)
                     Toggle("Is Engineer", isOn: $isEngineer)
-                    Toggle("Is Team Lead", isOn: $isTeamLead)
                 }
                 Section("Color") {
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -588,7 +586,6 @@ struct PersonEditView: View {
         name = p.name; role = p.role; email = p.email
         cap = p.cap; userRole = p.userRole
         isEngineer = p.isEngineer ?? false
-        isTeamLead = p.isTeamLead ?? false
         color = p.color
     }
 
@@ -610,7 +607,6 @@ struct PersonEditView: View {
         updated.color = color
         updated.userRole = userRole
         updated.isEngineer = isEngineer
-        updated.isTeamLead = isTeamLead
         var list = appState.people
         if let i = list.firstIndex(where: { $0.id == updated.id }) {
             list[i] = updated

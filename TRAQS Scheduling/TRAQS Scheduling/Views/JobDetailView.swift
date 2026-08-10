@@ -30,7 +30,7 @@ struct JobDetailView: View {
 
     /// May the current user edit or delete this job? Mirrors JobEditView.canEditDeps.
     private var canManageJob: Bool {
-        appState.isAdmin || (appState.currentPerson?.adminPerms?.editJobs == true)
+        appState.can(.editJobs)
     }
 
     /// Department tag styling for this job, mapped to a bright revamp pill kind.
