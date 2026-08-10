@@ -1546,6 +1546,93 @@ class AppState {
     /// keys are keyed by id); the "Completion Requests" system group is looked up
     /// by its well-known name. Named `groupRef` rather than `groupName` because a
     /// name is no longer guaranteed to exist or to be unique.
+    // MARK: Rescheduling
+
+    private static let ymdFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        return f
+    }()
+
+    static func ymd(_ d: Date) -> String { ymdFormatter.string(from: d) }
+
+    private static func shift(_ ymdString: String, byDays days: Int) -> String {
+        guard days != 0, let d = ScheduleDateParser.parse(ymdString) else { return ymdString }
+        return ymd(Calendar.current.date(byAdding: .day, value: days, to: d) ?? d)
+    }
+
+    /// Ops that depend on `unitId`, transitively. Visited-set guarded: `deps` is
+    /// user-authored and nothing stops A→B→A, which would otherwise spin here.
+    private func dependentOpIds(of unitId: String, in job: Job) -> Set<String> {
+        var out: Set<String> = []
+        var frontier: [String] = [unitId]
+        while let current = frontier.popLast() {
+            for panel in job.subs {
+                for op in panel.subs where op.deps.contains(current) {
+                    if out.insert(op.id).inserted { frontier.append(op.id) }
+                }
+            }
+        }
+        return out
+    }
+
+    /// True when anything in this job depends on the unit — drives whether the
+    /// reschedule sheet offers the "push dependents" toggle at all.
+    func hasDependents(unitId: String, jobId: String) -> Bool {
+        guard let job = jobs.first(where: { $0.id == jobId }) else { return false }
+        return !dependentOpIds(of: unitId, in: job).isEmpty
+    }
+
+    /// Move an op or panel to a new date range, optionally sliding everything
+    /// downstream by the same delta.
+    ///
+    /// Delta is measured from the unit's OLD start, so dragging the end alone
+    /// (delta 0) resizes without disturbing dependents — matching what the
+    /// desktop does when you resize rather than move a bar.
+    ///
+    /// Not performOptimistic: job writes already roll back through
+    /// rollbackSnapshot (see persistJobs), and the helper wants a throwing
+    /// serverCall while job saves are debounced and non-throwing.
+    func rescheduleUnit(jobId: String, unitId: String,
+                        newStart: String, newEnd: String,
+                        pushDependents: Bool) {
+        guard can(.moveJobs) else { return }
+        guard let ji = jobs.firstIndex(where: { $0.id == jobId }) else { return }
+        var job = jobs[ji]
+
+        let oldStart: String? = {
+            if let p = job.subs.first(where: { $0.id == unitId }) { return p.start }
+            for p in job.subs { if let o = p.subs.first(where: { $0.id == unitId }) { return o.start } }
+            return nil
+        }()
+        guard let previousStart = oldStart,
+              let from = ScheduleDateParser.parse(previousStart),
+              let to = ScheduleDateParser.parse(newStart) else { return }
+        let delta = Calendar.current.dateComponents([.day], from: from, to: to).day ?? 0
+
+        let dependents = (pushDependents && delta != 0) ? dependentOpIds(of: unitId, in: job) : []
+
+        for pi in job.subs.indices {
+            if job.subs[pi].id == unitId {
+                job.subs[pi].start = newStart
+                job.subs[pi].end = newEnd
+            }
+            for oi in job.subs[pi].subs.indices {
+                let op = job.subs[pi].subs[oi]
+                if op.id == unitId {
+                    job.subs[pi].subs[oi].start = newStart
+                    job.subs[pi].subs[oi].end = newEnd
+                } else if dependents.contains(op.id) {
+                    job.subs[pi].subs[oi].start = Self.shift(op.start, byDays: delta)
+                    job.subs[pi].subs[oi].end = Self.shift(op.end, byDays: delta)
+                }
+            }
+        }
+        updateJob(job)
+    }
+
     // MARK: Group management
     //
     // All three go through saveGroups, which is a whole-array replace. Each keeps

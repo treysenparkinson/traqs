@@ -253,6 +253,7 @@ struct PanelCard: View {
     var highlightOpId: String? = nil
 
     @State private var isExpanded = false
+    @State private var showReschedule = false
 
     var eng: Engineering? { panel.engineering }
 
@@ -342,6 +343,19 @@ struct PanelCard: View {
         .onAppear {
             if highlighted { isExpanded = true }
         }
+        // Long-press the panel card to move the whole panel. Tapping the card
+        // already toggles expansion, so a press is the free gesture here.
+        .contextMenu {
+            if appState.can(.moveJobs) {
+                Button { showReschedule = true } label: {
+                    Label("Reschedule panel", systemImage: "calendar")
+                }
+            }
+        }
+        .sheet(isPresented: $showReschedule) {
+            RescheduleSheet(title: panel.title, jobId: job.id, unitId: panel.id,
+                            currentStart: panel.start, currentEnd: panel.end)
+        }
     }
 
     private func stepDone(_ step: EngStep) -> Bool {
@@ -356,6 +370,7 @@ struct PanelCard: View {
 struct OperationRow: View {
     @Environment(AppState.self) private var appState
     @State private var showTeamPicker = false
+    @State private var showReschedule = false
     let op: Operation
     let job: Job
     let panel: Panel
@@ -492,6 +507,19 @@ struct OperationRow: View {
             TeamPicker(title: op.title, initial: op.team) { picked in
                 assignTeam(picked)
             }
+        }
+        // Long-press to reschedule — an explicit button would crowd a row that
+        // already carries status, hours, crew and a clock action.
+        .contextMenu {
+            if appState.can(.moveJobs) {
+                Button { showReschedule = true } label: {
+                    Label("Reschedule", systemImage: "calendar")
+                }
+            }
+        }
+        .sheet(isPresented: $showReschedule) {
+            RescheduleSheet(title: op.title, jobId: job.id, unitId: op.id,
+                            currentStart: op.start, currentEnd: op.end)
         }
     }
 }
