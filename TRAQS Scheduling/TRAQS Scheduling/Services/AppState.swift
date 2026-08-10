@@ -1039,6 +1039,9 @@ class AppState {
     /// Update the current user's editable profile (name/email/phone/color/image),
     /// optimistically then via the granular people PATCH. Returns success.
     @discardableResult
+    // Not performOptimistic: this RETURNS Bool and the caller decides what to
+    // say about a failure. The helper returns Void and raises its own toast, so
+    // migrating would both drop the result and add a second error surface.
     func updateMyProfile(name: String, email: String, phone: String, color: String, image: String?) async -> Bool {
         guard let api, let personId = currentPersonId else { return false }
         let prev = people
@@ -1311,6 +1314,9 @@ class AppState {
     // MARK: - Messages
 
     // Returns the server-assigned message ID so callers can track ownership.
+    // Not performOptimistic: this rethrows so the composer can keep the pending
+    // attachment for retry. The helper swallows the error into a rollback, which
+    // would silently discard what the user was trying to send.
     func sendMessageThrowing(_ message: Message) async throws -> String {
         messages.append(message)   // optimistic: bubble appears instantly
         guard let api else { return message.id }
@@ -1703,15 +1709,15 @@ class AppState {
         guard let idx = groups.firstIndex(where: { $0.id == groupId }) else { return }
         let isSelf = personId == currentPersonId
         guard isSelf || canAdministerGroup(groups[idx]) else { return }
-        let previous = groups
-        var updated = groups
-        updated[idx].memberIds.removeAll { $0 == personId }
-        groups = updated
-        do { try await api.saveGroups(updated) }
-        catch {
-            groups = previous
-            errorMessage = "Failed to update group: \(error.localizedDescription)"
-        }
+        await performOptimistic({
+            let previous = self.groups
+            var updated = self.groups
+            updated[idx].memberIds.removeAll { $0 == personId }
+            self.groups = updated
+            return { self.groups = previous }
+        }, serverCall: {
+            try await api.saveGroups(self.groups)
+        })
     }
 
     /// Delete a group outright. `force=1` on the save is deliberate: deleting
@@ -1721,16 +1727,19 @@ class AppState {
         guard let api else { return }
         guard let idx = groups.firstIndex(where: { $0.id == id }),
               canAdministerGroup(groups[idx]) else { return }
-        let previous = groups
-        let updated = groups.filter { $0.id != id }
-        groups = updated
-        do { try await api.saveGroups(updated, force: updated.isEmpty) }
-        catch {
-            groups = previous
-            errorMessage = "Failed to delete group: \(error.localizedDescription)"
-        }
+        let wasLast = groups.count == 1
+        await performOptimistic({
+            let previous = self.groups
+            self.groups = self.groups.filter { $0.id != id }
+            return { self.groups = previous }
+        }, serverCall: {
+            try await api.saveGroups(self.groups, force: wasLast)
+        })
     }
 
+    // Not performOptimistic: this deliberately does NOT roll back — the added
+    // members stay put and the next deltaSync reconciles. Migrating would change
+    // that to a revert, which is a behaviour change, not a consolidation.
     func addGroupMembers(groupRef: String, add ids: [String]) async {
         guard let api else { return }
         guard let idx = groups.firstIndex(where: { $0.id == groupRef || $0.name == groupRef }) else { return }
@@ -1752,14 +1761,13 @@ class AppState {
         guard let api else { return }
         // Optimistic local removal so the inbox doesn't keep showing the
         // thread while the network call is in flight.
-        let snapshot = messages
-        messages.removeAll { $0.threadKey == threadKey }
-        do {
+        await performOptimistic({
+            let snapshot = self.messages
+            self.messages.removeAll { $0.threadKey == threadKey }
+            return { self.messages = snapshot }
+        }, serverCall: {
             try await api.deleteThread(threadKey: threadKey)
-        } catch {
-            messages = snapshot   // restore on failure
-            errorMessage = "Failed to delete thread: \(error.localizedDescription)"
-        }
+        })
     }
 
     // MARK: - Undo / Redo
@@ -1937,6 +1945,17 @@ class AppState {
     }
 
     // MARK: - Time Clock Methods
+    //
+    // None of the clock mutations use performOptimistic, and that is deliberate.
+    // Every one of them has a 409 branch that does real work — deltaSyncNow,
+    // persistClockChangeToCache, reconcilePayClock — because a 409 here means
+    // "the server is already in the state you asked for", which is a success to
+    // align to, not a failure to undo.
+    //
+    // performOptimistic has a single catch that rolls back and raises a toast.
+    // Routing these through it would turn every benign 409 into a visible error
+    // and a reverted clock state, which is a payroll bug. They stay hand-rolled
+    // until the helper can express "this error is fine, reconcile instead".
 
     func timeclockIdentify(pin: String) async {
         guard let api else { return }
