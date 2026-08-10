@@ -22817,8 +22817,11 @@ ${jobsCtx || "No jobs found."}`;
     const meta = settingsSectionMeta[settingsSection] || { group: "Settings", sub: "" };
     const wide = settingsSection === "customization";
     const showBg = T.adaptive && T.bgImage;
+    // Transparent, like every other page. The content panel behind this already paints
+    // the solid colour and renders the liquid wash, so an opaque fill here hid both —
+    // settings was the one view where a liquid background never showed.
     return (
-      <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: T.bg, fontFamily: T.font, overflow: "hidden" }}>
+      <div style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", background: "transparent", fontFamily: T.font, overflow: "hidden" }}>
         {/* Pinned background image — section cards (.tq-frost) blur over it, matching the rest of the app */}
         {showBg && <div aria-hidden="true" style={{ position: "absolute", inset: 0, backgroundImage: `linear-gradient(0deg, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}, ${hexA(T.bg, 1 - (T.bgOpacity ?? 100) / 100)}), url(${T.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", zIndex: 0, pointerEvents: "none" }} />}
         {/* Top row — breadcrumb + section title. Hidden on Customization so the split view fills the page. */}
@@ -22829,13 +22832,15 @@ ${jobsCtx || "No jobs found."}`;
         {/* Title is the sidebar group you're in, with the specific page small
             underneath. Rendered for Customization too — it needs a title like
             every other section; only its BODY is full-bleed. */}
-        {/* Opaque and above the background layer. On Customization the split
-            view runs to the top of the page, so a transparent header let the
-            background image bleed up behind the title — this seats it on the
-            page background the way the sidebar is seated on its own. */}
-        {!wide && <div style={{ position: "relative", zIndex: 3, flexShrink: 0, padding: "34px 32px 12px", background: T.bg }}>
+        {/* No fill. It used to paint T.bg to stop the background image bleeding up
+            behind the title, but that drew a hard opaque band across the top of the
+            page — the image ran everywhere except this strip. Every other page lets
+            its background run under the title, and so does this one now.
+            The title switches to bgText for the same reason it does elsewhere: it sits
+            on the page background, not on a card, so a surface-derived colour is wrong. */}
+        {!wide && <div style={{ position: "relative", zIndex: 3, flexShrink: 0, padding: "34px 32px 12px", background: "transparent" }}>
           <h1 style={pageTitleStyle}>{meta.group}</h1>
-          {meta.sub && <div style={{ fontSize: 13, fontWeight: 600, color: T.textDim, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{meta.sub}</div>}
+          {meta.sub && <div style={{ fontSize: 13, fontWeight: 600, color: hexA(T.bgText || T.text, 0.7), marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{meta.sub}</div>}
         </div>}
         {/* Section body — full-bleed flex for Customization (split view), padded scroll otherwise.
             Save/Discard now render inline below the section's elements (see renderSettingsActions). */}
