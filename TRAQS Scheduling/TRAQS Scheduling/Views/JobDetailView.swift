@@ -58,7 +58,7 @@ struct JobDetailView: View {
                         HStack(spacing: 10) {
                             TagPill(label: dept.label, kind: dept.kind)
                             Spacer()
-                            StatusBadge(status: job.status)
+                            JobStatusBadge(job: job)
                         }
 
                         Text(job.title)

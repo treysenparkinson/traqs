@@ -1866,10 +1866,7 @@ struct JobRow: View {
                 }
             }
             Spacer()
-            Text(job.status.rawValue)
-                .font(TTypo.xs(11))
-                .foregroundStyle(Color(hex: T.muted))
-                .tLabel(tracking: 0.8)
+            JobStatusBadge(job: job)
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
         .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).glassFill())
@@ -1888,6 +1885,54 @@ struct StatusBadge: View {
             .background(Capsule().fill(status.color.opacity(0.13)))
             .overlay(Capsule().stroke(status.color.opacity(0.3), lineWidth: 1))
             .foregroundStyle(status.color)
+    }
+}
+
+/// StatusBadge that changes a JOB's status in place.
+///
+/// Tap cycles Pending → In Progress → Finished → Pending. A status outside that
+/// loop (Not Started, On Hold) enters it at the head rather than guessing an
+/// intent — long-press opens the full picker for anything non-linear.
+///
+/// Deliberately a wrapper rather than making StatusBadge itself tappable:
+/// the badge is shared with panel and op rows (JobDetailView, ScheduleJobSheet,
+/// TeamView), and cycling a panel's status is not the same action.
+struct JobStatusBadge: View {
+    @Environment(AppState.self) private var appState
+    let job: Job
+    @State private var showPicker = false
+
+    private static let cycle: [JobStatus] = [.pending, .inProgress, .finished]
+
+    private var mayEdit: Bool { appState.can(.editJobs) }
+
+    private func next(after s: JobStatus) -> JobStatus {
+        guard let i = Self.cycle.firstIndex(of: s) else { return Self.cycle[0] }
+        return Self.cycle[(i + 1) % Self.cycle.count]
+    }
+
+    /// Job writes carry their own rollback (updateJobs → rollbackSnapshot,
+    /// restored by persistJobs on failure), so this doesn't wrap performOptimistic
+    /// — see the note on OperationRow.assignTeam.
+    private func apply(_ s: JobStatus) {
+        guard s != job.status else { return }
+        var next = job
+        next.status = s
+        appState.updateJob(next)
+    }
+
+    var body: some View {
+        StatusBadge(status: job.status)
+            .contentShape(Capsule())
+            .opacity(mayEdit ? 1 : 0.9)
+            .onTapGesture { if mayEdit { apply(next(after: job.status)) } }
+            .onLongPressGesture { if mayEdit { showPicker = true } }
+            .confirmationDialog("Set status", isPresented: $showPicker, titleVisibility: .visible) {
+                ForEach(JobStatus.allCases, id: \.self) { s in
+                    Button(s.rawValue) { apply(s) }
+                }
+                Button("Cancel", role: .cancel) { }
+            }
     }
 }
 
