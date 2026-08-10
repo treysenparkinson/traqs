@@ -6972,6 +6972,7 @@ Extraction rules:
 
 
   // Toggle lock on an operation
+  // toggleLock: dead code, no callers. If lock UI is ever rebuilt, restore lockJobs permission check on caller.
   const toggleLock = (opId, panelId) => {
     setTasks(prev => prev.map(job => ({ ...job, subs: (job.subs || []).map(panel => {
       if (panel.id === panelId) return { ...panel, subs: (panel.subs || []).map(op => op.id === opId ? { ...op, locked: !op.locked } : op) };
