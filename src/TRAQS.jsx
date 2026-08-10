@@ -114,7 +114,6 @@ const ADMIN_PERMS = [
   { key: "editJobs",      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>, label: "Create, edit & delete jobs" },
   { key: "moveJobs",      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>, label: "Move & resize jobs on Gantt and team view" },
   { key: "reassign",      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg>, label: "Reassign operations to team members" },
-  { key: "lockJobs",      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>, label: "Lock & unlock jobs" },
   { key: "manageTeam",    icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>, label: "Add, edit & remove team members" },
   { key: "manageClients", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><line x1="10" y1="6" x2="14" y2="6"/><line x1="10" y1="10" x2="14" y2="10"/><line x1="10" y1="14" x2="14" y2="14"/><line x1="10" y1="18" x2="14" y2="18"/></svg>, label: "Add, edit & delete clients" },
   { key: "undoHistory",   icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.86"/></svg>, label: "Undo schedule history changes" },
@@ -3566,22 +3565,27 @@ Extraction rules:
       return next;
     });
   }, []);
-  const canUndo = undoStack.current.length > 0;
-  const canRedo = redoStack.current.length > 0;
+  // Rolling the schedule back is a schedule change, so it takes the undoHistory
+  // toggle — which until now gated nothing on any surface. Guarded inside the
+  // callbacks as well as on `canUndo`, since the Ctrl+Z handler calls them
+  // directly and would otherwise bypass a disabled button.
+  const _mayUndo = can("undoHistory");
+  const canUndo = _mayUndo && undoStack.current.length > 0;
+  const canRedo = _mayUndo && redoStack.current.length > 0;
   const undo = useCallback(() => {
-    if (undoStack.current.length === 0) return;
+    if (!_mayUndo || undoStack.current.length === 0) return;
     _setTasks(prev => {
       redoStack.current.push(JSON.parse(JSON.stringify(prev)));
       return undoStack.current.pop();
     });
-  }, []);
+  }, [_mayUndo]);
   const redo = useCallback(() => {
-    if (redoStack.current.length === 0) return;
+    if (!_mayUndo || redoStack.current.length === 0) return;
     _setTasks(prev => {
       undoStack.current.push(JSON.parse(JSON.stringify(prev)));
       return redoStack.current.pop();
     });
-  }, []);
+  }, [_mayUndo]);
   // Ctrl+Z / Ctrl+Shift+Z keyboard shortcuts
   useEffect(() => {
     const handler = e => {
@@ -3775,7 +3779,6 @@ Extraction rules:
   const [gSort, setGSort] = useState("date"); // date, project, client
   const [exp, setExp] = useState({});
   const [ctxMenu, setCtxMenu] = useState(null);
-  const [reassignModal, setReassignModal] = useState(null); // { item }
   const [depsModal, setDepsModal] = useState(null); // { item, panelSubs, panelId, jobId, panelTitle }
   const [quickAddSub, setQuickAddSub] = useState(null); // { type:"panel"|"op", parentId, grandParentId, title, start, end, x, y }
   const [clipboard, setClipboard] = useState(null); // { level, item }
@@ -7138,10 +7141,6 @@ Extraction rules:
   const savePerson = (ed) => {
     if (!ed.name.trim()) return;
     if (!ed.email?.trim()) return;
-    // Enforce single team lead per team: clear isTeamLead from all other members of the same team
-    if (ed.isTeamLead && ed.teamNumber) {
-      setPeople(pp => pp.map(p => p.id !== ed.id && p.teamNumber && String(p.teamNumber) === String(ed.teamNumber) && p.isTeamLead ? { ...p, isTeamLead: false } : p));
-    }
     // Keep request-linked time-off entries in sync with their request record (so
     // the request list + iOS don't drift from the schedule). Admin edits stay
     // approved (reapprove:false) and update the entry in place, so the endpoint
@@ -12860,7 +12859,7 @@ ${jobsCtx || "No jobs found."}`;
         <p style={{ margin: "4px auto 0", fontSize: 16, color: T.textSec, maxWidth: 400, lineHeight: 1.75 }}>
           Add your first team member to start scheduling and assigning jobs
         </p>
-        {isAdmin && <Btn style={{ marginTop: 8 }} onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })}>+ Add Member</Btn>}
+        {isAdmin && <Btn style={{ marginTop: 8 }} onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, teamNumber: null, isEngineer: false, userRole: "user" })}>+ Add Member</Btn>}
       </div>}
       {/* Hourly day view */}
       {people.length > 0 && tMode === "day" && (() => {
@@ -13189,7 +13188,7 @@ ${jobsCtx || "No jobs found."}`;
                 <PersonAvatar person={p} size={28} label={p.teamNumber ? (isNaN(String(p.teamNumber)) ? String(p.teamNumber).charAt(0).toUpperCase() : String(p.teamNumber)) : null} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div onClick={barSelectMode ? (e => { e.stopPropagation(); setSelectedSchedulePerson(prev => prev === p.id ? null : p.id); }) : undefined} style={{ fontSize: 13, fontWeight: 600, color: barSelectMode ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: barSelectMode ? "pointer" : "default" }}>{p.name.split(" ")[0]}</div>
-                  <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.department} · {p.cap}h{p.isTeamLead ? <span style={{ color: "#10b981", marginLeft: 4 }}>★ Lead</span> : ""}</div>
+                  <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.department} · {p.cap}h</div>
                 </div>
                 {personClockPill(p, { size: 11 })}
                 {teamSelectMode && <div className="select-bubble-in" style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${selPeople.has(p.id) ? T.accent : T.border}`, background: selPeople.has(p.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, pointerEvents: "none", transition: "border-color 0.15s, background 0.15s", animationDelay: `${ri * 25}ms` }}>{selPeople.has(p.id) && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
@@ -13942,6 +13941,22 @@ ${jobsCtx || "No jobs found."}`;
                       const effEnd = addBD(effStart, _finalVWD - 1);
                       const dropPerson = lastDropPid || origPerson;
                       const isReassign = !!(lastDropPid && !sameId(lastDropPid, origPerson));
+                      // Split the drag permission at the drop, not at the grab: moving a bar
+                      // within one person's row is rescheduling (moveJobs), dropping it on a
+                      // different row hands the work to someone else (reassign). Both used to
+                      // ride on moveJobs alone, which is why the reassign toggle gated nothing.
+                      if (isReassign && !can("reassign")) {
+                        setTeamDragInfo(null);
+                        setDropTarget(null);
+                        setSaveError({
+                          endpoint: "permission",
+                          status: 403,
+                          message: "Your account does not have permission to reassign operations to team members.",
+                          allEndpoints: [],
+                          at: Date.now(),
+                        });
+                        return;
+                      }
                       const movedByName = loggedInUser ? loggedInUser.name : "Admin";
                       // Block on PTO — cannot push time off
                       const person = people.find(x => sameId(x.id, dropPerson));
@@ -15602,7 +15617,7 @@ ${jobsCtx || "No jobs found."}`;
         secondaryDepartment: d.secondaryDepartment.trim(),
         image: d.image || null,
         // Defaults matching a person created anywhere else in the app.
-        cap: 8, userRole: "user", teamNumber: null, isTeamLead: false, isEngineer: false,
+        cap: 8, userRole: "user", teamNumber: null, isEngineer: false,
       });
       setAddEmpDraft(null);
     };
@@ -15668,7 +15683,10 @@ ${jobsCtx || "No jobs found."}`;
     // Btn's fixed 34px height, so it stood ~4px taller than New Job on the page before
     // it, and marginLeft:auto threw it to the far right while every other page's CTA
     // sits just after the title. Same component now, so it can't drift again.
-    const addEmployeeBtn = !can("editPeople") ? null : (
+    // `editPeople` was never one of the declared permissions, so this checked a key
+    // no toggle could ever set: every admin created since granular permissions
+    // shipped had the button permanently hidden, with no way to turn it on.
+    const addEmployeeBtn = !can("manageTeam") ? null : (
       <Btn size="sm" style={{ marginLeft: "auto" }} onClick={() => setAddEmpDraft(blankEmployee())}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" style={{ flexShrink: 0 }}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
@@ -15925,7 +15943,7 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ minWidth: 180 }}>
           <div style={{ fontSize: 22, fontWeight: 800, color: T.text, letterSpacing: "-0.045em" }}>{P.name}</div>
           <div style={{ ...dim, marginTop: 3 }}>{[P.title, P.department, P.email].filter(Boolean).join("  ·  ") || "—"}</div>
-          <div style={{ ...dim, marginTop: 2 }}>{[P.teamNumber ? `Team ${P.teamNumber}` : null, P.isTeamLead ? "Team Lead" : null, P.isEngineer ? "Engineer" : null, `${dailyCap}h/day`].filter(Boolean).join("  ·  ")}</div>
+          <div style={{ ...dim, marginTop: 2 }}>{[P.teamNumber ? `Team ${P.teamNumber}` : null, P.isEngineer ? "Engineer" : null, `${dailyCap}h/day`].filter(Boolean).join("  ·  ")}</div>
         </div>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginLeft: "auto" }}>
           <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "10px 14px", minWidth: 150 }}>
@@ -19099,7 +19117,7 @@ ${jobsCtx || "No jobs found."}`;
 
     const renderMobileTeam = () => <div style={{ padding: "8px 12px 88px", overflow: "auto", flex: 1 }}>
       {can("editJobs") && <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
-        <button onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, teamNumber: null, isTeamLead: false, isEngineer: false, userRole: "user" })} style={{ background: brandGrad(T.accent), border: "none", color: T.accentText, borderRadius: T.radiusPill, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Person</button>
+        <button onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, teamNumber: null, isEngineer: false, userRole: "user" })} style={{ background: brandGrad(T.accent), border: "none", color: T.accentText, borderRadius: T.radiusPill, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Person</button>
       </div>}
       {people.map(p => {
         const isExp = mobileExp["p_" + p.id];
@@ -23353,7 +23371,7 @@ ${jobsCtx || "No jobs found."}`;
                   layer, with a tight internal gap. Left as siblings they'd each
                   take the layer's full 8px gap, so the sub-items floated away
                   from the tab they belong to instead of reading as its contents. */}
-              {isAdmin && <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {can("orgSettings") && <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 <button ref={el => { navBtnRefs.current["settings:org-parent"] = el; }} onClick={() => { if (!sidebarExpanded) setSidebarExpanded(true); setSettingsOrgExpanded(o => !o); }}
                   onMouseEnter={e => { if (!orgActive) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show("Organization", e.clientX, e.clientY); }}
                   onMouseLeave={e => { if (!orgActive) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
@@ -26539,50 +26557,6 @@ ${jobsCtx || "No jobs found."}`;
     </div>;
     })()}</FadeOnClose>
     {/* Reassign Operation Modal */}
-    {reassignModal && (() => {
-      const it = reassignModal.item;
-      const liveTeam = (() => { for (const job of tasks) { for (const panel of (job.subs||[])) { for (const op of (panel.subs||[])) { if (op.id === it.id) return op.team; } } } return it.team || []; })();
-      const currentPerson = liveTeam[0];
-      const reqDept = it.requiredDepartment || "";
-      const shopCrew = people
-        .filter(p => (p.userRole === "user" || p.userRole === "admin") && personDeptMatch(p, reqDept))
-        // Primary-dept members appear first; backup (secondary-dept) members sort to the bottom.
-        .sort((a, b) => (personDeptMatch(a, reqDept) === "primary" ? 0 : 1) - (personDeptMatch(b, reqDept) === "primary" ? 0 : 1));
-      return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10005, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setReassignModal(null)}>
-        <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(400px, calc(100vw - 32px))", padding: "24px 24px 20px", animation: "slideUp 0.22s ease-out" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-            <div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>Reassign Operation</div>
-              <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>{it.title} · {fm(it.start)} – {fm(it.end)}</div>
-            </div>
-            <button onClick={() => setReassignModal(null)} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 20, lineHeight: 1, padding: "0 2px" }}>✕</button>
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {shopCrew.map(p => {
-              const sel = p.id === currentPerson;
-              let busy = false;
-              if (!sel) {
-                for (const job of tasks) { for (const panel of (job.subs||[])) { for (const op of (panel.subs||[])) { if (op.id !== it.id && (op.team||[]).includes(p.id) && op.status !== "Finished" && op.start <= it.end && op.end >= it.start) { busy = true; } } } }
-                if (!busy) { const pp = people.find(x => x.id === p.id); if (pp) for (const to of (pp.timeOff||[])) { if (to.start <= it.end && to.end >= it.start) { busy = true; break; } } }
-              }
-              return <button key={p.id} onClick={() => { if (busy) return; setTasks(prev => prev.map(job => ({ ...job, subs: (job.subs||[]).map(panel => ({ ...panel, subs: (panel.subs||[]).map(op => op.id === it.id ? { ...op, team: sel ? [] : [p.id] } : op) })) }))); setReassignModal(null); }} disabled={busy} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", borderRadius: T.radiusPill, border: `1.5px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : T.surface, cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.45 : 1, transition: "all 0.12s", textAlign: "left" }} onMouseEnter={e => { if (!busy) e.currentTarget.style.borderColor = T.accent; }} onMouseLeave={e => { if (!busy) e.currentTarget.style.borderColor = sel ? T.accent : T.border; }}>
-                <PersonAvatar person={p} size={32} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: sel ? 700 : 500, color: sel ? T.accent : T.text, display: "flex", alignItems: "center", gap: 6 }}>
-                    <span>{p.name}{sel && " (current)"}</span>
-                    {personDeptMatch(p, reqDept) === "secondary" && <span style={{ fontSize: 9, fontWeight: 700, color: "#f59e0b", background: "#f59e0b22", border: "1px solid #f59e0b66", borderRadius: 8, padding: "1px 5px", letterSpacing: "-0.045em" }}>BACKUP</span>}
-                  </div>
-                  <div style={{ fontSize: 11, color: T.textDim }}>{busy ? "Busy during this period" : p.department || "Team member"}</div>
-                </div>
-                {sel && <span style={{ fontSize: 11, color: T.accent, fontWeight: 700 }}>✓</span>}
-              </button>;
-            })}
-            {shopCrew.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: "20px 0" }}>No team members available</div>}
-          </div>
-          <button onClick={() => setReassignModal(null)} style={{ width: "100%", marginTop: 16, padding: "9px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Done</button>
-        </div>
-      </div>;
-    })()}
     {/* Add/Edit Dependencies Modal */}
     {depsModal && (() => {
       const it=depsModal.item;

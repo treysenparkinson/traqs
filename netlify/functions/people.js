@@ -15,7 +15,7 @@ import { encryptPin, decryptPin } from "./_utils/pin.js";
 const PROTECTED_PERSON_FIELDS = [
   "timeOff", "payType", "cap", "adminPerms", "canClockInOut", "canSignOff",
   "noAutoSchedule", "autoSchedule", "teamNumber", "userRole", "role",
-  "department", "isEngineer", "isTeamLead",
+  "department", "isEngineer",
 ];
 
 // Normalize a person's activeBreak so an active break always carries a startedAt.
