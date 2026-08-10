@@ -1941,8 +1941,13 @@ function SlidingPill({ options, value, onChange, size = "md", style: sx = {} }) 
   const pad = size === "lg" ? "12px 32px" : size === "sm" ? "6px 14px" : "8px 18px";
   const fs  = size === "lg" ? 16 : 13;
   const fw  = size === "lg" ? 800 : 700;
+  // Track uses --tq-toggle-track, the shade every other toggle in the app runs on,
+  // which is derived from the SURFACE. It was T.bg — the page colour — so on any theme
+  // where the page and the card differ, the pill read as a hole punched through its own
+  // card instead of a control sitting on it. The variable already existed and its own
+  // comment says slider pills reuse it; it was just never wired up here.
   return (
-    <div style={{ display:"flex", background:T.bg, borderRadius:T.radiusPill, padding:3, position:"relative", isolation:"isolate", ...sx }}>
+    <div style={{ display:"flex", background:"var(--tq-toggle-track, rgba(127,127,127,0.22))", borderRadius:T.radiusPill, padding:3, position:"relative", isolation:"isolate", ...sx }}>
       {options.map(opt => {
         const isActive = value === opt.value;
         return (
@@ -18233,8 +18238,12 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", minHeight: 50 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
               <h1 style={pageTitleStyle}>Time Clock</h1>
+              {/* Accent outline button — the app's existing pattern: page background as
+                  the fill, accent for the label and the ring. It was a neutral
+                  chrome-coloured pill (T.systemBg fill, T.border ring, T.text label),
+                  which on a page with a background image related to nothing behind it. */}
               {isAdmin && (
-            <button onClick={() => { setPastLogsOffset(-1); setPastLogsOpen(true); }} title="Browse past pay-period logs" style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.systemBg || T.surface, color: T.text, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+            <button onClick={() => { setPastLogsOffset(-1); setPastLogsOpen(true); }} title="Browsepast pay-period logs" style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.bg, color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
               Past Logs
             </button> )}
@@ -18280,9 +18289,14 @@ ${jobsCtx || "No jobs found."}`;
               return (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                   <div style={{ width: 9, height: 9, borderRadius: "50%", background: dotColor, boxShadow: ui.glow, transition: "all 0.3s", flexShrink: 0 }} />
-                  <span style={{ fontSize: 15, fontWeight: 500, color: T.text }}>
+                  {/* bgText, not text: this line sits on the PAGE BACKGROUND, not on a
+                      card. T.text is derived from the card surface, so a light-surface
+                      theme painted it black straight onto a dark page. hexA dims the
+                      subtext from the same colour instead of reaching for textDim, which
+                      is surface-derived for the same reason. */}
+                  <span style={{ fontSize: 15, fontWeight: 500, color: T.bgText || T.text }}>
                     {loggedInUser.name}
-                    <span style={{ color: T.textDim, fontWeight: 400 }}> · {subtext}</span>
+                    <span style={{ color: hexA(T.bgText || T.text, 0.7), fontWeight: 400 }}> · {subtext}</span>
                   </span>
                 </div>
               );
