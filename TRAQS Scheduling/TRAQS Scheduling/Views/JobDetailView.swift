@@ -316,6 +316,11 @@ struct PanelCard: View {
                 if appState.currentPerson?.isEngineer == true || appState.currentPerson?.isAdmin == true {
                     EngSignOffRow(job: job, panel: panel)
                 }
+                // End-of-job photos uploaded via PanelPhotoSheet.
+                if !panel.attachments.isEmpty {
+                    SLine()
+                    PanelAttachmentGallery(attachments: panel.attachments)
+                }
             }
         }
         .background(
