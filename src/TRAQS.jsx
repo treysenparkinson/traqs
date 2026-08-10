@@ -17290,11 +17290,14 @@ ${jobsCtx || "No jobs found."}`;
         <div className={asPage ? "" : "anim-modal-overlay"} style={asPage
           ? { position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflowY: "auto", overflowX: "hidden", background: "transparent", padding: "34px 32px 28px", fontFamily: T.font }
           : { position: "fixed", inset: 0, zIndex: 10015, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflow: "auto" }} onClick={asPage ? undefined : closePastLogs}>
+          {/* Header sits OUTSIDE the capped column, so the title and Back pill land at
+              the page's left edge like every other page. It was inside it, which centred
+              them with the content. The column below stays centred and unchanged. */}
+          {asPage && pageHead("Past Logs", { onBack: closePastLogs })}
           <div style={asPage
             ? { background: "transparent", borderRadius: 0, width: "100%", maxWidth: FIELD_COL_W, marginLeft: "auto", marginRight: "auto", border: "none", boxShadow: "none", fontFamily: T.font }
             : { background: T.card, borderRadius: 20, width: "100%", maxWidth: 620, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", animation: "slideUp 0.22s ease-out", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
-            {/* Header */}
-            {asPage && pageHead("Past Logs", { onBack: closePastLogs })}
+            {/* Header — overlay only; as a page it lives above, outside the column. */}
             <div style={{ display: asPage ? "none" : "flex", padding: "18px 24px", borderBottom: `1px solid ${T.border}`, alignItems: "center", gap: 12 }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
               <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>Past Logs</span>
