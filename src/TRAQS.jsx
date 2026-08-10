@@ -1237,6 +1237,36 @@ function blendHex(hex, f) {
   const t=f>0?255:0, a=Math.abs(f), c=v=>Math.min(255,Math.max(0,Math.round(v+(t-v)*a))).toString(16).padStart(2,"0");
   return `#${c(r)}${c(g)}${c(b)}`;
 }
+// blendHex only moves a colour toward white or black. mixHex blends two actual
+// colours, which is what estimating a composited backdrop needs (a liquid wash is
+// its colour laid over the page colour, not a lightened version of either).
+function mixHex(a, b, t = 0.5) {
+  try {
+    const ch = (h, i) => parseInt(h.slice(1 + i * 2, 3 + i * 2), 16);
+    const c = i => Math.round(ch(a, i) + (ch(b, i) - ch(a, i)) * t).toString(16).padStart(2, "0");
+    return `#${c(0)}${c(1)}${c(2)}`;
+  } catch { return a; }
+}
+// THE rule for "black text or white text on this?". One function, because it was
+// split three ways: surface and system chrome asked hexLum (gamma-corrected sRGB
+// relative luminance) at < 0.5, while the page background asked isLight
+// (0.299/0.587/0.114, no gamma) at > 0.5. Those disagree across a wide mid-tone
+// band, so the SAME colour got white text as a card and black text as a page
+// background — and both thresholds were wrong anyway.
+//
+// 0.1791 is not a taste value, it is where the two options are equally readable.
+// WCAG contrast is (Ll + 0.05) / (Ld + 0.05); setting contrast-against-white equal
+// to contrast-against-black gives (L + 0.05)^2 = 1.05 * 0.05, so L = sqrt(0.0525)
+// - 0.05 = 0.1791. Below it white wins, above it black wins, and it agrees with the
+// measured better-contrast choice on every colour in the app's palettes.
+//
+// The old 0.5 was far too high: everything from L=0.179 to L=0.5 — mid greys, the
+// blue accent, most saturated mid-tones — was called "dark" and handed white text
+// when black was the more readable choice.
+const TEXT_POLARITY_L = 0.1791;
+function wantsLightText(hex) {
+  try { return hexLum(hex) < TEXT_POLARITY_L; } catch { return true; }
+}
 // THE brand gradient — a light→dark ramp of the accent, mirroring the iOS
 // TRAQSTheme.brandGradient (default accent → the #4FACFE→#1E40AF blue colorway).
 // Derived from the accent so it follows any theme; used on primary CTAs.
@@ -1334,17 +1364,17 @@ function placePopover(r, count, rowH = 35) {
   // its content, so no (now-visible) scrollbar flashes on a short dropdown.
   return { x: r.left, y, maxHeight: constrained ? menuH : undefined, up: openUp };
 }
-function isLight(hex) {
-  try {
-    const r = parseInt(hex.slice(1,3), 16);
-    const g = parseInt(hex.slice(3,5), 16);
-    const b = parseInt(hex.slice(5,7), 16);
-    return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.5;
-  } catch { return false; }
-}
+// isLight() removed. It was the second, contradictory answer to the question
+// wantsLightText() now owns, and leaving it in the file invites the split to come
+// back. Anything asking "is this light or dark?" for TEXT purposes must use
+// wantsLightText so every surface resolves the same way.
+// Text on an accent-coloured fill — job bars, filled buttons, badges. Was a THIRD
+// threshold for the same question (hexLum > 0.35), so an accent in the 0.179–0.35
+// band, which includes the default blue at L=0.234, got white text where black is
+// measurably more readable. Now the one rule, so a colour resolves the same whether
+// it's a page, a card or a job bar.
 function accentText(accent) {
-  // Returns black or white depending on which contrasts better against the accent color
-  try { return hexLum(accent) > 0.35 ? "#0f172a" : "#ffffff"; } catch { return "#ffffff"; }
+  try { return wantsLightText(accent) ? "#ffffff" : "#0f172a"; } catch { return "#ffffff"; }
 }
 
 // Custom-theme inputs: bg (page background / image tint), accent (buttons/highlights),
@@ -1358,14 +1388,20 @@ function buildCustomTheme(bg, accent, surface, opts = {}) {
   const dk = hexLum(bg) < 0.18;
   const surf = surface || blendHex(bg, dk ? 0.07 : -0.03);
   const card = surface || blendHex(bg, dk ? 0.10 : 0);
-  const surfDk = hexLum(surf) < 0.5;
+  // What is ACTUALLY behind page-level text. In liquid mode the page is a wash of
+  // liquidColor over bg (LiquidBackground lays its blobs at ~55% over `base`), so
+  // text sits on that mix — deriving from `bg` alone gave black text on a dark page
+  // whenever someone paired a light bg with a dark liquid colour. Image mode can't
+  // be sampled from here, so it keeps bg; see the note on bgText.
+  const effBg = (bgMode === "liquid" && liquidColor) ? mixHex(bg, liquidColor, 0.55) : bg;
+  const surfDk = wantsLightText(surf);
   const txt  = surfDk ? "#f1f5f9" : "#0f172a";
   const bord = blendHex(surf, surfDk ? 0.18 : -0.12);
   // "System Color" — the outer chrome (header + sidebar). Independent of the card surface so the
   // edge can be its own color; text/logo/borders on it CONTRAST it, not the surface. Falls back to
   // the surface color when unset (older saved themes) so the chrome looks unchanged until edited.
   const sysBg = systemColor || surf;
-  const sysDk = hexLum(sysBg) < 0.5;
+  const sysDk = wantsLightText(sysBg);
   const sysTxt = sysDk ? "#f1f5f9" : "#0f172a";
   const sysBord = blendHex(sysBg, sysDk ? 0.18 : -0.12);
   // ALL surfaces stay SOLID (popups, dropdowns, buttons, cards) for consistency. The frosted-glass
@@ -1390,7 +1426,7 @@ function buildCustomTheme(bg, accent, surface, opts = {}) {
     text:txt, textSec:txt, textDim:txt,
     // Text that sits directly on the page BACKGROUND (e.g. jobs-list section headers),
     // which can differ in lightness from the card surface. Contrasts bg, not surf.
-    bgText: isLight(bg) ? "#0f172a" : "#f1f5f9",
+    bgText: wantsLightText(effBg) ? "#f1f5f9" : "#0f172a",
     accent, accentText:accentText(accent), danger:"#f43f5e",
     // Hover / selection "fade highlight" tints. Accent-hued but shifted in lightness AWAY
     // from the surface (lighter on dark surfaces, darker on light) so they stay clearly
@@ -11382,7 +11418,7 @@ ${jobsCtx || "No jobs found."}`;
     // invisible the moment the two differ (a black background kept black text).
     // T.bgText is the theme's answer to this; the fallback derives the same
     // thing for any theme that predates it.
-    color: T.bgText || (isLight(T.bg) ? "#0f172a" : "#f1f5f9"),
+    color: T.bgText || (wantsLightText(T.bg) ? "#f1f5f9" : "#0f172a"),
     whiteSpace: "nowrap",
     flexShrink: 0,
   };
@@ -12122,7 +12158,7 @@ ${jobsCtx || "No jobs found."}`;
           transition: `left ${DASH_TRAVEL_MS}ms cubic-bezier(0.83,0,0.17,1), top ${DASH_TRAVEL_MS}ms cubic-bezier(0.83,0,0.17,1), transform ${DASH_TRAVEL_MS}ms cubic-bezier(0.83,0,0.17,1)`,
           animation: dashAnimate ? "dashHelloIn 0.9s ease-out both" : undefined,
         }}>
-          <span style={{ fontSize: isMobile ? 32 : 52, fontWeight: 900, letterSpacing: "-0.07em", color: T.bgText || (isLight(T.bg) ? "#0f172a" : "#f1f5f9"), whiteSpace: "nowrap", lineHeight: 1.1 }}>
+          <span style={{ fontSize: isMobile ? 32 : 52, fontWeight: 900, letterSpacing: "-0.07em", color: T.bgText || (wantsLightText(T.bg) ? "#f1f5f9" : "#0f172a"), whiteSpace: "nowrap", lineHeight: 1.1 }}>
             Hello,{greetName ? " " : ""}{greetName || " there"}
           </span>
         </div>
@@ -22785,7 +22821,9 @@ ${jobsCtx || "No jobs found."}`;
           the source of the colour instead of a filter, so a wordmark that ever stops
           being flat single-colour will render correctly; the accent bar is a sibling
           element and was never affected by the filter either way. */}
-      <img src={hexLum(Tc.surfaceSolid) > 0.5 ? TRAQS_LOGO_BLUE : TRAQS_LOGO_WHITE} alt="TRAQS" style={{ height: 40, objectFit: "contain", display: "block", flexShrink: 0, marginLeft: 45, position: "relative", top: 5 }} />
+      {/* Same black-or-white-on-a-surface question as text, so it uses the same rule
+          rather than its own 0.5 threshold. */}
+      <img src={wantsLightText(Tc.surfaceSolid) ? TRAQS_LOGO_WHITE : TRAQS_LOGO_BLUE} alt="TRAQS" style={{ height: 40, objectFit: "contain", display: "block", flexShrink: 0, marginLeft: 45, position: "relative", top: 5 }} />
       {/* TRAQS bars mark — trailing "=" lockup (ported from iOS TRAQSBarsMark).
           3 grey bars + the 3rd (full-width) bar tracks the user's accent. */}
       <div aria-hidden="true" style={{ display: "flex", flexDirection: "column", gap: 2, marginLeft: -19, marginTop: 8, flexShrink: 0 }}>
