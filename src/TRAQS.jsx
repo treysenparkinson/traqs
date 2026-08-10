@@ -1019,13 +1019,24 @@ button.tq-noanim:not(:disabled):not([disabled]):not([aria-disabled="true"]):acti
   box-shadow: none !important;
   filter: none !important;
 }
-/* Segments of a sliding pill DO glow on hover — they are choices you point at, not
-   chrome. They keep tq-noanim for the transform, because a segment lifting out of its
-   own track reads as broken, and take the halo back here. Needs the extra class in the
-   selector and !important to outrank the blanket opt-out directly above. */
-button.tq-noanim.tq-pill-seg:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
-  box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16)) !important;
-  filter: brightness(1.06) !important;
+/* Segments of a sliding pill are choices you point at, not chrome, so they get the
+   SAME hover as every other button rather than the toggle opt-out: the identical lift,
+   halo and brightness from the universal rule above, and its press response. Values are
+   copied from that rule deliberately — a segment that glowed but didn't lift, or lifted
+   by a different amount, reads as a different kind of control.
+   Needs the extra class and !important to outrank the blanket opt-out directly above,
+   and the same @media (hover: hover) guard so it never sticks on a touch device. The
+   transition is already inherited from the universal button rule. */
+@media (hover: hover) {
+  button.tq-noanim.tq-pill-seg:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
+    transform: translateY(-1.5px) !important;
+    box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16)) !important;
+    filter: brightness(1.05) !important;
+  }
+}
+button.tq-noanim.tq-pill-seg:not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
+  transform: translateY(0) scale(0.97) !important;
+  transition-duration: 0.07s !important;
 }
 /* A close affordance is the glyph alone — never a filled or outlined chip.
    Two things would otherwise box every ✕ in the app: the global button
