@@ -1019,6 +1019,14 @@ button.tq-noanim:not(:disabled):not([disabled]):not([aria-disabled="true"]):acti
   box-shadow: none !important;
   filter: none !important;
 }
+/* Segments of a sliding pill DO glow on hover — they are choices you point at, not
+   chrome. They keep tq-noanim for the transform, because a segment lifting out of its
+   own track reads as broken, and take the halo back here. Needs the extra class in the
+   selector and !important to outrank the blanket opt-out directly above. */
+button.tq-noanim.tq-pill-seg:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
+  box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16)) !important;
+  filter: brightness(1.06) !important;
+}
 /* A close affordance is the glyph alone — never a filled or outlined chip.
    Two things would otherwise box every ✕ in the app: the global button
    background-color rule above, and the inline surface background most close
@@ -1951,7 +1959,7 @@ function SlidingPill({ options, value, onChange, size = "md", style: sx = {} }) 
       {options.map(opt => {
         const isActive = value === opt.value;
         return (
-          <button key={opt.value} className="tq-noanim" onClick={() => onChange(opt.value)}
+          <button key={opt.value} className="tq-noanim tq-pill-seg" onClick={() => onChange(opt.value)}
             style={{ position:"relative", zIndex:1, padding:pad, borderRadius:T.radiusPill, border:"none", fontSize:fs, fontWeight:isActive?fw:400, cursor:"pointer", fontFamily:T.font, background:"transparent", color:isActive?T.accentText:T.text, whiteSpace:"nowrap", transition:"color 0.2s ease" }}>
             <span aria-hidden="true" style={{ position:"absolute", inset:0, borderRadius:T.radiusPill, background:brandGrad(T.accent), opacity:isActive?1:0, transition:"opacity 0.2s ease", pointerEvents:"none", zIndex:0 }} />
             <span style={{ position:"relative", zIndex:1 }}>{opt.label}</span>
@@ -18243,7 +18251,7 @@ ${jobsCtx || "No jobs found."}`;
                   chrome-coloured pill (T.systemBg fill, T.border ring, T.text label),
                   which on a page with a background image related to nothing behind it. */}
               {isAdmin && (
-            <button onClick={() => { setPastLogsOffset(-1); setPastLogsOpen(true); }} title="Browsepast pay-period logs" style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.bg, color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+            <button onClick={() => { setPastLogsOffset(-1); setPastLogsOpen(true); }} title="Browsepast pay-period logs" style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.surface, color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
               Past Logs
             </button> )}
