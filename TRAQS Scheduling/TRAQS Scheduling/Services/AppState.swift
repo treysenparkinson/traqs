@@ -1568,22 +1568,24 @@ class AppState {
 
     // MARK: - Undo / Redo
 
+    // Rolling the schedule back is a schedule change like any other, so it takes
+    // the undoHistory toggle. Previously ungated on both surfaces.
     func undo() {
-        guard !undoStack.isEmpty else { return }
+        guard can(.undoHistory), !undoStack.isEmpty else { return }
         redoStack.append(jobs)
         jobs = undoStack.removeLast()
         scheduleSave()
     }
 
     func redo() {
-        guard !redoStack.isEmpty else { return }
+        guard can(.undoHistory), !redoStack.isEmpty else { return }
         undoStack.append(jobs)
         jobs = redoStack.removeLast()
         scheduleSave()
     }
 
-    var canUndo: Bool { !undoStack.isEmpty }
-    var canRedo: Bool { !redoStack.isEmpty }
+    var canUndo: Bool { can(.undoHistory) && !undoStack.isEmpty }
+    var canRedo: Bool { can(.undoHistory) && !redoStack.isEmpty }
 
     // MARK: - Auto-save
 
@@ -2251,7 +2253,7 @@ class AppState {
             throw APIError.unknown(NSError(domain: "TRAQS", code: 0,
                 userInfo: [NSLocalizedDescriptionKey: "Service unavailable — try again."]))
         }
-        let result = try await api.uploadAttachment(filename: filename, mimeType: mimeType, data: data)
+        let result = try await api.uploadAttachment(filename: filename, mimeType: mimeType, data: data, context: "jobFinish")
         let meta = PanelAttachment(
             key: result.key,
             filename: result.filename,
@@ -2279,7 +2281,7 @@ class AppState {
             throw APIError.unknown(NSError(domain: "TRAQS", code: 0,
                 userInfo: [NSLocalizedDescriptionKey: "Service unavailable — try again."]))
         }
-        let r = try await api.uploadAttachment(filename: filename, mimeType: mimeType, data: data)
+        let r = try await api.uploadAttachment(filename: filename, mimeType: mimeType, data: data, context: "message")
         return Attachment(key: r.key, filename: r.filename, mimeType: r.mimeType, size: r.size)
     }
 
@@ -2401,6 +2403,15 @@ class AppState {
 
     var isAdmin: Bool     { currentPerson?.isAdmin ?? false }
     var isEngineer: Bool  { isAdmin || (currentPerson?.isEngineer ?? false) }
+
+    /// Granular permission check — same rule as the web and the server:
+    /// `isAdmin && (adminPerms == nil || adminPerms[key] == true)`.
+    /// The old call sites used OR, so every admin passed regardless of toggles.
+    func can(_ key: AdminPerms.Key) -> Bool { currentPerson?.can(key) ?? false }
+
+    /// Sign-off / approval rights — admins, approvers and engineers. Deliberately
+    /// separate from the admin toggles: a non-admin can hold this.
+    var canApproveWork: Bool { currentPerson?.canApproveWork ?? false }
     /// Worker permission: may the current person clock in/out? Opt-out default.
     var canClockInOut: Bool { currentPerson?.canClockInOut ?? true }
 

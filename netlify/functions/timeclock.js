@@ -1,4 +1,5 @@
 import { requireOrgMember } from "./_utils/auth.js";
+import { canClockIn } from "./_utils/can.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgCodeFromHeader } from "./_utils/org.js";
@@ -922,6 +923,10 @@ export async function handler(event) {
       if (!jciPersonId || !jobId) return err(400, "Missing personId or jobId");
       // Non-admins can only clock themselves into jobs; admins can clock anyone.
       if (!_jc.isAdmin && String(_jc.personId) !== String(jciPersonId)) return err(403, "Can only clock yourself in");
+      // Clock-in access is a per-person switch. It hid a button on the client and
+      // nothing more, so a disabled worker could still start a job from another
+      // surface. Clock-OUT is never blocked (see canClockIn).
+      if (!_jc.isAdmin && !canClockIn(_jc)) return err(403, "Your account does not have clock-in access");
 
       let jciPeople;
       try { jciPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
@@ -1321,6 +1326,11 @@ export async function handler(event) {
       const { personId: pcPId } = body;
       if (!pcPId) return err(400, "Missing personId");
       if (!_pc.isAdmin && String(_pc.personId) !== String(pcPId)) return err(403, "Can only clock yourself in");
+      // Guard the IN direction only — this branch serves payClockOut too, and
+      // revoking access must never strand someone who is already on the clock.
+      if (action === "payClockIn" && !_pc.isAdmin && !canClockIn(_pc)) {
+        return err(403, "Your account does not have clock-in access");
+      }
 
       let pcPeople;
       try { pcPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
