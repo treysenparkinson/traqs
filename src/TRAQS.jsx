@@ -3,7 +3,8 @@ import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
-import TRAQS_BARS from "./traqs-bars.png";
+import TRAQS_BARS_STATIC from "./traqs-bars-static.png";
+import TRAQS_BARS_ACCENT from "./traqs-bars-accent.png";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme, setActiveThread } from "./push.js";
 import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
@@ -23141,8 +23142,29 @@ ${jobsCtx || "No jobs found."}`;
         }}
       >
         traqs
-        <img src={TRAQS_BARS} alt="" aria-hidden="true"
-          style={{ height: ".52em", width: "auto", marginLeft: ".07em", transform: "translateY(.01em)", WebkitTextStroke: 0 }} />
+        {/* Two layers, because only ONE bar is meant to track the theme. The
+            art is grey #747070 bars plus a single #38BDF8 bar; a mask over the
+            whole PNG would flatten every bar to the accent. So the grey bars
+            stay a plain <img> with their baked colour, and only the accent bar
+            is a mask box painted in Tc.accent. The two were split pixel-exact
+            from the original, so they recomposite seamlessly.
+            Sized by the PNG's own 1300x1058 ratio — "auto" means nothing to a
+            mask box, which has no intrinsic size. */}
+        <span aria-hidden="true"
+          style={{
+            position: "relative", display: "inline-block",
+            height: ".52em", width: "calc(.52em * 1.2287)",
+            marginLeft: ".07em", transform: "translateY(.01em)", WebkitTextStroke: 0,
+          }}>
+          <img src={TRAQS_BARS_STATIC} alt="" style={{ display: "block", width: "100%", height: "100%" }} />
+          <span style={{
+            position: "absolute", inset: 0, background: Tc.accent,
+            maskImage: `url(${TRAQS_BARS_ACCENT})`, WebkitMaskImage: `url(${TRAQS_BARS_ACCENT})`,
+            maskSize: "contain", WebkitMaskSize: "contain",
+            maskRepeat: "no-repeat", WebkitMaskRepeat: "no-repeat",
+            maskPosition: "center", WebkitMaskPosition: "center",
+          }} />
+        </span>
       </span>
       {/* LEFT: Undo / Redo */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
