@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
+import TRAQS_BARS from "./traqs-bars.png";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme, setActiveThread } from "./push.js";
 import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
@@ -1654,9 +1655,9 @@ function buildCustomTheme(bg, accent, surface, opts = {}) {
 }
 
 const THEMES = {
-  midnight: { name: "Dark",  bg: "#080d18", surface: "#0d1424", card: "#111c30", border: "#1a2a45", borderLight: "#243555", text: "#e6ecf8", textSec: "#e6ecf8", textDim: "#e6ecf8", bgText: "#e6ecf8", accent: "#3d7fff", accentText: "#ffffff", hover: hexA(blendHex("#3d7fff", 0.45), 0.2), hoverStrong: hexA(blendHex("#3d7fff", 0.45), 0.34), danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#111c30", glassBorder: "#1e2f4a", blur: "none", glow: "none", colorScheme: "dark" },
+  midnight: { name: "Dark",  bg: "#17171A", surface: "#202024", card: "#27272C", border: "#3A3A42", borderLight: "#4A4A54", text: "#F4F4F5", textSec: "#B4B4BC", textDim: "#8A8A93", bgText: "#F4F4F5", accent: "#3d7fff", accentText: "#ffffff", hover: hexA(blendHex("#3d7fff", 0.45), 0.2), hoverStrong: hexA(blendHex("#3d7fff", 0.45), 0.34), danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#27272C", glassBorder: "#3A3A42", blur: "none", glow: "none", colorScheme: "dark" },
   obsidian: { name: "Obsidian",  bg: "#07070e", surface: "#0d0d1a", card: "#111120", border: "#1c1c34", borderLight: "#252548", text: "#eeeef8", textSec: "#eeeef8", textDim: "#eeeef8", bgText: "#eeeef8", accent: "#7c3aed", accentText: "#ffffff", hover: hexA(blendHex("#7c3aed", 0.45), 0.2), hoverStrong: hexA(blendHex("#7c3aed", 0.45), 0.34), danger: "#f43f5e", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#111120", glassBorder: "#1c1c34", blur: "none", glow: "none", colorScheme: "dark" },
-  frost:    { name: "White",     bg: "#f0f4f9", surface: "#ffffff",  card: "#ffffff",  border: "#e2e8f2", borderLight: "#d4dce8", text: "#0f172a", textSec: "#0f172a", textDim: "#0f172a", bgText: "#0f172a", accent: "#0ea5e9", accentText: "#ffffff", hover: hexA(blendHex("#0ea5e9", -0.35), 0.14), hoverStrong: hexA(blendHex("#0ea5e9", -0.35), 0.24), danger: "#ef4444", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#ffffff",  glassBorder: "#e2e8f2", blur: "none", glow: "none", colorScheme: "light" },
+  frost:    { name: "White",     bg: "#EDEAE3", surface: "#FBFAF7",  card: "#FFFFFF",  border: "#E2DED5", borderLight: "#D8D3C8", text: "#0B0B0C", textSec: "#8A867E", textDim: "#B4B0A7", bgText: "#0B0B0C", accent: "#38BDF8", accentText: "#ffffff", hover: hexA(blendHex("#38BDF8", -0.35), 0.14), hoverStrong: hexA(blendHex("#38BDF8", -0.35), 0.24), danger: "#ef4444", font: "'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif", mono: "'DM Sans', sans-serif", radius: 22, radiusSm: 16, radiusXs: 11, radiusLg: 26, radiusHero: 34, radiusPill: 9999, glass: "#FBFAF7",  glassBorder: "#E2DED5", blur: "none", glow: "none", colorScheme: "light" },
 };
 // Legacy aliases so any existing code referencing "dark"/"light" still resolves
 THEMES.dark  = THEMES.midnight;
@@ -22680,6 +22681,10 @@ ${jobsCtx || "No jobs found."}`;
     ];
     const PRI_PAL = ["#10b981", "#f59e0b", "#f43f5e"];
     const CLIENT_PAL = ["#3b82f6", "#a855f7", "#ec4899", "#06b6d4", "#84cc16"];
+    // Element settings come from the DRAFT, not pT. buildCustomTheme folds them
+    // into pT on a custom theme, but on a preset pT is the raw THEMES entry and
+    // carries none of them — so changing System Elements, List Cells or Schedule
+    // Grid left the preview rendering the previous value.
     const pMode = pT.jobBarMode || "system";
     const pCellMode = pT.cellColorMode || "system";
     const pCellShade = (i, n) => blendHex(pT.accent, n <= 1 ? 0 : 0.34 - (i / (n - 1)) * 0.6);
@@ -23119,14 +23124,26 @@ ${jobsCtx || "No jobs found."}`;
           element and was never affected by the filter either way. */}
       {/* Same black-or-white-on-a-surface question as text, so it uses the same rule
           rather than its own 0.5 threshold. */}
-      <img src={wantsLightText(Tc.surfaceSolid) ? TRAQS_LOGO_WHITE : TRAQS_LOGO_BLUE} alt="TRAQS" style={{ height: 40, objectFit: "contain", display: "block", flexShrink: 0, marginLeft: 45, position: "relative", top: 5 }} />
-      {/* TRAQS bars mark — trailing "=" lockup (ported from iOS TRAQSBarsMark).
-          3 grey bars + the 3rd (full-width) bar tracks the user's accent. */}
-      <div aria-hidden="true" style={{ display: "flex", flexDirection: "column", gap: 2, marginLeft: -19, marginTop: 8, flexShrink: 0 }}>
-        {[0.554, 0.788, 1, 0.451].map((w, i) => (
-          <div key={i} style={{ width: 27 * w, height: 4, borderRadius: 1.3, background: i === 2 ? T.accent : hexA(Tc.text, 0.4) }} />
-        ))}
-      </div>
+      {/* Same lockup as the login screen: live Space Grotesk thickened with
+          text-stroke, then the bars asset aligned to the real text baseline.
+          Was an image wordmark plus four hand-drawn divs, which is why the two
+          screens didn't match — the drawn bars were thinner, tighter and used
+          the theme accent instead of the mark's own sky. */}
+      <span
+        aria-label="TRAQS"
+        style={{
+          display: "inline-flex", alignItems: "baseline", flexShrink: 0,
+          marginLeft: 45, position: "relative", top: 5,
+          fontFamily: "'Space Grotesk', system-ui, sans-serif",
+          fontWeight: 700, letterSpacing: "-.05em", lineHeight: 1, fontSize: 40,
+          color: Tc.text,
+          WebkitTextStroke: `0.6px ${Tc.text}`,
+        }}
+      >
+        traqs
+        <img src={TRAQS_BARS} alt="" aria-hidden="true"
+          style={{ height: ".52em", width: "auto", marginLeft: ".07em", transform: "translateY(.01em)", WebkitTextStroke: 0 }} />
+      </span>
       {/* LEFT: Undo / Redo */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
         <div style={{ display: "flex", gap: 2, flexShrink: 0, marginTop: 8 }}>
@@ -26558,7 +26575,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
               {can("editJobs") && <Tip label="Edit"><button onClick={() => { setCtxMenu(null); if (isOp) { let parentJob = null; for (const job of tasks) { for (const panel of (job.subs||[])) { if ((panel.subs||[]).find(o => o.id === it.id)) { parentJob = job; break; } } if (parentJob) break; } if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else if (isPanel) { const parentJob = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else { openEdit(it, null); } }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></Tip>}
-              <Tip label="Open Chat"><button onClick={() => { openChat(it); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></button></Tip>
+              <Tip label="Open Chat"><button onClick={() => { openChat(it); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0.9 0.9 22.2 22.2" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5c0 4.29-4.04 7.76-9 7.76-1.08 0-2.12-.17-3.08-.47L4.2 20.8l1.2-3.46C3.9 15.8 3 13.8 3 11.5 3 7.3 7 3.8 12 3.8s9 3.47 9 7.7z"/></svg></button></Tip>
               {can("editJobs") && <Tip label="Send Reminder"><button onClick={() => { setReminderModal({ item: it }); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button></Tip>}
               {showDepToggle && <button
                 onClick={(e) => { e.stopPropagation(); e.preventDefault(); setTasks(prev => { const next = prev.map(job => ({ ...job, subs: (job.subs || []).map(panel => { if (panel.id !== panelId) return panel; const siblings = panel.subs || []; const allSubIds = siblings.map(s => s.id); if (toggleNext === "unlocked") return { ...panel, depsMode: "unlocked", subs: siblings.map(s => ({ ...s, deps: allSubIds.filter(id => id !== s.id) })) }; if (toggleNext === "locked") return { ...panel, depsMode: "locked" }; return { ...panel, depsMode: undefined, subs: siblings.map(s => ({ ...s, deps: [] })) }; }) })); saveTasks(next, getToken, orgCode).catch(console.warn); return next; }); }}
