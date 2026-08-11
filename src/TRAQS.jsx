@@ -3425,6 +3425,7 @@ Extraction rules:
     setUploadFiles([]);
     setPreviewData(null);
     setUploadResult(parts.length ? { success: true, message: parts.join(" · ") + "." } : null);
+    if (parts.length) toast(parts.join(" · "));
   };
 
   const currentUser = loggedInUser ? loggedInUser.id : null;
@@ -5522,6 +5523,32 @@ Extraction rules:
   const [editDrag, setEditDrag] = useState(null); // drag-and-drop state for edit-job hierarchy: { kind:"panel"|"op", panelIdx, opIdx } source / over
   const [editAddedIds, setEditAddedIds] = useState(() => new Set()); // ids added during current edit session — drives "New" badge
   const [editToast, setEditToast] = useState(null); // { msg, key } — transient confirmation toast
+  // Universal save/add/change confirmation. This started life scoped inside the
+  // edit-job modal ("Operation added"); it now lives at the top level and is
+  // rendered fixed to the viewport, so any handler anywhere can confirm itself.
+  //
+  // toastAtRef records when a *specific* message last fired. The debounced
+  // autosave confirms itself generically ("Changes saved"), which is what
+  // catches drags and inline edits that have no explicit Save button — but an
+  // explicit action like "Client saved" is followed ~1s later by that same
+  // autosave, and two toasts for one action reads as a bug. So the generic one
+  // stands down if a specific message just spoke.
+  const toastAtRef = useRef(0);
+  const toast = useCallback((msg, opts) => {
+    if (!msg) return;
+    const now = Date.now();
+    if (opts && opts.generic) {
+      // Only the GENERIC message is ever suppressed, so this can never swallow
+      // a real confirmation — two distinct actions still speak twice. Sized to
+      // catch a settings Save firing its own message and this effect together.
+      if (now - toastAtRef.current < 1500) return; // a specific message already covered this
+    } else {
+      toastAtRef.current = now;
+    }
+    const key = `${now}-${Math.random()}`;
+    setEditToast({ msg, key });
+    setTimeout(() => setEditToast(t => (t && t.key === key) ? null : t), 1800);
+  }, []);
   const [editPopBtn, setEditPopBtn] = useState(null); // id of the add button currently doing a pop animation
   // Floating "Pending Schedule" tray — populated when the edit-job modal is saved with newly
   // added ops. The tray shows one card per pending op; user drags each card onto a person row +
@@ -5698,6 +5725,7 @@ Extraction rules:
     setToBusy(id);
     try {
       await decideTimeOffRequest({ id, action, reason }, getToken, orgCode);
+      toast(action === "approve" ? "Time off approved" : action === "deny" ? "Time off denied" : "Request cancelled");
       try { const r = await fetchTimeOffRequests(getToken, orgCode); setTimeOffRequests(r.requests || []); } catch {}
       // Always pull fresh people after approve/cancel so the PTO bar appears on
       // the schedule immediately. pollUpdateRef prevents the setter from being
@@ -6000,7 +6028,9 @@ Extraction rules:
     if (isFirstOrgSave.current) { isFirstOrgSave.current = false; return; }
     if (skipNextOrgSave.current) { skipNextOrgSave.current = false; return; }
     if (!orgCode) return;
-    saveOrgSettings(orgSettings, getTokenRef.current, orgCode).catch(e => console.warn("saveOrgSettings failed:", e));
+    saveOrgSettings(orgSettings, getTokenRef.current, orgCode)
+      .then(() => toast("Organization settings saved", { generic: true }))
+      .catch(e => console.warn("saveOrgSettings failed:", e));
   }, [orgSettings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Per-account settings sync (appearance + personal view prefs) ────────────
@@ -6249,7 +6279,7 @@ Extraction rules:
     if (!window.confirm(`Clock ${personName || "this worker"} out of their active job?`)) return;
     try {
       const res = await jobClockOutAction({ personId }, getTokenRef.current, orgCode);
-      if (res?.ok) setPeople(pp => pp.map(p => p.id === personId ? { ...p, activeJobClock: null } : p));
+      if (res?.ok) { setPeople(pp => pp.map(p => p.id === personId ? { ...p, activeJobClock: null } : p)); toast("Worker clocked out of job"); }
       else alert(res?.error || "Failed to clock out");
     } catch { alert("Network error"); }
   };
@@ -6275,6 +6305,7 @@ Extraction rules:
       if (eventOpen) {
         const res = await adminTimeclockEventAction({ action: "adminBreakEnd", personId }, getTokenRef.current, orgCode);
         if (!res?.ok) { alert(res?.error || "Failed to close the break punch"); return; }
+        toast("Break ended");
         setPeople(pp => pp.map(p => p.id === personId ? { ...p, activeClockIn: res.activeClockIn } : p));
         if (res.event) setTimeclock(tc => [...tc, res.event]);
       }
@@ -6318,6 +6349,7 @@ Extraction rules:
     try {
       setPeople(updated);
       await savePeople(updated, getToken, orgCode);
+      toast(m.kind === "review" ? (m.id ? "Review updated" : "Review added") : (m.id ? "Note updated" : "Note added"));
       setEmpNoteModal(null);
     } catch (e) {
       console.error("Failed to save review/note:", e);
@@ -6327,7 +6359,7 @@ Extraction rules:
   const deleteEmpNote = async (personId, noteId) => {
     const updated = people.map(p => String(p.id) !== String(personId) ? p : { ...p, reviews: (p.reviews || []).filter(r => r.id !== noteId) });
     setPeople(updated);
-    try { await savePeople(updated, getToken, orgCode); } catch (e) { console.error("Failed to delete review/note:", e); }
+    try { await savePeople(updated, getToken, orgCode); toast("Deleted"); } catch (e) { console.error("Failed to delete review/note:", e); }
   };
   const [analyticsPerson, setAnalyticsPerson] = useState(null); // admin-only: null = Everyone (team overview); else a personId → that person's personal stats
   const [clientCompletedExpanded, setClientCompletedExpanded] = useState(false);
@@ -7181,7 +7213,7 @@ Extraction rules:
   const [ptoCtx, setPtoCtx] = useState(null); // { x, y, bar, personId, toIdx }
   const [timeOffEdit, setTimeOffEdit] = useState(null); // { personId, idx, start, end, reason }
   const addPerson = (data) => { const { color: _dropColor, ...rest } = data; setPeople(p => [...p, { ...rest, id: uid() }]); setPersonModal(null); };
-  const delPerson = (id) => { setPeople(p => p.filter(x => x.id !== id)); setTasks(p => p.map(t => ({ ...t, team: (t.team || []).filter(x => x !== id), subs: (t.subs || []).map(s => ({ ...s, team: (s.team || []).filter(x => x !== id), subs: (s.subs || []).map(op => ({ ...op, team: (op.team || []).filter(x => x !== id) })) })) }))); };
+  const delPerson = (id) => { toast("Person removed"); setPeople(p => p.filter(x => x.id !== id)); setTasks(p => p.map(t => ({ ...t, team: (t.team || []).filter(x => x !== id), subs: (t.subs || []).map(s => ({ ...s, team: (s.team || []).filter(x => x !== id), subs: (s.subs || []).map(op => ({ ...op, team: (op.team || []).filter(x => x !== id) })) })) }))); };
   const savePerson = (ed) => {
     if (!ed.name.trim()) return;
     if (!ed.email?.trim()) return;
@@ -7200,7 +7232,9 @@ Extraction rules:
         else if (n.start !== o.start || n.end !== o.end || (n.type || "PTO") !== (o.type || "PTO") || (n.reason || "") !== (o.reason || "")) syncTimeOffEntry(n);
       }
     }
-    if (ed.id && people.find(x => x.id === ed.id)) updPerson(ed.id, ed); else addPerson(ed);
+    const _existing = ed.id && people.find(x => x.id === ed.id);
+    if (_existing) updPerson(ed.id, ed); else addPerson(ed);
+    toast(_existing ? "Person saved" : "Person added");
     setPersonModal(null);
   };
   const updTask = (id, upd, pid = null) => {
@@ -7336,6 +7370,7 @@ Extraction rules:
   const delTask = (id, pid = null) => {
     // Can't delete a job/op while someone is actively clocked into that job — they'd be stranded.
     if (blockedByActiveClock(jobIdOfNode(id))) return;
+    toast(pid ? "Deleted" : "Job deleted");
     // Drop poll protection so a Fast-TRAQS-imported job stays deleted instead of being revived
     // by the 30s S3 refetch (which otherwise rejects fetches missing protected IDs).
     protectedJobIds.current.delete(id);
@@ -7358,11 +7393,13 @@ Extraction rules:
   const clientColor = id => { const c = clients.find(x => x.id === id); return c ? c.color : T.textDim; };
   const saveClient = (ed) => {
     if (!ed.name.trim()) return;
-    if (ed.id && clients.find(c => c.id === ed.id)) setClients(p => p.map(c => c.id === ed.id ? ed : c));
+    const _existing = ed.id && clients.find(c => c.id === ed.id);
+    if (_existing) setClients(p => p.map(c => c.id === ed.id ? ed : c));
     else setClients(p => [...p, { ...ed, id: "c" + Math.random().toString(36).substr(2, 6) }]);
+    toast(_existing ? "Client saved" : "Client added");
     closeClientEdit();
   };
-  const delClient = id => { setClients(p => p.filter(c => c.id !== id)); setTasks(p => p.map(t => t.clientId === id ? { ...t, clientId: null } : t)); };
+  const delClient = id => { toast("Client deleted"); setClients(p => p.filter(c => c.id !== id)); setTasks(p => p.map(t => t.clientId === id ? { ...t, clientId: null } : t)); };
   const goStep = (next) => { setStepDir(next > modalStep ? 1 : -1); setModalStep(next); };
   const openNew = (pid = null) => { setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [], color: randomJobColor() }, parentId: pid }); };
   // Edit Job opens as its own page. From INSIDE the job details page it stacks, so
@@ -7744,6 +7781,7 @@ ${jobsCtx || "No jobs found."}`;
           return { ...op, id: op.id || uid(), color: op.color || pColor, ...(_opStart !== op.start ? { start: _opStart } : {}), end: _opEnd, startHour: _sh, endHour: Math.round(_rawEndH * 2) / 2 };
         }) };
     }) };
+    toast(withIds.id ? "Job saved" : parentId ? "Added" : "Job created");
     if (withIds.id) updTask(withIds.id, withIds, parentId);
     else { const nw = { ...withIds, id: uid(), createdAt: new Date().toISOString() }; protectedJobIds.current.add(nw.id); if (parentId) setTasks(p => p.map(t => t.id === parentId ? { ...t, subs: [...(t.subs || []), nw] } : t)); else { setTasks(p => [...p, nw]); setTimeout(() => { dataRef.current.tasks = [...(dataRef.current.tasks), nw]; doSaveRef.current(); }, 0); } }
 
@@ -8125,6 +8163,7 @@ ${jobsCtx || "No jobs found."}`;
     const newTasks = addFinishReq(tasks);
     setTasks(newTasks);
     saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+    toast("Completion requested");
 
     const adminParticipants = people.filter(p => p.userRole === "admin");
     if (adminParticipants.length === 0) {
@@ -8199,6 +8238,7 @@ ${jobsCtx || "No jobs found."}`;
     }
     setTasks(newTasks);
     saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+    toast("Completion approved");
     // No follow-up message is posted. The decision belongs ON the request bubble,
     // which now reads "APPROVED BY <name>" from resolvedByName/resolvedAt — a
     // second auto-sent chat message just repeated it and pushed the request
@@ -8246,6 +8286,7 @@ ${jobsCtx || "No jobs found."}`;
     }
     setTasks(newTasks);
     saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+    toast("Completion denied");
     // No follow-up message — see adminApproveJobFinish. The bubble carries
     // "DENIED BY <name>" plus the reason.
     setFinishDeclineState(prev => { const n = { ...prev }; delete n[requestId]; return n; });
@@ -8304,6 +8345,7 @@ ${jobsCtx || "No jobs found."}`;
     }
     setTasks(newTasks);
     saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+    toast("Completion reopened");
     // No follow-up message, same as approve and decline. Undoing returns the
     // request to pending, so the bubble drops its decision pill and shows the
     // Deny/Complete pills again — the state change is visible on the request.
@@ -8539,6 +8581,7 @@ ${jobsCtx || "No jobs found."}`;
           getToken, orgCode
         );
         setChatAttachments(prev => [...prev, att]);
+        toast("Attachment ready");
       }
     } catch (e) {
       console.error("Attachment upload failed:", e);
@@ -8562,6 +8605,7 @@ ${jobsCtx || "No jobs found."}`;
     const safeTitle = ((panel?.title || "panel").trim().replace(/\s+/g, "_") || "panel");
     const filename = `${safeTitle}_${date}.jpg`;
     const att = await uploadAttachment({ filename, mimeType: "image/jpeg", data, context: "jobFinish" }, getToken, orgCode);
+    toast("Photo uploaded");
     const meta = { ...att, filename, uploadedById: loggedInUser?.id || null, uploadedByName: loggedInUser?.name || "", uploadedAt: new Date().toISOString(), opId: target.opId || null };
     let nextTasks = null;
     setTasks(prev => {
@@ -8590,6 +8634,7 @@ ${jobsCtx || "No jobs found."}`;
   // Remove an attachment reference from a panel (S3 object is left in place,
   // matching how chat thread deletion leaves binaries).
   const deletePanelAttachment = (target, key) => {
+    toast("Attachment removed");
     let nextTasks = null;
     setTasks(prev => {
       nextTasks = prev.map(job => job.id !== target.jobId ? job : {
@@ -8735,6 +8780,7 @@ ${jobsCtx || "No jobs found."}`;
     try {
       await saveGroups(updated, getToken, orgCode);
       setGroups(updated);
+      toast("Group created");
       setNewGroupModal(false); setNewGroupPeople([]); setNewGroupName("");
       const participants = people.filter(p => memberIds.includes(p.id));
       const threadKey = `group:${newGroup.id}`;
@@ -8765,6 +8811,7 @@ ${jobsCtx || "No jobs found."}`;
     try {
       await saveGroups(updated, getToken, orgCode);
       setGroups(updated);
+      toast("Group updated");
       if (chatThread?.groupId === editGroupModal.groupId) {
         const participants = people.filter(p => editGroupModal.memberIds.includes(p.id));
         // Retitle from the UPDATED group so a named group keeps its name. Passing
@@ -16250,6 +16297,7 @@ ${jobsCtx || "No jobs found."}`;
       try {
         await savePeople(tsSettingsDraft, getToken, orgCode);
         setPeople(tsSettingsDraft);
+        toast("Time clock settings saved");
       } catch (e) { console.error(e); } finally { setTsSettingsSaving(false); closeSettings(); }
     };
     const draftSet = (personId, field, value) => {
@@ -16477,7 +16525,7 @@ ${jobsCtx || "No jobs found."}`;
       setSinceSaving(true);
       try {
         const r = await adminEditActiveClockInAction({ personId: p.id, clockIn: newIso }, getToken, orgCode);
-        if (r.ok) setPeople(pp => pp.map(x => x.id === p.id ? { ...x, activeClockIn: r.activeClockIn } : x));
+        if (r.ok) { setPeople(pp => pp.map(x => x.id === p.id ? { ...x, activeClockIn: r.activeClockIn } : x)); toast("Clock-in time updated"); }
         else alert(r.error || "Failed to update clock-in time");
       } catch { alert("Network error"); }
       finally { setSinceSaving(false); setSinceEdit(null); }
@@ -16550,6 +16598,7 @@ ${jobsCtx || "No jobs found."}`;
       try {
         const res = await clockInAction({ action: "clockIn", personId: loggedInUser.id, pin, jobRefs }, orgCode);
         if (res.ok) {
+          toast("Clocked in");
           setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeClockIn: { clockIn: res.clockIn, jobRefs } } : p));
           // Also start the per-job clock for the first selected op — there's only one active
           // job clock at a time, so multi-select still produces one running job.
@@ -16606,6 +16655,7 @@ ${jobsCtx || "No jobs found."}`;
       try {
         const res = await clockOutAction({ action: "clockOut", personId: loggedInUser.id, pin }, orgCode);
         if (res.ok) {
+          toast("Clocked out");
           setTimeclock(tc => [...tc, res.entry]);
           setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeClockIn: null } : p));
           closePin();
@@ -16621,6 +16671,7 @@ ${jobsCtx || "No jobs found."}`;
         const action = pinState.replace("_pin", ""); // "lunchStart"|"lunchEnd"|"breakStart"|"breakEnd"
         const res = await timeclockEventAction({ action, personId: loggedInUser.id, pin }, orgCode);
         if (res.ok) {
+          toast({ lunchStart: "Lunch started", lunchEnd: "Lunch ended", breakStart: "Break started", breakEnd: "Break ended" }[action] || "Saved");
           const evtType = action;
           setPeople(pp => pp.map(p => {
             if (p.id !== loggedInUser.id) return p;
@@ -16688,6 +16739,7 @@ ${jobsCtx || "No jobs found."}`;
       try {
         const res = await adminClockOutAction({ personId }, getToken, orgCode);
         if (res.ok) {
+          toast("Clocked out");
           setTimeclock(tc => [...tc, res.entry]);
           setPeople(pp => pp.map(p => p.id === personId ? { ...p, activeClockIn: null } : p));
         } else { alert(res.error || "Clock-out failed"); }
@@ -16700,18 +16752,21 @@ ${jobsCtx || "No jobs found."}`;
         const res = await adminEditEntryAction({ entryId: tsEditEntry.id, clockIn: tsEditEntry.clockIn, clockOut: tsEditEntry.clockOut }, getToken, orgCode);
         if (res.ok) {
           setTimeclock(tc => tc.map(e => e.id === res.entry.id ? res.entry : e));
+          toast("Shift updated");
           setTsEditEntry(null);
         } else { alert(res.error || "Save failed"); }
       } catch { alert("Network error"); }
     };
 
     const approveFinish = (job, panel, op) => {
+      toast("Completion approved");
       const loggedHours = timeclock.filter(e => e.jobRefs?.some(r => r.opId === op.id)).reduce((s, e) => s + (e.hours||0), 0);
       const updated = { ...op, status: "Finished", pendingFinish: false, actualHours: Math.round(loggedHours*100)/100 };
       const newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : updated) }) });
       setTasks(newTasks); saveTasks(newTasks, getToken, orgCode).catch(console.warn);
     };
     const rejectFinish = (job, panel, op) => {
+      toast("Completion declined");
       const newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : { ...o, pendingFinish: false }) }) });
       setTasks(newTasks); saveTasks(newTasks, getToken, orgCode).catch(console.warn);
     };
@@ -16997,6 +17052,7 @@ ${jobsCtx || "No jobs found."}`;
         try {
           const r = await adminDeleteEntryAction({ entryId: sid }, getToken, orgCode);
           if (!r?.ok) { alert(r?.error || "Couldn't delete this shift."); done({}); return; }
+          toast("Shift deleted");
           done({ sessions: sessions.filter(s => s.id !== sid) });
           // Re-pull so the day/period totals reflect the server's recomputed
           // truth (the deletion also lands on other devices via real-time).
@@ -17014,6 +17070,7 @@ ${jobsCtx || "No jobs found."}`;
         setTsPersonEditModal(m => ({ ...m, reopeningId: sid }));
         try {
           const r = await adminReopenEntryAction({ entryId: sid }, getToken, orgCode);
+          if (r?.ok) toast("Shift reopened");
           if (!r?.ok) { alert(r?.error || "Couldn't reopen this shift."); setTsPersonEditModal(m => (m ? { ...m, reopeningId: null, confirmReopen: null } : m)); return; }
           try {
             const [fresh, freshPeople] = await Promise.all([fetchTimeclock(getToken, orgCode), fetchPeople(getToken, orgCode)]);
@@ -17137,6 +17194,7 @@ ${jobsCtx || "No jobs found."}`;
             setTsPersonEditModal(m => (m ? { ...m, saving: false, ...(clockedOut ? { activeEntry: null } : {}) } : m));
             return;
           }
+          toast("Timesheet saved");
           setTsPersonEditModal(null);
         } catch { alert("Network error"); setTsPersonEditModal(m => ({ ...m, saving: false })); }
       };
@@ -17566,6 +17624,7 @@ ${jobsCtx || "No jobs found."}`;
       try {
         const res = await jobClockInAction({ personId: loggedInUser.id, jobId, panelId, opId, jobTitle, panelTitle, opTitle }, getToken, orgCode);
         if (res.ok) {
+          toast("Started on job");
           setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: { clockIn: res.clockIn, jobId, panelId, opId, jobTitle, panelTitle, opTitle, totalPausedMs: 0, pausedAt: null } } : p));
           setTasks(prev => {
             const updatedTasks = prev.map(job => {
@@ -17604,6 +17663,7 @@ ${jobsCtx || "No jobs found."}`;
       try {
         const res = await breakBeginAction({ personId: loggedInUser.id, durationMinutes: minutes }, getToken, orgCode);
         if (res.ok) {
+          toast("Break started");
           setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeBreak: { startedAt: res.startedAt, durationMinutes: res.durationMinutes ?? minutes } } : p));
         } else {
           alert(res.error || "Failed to start break");
@@ -17616,6 +17676,7 @@ ${jobsCtx || "No jobs found."}`;
       try {
         const res = await breakClearAction({ personId: loggedInUser.id }, getToken, orgCode);
         if (res.ok) {
+          toast("Break ended");
           setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeBreak: null } : p));
         } else {
           alert(res.error || "Failed to end break");
@@ -17630,6 +17691,7 @@ ${jobsCtx || "No jobs found."}`;
         const res = await jobClockOutAction({ personId: loggedInUser.id }, getToken, orgCode);
         if (res.ok) {
           // Server calculates net hours (subtracts totalPausedMs) — use directly
+          toast("Job time logged");
           setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: null } : p));
           if (res.hours > 0 && jc) {
             const newTasks = tasks.map(job => {
@@ -18336,7 +18398,7 @@ ${jobsCtx || "No jobs found."}`;
       setTsConfirmSaving(true);
       try {
         const res = await confirmTimesheetAction({ start: range.start, end: range.end }, getToken, orgCode);
-        if (res.ok) applyConfirmLocal(range.start, range.end, true, res.confirmedAt, res.confirmedBy);
+        if (res.ok) { applyConfirmLocal(range.start, range.end, true, res.confirmedAt, res.confirmedBy); toast("Timesheet confirmed"); }
         else alert(res.error || "Failed to confirm timesheet");
       } catch { alert("Network error"); } finally { setTsConfirmSaving(false); }
     };
@@ -18344,7 +18406,7 @@ ${jobsCtx || "No jobs found."}`;
       setTsConfirmSaving(true);
       try {
         const res = await unconfirmTimesheetAction({ start: range.start, end: range.end }, getToken, orgCode);
-        if (res.ok) applyConfirmLocal(range.start, range.end, false);
+        if (res.ok) { applyConfirmLocal(range.start, range.end, false); toast("Timesheet reopened"); }
         else alert(res.error || "Failed to re-open timesheet");
       } catch { alert("Network error"); } finally { setTsConfirmSaving(false); }
     };
@@ -22059,6 +22121,16 @@ ${jobsCtx || "No jobs found."}`;
       }
       // Reset the dirty baseline: the draft we just committed is the new truth.
       if (sec !== "customization" && settingsDraft) settingsPristineRef.current = JSON.stringify(settingsDraft);
+      toast({
+        "general": "Profile saved",
+        "org-general": "Organization saved",
+        "org-departments": "Departments saved",
+        "org-permissions": "Permissions saved",
+        "org-schedule": "Schedule settings saved",
+        "org-approval-templates": "Approval templates saved",
+        "org-timeclock": "Time clock settings saved",
+        "customization": "Appearance saved",
+      }[sec] || "Settings saved");
       setSettingsSaving(false);
       return true;
     } catch (e) {
@@ -23755,7 +23827,7 @@ ${jobsCtx || "No jobs found."}`;
                 {orgNameError && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 6 }}>{orgNameError}</div>}
                 <div style={{ display: "flex", gap: 6 }}>
                   <button onClick={() => { setOrgEditing(null); setOrgNameError(""); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-                  <button disabled={orgNameSaving || !orgNameInput.trim() || orgNameInput.trim() === orgName} onClick={async () => { const newName = orgNameInput.trim(); if (!newName) return; setOrgNameSaving(true); setOrgNameError(""); try { const res = await updateOrgName(newName, getToken, orgCode); setOrgName(res.config?.name || newName); setOrgEditing(null); try { const cur = JSON.parse(sessionStorage.getItem("tq_org_config") || "null") || {}; sessionStorage.setItem("tq_org_config", JSON.stringify({ ...cur, name: newName })); } catch {} } catch (e) { setOrgNameError(e.message || "Failed to update name"); } finally { setOrgNameSaving(false); } }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusPill, border: "none", background: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.border : T.accent, color: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.textDim : "#fff", fontSize: 11, fontWeight: 700, cursor: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgNameSaving ? 0.7 : 1 }}>{orgNameSaving ? "Saving…" : "Save"}</button>
+                  <button disabled={orgNameSaving || !orgNameInput.trim() || orgNameInput.trim() === orgName} onClick={async () => { const newName = orgNameInput.trim(); if (!newName) return; setOrgNameSaving(true); setOrgNameError(""); try { const res = await updateOrgName(newName, getToken, orgCode); setOrgName(res.config?.name || newName); toast("Organization name saved"); setOrgEditing(null); try { const cur = JSON.parse(sessionStorage.getItem("tq_org_config") || "null") || {}; sessionStorage.setItem("tq_org_config", JSON.stringify({ ...cur, name: newName })); } catch {} } catch (e) { setOrgNameError(e.message || "Failed to update name"); } finally { setOrgNameSaving(false); } }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusPill, border: "none", background: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.border : T.accent, color: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.textDim : "#fff", fontSize: 11, fontWeight: 700, cursor: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgNameSaving ? 0.7 : 1 }}>{orgNameSaving ? "Saving…" : "Save"}</button>
                 </div>
               </div>}
             </div>
@@ -24974,6 +25046,7 @@ ${jobsCtx || "No jobs found."}`;
         try {
           const res = await adminTimeclockEventAction({ action: apiAction, personId: clockPopover.personId }, getToken, orgCode);
           if (res.ok) {
+            toast({ lunchStart: "Lunch started", lunchEnd: "Lunch ended", breakStart: "Break started", breakEnd: "Break ended" }[eventKey] || "Saved");
             setPeople(pp => pp.map(p => p.id === clockPopover.personId ? { ...p, activeClockIn: res.activeClockIn } : p));
             if (res.event) setTimeclock(tc => [...tc, res.event]);
           } else {
@@ -25047,12 +25120,14 @@ ${jobsCtx || "No jobs found."}`;
               if (action === "in") {
                 const res = await adminClockInAction({ personId, clockInTime: iso }, getToken, orgCode);
                 if (res.ok) {
+                  toast("Clocked in");
                   setPeople(pp => pp.map(p => p.id === personId ? { ...p, activeClockIn: res.activeClockIn } : p));
                   setClockTimeModal(null);
                 } else { alert(res.error || "Clock-in failed"); }
               } else {
                 const res = await adminClockOutAction({ personId, clockOutTime: iso }, getToken, orgCode);
                 if (res.ok) {
+                  toast("Clocked out");
                   setTimeclock(tc => [...tc, res.entry]);
                   setPeople(pp => pp.map(p => p.id === personId ? { ...p, activeClockIn: null } : p));
                   setClockTimeModal(null);
@@ -25117,6 +25192,7 @@ ${jobsCtx || "No jobs found."}`;
           });
           const newTasks = recalcBounds(updated, loggedInUser?.name || "Split");
           saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+          toast("Operation split");
           return newTasks;
         });
         setSplitModal(null);
@@ -25224,6 +25300,7 @@ ${jobsCtx || "No jobs found."}`;
           }, getToken, orgCode)
             .then(async r => {
               if (!r?.ok) { console.warn("[worked-hours] credit failed:", r?.error); return; }
+              toast("Worked hours updated");
               // Pull the new row into state. productionHours is only refreshed by
               // a sync event, so without this the efficiency graph sat unchanged
               // until the next Ably delta — which looked like the credit failing.
@@ -25950,6 +26027,7 @@ ${jobsCtx || "No jobs found."}`;
                           const updated = people.map(p => p.id === person.id ? { ...p, pin: draft } : p);
                           await savePeople(updated, getToken, orgCode);
                           setPeople(updated);
+                          toast("PIN saved");
                           setPinDrafts(p => { const n = { ...p }; delete n[person.id]; return n; });
                         } catch (e) { console.error(e); }
                         finally { setPinSaving(p => ({ ...p, [person.id]: false })); }
@@ -26301,6 +26379,7 @@ ${jobsCtx || "No jobs found."}`;
               setGroups(updated);
               setPinnedGroups(p => { const n = p.filter(id => id !== groupId); localStorage.setItem("tq_pinned_groups", JSON.stringify(n)); return n; });
             }
+            toast(isGroup ? "Group deleted" : "Chat cleared");
             setConfirmClearChat(null);
           }} style={{ flex: 1, padding: "11px 0", borderRadius: T.radiusPill, border: "none", background: "linear-gradient(135deg,#ef4444,#dc2626)", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: "0 4px 16px rgba(239,68,68,0.35)" }}>
             {confirmClearChat.isGroup ? "Delete Group" : "Clear Chat"}
@@ -26633,7 +26712,7 @@ ${jobsCtx || "No jobs found."}`;
               <Tip label="Open Chat"><button onClick={() => { openChat(it); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0.9 0.9 22.2 22.2" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5c0 4.29-4.04 7.76-9 7.76-1.08 0-2.12-.17-3.08-.47L4.2 20.8l1.2-3.46C3.9 15.8 3 13.8 3 11.5 3 7.3 7 3.8 12 3.8s9 3.47 9 7.7z"/></svg></button></Tip>
               {can("editJobs") && <Tip label="Send Reminder"><button onClick={() => { setReminderModal({ item: it }); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button></Tip>}
               {showDepToggle && <button
-                onClick={(e) => { e.stopPropagation(); e.preventDefault(); setTasks(prev => { const next = prev.map(job => ({ ...job, subs: (job.subs || []).map(panel => { if (panel.id !== panelId) return panel; const siblings = panel.subs || []; const allSubIds = siblings.map(s => s.id); if (toggleNext === "unlocked") return { ...panel, depsMode: "unlocked", subs: siblings.map(s => ({ ...s, deps: allSubIds.filter(id => id !== s.id) })) }; if (toggleNext === "locked") return { ...panel, depsMode: "locked" }; return { ...panel, depsMode: undefined, subs: siblings.map(s => ({ ...s, deps: [] })) }; }) })); saveTasks(next, getToken, orgCode).catch(console.warn); return next; }); }}
+                onClick={(e) => { e.stopPropagation(); e.preventDefault(); setTasks(prev => { const next = prev.map(job => ({ ...job, subs: (job.subs || []).map(panel => { if (panel.id !== panelId) return panel; const siblings = panel.subs || []; const allSubIds = siblings.map(s => s.id); if (toggleNext === "unlocked") return { ...panel, depsMode: "unlocked", subs: siblings.map(s => ({ ...s, deps: allSubIds.filter(id => id !== s.id) })) }; if (toggleNext === "locked") return { ...panel, depsMode: "locked" }; return { ...panel, depsMode: undefined, subs: siblings.map(s => ({ ...s, deps: [] })) }; }) })); saveTasks(next, getToken, orgCode).catch(console.warn); toast("Dependencies updated"); return next; }); }}
                 title={toggleTitle}
                 style={{ flexShrink: 0, width: 30, height: 30, borderRadius: "50%", border: `1px solid ${toggleBorder}`, background: toggleBg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: toggleColor, transition: "all 0.15s" }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hoverStrong; }}
@@ -26704,7 +26783,7 @@ ${jobsCtx || "No jobs found."}`;
       ps.forEach(sub => { if((sub.deps||[]).length>0){ checkedIds.add(sub.id); (sub.deps||[]).forEach(d=>checkedIds.add(d)); } });
       const isLinked = sid => checkedIds.has(sid);
       const toggle = sibId => { const next=new Set(checkedIds); if(next.has(sibId)){next.delete(sibId);}else{next.add(sibId);} const ns=ps.map(s=>next.has(s.id)?{...s,deps:[...next].filter(id=>id!==s.id)}:{...s,deps:[]}); setDepsModal(p=>({...p,panelSubs:ns})); };
-      const save=()=>{ const anyLinked=ps.some(s=>(s.deps||[]).length>0); const next=tasks.map(job=>({...job,subs:(job.subs||[]).map(panel=>panel.id!==depsModal.panelId?panel:{...panel,subs:ps,...(anyLinked?{depsMode:depsModal.depsMode||"unlocked"}:{depsMode:undefined})})})); setTasks(next); saveTasks(next,getToken,orgCode).catch(console.warn); setDepsModal(null); };
+      const save=()=>{ const anyLinked=ps.some(s=>(s.deps||[]).length>0); const next=tasks.map(job=>({...job,subs:(job.subs||[]).map(panel=>panel.id!==depsModal.panelId?panel:{...panel,subs:ps,...(anyLinked?{depsMode:depsModal.depsMode||"unlocked"}:{depsMode:undefined})})})); setTasks(next); saveTasks(next,getToken,orgCode).catch(console.warn); toast("Dependencies saved"); setDepsModal(null); };
       return <div onClick={()=>setDepsModal(null)} style={{ position:"fixed",inset:0,zIndex:10005,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:T.font }}>
         <div onClick={e=>e.stopPropagation()} style={{ background:T.card,border:`1px solid ${T.borderLight}`,borderRadius:T.radiusSm,boxShadow:"0 24px 64px rgba(0,0,0,0.6)",width:"min(440px, calc(100vw - 32px))",padding:"24px 24px 20px",animation:"slideUp 0.22s ease-out" }}>
           <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6 }}>
@@ -27638,6 +27717,7 @@ ${jobsCtx || "No jobs found."}`;
           color: ej.color,
           subs: ej.subs,
         });
+        toast("Job saved");
         // If new ops/panels were added during this edit session, populate the floating
         // "Pending Schedule" tray. The user then drags each card onto the Schedule grid.
         if (editAddedIds.size > 0) {
@@ -27669,11 +27749,9 @@ ${jobsCtx || "No jobs found."}`;
         }
         closeEditJob();
       };
-      const flashToast = (msg) => {
-        const key = Date.now() + Math.random();
-        setEditToast({ msg, key });
-        setTimeout(() => setEditToast(t => (t && t.key === key) ? null : t), 1800);
-      };
+      // Kept as a name because three call sites below read well with it; the
+      // implementation is now the app-wide toast().
+      const flashToast = toast;
       const rescheduleJob = () => {
         // Mirror the right-click "Reschedule" flow: close this editor and reopen the
         // multi-step edit modal in reschedule mode (step 2) with current pending state.
@@ -27779,14 +27857,6 @@ ${jobsCtx || "No jobs found."}`;
               ? { position: "relative", zIndex: 1, background: "transparent", borderRadius: 0, width: "100%", maxWidth: "none", flex: 1, minHeight: 0, border: "none", boxShadow: "none", display: "flex", flexDirection: "column", fontFamily: T.font }
               : { position: "relative", background: T.card, borderRadius: T.radius, width: "100%", maxWidth: 1400, maxHeight: "calc(100vh - 48px)", border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", display: "flex", flexDirection: "column", fontFamily: T.font }}
             onClick={e => e.stopPropagation()}>
-            {editToast && <div key={editToast.key} style={{ position: "absolute", top: 16, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 10, padding: "10px 18px 10px 12px", borderRadius: 999, background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, letterSpacing: "-0.045em", fontFamily: T.font, boxShadow: "0 8px 28px rgba(0,0,0,0.4)", zIndex: 50, animation: "toastInOut 1.8s cubic-bezier(0.34, 1.56, 0.64, 1) both", pointerEvents: "none" }}>
-              <div style={{ width: 22, height: 22, borderRadius: "50%", background: T.accentText, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, animation: "checkPop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) 0.08s both" }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="5 12.5 10 17.5 19 7.5" style={{ strokeDasharray: 30, animation: "checkDraw 0.55s 0.2s cubic-bezier(0.65, 0, 0.35, 1) both" }} />
-                </svg>
-              </div>
-              <span>{editToast.msg}</span>
-            </div>}
             {/* Header */}
             {/* Header. As a page: page-sized title with Back to its right at the same
                 34/32 offset every other page title uses. As an overlay: unchanged. */}
@@ -28247,6 +28317,20 @@ ${jobsCtx || "No jobs found."}`;
     const flipUp   = appTooltip.y > window.innerHeight - 56;
     return <div style={{ position: "fixed", left: flipLeft ? undefined : appTooltip.x + 12, right: flipLeft ? window.innerWidth - appTooltip.x + 12 : undefined, top: flipUp ? undefined : appTooltip.y + 8, bottom: flipUp ? window.innerHeight - appTooltip.y + 8 : undefined, zIndex: 99999, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "5px 10px", fontSize: 12, fontWeight: 500, color: T.text, fontFamily: T.font, pointerEvents: "none", boxShadow: "0 4px 16px rgba(0,0,0,0.25)", animation: "tipIn 0.14s ease-out", whiteSpace: String(appTooltip.label).includes("\n") ? "pre-line" : "nowrap", maxWidth: String(appTooltip.label).includes("\n") ? 320 : 260, lineHeight: 1.45 }}>{appTooltip.label}</div>;
   })(), document.body)}
+  {/* Universal save/add/change confirmation. Portalled to document.body and
+      fixed to the viewport so it appears identically from any view, page,
+      overlay or popup — the edit-job modal used to own a copy of this, scoped
+      to its own box, which meant every other handler in the app had nowhere to
+      confirm itself. */}
+  {editToast && createPortal(
+    <div key={editToast.key} style={{ position: "fixed", top: 24, left: "50%", transform: "translateX(-50%)", display: "flex", alignItems: "center", gap: 10, padding: "10px 18px 10px 12px", borderRadius: 999, background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, letterSpacing: "-0.045em", fontFamily: T.font, boxShadow: "0 8px 28px rgba(0,0,0,0.4)", zIndex: 100000, animation: "toastInOut 1.8s cubic-bezier(0.34, 1.56, 0.64, 1) both", pointerEvents: "none" }}>
+      <div style={{ width: 22, height: 22, borderRadius: "50%", background: T.accentText, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, animation: "checkPop 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) 0.08s both" }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="4" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="5 12.5 10 17.5 19 7.5" style={{ strokeDasharray: 30, animation: "checkDraw 0.55s 0.2s cubic-bezier(0.65, 0, 0.35, 1) both" }} />
+        </svg>
+      </div>
+      <span>{editToast.msg}</span>
+    </div>, document.body)}
   </TooltipCtx.Provider>;
 }
 
