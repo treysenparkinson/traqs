@@ -3947,6 +3947,7 @@ Extraction rules:
   const [ccSelectPopover, setCcSelectPopover] = useState(null); // custom select-column picker: { itemId, pid, key, current, options, x, y }
   const [clockPopover, setClockPopover] = useState(null); // { personId, action: "in"|"out", x, y }
   const [clockAccessOpen, setClockAccessOpen] = useState(false); // Time Settings → per-worker clock-in access disclosure
+  const [payClockOpen, setPayClockOpen] = useState(true);        // Time Settings → "Hourly" grid disclosure
   const [clockTimeModal, setClockTimeModal] = useState(null); // { personId, personName, action, ts } — ts is "YYYY-MM-DDTHH:mm"
   const [orgSettings, setOrgSettings] = useState(() => {
     try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = s.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5]; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
@@ -22613,6 +22614,33 @@ ${jobsCtx || "No jobs found."}`;
         <span style={{ position: "absolute", top: 3, left: on ? 21 : 3, width: 16, height: 16, borderRadius: 20, background: "#fff", transition: "left 0.2s" }} />
       </button>
     );
+    // Four-up grid of person tiles. Pressing a tile flips that person and leaves
+    // them there; the page's own Save commits the draft, same as every other
+    // control in this section.
+    const personTiles = ({ list, isOn, onToggle, animate = true }) => (
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: 8 }}>
+        {list.map((p, i) => {
+          const on = isOn(p);
+          return (
+            <button key={p.id} type="button" onClick={() => onToggle(p, on)} title={`${p.name || "—"} — ${on ? "on" : "off"}`}
+              style={{
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 7,
+                padding: "14px 8px 11px", minWidth: 0,
+                borderRadius: T.radius, cursor: "pointer", fontFamily: T.font, textAlign: "center",
+                border: `1.5px solid ${on ? T.accent : T.border}`,
+                background: on ? T.accent + "14" : T.surface,
+                transition: "border-color 0.14s, background 0.14s",
+                ...(animate ? { animation: "staggerUp 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(i, 14) * 32}ms` } : {}),
+              }}>
+              <PersonAvatar person={p} size={40} ring={on ? T.accent : null} />
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: T.text, width: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name || "—"}</span>
+              <span style={{ fontSize: 10, fontWeight: 800, letterSpacing: "-0.03em", textTransform: "uppercase", color: on ? T.accent : T.textDim }}>{on ? "On" : "Off"}</span>
+            </button>
+          );
+        })}
+        {list.length === 0 && <div style={{ gridColumn: "1 / -1", fontSize: 12, color: T.textDim, padding: "8px 0" }}>No team members yet.</div>}
+      </div>
+    );
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
         <div className="tq-frost" style={stCard}>
@@ -22682,12 +22710,12 @@ ${jobsCtx || "No jobs found."}`;
                         </div>
                         <Toggle on={enabled > 0} onClick={() => setAll(enabled > 0 ? false : true)} />
                       </div>
-                      {workers.map((p, i) => (
-                        <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 10px", borderRadius: T.radius, ...rowAnim(i + 1) }}>
-                          <div style={{ flex: 1, fontSize: 13, color: T.text }}>{p.name || "—"}</div>
-                          <Toggle on={p.canClockInOut !== false} onClick={() => setOne(p.id)} />
-                        </div>
-                      ))}
+                      {personTiles({
+                        list: workers,
+                        isOn: p => p.canClockInOut !== false,
+                        onToggle: p => setOne(p.id),
+                        animate: clockAccessOpen,
+                      })}
                     </div>
                   </div>
                 </div>
@@ -22710,23 +22738,43 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
         <div className="tq-frost" style={stCard}>
-          <div style={stLabel}>Team</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 150px", gap: 8, padding: "0 0 8px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
-            {["Name", "Pay Type", "PIN"].map(h => <span key={h} style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{h}</span>)}
+          {(() => {
+            const payOn = dp.filter(p => (p.payType || "hourly") !== "salary").length;
+            return (<>
+              <div className="tq-drop" onClick={() => setPayClockOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <div style={{ ...stLabel, flex: 1, marginBottom: 0 }}>Hourly</div>
+                <span style={{ fontSize: 12, fontWeight: 700, color: payOn > 0 ? T.accent : T.textDim }}>{payOn}/{dp.length}</span>
+                <span style={{ transform: payClockOpen ? "rotate(90deg)" : "none", transition: "transform 0.22s ease", color: T.textDim, lineHeight: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
+              </div>
+              {/* Real-height expand/collapse, matching Per-worker access above. */}
+              <div style={{ display: "grid", gridTemplateRows: payClockOpen ? "1fr" : "0fr", opacity: payClockOpen ? 1 : 0, transition: "grid-template-rows 0.28s ease, opacity 0.2s ease" }}>
+                <div style={{ overflow: "hidden", minHeight: 0 }}>
+                  <div style={{ marginTop: 12 }}>
+                    {personTiles({
+                      list: dp,
+                      isOn: p => (p.payType || "hourly") !== "salary",
+                      onToggle: (p, on) => updDraftPerson(p.id, { payType: on ? "salary" : "hourly" }),
+                      animate: payClockOpen,
+                    })}
+                  </div>
+                </div>
+              </div>
+            </>);
+          })()}
+          <div style={{ ...stLabel, marginTop: 26 }}>PIN</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 150px", gap: 8, padding: "0 0 8px", borderBottom: `1px solid ${T.border}`, marginBottom: 4 }}>
+            {["Name", "PIN"].map(h => <span key={h} style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{h}</span>)}
           </div>
-          {dp.map(p => {
-            const payType = p.payType || "hourly";
+          {dp.filter(p => (p.payType || "hourly") !== "salary").length === 0 && (
+            <div style={{ fontSize: 12, color: T.textDim, padding: "10px 0" }}>Nobody is set to hourly.</div>
+          )}
+          {dp.filter(p => (p.payType || "hourly") !== "salary").map(p => {
             const showPin = showPinIds.has(p.id);
             return (
-              <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 150px", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${T.border}18` }}>
+              <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1fr 150px", gap: 8, alignItems: "center", padding: "8px 0", borderBottom: `1px solid ${T.border}18` }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: 8, background: T.textDim, flexShrink: 0 }} />
+                  <PersonAvatar person={p} size={22} />
                   <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-                </div>
-                <div style={{ display: "flex", borderRadius: 20, border: `1px solid ${T.border}`, overflow: "hidden" }}>
-                  {["hourly", "salary"].map(pt => (
-                    <button key={pt} type="button" onClick={() => updDraftPerson(p.id, { payType: pt })} style={{ flex: 1, padding: "4px 0", border: "none", background: payType === pt ? (pt === "salary" ? elColor("#6366f1") : T.accent) : T.surface, color: payType === pt ? (pt === "salary" ? "#fff" : T.accentText) : T.textDim, fontSize: 11, fontWeight: payType === pt ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s", textTransform: "capitalize" }}>{pt}</button>
-                  ))}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, overflow: "hidden" }}>
                   <input className="tq-bare" type={showPin ? "text" : "password"} value={p.pin || ""} onChange={e => updDraftPerson(p.id, { pin: e.target.value })} placeholder={p.hasPin ? "•••• set" : "Set PIN"} style={{ flex: 1, padding: "5px 8px", border: "none", background: "transparent", color: T.text, fontSize: 13, fontFamily: T.mono, letterSpacing: showPin ? "normal" : "0.15em", outline: "none", minWidth: 0 }} />
