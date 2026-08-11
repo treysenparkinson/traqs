@@ -20195,7 +20195,15 @@ ${jobsCtx || "No jobs found."}`;
     // body, `bx` drops the card's own background/border/shadow because the page is
     // now the surface, and `cls` becomes the Back pill. Every modal body below is
     // untouched, which is why all four types convert at once.
-    const asPage = !isMobile;
+    // The job form stays a centred popup. It's a short create/edit flow launched
+    // straight off the Jobs list and reads oddly as a whole page for something so
+    // closely tied to the list behind it — the other types here (job log, detail,
+    // deps) are destinations you sit in, so they keep page mode.
+    const asPage = !isMobile && modal.type !== "edit";
+    // Desktop overlay (the job form). Distinct from the mobile overlay, which is a
+    // full-height sheet and must stay top-aligned — this one centres and blurs the
+    // page behind it like the other desktop popups.
+    const isPopup = !asPage && !isMobile;
     const _pageBg = asPage ? pageBgLayer() : null;
     // Page mode drops the anim-modal-* classes entirely. Their fadeIn/bcPageIn
     // animate the page in from transparent, which read as the background flashing
@@ -20209,16 +20217,31 @@ ${jobsCtx || "No jobs found."}`;
     // colour or the liquid wash, and covering it is what hid them.
     const ov = asPage
       ? { position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "flex-start", overflowY: "auto", overflowX: "hidden", background: "transparent", padding: 0 }
-      : { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "8px", overflow: "auto" };
+      : { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: isPopup ? "24px" : "8px", overflow: "auto", ...(isPopup ? { backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)" } : null) };
     const bx = (wide) => asPage
       // No max width and no side padding — the page fills. Only top head-room, to clear
       // the floating Back pill on pages that use it.
       ? { background: "transparent", borderRadius: 0, padding: "54px 0 0", maxWidth: "none", width: "100%", border: "none", boxShadow: "none" }
-      : { background: T.card, borderRadius: 26, padding: "56px 18px 18px", maxWidth: wide ? 1000 : 600, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" };
+      // margin:auto centres the box when it fits and collapses when it is taller
+      // than the viewport, so a long form scrolls instead of losing its top edge —
+      // which is what align-items:center would do.
+      : { background: T.card, borderRadius: 26, padding: "56px 18px 18px", maxWidth: wide ? 1000 : 600, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", ...(isPopup ? { margin: "auto", maxHeight: "calc(100vh - 48px)" } : null) };
     // Spread AFTER bx() at every return site so it beats each one's own width/height
     // pins (90vh, maxWidth 480/1500) and lets the card fill the page. zIndex 1 lifts
     // the content above the sticky background layer.
     const pageFill = asPage ? { height: "auto", maxHeight: "none", flex: 1, minHeight: 0, width: "100%", maxWidth: "none", zIndex: 1 } : {};
+    // Rounded surface for the content column of a stacked page. In page mode `bx`
+    // is transparent and full-bleed, so anything inside it sits straight on the
+    // page background — which on a liquid or image theme is a moving gradient
+    // with nothing to read against. Applied to the pages that hold inputs.
+    // `tq-frost` rather than a plain background so it picks up the adaptive blur
+    // and the Card Opacity setting like every other card.
+    const panelCls = asPage ? "tq-frost" : undefined;
+    const panel = asPage ? {
+      background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg,
+      padding: isMobile ? "20px 16px" : "26px 28px", boxSizing: "border-box",
+      boxShadow: "0 18px 44px rgba(0,0,0,0.10)",
+    } : null;
     const cls = asPage
       ? backBtn(closeModal, { position: "absolute", top: 16, left: 22, zIndex: 6 })
       : <button onClick={closeModal} style={{ background: "none", border: "none", color: T.text, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>;
@@ -21497,7 +21520,7 @@ ${jobsCtx || "No jobs found."}`;
           {/* Body capped and centred like the edit pages — full-width rows across a wide
               monitor put the person, the operation and the hours miles apart. Title and
               subline stay full width at the top-left, same as Edit Job. */}
-          <div style={{ width: "100%", maxWidth: FIELD_COL_W, marginLeft: "auto", marginRight: "auto" }}>
+          <div className={panelCls} style={{ width: "100%", maxWidth: FIELD_COL_W, marginLeft: "auto", marginRight: "auto", ...(panel || {}) }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 38 }}>
             {stat("Hours logged", fmtH(totalH), T.accent)}
             {stat("People", String(crew.length), "#10b981")}
@@ -23563,7 +23586,14 @@ ${jobsCtx || "No jobs found."}`;
           // The app layer stays MOUNTED underneath (hidden, not unmounted) so the
           // schedule/grid keeps its scroll position and in-flight state while you're
           // on a detail page and when you come Back.
-          const showModalPage = !!modal;
+          // The job form is a POPUP, not a page: it renders as a fixed overlay on
+          // top of the app rather than into the page slot, and the app layer stays
+          // visible behind it. Must agree with `asPage` in renderModal — that one
+          // controls the modal's own chrome, this one controls whether the page
+          // behind it is hidden and where the modal is mounted. Setting only the
+          // first is what made it render as a bare page with nothing behind it.
+          const modalIsPopup = !!modal && modal.type === "edit" && !isMobile;
+          const showModalPage = !!modal && !modalIsPopup;
           // opacity:0 is what actually hides it. `visibility: hidden` alone leaks, because
           // visibility is inherited and a descendant may set `visibility: visible` to win
           // back — the grid's expand chevrons do exactly that, so they bled through onto
@@ -23581,6 +23611,9 @@ ${jobsCtx || "No jobs found."}`;
               </div>}
               {showApp && <div style={showModalPage ? { ...layer(false), ...hidden } : layer(false)}><AnimatedView viewKey={view} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{view === "schedule" && frostScroll(renderTeam())}{view === "tasks" && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{renderTasks()}</div>}{view === "approvals" && canSeeApprovalQueue && frostScroll(renderApprovalQueue())}{view === "admin" && isAdmin && frostScroll(renderAdmin())}{view === "timestamp" && frostScroll(renderTimeStamp())}{view === "analytics" && frostScroll(renderAnalytics())}{view === "clients" && frostScroll(renderClients())}{view === "messages" && renderMessages()}{view === "dashboard" && renderDashboard()}{view === "employees" && frostScroll(renderEmployees())}</AnimatedView></div>}
               {showSettings && <div style={showModalPage ? { ...layer(true), ...hidden } : layer(true)}>{renderSettingsPage()}</div>}
+              {/* Popup modals mount LAST and paint over the app, which stays
+                  visible and interactive-blocked behind the scrim. */}
+              {modalIsPopup && renderModal()}
             </div>
           );
         })()}
@@ -26840,7 +26873,21 @@ ${jobsCtx || "No jobs found."}`;
                 <button onClick={closeClientEdit} style={{ background: "none", border: "none", color: T.text, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
                 <h3 style={{ margin: "0 0 24px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit Client" : "New Client"}</h3>
               </>}
-          <div style={_cePage ? { width: "100%", maxWidth: FIELD_COL_W, marginLeft: "auto", marginRight: "auto", padding: "24px 32px", boxSizing: "border-box", overflowY: "auto", flex: 1, minHeight: 0 } : undefined}>
+          {/* Same rounded surface the other stacked pages use — as a page these
+              fields sat straight on the page background. `tq-frost` so it takes
+              the adaptive blur when one is active. */}
+          {/* Hugs its content — inputs plus the Cancel/Save row — rather than
+              filling the page. The outer container is already the scroller, so
+              this needs no flex:1 / overflow of its own; with them it stretched
+              to the bottom of the window and the surface ran on past the form. */}
+          <div className={_cePage ? "tq-frost" : undefined}
+            style={_cePage ? {
+              width: "100%", maxWidth: FIELD_COL_W, marginLeft: "auto", marginRight: "auto",
+              padding: isMobile ? "20px 16px" : "26px 28px", boxSizing: "border-box",
+              marginBottom: 32, flexShrink: 0,
+              background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg,
+              boxShadow: "0 18px 44px rgba(0,0,0,0.10)",
+            } : undefined}>
           <InputField label="Company Name" value={ed.name} onChange={v => setClientModal(p => ({ ...p, name: v }))} />
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr", gap: 16 }}>
             <InputField label="Contact Person" value={ed.contact} onChange={v => setClientModal(p => ({ ...p, contact: v }))} />
@@ -27765,7 +27812,15 @@ ${jobsCtx || "No jobs found."}`;
             {/* The fields are the ONLY thing capped — the page still fills the panel and
                 the title stays in the top-left corner. margin auto centres the column;
                 width 100% keeps it fluid below the cap so narrow windows are unaffected. */}
-            <div style={{ padding: "24px 32px", display: "flex", flexDirection: "column", gap: 18, overflowY: "auto", flex: 1, minHeight: 0, ...(_ejPage ? { width: "100%", maxWidth: FIELD_COL_W, marginLeft: "auto", marginRight: "auto", boxSizing: "border-box" } : {}) }}>
+            {/* As a page these fields sat straight on the page background, which
+                on a liquid or image theme is a moving gradient with nothing to
+                read against. `tq-frost` so the surface picks up the adaptive blur
+                and the Card Opacity setting like every other card. Hugs its
+                content — the scroller is this element itself, so the panel keeps
+                overflow but drops flex:1 in page mode rather than running to the
+                bottom of the window past the last field. */}
+            <div className={_ejPage ? "tq-frost" : undefined}
+              style={{ padding: "24px 32px", display: "flex", flexDirection: "column", gap: 18, overflowY: "auto", flex: 1, minHeight: 0, ...(_ejPage ? { width: "100%", maxWidth: FIELD_COL_W, marginLeft: "auto", marginRight: "auto", boxSizing: "border-box", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, boxShadow: "0 18px 44px rgba(0,0,0,0.10)", flex: "0 1 auto", marginBottom: 32 } : {}) }}>
               {/* Job Name — full width */}
               <div>
                 {fieldLabel("Job Name")}
@@ -27929,14 +27984,14 @@ ${jobsCtx || "No jobs found."}`;
                   })}
                 </div>
               </div>
-            </div>
             {/* Footer — Reschedule button removed; Save now opens the floating tray when new ops exist */}
-            {/* As a page: no top rule, and the two actions sit at opposite ends —
-                Cancel far left, Save far right. The overlay keeps its divider and
-                right-aligned pair. */}
-            <div style={{ padding: "18px 32px", borderTop: _ejPage ? "none" : `1px solid ${T.border}`, display: "flex", justifyContent: _ejPage ? "space-between" : "flex-end", gap: 10, flexShrink: 0 }}>
+            {/* As a page it lives INSIDE the panel, below the fields: Cancel far
+                left, Save far right. The overlay keeps its divider, its own
+                padding and the right-aligned pair. */}
+            <div style={{ padding: _ejPage ? "4px 0 0" : "18px 32px", borderTop: _ejPage ? "none" : `1px solid ${T.border}`, display: "flex", justifyContent: _ejPage ? "space-between" : "flex-end", gap: 10, flexShrink: 0 }}>
               <button onClick={closeEditJob} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
               <button onClick={saveEditJob} disabled={!ej.title.trim()} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "none", background: ej.title.trim() ? T.accent : T.border, color: ej.title.trim() ? T.accentText : T.textDim, fontSize: 13, fontWeight: 700, cursor: ej.title.trim() ? "pointer" : "not-allowed", fontFamily: T.font, transition: "background 0.15s" }}>Save</button>
+            </div>
             </div>
           </div>
         </div>
