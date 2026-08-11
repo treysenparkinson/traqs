@@ -140,12 +140,23 @@ const permGranted = (perms, key) =>
 // These are the capabilities gated on the bare admin role rather than on any
 // switch below it, so promoting someone turns all of them on at once.
 const ADMIN_BASE_CAPABILITIES = [
+  "Confirm and reopen a pay period",
+  "Export pay-period hours for payroll",
+  "Browse past pay-period logs",
+  "See the whole org's clock data, not just their own",
   "Edit, delete and reopen anyone's time-clock shifts",
   "Force a worker off a break or off their job clock",
   "See the Admin page and everyone's analytics",
   "Add or remove the engineering block on a panel",
   "Upload attachments in any context",
 ];
+// Rendered in the shared hover tooltip, which splits on newlines.
+const ADMIN_BASE_TIP = [
+  "Turning this on alone grants:",
+  ...ADMIN_BASE_CAPABILITIES.map(c => `·  ${c}`),
+  "",
+  "Everything below is off until you switch it on.",
+].join("\n");
 // Defaults — the live, user-editable lists live in component state (statusOpts/priOpts)
 // and shadow these as STATUSES/PRIORITIES/STA_C/PRI_C/STA_ICON inside the component.
 const DEFAULT_PRIORITIES = ["Low","Medium","High"];
@@ -3933,8 +3944,6 @@ Extraction rules:
   const [ccSelectPopover, setCcSelectPopover] = useState(null); // custom select-column picker: { itemId, pid, key, current, options, x, y }
   const [clockPopover, setClockPopover] = useState(null); // { personId, action: "in"|"out", x, y }
   const [clockAccessOpen, setClockAccessOpen] = useState(false); // Time Settings → per-worker clock-in access disclosure
-  // Which person's Admin (i) explainer is expanded, by person id. One at a time.
-  const [adminInfoFor, setAdminInfoFor] = useState(null);
   const [clockTimeModal, setClockTimeModal] = useState(null); // { personId, personName, action, ts } — ts is "YYYY-MM-DDTHH:mm"
   const [orgSettings, setOrgSettings] = useState(() => {
     try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = s.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5]; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
@@ -22285,28 +22294,24 @@ ${jobsCtx || "No jobs found."}`;
                           <div style={{ fontSize: 13, fontWeight: 700, color: T.text, display: "flex", alignItems: "center", gap: 6 }}>
                             Admin Capabilities
                             {/* The master switch grants a set of powers that have no toggle of
-                                their own, so say so rather than leaving it to be discovered. */}
+                                their own, so say so rather than leaving it to be discovered.
+                                Hover bubble via the shared tooltip; also opens on tap and on
+                                keyboard focus, since hover alone strands touch and keyboard. */}
                             <span role="button" tabIndex={0} aria-label="What the Admin toggle grants"
-                              onClick={e => { e.stopPropagation(); setAdminInfoFor(v => v === person.id ? null : person.id); }}
-                              onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setAdminInfoFor(v => v === person.id ? null : person.id); } }}
-                              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 15, height: 15, borderRadius: 999, border: `1px solid ${adminInfoFor === person.id ? T.accent : T.border}`, color: adminInfoFor === person.id ? T.accent : T.textDim, fontSize: 10, fontWeight: 700, fontFamily: T.font, cursor: "pointer", lineHeight: 1, flexShrink: 0, transition: "color 0.15s, border-color 0.15s" }}>i</span>
+                              onMouseEnter={e => { e.stopPropagation(); tipCtx.show(ADMIN_BASE_TIP, e.clientX, e.clientY); }}
+                              onMouseLeave={() => tipCtx.hide()}
+                              onFocus={e => { const r = e.currentTarget.getBoundingClientRect(); tipCtx.show(ADMIN_BASE_TIP, r.right, r.bottom); }}
+                              onBlur={() => tipCtx.hide()}
+                              onClick={e => { e.stopPropagation(); tipCtx.show(ADMIN_BASE_TIP, e.clientX, e.clientY); }}
+                              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 15, height: 15, borderRadius: 999, border: `1px solid ${T.border}`, color: T.textDim, fontSize: 10, fontWeight: 700, fontFamily: T.font, cursor: "help", lineHeight: 1, flexShrink: 0, transition: "color 0.15s, border-color 0.15s" }}
+                              onMouseOver={e => { e.currentTarget.style.color = T.accent; e.currentTarget.style.borderColor = T.accent; }}
+                              onMouseOut={e => { e.currentTarget.style.color = T.textDim; e.currentTarget.style.borderColor = T.border; }}>i</span>
                           </div>
                         </div>
                         <div style={{ width: 36, height: 20, borderRadius: 20, background: isAdm ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
                           <div style={{ position: "absolute", top: 2, left: isAdm ? 18 : 2, width: 16, height: 16, borderRadius: 20, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                         </div>
                       </div>
-                      {adminInfoFor === person.id && <div style={{ margin: "10px 0 2px", padding: "10px 12px", borderRadius: T.radiusSm, background: T.accent + "0f", border: `1px solid ${T.accent}33` }}>
-                        <div style={{ fontSize: 11.5, fontWeight: 700, color: T.accent, marginBottom: 6 }}>Turning this on alone grants:</div>
-                        {ADMIN_BASE_CAPABILITIES.map(c => (
-                          <div key={c} style={{ display: "flex", gap: 7, alignItems: "flex-start", fontSize: 11.5, color: T.textSec, lineHeight: 1.45, marginBottom: 3 }}>
-                            <span style={{ color: T.accent, flexShrink: 0 }}>·</span><span>{c}</span>
-                          </div>
-                        ))}
-                        <div style={{ fontSize: 11, color: T.textDim, marginTop: 7, lineHeight: 1.45 }}>
-                          Everything below is off until you switch it on.
-                        </div>
-                      </div>}
                       {isAdm && <div style={{ paddingLeft: 12, display: "flex", flexDirection: "column", gap: 4 }}>
                         {ADMIN_PERMS.map(({ key, icon, label }) => {
                           const on = permsEnabled(key);
@@ -25812,7 +25817,17 @@ ${jobsCtx || "No jobs found."}`;
                     {isAdmin && <div onClick={() => updPerson(person.id, { userRole: isAdm ? "user" : "admin", adminPerms: isAdm ? undefined : {} })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusXs, border: `1px solid ${isAdm ? T.accent + "44" : T.border}`, background: isAdm ? T.accent + "08" : T.surface, transition: "all 0.15s" }}>
                       <span style={{ lineHeight: 0, color: isAdm ? T.accent : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
                       <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Admin Capabilities</div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: T.text, display: "flex", alignItems: "center", gap: 6 }}>
+                          Admin Capabilities
+                          {/* Same explainer as the full-page settings copy. */}
+                          <span role="button" tabIndex={0} aria-label="What the Admin toggle grants"
+                            onMouseEnter={e => { e.stopPropagation(); tipCtx.show(ADMIN_BASE_TIP, e.clientX, e.clientY); }}
+                            onMouseLeave={() => tipCtx.hide()}
+                            onFocus={e => { const r = e.currentTarget.getBoundingClientRect(); tipCtx.show(ADMIN_BASE_TIP, r.right, r.bottom); }}
+                            onBlur={() => tipCtx.hide()}
+                            onClick={e => { e.stopPropagation(); tipCtx.show(ADMIN_BASE_TIP, e.clientX, e.clientY); }}
+                            style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 15, height: 15, borderRadius: 999, border: `1px solid ${T.border}`, color: T.textDim, fontSize: 10, fontWeight: 700, fontFamily: T.font, cursor: "help", lineHeight: 1, flexShrink: 0 }}>i</span>
+                        </div>
                       </div>
                       <div style={{ width: 36, height: 20, borderRadius: 16, background: isAdm ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
                         <div style={{ position: "absolute", top: 2, left: isAdm ? 18 : 2, width: 16, height: 16, borderRadius: 12, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
@@ -28136,7 +28151,7 @@ ${jobsCtx || "No jobs found."}`;
   {appTooltip && createPortal((() => {
     const flipLeft = appTooltip.x > window.innerWidth - 240;
     const flipUp   = appTooltip.y > window.innerHeight - 56;
-    return <div style={{ position: "fixed", left: flipLeft ? undefined : appTooltip.x + 12, right: flipLeft ? window.innerWidth - appTooltip.x + 12 : undefined, top: flipUp ? undefined : appTooltip.y + 8, bottom: flipUp ? window.innerHeight - appTooltip.y + 8 : undefined, zIndex: 99999, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "5px 10px", fontSize: 12, fontWeight: 500, color: T.text, fontFamily: T.font, pointerEvents: "none", boxShadow: "0 4px 16px rgba(0,0,0,0.25)", animation: "tipIn 0.14s ease-out", whiteSpace: "nowrap", maxWidth: 260, lineHeight: 1.4 }}>{appTooltip.label}</div>;
+    return <div style={{ position: "fixed", left: flipLeft ? undefined : appTooltip.x + 12, right: flipLeft ? window.innerWidth - appTooltip.x + 12 : undefined, top: flipUp ? undefined : appTooltip.y + 8, bottom: flipUp ? window.innerHeight - appTooltip.y + 8 : undefined, zIndex: 99999, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "5px 10px", fontSize: 12, fontWeight: 500, color: T.text, fontFamily: T.font, pointerEvents: "none", boxShadow: "0 4px 16px rgba(0,0,0,0.25)", animation: "tipIn 0.14s ease-out", whiteSpace: String(appTooltip.label).includes("\n") ? "pre-line" : "nowrap", maxWidth: String(appTooltip.label).includes("\n") ? 320 : 260, lineHeight: 1.45 }}>{appTooltip.label}</div>;
   })(), document.body)}
   </TooltipCtx.Provider>;
 }
