@@ -1,4 +1,5 @@
 import { requireOrgMember } from "./_utils/auth.js";
+import { can } from "./_utils/can.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { sendWebPush } from "./_utils/webpush.js";
@@ -297,9 +298,12 @@ export async function handler(event) {
       people = [];
     }
 
-    // Authorization: approve/deny are admin-only; cancel is the owner or an admin.
+    // Authorization: approve/deny take the approveTimeOff toggle; cancel is the
+    // owner withdrawing their own request (or an admin), which is not an approval.
     if (action === "approve" || action === "deny") {
-      if (!isAdmin) return err(403, "Admin only");
+      if (!can(member, "approveTimeOff")) {
+        return err(403, "Your account does not have permission to approve & deny time-off requests");
+      }
     } else if (action === "cancel") {
       if (!isAdmin && String(reqRec.personId) !== String(meId)) return err(403, "Not your request");
     }

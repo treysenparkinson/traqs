@@ -1001,7 +1001,7 @@ class AppState {
     /// means widening those two methods first, which is a security decision
     /// rather than a queue one.
     var pendingFinishRequests: [PendingFinish] {
-        guard isAdmin else { return [] }
+        guard can(.approveCompletions) else { return [] }
         var out: [PendingFinish] = []
         for job in jobs {
             for r in job.finishRequests ?? [] where r.status == "pending" {
@@ -1014,7 +1014,7 @@ class AppState {
     /// Time-off awaiting a decision. Admin-only, matching timeoff.js, which
     /// rejects a non-admin decision with 403 regardless of what the UI shows.
     var pendingTimeOffRequests: [TimeOffRequest] {
-        guard isAdmin else { return [] }
+        guard can(.approveTimeOff) else { return [] }
         return timeOffRequests.filter { $0.status == "pending" }
             .sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") }
     }
@@ -1159,7 +1159,7 @@ class AppState {
     /// When panelId/opId are nil: finishes the whole job tree.
     /// When panelId is set: finishes only the specific panel (or op if opId is also set).
     func approveJobCompletion(jobId: String, panelId: String? = nil, opId: String? = nil, requestId: String) async {
-        guard let me = currentPerson, me.isAdmin, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
+        guard can(.approveCompletions), let me = currentPerson, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
         let now = Date.nowISO()
         var job = jobs[idx]
         if let panelId {
@@ -1198,7 +1198,7 @@ class AppState {
 
     /// Admin denies a completion request → the item stays active/overdue.
     func denyJobCompletion(jobId: String, panelId: String? = nil, opId: String? = nil, requestId: String) async {
-        guard let me = currentPerson, me.isAdmin, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
+        guard can(.approveCompletions), let me = currentPerson, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
         let now = Date.nowISO()
         var job = jobs[idx]
         job.finishRequest = nil

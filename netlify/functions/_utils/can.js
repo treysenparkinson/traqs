@@ -24,6 +24,8 @@ export const PERM_KEYS = [
   "manageClients",
   "undoHistory",
   "orgSettings",
+  "approveCompletions",
+  "approveTimeOff",
 ];
 
 /** Plain-English names, used in the 403 bodies so a rejection says which
@@ -36,12 +38,22 @@ const PERM_LABEL = {
   manageClients: "add, edit & delete clients",
   undoHistory:   "undo schedule history changes",
   orgSettings:   "access organization settings",
+  approveCompletions: "approve & decline job completion requests",
+  approveTimeOff:     "approve & deny time-off requests",
 };
+
+// Keys added AFTER granular permissions shipped. The powers they gate were
+// previously ungated, so an admin record written before them carries no entry
+// and must still be granted: ABSENT means granted, only an explicit false
+// denies. Mirrors PERMS_GRANTED_WHEN_ABSENT on the web. Empty this set once
+// every live record carries the keys, and they become ordinary opt-in toggles.
+const GRANTED_WHEN_ABSENT = new Set(["approveCompletions", "approveTimeOff"]);
 
 export function can(member, key) {
   if (!member?.isAdmin) return false;
   const perms = member.adminPerms;
   if (perms == null) return true;          // unrestricted admin
+  if (GRANTED_WHEN_ABSENT.has(key)) return perms[key] !== false;
   return perms[key] === true;
 }
 

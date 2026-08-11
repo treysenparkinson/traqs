@@ -362,6 +362,8 @@ struct AdminPerms: Codable, Equatable {
     var manageClients: Bool
     var undoHistory: Bool
     var orgSettings: Bool
+    var approveCompletions: Bool
+    var approveTimeOff: Bool
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -372,12 +374,17 @@ struct AdminPerms: Codable, Equatable {
         manageClients = (try? c.decode(Bool.self, forKey: .manageClients)) ?? false
         undoHistory   = (try? c.decode(Bool.self, forKey: .undoHistory)) ?? false
         orgSettings   = (try? c.decode(Bool.self, forKey: .orgSettings)) ?? false
+        // Added after granular perms shipped and previously ungated, so a record
+        // without the key must still be GRANTED — default true, not false.
+        approveCompletions = (try? c.decode(Bool.self, forKey: .approveCompletions)) ?? true
+        approveTimeOff     = (try? c.decode(Bool.self, forKey: .approveTimeOff)) ?? true
     }
 
     /// Key-path lookup so `can(.editJobs)` reads the same as the web's
     /// `can("editJobs")` rather than needing a switch at every call site.
     enum Key: String, CaseIterable {
         case editJobs, moveJobs, reassign, manageTeam, manageClients, undoHistory, orgSettings
+        case approveCompletions, approveTimeOff
     }
 
     subscript(key: Key) -> Bool {
@@ -389,6 +396,8 @@ struct AdminPerms: Codable, Equatable {
         case .manageClients: return manageClients
         case .undoHistory:   return undoHistory
         case .orgSettings:   return orgSettings
+        case .approveCompletions: return approveCompletions
+        case .approveTimeOff:     return approveTimeOff
         }
     }
 }

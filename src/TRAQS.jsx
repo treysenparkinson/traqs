@@ -118,6 +118,33 @@ const ADMIN_PERMS = [
   { key: "manageClients", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/><path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><line x1="10" y1="6" x2="14" y2="6"/><line x1="10" y1="10" x2="14" y2="10"/><line x1="10" y1="14" x2="14" y2="14"/><line x1="10" y1="18" x2="14" y2="18"/></svg>, label: "Add, edit & delete clients" },
   { key: "undoHistory",   icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.86"/></svg>, label: "Undo schedule history changes" },
   { key: "orgSettings",   icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>, label: "Access organization settings" },
+  { key: "approveCompletions", icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>, label: "Approve & decline job completion requests" },
+  { key: "approveTimeOff",     icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M9 16l2 2 4-4"/></svg>, label: "Approve & deny time-off requests" },
+];
+// Permissions added AFTER granular permissions shipped.
+//
+// An admin record written before these keys existed simply has no entry for
+// them, and the powers they now gate were previously ungated — every admin
+// had them. So for these keys ABSENT means GRANTED, and only an explicit
+// `false` denies. Without this, adding a toggle would silently strip approval
+// rights from every existing admin the moment it deployed.
+//
+// Once every live record carries the keys, this set can be emptied and they
+// become ordinary opt-in toggles like the rest.
+const PERMS_GRANTED_WHEN_ABSENT = new Set(["approveCompletions", "approveTimeOff"]);
+// Single source of truth for "does this adminPerms object grant `key`".
+// `perms == null` is the legacy unrestricted admin.
+const permGranted = (perms, key) =>
+  perms == null || (PERMS_GRANTED_WHEN_ABSENT.has(key) ? perms[key] !== false : perms[key] === true);
+// What the master Admin toggle grants on its own, shown behind the (i) button.
+// These are the capabilities gated on the bare admin role rather than on any
+// switch below it, so promoting someone turns all of them on at once.
+const ADMIN_BASE_CAPABILITIES = [
+  "Edit, delete and reopen anyone's time-clock shifts",
+  "Force a worker off a break or off their job clock",
+  "See the Admin page and everyone's analytics",
+  "Add or remove the engineering block on a panel",
+  "Upload attachments in any context",
 ];
 // Defaults — the live, user-editable lists live in component state (statusOpts/priOpts)
 // and shadow these as STATUSES/PRIORITIES/STA_C/PRI_C/STA_ICON inside the component.
@@ -3389,7 +3416,7 @@ Extraction rules:
 
   const currentUser = loggedInUser ? loggedInUser.id : null;
   const isAdmin = loggedInUser ? loggedInUser.userRole === "admin" : false;
-  const can = perm => isAdmin && (loggedInUser?.adminPerms == null || loggedInUser.adminPerms[perm] === true);
+  const can = perm => isAdmin && permGranted(loggedInUser?.adminPerms, perm);
   useEffect(() => {
     const h = () => {
       setIsMobile(window.innerWidth < 768);
@@ -3906,6 +3933,8 @@ Extraction rules:
   const [ccSelectPopover, setCcSelectPopover] = useState(null); // custom select-column picker: { itemId, pid, key, current, options, x, y }
   const [clockPopover, setClockPopover] = useState(null); // { personId, action: "in"|"out", x, y }
   const [clockAccessOpen, setClockAccessOpen] = useState(false); // Time Settings → per-worker clock-in access disclosure
+  // Which person's Admin (i) explainer is expanded, by person id. One at a time.
+  const [adminInfoFor, setAdminInfoFor] = useState(null);
   const [clockTimeModal, setClockTimeModal] = useState(null); // { personId, personName, action, ts } — ts is "YYYY-MM-DDTHH:mm"
   const [orgSettings, setOrgSettings] = useState(() => {
     try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = s.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5]; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
@@ -5652,6 +5681,9 @@ Extraction rules:
   // pollUpdateRef like the poll does) — the schedule + export then reflect it
   // without the admin's stale local people state clobbering it on next save.
   const decideTimeOff = async (id, action, reason = "") => {
+    // "cancel" is a worker withdrawing their OWN request, not an approval, so
+    // it stays open — only approve/deny take the toggle.
+    if (action !== "cancel" && !can("approveTimeOff")) return;
     setToBusy(id);
     try {
       await decideTimeOffRequest({ id, action, reason }, getToken, orgCode);
@@ -8113,7 +8145,7 @@ ${jobsCtx || "No jobs found."}`;
   };
 
   const adminApproveJobFinish = async (jobId, panelId, opId, requestId) => {
-    if (!isAdmin || !loggedInUser) return;
+    if (!can("approveCompletions") || !loggedInUser) return;
     const job = tasks.find(t => sameId(t.id, jobId));
     if (!job) return;
     const now = new Date().toISOString();
@@ -8163,7 +8195,7 @@ ${jobsCtx || "No jobs found."}`;
   };
 
   const adminDeclineJobFinish = async (jobId, panelId, opId, requestId, reason) => {
-    if (!isAdmin || !loggedInUser) return;
+    if (!can("approveCompletions") || !loggedInUser) return;
     const job = tasks.find(t => sameId(t.id, jobId));
     if (!job) return;
     const now = new Date().toISOString();
@@ -22227,7 +22259,7 @@ ${jobsCtx || "No jobs found."}`;
             {sorted.map(person => {
               const isSelected = settingsUser === person.id;
               const isAdm = person.userRole === "admin";
-              const permsEnabled = perm => person.adminPerms == null || person.adminPerms[perm] === true;
+              const permsEnabled = perm => permGranted(person.adminPerms, perm);
               const togglePerm = (key, val) => updDraftPerson(person.id, { adminPerms: { ...(person.adminPerms || {}), [key]: val } });
               const showPin = showPinIds.has(person.id);
               return <div key={person.id}>
@@ -22250,12 +22282,31 @@ ${jobsCtx || "No jobs found."}`;
                       <div onClick={() => updDraftPerson(person.id, { userRole: isAdm ? "user" : "admin", adminPerms: isAdm ? undefined : {} })} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 10px", borderRadius: T.radius, border: `1px solid ${isAdm ? T.accent + "44" : T.border}`, background: isAdm ? T.accent + "08" : T.surface, transition: "all 0.15s" }}>
                         <span style={{ lineHeight: 0, color: isAdm ? T.accent : T.textDim }}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Admin Capabilities</div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: T.text, display: "flex", alignItems: "center", gap: 6 }}>
+                            Admin Capabilities
+                            {/* The master switch grants a set of powers that have no toggle of
+                                their own, so say so rather than leaving it to be discovered. */}
+                            <span role="button" tabIndex={0} aria-label="What the Admin toggle grants"
+                              onClick={e => { e.stopPropagation(); setAdminInfoFor(v => v === person.id ? null : person.id); }}
+                              onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); setAdminInfoFor(v => v === person.id ? null : person.id); } }}
+                              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 15, height: 15, borderRadius: 999, border: `1px solid ${adminInfoFor === person.id ? T.accent : T.border}`, color: adminInfoFor === person.id ? T.accent : T.textDim, fontSize: 10, fontWeight: 700, fontFamily: T.font, cursor: "pointer", lineHeight: 1, flexShrink: 0, transition: "color 0.15s, border-color 0.15s" }}>i</span>
+                          </div>
                         </div>
                         <div style={{ width: 36, height: 20, borderRadius: 20, background: isAdm ? T.accent : T.border, position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
                           <div style={{ position: "absolute", top: 2, left: isAdm ? 18 : 2, width: 16, height: 16, borderRadius: 20, background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
                         </div>
                       </div>
+                      {adminInfoFor === person.id && <div style={{ margin: "10px 0 2px", padding: "10px 12px", borderRadius: T.radiusSm, background: T.accent + "0f", border: `1px solid ${T.accent}33` }}>
+                        <div style={{ fontSize: 11.5, fontWeight: 700, color: T.accent, marginBottom: 6 }}>Turning this on alone grants:</div>
+                        {ADMIN_BASE_CAPABILITIES.map(c => (
+                          <div key={c} style={{ display: "flex", gap: 7, alignItems: "flex-start", fontSize: 11.5, color: T.textSec, lineHeight: 1.45, marginBottom: 3 }}>
+                            <span style={{ color: T.accent, flexShrink: 0 }}>·</span><span>{c}</span>
+                          </div>
+                        ))}
+                        <div style={{ fontSize: 11, color: T.textDim, marginTop: 7, lineHeight: 1.45 }}>
+                          Everything below is off until you switch it on.
+                        </div>
+                      </div>}
                       {isAdm && <div style={{ paddingLeft: 12, display: "flex", flexDirection: "column", gap: 4 }}>
                         {ADMIN_PERMS.map(({ key, icon, label }) => {
                           const on = permsEnabled(key);
@@ -25736,7 +25787,7 @@ ${jobsCtx || "No jobs found."}`;
               {[...people].sort((a, b) => a.name.localeCompare(b.name)).map(person => {
                 const isSelected = settingsUser === person.id;
                 const isAdm = person.userRole === "admin";
-                const permsEnabled = perm => person.adminPerms == null || person.adminPerms[perm] === true;
+                const permsEnabled = perm => permGranted(person.adminPerms, perm);
                 const togglePerm = (key, val) => { if (!isAdmin) return; updPerson(person.id, { adminPerms: { ...(person.adminPerms || {}), [key]: val } }); };
                 return <div key={person.id}>
                   {/* Person row */}
