@@ -1,8 +1,11 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, useLayoutEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import TRAQS from "./TRAQS.jsx";
 import ErrorBoundary from "./ErrorBoundary.jsx";
-import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
+// Only the banded header (org-code / login steps) still uses an image wordmark;
+// the redesigned roster screen sets it as live text — see TraqsLockup.
+import { UL_LOGO_WHITE } from "./logo.js";
+import TRAQS_BARS from "./traqs-bars.png";
 import { fetchOrgConfig, createOrg, forgotOrgCode, fetchPeople } from "./api.js";
 
 const LS_CODE = "tq_org_code";
@@ -17,14 +20,80 @@ const LS_PEOPLE = "tq_team_people";
 // like the selected person / re-auth throttle stays in sessionStorage.)
 const persist = window.localStorage;
 
+// ─── Brand ────────────────────────────────────────────────────────────────────
+// The login screen renders before a theme is resolved, so it carries its own
+// accent. Matches the sky the light ("frost") theme now uses, and the sky baked
+// into the bars asset, so login and app agree.
+const LOGIN_BLUE = "#38BDF8";
+
+/**
+ * The TRAQS lockup: wordmark then the bars mark, per the lockup spec.
+ *
+ * The wordmark is LIVE TEXT (Space Grotesk 700, -.05em, thickened with
+ * -webkit-text-stroke), not the logo.js image. That is what makes the bars line
+ * up: `align-items: baseline` aligns the image's bottom edge to the text's real
+ * baseline. Against an image wordmark there is no baseline to align to — only
+ * the PNG's bottom edge, which sits below it by the tail of the "q" — so the
+ * position had to be guessed at, and it read wrong at every size.
+ *
+ * Bars are the brand asset, which already carries the sky accent on the third
+ * bar. Stroke scales with size the way the spec's ladder does (84px→1.5px,
+ * 22px→0.4px); text-stroke is cleared on the image so it isn't outlined.
+ */
+function TraqsLockup({ size = 84, color = INK, stroke = 1.5, bars = true }) {
+  return (
+    <span
+      aria-label="TRAQS"
+      style={{
+        display: "inline-flex",
+        alignItems: "baseline",       // the bars image aligns its BOTTOM to the text baseline
+        fontFamily: "'Space Grotesk', system-ui, sans-serif",
+        fontWeight: 700,
+        letterSpacing: "-.05em",
+        lineHeight: 1,
+        fontSize: size,
+        color,
+        WebkitTextStroke: `${stroke}px ${color}`,
+      }}
+    >
+      traqs
+      {bars && (
+        <img
+          src={TRAQS_BARS}
+          alt=""
+          aria-hidden="true"
+          style={{
+            height: ".52em",          // x-height, per the lockup spec
+            width: "auto",
+            marginLeft: ".07em",
+            transform: "translateY(.01em)",
+            WebkitTextStroke: 0,
+          }}
+        />
+      )}
+    </span>
+  );
+}
+
 // ─── Shared styles ────────────────────────────────────────────────────────────
+// Paper palette from the Login Redesign: warm off-white ground, near-black ink,
+// stone-grey secondary. Deliberately not #fff/#0f172a — the design's warmth is
+// what separates it from a generic auth screen.
+const PAPER = "#EDEAE3";
+const CARD_BG = "#FBFAF7";
+const INK = "#0B0B0C";
+const STONE = "#8A867E";
+const HAIRLINE = "rgba(16,24,40,.08)";
+
 const PAGE = {
   minHeight: "100vh",
-  background: "#ffffff",
+  position: "relative",
+  background: PAPER,
   display: "flex",
   alignItems: "center",
   justifyContent: "center",
-  padding: 20,
+  padding: "48px 20px",
+  boxSizing: "border-box",
   fontFamily: "'DM Sans', system-ui, sans-serif",
 };
 
@@ -131,7 +200,179 @@ const HINT = {
   marginTop: 6,
 };
 
-function LogoHeader({ subtitle }) {
+// ─── Paper styles ─────────────────────────────────────────────────────────────
+// The redesign's card/input/button, shared by every step that has been moved
+// onto the paper ground. Kept separate from the older CARD/INPUT_STYLE/BTN so
+// the steps still on the banded layout keep working untouched.
+const PAPER_CARD = {
+  background: CARD_BG,
+  borderRadius: 28,
+  border: "1px solid rgba(16,24,40,.07)",
+  boxShadow: "0 30px 70px rgba(16,24,40,.10)",
+  padding: "30px 32px 26px",
+  boxSizing: "border-box",
+};
+
+const PAPER_INPUT = {
+  width: "100%",
+  padding: "13px 15px",
+  background: "#fff",
+  border: "1px solid rgba(16,24,40,.12)",
+  borderRadius: 14,
+  color: INK,
+  fontSize: 15,
+  fontFamily: "inherit",
+  boxSizing: "border-box",
+  outline: "none",
+};
+
+const PAPER_LABEL = {
+  display: "block",
+  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+  fontSize: 10,
+  letterSpacing: ".16em",
+  textTransform: "uppercase",
+  color: STONE,
+  marginBottom: 8,
+};
+
+const PAPER_BTN = {
+  width: "100%",
+  padding: "13px 0",
+  background: INK,
+  border: "none",
+  borderRadius: 999,
+  color: "#fff",
+  fontSize: 15,
+  fontWeight: 700,
+  cursor: "pointer",
+  fontFamily: "inherit",
+  letterSpacing: "-.01em",
+};
+
+const PAPER_LINK = {
+  background: "none",
+  border: "none",
+  color: STONE,
+  cursor: "pointer",
+  fontSize: 13,
+  fontFamily: "inherit",
+  padding: 0,
+  textDecoration: "underline",
+};
+
+// ─── Load-up sequence (org-code screen) ───────────────────────────────────────
+// The lockup fades in at the centre of the screen, travels up into place, then
+// the copy types and the card bounces in.
+//
+// The travel uses a per-keyframe timing function so the fade and the move can
+// have different curves in ONE animation: the hold is linear, then the move
+// runs easeInOutQuint — slow, fast, slow — rather than a single curve applied
+// across both phases, which would have made the fade drift upward.
+// `--tq-rise` is how far BELOW its resting place the lockup starts. The content
+// block is vertically centred, so the logo rests roughly a card-height above
+// screen centre — clamped rather than a flat vh, because a percentage that
+// centres the logo on a laptop drops it well below centre on a tall monitor.
+const LOADUP_CSS = `
+@keyframes tqLogoIn {
+  0%   { opacity: 0; transform: translateY(var(--tq-rise)) scale(.97); animation-timing-function: cubic-bezier(.33,0,.2,1); }
+  40%  { opacity: 1; transform: translateY(var(--tq-rise)) scale(1); }
+  46%  { opacity: 1; transform: translateY(var(--tq-rise)) scale(1); animation-timing-function: cubic-bezier(.83,0,.17,1); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes tqFadeUp {
+  from { opacity: 0; transform: translateY(7px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes tqFadeIn { from { opacity: 0 } to { opacity: 1 } }
+@media (prefers-reduced-motion: reduce) {
+  .tq-logo-in, .tq-fade { animation: none !important; opacity: 1 !important; transform: none !important; }
+}
+`;
+
+// Load-up timeline, in ms.
+//
+// The logo runs 2.4s: ~960ms fading in at centre (40%), a brief hold, then the
+// travel up. Everything after it fades in one at a time rather than typing, so
+// the eye is led down the page: greeting, instructions, card, then the
+// strapline once the rest has settled.
+const LOGO_MS = 2400;
+// Greeting and instructions share one slow fade (COPY_MS) and are only 150ms
+// apart, so they read as one gesture arriving in succession rather than two
+// separate events. The card follows on the same curve — a fade, not a bounce.
+const COPY_MS = 760;
+const TITLE_AT = 2150;   // starts just before the logo lands
+const BLURB_AT = TITLE_AT + 150;
+const CARD_AT = BLURB_AT + 330;
+const FOOT_AT = CARD_AT + 620;
+// inline-block so the translate in tqFadeUp actually applies — transforms are
+// ignored on inline boxes.
+const FADE = (delay, ms = 520, name = "tqFadeUp") =>
+  ({ display: "inline-block", opacity: 0, animation: `${name} ${ms}ms cubic-bezier(.22,1,.36,1) ${delay}ms both` });
+
+// Mono strapline under the card, matching the roster screen's org-code line.
+const PAPER_FOOT = {
+  marginTop: 16,
+  textAlign: "center",
+  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+  fontSize: 10,
+  letterSpacing: ".08em",
+  color: "#B4B0A7",
+};
+
+/**
+ * Brand block. `outside` renders the redesign's arrangement — lockup and
+ * greeting sit on the page above the card, not inside a coloured header band.
+ * The banded form is kept for the other auth steps, which still use CARD.
+ */
+function LogoHeader({ subtitle, hint, outside = false, right = null, animate = false }) {
+  // The rise is MEASURED, not guessed. Any fixed vh/px start lands wherever the
+  // content height happens to put it, which is why earlier attempts drifted past
+  // centre. This reads the lockup's resting position and computes the exact
+  // offset to the viewport's centre, so the fade always happens dead centre
+  // whatever the screen or the step's content height.
+  //
+  // useLayoutEffect so the measure + re-render happen BEFORE paint — with a
+  // plain effect the logo flashes at its resting place for one frame first.
+  const logoRef = useRef(null);
+  const [rise, setRise] = useState(null);
+  useLayoutEffect(() => {
+    if (!animate) return;
+    const el = logoRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    setRise(Math.round(window.innerHeight / 2 - (r.top + r.height / 2)));
+  }, [animate]);
+
+  const measured = rise != null;
+  if (outside) {
+    return (
+      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 22, marginBottom: 28 }}>
+        <span
+          ref={logoRef}
+          className={animate ? "tq-logo-in" : undefined}
+          style={animate ? {
+            display: "block",
+            willChange: "transform, opacity",
+            // Hidden until measured so it can't appear in the wrong place first.
+            opacity: measured ? undefined : 0,
+            ...(measured ? { "--tq-rise": `${rise}px`, animation: `tqLogoIn ${LOGO_MS}ms both` } : null),
+          } : undefined}
+        >
+          <TraqsLockup size={84} />
+        </span>
+        {right}
+        {/* minHeight reserves the line boxes up front. Without it the block grows
+            as the copy types and shoves the card down mid-bounce. */}
+        <div style={{ textAlign: "center" }}>
+          {subtitle && (
+            <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-0.02em", color: INK, minHeight: animate ? 26 : undefined }}>{subtitle}</div>
+          )}
+          {hint && <div style={{ marginTop: 5, fontSize: 13.5, color: STONE, minHeight: animate ? 18 : undefined }}>{hint}</div>}
+        </div>
+      </div>
+    );
+  }
   return (
     <div style={CARD_HEADER}>
       <img src={UL_LOGO_WHITE} alt="TRAQS" style={{ height: 72, objectFit: "contain", marginBottom: 14 }} />
@@ -200,40 +441,56 @@ function OrgCodeStep({ onContinue, onCreateOrg, onForgot }) {
 
   return (
     <div style={PAGE}>
-      <div style={CARD}>
-        <LogoHeader subtitle="Team Resource & Queue Scheduling" />
-        <div style={CARD_BODY}>
+      <style>{LOADUP_CSS}</style>
+      <div style={{ width: "100%", maxWidth: 460 }}>
+        {/* Same brand block as the roster screen — lockup on the paper ground,
+            greeting beneath it, card below. Sequenced on first paint: logo in,
+            logo up, copy types, card bounces. */}
+        <LogoHeader
+          outside
+          animate
+          subtitle={<span className="tq-fade" style={FADE(TITLE_AT, COPY_MS)}>Welcome</span>}
+          hint={<span className="tq-fade" style={FADE(BLURB_AT, COPY_MS)}>Enter your organization code to get started.</span>}
+        />
+        <div className="tq-fade" style={{ ...PAPER_CARD, ...FADE(CARD_AT, COPY_MS), display: "block" }}>
           <form onSubmit={handleSubmit}>
-            {error && <div style={ERR_BOX}>{error}</div>}
-            <div style={{ marginBottom: 6 }}>
-              <label style={LABEL}>Organization Code</label>
-              <input
-                style={INPUT_STYLE}
-                type="text"
-                placeholder="Enter your organization code"
-                value={code}
-                onChange={e => setCode(e.target.value.toUpperCase())}
-                autoFocus
-                autoComplete="off"
-                maxLength={20}
-              />
-              <div style={HINT}>Contact your organization for the custom code.</div>
-            </div>
-            <div style={{ marginBottom: 20 }} />
-            <BtnPrimary loading={loading} loadingLabel="Looking up…">Continue</BtnPrimary>
+            {error && (
+              <div style={{
+                background: "rgba(239,68,68,.08)", border: "1px solid rgba(239,68,68,.28)",
+                borderRadius: 12, padding: "10px 14px", color: "#B42318", fontSize: 13, marginBottom: 16,
+              }}>{error}</div>
+            )}
+            <label style={PAPER_LABEL}>Organization Code</label>
+            <input
+              style={PAPER_INPUT}
+              type="text"
+              placeholder="Enter your organization code"
+              value={code}
+              onChange={e => setCode(e.target.value.toUpperCase())}
+              onFocus={e => { e.currentTarget.style.borderColor = LOGIN_BLUE; }}
+              onBlur={e => { e.currentTarget.style.borderColor = "rgba(16,24,40,.12)"; }}
+              autoFocus
+              autoComplete="off"
+              maxLength={20}
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              style={{ ...PAPER_BTN, marginTop: 18, opacity: loading ? 0.6 : 1, cursor: loading ? "default" : "pointer" }}
+            >
+              {loading ? "Looking up…" : "Continue"}
+            </button>
           </form>
-          <div style={{ textAlign: "center", marginTop: 18 }}>
-            <button disabled style={{ ...LINK_BTN, color: "#475569", cursor: "not-allowed", textDecoration: "none" }}>
+          <div style={{ marginTop: 18, textAlign: "center" }}>
+            <span style={{ fontSize: 12.5, color: "#B4B0A7" }}>
               New organizations coming soon
-            </button>
-          </div>
-          <div style={{ textAlign: "center", marginTop: 10 }}>
-            <button type="button" style={LINK_BTN} onClick={onForgot}>
-              Forgot your org code?
-            </button>
+            </span>
           </div>
         </div>
-        <div style={CARD_FOOTER}>Secured by Auth0 · TRAQS</div>
+        {/* Last in, once the card has settled. */}
+        <div className="tq-fade" style={{ ...PAPER_FOOT, ...FADE(FOOT_AT, 620, "tqFadeIn"), display: "block" }}>
+          Secured by Auth0 · TRAQS
+        </div>
       </div>
     </div>
   );
@@ -558,19 +815,26 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
   return (
     <>
       <div style={PAGE}>
-        <div style={{ ...CARD, maxWidth: 520 }}>
-          <LogoHeader subtitle={view === "clock" ? "Clock In / Out" : "Who are you?"} />
-          <div style={CARD_BODY}>
-            <div style={{ textAlign: "center", marginBottom: 20 }}>
-              <div style={{
+        {/* Flat paper ground, no wash — the design's warmth carries it. */}
+        <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: 1060 }}>
+          <LogoHeader
+            outside
+            subtitle={view === "clock" ? "Clock In / Out" : "Who are you?"}
+            hint={view === "clock" ? "Pick your name to clock in or out." : "Pick your name to log in or clock in."}
+            right={
+              <button type="button" onClick={onSwitch} style={{
                 display: "inline-flex", alignItems: "center", gap: 8,
-                padding: "6px 16px", background: "rgba(65,105,225,0.12)",
-                borderRadius: 20, border: "1px solid rgba(65,105,225,0.22)",
+                fontFamily: "inherit", fontSize: 13, fontWeight: 600, color: INK,
+                background: "#fff", border: "1px solid rgba(16,24,40,.1)", borderRadius: 999,
+                padding: "9px 16px", cursor: "pointer", boxShadow: "0 2px 6px rgba(16,24,40,.05)",
               }}>
-                <div style={{ width: 8, height: 8, borderRadius: 4, background: "#10b981", boxShadow: "0 0 6px #10b98155" }} />
-                <span style={{ fontSize: 13, fontWeight: 600, color: "#4169e1" }}>{orgConfig.name}</span>
-              </div>
-            </div>
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#22C55E" }} />
+                {orgConfig.name}
+                <span style={{ color: STONE, fontWeight: 500, borderLeft: "1px solid rgba(16,24,40,.12)", paddingLeft: 10, marginLeft: 2 }}>Switch</span>
+              </button>
+            }
+          />
+          <div style={{ background: CARD_BG, borderRadius: 32, border: "1px solid rgba(16,24,40,.07)", boxShadow: "0 30px 70px rgba(16,24,40,.10)", padding: "32px 40px 26px", boxSizing: "border-box" }}>
 
             {view === "login" && (teamPeople.length === 0 ? (
               <div style={{ textAlign: "center", padding: "24px 0" }}>
@@ -602,6 +866,10 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
               const PersonBtn = ({ person }) => {
                 const status = getStatus(person);
                 const s = STATUS_STYLE[status];
+                // The status pill is gone: the design puts presence on the avatar
+                // as a corner dot and folds the wording into the role line, which
+                // keeps the row to two elements instead of three.
+                const online = status !== "offline";
                 return (
                 <button
                   type="button"
@@ -609,64 +877,70 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
                   style={{
                     display: "flex", alignItems: "center", gap: 12,
                     padding: "14px 16px",
-                    background: "#ffffff",
-                    border: "1px solid #e2e8f0",
-                    borderRadius: 12,
+                    background: "#fff",
+                    border: "1px solid rgba(16,24,40,.07)",
+                    borderRadius: 16,
                     cursor: "pointer",
                     textAlign: "left",
                     fontFamily: "inherit",
-                    transition: "background 0.15s, border-color 0.15s",
+                    transition: "transform .15s ease, box-shadow .15s ease, border-color .15s ease",
                   }}
-                  onMouseEnter={e => { e.currentTarget.style.background = "#f8fafc"; e.currentTarget.style.borderColor = "#4169e1"; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = "#ffffff"; e.currentTarget.style.borderColor = "#e2e8f0"; }}
+                  onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 10px 24px rgba(16,24,40,.10)"; e.currentTarget.style.borderColor = `${LOGIN_BLUE}80`; }}
+                  onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.borderColor = "rgba(16,24,40,.07)"; }}
                 >
-                  <div style={{
-                    width: 40, height: 40, borderRadius: "50%",
-                    background: person.color || "#4169e1",
-                    display: "flex", alignItems: "center", justifyContent: "center",
+                  <span style={{
+                    position: "relative",
+                    width: 42, height: 42, borderRadius: "50%",
+                    background: person.color || LOGIN_BLUE,
+                    display: "grid", placeItems: "center",
                     flexShrink: 0,
                     fontSize: 14, fontWeight: 700, color: "#fff",
-                    boxShadow: `0 0 12px ${person.color || "#4169e1"}55`,
                   }}>
                     {getInitials(person.name)}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0, overflow: "hidden" }}>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    <span style={{
+                      position: "absolute", right: -1, bottom: -1,
+                      width: 11, height: 11, borderRadius: "50%",
+                      border: "2px solid #fff", boxSizing: "border-box",
+                      background: online ? s.dot : "#C9C5BC",
+                    }} />
+                  </span>
+                  <span style={{ minWidth: 0, overflow: "hidden" }}>
+                    <span style={{ display: "block", fontWeight: 700, fontSize: 15, letterSpacing: "-.01em", color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {person.name}
-                    </div>
-                    <div style={{ fontSize: 12, color: person.userRole === "admin" ? "#64748b" : (person.department ? "#64748b" : "#94a3b8"), marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {person.userRole === "admin" ? "Admin" : (person.department || "No department")}
-                    </div>
-                  </div>
-                  <div style={{
-                    display: "flex", alignItems: "center", gap: 6,
-                    padding: "4px 9px", borderRadius: 999,
-                    background: s.bg, border: `1px solid ${s.border}`,
-                    flexShrink: 0,
-                  }}>
-                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: s.dot, boxShadow: `0 0 6px ${s.dot}66`, flexShrink: 0 }} />
-                    <span style={{ fontSize: 11, fontWeight: 700, color: s.text, letterSpacing: "0.02em" }}>{s.label}</span>
-                  </div>
+                    </span>
+                    <span style={{ display: "block", fontSize: 12, marginTop: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", color: online ? "#16A34A" : STONE, fontWeight: online ? 600 : 400 }}>
+                      {online
+                        ? [s.label, person.userRole === "admin" ? "Admin" : person.department].filter(Boolean).join(" · ")
+                        : (person.userRole === "admin" ? "Admin" : (person.department || "No department"))}
+                    </span>
+                  </span>
                 </button>
                 );
               };
 
-              const SectionLabel = ({ label }) => (
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>
+              // Mono eyebrow with a rule running to the right edge — the design's
+              // section marker, replacing the plain label + separate divider.
+              const SectionLabel = ({ label, first = false }) => (
+                <div style={{
+                  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                  fontSize: 10, letterSpacing: ".16em", textTransform: "uppercase",
+                  color: STONE, margin: first ? "0 2px 12px" : "26px 2px 12px",
+                  display: "flex", alignItems: "center", gap: 12,
+                }}>
                   {label}
+                  <span style={{ flex: 1, height: 1, background: HAIRLINE }} />
                 </div>
               );
 
-              const Divider = () => (
-                <div style={{ borderTop: "1px solid #e2e8f0", margin: "16px 0" }} />
-              );
+              // The section rule now carries the separation the divider used to.
+              const Divider = () => null;
 
               return (
                 <div style={{ marginBottom: 4 }}>
                   {admins.length > 0 && (
                     <div>
-                      <SectionLabel label="Admins" />
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      <SectionLabel label="Admins" first />
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 10 }}>
                         {admins.map(p => <PersonBtn key={p.id ?? p.name} person={p} />)}
                       </div>
                     </div>
@@ -675,7 +949,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
                   {employees.length > 0 && (
                     <div>
                       <SectionLabel label="Employees" />
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 10 }}>
                         {employees.map(p => <PersonBtn key={p.id ?? p.name} person={p} />)}
                       </div>
                     </div>
@@ -709,16 +983,25 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
               </div>
             )}
 
-            <div style={{ textAlign: "center", marginTop: 16 }}>
-              <button style={LINK_BTN} onClick={onSwitch}>Switch organization</button>
+            {/* "Powered by" lockup, inside the card as in the design. The org
+                switcher moved up into the header pill, so it isn't repeated here. */}
+            <div style={{ marginTop: 36, display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: STONE }}>
+                Powered by
+                {/* Wordmark only — the bars are the mark, and repeating them in a
+                    footer credit competes with the real lockup up top. */}
+                <TraqsLockup size={17} color={STONE} stroke={0.3} bars={false} />
+              </div>
             </div>
           </div>
-          <div style={CARD_FOOTER}>Org code: {orgCode} · Secured by Auth0</div>
+          <div style={{ marginTop: 16, textAlign: "center", fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: 10, letterSpacing: ".08em", color: "#B4B0A7" }}>
+            Org code: {orgCode} · Secured by Auth0
+          </div>
         </div>
       </div>
 
       {/* Lower-right toggle: switch between the roster sign-in and the clock-in/out kiosk */}
-      <div style={{ position: "fixed", right: 20, bottom: 20, zIndex: 50, display: "flex", gap: 4, padding: 4, background: "#ffffff", border: "1px solid #e2e8f0", borderRadius: 999, boxShadow: "0 8px 24px rgba(15,23,42,0.14)", fontFamily: "'DM Sans', system-ui, sans-serif" }}>
+      <div style={{ position: "fixed", right: 20, bottom: 20, zIndex: 50, display: "flex", gap: 4, padding: 4, background: "#fff", border: "1px solid rgba(16,24,40,.1)", borderRadius: 999, boxShadow: "0 8px 24px rgba(16,24,40,.14)", fontFamily: "'DM Sans', system-ui, sans-serif" }}>
         {[["login", "Log In"], ["clock", "Clock In"]].map(([key, label]) => {
           const active = view === key;
           return (
@@ -726,7 +1009,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
               key={key}
               type="button"
               onClick={() => setView(key)}
-              style={{ border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 700, padding: "9px 18px", borderRadius: 999, color: active ? "#fff" : "#64748b", background: active ? "linear-gradient(135deg, #4169e1, #06b6d4)" : "transparent", boxShadow: active ? "0 4px 14px rgba(65,105,225,0.33)" : "none", transition: "all 0.18s" }}
+              style={{ border: "none", cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 700, padding: "9px 18px", borderRadius: 999, color: active ? "#fff" : STONE, background: active ? LOGIN_BLUE : "transparent", boxShadow: active ? `0 4px 14px ${LOGIN_BLUE}55` : "none", transition: "all 0.18s" }}
             >
               {label}
             </button>
