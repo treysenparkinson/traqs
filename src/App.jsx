@@ -142,7 +142,10 @@ const BTN = {
   padding: "13px 0",
   background: "linear-gradient(135deg, #4169e1, #06b6d4)",
   border: "none",
-  borderRadius: 10,
+  // Pill, not a 10px rounded rect: every button on the pre-login screens is a
+  // pill now, matching the org-switch and Log In / Clock In toggles that were
+  // already 999. This is the shared BTN, so the whole flow moves together.
+  borderRadius: 999,
   color: "#fff",
   fontSize: 15,
   fontWeight: 700,
@@ -553,7 +556,7 @@ function ForgotOrgStep({ onBack }) {
           )}
           {!sent && (
             <div style={{ textAlign: "center", marginTop: 16 }}>
-              <button style={LINK_BTN} onClick={onBack}>← Back</button>
+              <button className="tq-noanim" style={LINK_BTN} onClick={onBack}>← Back</button>
             </div>
           )}
         </div>
@@ -636,7 +639,7 @@ function CreateOrgStep({ onSuccess, onBack }) {
             <BtnPrimary loading={loading} loadingLabel="Creating…">Create Organization</BtnPrimary>
           </form>
           <div style={{ textAlign: "center", marginTop: 14 }}>
-            <button style={LINK_BTN} onClick={onBack}>← Back</button>
+            <button className="tq-noanim" style={LINK_BTN} onClick={onBack}>← Back</button>
           </div>
         </div>
         <div style={CARD_FOOTER}>Secured by Auth0 · TRAQS</div>
@@ -674,7 +677,7 @@ function LoginStep({ orgCode, orgConfig, onSwitch, loginWithRedirect }) {
             Sign in with Microsoft
           </BtnPrimary>
           <div style={{ textAlign: "center", marginTop: 16 }}>
-            <button style={LINK_BTN} onClick={onSwitch}>Switch organization</button>
+            <button className="tq-noanim" style={LINK_BTN} onClick={onSwitch}>Switch organization</button>
           </div>
         </div>
         <div style={CARD_FOOTER}>Org code: {orgCode} · Secured by Auth0</div>
@@ -722,6 +725,142 @@ const CLOCK_MODE_META = {
   breakEnd:   { title: "End Break",    verb: "OFF BREAK", verbColor: "#f59e0b", successMsg: "Break ended!" },
 };
 
+// ─── Frosted glass surface ────────────────────────────────────────────────────
+// Every window in the kiosk clock flow — PIN pad, "is this you", the clock-out
+// choice, the success note — is this one panel, so the whole flow is a single
+// sheet of glass rather than a keypad followed by white cards.
+//
+// Heavy blur AND a milky fill: blur alone only softens what's behind and stays
+// see-through, while the diffuse quality of real frosted glass comes from the
+// fill. brightness keeps the milk light rather than grey.
+const GLASS = {
+  position: "relative",
+  borderRadius: 36,
+  border: "1px solid rgba(255,255,255,.8)",
+  background: "rgba(255,255,255,.64)",
+  backdropFilter: "blur(56px) saturate(1.6) brightness(1.06)",
+  WebkitBackdropFilter: "blur(56px) saturate(1.6) brightness(1.06)",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,.95), inset 0 0 40px rgba(255,255,255,.28), 0 24px 60px rgba(16,24,40,.16)",
+  animation: "tqPadIn .28s cubic-bezier(0.34, 1.4, 0.64, 1) both",
+  fontFamily: "'DM Sans', system-ui, sans-serif",
+  boxSizing: "border-box",
+};
+
+// Error / success notes sized for light glass. The shared ERR_BOX and
+// SUCCESS_BOX carry pale text meant for a dark surface, which is unreadable here.
+const GLASS_ERR = { background: "rgba(220,38,38,.10)", border: "1px solid rgba(220,38,38,.26)", borderRadius: 16, padding: "10px 14px", color: "#b91c1c", fontSize: 13, marginBottom: 16, textAlign: "center" };
+const GLASS_OK = { background: "rgba(5,150,105,.12)", border: "1px solid rgba(5,150,105,.28)", borderRadius: 16, padding: "13px 14px", color: "#047857", fontSize: 14.5, fontWeight: 700, marginBottom: 20 };
+
+function GlassPanel({ children, onClose, style }) {
+  return (
+    <div onClick={e => e.stopPropagation()} style={{ ...GLASS, width: "100%", maxWidth: 380, padding: "50px 30px 30px", ...style }}>
+      <style>{`
+        @keyframes tqPadIn { from { opacity: 0; transform: translateY(12px) scale(.96); } to { opacity: 1; transform: none; } }
+        @keyframes tqScrimIn { from { opacity: 0; } to { opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) {
+          @keyframes tqPadIn { from { opacity: 0; } to { opacity: 1; } }
+        }
+      `}</style>
+      {onClose && (
+        // tq-x + tq-noanim, the app's own opt-outs. TRAQS.jsx injects its
+        // stylesheet at module scope, so its universal button:hover halo (a
+        // 22px glow ring, !important) reaches these login screens too and boxes
+        // a bare glyph. A close affordance is the glyph alone — no chip, no glow.
+        // Inline styles can't undo it; only the !important class rules can.
+        <button type="button" className="tq-x tq-noanim" onClick={onClose} aria-label="Cancel" style={{ position: "absolute", top: 16, right: 18, background: "none", border: "none", color: STONE, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: 4 }}>✕</button>
+      )}
+      {children}
+    </div>
+  );
+}
+
+// ─── Kiosk PIN keypad ─────────────────────────────────────────────────────────
+// Frosted-glass numeric pad for the clock-in/out flow. The kiosk is a wall
+// tablet, so touch has to be first-class — but the same screen runs on a desk
+// with a keyboard, so the physical number row AND the numpad drive it too:
+// digits type, Backspace deletes, Enter confirms, Escape clears. The listener is
+// on window, which is safe because this only mounts inside the PIN step.
+//
+// The handlers are read through a ref rather than listed as effect deps: the
+// parent passes fresh closures every render, so a dep array would tear the
+// listener down and rebuild it on every keystroke.
+function PinKeypad({ value, accent, error, loading, onPress, onBack, onClear, onSubmit, onClose }) {
+  const api = useRef(null);
+  api.current = { onPress, onBack, onClear, onSubmit, loading };
+  useEffect(() => {
+    const onKey = (e) => {
+      const a = api.current;
+      if (!a || a.loading || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (/^[0-9]$/.test(e.key)) { e.preventDefault(); a.onPress(e.key); return; }
+      if (e.key === "Backspace") { e.preventDefault(); a.onBack(); return; }
+      if (e.key === "Enter") { e.preventDefault(); a.onSubmit(); return; }
+      if (e.key === "Escape") { e.preventDefault(); a.onClear(); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  // 76px round keys on a 3-column grid, same metrics as the in-app pad, so the
+  // kiosk and the signed-in keypad are the same object in two places.
+  const keyStyle = {
+    width: 88, height: 88, borderRadius: 999,
+    border: "1px solid rgba(255,255,255,.8)",
+    // Each key is its own piece of glass, not a flat white disc: it samples the
+    // panel's already-frosted output, so the keys have depth against it.
+    background: "rgba(255,255,255,.6)",
+    backdropFilter: "blur(20px) saturate(1.5) brightness(1.08)",
+    WebkitBackdropFilter: "blur(20px) saturate(1.5) brightness(1.08)",
+    boxShadow: "inset 0 1px 0 rgba(255,255,255,.9), 0 2px 10px rgba(16,24,40,.07)",
+    color: INK, fontFamily: "inherit", fontSize: 28, fontWeight: 700,
+    cursor: loading ? "default" : "pointer",
+    display: "grid", placeItems: "center", userSelect: "none",
+    transition: "transform .1s ease, background .15s ease",
+  };
+  const press = (el, on) => { el.style.transform = on ? "scale(0.93)" : "none"; el.style.background = on ? "rgba(255,255,255,.88)" : "rgba(255,255,255,.6)"; };
+  const Key = ({ label, onClick, tint, aria }) => (
+    <button type="button" disabled={loading} aria-label={aria || String(label)} onClick={onClick}
+      style={{ ...keyStyle, ...(tint ? { color: tint } : null) }}
+      onPointerDown={e => press(e.currentTarget, true)}
+      onPointerUp={e => press(e.currentTarget, false)}
+      onPointerLeave={e => press(e.currentTarget, false)}
+    >{label}</button>
+  );
+
+  return (
+    <GlassPanel onClose={onClose} style={{ width: "auto", maxWidth: "none", padding: "50px 32px 30px", display: "flex", flexDirection: "column", alignItems: "center" }}>
+      {/* One dot per digit entered — same readout as the in-app pad. */}
+      <div style={{ marginBottom: 24, minHeight: 26, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {value.length === 0
+          ? <span style={{ fontSize: 14, color: STONE }}>Enter PIN</span>
+          : <div style={{ display: "flex", gap: 11, justifyContent: "center", flexWrap: "wrap", maxWidth: 272 }}>
+              {Array.from({ length: value.length }, (_, i) => (
+                <div key={i} style={{ width: 16, height: 16, borderRadius: 12, background: accent, flexShrink: 0 }} />
+              ))}
+            </div>
+        }
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 88px)", gap: 12, marginBottom: 14 }}>
+        {[1, 2, 3, 4, 5, 6, 7, 8, 9].map(d => <Key key={d} label={String(d)} onClick={() => onPress(String(d))} />)}
+        <div />
+        <Key label="0" onClick={() => onPress("0")} />
+        <Key aria="Delete last digit" tint={STONE} onClick={onBack} label={
+          <svg width="30" height="25" viewBox="0 0 26 22" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M22.5 2H9.2 a2 2 0 0 0 -1.5 0.7 L2 11 l5.7 8.3 a2 2 0 0 0 1.5 0.7 H22.5 a2 2 0 0 0 2 -2 V4 a2 2 0 0 0 -2 -2 z" />
+            <line x1="14" y1="8" x2="18" y2="14" /><line x1="18" y1="8" x2="14" y2="14" />
+          </svg>
+        } />
+      </div>
+
+      <button type="button" onClick={onSubmit} disabled={loading || !value}
+        style={{ width: "100%", maxWidth: 288, padding: "15px 0", borderRadius: 999, border: "none", background: value ? accent : "rgba(16,24,40,.12)", color: value ? "#fff" : STONE, fontSize: 16, fontWeight: 700, cursor: value && !loading ? "pointer" : "default", fontFamily: "inherit", opacity: loading ? 0.7 : 1, transition: "background .15s" }}>
+        {loading ? "Confirming…" : "Submit"}
+      </button>
+      {error && <div style={{ fontSize: 12.5, color: "#b91c1c", marginTop: 11, textAlign: "center", maxWidth: 288 }}>{error}</div>}
+    </GlassPanel>
+  );
+}
+
 function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdminLogin, onSwitch, onRefresh }) {
   const [clockMode, setClockMode] = useState(null); // null | "clockIn" | "clockOut" | "lunchStart" | "lunchEnd" | "breakStart" | "breakEnd"
   const [view, setView] = useState("login"); // "login" (roster sign-in) | "clock" (clock in/out kiosk) — toggled bottom-right
@@ -752,6 +891,14 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
     setClockDone(false);
     setCompletedAction(null);
   }
+
+  // Keypad edits. Functional updates so a fast typist (or the physical numpad,
+  // which can outrun a render) can't drop a digit against a stale value. The cap
+  // is generous — it only stops a stuck key from growing the field forever.
+  const PIN_MAX = 10;
+  const pinPress = (d) => { setPinError(""); setPinValue(v => (v.length >= PIN_MAX ? v : v + d)); };
+  const pinBack = () => { setPinError(""); setPinValue(v => v.slice(0, -1)); };
+  const pinClear = () => { setPinError(""); setPinValue(""); };
 
   async function handlePinConfirm() {
     if (!pinValue.trim()) { setPinError("Please enter your PIN."); return; }
@@ -834,7 +981,13 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
               </button>
             }
           />
-          <div style={{ background: CARD_BG, borderRadius: 32, border: "1px solid rgba(16,24,40,.07)", boxShadow: "0 30px 70px rgba(16,24,40,.10)", padding: "32px 40px 26px", boxSizing: "border-box" }}>
+          {/* The card hugs its contents. The roster needs the full 1060 for its
+              grid of people; the clock view holds two 260px buttons and a 36px
+              gap = 556, and with border-box that has to clear 40px of padding
+              AND 1px of border per side — 638. Set it to 636 and the row is 2px
+              short, which silently wraps the buttons into a stack. 644 leaves a
+              few px of slack so a rounding difference can't re-break it. */}
+          <div style={{ background: CARD_BG, borderRadius: 32, border: "1px solid rgba(16,24,40,.07)", boxShadow: "0 30px 70px rgba(16,24,40,.10)", padding: "32px 40px 26px", boxSizing: "border-box", maxWidth: view === "clock" ? 644 : "none", margin: "0 auto", transition: "max-width 0.28s cubic-bezier(0.22, 1, 0.36, 1)" }}>
 
             {view === "login" && (teamPeople.length === 0 ? (
               <div style={{ textAlign: "center", padding: "24px 0" }}>
@@ -959,11 +1112,14 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
             })())}
 
             {view === "clock" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              // Side by side, each capped well short of the card width and set wide
+              // apart, so the two actions read as a deliberate pair rather than a
+              // stack of banners. Wraps back to a column on a narrow window.
+              <div style={{ display: "flex", justifyContent: "center", flexWrap: "wrap", gap: 36 }}>
                 <button
                   type="button"
                   onClick={() => openClock("clockIn")}
-                  style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, minHeight: 112, padding: "22px 0", width: "100%", background: "linear-gradient(135deg, #10b981, #059669)", border: "none", borderRadius: 16, color: "#fff", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 8px 24px rgba(16,185,129,0.32)", transition: "all 0.2s" }}
+                  style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, minHeight: 112, padding: "22px 24px", flex: "0 1 260px", maxWidth: 260, background: "linear-gradient(135deg, #10b981, #059669)", border: "none", borderRadius: 999, color: "#fff", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 8px 24px rgba(16,185,129,0.32)", transition: "all 0.2s" }}
                   onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 12px 30px rgba(16,185,129,0.45)"; }}
                   onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(16,185,129,0.32)"; }}
                 >
@@ -973,7 +1129,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
                 <button
                   type="button"
                   onClick={() => openClock("clockOut")}
-                  style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, minHeight: 112, padding: "22px 0", width: "100%", background: "linear-gradient(135deg, #ef4444, #dc2626)", border: "none", borderRadius: 16, color: "#fff", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 8px 24px rgba(239,68,68,0.32)", transition: "all 0.2s" }}
+                  style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, minHeight: 112, padding: "22px 24px", flex: "0 1 260px", maxWidth: 260, background: "linear-gradient(135deg, #ef4444, #dc2626)", border: "none", borderRadius: 999, color: "#fff", cursor: "pointer", fontFamily: "inherit", boxShadow: "0 8px 24px rgba(239,68,68,0.32)", transition: "all 0.2s" }}
                   onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 12px 30px rgba(239,68,68,0.45)"; }}
                   onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = "0 8px 24px rgba(239,68,68,0.32)"; }}
                 >
@@ -1027,17 +1183,51 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
         const yesShadow = isClockIn
           ? "0 4px 20px rgba(16,185,129,0.33)"
           : "0 4px 20px rgba(239,68,68,0.33)";
+        // Every step is glass now — the pad, the confirmation, the clock-out
+        // choice, the success note — so the scrim is one light, softly blurred
+        // ground for all of them rather than a heavy black behind white cards.
+        const pinStep = !clockDone && !confirmedPerson;
+        // Shared copy styles for the text steps.
+        const askText = { fontSize: 15, color: STONE, margin: 0, textAlign: "center", lineHeight: 1.6 };
+        const askName = { color: INK, fontSize: 18, fontWeight: 800, letterSpacing: "-.01em" };
+        const backLink = (
+          <div style={{ textAlign: "center", marginTop: 16 }}>
+            <button type="button" className="tq-noanim" style={{ ...LINK_BTN, color: STONE, textDecoration: "none", fontWeight: 600 }} onClick={() => { setConfirmedPerson(null); setPinValue(""); setPinError(""); }}>← Back</button>
+          </div>
+        );
         return (
         <div
-          style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(0,0,0,0.75)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'DM Sans', system-ui, sans-serif" }}
+          style={{
+            position: "fixed", inset: 0, zIndex: 1000,
+            background: "rgba(11,11,12,0.16)",
+            // Softens the page behind the glass so the active window is
+            // unmistakably the focus. The panel's own backdrop-filter then
+            // samples this, which is what keeps it reading as glass over a quiet
+            // ground — and why this value stays low: the two blurs compound.
+            backdropFilter: "blur(7px)", WebkitBackdropFilter: "blur(7px)",
+            animation: "tqScrimIn .22s ease both",
+            display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'DM Sans', system-ui, sans-serif",
+          }}
           onClick={closeClockModal}
         >
-          <div style={{ ...CARD, maxWidth: 360 }} onClick={e => e.stopPropagation()}>
-            <LogoHeader subtitle={meta.title} />
-            <div style={CARD_BODY}>
+          {pinStep ? (
+            <PinKeypad
+              value={pinValue}
+              accent={meta.verbColor}
+              error={pinError}
+              loading={pinLoading}
+              onPress={pinPress}
+              onBack={pinBack}
+              onClear={pinClear}
+              onSubmit={handlePinConfirm}
+              onClose={closeClockModal}
+            />
+          ) : (
+          <GlassPanel onClose={closeClockModal} style={{ maxHeight: "92vh", overflowY: "auto" }}>
+            <div>
               {clockDone ? (
                 <div style={{ textAlign: "center" }}>
-                  <div style={SUCCESS_BOX}>{`✓ ${doneMeta.successMsg}`}</div>
+                  <div style={GLASS_OK}>{`✓ ${doneMeta.successMsg}`}</div>
                   <BtnPrimary type="button" onClick={closeClockModal}>Done</BtnPrimary>
                 </div>
               ) : confirmedPerson ? (() => {
@@ -1049,22 +1239,20 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
                 if (clockMode === "clockIn" && onLunch) {
                   return (
                     <div>
-                      {pinError && <div style={ERR_BOX}>{pinError}</div>}
-                      <p style={{ fontSize: 14, color: "#64748b", marginBottom: 8, textAlign: "center", lineHeight: 1.6 }}>
-                        <strong style={{ color: "#0f172a", fontSize: 17 }}>{confirmedPerson.name.toUpperCase()}</strong> is currently on lunch.
+                      {pinError && <div style={GLASS_ERR}>{pinError}</div>}
+                      <p style={askText}>
+                        <strong style={askName}>{confirmedPerson.name.toUpperCase()}</strong> is currently on lunch.
                       </p>
                       <button
                         type="button"
                         disabled={pinLoading}
                         onClick={() => handleClockYes("lunchEnd")}
-                        style={{ width: "100%", padding: "14px 16px", marginTop: 16, background: "linear-gradient(135deg, #10b981, #059669)", border: "none", borderRadius: 10, color: "#fff", cursor: pinLoading ? "default" : "pointer", fontFamily: "inherit", boxShadow: "0 4px 16px rgba(16,185,129,0.32)", opacity: pinLoading ? 0.7 : 1 }}
+                        style={{ width: "100%", padding: "15px 16px", marginTop: 20, background: "linear-gradient(135deg, #10b981, #059669)", border: "none", borderRadius: 999, color: "#fff", cursor: pinLoading ? "default" : "pointer", fontFamily: "inherit", boxShadow: "0 6px 20px rgba(16,185,129,0.32)", opacity: pinLoading ? 0.7 : 1 }}
                       >
                         <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: "0.02em" }}>← Back From Lunch</div>
                         <div style={{ fontSize: 12, opacity: 0.92, marginTop: 3 }}>Resume work for the day</div>
                       </button>
-                      <div style={{ textAlign: "center", marginTop: 14 }}>
-                        <button type="button" style={LINK_BTN} onClick={() => { setConfirmedPerson(null); setPinValue(""); setPinError(""); }}>Back</button>
-                      </div>
+                      {backLink}
                     </div>
                   );
                 }
@@ -1072,48 +1260,46 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
                 if (clockMode === "clockOut") {
                   return (
                     <div>
-                      {pinError && <div style={ERR_BOX}>{pinError}</div>}
-                      <p style={{ fontSize: 14, color: "#64748b", marginBottom: 8, textAlign: "center", lineHeight: 1.6 }}>
-                        <strong style={{ color: "#0f172a", fontSize: 17 }}>{confirmedPerson.name.toUpperCase()}</strong>, what are you clocking out for?
+                      {pinError && <div style={GLASS_ERR}>{pinError}</div>}
+                      <p style={askText}>
+                        <strong style={askName}>{confirmedPerson.name.toUpperCase()}</strong>, what are you clocking out for?
                       </p>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 20 }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 22 }}>
                         <button
                           type="button"
                           disabled={pinLoading}
                           onClick={() => handleClockYes("lunchStart")}
-                          style={{ padding: "14px 16px", background: "linear-gradient(135deg, #f59e0b, #d97706)", border: "none", borderRadius: 10, color: "#fff", cursor: pinLoading ? "default" : "pointer", fontFamily: "inherit", boxShadow: "0 4px 16px rgba(245,158,11,0.32)", textAlign: "left", opacity: pinLoading ? 0.7 : 1 }}
+                          style={{ padding: "15px 20px", background: "linear-gradient(135deg, #f59e0b, #d97706)", border: "none", borderRadius: 999, color: "#fff", cursor: pinLoading ? "default" : "pointer", fontFamily: "inherit", boxShadow: "0 6px 20px rgba(245,158,11,0.32)", textAlign: "left", opacity: pinLoading ? 0.7 : 1 }}
                         >
-                          <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: "0.02em" }}>🍽  Lunch</div>
+                          <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: "0.02em" }}>Lunch</div>
                           <div style={{ fontSize: 12, opacity: 0.92, marginTop: 3 }}>Clock out — coming back later</div>
                         </button>
                         <button
                           type="button"
                           disabled={pinLoading}
                           onClick={() => handleClockYes("clockOut")}
-                          style={{ padding: "14px 16px", background: "linear-gradient(135deg, #ef4444, #dc2626)", border: "none", borderRadius: 10, color: "#fff", cursor: pinLoading ? "default" : "pointer", fontFamily: "inherit", boxShadow: "0 4px 16px rgba(239,68,68,0.32)", textAlign: "left", opacity: pinLoading ? 0.7 : 1 }}
+                          style={{ padding: "15px 20px", background: "linear-gradient(135deg, #ef4444, #dc2626)", border: "none", borderRadius: 999, color: "#fff", cursor: pinLoading ? "default" : "pointer", fontFamily: "inherit", boxShadow: "0 6px 20px rgba(239,68,68,0.32)", textAlign: "left", opacity: pinLoading ? 0.7 : 1 }}
                         >
-                          <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: "0.02em" }}>👋  End of Day</div>
+                          <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: "0.02em" }}>End of Day</div>
                           <div style={{ fontSize: 12, opacity: 0.92, marginTop: 3 }}>Done for the day</div>
                         </button>
                       </div>
-                      <div style={{ textAlign: "center", marginTop: 14 }}>
-                        <button type="button" style={LINK_BTN} onClick={() => { setConfirmedPerson(null); setPinValue(""); setPinError(""); }}>Back</button>
-                      </div>
+                      {backLink}
                     </div>
                   );
                 }
                 // Default Clock In confirmation.
                 return (
                   <div>
-                    {pinError && <div style={ERR_BOX}>{pinError}</div>}
-                    <p style={{ fontSize: 14, color: "#64748b", marginBottom: 8, textAlign: "center", lineHeight: 1.6 }}>
-                      Is <strong style={{ color: "#0f172a", fontSize: 17 }}>{confirmedPerson.name.toUpperCase()}</strong> going <strong style={{ color: meta.verbColor }}>{meta.verb}</strong>?
+                    {pinError && <div style={GLASS_ERR}>{pinError}</div>}
+                    <p style={askText}>
+                      Is <strong style={askName}>{confirmedPerson.name.toUpperCase()}</strong> going <strong style={{ color: meta.verbColor, fontSize: 18, fontWeight: 800 }}>{meta.verb}</strong>?
                     </p>
-                    <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+                    <div style={{ display: "flex", gap: 10, marginTop: 22 }}>
                       <button
                         type="button"
                         onClick={() => { setConfirmedPerson(null); setPinValue(""); setPinError(""); }}
-                        style={{ flex: 1, padding: "13px 0", background: "#ffffff", border: "1px solid #cbd5e1", borderRadius: 10, color: "#64748b", fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}
+                        style={{ flex: 1, padding: "13px 0", background: "rgba(255,255,255,.6)", border: "1px solid rgba(255,255,255,.8)", borderRadius: 999, color: STONE, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}
                       >No</button>
                       <BtnPrimary
                         type="button"
@@ -1125,30 +1311,10 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
                     </div>
                   </div>
                 );
-              })() : (
-                <>
-                  {pinError && <div style={ERR_BOX}>{pinError}</div>}
-                  <div style={{ marginBottom: 20 }}>
-                    <label style={LABEL}>Enter your PIN</label>
-                    <input
-                      type="password"
-                      value={pinValue}
-                      onChange={e => { setPinValue(e.target.value); setPinError(""); }}
-                      onKeyDown={e => e.key === "Enter" && handlePinConfirm()}
-                      placeholder="PIN"
-                      autoFocus
-                      autoComplete="off"
-                      style={{ ...INPUT_STYLE, letterSpacing: "0.25em", fontSize: 18 }}
-                    />
-                  </div>
-                  <BtnPrimary type="button" loading={pinLoading} loadingLabel="Checking…" onClick={handlePinConfirm}>Confirm</BtnPrimary>
-                  <div style={{ textAlign: "center", marginTop: 12 }}>
-                    <button type="button" style={LINK_BTN} onClick={closeClockModal}>Cancel</button>
-                  </div>
-                </>
-              )}
+              })() : null}
             </div>
-          </div>
+          </GlassPanel>
+          )}
         </div>
         );
       })()}

@@ -8,7 +8,7 @@ import TRAQS_BARS_ACCENT from "./traqs-bars-accent.png";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme, setActiveThread } from "./push.js";
 import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
-import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice } from "./db/sync.js";
+import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
 import { breakHoursByDay, producedHoursByScope } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
@@ -2027,11 +2027,19 @@ const sameId = (a, b) => a != null && b != null && String(a) === String(b);
 const onTeam = (team, pid) => (team || []).some(x => sameId(x, pid));
 const PERSON_BLUE = "#4169e1";
 
-// First letter of the FIRST name: "Mary Beth Jones" → "M". Falls back to "?" on
-// a blank/missing name so the circle is never empty.
+// Two letters, matching the login roster's avatars: first + last initial
+// ("Mary Beth Jones" → "MJ"), or the first two letters of a single name
+// ("Trey" → "TR"). Two characters tell people apart where one couldn't — a
+// roster with a Danny, a Draven and a Draven B. was three identical D circles.
+// Falls back to "?" on a blank/missing name so the circle is never empty.
+//
+// Kept in sync with getInitials() in App.jsx, which runs before this module's
+// component tree mounts and so can't share it.
 function personInitial(person) {
-  const first = String(person?.name ?? "").trim().split(/\s+/)[0] || "";
-  return (first.charAt(0) || "?").toUpperCase();
+  const parts = String(person?.name ?? "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 // One person's avatar: their uploaded photo (Settings → Profile Photo), else a
@@ -2048,6 +2056,11 @@ function personInitial(person) {
 function PersonAvatar({ person, size = 40, ring = null, label = null, style: sx = {} }) {
   const img = person?.avatar || person?.image || null;
   const fill = elColorT(person?.color) || PERSON_BLUE;
+  const text = label ?? personInitial(person);
+  // Two glyphs need to be set smaller than one or they crowd the circle at the
+  // 28px sizes the schedule rows use. Scales off the actual text, so a two-digit
+  // team-number `label` gets the same treatment.
+  const scale = String(text).length > 1 ? 0.34 : 0.42;
   return (
     <div style={{
       width: size, height: size, borderRadius: "50%", flexShrink: 0, overflow: "hidden",
@@ -2055,12 +2068,13 @@ function PersonAvatar({ person, size = 40, ring = null, label = null, style: sx 
       backgroundImage: img ? `url(${img})` : undefined,
       backgroundSize: "cover", backgroundPosition: "center",
       display: "flex", alignItems: "center", justifyContent: "center",
-      fontSize: Math.round(size * 0.42), fontWeight: 800, lineHeight: 1,
+      fontSize: Math.round(size * scale), fontWeight: 800, lineHeight: 1,
+      letterSpacing: String(text).length > 1 ? "-0.03em" : 0,
       color: accentText(fill),
       ...(ring ? { border: `2px solid ${ring}` } : {}),
       ...sx,
     }}>
-      {img ? "" : (label ?? personInitial(person))}
+      {img ? "" : text}
     </div>
   );
 }
@@ -9918,9 +9932,8 @@ ${jobsCtx || "No jobs found."}`;
     const buckets = { job: [], break: [], lunch: [], idle: [], offline: [] };
     team.forEach(p => { buckets[statusFor(p)].push(p); });
 
-    // Had no photo support at all — always two-letter initials. Now shows the
-    // person's uploaded photo, falling back to the same blue-circle single
-    // initial used everywhere else.
+    // Shows the person's uploaded photo, falling back to the same blue-circle
+    // two-letter initials used everywhere else.
     const Avatar = ({ p, dotColor }) => (
       <div style={{ position: "relative", flexShrink: 0 }}>
         <PersonAvatar person={p} size={38} />
@@ -11481,7 +11494,7 @@ ${jobsCtx || "No jobs found."}`;
 
         {/* Scrollable body */}
         <div style={{ flex: 1, overflowY: "auto", padding: asPage ? "0 32px 28px" : "24px 28px" }}>
-          {sel.notes && <div style={{ fontSize: 14, color: T.textSec, padding: 14, background: T.surface, borderRadius: T.radiusSm, marginBottom: 20, lineHeight: 1.6, border: `1px solid ${T.border}` }}>{sel.notes}</div>}
+          {sel.notes && <div className="tq-frost" style={{ fontSize: 14, color: T.textSec, padding: 14, background: T.surface, borderRadius: T.radiusSm, marginBottom: 20, lineHeight: 1.6, border: `1px solid ${T.border}` }}>{sel.notes}</div>}
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 24 }}>
             {[
@@ -11489,7 +11502,7 @@ ${jobsCtx || "No jobs found."}`;
               { label: "In Progress", val: inProg, color: elColor("#3b82f6") },
               { label: "Finished", val: completed, color: elColor("#10b981") },
               { label: "Est. Hours", val: totalHrs, color: elColor("#f59e0b") },
-            ].map(s => <div key={s.label} style={{ background: T.card, borderRadius: T.radiusSm, padding: "14px 16px", border: `1px solid ${T.border}` }}>
+            ].map(s => <div key={s.label} className="tq-frost" style={{ background: T.card, borderRadius: T.radiusSm, padding: "14px 16px", border: `1px solid ${T.border}` }}>
               <div style={{ fontSize: 24, fontWeight: 700, color: s.color, fontFamily: T.mono }}>{s.val}</div>
               <div style={{ fontSize: 11, color: T.textDim, marginTop: 4, fontWeight: 600, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{s.label}</div>
             </div>)}
@@ -11501,7 +11514,7 @@ ${jobsCtx || "No jobs found."}`;
             const renderJobCard = (t) => {
               const dur = diffD(t.start, t.end) + 1;
               const pct = t.status === "Finished" ? 100 : t.status === "In Progress" ? 50 : t.status === "Pending" ? 15 : t.status === "On Hold" ? 25 : 0;
-              return <div key={t.id} style={{ background: T.card, borderRadius: T.radiusSm, padding: "14px 18px", border: `1px solid ${T.border}`, borderLeft: `4px solid ${elColor(t.color)}` }}>
+              return <div key={t.id} className="tq-frost" style={{ background: T.card, borderRadius: T.radiusSm, padding: "14px 18px", border: `1px solid ${T.border}`, borderLeft: `4px solid ${elColor(t.color)}` }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, gap: 12 }}>
                   <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8 }}>
                     <HealthIcon t={t} />
@@ -11582,7 +11595,7 @@ ${jobsCtx || "No jobs found."}`;
                 <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.text }}>Active Jobs ({activeJobs.length})</h4>
                 {can("editJobs") && <Btn size="sm" onClick={() => { const m = { type: "edit", data: { id: null, title: "", start: TD, end: addD(TD, 3), pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: sel.id }, parentId: null }; setSelClient(null); setModal(m); }}>+ Add Job</Btn>}
               </div>
-              {activeJobs.length === 0 && <div style={{ textAlign: "center", padding: 20, color: T.textDim, fontSize: 13, background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, marginBottom: 16 }}>No active jobs for this client.</div>}
+              {activeJobs.length === 0 && <div className="tq-frost" style={{ textAlign: "center", padding: 20, color: T.textDim, fontSize: 13, background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, marginBottom: 16 }}>No active jobs for this client.</div>}
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
                 {activeJobs.map(renderJobCard)}
               </div>
@@ -11607,7 +11620,7 @@ ${jobsCtx || "No jobs found."}`;
                     only animated property; the inner div clips while it runs. */}
                 <div style={{ display: "grid", gridTemplateRows: clientCompletedExpanded ? "1fr" : "0fr", transition: "grid-template-rows 0.26s cubic-bezier(0.4,0,0.2,1)", pointerEvents: clientCompletedExpanded ? "auto" : "none" }}>
                 <div style={{ overflow: "hidden", minHeight: 0 }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "12px 14px", background: T.surface, opacity: clientCompletedExpanded ? 1 : 0, transition: "opacity 0.18s ease" }}>
+                <div className="tq-frost" style={{ display: "flex", flexDirection: "column", gap: 8, padding: "12px 14px", background: T.surface, opacity: clientCompletedExpanded ? 1 : 0, transition: "opacity 0.18s ease" }}>
                   {completedJobs.map(t => <div key={t.id} style={{ background: T.card, borderRadius: T.radiusSm, padding: "12px 14px", border: `1px solid #10b98122`, borderLeft: `4px solid #10b981` }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10b981" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
@@ -16027,7 +16040,7 @@ ${jobsCtx || "No jobs found."}`;
       {pageHeader("Employees", null, {}, picker)}{addEmployeeModal}{employeeCtxMenu}{employeeDeleteModal}
 
       {/* ── Header card ── */}
-      <div style={card({ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", marginBottom: 14 })}>
+      <div className="tq-frost" style={card({ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", marginBottom: 14 })}>
         <div style={{ position: "relative", flexShrink: 0 }}>
           <PersonAvatar person={P} size={62} />
           <div style={{ position: "absolute", right: 1, bottom: 1, width: 15, height: 15, borderRadius: "50%", background: clockedColor, border: `2.5px solid ${T.card}` }} />
@@ -16061,7 +16074,7 @@ ${jobsCtx || "No jobs found."}`;
           twice the width of its neighbours, and on a narrow window the columns
           reflow instead of forcing the page to scroll sideways. */}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 14, alignItems: "stretch", marginBottom: 14 }}>
-        <div style={card({ flex: "1 1 320px", minWidth: 0 })}>
+        <div className="tq-frost" style={card({ flex: "1 1 320px", minWidth: 0 })}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 4, flexWrap: "wrap" }}>
             <h3 style={cardTitle}>Performance</h3>
             <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>{periodBtn("pay", "Pay Period")}{periodBtn("week", "Week")}{periodBtn("month", "Month")}{periodBtn("year", "Year")}</div>
@@ -16080,7 +16093,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
 
-        <div style={card({ flex: "2 1 460px", minWidth: 0, display: "flex", flexDirection: "column" })}>
+        <div className="tq-frost" style={card({ flex: "2 1 460px", minWidth: 0, display: "flex", flexDirection: "column" })}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 14, flexWrap: "wrap", flexShrink: 0 }}>
             <h3 style={cardTitle}>Schedule</h3>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -16147,7 +16160,7 @@ ${jobsCtx || "No jobs found."}`;
           </>}
         </div>
 
-        <div style={card({ flex: "1 1 260px", minWidth: 0, display: "flex", flexDirection: "column" })}>
+        <div className="tq-frost" style={card({ flex: "1 1 260px", minWidth: 0, display: "flex", flexDirection: "column" })}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12, flexShrink: 0 }}>
             <h3 style={cardTitle}>Current Work</h3>
             {cw && statusChip(cw.paused ? "Paused" : cw.health === "critical" ? "Critical" : cw.health === "behind" ? "Behind" : "On Track", cw.paused ? "#f59e0b" : cw.health === "critical" ? "#ef4444" : cw.health === "behind" ? "#f59e0b" : "#10b981")}
@@ -16176,7 +16189,7 @@ ${jobsCtx || "No jobs found."}`;
 
       {/* ── Assigned queue + time history ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: 14, marginBottom: 14 }}>
-        <div style={card()}>
+        <div className="tq-frost" style={card()}>
           <h3 style={{ ...cardTitle, marginBottom: 12 }}>Assigned Queue <span style={{ fontWeight: 600, color: T.textDim }}>(Backlog)</span></h3>
           {!queue.length ? nothing("No open work assigned.") : (
             <div style={scrollBox}>
@@ -16203,7 +16216,7 @@ ${jobsCtx || "No jobs found."}`;
           )}
         </div>
 
-        <div style={card()}>
+        <div className="tq-frost" style={card()}>
           <h3 style={{ ...cardTitle, marginBottom: 2 }}>Time History <span style={{ fontWeight: 600, color: T.textDim }}>(Pay Period)</span></h3>
           <div style={{ ...dim, marginBottom: 12 }}>{fm(histPP.start)} – {fm(histPP.end)}</div>
           {!history.length ? nothing("No punches recorded this pay period.") : (
@@ -16232,7 +16245,7 @@ ${jobsCtx || "No jobs found."}`;
 
       {/* ── PTO / attendance + reviews ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: 14 }}>
-        <div style={card()}>
+        <div className="tq-frost" style={card()}>
           <h3 style={{ ...cardTitle, marginBottom: 12 }}>PTO / Attendance</h3>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 9 }}>
             <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "12px 13px" }}>
@@ -16248,7 +16261,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
 
-        <div style={card()}>
+        <div className="tq-frost" style={card()}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 }}>
             <h3 style={cardTitle}>Reviews / Notes</h3>
             <button onClick={() => setEmpNoteModal({ personId: P.id, kind: "note", title: "", body: "", rating: "", date: TD })}
@@ -17071,12 +17084,22 @@ ${jobsCtx || "No jobs found."}`;
         setTsPersonEditModal(m => ({ ...m, reopeningId: sid }));
         try {
           const r = await adminReopenEntryAction({ entryId: sid }, getToken, orgCode);
-          if (r?.ok) toast("Shift reopened");
+          if (r?.ok) toast(r.alreadyOpen ? "Shift is already open" : "Shift reopened");
           if (!r?.ok) { alert(r?.error || "Couldn't reopen this shift."); setTsPersonEditModal(m => (m ? { ...m, reopeningId: null, confirmReopen: null } : m)); return; }
           try {
+            // Evict the reopened punch from the cache first. applySlice rebuilds
+            // timeclock from the cache on the next sync event, so leaving the
+            // now-tombstoned row there brings the shift back into the list — and
+            // a second Undo then 404s against a punch the server already closed.
+            await evictRows("payhours", [sid]).catch(() => {});
             const [fresh, freshPeople] = await Promise.all([fetchTimeclock(getToken, orgCode), fetchPeople(getToken, orgCode)]);
-            if (Array.isArray(fresh)) setTimeclock(fresh);
-            if (Array.isArray(freshPeople)) setPeople(normalizePeople(freshPeople));
+            // Folded back through mergeFullSlice for the same reason: without it
+            // the cache stays behind and overwrites this state on the next event.
+            if (Array.isArray(fresh)) { setTimeclock(fresh); mergeFullSlice("payhours", fresh).catch(() => {}); }
+            if (Array.isArray(freshPeople)) {
+              setPeople(normalizePeople(freshPeople));
+              mergeFullSlice("people", freshPeople.map(({ pin, ...rest }) => rest)).catch(() => {});
+            }
           } catch { /* real-time will reconcile */ }
           setTsPersonEditModal(null);
         } catch { alert("Network error"); setTsPersonEditModal(m => (m ? { ...m, reopeningId: null, confirmReopen: null } : m)); }
@@ -18512,6 +18535,50 @@ ${jobsCtx || "No jobs found."}`;
       );
     };
 
+    // ── Session-card helpers (desktop hero) ───────────────────────────────────
+    // The hero is one three-zone card: today / current job / this period. These
+    // are the bits the JSX below needs that are awkward to inline.
+    const hoursToHM = h => { const m = Math.max(0, Math.round((h || 0) * 60)); return `${Math.floor(m / 60)}h ${m % 60}m`; };
+    // "0h 4m" with the unit letters set smaller than the digits, per the redesign.
+    // Falls back to the raw string if the duration isn't in that shape.
+    const bigDur = (str, unitSize) => {
+      const mm = /^(\d+)h\s*(\d+)m$/.exec(String(str || ""));
+      if (!mm) return str || "0h 0m";
+      const u = { fontSize: unitSize, fontWeight: 700, letterSpacing: "-0.045em" };
+      return <>{mm[1]}<span style={u}>h</span> {mm[2]}<span style={u}>m</span></>;
+    };
+    // One width for the whole page body: the session card and the admin panel
+    // below it are the same measure, so their edges line up.
+    const TC_MAX_W = 1360;
+    // Corner radius for both page windows. Deliberately well past T.radius (22) —
+    // these two are the page's hero surfaces, not list cards.
+    const TC_RADIUS = 40;
+    const tcZone = { padding: "22px 26px", minWidth: 0, display: "flex", flexDirection: "column" };
+    // Uppercase micro-label. Tracking stays negative (-0.045em) like every other
+    // label in the app rather than the mock's positive .16em — the house style.
+    const tcLbl = { fontSize: 11, fontWeight: 700, letterSpacing: "-0.045em", textTransform: "uppercase", color: T.textDim, marginBottom: 12, display: "flex", alignItems: "center", gap: 8, minHeight: 14 };
+    // Per-day hours for the sparkline in zone 3. Same filter as myPeriodHrs above
+    // so the bars and the headline number can never disagree.
+    const myPeriodDays = (() => {
+      const out = [];
+      for (let d = ppNow.start; d && d <= ppNow.end && out.length < 62; d = addD(d, 1)) {
+        out.push({ date: d, h: timeclock.filter(e => String(e.personId) === String(loggedInUser.id) && e.date === d).reduce((s, e) => s + (e.hours || 0), 0) });
+      }
+      return out;
+    })();
+    // Progress on the op the current job clock points at, so the bar in zone 2
+    // means something: worked-vs-estimate, live session included.
+    const myJobWS = (() => {
+      const jc = loggedInUser.activeJobClock;
+      if (!jc) return null;
+      const job = tasks.find(j => String(j.id) === String(jc.jobId));
+      const panel = job?.subs?.find(s => String(s.id) === String(jc.panelId));
+      const t = panel?.subs?.find(o => String(o.id) === String(jc.opId)) || panel || job;
+      if (!t?.hpd) return null;
+      const ws = deriveWorkedState(t, producedFor(t), liveOpHours(t));
+      return { ...ws, est: t.hpd, clientName: job?.clientId ? clientName(job.clientId) : "" };
+    })();
+
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
         {renderPinModal()}
@@ -18565,7 +18632,18 @@ ${jobsCtx || "No jobs found."}`;
             Time tracking is not required for salaried employees.
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 16, maxWidth: 460, width: "100%", margin: "0 auto" }}>
+          <div style={{ maxWidth: TC_MAX_W, width: "100%", margin: "0 auto" }}>
+            {/* The three zones are a CSS grid rather than inline styles so they can
+                collapse to one column on a narrow desktop window — inline styles
+                can't carry a media query. */}
+            <style>{`
+              .tq-tcsession{display:grid;grid-template-columns:1.1fr 1.35fr 0.8fr}
+              .tq-tcsession > div + div{border-left:1px solid var(--tq-tc-div)}
+              @media (max-width:1100px){
+                .tq-tcsession{grid-template-columns:1fr}
+                .tq-tcsession > div + div{border-left:none;border-top:1px solid var(--tq-tc-div)}
+              }
+            `}</style>
 
             {/* Header */}
             {(() => {
@@ -18577,7 +18655,7 @@ ${jobsCtx || "No jobs found."}`;
                 : cs.isOnBreak ? `on break · clocked in at ${fmtTime(loggedInUser.activeClockIn?.clockIn)}`
                 : `clocked in at ${fmtTime(loggedInUser.activeClockIn?.clockIn)}`;
               return (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, marginBottom: 10 }}>
                   <div style={{ width: 9, height: 9, borderRadius: "50%", background: dotColor, boxShadow: ui.glow, transition: "all 0.3s", flexShrink: 0 }} />
                   {/* bgText, not text: this line sits on the PAGE BACKGROUND, not on a
                       card. T.text is derived from the card surface, so a light-surface
@@ -18592,83 +18670,127 @@ ${jobsCtx || "No jobs found."}`;
               );
             })()}
 
-            {/* Job card — STATE 1: active job */}
-            {isClockedIn && loggedInUser.activeJobClock && (() => {
-              const jc = loggedInUser.activeJobClock;
-              const onBreak = !!loggedInUser.activeBreak;
-              const accentClr = "#22c55e";   // job keeps running even on break
-              return (
-                <div style={{ borderRadius: T.radiusSm, border: `0.5px solid ${accentClr}`, padding: "14px 16px", background: T.card }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 3 }}>
-                        <div style={{ width: 7, height: 7, borderRadius: "50%", background: accentClr, boxShadow: "0 0 5px #22c55e", flexShrink: 0 }} />
-                        <span style={{ fontSize: 14, fontWeight: 500, color: accentClr }}>
-                          Active on {jc.opTitle || jc.jobTitle}
-                        </span>
-                        {onBreak && <span style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b40", borderRadius: 12, padding: "1px 6px" }}>On break</span>}
+            {/* One consolidated session card: today · current job · this period */}
+            <div className="tq-frost tq-tcsession" style={{ "--tq-tc-div": T.border, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: TC_RADIUS, overflow: "hidden" }}>
+
+              {/* ── Zone 1 · total time today ── */}
+              <div style={tcZone}>
+                <div style={tcLbl}>Total time today</div>
+                <div style={{ fontSize: 46, fontWeight: 700, color: "#ef4444", fontFamily: T.mono, letterSpacing: "-0.045em", lineHeight: 1 }}>
+                  {bigDur(isClockedIn ? (tsElapsed || "0h 0m") : hoursToHM(myTodayHrs), 22)}
+                </div>
+                <div style={{ display: "flex", gap: 10, marginTop: "auto", paddingTop: 18 }}>
+                  {isClockedIn ? (
+                    <>
+                      <button onClick={openClockOut} style={{ flex: 1, padding: "12px 18px", borderRadius: T.radiusPill, border: "none", background: "#ef4444", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: "0 8px 22px #ef444440" }}>Clock Out</button>
+                      {orgSettings.trackLunch && (
+                        <button onClick={openLunch} disabled={isOnBreak} style={{ padding: "12px 18px", borderRadius: T.radiusPill, border: `1px solid ${isOnLunch ? "#f59e0b" : "#f59e0b66"}`, background: "#f59e0b14", color: "#f59e0b", fontSize: 14, fontWeight: 700, cursor: isOnBreak ? "not-allowed" : "pointer", fontFamily: T.font, opacity: isOnBreak ? 0.45 : 1, whiteSpace: "nowrap" }}>{isOnLunch ? "End Lunch" : "Start Lunch"}</button>
+                      )}
+                    </>
+                  ) : (
+                    <button onClick={openClockIn} style={{ flex: 1, padding: "12px 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock In</button>
+                  )}
+                </div>
+              </div>
+
+              {/* ── Zone 2 · current job ── */}
+              {(() => {
+                const jc = isClockedIn ? loggedInUser.activeJobClock : null;
+                const onBreak = !!loggedInUser.activeBreak;
+                const green = "#22c55e";
+                // Nothing running: the zone still holds its column, it just states why.
+                if (!jc) {
+                  return (
+                    <div style={tcZone}>
+                      <div style={tcLbl}>Current job</div>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>No active job</div>
+                      <div style={{ fontSize: 13, color: T.textDim, marginTop: 3 }}>
+                        {isClockedIn ? "You're on the clock but not on a job." : "Clock in to start a job."}
                       </div>
-                      {(jc.panelTitle || jc.jobTitle) && (
-                        <div style={{ fontSize: 11, color: T.textDim, paddingLeft: 14 }}>
-                          {jc.panelTitle ? `${jc.panelTitle} · ${jc.jobTitle}` : jc.jobTitle}
+                      {isClockedIn && (
+                        <div style={{ display: "flex", marginTop: "auto", paddingTop: 18 }}>
+                          <button onClick={openStartJobPicker} style={{ flex: 1, padding: "12px 0", borderRadius: T.radiusPill, border: `1px solid ${green}66`, background: green + "14", color: green, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Start Job</button>
                         </div>
                       )}
                     </div>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: "#22c55e", fontFamily: T.mono, letterSpacing: "-0.045em", flexShrink: 0 }}>
-                      {tsJobElapsed || "0h 0m"}
+                  );
+                }
+                const sub = [jc.panelTitle, myJobWS?.clientName].filter(Boolean).join(" · ");
+                const pct = Math.round((myJobWS?.workedFraction || 0) * 100);
+                const over = !!myJobWS?.isOverdueHours;
+                const chip = { flex: 1, fontSize: 13, fontWeight: 600, borderRadius: T.radiusPill, padding: "12px 0", cursor: jobClockLoading ? "not-allowed" : "pointer", textAlign: "center", background: T.surface, border: `1px solid ${T.border}`, color: T.textDim, fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 };
+                return (
+                  <div style={tcZone}>
+                    <div style={tcLbl}>
+                      <span style={{ width: 7, height: 7, borderRadius: "50%", background: green, boxShadow: `0 0 5px ${green}`, flexShrink: 0 }} />
+                      <span style={{ color: green, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Active on {jc.opTitle || jc.jobTitle}</span>
+                      {onBreak && <span style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b40", borderRadius: 12, padding: "1px 6px", flexShrink: 0 }}>On break</span>}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 18, fontWeight: 700, color: T.text, letterSpacing: "-0.045em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={jc.jobTitle || ""}>{jc.jobTitle || "—"}</div>
+                        {sub && <div style={{ fontSize: 13, color: T.textDim, marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={sub}>{sub}</div>}
+                      </div>
+                      <div style={{ fontSize: 26, fontWeight: 700, color: green, fontFamily: T.mono, letterSpacing: "-0.045em", whiteSpace: "nowrap" }}>{tsJobElapsed || "0h 0m"}</div>
+                    </div>
+                    {/* Worked-vs-estimate on this op, live session included. Hidden when
+                        the op carries no estimate — an empty track would just lie. The
+                        readout uses the UNCAPPED fraction so an overrun reads 120%, not
+                        a bar that silently pins at full. */}
+                    {myJobWS && (
+                      <div title={`${myJobWS.workedHoursShown.toFixed(1)}h of ${myJobWS.est}h estimated${over ? " · over estimate" : ""}`} style={{ display: "flex", alignItems: "center", gap: 10, margin: "14px 0 16px" }}>
+                        <div style={{ flex: 1, height: 5, borderRadius: T.radiusPill, background: hexA(T.text, 0.1), overflow: "hidden" }}>
+                          <div style={{ height: "100%", width: `${Math.max(pct, 2)}%`, borderRadius: T.radiusPill, background: over ? "#ef4444" : green, transition: "width 0.4s" }} />
+                        </div>
+                        <span style={{ fontSize: 12, fontWeight: 700, fontFamily: T.mono, color: over ? "#ef4444" : green, whiteSpace: "nowrap" }}>
+                          {Math.round((myJobWS.rawFraction || 0) * 100)}%
+                        </span>
+                      </div>
+                    )}
+                    <div style={{ display: "flex", gap: 10, marginTop: "auto", paddingTop: myJobWS ? 0 : 18 }}>
+                      {onBreak
+                        ? <button onClick={handleEndBreak} disabled={jobClockLoading} style={{ ...chip, color: "#fff", background: "#f59e0b", borderColor: "#f59e0b" }}>End Break</button>
+                        : <button onClick={handleStartBreak} disabled={jobClockLoading} style={{ ...chip, color: "#f59e0b", borderColor: "#f59e0b59" }}>Break</button>
+                      }
+                      <button onClick={openStartJobPicker} disabled={jobClockLoading} style={chip}>Switch</button>
+                      <button onClick={handleEndJob} disabled={jobClockLoading} style={{ ...chip, color: "#ef4444", borderColor: "#ef444459" }}>{jobClockLoading ? "Ending…" : "End Job"}</button>
                     </div>
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-                    {onBreak
-                      ? <button onClick={handleEndBreak} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusPill, border: "none", background: "#f59e0b", color: "#fff", fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>End Break</button>
-                      : <button onClick={handleStartBreak} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusPill, border: "1.5px solid #f59e0b", background: "none", color: "#f59e0b", fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Break</button>
-                    }
-                    <button onClick={openStartJobPicker} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusPill, border: `1.5px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>Switch</button>
-                    <button onClick={handleEndJob} disabled={jobClockLoading} style={{ padding: "9px 0", borderRadius: T.radiusPill, border: "1.5px solid #ef4444", background: "none", color: "#ef4444", fontSize: 13, fontWeight: 600, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, opacity: jobClockLoading ? 0.7 : 1 }}>{jobClockLoading ? "Ending…" : "End Job"}</button>
-                  </div>
+                );
+              })()}
+
+              {/* ── Zone 3 · this period ── */}
+              <div style={tcZone}>
+                <div style={tcLbl}>This period</div>
+                <div style={{ fontSize: 38, fontWeight: 700, color: T.text, fontFamily: T.mono, letterSpacing: "-0.045em", lineHeight: 1 }}>
+                  {myPeriodHrs.toFixed(1)}<span style={{ fontSize: 18, color: T.textDim }}>h</span>
                 </div>
-              );
-            })()}
-
-            {/* Timer */}
-            {isClockedIn && (
-              <div style={{ textAlign: "center", padding: "4px 0" }}>
-                <div style={{ fontSize: 13, color: T.textDim, marginBottom: 4 }}>Total Time Today</div>
-                <div style={{ fontSize: 56, fontWeight: 700, color: "#ef4444", fontFamily: T.mono, letterSpacing: "-0.045em", lineHeight: 1 }}>{tsElapsed || "0h 0m"}</div>
+                <div style={{ fontSize: 12.5, color: T.textDim, marginTop: 7 }}>{fmtDate(ppNow.start)} – {fmtDate(ppNow.end)}</div>
+                {/* One bar per day of the pay period; today reads full-strength. */}
+                {(() => {
+                  const peak = Math.max(...myPeriodDays.map(d => d.h), 1);
+                  return (
+                    <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 40, marginTop: "auto", paddingTop: 18 }}>
+                      {myPeriodDays.map(d => (
+                        <div key={d.date} title={`${fmtDate(d.date)} · ${d.h > 0 ? d.h.toFixed(2) + "h" : "no hours"}`} style={{
+                          flex: 1, minWidth: 0,
+                          height: d.h > 0 ? `${Math.max(10, (d.h / peak) * 100)}%` : 3,
+                          borderRadius: "4px 4px 2px 2px",
+                          background: d.date === TD ? "#ef4444" : hexA("#ef4444", 0.28),
+                        }} />
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
-            )}
 
-            {/* Action buttons — one horizontal row when clocked in: Clock Out, Lunch, Start Job */}
-            {isClockedIn ? (
-              <div style={{ display: "flex", gap: 10 }}>
-                <button onClick={openClockOut} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusPill, border: "none", background: "#ef4444", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock Out</button>
-                {orgSettings.trackLunch && (
-                  <button onClick={openLunch} disabled={isOnBreak} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusPill, border: `1.5px solid ${isOnLunch ? "#f59e0b" : "#f59e0b60"}`, background: T.surface, color: "#f59e0b", fontSize: 15, fontWeight: 700, cursor: isOnBreak ? "not-allowed" : "pointer", fontFamily: T.font, opacity: isOnBreak ? 0.45 : 1 }}>{isOnLunch ? "End Lunch" : "Start Lunch"}</button>
-                )}
-                {!loggedInUser.activeJobClock && (
-                  <button onClick={openStartJobPicker} style={{ flex: 1, padding: "13px 0", borderRadius: T.radiusPill, border: "1.5px solid #22c55e60", background: "none", color: "#22c55e", fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Start Job</button>
-                )}
-              </div>
-            ) : (
-              <button onClick={openClockIn} style={{ width: "100%", padding: "13px 0", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock In</button>
-            )}
-
-
-            {/* Stats */}
-            <div style={{ display: "block" }}>
-              <div style={{ background: T.card, borderRadius: 30, border: `1px solid ${T.borderLight}`, padding: "20px 16px", textAlign: "center" }}>
-                <div style={{ fontSize: 11, color: T.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 6 }}>This Period</div>
-                <div style={{ fontSize: 30, fontWeight: 700, color: T.text, fontFamily: T.mono, lineHeight: 1 }}>{myPeriodHrs.toFixed(1)}</div>
-                <div style={{ fontSize: 11, color: T.textDim, marginTop: 3 }}>{fmtDate(ppNow.start)} – {fmtDate(ppNow.end)}</div>
-              </div>
             </div>
-
           </div>
         )}
 
         {/* ── Admin section ── */}
         {isAdmin && (
-          <div className="tq-frost" style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}` }}>
+          <div className="tq-frost" style={{ maxWidth: TC_MAX_W, width: "100%", margin: "0 auto", background: T.card, borderRadius: TC_RADIUS, border: `1px solid ${T.borderLight}`, overflow: "hidden" }}>
             {/* Admin tabs */}
             <div style={{ padding: "0 20px", borderBottom: `1px solid ${T.border}`, display: "flex", gap: 2 }}>
               {[
@@ -18676,13 +18798,13 @@ ${jobsCtx || "No jobs found."}`;
                 { id: "timesheets", label: "Timesheets" },
                 { id: "finishRequests", label: pendingFinishOps.length > 0 ? `Finish Requests (${pendingFinishOps.length})` : "Finish Requests" },
               ].map(tab => (
-                <button key={tab.id} className="tq-noanim" onClick={() => setTsAdminTab(tab.id)} style={{ padding: "14px 16px", background: "transparent", border: "none", borderBottom: `2px solid ${tsAdminTab === tab.id ? T.accent : "transparent"}`, color: tsAdminTab === tab.id ? T.accent : T.textDim, fontSize: 13, fontWeight: tsAdminTab === tab.id ? 700 : 500, cursor: "pointer", fontFamily: T.font, marginBottom: -1, transition: "color 0.15s" }}>
+                <button key={tab.id} className="tq-noanim" onClick={() => setTsAdminTab(tab.id)} style={{ padding: "16px 18px", background: "transparent", border: "none", borderBottom: `2px solid ${tsAdminTab === tab.id ? T.accent : "transparent"}`, color: tsAdminTab === tab.id ? T.accent : T.textDim, fontSize: 13, fontWeight: tsAdminTab === tab.id ? 700 : 500, cursor: "pointer", fontFamily: T.font, marginBottom: -1, transition: "color 0.15s" }}>
                   {tab.label}
                 </button>
               ))}
             </div>
 
-            <div style={{ padding: "20px 24px" }}>
+            <div style={{ padding: "24px 26px" }}>
               {/* Team Status */}
               {tsAdminTab === "live" && (
                 <div>
@@ -18690,7 +18812,7 @@ ${jobsCtx || "No jobs found."}`;
                     <thead>
                       <tr style={{ borderBottom: `1px solid ${T.border}` }}>
                         {["","Name","Pay Type","Status","Since","Working On","Today","Period",""].map((h, hi) => (
-                          <th key={`${h}-${hi}`} style={{ textAlign: "left", padding: "6px 10px", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{h}</th>
+                          <th key={`${h}-${hi}`} style={{ textAlign: "left", padding: "10px 10px", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{h}</th>
                         ))}
                       </tr>
                     </thead>
@@ -18713,23 +18835,23 @@ ${jobsCtx || "No jobs found."}`;
                           <Fragment key={p.id}>
                             <tr onClick={toggleExpand} style={{ borderBottom: isExpanded ? "none" : `1px solid ${T.border}20`, cursor: "pointer", background: isExpanded ? T.accent + "08" : "none" }}>
                               {/* Chevron */}
-                              <td style={{ padding: "10px 6px 10px 10px", width: 28 }}>
+                              <td style={{ padding: "14px 6px 14px 10px", width: 28 }}>
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", display: "block" }}><polyline points="9 18 15 12 9 6"/></svg>
                               </td>
-                              <td style={{ padding: "10px 10px" }}>
+                              <td style={{ padding: "14px 10px" }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                   <div style={{ width: 8, height: 8, borderRadius: 8, background: T.textDim, flexShrink: 0 }} />
                                   <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{p.name}</span>
                                 </div>
                               </td>
-                              <td style={{ padding: "10px 10px" }}>
+                              <td style={{ padding: "14px 10px" }}>
                                 {(() => { const isSalary = p.payType === "salary"; return (
                                   <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 12, background: elColor(isSalary ? "#6366f1" : "#f59e0b") + "18", color: elColor(isSalary ? "#6366f1" : "#f59e0b"), border: `1px solid ${elColor(isSalary ? "#6366f1" : "#f59e0b")}30` }}>
                                     {isSalary ? "Salary" : "Hourly"}
                                   </span>
                                 ); })()}
                               </td>
-                              <td style={{ padding: "10px 10px" }}>
+                              <td style={{ padding: "14px 10px" }}>
                                 <div
                                   onClick={isAdmin ? (e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setClockPopover({ personId: p.id, personName: p.name, action: clocked ? "out" : "in", x: r.left, y: r.bottom + 4 }); }) : undefined}
                                   title={isAdmin ? (clocked ? "Click to clock out" : "Click to clock in") : undefined}
@@ -18738,7 +18860,7 @@ ${jobsCtx || "No jobs found."}`;
                                   <span style={{ fontSize: 11, fontWeight: 600, color: clocked ? pillColor : T.textDim }}>{ui.label}</span>
                                 </div>
                               </td>
-                              <td style={{ padding: "10px 10px", fontSize: 12, color: T.textDim, fontFamily: T.mono }}>
+                              <td style={{ padding: "14px 10px", fontSize: 12, color: T.textDim, fontFamily: T.mono }}>
                                 {!clocked ? "—" : (isAdmin && String(sinceEdit?.personId) === String(p.id)) ? (
                                   <input
                                     type="time"
@@ -18761,7 +18883,7 @@ ${jobsCtx || "No jobs found."}`;
                                   </span>
                                 )}
                               </td>
-                              <td style={{ padding: "10px 10px", maxWidth: 200 }}>
+                              <td style={{ padding: "14px 10px", maxWidth: 200 }}>
                                 {p.activeJobClock ? (
                                   <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                                     <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }} title={[p.activeJobClock.opTitle, p.activeJobClock.jobTitle].filter(Boolean).join(" · ")}>
@@ -18788,13 +18910,13 @@ ${jobsCtx || "No jobs found."}`;
                                   <span style={{ fontSize: 12, color: T.textDim }}>—</span>
                                 )}
                               </td>
-                              <td style={{ padding: "10px 10px", fontSize: 13, fontWeight: 600, color: T.accent, fontFamily: T.mono }}>
+                              <td style={{ padding: "14px 10px", fontSize: 13, fontWeight: 600, color: T.accent, fontFamily: T.mono }}>
                                 {todayH > 0 ? todayH.toFixed(1) + "h" : "—"}
                               </td>
-                              <td style={{ padding: "10px 10px", fontSize: 13, color: T.text, fontFamily: T.mono }}>
+                              <td style={{ padding: "14px 10px", fontSize: 13, color: T.text, fontFamily: T.mono }}>
                                 {periodH > 0 ? periodH.toFixed(1) + "h" : "—"}
                               </td>
-                              <td style={{ padding: "10px 10px" }} onClick={e => e.stopPropagation()}>
+                              <td style={{ padding: "14px 10px" }} onClick={e => e.stopPropagation()}>
                                 <button onClick={() => openPersonEditModal(p)} style={{ padding: "4px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}>
                                   Edit
                                 </button>
@@ -18992,42 +19114,6 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         )}
 
-        {/* ── Daily time log (last 30 days) ── */}
-        <div>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Time Log <span style={{ fontWeight: 400, color: T.textDim, textTransform: "none", letterSpacing: 0 }}>· last 30 days</span></div>
-          </div>
-          {byDate.length === 0 && (
-            <div style={{ fontSize: 13, color: T.textDim, padding: "20px 0" }}>No entries in the last 30 days.</div>
-          )}
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {byDate.map(({ date, entries }) => {
-              const dayTotal = entries.reduce((s, e) => s + (e.hours||0), 0);
-              return (
-                <div key={date} className="tq-frost" style={{ background: T.card, borderRadius: T.radiusSm, border: `1px solid ${T.borderLight}`, overflow: "hidden" }}>
-                  <div style={{ padding: "10px 16px", background: T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{fmtDayHeader(date)}</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{dayTotal.toFixed(2)} hrs</span>
-                  </div>
-                  <div style={{ padding: "0 16px" }}>
-                    {entries.map((e, i) => {
-                      const tl6 = buildDayTimeline(timeclock.filter(x => String(x.personId) === String(loggedInUser.id) && x.date === e.date), e);
-                      return (
-                        <div key={e.id} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 0", borderBottom: i < entries.length - 1 ? `1px solid ${T.border}` : "none", fontSize: 13 }}>
-                          <div style={{ width: 7, height: 7, borderRadius: 8, background: T.accent, flexShrink: 0, marginTop: 4 }} />
-                          <div style={{ fontFamily: T.mono, display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
-                            {tl6.map((ln, li) => <span key={li}><span style={{ color: ln.color, fontWeight: 700 }}>{ln.label}</span><span style={{ color: T.text }}>: {ln.kind === "single" ? fmtTime(ln.ts) : `${fmtTime(ln.start)}${ln.end ? ` – ${fmtTime(ln.end)}` : " (active)"}`}</span></span>)}
-                          </div>
-                          <span style={{ fontWeight: 600, color: T.accent, fontFamily: T.mono }}>{e.clockOut ? (e.hours||0).toFixed(2) + "h" : "—"}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
       </div>
     );
   };

@@ -174,6 +174,28 @@ export async function mergeFullSlice(entity, list) {
   return true;
 }
 
+// Drop specific rows from a cached array slice.
+//
+// applyDelta already evicts tombstones, but only once the /sync delta carrying
+// them arrives. An action THIS client just performed knows the id immediately,
+// and in the gap before the delta lands applySlice would replay the stale row
+// straight back into React state — the same cache-beats-server rehydrate that
+// mergeFullSlice exists to guard. That gap is not cosmetic: an admin undoing a
+// clock-out saw the reopened shift reappear in the list, and clicking Undo on
+// it again 404'd against a punch the server had already tombstoned.
+//
+// mergeFullSlice cannot cover this, deliberately — it is upsert-only so a
+// partial GET can never evict good records. Removal has to be explicit.
+export async function evictRows(entity, ids) {
+  if (!ARRAY_ENTITIES.includes(entity)) return false;
+  const keys = (Array.isArray(ids) ? ids : [ids]).filter(id => id != null).map(String);
+  if (!keys.length) return false;
+  await db[entity].bulkDelete(keys);
+  syncBus.dispatchEvent(new CustomEvent(`${entity}-changed`));
+  syncBus.dispatchEvent(new CustomEvent("any-changed", { detail: { entities: [entity] } }));
+  return true;
+}
+
 // Sync health. Every deltaSync() call site catches and discards errors — correct
 // (a failed background sync must not break the app) but it meant a total
 // messaging outage produced no signal anywhere. Tracking it here lets the UI

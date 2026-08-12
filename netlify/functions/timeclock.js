@@ -792,21 +792,35 @@ export async function handler(event) {
         const { entryId } = body;
         if (!entryId) return err(400, "Missing entryId");
 
-        const entry = log.find(e => e.id === entryId && !e.eventType && !e.deletedAt);
+        // Deliberately NOT filtered on deletedAt. This action is idempotent by
+        // design: the caller is an admin clicking "Undo clock-out", and a second
+        // click — from a double-tap, or a client whose cache replayed the row
+        // after the first one landed — must resolve to the same end state rather
+        // than a 404 they can do nothing about.
+        const entry = log.find(e => e.id === entryId && !e.eventType);
         if (!entry) return err(404, "Entry not found");
         if (entry.confirmed) return err(409, "This entry is in a confirmed timesheet. Re-open the timesheet to edit it.");
-        if (!entry.clockOut) return err(409, "This shift is already open.");
 
         let people;
         try { people = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
         const pIdx = people.findIndex(p => String(p.id) === String(entry.personId));
         if (pIdx === -1) return err(404, "Person not found");
-        // Two open sessions would make hoursElapsed ambiguous and let a later
-        // clock-out claim the wrong window.
-        if (people[pIdx].activeClockIn) return err(409, "That person is already clocked in. Clock them out before reopening an earlier shift.");
+
+        const openCi = people[pIdx].activeClockIn?.clockIn || null;
+        // Already undone: they're back on the clock at this shift's own start.
+        // The button's whole job is done, so say so instead of erroring.
+        if (openCi && openCi === entry.clockIn) {
+          return json(200, { ok: true, entryId, alreadyOpen: true, activeClockIn: people[pIdx].activeClockIn });
+        }
+        if (!entry.clockOut && !entry.deletedAt) return err(409, "This shift is already open.");
+        // A DIFFERENT open session would make hoursElapsed ambiguous and let a
+        // later clock-out claim the wrong window.
+        if (openCi) return err(409, "That person is already clocked in. Clock them out before reopening an earlier shift.");
 
         const startMs = new Date(entry.clockIn).getTime();
-        const endMs = new Date(entry.clockOut).getTime();
+        // A tombstoned row can be missing its clockOut; fall back to now so the
+        // lunch/break window below stays a valid range instead of NaN.
+        const endMs = entry.clockOut ? new Date(entry.clockOut).getTime() : Date.now();
         const events = log
           .filter(e => e.eventType && !e.deletedAt && String(e.personId) === String(entry.personId))
           .filter(e => { const t = new Date(e.timestamp).getTime(); return !Number.isNaN(t) && t >= startMs && t <= endMs; })
