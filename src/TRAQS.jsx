@@ -1317,12 +1317,45 @@ button.tq-x:active {
   background-color: var(--tq-lglass-bg-card) !important;
   -webkit-backdrop-filter: blur(30px) saturate(1.35) !important;
   backdrop-filter: blur(30px) saturate(1.35) !important;
+  /* NO cast shadow. The shared rule adds one, and a shadow is the one part of the
+     glass that paints OUTSIDE the rounded shape — 48px of it spreading around every
+     card, which is why an edge appeared on these lists with the toggle on and
+     vanished with it off. A floating popup wants a shadow to lift it off the page;
+     a list that fills the page does not. The glass stops at the rounded edge. */
+  box-shadow: none !important;
 }
-/* Opt-in edge kill, applied by FrostCard when no explicit border was passed. Not
-   gated on .traqs-glass: the jobs sections are translucent whether or not the
-   toggle is on (FrostCard's own inline frost defaults to 80% when adaptive), so a
-   glass-only rule left the ring drawn in exactly the state being looked at. */
-.tq-lglass-noedge { border-color: transparent !important; }
+/* Sticky column headers are TEXT ONLY — no fill and no filter of their own.
+   Nothing paints, so nothing can read as a band.
+
+   Three failed attempts are worth recording, because each one looked like the fix
+   and wasn't. (1) A better-matched fill: any fill opaque enough to hide the rows
+   under it is still a visible band. (2) Transparent background plus a
+   backdrop-filter: a backdrop-filter PAINTS — it renders a blurred, saturated copy
+   of whatever is behind it — so with no background at all the band simply went from
+   white to grey. (3) Gating on .traqs-glass: the card may be translucent via that
+   class, via the older .traqs-adaptive path, or solid, and the header wants the same
+   treatment in all three, so gating just made the rule miss.
+
+   The filter was there to hide rows scrolling under the header. That trade is
+   deliberate now: a row may show behind the labels at the top of a long scrolled
+   list, which is a far smaller cost than a permanent band across every card. */
+.tq-sticky-head {
+  background: transparent !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+/* Opt-in edge kill, applied by FrostCard when no explicit border was passed.
+   border: 0 — the WIDTH, not just the colour, and that distinction is the whole
+   bug. Both background-clip and backdrop-filter default to the BORDER box, so a
+   1px transparent border still shows the card's own blurred glass through it: the
+   rows stop at the padding box, the glass carries on into that ring, and the result
+   is a translucent frame around the content. Setting border-color: transparent
+   made it colourless, not absent — which is why it stayed visible through several
+   attempts at it.
+
+   Ungated, because the card is translucent via .traqs-glass, via the older
+   .traqs-adaptive path, or not at all, and the ring shows in every case. */
+.tq-lglass-noedge { border: 0 !important; }
 /* A dropdown INSIDE a glass popup needs a denser fill than one over the page,
    and the reason is a hard browser rule rather than taste: an ancestor with
    backdrop-filter becomes the backdrop root, so a nested menu can only sample
@@ -11308,7 +11341,7 @@ ${jobsCtx || "No jobs found."}`;
             const minW = colWidths.reduce((a, b) => a + b, 0);
             const gridOnClick = () => { if (gridCell) setGridCell(null); setColPickerOpen(false); setExportOpen(false); };
             const ColHeaders = (hdrKey = "main") => (
-              <div style={{ display: "grid", gridTemplateColumns: COL, position: "sticky", top: 0, zIndex: 10, background: T.adaptive ? hexA(T.surfaceSolid || T.surface, (T.cardOpacity ?? 80) / 100) : T.surface, borderBottom: `1.5px solid ${T.border}` }}>
+              <div className="tq-sticky-head" style={{ display: "grid", gridTemplateColumns: COL, position: "sticky", top: 0, zIndex: 10, background: T.adaptive ? hexA(T.surfaceSolid || T.surface, (T.cardOpacity ?? 80) / 100) : T.surface, borderBottom: `1.5px solid ${T.border}` }}>
                 {orderedStdCols.map((col, displayIdx) => {
                   const widthIdx = 1 + col.i;
                   const isDragOver = colDropIdx === displayIdx && colDragRef.current !== col.id;
@@ -16260,8 +16293,11 @@ ${jobsCtx || "No jobs found."}`;
         <span style={{ fontSize: 12.5, fontWeight: strong ? 800 : 600, color: strong || T.text, fontFamily: T.mono, textAlign: "right" }}>{v}</span>
       </div>
     );
-    // Sticky so the column labels survive scrolling the bounded list below.
-    // Needs an opaque background or the rows show through as they pass under it.
+    // Sticky so the column labels survive scrolling the bounded list below. It has
+    // to hide the rows passing under it, but painting T.card to do that put an
+    // opaque white band across the top of every otherwise-translucent card. The
+    // tq-sticky-head class swaps that for the card's own glass fill plus a blur, so
+    // rows smear out of legibility underneath instead of being covered by a slab.
     const th = { textAlign: "left", fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", padding: "6px 10px 8px", whiteSpace: "nowrap", position: "sticky", top: 0, background: T.card, zIndex: 1 };
     // Lists are capped and scroll rather than growing the card without limit.
     const scrollBox = { overflowX: "auto", overflowY: "auto", maxHeight: 300 };
@@ -16431,7 +16467,7 @@ ${jobsCtx || "No jobs found."}`;
           {!queue.length ? nothing("No open work assigned.") : (
             <div style={scrollBox}>
               <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 460 }}>
-                <thead><tr>{["Priority", "Job", "Task", "Due Date", "Est. Hours", "Status"].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                <thead><tr>{["Priority", "Job", "Task", "Due Date", "Est. Hours", "Status"].map(h => <th key={h} className="tq-sticky-head" style={th}>{h}</th>)}</tr></thead>
                 <tbody>
                   {queue.map((m, i) => {
                     const pri = m.job.pri || m.op.pri || "—";
@@ -16459,7 +16495,7 @@ ${jobsCtx || "No jobs found."}`;
           {!history.length ? nothing("No punches recorded this pay period.") : (
             <div style={scrollBox}>
               <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 460 }}>
-                <thead><tr>{["Date", "Job", "Task", "In", "Out", "Hours"].map(h => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                <thead><tr>{["Date", "Job", "Task", "In", "Out", "Hours"].map(h => <th key={h} className="tq-sticky-head" style={th}>{h}</th>)}</tr></thead>
                 <tbody>
                   {history.map((e, i) => <tr key={e.id || i} style={e.live ? { background: hexA("#10b981", 0.07) } : undefined}>
                     <td style={{ ...td, fontWeight: e.live ? 800 : 400 }}>{e.live ? "Today" : fm(e.date)}</td>
