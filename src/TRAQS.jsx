@@ -1176,24 +1176,19 @@ button.tq-noanim:not(:disabled):not([disabled]):not([aria-disabled="true"]):acti
   box-shadow: none !important;
   filter: none !important;
 }
-/* Segments of a sliding pill are choices you point at, not chrome, so they get the
-   SAME hover as every other button rather than the toggle opt-out: the identical lift,
-   halo and brightness from the universal rule above, and its press response. Values are
-   copied from that rule deliberately — a segment that glowed but didn't lift, or lifted
-   by a different amount, reads as a different kind of control.
-   Needs the extra class and !important to outrank the blanket opt-out directly above,
-   and the same @media (hover: hover) guard so it never sticks on a touch device. The
-   transition is already inherited from the universal button rule. */
-@media (hover: hover) {
-  button.tq-noanim.tq-pill-seg:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
-    transform: translateY(-1.5px) !important;
-    box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16)) !important;
-    filter: brightness(1.05) !important;
-  }
-}
+/* Sliding-pill segments do NOT lift, glow or scale. They used to — the universal
+   button hover, restored here deliberately on the reasoning that a segment is a
+   choice you point at rather than chrome. In a track that reads as broken: the
+   segment rises out of its own groove on hover and shrinks inside it on press,
+   while the neighbouring segments sit still. Combined with the selection crossfade
+   it was the "glitchy" feel on the analytics period switch.
+   They keep .tq-noanim's suppression, and the colour transition on the label plus
+   the fill crossfade are the whole hover/press affordance. */
+button.tq-noanim.tq-pill-seg:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
 button.tq-noanim.tq-pill-seg:not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
-  transform: translateY(0) scale(0.97) !important;
-  transition-duration: 0.07s !important;
+  transform: none !important;
+  box-shadow: none !important;
+  filter: none !important;
 }
 /* A close affordance is the glyph alone — never a filled or outlined chip.
    Two things would otherwise box every ✕ in the app: the global button
@@ -1359,6 +1354,15 @@ button.tq-x:active {
    carries on into that ring, and the ring reads as a translucent frame.
    border-color: transparent makes it colourless, not absent. */
 .tq-lglass-noedge { border: 0 !important; }
+/* Right-click menus get their own fill, nothing else — no filter override, so they
+   inherit the shared blur(28px) saturate(1.4) and can't drift from it. Same
+   specificity as the shared rule (0,2,0), so it wins on source order, and it has to
+   stay ABOVE the nested rule below, which still needs to beat this for a menu opened
+   inside a popup. */
+.traqs-glass .anim-ctx,
+.traqs-glass .anim-ctx-up {
+  background-color: var(--tq-lglass-bg-menu) !important;
+}
 /* A dropdown INSIDE a glass popup needs a denser fill than one over the page,
    and the reason is a hard browser rule rather than taste: an ancestor with
    backdrop-filter becomes the backdrop root, so a nested menu can only sample
@@ -2329,9 +2333,21 @@ function SlidingPill({ options, value, onChange, size = "md", style: sx = {} }) 
       {options.map(opt => {
         const isActive = value === opt.value;
         return (
+          // fontWeight is CONSTANT. It used to be `isActive ? fw : 400`, and that was
+          // the glitch: bold text is wider than regular, so every switch changed two
+          // labels' widths and reflowed the whole track — the segments visibly jumped
+          // sideways mid-crossfade. Weight now carries no state; colour does.
+          //
+          // Inactive labels take T.bgText, not T.text. Every one of these pills sits
+          // on the page background, and T.text is derived from the CARD surface — on a
+          // theme where the two differ, the unselected labels were tinted for a
+          // surface they aren't on.
           <button key={opt.value} className="tq-noanim tq-pill-seg" onClick={() => onChange(opt.value)}
-            style={{ position:"relative", zIndex:1, padding:pad, borderRadius:T.radiusPill, border:"none", fontSize:fs, fontWeight:isActive?fw:400, cursor:"pointer", fontFamily:T.font, background:"transparent", color:isActive?T.accentText:T.text, whiteSpace:"nowrap", transition:"color 0.2s ease" }}>
-            <span aria-hidden="true" style={{ position:"absolute", inset:0, borderRadius:T.radiusPill, background:brandGrad(T.accent), opacity:isActive?1:0, transition:"opacity 0.2s ease", pointerEvents:"none", zIndex:0 }} />
+            style={{ position:"relative", zIndex:1, padding:pad, borderRadius:T.radiusPill, border:"none", fontSize:fs, fontWeight:fw, cursor:"pointer", fontFamily:T.font, background:"transparent", color:isActive?T.accentText:hexA(T.bgText || T.text, 0.75), whiteSpace:"nowrap", transition:"color 0.2s ease" }}>
+            {/* Flat T.accent, matching the Toggle component and every other on/off
+                control. This was brandGrad(T.accent), the only toggle in the app
+                filling with a gradient, which is why it read as the wrong colour. */}
+            <span aria-hidden="true" style={{ position:"absolute", inset:0, borderRadius:T.radiusPill, background:T.accent, opacity:isActive?1:0, transition:"opacity 0.2s ease", pointerEvents:"none", zIndex:0 }} />
             <span style={{ position:"relative", zIndex:1 }}>{opt.label}</span>
           </button>
         );
@@ -3122,7 +3138,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     // sibling cards drew the dense one.
     //
     // Fixed values, not a scale: the toggle is the only control: on or solid.
-    const fillAlpha = lightSurface ? 0.60 : 0.52;
+    const fillAlpha = lightSurface ? 0.66 : 0.58;
     document.documentElement.style.setProperty(
       "--tq-lglass-bg",
       hexA(blendHex(solid, lightSurface ? 0.42 : 0.16), fillAlpha)
@@ -3136,6 +3152,15 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     document.documentElement.style.setProperty(
       "--tq-lglass-bg-card",
       hexA(blendHex(solid, lightSurface ? 0.42 : 0.16), lightSurface ? 0.66 : 0.58)
+    );
+    // Right-click menus. Note this pair runs the OTHER way — lighter on a light
+    // theme, denser on a dark one — unlike every other fill here. Deliberate, per
+    // review on screen; a menu is small and momentary, so it can afford to be
+    // clearer on a light page, while on a dark one it needs the body to read as a
+    // distinct object against dark content.
+    document.documentElement.style.setProperty(
+      "--tq-lglass-bg-menu",
+      hexA(blendHex(solid, lightSurface ? 0.42 : 0.16), lightSurface ? 0.50 : 0.60)
     );
     // The one exception, and it is structural rather than stylistic: a menu nested
     // inside a glass popup can't blur past that popup (an ancestor with
@@ -6604,7 +6629,7 @@ Extraction rules:
   const [taskFilterOpen, setTaskFilterOpen] = useState(false);
   const [selClient, setSelClient] = useState(null);
   const [clientSearch, setClientSearch] = useState("");
-  const [analyticsPeriod, setAnalyticsPeriod] = useState("week"); // "pay" | "week" | "month" | "year"
+  const [analyticsPeriod, setAnalyticsPeriod] = useState("pay"); // "pay" | "week" | "month" | "year"
   // Employees page — one person's full picture at a time.
   const [empPersonId, setEmpPersonId] = useState(null);   // null → show the picker prompt
   const [empPeriod, setEmpPeriod] = useState("pay");      // "pay" | "week" | "month" | "year"
@@ -15174,6 +15199,27 @@ ${jobsCtx || "No jobs found."}`;
     </div>;
   };
   const renderAnalytics = () => {
+    // Plain buttons, not a SlidingPill. A segmented toggle implies one control with a
+    // moving state; these are four independent choices and read better as four
+    // buttons. The active one fills with a flat T.accent — the same colour the app's
+    // real toggles use — and the rest sit on the surface with a hairline.
+    const ANALYTICS_PERIODS = [
+      { value: "pay", label: "Pay Period" }, { value: "week", label: "This Week" },
+      { value: "month", label: "This Month" }, { value: "year", label: "This Year" },
+    ];
+    const periodButtons = (
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {ANALYTICS_PERIODS.map(p => {
+          const on = analyticsPeriod === p.value;
+          return (
+            <button key={p.value} className="tq-noanim" onClick={() => setAnalyticsPeriod(p.value)}
+              style={{ padding: "7px 14px", borderRadius: T.radiusPill, border: `1px solid ${on ? "transparent" : T.border}`, background: on ? T.accent : T.surface, color: on ? T.accentText : hexA(T.bgText || T.text, 0.8), fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap", transition: "background 0.15s, color 0.15s, border-color 0.15s" }}>
+              {p.label}
+            </button>
+          );
+        })}
+      </div>
+    );
     // â”€â”€ Period selector â†’ date range â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     const today = new Date(TD + "T12:00:00");
     let periodStart, periodEnd, periodDays;
@@ -15571,12 +15617,7 @@ ${jobsCtx || "No jobs found."}`;
           {employeePicker}
           <span style={{ fontSize: 12, color: T.textDim }}>{per ? `${per.name.split(" ")[0]}’s stats` : "Employee stats"}</span>
           <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)" }}>
-            <SlidingPill
-              size="sm"
-              options={[{ value: "pay", label: "Pay Period" }, { value: "week", label: "This Week" }, { value: "month", label: "This Month" }, { value: "year", label: "This Year" }]}
-              value={analyticsPeriod}
-              onChange={setAnalyticsPeriod}
-            />
+            {periodButtons}
           </div>
         </div>, false);
     }
@@ -15602,12 +15643,7 @@ ${jobsCtx || "No jobs found."}`;
         <h1 style={pageTitle()}>Analytics</h1>
         {employeePicker}
         <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)" }}>
-          <SlidingPill
-            size="sm"
-            options={[{ value: "pay", label: "Pay Period" }, { value: "week", label: "This Week" }, { value: "month", label: "This Month" }, { value: "year", label: "This Year" }]}
-            value={analyticsPeriod}
-            onChange={setAnalyticsPeriod}
-          />
+          {periodButtons}
         </div>
       </div>
 
