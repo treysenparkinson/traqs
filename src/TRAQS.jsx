@@ -1247,6 +1247,119 @@ button.tq-x:active {
   -webkit-backdrop-filter: blur(28px) saturate(1.4);
   backdrop-filter: blur(28px) saturate(1.4);
 }
+/* ── Liquid glass ───────────────────────────────────────────────────────────
+   The login kiosk's glass, ported inward. Gated on .traqs-glass, which the root
+   div carries when the Frosted Glass toggle is on — so switching it off leaves
+   each surface's own inline background (T.card) in place and everything goes
+   solid, with no second code path to maintain.
+
+   Distinct from .tq-frost above in its fill: a lighter tint blended toward white
+   rather than a flat percentage of the surface colour. Deliberately just a fill, a
+   blur and a cast shadow — no rim, no top highlight, no inner glow. Earlier
+   versions had all three to read as a lit pane, and over a coloured background
+   every one of them showed up as a bright ring around everything instead. Values
+   and vars: the theme effect.
+
+   !important throughout: every one of these surfaces sets its own inline
+   background, border and box-shadow, and inline styles outrank a plain rule.
+
+   Every surface class in the app is listed, so this IS the app's surface
+   treatment while the toggle is on: cards (.tq-frost, .anim-card-wrap), every
+   modal and popup (.anim-modal-box), context menus (.anim-ctx/-up), dropdown
+   menus (.anim-drop), and anything opting in directly (.tq-lglass — the keypad,
+   the job-form box).
+
+   The .anim-modal-overlay > div selector is the catch-all that matters: most popups (the
+   keypad, Confirm Time Sheet, the settings panels, the PTO and approval dialogs)
+   put ALL their styling inline on a bare div with no class at all, so a
+   class-only list silently skipped them. Every overlay in the file follows the
+   same shape — overlay, then the panel as its single element child — so this
+   reaches them without editing ~20 call sites.
+
+   ONE recipe for every surface, and the values are the jobs list's: blur 28,
+   saturate 1.4, NO brightness(). That page was the odd one out because FrostCard
+   sets its filter inline and inline beats a non-important rule — so it never got
+   the brightness lift the rest did, and it read as a different material. Rather
+   than force the lift onto it, the rest now matches it. Keep this in step with
+   FrostCard's inline filter: if the two drift, the jobs list drifts with it. */
+.traqs-glass .tq-lglass,
+.traqs-glass .tq-frost,
+.traqs-glass .anim-card-wrap,
+.traqs-glass .anim-modal-box,
+.traqs-glass .anim-modal-overlay > div,
+.traqs-glass .anim-ctx,
+.traqs-glass .anim-ctx-up,
+.traqs-glass .anim-drop {
+  background-color: var(--tq-lglass-bg) !important;
+  -webkit-backdrop-filter: blur(28px) saturate(1.4);
+  backdrop-filter: blur(28px) saturate(1.4);
+  box-shadow: var(--tq-lglass-shadow, 0 24px 60px rgba(0,0,0,0.28)) !important;
+}
+/* Reading surfaces — the job/client list cards (FrostCard), and both export
+   windows including the layout designer's toolbar and side rail. They read as too
+   clear at the shared fill, and the reason is structural: they are full of small
+   text over a moving coloured background, and they cover most of the page rather
+   than floating over it. A popup can afford to be see-through because there is a
+   scrim behind it and you only look at it for a moment. So these get a denser fill
+   and a wider blur — properly frosted rather than merely translucent. The designer's
+   interior panes take the SAME density as the panel holding them, so they stop
+   sitting inside it as solid blocks of T.surface without becoming a second visible
+   pane either.
+
+   Both classes chained, and gated on .traqs-glass — every part of that selector
+   is load-bearing. The shared rule above is .traqs-glass .tq-lglass at (0,2,0),
+   and among !important declarations the MORE SPECIFIC one wins, so a bare
+   .tq-lglass-card (0,1,0) loses to it and does nothing; chaining gives (0,3,0)
+   and takes the cascade. The .traqs-glass prefix is what makes the toggle work —
+   an ungated selector here kept these surfaces translucent with the toggle OFF,
+   because nothing else was left to make them solid. */
+.traqs-glass .tq-lglass.tq-lglass-card {
+  background-color: var(--tq-lglass-bg-card) !important;
+  -webkit-backdrop-filter: blur(30px) saturate(1.35) !important;
+  backdrop-filter: blur(30px) saturate(1.35) !important;
+}
+/* Opt-in edge kill, applied by FrostCard when no explicit border was passed. Not
+   gated on .traqs-glass: the jobs sections are translucent whether or not the
+   toggle is on (FrostCard's own inline frost defaults to 80% when adaptive), so a
+   glass-only rule left the ring drawn in exactly the state being looked at. */
+.tq-lglass-noedge { border-color: transparent !important; }
+/* A dropdown INSIDE a glass popup needs a denser fill than one over the page,
+   and the reason is a hard browser rule rather than taste: an ancestor with
+   backdrop-filter becomes the backdrop root, so a nested menu can only sample
+   what that ancestor painted — it cannot reach the page. With no blur available
+   to separate it, the thin fill alone left the form fields legible straight
+   through the menu. This is the only place the glass gets denser, and it is the
+   one place where nothing is lost by it. */
+.traqs-glass .tq-lglass .anim-drop,
+.traqs-glass .anim-modal-box .anim-drop,
+.traqs-glass .anim-modal-overlay > div .anim-drop,
+.traqs-glass .tq-lglass .anim-ctx,
+.traqs-glass .anim-modal-box .anim-ctx,
+.traqs-glass .anim-modal-overlay > div .anim-ctx {
+  background-color: var(--tq-lglass-bg-nested) !important;
+}
+/* Scrim behind a glass popup: light and heavily blurred, not dark. Overlays set
+   rgba(0,0,0,.5)–.75 inline with a 6px blur, and the panel's own backdrop-filter
+   samples that — so the glass was gathering near-black and reading dark however
+   light its fill was. Trading the darkness for more blur keeps the popup just as
+   separated from the page while letting the glass stay bright. !important because
+   every overlay sets its background inline. */
+.traqs-glass .anim-modal-overlay {
+  background-color: var(--tq-scrim, rgba(16,24,40,0.14)) !important;
+  -webkit-backdrop-filter: blur(16px) saturate(1.05);
+  backdrop-filter: blur(16px) saturate(1.05);
+}
+/* The base rule's box-shadow is !important (it has to beat the inline shadows
+   nearly every modal sets), which would otherwise swallow the card hover lift —
+   that shadow is a plain rule and would never win. Restated here WITH the insets
+   so a hovered card keeps its glass edges instead of trading them for the lift. */
+.traqs-glass .anim-card-wrap:hover {
+  box-shadow: var(--tq-lglass-shadow-hover, 0 20px 52px rgba(0,0,0,0.30)) !important;
+}
+/* Menu rows need NO rule here, and must not get one: they already declare
+   background:transparent inline, and their hover fill is set inline by an
+   onMouseEnter handler — an !important rule would outrank it and the rows would
+   stop highlighting entirely. */
 /* Smoothly fade text between black/white as the custom surface flips light/dark, so the
    auto-contrast text color (white on dark surfaces, black on light) cross-fades instead of snapping. */
 .traqs-custom * { transition: color 0.3s ease; }
@@ -1316,6 +1429,25 @@ html { scroll-behavior: smooth; }
 ::-webkit-scrollbar-thumb:hover   { background: var(--tq-sb-thumb-hover, rgba(65,105,225,0.8)); background-clip: padding-box; }
 ::-webkit-scrollbar-thumb:active  { background: var(--tq-sb-thumb-hover, rgba(65,105,225,0.9)); background-clip: padding-box; }
 ::-webkit-scrollbar-corner { background: transparent; }
+/* Scrollers INSIDE a card get a quiet, thinner bar. The global thumb above is the
+   accent, which is right for a page-level scrollbar but wrong here: a job section
+   is a wide table in a rounded card, so its horizontal bar sits along the bottom
+   edge as a saturated rule running the full width — it reads as a border on the
+   card rather than as a control, which is exactly what it was mistaken for. Same
+   shape, neutral colour, and it still brightens to the accent on hover so it is
+   findable when you actually want it. */
+.tq-card-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.tq-card-scroll::-webkit-scrollbar-thumb {
+  background: var(--tq-sb-thumb-soft, rgba(130,130,150,0.28));
+  border: 3px solid transparent;
+  border-radius: 22px;
+  background-clip: padding-box;
+}
+.tq-card-scroll::-webkit-scrollbar-thumb:hover {
+  background: var(--tq-sb-thumb-hover, rgba(65,105,225,0.8));
+  background-clip: padding-box;
+}
+.tq-card-scroll { scrollbar-color: var(--tq-sb-thumb-soft, rgba(130,130,150,0.28)) transparent; }
 
 /* ── App-wide letter spacing ────────────────────────────────────────────────
    One tracking value for every piece of text, matching the dashboard title.
@@ -1586,6 +1718,10 @@ function accentText(accent) {
 // bgOpacity 0..100 }. A background image flips cards into "adaptive" mode: surfaces/cards become
 // translucent (alpha = cardOpacity) so the image shows through, tinted by the system surface color.
 function buildCustomTheme(bg, accent, surface, opts = {}) {
+  // `frost` is the glass INTENSITY, 0–100, independent of cardOpacity's on/off
+  // role: 0 = clear glass (barely tinted, minimal blur), 50 = the calibrated
+  // default, 100 = fully milky. 50 reproduces the look exactly, so a theme saved
+  // before the slider existed renders identically.
   const { bgMode = "color", liquidColor = null, bgImage = null, cardOpacity = 100, bgOpacity = 100, jobBarMode = "system", jobBarColor = null, cellColorMode = "system", scheduleGrid = true, systemColor = null } = opts;
   const dk = hexLum(bg) < 0.18;
   const surf = surface || blendHex(bg, dk ? 0.07 : -0.03);
@@ -1844,21 +1980,34 @@ const Card = ({ children, style: sx = {}, delay = 0, onClick }) => <div classNam
   onMouseEnter={onClick ? e => { e.currentTarget.style.border = `1px solid ${T.accent}55`; e.currentTarget.style.boxShadow = `0 4px 20px rgba(0,0,0,0.18), 0 0 0 1px ${T.accent}22`; e.currentTarget.style.transform = "translateY(-1px)"; } : undefined}
   onMouseLeave={onClick ? e => { e.currentTarget.style.border = `1px solid ${T.glassBorder}`; e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.1)'; e.currentTarget.style.transform = "none"; } : undefined}
   style={{ background: T.card, borderRadius: T.radiusHero, border: `1px solid ${T.glassBorder}`, padding: 28, animationDelay: `${delay}ms`, boxShadow: '0 2px 8px rgba(0,0,0,0.1)', cursor: onClick ? "pointer" : undefined, transition: "border 0.15s, box-shadow 0.15s, transform 0.15s", ...sx }}>{children}</div>;
-// Real frosted glass (same idea as the Customize mockup): a translucent surface tint with a
-// live backdrop-filter blur, so the compositor blurs whatever is painted behind the card in
-// place — zero drift, perfectly aligned by construction. Works because the jobs scroller holds
-// a pinned background layer in the SAME stacking context (the renderTasks sticky bg), so the
-// blur actually has the image to sample. Falls back to a plain solid card when no bg image set.
+// The list-card surface: jobs sections, client job cards. Its frost comes entirely
+// from the shared glass rule via the classes below — nothing is painted inline any
+// more, so the Frosted Glass toggle is the single authority on whether these are
+// translucent. Real frost rather than a faked tint: the jobs scroller pins its
+// background layer in the SAME stacking context, so backdrop-filter has something
+// to sample and the blur is aligned by construction.
 const FrostCard = ({ children, onClick, border, style: sx = {} }) => (
-  <div style={{
+  // tq-lglass-noedge ONLY when no border was passed in. The neutral T.border below
+  // is chrome and reads as a ring around every job section on a coloured page; an
+  // explicitly passed border (the green Completed Jobs edge) is meaning, keeps its
+  // class off, and survives. Done as a class with !important rather than by
+  // swapping the inline value, so no precedence question can leave it drawn.
+  <div className={`tq-lglass tq-lglass-card${border ? "" : " tq-lglass-noedge"}`} style={{
     position: "relative", overflow: "hidden", borderRadius: T.radiusLg,
     border: border || `1px solid ${T.border}`, minWidth: 0,
-    background: T.adaptive ? hexA(T.surfaceSolid || T.surface, (T.cardOpacity ?? 80) / 100) : T.card,
-    backdropFilter: T.adaptive ? "blur(28px) saturate(1.4)" : undefined,
-    WebkitBackdropFilter: T.adaptive ? "blur(28px) saturate(1.4)" : undefined,
+    // Solid. The frost is the glass rule's job now (tq-lglass-card above), which is
+    // gated on the toggle — so off means genuinely solid here.
+    //
+    // This used to build its own frost inline, keyed on T.adaptive with a
+    // `cardOpacity ?? 80` fallback. That was the source of two separate bugs: the
+    // cards stayed translucent with the toggle off (the fallback, on any theme that
+    // never set cardOpacity), and the inline filter silently beat the shared rule
+    // (inline outranks a non-important declaration), which is how this page ended
+    // up the only one rendering a different material.
+    background: T.card,
     ...sx,
   }}>
-    <div style={{ position: "relative", overflow: "auto", borderRadius: T.radiusLg }} onClick={onClick}>{children}</div>
+    <div className="tq-card-scroll" style={{ position: "relative", overflow: "auto", borderRadius: T.radiusLg }} onClick={onClick}>{children}</div>
   </div>
 );
 const InputField = ({ label, value, onChange, type = "text", placeholder, id }) => type === "date"
@@ -2026,6 +2175,11 @@ function DateField({ value, onChange, placeholder = "Pick a date", style = {}, w
 const sameId = (a, b) => a != null && b != null && String(a) === String(b);
 const onTeam = (team, pid) => (team || []).some(x => sameId(x, pid));
 const PERSON_BLUE = "#4169e1";
+// What the Frosted Glass toggle writes into cardOpacity when switched on. It is
+// the ON MARKER, not the rendered fill — the actual glass alphas live in the
+// theme effect and differ by surface luminance. Any value under 100 would do;
+// this is the login kiosk's original 64.
+const GLASS_OPACITY = 64;
 
 // Two letters, matching the login roster's avatars: first + last initial
 // ("Mary Beth Jones" → "MJ"), or the first two letters of a single name
@@ -2845,6 +2999,12 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const _tMode = _themeEditing ? draftMode : themeMode;
   const _tc = _themeEditing ? draftCustom : customTheme;
   T = _tMode === "custom" ? buildCustomTheme(_tc.bg, _tc.accent, _tc.surface, { bgMode: _tc.bgMode, liquidColor: _tc.liquidColor, bgImage: _tc.bgImage, cardOpacity: _tc.cardOpacity, bgOpacity: _tc.bgOpacity, jobBarMode: _tc.jobBarMode, jobBarColor: _tc.jobBarColor, cellColorMode: _tc.cellColorMode, scheduleGrid: _tc.scheduleGrid, systemColor: _tc.systemColor }) : (THEMES[themeMode] || THEMES.midnight);
+  // Frosted Glass: one boolean, replacing the old 20–100% Card Frost Opacity
+  // slider. It rides on the existing cardOpacity field rather than adding a new
+  // one, so saved theme presets, the S3 config shape and iOS all keep working
+  // untouched — anything below 100 means glass, 100 means solid. GLASS_OPACITY
+  // is the kiosk's fill, so the toggle lands on the look being evaluated.
+  const glassOn = (T.cardOpacity ?? 100) < 100;
   useEffect(() => { localStorage.setItem("tq_theme", themeMode); }, [themeMode]);
   useEffect(() => { localStorage.setItem("tq_custom_theme", JSON.stringify(customTheme)); }, [customTheme]);
   const [customizationOpen, setCustomizationOpen] = useState(false);
@@ -2912,6 +3072,76 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     document.documentElement.style.setProperty("--tq-primary-text", T.systemText || T.text);
     document.documentElement.style.setProperty("--tq-frost-bg", T.adaptive ? hexA(solid, (T.cardOpacity ?? 80) / 100) : solid);
     document.documentElement.style.setProperty("--tq-bg-image", T.adaptive && T.bgImage ? `url("${T.bgImage}")` : "none");
+    // ── Liquid glass (see .traqs-glass .tq-lglass) ──────────────────────────
+    // The login kiosk's recipe, ported to the themed surfaces: a milky fill at
+    // 64%, heavy blur, and a lit rim. The kiosk hardcodes white because it runs
+    // before a theme resolves; in here the fill has to be the theme's own
+    // surface or T.text (derived from that surface) stops being legible on it.
+    //
+    // The rim and highlight split on surface luminance. On a light surface white
+    // edges read as a lit pane; on a dark one the same values are a blown-out halo.
+    const lightSurface = hexLum(solid) >= 0.5;
+    // ONE fill for every glass surface — cards, popups, menus alike. It used to be
+    // two (a denser one for cards, a lighter one for floating things), which is how
+    // the jobs list ended up looking like a different material from everything
+    // else: FrostCard carries .tq-lglass and so drew the floating fill while its
+    // sibling cards drew the dense one.
+    //
+    // Fixed values, not a scale: the toggle is the only control: on or solid.
+    const fillAlpha = lightSurface ? 0.52 : 0.44;
+    document.documentElement.style.setProperty(
+      "--tq-lglass-bg",
+      hexA(blendHex(solid, lightSurface ? 0.42 : 0.16), fillAlpha)
+    );
+    // Denser fill for the list cards (.tq-lglass-card). They cover most of the page
+    // and carry dense small text over a moving background, so they need to be
+    // properly frosted rather than merely translucent — a floating popup can afford
+    // the thinner fill because it has a scrim behind it.
+    document.documentElement.style.setProperty(
+      "--tq-lglass-bg-card",
+      hexA(blendHex(solid, lightSurface ? 0.42 : 0.16), lightSurface ? 0.74 : 0.66)
+    );
+    // The one exception, and it is structural rather than stylistic: a menu nested
+    // inside a glass popup can't blur past that popup (an ancestor with
+    // backdrop-filter becomes the backdrop root), so it has no blur to separate it
+    // from the form underneath and the fill has to do that job alone.
+    document.documentElement.style.setProperty(
+      "--tq-lglass-bg-nested",
+      hexA(blendHex(solid, lightSurface ? 0.42 : 0.16), lightSurface ? 0.94 : 0.93)
+    );
+    // No rim or top-highlight vars any more. Both drew a near-white hairline on
+    // every glass surface — a lit-pane edge in the abstract, but in practice a
+    // bright ring that read as an unwanted border, most obviously around the jobs
+    // table over a coloured background. Surfaces keep their own themed borders;
+    // the glow and the cast shadow carry the glass on their own.
+    // No inner glow var either. `inset 0 0 40px` of near-white was 40px of haze
+    // hugging the inside of every edge — a soft ring, brightest at the corners,
+    // which is what still read as a border around the jobs list after the crisp
+    // 1px rim came off. The fill and the cast shadow are the whole treatment now.
+    // The cast shadow was a flat black at 28%, which on a light theme ringed every
+    // panel in grey and read as part of the glass being dark. Light themes get a
+    // cool, much fainter shadow; dark themes keep a deep one to hold the edge.
+    document.documentElement.style.setProperty("--tq-lglass-shadow", lightSurface ? "0 20px 48px rgba(16,24,40,0.13)" : "0 24px 60px rgba(0,0,0,0.34)");
+    document.documentElement.style.setProperty("--tq-lglass-shadow-hover", lightSurface ? "0 22px 52px rgba(16,24,40,0.17)" : "0 20px 52px rgba(0,0,0,0.36)");
+    // Modal scrim. This — not the fill — was the main reason the glass read dark:
+    // overlays paint black at 50–75%, and the panel's backdrop-filter samples
+    // exactly that, so every popup was gathering a near-black ground no matter how
+    // light its own fill was. Separation now comes from the overlay's BLUR instead
+    // of its darkness (see .traqs-glass .anim-modal-overlay), which is what lets
+    // the scrim drop this far without the popup losing its focus.
+    // Both ladders get the SAME light touch. The dark one sat at 0.40 on the
+    // reasoning that a dark theme needs more dimming to separate the popup — it
+    // doesn't, because the 16px overlay blur is doing that job, and 0.40 over an
+    // already-dark page just crushed it toward black and dragged the glass down
+    // with it. Barely-there on both; the blur carries the separation.
+    document.documentElement.style.setProperty("--tq-scrim", lightSurface ? "rgba(16,24,40,0.14)" : "rgba(0,0,0,0.16)");
+    // On <html>, NOT on the app's root div. Nearly every popup in the app is
+    // createPortal(…, document.body), which makes it a SIBLING of that root — so
+    // a `.traqs-glass .panel` descendant selector never matched them, and the
+    // keypad, Confirm Time Sheet and the rest stayed solid while in-tree cards
+    // and the job form turned to glass. From the document element, portalled and
+    // in-tree content are both descendants.
+    document.documentElement.classList.toggle("traqs-glass", glassOn);
   }, [T.surfaceSolid, T.surface, T.adaptive, T.cardOpacity, T.bgImage]);
   // Custom scrollbar tint (see the global ::-webkit-scrollbar rules): the thumb
   // is the accent — the same color as the app's buttons — and lifts slightly
@@ -2920,6 +3150,10 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     const accent = T.accent || "#4169e1";
     document.documentElement.style.setProperty("--tq-sb-thumb", accent);
     document.documentElement.style.setProperty("--tq-sb-thumb-hover", blendHex(accent, 0.18));
+    // Quiet variant for scrollers inside a card (.tq-card-scroll). Derived from the
+    // text colour, not the accent, so it stays a control rather than becoming a
+    // coloured rule along the card's bottom edge.
+    document.documentElement.style.setProperty("--tq-sb-thumb-soft", hexA(T.text, 0.22));
   }, [T.accent]);
   // Tag every icon-only close button with `tq-noanim` (opts out of the universal
   // button pop/glow) and `tq-x` (strips the filled chip behind it — see the
@@ -11868,13 +12102,16 @@ ${jobsCtx || "No jobs found."}`;
     }
 
     // ── Card chrome. `i` drives the one-by-one stagger. ──────────────────────
+    // Background and blur come from the shared glass rule via tq-lglass on the
+    // panel below, NOT from here. These used to be hardcoded — hexA(T.card, 0.82)
+    // with blur(18px) saturate(1.3) — which made the dashboard the one page that
+    // ignored the Frosted Glass toggle: permanently half-glass, never solid, and
+    // at values nothing else used. A solid T.card here is the toggle-off state.
     const cardBase = {
-      background: hexA(T.card, 0.82),
+      background: T.card,
       border: `1px solid ${T.border}`,
       borderRadius: 34,
       padding: 16,
-      backdropFilter: "blur(18px) saturate(1.3)",
-      WebkitBackdropFilter: "blur(18px) saturate(1.3)",
       display: "flex", flexDirection: "column", minWidth: 0,
       // Rows are fixed fractions now, so a panel must be able to shrink inside
       // its track instead of pushing the grid taller than the screen.
@@ -11885,7 +12122,7 @@ ${jobsCtx || "No jobs found."}`;
     // bodyExtra overrides the body wrapper — used by My Clock to switch off
     // clipping so its buttons' hover glow has somewhere to render.
     const panel = (i, title, body, right, extra = {}, bodyExtra = {}) => (
-      <div className={dashAnimate ? "dash-card" : undefined} style={{ ...cardBase, ...(dashAnimate ? { animationDelay: `${i * 70}ms` } : null), ...extra }}>
+      <div className={dashAnimate ? "dash-card tq-lglass" : "tq-lglass"} style={{ ...cardBase, ...(dashAnimate ? { animationDelay: `${i * 70}ms` } : null), ...extra }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12 }}>
           <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "-0.045em", textTransform: "uppercase", color: T.textDim }}>{title}</span>
           {right}
@@ -16805,7 +17042,7 @@ ${jobsCtx || "No jobs found."}`;
       if (pinState === "closed") return null;
       return createPortal(
         <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10010, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={closePin}>
-          <div style={{ background: T.card, borderRadius: 26, padding: "52px 32px 32px", width: "100%", maxWidth: 360, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", position: "relative", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
+          <div className="tq-lglass" style={{ background: T.card, borderRadius: 26, padding: "52px 32px 32px", width: "100%", maxWidth: 360, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", position: "relative", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
             <button onClick={closePin} style={{ position: "absolute", top: 16, right: 18, background: "none", border: "none", color: T.textDim, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
 
             {/* Title */}
@@ -20358,7 +20595,10 @@ ${jobsCtx || "No jobs found."}`;
     // animate the page in from transparent, which read as the background flashing
     // through before the content appeared.
     const ovCls = asPage ? "" : "anim-modal-overlay";
-    const bxCls = asPage ? "" : "anim-modal-box";
+    // tq-lglass only in popup mode: as a page the box is transparent and the
+    // panel inside it carries the surface, so glassing the box would put a
+    // second sheet behind the one that shows.
+    const bxCls = asPage ? "" : "anim-modal-box tq-lglass";
     // Zero padding — the detail runs to all four edges of the panel; the rounded
     // header and sidebar are the only frame. The Back pill floats over the top-left
     // instead of being padded in, so it costs no real estate on the right or bottom.
@@ -20817,7 +21057,11 @@ ${jobsCtx || "No jobs found."}`;
       {/* paddingTop 0 as a page: bx() reserves 54px of head-room for the FLOATING Back
           pill, and this page uses pageHead instead — that reserve was pushing the title
           54px below where the job details title sits. */}
-      return <div className={ovCls} style={ov}>{_pageBg}<div className={bxCls} style={{ ...bx(true), position: "relative", height: "90vh", maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column", ...pageFill, ...(asPage ? { paddingTop: 0 } : {}) }} onClick={e => e.stopPropagation()}>{asPage ? null : cls}
+      {/* Shorter and slightly wider than the shared bx(true) box: the height is a
+          fixed vh (the body scrolls inside it), so 90vh made a near-full-screen
+          popup out of a two-step form. Both sit BEFORE ...pageFill so page mode,
+          which fills, still overrides them. */}
+      return <div className={ovCls} style={ov}>{_pageBg}<div className={bxCls} style={{ ...bx(true), position: "relative", maxWidth: 1080, height: "78vh", maxHeight: "78vh", overflow: "hidden", display: "flex", flexDirection: "column", ...pageFill, ...(asPage ? { paddingTop: 0 } : {}) }} onClick={e => e.stopPropagation()}>{asPage ? null : cls}
         {/* ── Scrollable content (title + step indicator + step body) ── */}
         {/* As a page: pageHead gives the same big title with Back to its left that every
             other stacked page uses, and the body below is capped to FIELD_COL_W and
@@ -20936,7 +21180,7 @@ ${jobsCtx || "No jobs found."}`;
                         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color:T.textDim }}><polyline points="6 9 12 15 18 9"/></svg>
                       </button>
                       </Tip>
-                      {colorDropId===panel.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:300, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.22)", padding:10, width:208, display:"flex", flexDirection:"column", gap:8, animation:"menuIn 0.15s ease-out" }}>
+                      {colorDropId===panel.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:300, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.22)", padding:10, width:208, display:"flex", flexDirection:"column", gap:8, animation:"menuIn 0.15s ease-out" }}>
                         <HexColorPicker color={panel.color||COLORS[pi%COLORS.length]} onChange={c => updatePanel({color:c})} style={{ width:"100%", height:160 }} />
                         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                           <div style={{ width:22, height:22, borderRadius:11, background:panel.color||COLORS[pi%COLORS.length], flexShrink:0, border:`1px solid ${T.border}` }} />
@@ -20961,7 +21205,7 @@ ${jobsCtx || "No jobs found."}`;
                           <span style={{ fontSize:13, color:panel.requiredDepartment?T.accent:T.textDim, fontWeight:600 }}>{panel.requiredDepartment||"Dept"}</span>
                           <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                         </button>
-                        {deptDropId===panel.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                        {deptDropId===panel.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
                           {orgSettings.roles.length===0 && !deptAddMode && <div style={{ padding:"8px 14px", fontSize:12, color:T.textDim }}>No departments yet</div>}
                           {orgSettings.roles.map((r,ri) => {
                             const isOn=panel.requiredDepartment===r;
@@ -21012,7 +21256,7 @@ ${jobsCtx || "No jobs found."}`;
                               <span style={{ fontSize:13, color:sub.requiredDepartment?T.accent:T.textDim, fontWeight:600 }}>{sub.requiredDepartment||"Dept"}</span>
                               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                             </button>
-                            {deptDropId===sub.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                            {deptDropId===sub.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
                               {orgSettings.roles.length===0 && !deptAddMode && <div style={{ padding:"8px 14px", fontSize:12, color:T.textDim }}>No departments yet</div>}
                               {orgSettings.roles.map((r,ri) => {
                                 const isOn=sub.requiredDepartment===r;
@@ -21055,7 +21299,7 @@ ${jobsCtx || "No jobs found."}`;
                         </span>
                         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                       </button>
-                      {soDropPanelId===panel.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", left:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:200, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                      {soDropPanelId===panel.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 4px)", left:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:200, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
                         {signOffTemplates.length===0 && <div style={{ padding:"8px 14px", fontSize:12, color:T.textDim }}>No templates yet</div>}
                         {signOffTemplates.map((tmpl,ti) => {
                           const isOn=(panel.signOffs||{})[tmpl.id]!==undefined;
@@ -21102,7 +21346,7 @@ ${jobsCtx || "No jobs found."}`;
                           <span style={{ fontSize:11, color:hasAny?T.accent:T.textDim, fontWeight:600 }}>{hasAny?`${linkedCount} linked`:"Dependencies"}</span>
                           <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                         </button>
-                        {depsDropId===panel.id && <div onClick={e=>e.stopPropagation()} onMouseDown={e=>e.stopPropagation()} style={{ position:"absolute", top:"calc(100% + 4px)", left:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:220, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                        {depsDropId===panel.id && <div onClick={e=>e.stopPropagation()} onMouseDown={e=>e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 4px)", left:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:220, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
                           <div style={{ padding:"6px 14px 4px", fontSize:10, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.07em" }}>Link sub-operations</div>
                           {allSubs.map((sub,di) => {
                             const on=isLinked(sub);
@@ -21584,10 +21828,14 @@ ${jobsCtx || "No jobs found."}`;
         </div>
 
         {/* ── Footer ── */}
-        {/* As a page: no rule and no card fill. The page is transparent so the background
-            shows through, and an opaque T.card strip read as a black bar across the
-            actions. The overlay keeps both. */}
-        <div style={{ padding:"16px 32px", borderTop: asPage ? "none" : `1px solid ${T.border}`, background: asPage ? "transparent" : T.card, flexShrink:0, display:"flex", gap:12, justifyContent:"space-between", alignItems:"center" }}>
+        {/* No fill and no rule in either mode. The popup used to paint an opaque
+            T.card strip here, which on the glass box became a hard-edged white
+            band with square corners cutting across the rounded panel — a box
+            around the actions, which is exactly what buttons should not have.
+            Solid fills and borders belong to the fields (inputs, dropdowns,
+            option rows), not to an action row. The buttons carry their own
+            shape. */}
+        <div style={{ padding:"16px 32px", background:"transparent", flexShrink:0, display:"flex", gap:12, justifyContent:"space-between", alignItems:"center" }}>
           {modalStep === 1 && <>
             <Btn variant="ghost" onClick={closeModal}>Cancel</Btn>
             <Btn disabled={!ed.title.trim()||!ed.projectManagerId} onClick={() => { if(ed.title.trim()&&ed.projectManagerId) goStep(2); }} style={{ opacity:(!ed.title.trim()||!ed.projectManagerId)?0.4:1, cursor:(!ed.title.trim()||!ed.projectManagerId)?"not-allowed":"pointer" }}>Next: Operations →</Btn>
@@ -23032,12 +23280,21 @@ ${jobsCtx || "No jobs found."}`;
                   <input type="range" className="tq-pill-range" min="0" max="100" value={dc.bgOpacity ?? 100} onChange={e => setDc({ bgOpacity: Number(e.target.value) })} style={{ width: "100%", background: `linear-gradient(to right, ${T.accent} 0 ${Math.round(((dc.bgOpacity ?? 100) - 0) / (100 - 0) * 100)}%, transparent ${Math.round(((dc.bgOpacity ?? 100) - 0) / (100 - 0) * 100)}%)`, accentColor: T.accent, cursor: "pointer" }} />
                 </div>}
                 </>}
-                {(dc.bgMode || "color") !== "color" && <>
-                <div style={{ marginTop: 16 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.textSec, marginBottom: 6 }}><span>Card frost opacity</span><span style={{ color: T.textDim, fontFamily: T.mono }}>{dc.cardOpacity ?? 100}%</span></div>
-                  <input type="range" className="tq-pill-range" min="20" max="100" value={dc.cardOpacity ?? 100} onChange={e => setDc({ cardOpacity: Number(e.target.value) })} style={{ width: "100%", background: `linear-gradient(to right, ${T.accent} 0 ${Math.round(((dc.cardOpacity ?? 100) - 20) / (100 - 20) * 100)}%, transparent ${Math.round(((dc.cardOpacity ?? 100) - 20) / (100 - 20) * 100)}%)`, accentColor: T.accent, cursor: "pointer" }} />
-                </div>
-                </>}
+                {/* Frosted Glass — a toggle, not the old 20–100% slider. No bgMode
+                    gate: the glass blurs whatever is behind it, so it is worth
+                    having on a flat colour background too, not only over an image
+                    or the liquid wash. */}
+                {(() => { const on = (dc.cardOpacity ?? 100) < 100; return (
+                  <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Frosted Glass</div>
+                      <div style={{ fontSize: 11, color: T.textDim }}>Popups and menus blur what sits behind them. Off = solid surfaces.</div>
+                    </div>
+                    <button type="button" onClick={() => setDc({ cardOpacity: on ? 100 : GLASS_OPACITY })} style={{ flexShrink: 0, width: 40, height: 22, borderRadius: T.radiusPill, border: "none", background: on ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
+                      <span style={{ position: "absolute", top: 3, left: on ? 21 : 3, width: 16, height: 16, borderRadius: 20, background: "#fff", transition: "left 0.2s" }} />
+                    </button>
+                  </div>
+                ); })()}
                 </div>
                 <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>System Elements</div>
@@ -23329,6 +23586,8 @@ ${jobsCtx || "No jobs found."}`;
     glassBorder: T.systemBorder || T.glassBorder,
   };
 
+  // No traqs-glass here — it lives on <html> (see the theme effect) so it also
+  // covers the popups that portal to document.body.
   return <TooltipCtx.Provider value={tipCtx}><div className={`traqs-${themeMode}${T.adaptive ? " traqs-adaptive" : ""}`} style={{ height: "100vh", background: T.bg, color: T.bgText, fontFamily: T.font, display: "flex", flexDirection: "column", overflow: "hidden" }}>
     {/* ── Sticky save-failure banner ─ shows the actual server error so the user (and us) know what's wrong ── */}
     {saveError && <div style={{ flexShrink: 0, background: "#dc2626", color: "#fff", padding: "10px 20px", display: "flex", alignItems: "center", gap: 14, fontSize: 13, fontFamily: T.font, fontWeight: 500, zIndex: 200 }}>
@@ -24185,10 +24444,18 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.textSec, marginBottom: 6 }}><span>Background image opacity</span><span style={{ color: T.textDim, fontFamily: T.mono }}>{dc.bgOpacity ?? 100}%</span></div>
                     <input type="range" className="tq-pill-range" min="0" max="100" value={dc.bgOpacity ?? 100} onChange={e => setDc({ bgOpacity: Number(e.target.value) })} style={{ width: "100%", background: `linear-gradient(to right, ${T.accent} 0 ${Math.round(((dc.bgOpacity ?? 100) - 0) / (100 - 0) * 100)}%, transparent ${Math.round(((dc.bgOpacity ?? 100) - 0) / (100 - 0) * 100)}%)`, accentColor: T.accent, cursor: "pointer" }} />
                   </div>}
-                  <div style={{ marginTop: 16 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: T.textSec, marginBottom: 6 }}><span>Card frost opacity</span><span style={{ color: T.textDim, fontFamily: T.mono }}>{dc.cardOpacity ?? 100}%</span></div>
-                    <input type="range" className="tq-pill-range" min="20" max="100" value={dc.cardOpacity ?? 100} onChange={e => setDc({ cardOpacity: Number(e.target.value) })} style={{ width: "100%", background: `linear-gradient(to right, ${T.accent} 0 ${Math.round(((dc.cardOpacity ?? 100) - 20) / (100 - 20) * 100)}%, transparent ${Math.round(((dc.cardOpacity ?? 100) - 20) / (100 - 20) * 100)}%)`, accentColor: T.accent, cursor: "pointer" }} />
-                  </div>
+                  {/* Frosted Glass toggle — mirrors the desktop settings page. */}
+                  {(() => { const on = (dc.cardOpacity ?? 100) < 100; return (
+                    <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 12 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Frosted Glass</div>
+                        <div style={{ fontSize: 11, color: T.textDim }}>Popups and menus blur what sits behind them.</div>
+                      </div>
+                      <button type="button" onClick={() => setDc({ cardOpacity: on ? 100 : GLASS_OPACITY })} style={{ flexShrink: 0, width: 40, height: 22, borderRadius: T.radiusPill, border: "none", background: on ? T.accent : T.border, position: "relative", cursor: "pointer", transition: "background 0.2s" }}>
+                        <span style={{ position: "absolute", top: 3, left: on ? 21 : 3, width: 16, height: 16, borderRadius: 20, background: "#fff", transition: "left 0.2s" }} />
+                      </button>
+                    </div>
+                  ); })()}
                 </div>
               </>}
               {/* ── Saved Presets ── */}
@@ -24476,7 +24743,7 @@ ${jobsCtx || "No jobs found."}`;
       const doPDF = () => { setExportLayout(seedLayout(exportData)); setExportPageIdx(0); resetExportHistory(); setExportPreview({ kind: "pdf", jobs: exportData, filename: "jobs_export.pdf", mime: "application/pdf" }); };
       const allVisibleSelected = visibleJobs.length > 0 && visibleJobs.every(j => exportSelRows.has(j.id));
       return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10004, background: "rgba(0,0,0,0.72)", display: "flex", alignItems: "stretch", justifyContent: "center", fontFamily: T.font, padding: "32px 24px" }} onClick={closeExportSheet}>
-        <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ width: "min(980px, 100%)", background: T.bg, display: "flex", flexDirection: "column", borderRadius: T.radius, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden" }}>
+        <div className="anim-modal-box tq-lglass tq-lglass-card" onClick={e => e.stopPropagation()} style={{ width: "min(980px, 100%)", background: T.bg, display: "flex", flexDirection: "column", borderRadius: T.radius, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 80px rgba(0,0,0,0.5)", overflow: "hidden" }}>
           {/* Header */}
           <div style={{ padding: "16px 24px 0", background: T.surface, borderBottom: `1px solid ${T.border}`, flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
@@ -24629,9 +24896,9 @@ ${jobsCtx || "No jobs found."}`;
       // Logos also carry fmt.align (mapped to object-position); only text needs a height refit.
       const setFmt = (b, patch) => { pushExportHistory(); const fmt = { ...(b.fmt || {}), ...patch }; updateExportBlock(pageIdx, b.id, { fmt }); if (TXT.includes(b.type)) fitBlockHeight(pageIdx, { ...b, fmt }, ctx); };
       return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10006, background: "rgba(0,0,0,0.78)", display: "flex", flexDirection: "column", alignItems: "stretch", justifyContent: "center", fontFamily: T.font }} onClick={() => setExportPreview(null)}>
-        <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ margin: "auto", width: isPdf ? "min(1480px, 98vw)" : "min(1000px, 96vw)", height: "94vh", background: T.bg, display: "flex", flexDirection: "column", borderRadius: T.radius, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 80px rgba(0,0,0,0.6)", overflow: "hidden" }}>
+        <div className="anim-modal-box tq-lglass tq-lglass-card" onClick={e => e.stopPropagation()} style={{ margin: "auto", width: isPdf ? "min(1480px, 98vw)" : "min(1000px, 96vw)", height: "94vh", background: T.bg, display: "flex", flexDirection: "column", borderRadius: T.radius, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 80px rgba(0,0,0,0.6)", overflow: "hidden" }}>
           {/* Toolbar */}
-          <div style={{ padding: "12px 18px", background: T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
+          <div className="tq-lglass tq-lglass-card" style={{ padding: "12px 18px", background: T.surface, borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0, flexWrap: "wrap" }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{isPdf ? "Design Export" : kindLabel + " Preview"}</div>
             {/* People — who lands on the sheet. Defaults to hourly staff only, since
                 that is what payroll reconciles; salary staff are listed but unticked
@@ -24741,7 +25008,7 @@ ${jobsCtx || "No jobs found."}`;
           ) : !layout ? <div style={{ flex: 1 }} /> : (
             <div style={{ flex: 1, minHeight: 0, display: "flex" }}>
               {/* Left rail: Add elements + Layers */}
-              <div style={{ width: 240, flexShrink: 0, borderRight: `1px solid ${T.border}`, background: T.surface, overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 16 }}>
+              <div className="tq-lglass tq-lglass-card" style={{ width: 240, flexShrink: 0, borderRight: `1px solid ${T.border}`, background: T.surface, overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 16 }}>
                 <div>
                   <button onClick={() => { if (!exportAddOpen) setExportAddSeq(s => s + 1); setExportAddOpen(o => !o); }} title={exportAddOpen ? "Close the element picker" : "Add an element to this page"} style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, height: 34, borderRadius: T.radiusPill, border: `1px solid ${exportAddOpen ? T.accent : T.accent + "66"}`, background: exportAddOpen ? T.accent : T.accent + "14", color: exportAddOpen ? T.accentText : T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "all 0.15s ease" }} onMouseEnter={ev => { if (!exportAddOpen) ev.currentTarget.style.boxShadow = `0 0 0 1px ${T.accent}, 0 0 12px ${T.accent}66`; }} onMouseLeave={ev => { ev.currentTarget.style.boxShadow = "none"; }}><span style={{ fontSize: 16, lineHeight: 1 }}>{exportAddOpen ? "×" : "+"}</span>{exportAddOpen ? "Close" : "Add Element"}</button>
                   <div style={{ display: "grid", gridTemplateRows: exportAddOpen ? "1fr" : "0fr", transition: "grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1)" }}>
