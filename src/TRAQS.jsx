@@ -1315,13 +1315,19 @@ button.tq-x:active {
    because nothing else was left to make them solid. */
 .traqs-glass .tq-lglass.tq-lglass-card {
   background-color: var(--tq-lglass-bg-card) !important;
-  -webkit-backdrop-filter: blur(30px) saturate(1.35) !important;
-  backdrop-filter: blur(30px) saturate(1.35) !important;
-  /* NO cast shadow. The shared rule adds one, and a shadow is the one part of the
-     glass that paints OUTSIDE the rounded shape — 48px of it spreading around every
-     card, which is why an edge appeared on these lists with the toggle on and
-     vanished with it off. A floating popup wants a shadow to lift it off the page;
-     a list that fills the page does not. The glass stops at the rounded edge. */
+  /* No filter override — the shared rule's blur and saturate apply, so the fill is
+     the only thing that differs here. */
+  /* No cast shadow, and this is a hard constraint rather than a style choice: a
+     job section lives inside the collapse wrapper's overflow:hidden (needed for
+     the grid-template-rows retract), which clips the shadow to a SQUARE box that
+     hugs the card. Everything but the four corner wedges — the gaps between the
+     rounded corner and the square clip edge — gets cut away, and those wedges are
+     the boxy frame this page kept showing. The shadow cannot render correctly here
+     without giving that wrapper padding plus a negative margin, which would overlap
+     the neighbouring section headers and swallow clicks on them.
+
+     Border stays: it comes from the call site like every other glass surface, so
+     fill and blur remain the only intentional differences. */
   box-shadow: none !important;
 }
 /* Sticky column headers are TEXT ONLY — no fill and no filter of their own.
@@ -1344,17 +1350,14 @@ button.tq-x:active {
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
-/* Opt-in edge kill, applied by FrostCard when no explicit border was passed.
-   border: 0 — the WIDTH, not just the colour, and that distinction is the whole
-   bug. Both background-clip and backdrop-filter default to the BORDER box, so a
-   1px transparent border still shows the card's own blurred glass through it: the
-   rows stop at the padding box, the glass carries on into that ring, and the result
-   is a translucent frame around the content. Setting border-color: transparent
-   made it colourless, not absent — which is why it stayed visible through several
-   attempts at it.
-
-   Ungated, because the card is translucent via .traqs-glass, via the older
-   .traqs-adaptive path, or not at all, and the ring shows in every case. */
+/* Opt-in edge kill. Nothing applies it right now — the list cards took it for a
+   while and were then put back on the standard border for consistency — but it is
+   kept because the reasoning is not obvious and is easy to get wrong: it must set
+   the border WIDTH, not the colour. Both background-clip and backdrop-filter
+   default to the BORDER box, so a 1px transparent border still shows the element's
+   own blurred glass through it — content stops at the padding box, the glass
+   carries on into that ring, and the ring reads as a translucent frame.
+   border-color: transparent makes it colourless, not absent. */
 .tq-lglass-noedge { border: 0 !important; }
 /* A dropdown INSIDE a glass popup needs a denser fill than one over the page,
    and the reason is a hard browser rule rather than taste: an ancestor with
@@ -1759,12 +1762,15 @@ function buildCustomTheme(bg, accent, surface, opts = {}) {
   const dk = hexLum(bg) < 0.18;
   const surf = surface || blendHex(bg, dk ? 0.07 : -0.03);
   const card = surface || blendHex(bg, dk ? 0.10 : 0);
-  // What is ACTUALLY behind page-level text. In liquid mode the page is a wash of
-  // liquidColor over bg (LiquidBackground lays its blobs at ~55% over `base`), so
-  // text sits on that mix — deriving from `bg` alone gave black text on a dark page
-  // whenever someone paired a light bg with a dark liquid colour. Image mode can't
-  // be sampled from here, so it keeps bg; see the note on bgText.
-  const effBg = (bgMode === "liquid" && liquidColor) ? mixHex(bg, liquidColor, 0.55) : bg;
+  // Page-level text contrast is decided by the BACKGROUND colour, not the liquid
+  // wash. This used to mix the two — mixHex(bg, liquidColor, 0.55) — on the reasoning
+  // that liquid mode paints blobs at ~55% over the base, so text sits on the mix.
+  // The problem is that a 0.55 mix is majority LIQUID, so the wash decided the text
+  // colour: a light page with a saturated dark liquid flipped every title and section
+  // header to white against a light background. The wash also moves and is uneven, so
+  // no single sample of it describes what any given title sits on, whereas the
+  // background is constant. Titles follow the background.
+  const effBg = bg;
   const surfDk = wantsLightText(surf);
   const txt  = surfDk ? "#f1f5f9" : "#0f172a";
   const bord = blendHex(surf, surfDk ? 0.18 : -0.12);
@@ -2020,12 +2026,7 @@ const Card = ({ children, style: sx = {}, delay = 0, onClick }) => <div classNam
 // background layer in the SAME stacking context, so backdrop-filter has something
 // to sample and the blur is aligned by construction.
 const FrostCard = ({ children, onClick, border, style: sx = {} }) => (
-  // tq-lglass-noedge ONLY when no border was passed in. The neutral T.border below
-  // is chrome and reads as a ring around every job section on a coloured page; an
-  // explicitly passed border (the green Completed Jobs edge) is meaning, keeps its
-  // class off, and survives. Done as a class with !important rather than by
-  // swapping the inline value, so no precedence question can leave it drawn.
-  <div className={`tq-lglass tq-lglass-card${border ? "" : " tq-lglass-noedge"}`} style={{
+  <div className="tq-lglass tq-lglass-card" style={{
     position: "relative", overflow: "hidden", borderRadius: T.radiusLg,
     border: border || `1px solid ${T.border}`, minWidth: 0,
     // Solid. The frost is the glass rule's job now (tq-lglass-card above), which is
@@ -3121,18 +3122,20 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     // sibling cards drew the dense one.
     //
     // Fixed values, not a scale: the toggle is the only control: on or solid.
-    const fillAlpha = lightSurface ? 0.52 : 0.44;
+    const fillAlpha = lightSurface ? 0.60 : 0.52;
     document.documentElement.style.setProperty(
       "--tq-lglass-bg",
       hexA(blendHex(solid, lightSurface ? 0.42 : 0.16), fillAlpha)
     );
-    // Denser fill for the list cards (.tq-lglass-card). They cover most of the page
-    // and carry dense small text over a moving background, so they need to be
-    // properly frosted rather than merely translucent — a floating popup can afford
-    // the thinner fill because it has a scrim behind it.
+    // Separate fill for the list cards (.tq-lglass-card) — currently a little
+    // CLEARER than the shared one, not denser. It started out the other way round on
+    // the theory that a page-filling table of small text needs more frost than a
+    // floating popup, and by eye it turned out the reverse reads better: those cards
+    // sit over the page's own gradient and a lighter fill lets it through. Kept as
+    // its own var either way, so the two can be tuned independently.
     document.documentElement.style.setProperty(
       "--tq-lglass-bg-card",
-      hexA(blendHex(solid, lightSurface ? 0.42 : 0.16), lightSurface ? 0.74 : 0.66)
+      hexA(blendHex(solid, lightSurface ? 0.42 : 0.16), lightSurface ? 0.66 : 0.58)
     );
     // The one exception, and it is structural rather than stylistic: a menu nested
     // inside a glass popup can't blur past that popup (an ancestor with
@@ -18415,7 +18418,7 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 6px #22c55e", flexShrink: 0 }} />
                         <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{jc.jobTitle}</span>
                         {jc.opTitle && <span style={{ fontSize: 12, color: T.textDim }}>· {jc.opTitle}</span>}
-                        {onBreak && <span style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b40", borderRadius: 16, padding: "1px 7px" }}>On break</span>}
+                        {onBreakNow && <span style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b40", borderRadius: 16, padding: "1px 7px" }}>On break</span>}
                         <span style={{ fontSize: 13, fontWeight: 700, color: "#22c55e", fontFamily: T.mono, marginLeft: "auto" }}>{tsJobElapsed || "0h 0m"}</span>
                       </div>
                       <div style={{ display: "flex", gap: 8 }}>
@@ -18827,6 +18830,15 @@ ${jobsCtx || "No jobs found."}`;
     // these two are the page's hero surfaces, not list cards.
     const TC_RADIUS = 40;
     const tcZone = { padding: "22px 26px", minWidth: 0, display: "flex", flexDirection: "column" };
+    // Lunch and Break share one style: both are "stepping away", so they read as a
+    // pair rather than as two unrelated controls. Amber outline on the card surface;
+    // the active state fills the same amber.
+    // minWidth so Lunch and Break come out the same width instead of each sizing to
+    // its own label — they read as a pair, and a 2px difference between two adjacent
+    // pills is more noticeable than either being slightly wide.
+    const pauseBtn = { padding: "11px 10px", minWidth: 76, borderRadius: T.radiusPill, border: "1px solid #f59e0b59", background: T.surface, color: "#f59e0b", fontSize: 12.5, fontWeight: 600, cursor: "pointer", fontFamily: T.font, whiteSpace: "nowrap" };
+    // The break flag the job card used. Hoisted so zone 1 can read it too.
+    const onBreakNow = !!loggedInUser.activeBreak;
     // Uppercase micro-label. Tracking stays negative (-0.045em) like every other
     // label in the app rather than the mock's positive .16em — the house style.
     const tcLbl = { fontSize: 11, fontWeight: 700, letterSpacing: "-0.045em", textTransform: "uppercase", color: T.textDim, marginBottom: 12, display: "flex", alignItems: "center", gap: 8, minHeight: 14 };
@@ -18910,7 +18922,11 @@ ${jobsCtx || "No jobs found."}`;
                 collapse to one column on a narrow desktop window — inline styles
                 can't carry a media query. */}
             <style>{`
-              .tq-tcsession{display:grid;grid-template-columns:1.1fr 1.35fr 0.8fr}
+              /* Zone 1 is sized to its button row — Clock Out plus the Lunch/Break
+                 pair — and no wider. The three are fixed-width now (no flex: 1), so
+                 any extra column width is just empty space to the right of Break;
+                 the job zone takes it instead and runs up to that edge. */
+              .tq-tcsession{display:grid;grid-template-columns:1.12fr 1.4fr 0.8fr}
               .tq-tcsession > div + div{border-left:1px solid var(--tq-tc-div)}
               @media (max-width:1100px){
                 .tq-tcsession{grid-template-columns:1fr}
@@ -18952,13 +18968,27 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ fontSize: 46, fontWeight: 700, color: "#ef4444", fontFamily: T.mono, letterSpacing: "-0.045em", lineHeight: 1 }}>
                   {bigDur(isClockedIn ? (tsElapsed || "0h 0m") : hoursToHM(myTodayHrs), 22)}
                 </div>
-                <div style={{ display: "flex", gap: 10, marginTop: "auto", paddingTop: 18 }}>
+                {/* Lunch and Break sit together, styled identically — they are the
+                    same kind of action (step away, come back) and used to look like
+                    two different controls in two different zones. Break moved here
+                    from the job zone and no longer needs an active job to appear:
+                    breakBeginAction only takes a personId, so gating it on a job
+                    clock was hiding a button that always worked. */}
+                <div style={{ display: "flex", gap: 8, marginTop: "auto", paddingTop: 18 }}>
                   {isClockedIn ? (
                     <>
-                      <button onClick={openClockOut} style={{ flex: 1, padding: "12px 18px", borderRadius: T.radiusPill, border: "none", background: "#ef4444", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: "0 8px 22px #ef444440" }}>Clock Out</button>
+                      {/* flex: 1 — Clock Out absorbs the row's slack so the three
+                          buttons fill the zone exactly and Break lands flush against
+                          the divider. Lunch and Break are fixed-width, so all the
+                          growth lands here rather than being split three ways. */}
+                      <button onClick={openClockOut} style={{ flex: 1, padding: "12px 20px", borderRadius: T.radiusPill, border: "none", background: "#ef4444", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: "0 8px 22px #ef444440", whiteSpace: "nowrap" }}>Clock Out</button>
                       {orgSettings.trackLunch && (
-                        <button onClick={openLunch} disabled={isOnBreak} style={{ padding: "12px 18px", borderRadius: T.radiusPill, border: `1px solid ${isOnLunch ? "#f59e0b" : "#f59e0b66"}`, background: "#f59e0b14", color: "#f59e0b", fontSize: 14, fontWeight: 700, cursor: isOnBreak ? "not-allowed" : "pointer", fontFamily: T.font, opacity: isOnBreak ? 0.45 : 1, whiteSpace: "nowrap" }}>{isOnLunch ? "End Lunch" : "Start Lunch"}</button>
+                        <button onClick={openLunch} disabled={isOnBreak} style={{ ...pauseBtn, opacity: isOnBreak ? 0.45 : 1, cursor: isOnBreak ? "not-allowed" : "pointer" }}>{isOnLunch ? "End Lunch" : "Lunch"}</button>
                       )}
+                      {onBreakNow
+                        ? <button onClick={handleEndBreak} disabled={jobClockLoading} style={{ ...pauseBtn, background: "#f59e0b", borderColor: "#f59e0b", color: "#fff", opacity: jobClockLoading ? 0.7 : 1 }}>End Break</button>
+                        : <button onClick={handleStartBreak} disabled={jobClockLoading} style={{ ...pauseBtn, opacity: jobClockLoading ? 0.7 : 1 }}>Break</button>
+                      }
                     </>
                   ) : (
                     <button onClick={openClockIn} style={{ flex: 1, padding: "12px 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Clock In</button>
@@ -18969,7 +18999,6 @@ ${jobsCtx || "No jobs found."}`;
               {/* ── Zone 2 · current job ── */}
               {(() => {
                 const jc = isClockedIn ? loggedInUser.activeJobClock : null;
-                const onBreak = !!loggedInUser.activeBreak;
                 const green = "#22c55e";
                 // Nothing running: the zone still holds its column, it just states why.
                 if (!jc) {
@@ -18997,7 +19026,7 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={tcLbl}>
                       <span style={{ width: 7, height: 7, borderRadius: "50%", background: green, boxShadow: `0 0 5px ${green}`, flexShrink: 0 }} />
                       <span style={{ color: green, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>Active on {jc.opTitle || jc.jobTitle}</span>
-                      {onBreak && <span style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b40", borderRadius: 12, padding: "1px 6px", flexShrink: 0 }}>On break</span>}
+                      {onBreakNow && <span style={{ fontSize: 10, fontWeight: 700, color: "#f59e0b", background: "#f59e0b18", border: "1px solid #f59e0b40", borderRadius: 12, padding: "1px 6px", flexShrink: 0 }}>On break</span>}
                     </div>
                     <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14 }}>
                       <div style={{ minWidth: 0 }}>
@@ -19020,11 +19049,10 @@ ${jobsCtx || "No jobs found."}`;
                         </span>
                       </div>
                     )}
+                    {/* Break lives in zone 1 with Start Lunch now — it is about the
+                        person, not the job, and it applied whether or not one was
+                        running. This row is job-scoped actions only. */}
                     <div style={{ display: "flex", gap: 10, marginTop: "auto", paddingTop: myJobWS ? 0 : 18 }}>
-                      {onBreak
-                        ? <button onClick={handleEndBreak} disabled={jobClockLoading} style={{ ...chip, color: "#fff", background: "#f59e0b", borderColor: "#f59e0b" }}>End Break</button>
-                        : <button onClick={handleStartBreak} disabled={jobClockLoading} style={{ ...chip, color: "#f59e0b", borderColor: "#f59e0b59" }}>Break</button>
-                      }
                       <button onClick={openStartJobPicker} disabled={jobClockLoading} style={chip}>Switch</button>
                       <button onClick={handleEndJob} disabled={jobClockLoading} style={{ ...chip, color: "#ef4444", borderColor: "#ef444459" }}>{jobClockLoading ? "Ending…" : "End Job"}</button>
                     </div>
