@@ -1138,6 +1138,7 @@ struct TaskCardV1: View {
     @State private var showClockInRequired = false
     @State private var isStopping = false
     @State private var isStarting = false
+    @State private var breakBusy = false
     /// Set when the worker taps STOP — drives the end-job photo overlay, which
     /// attaches the photo and THEN clocks out. Presented as a fullScreenCover
     /// (with a clear background) so it fades in over the jobs list rather than
@@ -1470,19 +1471,50 @@ struct TaskCardV1: View {
                 }
             }
 
-            // Progress — amber past the estimate, so the overrun is visible on the
-            // screen where the hours are actively being burned.
+            // Progress — amber when on break or past the estimate, brand gradient otherwise
             Bar(pct: pct, height: 7,
                 fill: Color(hex: T.amber),
-                gradient: appState.isPctOverdue(Int(pct)) ? nil : T.brandGradient())
+                gradient: (onBreak || appState.isPctOverdue(Int(pct))) ? nil : T.brandGradient())
 
-            // STOP, full width. Break moved to the Time Clock page (next to
-            // Lunch) — a break is a shift-level thing, not a per-job one, and
-            // the job clock keeps running through it either way. The ON BREAK
-            // label above still reflects a break started over there.
-            //
-            // STOP → opens the end-job photo step (which performs the actual
-            // clock-out). The action and STOPPING… spinner are unchanged.
+            // Break + STOP side by side
+            HStack(spacing: 10) {
+                Button {
+                    guard !breakBusy else { return }
+                    let starting = !onBreak
+                    breakBusy = true
+                    Task {
+                        let ok = starting ? await appState.startBreak()
+                                          : await appState.endBreak()
+                        breakBusy = false
+                        if ok {
+                            withAnimation(.easeOut(duration: 0.18)) {
+                                appNav.jobsBreakBanner = starting ? .breakStarted : .breakEnded
+                                appNav.blurTabBar = true
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        if breakBusy {
+                            ProgressView().progressViewStyle(.circular)
+                                .tint(Color(hex: T.accent)).scaleEffect(0.7)
+                        } else {
+                            Image(systemName: onBreak ? "play.circle.fill" : "cup.and.saucer.fill")
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                        Text(onBreak ? "END BREAK" : "BREAK")
+                            .font(TTypo.xsBold(13)).tLabel(tracking: 0.8)
+                    }
+                    .foregroundStyle(Color(hex: T.accent).verticalGradient())
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(Capsule().glassFill())
+                    .overlay(Capsule().strokeBorder(Color(hex: T.accent).verticalGradient(), lineWidth: 1.5))
+                }
+                .buttonStyle(.plain)
+                .disabled(breakBusy)
+                .opacity(breakBusy ? 0.6 : 1)
+
             GradientCTA(disabled: isStopping,
                         dimmed: false,
                         verticalPadding: 12,
@@ -1513,6 +1545,7 @@ struct TaskCardV1: View {
                     }
                 }
             }
+            } // HStack (Break + STOP)
         }
     }
 

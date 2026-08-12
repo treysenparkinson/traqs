@@ -32,6 +32,8 @@ struct JobsHubView: View {
                 // deep in TasksView's sections — see `zoomSource(id:)`.
 
                 VStack(spacing: 0) {
+                    // ↓ modalPageBlur applied at the closing brace below so the
+                    //   break banner can blur the page content underneath it.
                     // Persistent header. The leading trailing-button is mode
                     // specific (search in list, jump-to-date in gantt); the
                     // view toggle and add button are shared.
@@ -97,13 +99,6 @@ struct JobsHubView: View {
                     // place across both modes with zero shift. The range FAB sits
                     // on the right of the title row (list mode only).
                     JobsHeaderBar()
-                        .overlay(alignment: .trailing) {
-                            dateRangeFab
-                                .opacity(appNav.jobsMode == .list ? 1 : 0)
-                                .allowsHitTesting(appNav.jobsMode == .list)
-                                .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
-                                .padding(.trailing, 16)
-                        }
                         .padding(.top, pageTitleTopInset)
                         .padding(.bottom, 6)
 
@@ -126,7 +121,23 @@ struct JobsHubView: View {
                 // Availability quick-check sheet — presented from this stable
                 // container (not the opacity-animated FAB) so it reliably shows.
                 .sheet(isPresented: $showAvailability) { AvailabilityCheckSheet() }
+                .modalPageBlur(appNav.jobsBreakBanner != nil)
+
+                // Break started / ended banner — same frosted-glass popup as the
+                // time clock page. Fades in/out (no slide) via .transition(.opacity).
+                if let kind = appNav.jobsBreakBanner {
+                    ClockActionBanner(kind: kind) {
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            appNav.jobsBreakBanner = nil
+                            appNav.blurTabBar = false
+                        }
+                    }
+                    .id(kind)
+                    .transition(.opacity)
+                    .zIndex(20)
+                }
             }
+            .animation(.easeInOut(duration: 0.18), value: appNav.jobsBreakBanner)
             // Reserve space INSIDE the NavigationStack so content ends at the top
             // of the floating nav pill (an outer inset is absorbed here).
             .safeAreaInset(edge: .bottom) {

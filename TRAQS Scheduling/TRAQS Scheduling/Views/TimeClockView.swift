@@ -76,7 +76,7 @@ struct TimeClockView: View {
                       ScrollView {
                         VStack(spacing: 0) {
 
-                            PageTitle(title: "Time Clock", subtitle: periodLabel)
+                            PageTitle(title: "Time Clock")
                                 .padding(.top, pageTitleTopInset)
                                 .padding(.bottom, 10)
 
@@ -124,7 +124,6 @@ struct TimeClockView: View {
                                 PayClockControls(active: appState.payClockInActive,
                                                  onLunch: appState.payOnLunch,
                                                  onBreak: appState.isOnBreak,
-                                                 source: appState.payClockInSource,
                                                  elapsed: payClockElapsed,
                                                  inFlight: appState.isPayClocking,
                                                  breakInFlight: breakBusy,
@@ -538,7 +537,6 @@ private struct PayClockControls: View {
     let active: Bool
     let onLunch: Bool
     let onBreak: Bool
-    let source: String?
     let elapsed: String
     let inFlight: Bool
     var breakInFlight: Bool = false
@@ -550,9 +548,6 @@ private struct PayClockControls: View {
 
     // Indigo matches the "On lunch" status pill; green signals "back to work".
     private let lunchColor  = "#6366F1"
-
-    // Clocked in, but the open shift was started somewhere else (e.g. a kiosk).
-    private var viaOtherSource: Bool { active && source != nil && source != "ios-app" }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -609,11 +604,6 @@ private struct PayClockControls: View {
                 .disabled(inFlight)
             }
 
-            if viaOtherSource {
-                Text("Clocked in via \(source ?? "another device")")
-                    .font(TTypo.xs(11))
-                    .foregroundStyle(Color(hex: T.muted))
-            }
         }
     }
 

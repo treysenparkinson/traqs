@@ -38,6 +38,12 @@ final class AppNav {
     /// blurs just the bar to match.
     var blurTabBar: Bool = false
 
+    /// Break banner shown on the Jobs page — set by TaskCardV1's break button,
+    /// consumed by JobsHubView which hosts the same frosted-glass popup as the
+    /// time clock page. Kept here so the card (deep in a ScrollView) can signal
+    /// the page-level overlay without threading closures.
+    var jobsBreakBanner: ClockActionBannerKind?
+
     /// Which view the merged Jobs tab shows — list (TasksView) or gantt (GanttView).
     /// Persists across tab switches; reset to `.list` for job deep links so the
     /// list view's deep-link consumer can resolve the tapped job (see below).
