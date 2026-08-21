@@ -54,11 +54,33 @@ enum HoursCalculator {
     /// A finished op reports its full estimate as logged, so progress reads 100%
     /// rather than whatever the timer happened to capture. `liveElapsed` is the
     /// caller's contribution from any clock currently running on this op.
+    ///
+    /// Logged is the GREATER of the cumulative `loggedHours` counter and
+    /// `producedHours` (the summed job-clock session rows) — never the counter
+    /// alone, which is what this used to read. The two disagree in both directions
+    /// and each can be the truth:
+    ///
+    ///  • the counter drifts BELOW the rows when a concurrent tasks.json save drops
+    ///    a credit, so an op with 10.08h of sessions reported 8.2h — under 100% on
+    ///    work that was over its estimate, which is why an overrun was invisible
+    ///    outside the desktop's "Set Worked Hours" dialog;
+    ///  • the counter runs ABOVE the rows because the session GET is scoped (a
+    ///    non-admin receives only their OWN rows) and because "Set Worked Hours"
+    ///    can credit progress to nobody, writing the counter with no row at all.
+    ///
+    /// Taking the max is the same rule the web's `_opHoursPair` uses, so the two
+    /// clients agree, and it degrades safely: with no session rows on hand this
+    /// behaves exactly as it did before.
+    ///
+    /// Logged is NOT capped at the estimate — an op worked past its estimate keeps
+    /// counting so the panel and job rolling it up read overdue too.
     static func opHoursPair(status: JobStatus, hpd: Double, loggedHours: Double?,
+                            producedHours: Double = 0,
                             defaultHpd: Double, liveElapsed: Double) -> (logged: Double, est: Double) {
         let est = max(0.0001, hpd > 0 ? hpd : defaultHpd)
         if status == .finished { return (est, est) }
-        return ((loggedHours ?? 0) + liveElapsed, est)
+        let logged = max(0, max(loggedHours ?? 0, producedHours))
+        return (logged + liveElapsed, est)
     }
 
     // MARK: Pay hours

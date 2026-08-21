@@ -75,6 +75,38 @@ enum StatsMath {
         return DateInterval(start: start, end: end)
     }
 
+    // MARK: - Production hours rolled up by scope
+
+    /// Job-clock hours totalled per op, per panel and per job.
+    ///
+    /// Port of the web's `producedHoursByScope` (src/statsMath.js) — the same
+    /// rollup, so both clients derive progress from the same numbers.
+    struct ProducedScopes: Equatable {
+        var byOp:    [String: Double] = [:]
+        var byPanel: [String: Double] = [:]
+        var byJob:   [String: Double] = [:]
+        static let empty = ProducedScopes()
+    }
+
+    /// Total the session rows into the three scopes. A session with no `hours`
+    /// (or zero) contributes nothing; a missing id simply doesn't register in that
+    /// scope, so a panel-level punch still counts toward its job.
+    static func producedHoursByScope(_ sessions: [JobSession]) -> ProducedScopes {
+        var out = ProducedScopes()
+        func add(_ map: inout [String: Double], _ key: String?, _ h: Double) {
+            guard let k = key, !k.isEmpty else { return }
+            map[k, default: 0] += h
+        }
+        for s in sessions {
+            let h = s.hours ?? 0
+            guard h != 0 else { continue }
+            add(&out.byOp,    s.opId,    h)
+            add(&out.byPanel, s.panelId, h)
+            add(&out.byJob,   s.jobId,   h)
+        }
+        return out
+    }
+
     // MARK: - Chart scale
 
     /// Tallest value a bar chart has to draw, floored at 1 so an empty week

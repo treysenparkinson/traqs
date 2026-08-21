@@ -69,6 +69,36 @@ class AppState {
     /// jobsessions.json. Loaded on demand via `refreshJobSessions()` for the
     /// Hours page's JOB HOURS section.
     var jobSessions: [JobSession] = []
+    /// Job-clock session rows from the always-synced "productionhours" entity —
+    /// the same data as `jobSessions`, but hydrated from the local cache on every
+    /// rehydrate instead of on demand, because hours-weighted PROGRESS depends on
+    /// it and progress is on screen everywhere.
+    ///
+    /// Distinct from `jobSessions` on purpose: that array is scoped to whatever
+    /// the Hours page last asked for (one person, one pay period), which is the
+    /// wrong set to derive a job's progress from.
+    ///
+    /// Mirrors the web's `productionHours` state. Assign via
+    /// `applyProductionHours` so the rollup stays in step.
+    private(set) var productionHours: [JobSession] = []
+    /// `productionHours` totalled per op / panel / job. Cached rather than
+    /// recomputed because `opHoursPair` is called once per op per render — deriving
+    /// this inside it would make progress O(ops × sessions).
+    private(set) var producedScopes: StatsMath.ProducedScopes = .empty
+
+    /// Set the production-hours rows and refresh their rollup together.
+    func applyProductionHours(_ rows: [JobSession]) {
+        productionHours = rows
+        producedScopes = StatsMath.producedHoursByScope(rows)
+    }
+
+    /// Job-clock hours recorded against one op, matched at its own scope.
+    ///
+    /// This is the number `loggedHours` is supposed to agree with and sometimes
+    /// doesn't — see `opHoursPair`.
+    func producedFor(op: Operation) -> Double {
+        producedScopes.byOp[op.id] ?? 0
+    }
     /// This person's time-off requests (PTO/UTO) with approval status. Loaded
     /// on the Hours page via `refreshTimeOffRequests()`. The member endpoint
     /// returns only the caller's own requests.
@@ -252,6 +282,8 @@ class AppState {
     // exact live lists + empty-guard (a momentarily-empty cache slice must not
     // blank populated state). timeclock/jobSessions/timeOffRequests + orgConfig
     // keep their existing on-demand paths and are not applied here.
+    // productionHours IS applied: unlike jobSessions it isn't a page's on-demand
+    // dataset but an input to progress, which renders on every jobs screen.
     private func rehydrateFromCache() {
         guard let cache = localCache else { return }
         let dec = JSONDecoder()
@@ -261,6 +293,10 @@ class AppState {
         let m = cache.readAll(SyncedMessage.self).compactMap { try? dec.decode(Message.self, from: $0.payload) }
         let g = cache.readAll(SyncedGroup.self).compactMap { try? dec.decode(ChatGroup.self, from: $0.payload) }
         let s = cache.readAll(SyncedSettings.self).first.flatMap { try? dec.decode(OrgSettings.self, from: $0.payload) }
+        // SyncService has been writing this slice to the cache since productionhours
+        // became a synced entity; nothing ever read it back. Hours-weighted progress
+        // needs it, so hydrate it here alongside the rest.
+        let ph = cache.readAll(SyncedProductionHours.self).compactMap { try? dec.decode(JobSession.self, from: $0.payload) }
         // Assign directly on the main actor, and ONLY when the entity's content
         // actually changed. @Observable fires on EVERY assignment regardless of
         // value, so re-assigning an unchanged array churns observers — and each
@@ -290,6 +326,7 @@ class AppState {
             if m != messages, !m.isEmpty || messages.isEmpty { messages = m }
             if g != groups, !g.isEmpty || groups.isEmpty { groups = g }
             if let s, s != orgSettings { orgSettings = s }
+            if !ph.isEmpty || productionHours.isEmpty { applyProductionHours(ph) }
             autoMatchPerson()
         }
         // Pick up a pay clock-in/out that landed via realtime (e.g. a kiosk
@@ -1426,10 +1463,21 @@ class AppState {
 
     /// Pull the timestamped job-clock sessions (per-person) for the Hours
     /// page's JOB HOURS section. Same scoping as `refreshTimeclock`.
-    func refreshJobSessions(personId: String? = nil) async {
+    ///
+    /// `seedProgress` also feeds the rows to `productionHours`, the input to
+    /// hours-weighted progress. Only the warm pull sets it: that one asks for the
+    /// widest set this user is allowed (the server scopes non-admins to self), and
+    /// the Hours page's narrower per-person refreshes must not overwrite it — one
+    /// person's slice is the wrong basis for a whole job's progress.
+    func refreshJobSessions(personId: String? = nil, seedProgress: Bool = false) async {
         guard let api else { return }
         if let sessions = try? await api.fetchJobSessions(personId: personId) {
-            withoutAnimation { jobSessions = sessions }
+            withoutAnimation {
+                jobSessions = sessions
+                if seedProgress, !sessions.isEmpty || productionHours.isEmpty {
+                    applyProductionHours(sessions)
+                }
+            }
         }
     }
 
@@ -1443,7 +1491,7 @@ class AppState {
         let scope: String? = isAdmin ? nil : currentPersonId
         Task { @MainActor in
             async let tc: Void = refreshTimeclock(personId: scope)
-            async let js: Void = refreshJobSessions(personId: scope)
+            async let js: Void = refreshJobSessions(personId: scope, seedProgress: true)
             _ = await (tc, js)
         }
     }
@@ -2687,6 +2735,7 @@ class AppState {
         // Fall back to the org's default workday length when an op didn't store hpd.
         return HoursCalculator.opHoursPair(status: op.status, hpd: op.hpd,
                                           loggedHours: op.loggedHours,
+                                          producedHours: producedFor(op: op),
                                           defaultHpd: orgSettings.hpd,
                                           liveElapsed: liveElapsedHours(for: op))
     }
@@ -2722,7 +2771,11 @@ class AppState {
     func opLoggedDays(_ op: Operation) -> Double {
         if op.status == .finished { return .greatestFiniteMagnitude }
         let hpd = max(0.0001, op.hpd > 0 ? op.hpd : orgSettings.hpd)
-        return (op.loggedHours ?? 0) / hpd
+        // Same max() as `opHoursPair` — the stripe and the percentage have to agree.
+        // Reading the counter alone here while the percentage read the session rows
+        // is precisely the disagreement the web hit: one card showing 10.08h of grey
+        // stripe next to a number that said 8.2h.
+        return max(op.loggedHours ?? 0, producedFor(op: op)) / hpd
     }
 
     /// Live (not-yet-clocked-out) hours for an op, attributed to the calendar
