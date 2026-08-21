@@ -12,6 +12,11 @@ struct JobsHubView: View {
     @Environment(AppState.self) private var appState
     @Environment(AppNav.self) private var appNav
 
+    /// How far the List/Gantt toggle slides right in gantt mode: the width of the
+    /// search button it slides into, plus the trailing HStack's 6pt gap (that
+    /// spacing is set in TRAQSNavHeader).
+    private static var searchSlotWidth: CGFloat { HeaderControl.diameter + 6 }
+
     // Navigation + chrome state, lifted here so it survives a list↔gantt swap.
     @State private var path: [Job] = []
     /// Shared with the job cards (via the environment) so pushing a job zooms out
@@ -38,6 +43,21 @@ struct JobsHubView: View {
                     // specific (search in list, jump-to-date in gantt); the
                     // view toggle and add button are shared.
                     TRAQSNavHeader {
+                        // List/Gantt toggle sits FIRST, to the left of search —
+                        // except in gantt mode, where the search button fades out
+                        // and would leave the toggle with a hole beside it. Slide
+                        // the toggle right into that vacated slot instead.
+                        //
+                        // An OFFSET, not a reorder: swapping the two in the HStack
+                        // would give the toggle a new identity, so SwiftUI would
+                        // tear it down and rebuild it — losing the glass continuity
+                        // and popping, which is the same failure the search button's
+                        // fixed-slot fade (below) exists to avoid. Offset leaves the
+                        // header's structure untouched and just moves the pill.
+                        JobsViewToggleButton()
+                            .offset(x: appNav.jobsMode == .gantt ? Self.searchSlotWidth : 0)
+                            .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
+
                         // Search is list-only (the gantt view has its own date
                         // controls in its body), but the button stays MOUNTED in
                         // both modes and just fades its opacity. Conditionally
@@ -55,8 +75,6 @@ struct JobsHubView: View {
                         .opacity(appNav.jobsMode == .list ? 1 : 0)
                         .allowsHitTesting(appNav.jobsMode == .list)
                         .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
-
-                        JobsViewToggleButton()
                         // Approval Queue entry — replaces the old create-job "+".
                         // Only approvers (admin || canSignOff) see it; a badge shows
                         // how many panels are awaiting a sign-off step.

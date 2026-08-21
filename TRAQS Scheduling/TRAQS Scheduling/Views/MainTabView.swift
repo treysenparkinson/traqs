@@ -374,23 +374,54 @@ private struct TabBarIcon: View {
     }
 }
 
-// MARK: - Jobs view-mode toggle (header "dot" button)
-// A round icon button that sits between the search/calendar button and the add
-// button on the Jobs tab. It shows the icon of the CURRENT view — a list glyph
-// in list mode, a gantt glyph in gantt mode — and flips the mode when tapped.
+// MARK: - Jobs view-mode toggle (header pill)
+// Sits between the search/calendar button and the approval-queue button on the
+// Jobs tab. Names the CURRENT view — "List" with horizontal lines, "Gantt" with
+// staggered horizontal bars — and flips the mode when tapped. A labelled pill
+// rather than a bare glyph because the two icons alone didn't say which way the
+// tap would go.
 
 struct JobsViewToggleButton: View {
     @Environment(AppNav.self) private var appNav
 
+    /// Fixed, and sized for the WIDER label. The Jobs header is deliberately
+    /// dead-stable across a mode flip — see the search button in JobsHubView,
+    /// which fades in place rather than being inserted — so the pill must not
+    /// change width when the label does.
+    ///
+    /// 62 is a measured budget, not a guess. The Jobs header spends 127.5pt on the
+    /// logo lockup and 143pt on its other controls (search + approvals + divider +
+    /// availability + gaps), leaving ~70pt on a 393pt screen once the 16pt side
+    /// padding and two 10pt HStack gaps are paid. "Gantt" is 31.3pt in DM Sans Bold
+    /// 11, so glyph 13 + gap 4 + label = 48.3 of content and ~7pt each side.
+    ///
+    /// This was 82 for one commit, which overran that budget by 11.5pt — and the
+    /// wordmark was the only compressible thing in the row, so the logo shrank
+    /// app-wide. Anything added to this header needs the same arithmetic.
+    private static let pillWidth: CGFloat = 62
+
     var body: some View {
-        IconBtn(icon: appNav.jobsMode == .list ? .list : .gantt, size: 18) {
+        let isList = appNav.jobsMode == .list
+        Button {
             // No withAnimation here: it would animate the HEADER's layout change
             // (the search button appearing/disappearing), jiggling the header +
             // title. The content crossfade is driven by the ZStack's own
             // .animation(value: jobsMode) in JobsHubView, so the header stays
             // completely static while only the list/gantt content fades.
             appNav.jobsMode.toggle()
+        } label: {
+            HeaderGlassPill(width: Self.pillWidth) {
+                HStack(spacing: 4) {
+                    TIconView(icon: isList ? .list : .gantt, size: 13)
+                    Text(isList ? "List" : "Gantt")
+                        .font(TTypo.xsBold(11))
+                        .foregroundStyle(Color(hex: T.ink))
+                        .fixedSize()
+                }
+            }
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isList ? "Showing list. Switch to gantt." : "Showing gantt. Switch to list.")
     }
 }
 

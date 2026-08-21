@@ -257,9 +257,18 @@ private struct ZoomSource: ViewModifier {
 // place to watch: one interactive-glass pass per row down a long list is a cost
 // this codebase backed out of once before, so if All Jobs scrolling degrades,
 // re-flattening that button is the first move.
+/// One number for every header control in the app. Change here, not per site.
+///
+/// Non-generic on purpose: it's read by both `HeaderGlassCircle` and
+/// `HeaderGlassPill`, and a static on a generic type can't be reached without
+/// naming a type argument.
+enum HeaderControl {
+    static let diameter: CGFloat = 38
+}
+
 struct HeaderGlassCircle<Content: View>: View {
-    /// One number for every header control in the app. Change here, not per site.
-    static var diameter: CGFloat { 38 }
+    /// Kept as an alias so existing call sites reading it still compile.
+    static var diameter: CGFloat { HeaderControl.diameter }
 
     @ViewBuilder var content: () -> Content
 
@@ -267,6 +276,24 @@ struct HeaderGlassCircle<Content: View>: View {
         content()
             .frame(width: Self.diameter, height: Self.diameter)
             .glassEffect(.regular.interactive(), in: Circle())
+    }
+}
+
+/// Capsule sibling of `HeaderGlassCircle`, for a header control that carries a
+/// label as well as a glyph. Same height, so it lines up with the round buttons
+/// on either side of it, and the same glass treatment.
+struct HeaderGlassPill<Content: View>: View {
+    /// Pass a fixed width when the label's text changes between states — the Jobs
+    /// header is deliberately dead-stable across a mode flip, and a pill that
+    /// resizes reflows every control beside it.
+    var width: CGFloat? = nil
+
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        content()
+            .frame(width: width, height: HeaderControl.diameter)
+            .glassEffect(.regular.interactive(), in: Capsule())
     }
 }
 

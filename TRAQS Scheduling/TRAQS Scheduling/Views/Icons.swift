@@ -46,7 +46,7 @@ enum TIcon: String {
         case .send:      return "paperplane.fill"
         case .person:    return "person"
         case .map:       return "map"
-        case .list:      return "list.bullet"
+        case .list:      return "line.3.horizontal"
         case .cal:       return "calendar"
         case .sparkle:   return "sparkles"
         case .bell:      return "bell"
@@ -83,6 +83,8 @@ struct TIconView: View {
     var body: some View {
         // The gantt glyph is hand-drawn: three vertical bars side by side,
         // nudged up/down so they don't share a baseline. No axis line.
+        // (Deliberately vertical — the LIST glyph is the horizontal one, and the
+        // two need to read differently at 13pt.)
         if icon == .gantt {
             GanttGlyph(size: size, color: color)
         } else if icon.isNavGlyph {
