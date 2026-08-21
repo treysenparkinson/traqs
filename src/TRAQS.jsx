@@ -5417,6 +5417,10 @@ Extraction rules:
   const [tsBreakElapsed, setTsBreakElapsed] = useState("");
   const [clockTick, setClockTick] = useState(0); // increments every 60s when any worker is actively clocked in — triggers re-renders for live progress display
   const [jobClockLoading, setJobClockLoading] = useState(false);
+  // Admin force-end confirm: { personId, personName, jc } — jc is the activeJobClock snapshot
+  // so the dialog can name the job/panel/op it is about to end.
+  const [confirmEndJob, setConfirmEndJob] = useState(null);
+  const [endJobBusy, setEndJobBusy] = useState(false);
   const [startJobPickerOpen, setStartJobPickerOpen] = useState(false);
   const [startJobSearch, setStartJobSearch] = useState("");
   const [pickerExpandedJobs, setPickerExpandedJobs] = useState(new Set());
@@ -6584,14 +6588,29 @@ Extraction rules:
   // Admin force-end: clock ANY worker out of their active job (the backend allows admins to end
   // another person's clock). Frees a worker manually when they're stuck on a job — e.g. one that
   // was moved/restructured out from under them. The backend credits logged hours if the op exists.
-  const adminEndJobClock = async (personId, personName) => {
+  // Split in two so the ask goes through the app's own frosted confirm dialog instead of
+  // window.confirm — the native box reads like an OS error next to everything else, and it
+  // can't show WHICH job the worker is on, which is the one thing you want before ending it.
+  // Every "End job" button calls adminEndJobClock (opens the modal); only the modal's
+  // confirm button calls doAdminEndJobClock (fires the request).
+  const adminEndJobClock = (personId, personName) => {
     if (!isAdmin) return;
-    if (!window.confirm(`Clock ${personName || "this worker"} out of their active job?`)) return;
+    const person = people.find(p => String(p.id) === String(personId));
+    if (!person?.activeJobClock) return;                       // nothing left to end
+    setConfirmEndJob({ personId, personName: personName || person.name || "this worker", jc: person.activeJobClock });
+  };
+  const doAdminEndJobClock = async () => {
+    if (!confirmEndJob || endJobBusy) return;
+    const { personId } = confirmEndJob;
+    setEndJobBusy(true);
     try {
       const res = await jobClockOutAction({ personId }, getTokenRef.current, orgCode);
-      if (res?.ok) { setPeople(pp => pp.map(p => p.id === personId ? { ...p, activeJobClock: null } : p)); toast("Worker clocked out of job"); }
-      else alert(res?.error || "Failed to clock out");
-    } catch { alert("Network error"); }
+      if (res?.ok) {
+        setPeople(pp => pp.map(p => String(p.id) === String(personId) ? { ...p, activeJobClock: null } : p));
+        toast("Worker clocked out of job");
+        setConfirmEndJob(null);
+      } else alert(res?.error || "Failed to clock out");
+    } catch { alert("Network error"); } finally { setEndJobBusy(false); }
   };
 
   // Admin: force a worker off break. Needed because "on break" has two
@@ -27699,6 +27718,37 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
     </div>}</FadeOnClose>
+
+    {/* End Job confirm (admin force-end). Replaces window.confirm so the ask matches the
+        rest of the app and can name the job being ended. Sits above the Time Stamp page
+        modal (10015/10020) and the approval modal (10035) — both host an "End job" button. */}
+    <FadeOnClose open={!!confirmEndJob} duration={220}>{confirmEndJob && (() => {
+      const jc = confirmEndJob.jc || {};
+      const ctx = [jc.panelTitle, jc.opTitle].filter(Boolean).join(" › ");
+      const started = jc.clockIn ? new Date(jc.clockIn) : null;
+      const netMs = started ? Math.max(0, Date.now() - started.getTime() - (jc.totalPausedMs || 0) - (jc.pausedAt ? Date.now() - new Date(jc.pausedAt).getTime() : 0)) : 0;
+      const elapsed = `${Math.floor(netMs / 3600000)}h ${Math.floor((netMs % 3600000) / 60000)}m`;
+      return <div className="anim-modal-overlay" onClick={() => { if (!endJobBusy) setConfirmEndJob(null); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)", zIndex: 10060, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: T.font }}>
+        <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 420, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)" }}>
+          <div style={{ width: 56, height: 56, borderRadius: 30, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.danger }}>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+          </div>
+          <h3 style={{ margin: "0 0 10px", color: T.text, fontSize: 19, fontWeight: 700, textAlign: "center" }}>End Job?</h3>
+          <p style={{ margin: "0 0 18px", fontSize: 14, color: T.textSec, textAlign: "center", lineHeight: 1.6 }}>
+            This clocks <strong style={{ color: T.text }}>{confirmEndJob.personName}</strong> out of their active job and logs the time worked to it.
+          </p>
+          <div style={{ padding: "12px 16px", background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, marginBottom: 22, textAlign: "center" }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{jc.jobTitle || "Active job"}</div>
+            {ctx && <div style={{ fontSize: 12.5, color: T.textSec, marginTop: 3 }}>{ctx}</div>}
+            {started && <div style={{ fontSize: 12, color: T.textDim, marginTop: 6 }}>Since {started.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} · {elapsed} so far</div>}
+          </div>
+          <div style={{ display: "flex", gap: 12 }}>
+            <button onClick={() => setConfirmEndJob(null)} disabled={endJobBusy} style={{ flex: 1, padding: "11px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 14, fontWeight: 600, cursor: endJobBusy ? "default" : "pointer", fontFamily: T.font, opacity: endJobBusy ? 0.6 : 1 }}>Cancel</button>
+            <button onClick={doAdminEndJobClock} disabled={endJobBusy} style={{ flex: 1, padding: "11px 0", borderRadius: T.radiusPill, border: "none", background: T.danger, color: "#fff", fontSize: 14, fontWeight: 700, cursor: endJobBusy ? "default" : "pointer", fontFamily: T.font, opacity: endJobBusy ? 0.7 : 1 }}>{endJobBusy ? "Ending…" : "End Job"}</button>
+          </div>
+        </div>
+      </div>;
+    })()}</FadeOnClose>
 
     {/* Overlap Error Modal */}
     <FadeOnClose open={!!overlapError} duration={220}>{overlapError && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
