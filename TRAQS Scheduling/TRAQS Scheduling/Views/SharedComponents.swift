@@ -38,6 +38,18 @@ struct TRAQSLoadingOverlay: View {
 
 struct TRAQSWordmark: View {
     @Environment(ThemeSettings.self) private var themeSettings
+
+    /// Aspect of the source art (traqs-wordmark-bold-ink-2348x1200).
+    ///
+    /// The frame below is deliberately DEFINITE in both axes. Constraining only
+    /// the height leaves a `.resizable()` image with no minimum intrinsic width,
+    /// so it is the first thing a tight HStack compresses — and because
+    /// `scaledToFit` preserves the ratio, losing width also loses HEIGHT. That is
+    /// how adding one wider control to the Jobs header silently shrank the logo on
+    /// every page: the wordmark, not the row, absorbed the overflow. With a
+    /// definite frame it holds its size and the layout has to give elsewhere.
+    static let aspect: CGFloat = 2348.0 / 1200.0
+
     var size: CGFloat = 44
     /// Overrides the theme-driven variant for callers whose backdrop ISN'T the
     /// page colour. `true` → the black mark (light backdrop), `false` → white.
@@ -55,7 +67,11 @@ struct TRAQSWordmark: View {
             .interpolation(.high)
             .antialiased(true)
             .scaledToFit()
-            .frame(height: size)
+            // Rounded to whole points: a fractional width puts the bars mark
+            // beside it — and every trailing control after it — on subpixel
+            // coordinates, which is visible as the header twitching a point as
+            // views come and go.
+            .frame(width: (size * Self.aspect).rounded(), height: size)
     }
 }
 
@@ -113,18 +129,24 @@ struct TRAQSHeaderLogo: View {
     var size: CGFloat = 44
 
     var body: some View {
-        HStack(spacing: 0) {
+        // The bars mark as a trailing "=" — scaled from the tuned size-64 lockup:
+        // bars 21/64, pulled left 15/64 to clear the wordmark PNG's built-in right
+        // padding, nudged up 1/64 to sit level with the letters.
+        //
+        // The pull stays a FRACTION of size rather than a flat point value so the
+        // lockup holds together at every size it's rendered at (60 in the nav
+        // header, 44 via TRAQSNavLogo).
+        //
+        // The pull is NEGATIVE SPACING, not an x-offset. An offset is visual only,
+        // so the lockup used to claim ~14pt of layout width at its right edge that
+        // it never drew into — phantom width taken straight out of the header's
+        // budget for its trailing controls, and a big part of why one wider control
+        // there was enough to start squeezing the logo. Now the lockup measures
+        // exactly as wide as it looks.
+        HStack(spacing: -size * (15.0 / 64.0)) {
             TRAQSWordmark(size: size)
-            // The bars mark as a trailing "=" — scaled from the tuned size-64
-            // lockup: bars 21/64, pulled left 15/64 to clear the wordmark PNG's
-            // built-in right padding, nudged up 1/64 to sit level with the letters.
-            //
-            // The pull stays a FRACTION of size rather than a flat point value so
-            // the lockup holds together at every size it's rendered at (60 in the
-            // nav header, 44 via TRAQSNavLogo). 13→15/64 moves the bars ~1.9pt
-            // left at size 60.
             TRAQSBarsMark(size: size * (21.0 / 64.0))
-                .offset(x: -size * (15.0 / 64.0), y: -size * (1.0 / 64.0))
+                .offset(y: -size * (1.0 / 64.0))
         }
     }
 }
@@ -139,18 +161,29 @@ struct TRAQSNavHeader<Trailing: View>: View {
     var showLogo: Bool = false
     @ViewBuilder var trailing: () -> Trailing
 
+    /// Rendered height of the logo lockup, and therefore of the header row.
+    /// A computed property, not a stored one — TRAQSNavHeader is generic over its
+    /// trailing content, and generic types can't hold static stored properties.
+    private static var logoHeight: CGFloat { 60 }
+
     var body: some View {
         // Logo on the left, trailing controls on the right. Extra top padding
         // drops the whole header (and page title) down from the status bar for
         // more breathing room.
         HStack(alignment: .center, spacing: 10) {
-            TRAQSHeaderLogo(size: 60)
+            TRAQSHeaderLogo(size: Self.logoHeight)
                 .offset(x: -13)   // nudge the lockup toward the leading edge
             Spacer()
             HStack(spacing: 6) {
                 trailing()
             }
         }
+        // PINNED height. Every trailing control is ≤38pt so the 60pt logo already
+        // decided this row's height — but pinning it means it STAYS decided: a
+        // control appearing as data loads (the approvals button, the admin
+        // availability button), a badge, or anything added later can no longer
+        // change the header's height and shift the page title under it by a point.
+        .frame(height: Self.logoHeight)
         .padding(.horizontal, 16)
         .padding(.top, 22)
         .padding(.bottom, 12)
