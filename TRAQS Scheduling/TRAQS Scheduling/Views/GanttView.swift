@@ -44,33 +44,53 @@ struct GanttView: View {
             }
             .padding(.bottom, 10)
 
-            if segment == .day {
-                dayContent
-            } else {
-                weekContent
+            Group {
+                if segment == .day {
+                    dayContent
+                } else {
+                    weekContent
+                }
             }
+            // Scoped to the swapped branches rather than sitting on the ScrollView,
+            // so flipping Day/Week doesn't animate the segmented control and stat
+            // strip along with the timeline.
+            .animation(.easeInOut(duration: 0.18), value: segment)
             }
             .padding(.top, 2)
         }
         .scrollIndicators(.visible)
-        .animation(.easeInOut(duration: 0.18), value: segment)
-        .onReceive(nowTimer) { _ in if appNav.selected == .jobs { now = Date() } }   // only tick while visible
+        // Tick only while the gantt is the mode actually on screen. JobsHubView keeps
+        // BOTH this and TasksView mounted and crossfades them by opacity, so without
+        // the jobsMode check this timer kept re-running the packer behind the jobs
+        // list, where none of its output can be seen.
+        .onReceive(nowTimer) { _ in if appNav.selected == .jobs && appNav.jobsMode == .gantt { now = Date() } }
         .sheet(item: $selectedBlock) { block in
             ScheduleJobSheet(block: block)
         }
     }
 
+    /// Whether the gantt is the mode currently showing. JobsHubView mounts this view
+    /// permanently at `opacity 0` when the jobs LIST is showing, so `body` runs
+    /// regardless — this gates the expensive packing so an invisible timeline costs
+    /// nothing, and the list↔gantt crossfade isn't competing with a full repack.
+    private var isShowing: Bool { appNav.jobsMode == .gantt }
+
     // MARK: Day / Week content
     //
-    // Both branches compute their schedule blocks EXACTLY ONCE per render and
-    // pass concrete arrays down. Previously the week branch handed a recomputing
-    // `blocks(for:)` closure to WeekGrid, whose computed `endHour`/`height` and
-    // per-column/legend reads re-ran that O(jobs×panels×ops) work 50–100+ times
-    // per render — the source of the gantt's jank and occasional freezes.
+    // Both branches compute their schedule blocks EXACTLY ONCE per render and pass
+    // concrete arrays down. Two earlier rounds of jank came from not doing that:
+    // first the week branch handed a recomputing `blocks(for:)` closure to WeekGrid,
+    // whose `endHour`/`height` and per-column/legend reads re-ran that
+    // O(jobs×panels×ops) work 50–100+ times per render; then `weekBlocksByDate()`
+    // still called a per-day packer once per column, each re-walking every job.
+    // `packedBlocks` now collects the task list once and walks days over it, so a
+    // week costs about what one day used to — and `isShowing` skips the work
+    // entirely while the jobs LIST is the visible mode.
 
     @ViewBuilder
     private var dayContent: some View {
-        let dayBlocks = blocks(for: selectedDate)
+        let day = cal.startOfDay(for: selectedDate)
+        let dayBlocks = isShowing ? (packedBlocks(for: [day])[day] ?? []) : []
         DateSelector(date: $selectedDate)
             .padding(.bottom, 10)
         statStrip(dayBlocks)
@@ -89,7 +109,7 @@ struct GanttView: View {
 
     @ViewBuilder
     private var weekContent: some View {
-        let byDate = weekBlocksByDate()
+        let byDate = isShowing ? packedBlocks(for: weekDates) : [:]
         let allWeek = weekDates.flatMap { byDate[$0] ?? [] }
         WeekHeaderBar(weekDates: weekDates, selected: $selectedDate)
             .padding(.horizontal, 16)
@@ -107,13 +127,6 @@ struct GanttView: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 24)
             .transition(.opacity)
-    }
-
-    /// Build each visible week day's blocks ONCE, keyed by day.
-    private func weekBlocksByDate() -> [Date: [ScheduleBlock]] {
-        var out: [Date: [ScheduleBlock]] = [:]
-        for d in weekDates { out[d] = blocks(for: d) }
-        return out
     }
 
     // MARK: 3-stat strip (Jobs / Tasks / Est) — matches the wireframe layout
@@ -163,26 +176,117 @@ struct GanttView: View {
 
     // MARK: Data → schedule blocks
     //
-    // Our schema doesn't carry time-of-day on panels/ops, so blocks are PACKED
-    // sequentially starting at workStart (7am), each sized by its hpd. Lunch is
-    // reserved at noon→1pm. Tasks overflow the work day cap at 6pm.
+    // Our schema doesn't carry time-of-day on panels/ops, so work is PACKED
+    // sequentially from workStart, each task sized by its hpd, with lunch reserved.
+    //
+    // A day absorbs only `paidHoursPerDay` — workStart→workEnd MINUS lunch, the
+    // org's real schedulable capacity. Not `hpd`, which takes no account of lunch
+    // (see OrgSettings.paidHoursPerDay: a 07:00–15:00 shop with a 1h lunch has hpd
+    // 8 but only 7 schedulable hours), so a single full-day task used to spill past
+    // workEnd entirely on its own.
+    //
+    // Whatever doesn't fit ROLLS FORWARD onto the next work day instead of
+    // stretching the lane into the evening. Nothing is dropped — the original
+    // "missing jobs" bug was a hard cap that DISCARDED overflow, and the fix for it
+    // (growing the timeline to fit) traded that for a day that scrolled past
+    // midnight. Deferring the overflow keeps every task visible AND keeps the lane
+    // inside org hours; an over-allocated week now shows its slip as later days
+    // filling up, which is the thing worth seeing.
 
-    private func blocks(for date: Date) -> [ScheduleBlock] {
-        let day = cal.startOfDay(for: date)
-        let dayEnd = cal.date(byAdding: .day, value: 1, to: day) ?? day
+    /// How many hours of real work one day can absorb. Floored so a mis-saved
+    /// shift window (workEnd ≤ workStart) can't produce a zero-capacity day and
+    /// spin the roll-forward walk.
+    private var dayCapacity: Double { max(0.5, appState.orgSettings.paidHoursPerDay) }
+
+    /// How far back the roll-forward walk may start. The walk has to begin at the
+    /// earliest task it's carrying, because what lands on Wednesday depends on what
+    /// spilled out of Monday — but it can't walk from the beginning of time, so
+    /// tasks older than this are treated as starting at the floor.
+    private static let maxLookbackDays = 60
+
+    /// One task's slice of a single day: the hours it gets, plus how many of its own
+    /// hours already landed on earlier days. `placedBefore` is what lets the worked
+    /// stripe pour front-to-back across the whole task instead of restarting daily.
+    private struct _DayAllocation {
+        let item: _ScheduleItem
+        let hours: Double
+        let placedBefore: Double
+    }
+
+    /// Packed blocks for every requested day, computed in ONE pass.
+    ///
+    /// The day and week branches both call this. The week view used to call a
+    /// per-day packer 5–7 times, each re-walking every job/panel/op; this collects
+    /// the task list once and walks days over it, so a week costs about what a
+    /// single day used to.
+    private func packedBlocks(for days: [Date]) -> [Date: [ScheduleBlock]] {
+        let allocs = allocations(forVisible: days)
+        var out: [Date: [ScheduleBlock]] = [:]
+        for (day, list) in allocs { out[day] = blocks(on: day, allocations: list) }
+        return out
+    }
+
+    /// Walk work days from the earliest carried task up to the last visible day,
+    /// handing each day out to the queue until capacity runs out. Only days the
+    /// caller asked for are retained; the earlier ones exist to establish what has
+    /// already rolled forward into view.
+    ///
+    /// The walk itself lives in `SchedulePacker` — pure, and unit-tested there.
+    private func allocations(forVisible days: [Date]) -> [Date: [_DayAllocation]] {
+        let wanted = Set(days.map { cal.startOfDay(for: $0) })
+        guard let firstVisible = wanted.min(), let lastVisible = wanted.max() else { return [:] }
+
+        let lookbackFloor = cal.date(byAdding: .day, value: -Self.maxLookbackDays, to: firstVisible) ?? firstVisible
+        let items = scheduleItems(from: lookbackFloor, to: lastVisible)
+        guard !items.isEmpty else { return [:] }
+
+        // A task can't start before its own start date — nor before the lookback
+        // floor, which is as far back as the walk reaches.
+        let tasks = items.map { item in
+            SchedulePacker.Task(
+                hpd: item.hpd,
+                totalHours: item.totalHours,
+                earliest: max(lookbackFloor, item.taskStart.map { cal.startOfDay(for: $0) } ?? lookbackFloor))
+        }
+
+        let sliced = SchedulePacker.allocate(
+            tasks: tasks,
+            from: tasks.map(\.earliest).min() ?? firstVisible,
+            through: lastVisible,
+            keep: wanted,
+            capacity: dayCapacity,
+            isWorkDay: { isWorkDay($0) },
+            nextDay: { cal.date(byAdding: .day, value: 1, to: $0) },
+            // Belt-and-braces bound: the lookback plus a generous visible span, so
+            // a corrupt date can never turn the walk into an unbounded loop.
+            maxDays: Self.maxLookbackDays + 400)
+
+        var out: [Date: [_DayAllocation]] = [:]
+        for (day, slices) in sliced {
+            out[day] = slices.map {
+                _DayAllocation(item: items[$0.taskIndex], hours: $0.hours, placedBefore: $0.placedBefore)
+            }
+        }
+        return out
+    }
+
+    /// Every task assigned to the current user that overlaps the walk window, in
+    /// queue order.
+    private func scheduleItems(from horizonStart: Date, to horizonEnd: Date) -> [_ScheduleItem] {
         let me = appState.currentPersonId
-
+        let rangeStart = cal.startOfDay(for: horizonStart)
+        let rangeEnd = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: horizonEnd)) ?? horizonEnd
         var items: [_ScheduleItem] = []
 
         for job in appState.jobs {
             for panel in job.subs {
-                guard panel.start.asDate.map({ $0 < dayEnd }) ?? false,
-                      panel.end.asDate.map({ $0 >= day }) ?? false
+                guard panel.start.asDate.map({ $0 < rangeEnd }) ?? false,
+                      panel.end.asDate.map({ $0 >= rangeStart }) ?? false
                 else { continue }
 
                 let myOps = panel.subs.filter { op in
-                    guard op.start.asDate.map({ $0 < dayEnd }) ?? false,
-                          op.end.asDate.map({ $0 >= day }) ?? false
+                    guard op.start.asDate.map({ $0 < rangeEnd }) ?? false,
+                          op.end.asDate.map({ $0 >= rangeStart }) ?? false
                     else { return false }
                     return me == nil || op.team.contains(me!)
                 }
@@ -190,39 +294,55 @@ struct GanttView: View {
                 if !myOps.isEmpty {
                     for op in myOps {
                         let (lbl, col) = deptForOp(op, fallback: deptColor(for: job, panel: panel))
-                        items.append(_ScheduleItem(
-                            job: job, panel: panel, op: op,
-                            title: op.title.isEmpty ? panel.title : op.title,
-                            subtitle: job.title,
-                            color: col,
-                            typeLabel: lbl,
-                            hpd: max(op.hpd > 0 ? op.hpd : panel.hpd, 0.5)))
+                        items.append(makeItem(job: job, panel: panel, op: op,
+                                              title: op.title.isEmpty ? panel.title : op.title,
+                                              color: col, typeLabel: lbl,
+                                              hpd: max(op.hpd > 0 ? op.hpd : panel.hpd, 0.5)))
                     }
-                } else if me == nil
-                          || panel.team.contains(me!) {
+                } else if me == nil || panel.team.contains(me!) {
                     // NB: intentionally NOT falling back to job.team here.
                     // Job-level membership (typical for admins/watchers with no
                     // actual panel/op assignment) isn't scheduled work; including
                     // it packed every panel of every job they're loosely attached
                     // to into their timeline — the same inflation TasksView.myTasks
                     // was fixed to avoid. Keep the two views consistent.
-                    items.append(_ScheduleItem(
-                        job: job, panel: panel, op: nil,
-                        title: panel.title.isEmpty ? job.title : panel.title,
-                        subtitle: job.title,
-                        color: deptColor(for: job, panel: panel),
-                        typeLabel: deptLabel(for: job, panel: panel),
-                        hpd: max(panel.hpd > 0 ? panel.hpd : 1.0, 0.5)))
+                    items.append(makeItem(job: job, panel: panel, op: nil,
+                                          title: panel.title.isEmpty ? job.title : panel.title,
+                                          color: deptColor(for: job, panel: panel),
+                                          typeLabel: deptLabel(for: job, panel: panel),
+                                          hpd: max(panel.hpd > 0 ? panel.hpd : 1.0, 0.5)))
                 }
             }
         }
-        items.sort { ($0.job.jobNumber ?? "") + $0.panel.id < ($1.job.jobNumber ?? "") + $1.panel.id }
 
-        // Pack sequentially from workStart, splitting around lunch.
-        // We do NOT cap at workEnd — if more work is scheduled than fits in
-        // the standard day, the timeline expands so every task is still
-        // visible. Previously any task that would have started past 5pm got
-        // silently dropped, which is what the "missing jobs" reports were.
+        // Queue order: earliest task first — with work rolling forward, whoever
+        // started first has the prior claim on a day. The old (jobNumber, panelId)
+        // key stays as the tie-break so packing is stable across renders.
+        items.sort {
+            let a = $0.taskStart ?? .distantFuture
+            let b = $1.taskStart ?? .distantFuture
+            if a != b { return a < b }
+            return ($0.job.jobNumber ?? "") + $0.panel.id < ($1.job.jobNumber ?? "") + $1.panel.id
+        }
+        return items
+    }
+
+    private func makeItem(job: Job, panel: Panel, op: Operation?, title: String,
+                          color: Color, typeLabel: String, hpd: Double) -> _ScheduleItem {
+        let tStart = (op?.start ?? panel.start).asDate
+        let tEnd   = (op?.end   ?? panel.end  ).asDate
+        let span   = businessDaySpan(from: tStart, to: tEnd)
+        return _ScheduleItem(job: job, panel: panel, op: op,
+                             title: title, subtitle: job.title,
+                             color: color, typeLabel: typeLabel, hpd: hpd,
+                             taskStart: tStart, taskEnd: tEnd,
+                             totalHours: hpd * Double(max(1, span)))
+    }
+
+    /// Lay one day's allocations onto the clock, starting at workStart and stepping
+    /// around lunch. Capacity is workStart→workEnd minus lunch, so the last block
+    /// lands on workEnd exactly — the lane never runs past org hours.
+    private func blocks(on day: Date, allocations: [_DayAllocation]) -> [ScheduleBlock] {
         let s = appState.orgSettings
         let workStart:  Double = s.workStartHour
         let lunchStart: Double = s.lunchStartHour
@@ -230,24 +350,13 @@ struct GanttView: View {
 
         var cursor = workStart
         var out: [ScheduleBlock] = []
-        for item in items {
-            var remaining = item.hpd
-
-            // Worked HOURS allocated to this op on this day (front-to-back across
-            // the op's days), poured continuously across the day's chunks below so
-            // a lunch-split task shows ONE fill that flows from the before-lunch
-            // chunk into the after-lunch one — not a sliver on each half.
-            let workedToday: Double = {
-                guard let op = item.op else { return 0 }
-                let dayIndex = max(0, businessDaySpan(from: op.start.asDate, to: day) - 1)
-                // Already-logged (clocked-out) work, distributed front-to-back.
-                let loggedFraction = min(1, max(0, appState.opLoggedDays(op) - Double(dayIndex)))
-                let loggedHoursToday = loggedFraction * item.hpd
-                // Plus any live, in-progress session happening THIS day, so a
-                // worker's current hour shows on today's bar right away.
-                return loggedHoursToday + appState.liveHours(forOp: op, on: day)
-            }()
-            var workedPacked: Double = 0   // hours of this op already emitted earlier today
+        for alloc in allocations {
+            var remaining = alloc.hours
+            // Hours logged against this op across its whole life, plus any live
+            // session on this day. Compared against `placedBefore` so the fill
+            // pours front-to-back over the task's entire run.
+            let workedTotal = workedHours(for: alloc.item, on: day)
+            var workedPacked: Double = 0   // hours of this alloc already emitted today
 
             // Skip past lunch if the cursor lands inside it.
             if cursor >= lunchStart && cursor < lunchEnd { cursor = lunchEnd }
@@ -256,8 +365,8 @@ struct GanttView: View {
             let firstCapEdge = cursor < lunchStart ? lunchStart : .infinity
             let firstChunk = min(remaining, firstCapEdge - cursor)
             if firstChunk > 0.01 {
-                out.append(makeBlock(item, start: cursor, end: cursor + firstChunk,
-                                     workedBefore: workedPacked, workedToday: workedToday))
+                out.append(makeBlock(alloc, on: day, start: cursor, end: cursor + firstChunk,
+                                     workedBefore: workedPacked, workedTotal: workedTotal))
                 cursor += firstChunk
                 remaining -= firstChunk
                 workedPacked += firstChunk
@@ -265,8 +374,8 @@ struct GanttView: View {
             // Second chunk: anything left after lunch.
             if remaining > 0.01, cursor >= lunchStart, cursor <= lunchEnd {
                 cursor = lunchEnd
-                out.append(makeBlock(item, start: cursor, end: cursor + remaining,
-                                     workedBefore: workedPacked, workedToday: workedToday))
+                out.append(makeBlock(alloc, on: day, start: cursor, end: cursor + remaining,
+                                     workedBefore: workedPacked, workedTotal: workedTotal))
                 cursor += remaining
                 workedPacked += remaining
             }
@@ -274,24 +383,38 @@ struct GanttView: View {
         return out
     }
 
-    private func makeBlock(_ it: _ScheduleItem, start: Double, end: Double,
-                           workedBefore: Double, workedToday: Double) -> ScheduleBlock {
+    /// Worked hours to pour into a task's blocks. A finished op fills everything;
+    /// otherwise it's the logged total plus any session running on this day, so a
+    /// worker's current hour shows on today's bar right away.
+    private func workedHours(for item: _ScheduleItem, on day: Date) -> Double {
+        guard let op = item.op else { return 0 }
+        if op.status == .finished { return .greatestFiniteMagnitude }
+        // Greater of the counter and the job-clock session rows, matching
+        // AppState.opHoursPair — otherwise a timeline stripe and the same op's
+        // percentage elsewhere in the app disagree.
+        return max(op.loggedHours ?? 0, appState.producedFor(op: op))
+            + appState.liveHours(forOp: op, on: day)
+    }
+
+    private func makeBlock(_ alloc: _DayAllocation, on day: Date,
+                           start: Double, end: Double,
+                           workedBefore: Double, workedTotal: Double) -> ScheduleBlock {
+        let it = alloc.item
         let clientName = it.job.clientId
             .flatMap { cid in appState.clients.first(where: { $0.id == cid })?.name }
             .flatMap { $0.isEmpty ? nil : $0 }
-        let taskStart = (it.op?.start ?? it.panel.start).asDate
-        let taskEnd   = (it.op?.end   ?? it.panel.end  ).asDate
-        let span = businessDaySpan(from: taskStart, to: taskEnd)
-        let totalHours = it.hpd * Double(max(1, span))
-        // This chunk's share of the day's worked hours: pour `workedToday` into
-        // the chunks in order, so the fill flows continuously across a lunch
-        // split (chunk 1 fills first, then chunk 2). Fraction is of THIS chunk's
-        // own duration so it maps onto the chunk's rendered height.
+        // This chunk's share of the task's worked hours. `placedBefore` covers
+        // earlier DAYS, `workedBefore` covers earlier chunks of THIS day, so the
+        // fill flows continuously across a lunch split and across a roll-forward.
         let chunkHours = max(0.0001, end - start)
-        let workedInChunk = min(max(0, workedToday - workedBefore), chunkHours)
+        let consumedBefore = alloc.placedBefore + workedBefore
+        let workedInChunk = min(max(0, workedTotal - consumedBefore), chunkHours)
         let workedFraction = workedInChunk / chunkHours
         return ScheduleBlock(
-            id: "\(it.panel.id)/\(it.op?.id ?? "panel")/\(Int(start * 60))",
+            // Day is part of the id: with work rolling forward, one task legitimately
+            // appears on several days, and the week grid flattens every day's blocks
+            // into one legend.
+            id: "\(Int(day.timeIntervalSince1970))/\(it.panel.id)/\(it.op?.id ?? "panel")/\(Int(start * 60))",
             job: it.job,
             jobId: it.job.id,
             jobNumber: it.job.jobNumber ?? "",
@@ -304,14 +427,14 @@ struct GanttView: View {
             color: it.color,
             typeLabel: it.typeLabel,
             start: start, end: end,
-            taskStart: taskStart,
-            taskEnd: taskEnd,
-            totalHours: totalHours,
+            taskStart: it.taskStart,
+            taskEnd: it.taskEnd,
+            totalHours: it.totalHours,
             workedFraction: workedFraction)
     }
 
     /// Inclusive count of business days (per orgSettings.workDays) between two dates.
-    /// Returns 0 if either date is nil. Used for total-hours display on schedule blocks.
+    /// Returns 0 if either date is nil. Used for each task's total hour budget.
     private func businessDaySpan(from start: Date?, to end: Date?) -> Int {
         guard let s = start, let e = end, s <= e else { return 0 }
         let workDays = Set(appState.orgSettings.workDays)
@@ -365,8 +488,10 @@ struct GanttView: View {
     }
 }
 
-// Bridge struct so `makeBlock` can accept items packed inside `blocks(for:)`.
-// (`Item` is private to the function scope; this typealias surfaces it.)
+// One schedulable task, resolved once per render and then fed to the
+// roll-forward walk. `totalHours` is the task's whole budget (hpd × business-day
+// span); `hpd` stays its per-DAY ceiling, which is what keeps a normally-loaded
+// day packed exactly as it was before overflow started rolling forward.
 private struct _ScheduleItem {
     let job: Job
     let panel: Panel
@@ -376,6 +501,9 @@ private struct _ScheduleItem {
     let color: Color
     let typeLabel: String
     let hpd: Double
+    let taskStart: Date?
+    let taskEnd: Date?
+    let totalHours: Double
 }
 
 // MARK: - Schedule block model
@@ -494,15 +622,18 @@ private struct DayTimeline: View {
 
     private var startHour: Double { workStart }
 
-    /// The timeline runs from workStart to workEnd, but EXPANDS to fit any blocks
-    /// the packer placed past workEnd when a day is overbooked. The packer
-    /// deliberately refuses to cap at workEnd (dropping overflow was the original
-    /// "missing jobs" bug); hard-capping the timeline here re-hid exactly those
-    /// tasks (and mis-counted them against the header). Growing endHour keeps
-    /// every packed block visible — the lane just scrolls into the evening.
+    /// The lane runs workStart→workEnd, full stop. The packer now caps each day at
+    /// the org's schedulable capacity and rolls the remainder onto the next work
+    /// day, so nothing is placed past workEnd and nothing needs hiding — this used
+    /// to grow to `max(workEnd, lastBlockEnd)`, which is how an overbooked day
+    /// turned into a timeline scrolling past midnight.
+    ///
+    /// The max() is a floor guard only: it keeps a block visible if a rounding
+    /// remainder ever lands a hair past workEnd, and is capped at midnight so no
+    /// data shape can stretch the lane into a second day.
     private var endHour: Double {
         let lastBlockEnd = blocks.map(\.end).max() ?? workEnd
-        return max(workEnd, lastBlockEnd.rounded(.up))
+        return min(24, max(workEnd, lastBlockEnd.rounded(.up)))
     }
 
     var body: some View {
@@ -513,7 +644,11 @@ private struct DayTimeline: View {
             // Hour labels
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(0...Int(totalH), id: \.self) { i in
-                    let h = Int(startHour) + i
+                    // % 24 first: without it hour 25 rendered "1 PM" and hour 48
+                    // "12 PM", so an overbooked lane showed the same afternoon over
+                    // and over. endHour is bounded now, but the label math should
+                    // still be correct on its own.
+                    let h = (Int(startHour) + i) % 24
                     let ampm = h < 12 ? "AM" : "PM"
                     let display = ((h + 11) % 12) + 1
                     Text("\(display) \(ampm)")
@@ -545,10 +680,10 @@ private struct DayTimeline: View {
                     .padding(.horizontal, 6)
                     .offset(y: lunchTop)
 
-                // Blocks — tap to open the job-detail popup. endHour already
-                // grows to cover the last packed block, so the filter/clamp below
-                // are effectively no-ops now (kept as a floor guard) — every
-                // packed block, including overflow past workEnd, renders.
+                // Blocks — tap to open the job-detail popup. The packer keeps every
+                // block inside workStart…workEnd, so the filter/clamp below are a
+                // safety net rather than the thing deciding what's visible;
+                // overflow is deferred to the next work day, not clipped here.
                 ForEach(blocks.filter { $0.start < endHour }) { b in
                     let clampedEnd = min(b.end, endHour)
                     let top = CGFloat(b.start - startHour) * pxPerHour + 2
@@ -854,13 +989,13 @@ private struct WeekGrid: View {
     private let gutter:    CGFloat = 24
     private let cal = Calendar.current
 
-    /// Runs workStart→workEnd but EXPANDS to fit the latest packed block across
-    /// the whole week, so an overbooked day's overflow tasks stay visible instead
-    /// of being clipped (the "missing jobs" symptom). Shared across all columns
-    /// so the grid rows stay aligned.
+    /// Runs workStart→workEnd for every column. Overflow rolls onto later days
+    /// instead of stretching the grid, so a busy week no longer makes all seven
+    /// columns as tall as its worst day. Floor-guarded and midnight-capped for the
+    /// same reason as DayTimeline.
     private var endHour: Double {
         let maxEnd = blocksByDate.values.flatMap { $0 }.map(\.end).max() ?? workEnd
-        return max(workEnd, maxEnd.rounded(.up))
+        return min(24, max(workEnd, maxEnd.rounded(.up)))
     }
 
     var body: some View {
@@ -905,7 +1040,7 @@ private struct WeekGrid: View {
     private var timeGutter: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(0..<hourCount, id: \.self) { i in
-                Text("\(((Int(startHour) + i + 11) % 12) + 1)")
+                Text("\((((Int(startHour) + i) % 24 + 11) % 12) + 1)")
                     .font(TTypo.mono(9))
                     .foregroundStyle(Color(hex: T.muted))
                     .tnum()
