@@ -19,7 +19,7 @@ struct TeamPicker: View {
 
     init(title: String, initial: [String], onSave: @escaping (Set<String>) -> Void) {
         self.title = title
-        self._selected = State(initialValue: Set(initial.map(String.init)))
+        self._selected = State(initialValue: Set(initial))
         self.onSave = onSave
     }
 
