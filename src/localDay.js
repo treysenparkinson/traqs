@@ -13,6 +13,35 @@
 // reported 8.7h of a 12.2h total and the missing 3.5h appeared on a day the
 // worker had not started yet.
 
+// One formatter per zone, built on first use and kept.
+//
+// Constructing an Intl.DateTimeFormat is expensive — it resolves locale and timezone
+// data — and measures at roughly 50 MICROSECONDS a call here, which is the whole
+// problem: this function is called per ROW, inside loops that run per bucket. The
+// Analytics efficiency table asked for one formatter per timeclock row per bucket, so
+// a few hundred thousand constructions for a handful of distinct answers, all on the
+// main thread — tens of seconds of it. That is what made the page feel like it hung on
+// every click. A shop has exactly one timezone, so this cache is one entry in practice.
+//
+// A formatter is immutable and stateless, so reusing one returns byte-identical output
+// to constructing it fresh. A zone Intl rejects caches as false, so a bad IANA name
+// falls back on every row instead of re-throwing on every row.
+const _dayFmts = new Map();
+function dayFormatter(timeZone) {
+  if (_dayFmts.has(timeZone)) return _dayFmts.get(timeZone);
+  let f;
+  try {
+    // en-CA renders YYYY-MM-DD, matching the day keys used everywhere else.
+    f = new Intl.DateTimeFormat("en-CA", {
+      timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+    });
+  } catch {
+    f = false;                             // unknown IANA name
+  }
+  _dayFmts.set(timeZone, f);
+  return f;
+}
+
 /**
  * @param {string} iso     an ISO timestamp
  * @param {string|null} timeZone  IANA zone, e.g. "America/Denver". Falsy → UTC.
@@ -25,14 +54,9 @@ export function localDay(iso, timeZone) {
   // one keeps exactly the numbers it has today rather than silently shifting to
   // a timezone nobody picked.
   if (!timeZone) return d.toISOString().slice(0, 10);
-  try {
-    // en-CA renders YYYY-MM-DD, matching the day keys used everywhere else.
-    return new Intl.DateTimeFormat("en-CA", {
-      timeZone, year: "numeric", month: "2-digit", day: "2-digit",
-    }).format(d);
-  } catch {
-    return d.toISOString().slice(0, 10);   // unknown IANA name — don't lose the row
-  }
+  const fmt = dayFormatter(timeZone);
+  if (!fmt) return d.toISOString().slice(0, 10);   // unknown IANA name — don't lose the row
+  return fmt.format(d);
 }
 
 /**

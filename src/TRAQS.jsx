@@ -2212,6 +2212,12 @@ function DateField({ value, onChange, placeholder = "Pick a date", style = {}, w
 // with === or Array.includes.
 const sameId = (a, b) => a != null && b != null && String(a) === String(b);
 const onTeam = (team, pid) => (team || []).some(x => sameId(x, pid));
+// Map key for a person id that reproduces `===` exactly — type included, so 99 and "99"
+// stay DISTINCT. Used only by the lookup indexes below, whose whole job is to be a faster
+// spelling of a === scan they replace; unifying the two types there would quietly change
+// numbers on screen. sameId/onTeam above are the opposite tool, for the places that mean
+// to treat them as one person. Ids are mixed string/number across web and iOS.
+const idKey = v => typeof v + ":" + v;
 const PERSON_BLUE = "#4169e1";
 // What the Frosted Glass toggle writes into cardOpacity when switched on. It is
 // the ON MARKER, not the rendered fill — the actual glass alphas live in the
@@ -6905,9 +6911,64 @@ Extraction rules:
     }
     return true;
   }).map(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); const c = p ? p.color : T.accent; return { ...t, color: c, subs: (t.subs || []).map(s => { const sp = people.find(x => x.id === (s.team || [])[0]); const sc = sp ? sp.color : c; return { ...s, color: sc, subs: (s.subs || []).map(op => { const opp = people.find(x => x.id === (op.team || [])[0]); return { ...op, color: opp ? opp.color : sc }; }) }; }) }; }), [tasks, fStat, fPers, fClient, fRole, fHpd, fJobNum, fOverloaded, fTimePeriod, taskSearchQ, people, clients, fCustom, customCols]);
-  const isOff = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return false; return (p.timeOff || []).some(to => date >= to.start && date <= to.end); }, [people]);
+  // First match wins, like the people.find these replace — a duplicated id keeps resolving
+  // to the earlier person rather than the later one.
+  const personByIdKey = useMemo(() => {
+    const m = new Map();
+    people.forEach(pp => { const k = idKey(pp.id); if (!m.has(k)) m.set(k, pp); });
+    return m;
+  }, [people]);
+  const isOff = useCallback((pid, date) => { const p = personByIdKey.get(idKey(pid)); if (!p) return false; return (p.timeOff || []).some(to => date >= to.start && date <= to.end); }, [personByIdKey]);
   const getOffReason = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return null; const to = (p.timeOff || []).find(to => date >= to.start && date <= to.end); return to ? to.reason : null; }, [people]);
-  const bookedHrs = useCallback((pid, date) => { if (isOff(pid, date)) return 0; let h = 0; tasks.forEach(t => { (t.subs || []).forEach(panel => { (panel.subs || []).forEach(op => { if ((op.team || []).includes(pid) && date >= op.start && date <= op.end) h += (op.hpd || 0) / Math.max(1, (op.team || []).length); }); }); /* Legacy: also check direct subs without ops */ if (!(t.subs || []).some(s => (s.subs || []).length > 0)) { if ((t.team || []).includes(pid) && date >= t.start && date <= t.end) h += (t.hpd || 0) / Math.max(1, (t.team || []).length); (t.subs || []).forEach(s => { if ((s.team || []).includes(pid) && date >= s.start && date <= s.end) h += (s.hpd || 0) / Math.max(1, (s.team || []).length); }); } }); return h; }, [tasks, isOff]);
+  // Every assignment that contributes booked hours, grouped by person: one pass over the
+  // whole job tree per tasks-change, in place of a full walk of it on every bookedHrs call.
+  //
+  // bookedHrs used to re-walk every job → panel → op to answer for ONE person on ONE day,
+  // which is what made the Analytics page slow enough to feel broken. Its department donut
+  // asks people × daysInPeriod times, and on the Year period that is a few hundred thousand
+  // full traversals of the job tree per render — and since renderAnalytics is a plain
+  // function, not a memo, EVERY re-render paid it again: each click, each hover that sets
+  // state, and the clockTick that fires every 60s. The work is quadratic in the wrong thing;
+  // caching a re-render away would only have hidden it.
+  //
+  // Same arithmetic, same operands, same legacy fallback as before — this is a reorganisation
+  // of when the walk happens, not a change to what it computes.
+  const bookedIntervals = useMemo(() => {
+    const byPerson = new Map();                       // idKey → [{ start, end, h }]
+    const add = (team, start, end, hpd) => {
+      // Divisor is the RAW team length, including any duplicate entry, because that is what
+      // the per-op share was divided by before. Recipients are de-duplicated, because
+      // .includes() matched an op once however many times a person appeared on it.
+      if (!start || !end) return;
+      const share = (hpd || 0) / Math.max(1, (team || []).length);
+      const seen = new Set();
+      (team || []).forEach(pid => {
+        const k = idKey(pid);
+        if (seen.has(k)) return;
+        seen.add(k);
+        let arr = byPerson.get(k);
+        if (!arr) { arr = []; byPerson.set(k, arr); }
+        arr.push({ start, end, h: share });
+      });
+    };
+    tasks.forEach(t => {
+      (t.subs || []).forEach(panel => (panel.subs || []).forEach(op => add(op.team, op.start, op.end, op.hpd)));
+      /* Legacy: also count direct subs on jobs that have no ops */
+      if (!(t.subs || []).some(sb => (sb.subs || []).length > 0)) {
+        add(t.team, t.start, t.end, t.hpd);
+        (t.subs || []).forEach(sb => add(sb.team, sb.start, sb.end, sb.hpd));
+      }
+    });
+    return byPerson;
+  }, [tasks]);
+  const bookedHrs = useCallback((pid, date) => {
+    if (isOff(pid, date)) return 0;
+    const spans = bookedIntervals.get(idKey(pid));
+    if (!spans) return 0;
+    let h = 0;
+    for (const sp of spans) if (date >= sp.start && date <= sp.end) h += sp.h;
+    return h;
+  }, [bookedIntervals, isOff]);
 
   // Returns "primary" | "secondary" | false — secondary means the person can cover
   // the job as a backup (their secondaryDepartment matches) but should sort below primary.
