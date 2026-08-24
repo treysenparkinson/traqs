@@ -12890,6 +12890,40 @@ ${jobsCtx || "No jobs found."}`;
   };
 
   const renderTeam = () => {
+    // How far the push below could possibly move any one person's bars: the total overrun
+    // sitting on their row, in whole working days. An UPPER BOUND, not the push itself —
+    // deliberately, because the real push is computed per row further down and a second
+    // copy of that arithmetic here would be one more thing to fall out of step.
+    //
+    // It exists because the visibility filter tests an op's STORED dates while the render
+    // draws it at its PUSHED position. A pushed bar whose stored end has drifted behind
+    // tStart was being dropped from the list even though the place it actually gets painted
+    // was still on screen — so a job that is not itself overworked would vanish as you
+    // panned, purely because something ahead of it on the row had run long. Only the left
+    // edge needs the slack: a push moves a bar to the RIGHT, so it can never make a bar
+    // fail the tEnd test that should have passed it.
+    const overrunSlackDays = (() => {
+      const byPerson = new Map();
+      tasks.forEach(job => (job.subs || []).forEach(panel => (panel.subs || []).forEach(op => {
+        if (!op.start || op.status === "Finished") return;
+        const tsz = Math.max(1, (op.team || []).length);
+        const ws = deriveWorkedState(op, producedFor(op), liveOpHours(op));
+        const over = Math.max(0, ws.workedHoursShown - (op.hpd || 0)) / tsz;
+        if (over <= 0) return;
+        (op.team || []).forEach(pid => { const k = String(pid); byPerson.set(k, (byPerson.get(k) || 0) + over); });
+      })));
+      const out = new Map();
+      byPerson.forEach((h, k) => out.set(k, Math.ceil(h / Math.max(0.0001, productiveHoursPerDay))));
+      return out;
+    })();
+    // Outer bound of every dated op, used to ask getPersonBars for a person's WHOLE
+    // schedule rather than the visible slice. See the overrun-push pass below.
+    const [pushWinS, pushWinE] = (() => {
+      let lo = null, hi = null;
+      const note = t => { if (t?.start && (lo === null || t.start < lo)) lo = t.start; if (t?.end && (hi === null || t.end > hi)) hi = t.end; };
+      tasks.forEach(j => { note(j); (j.subs || []).forEach(pl => { note(pl); (pl.subs || []).forEach(note); }); });
+      return [lo || tStart, hi || tEnd];
+    })();
     const days = []; let dc = tStart; while (dc <= tEnd) { days.push(dc); dc = addD(dc, 1); }
     // Left column width. It was a fixed 260, sized for the utilization number the clock
     // pill replaced — a pill naming a job needs far more, so names wrapped and the pill
@@ -12929,7 +12963,7 @@ ${jobsCtx || "No jobs found."}`;
     // visible day per person and grpUtil called it once more for every member of every
     // group, on each render of the schedule, for a number nothing displays.
     // Get tasks for a person within visible range — parent tasks only
-    const getPersonBars = (pid) => {
+    const getPersonBars = (pid, _winS = tStart, _winE = tEnd) => {
       const bars = [];
       // Mirrors _segsEnd in the team-view bar render so the visibility filter and the
       // visual bar end stay in sync — bars whose hpd extends past op.end stay in view until
@@ -12938,15 +12972,25 @@ ${jobsCtx || "No jobs found."}`;
         if (!op || !op.start || !op.end) return op?.end;
         const teamSz = Math.max(1, (op.team || []).length);
         const hpd = (op.hpd || 0) > 0 ? op.hpd / teamSz : productiveHoursPerDay;
+        // The overrun belongs in here, or this filter describes a SHORTER bar than the one
+        // being painted. The render builds an op's length from hpd PLUS however far past its
+        // estimate it has run (an op only finishes when someone asks it to, so it keeps
+        // growing), and the caller drops a bar the moment _visualEnd(op) < tStart. With the
+        // overrun missing, that test fired while the extension the render would have drawn was
+        // still on screen: the overworked job vanished mid-pan, whole, with part of it in view.
+        // Same operands and same per-person divide as the render's _overrunPerPerson, and never
+        // applied to a finished op, so the two cannot disagree.
+        const ws = deriveWorkedState(op, producedFor(op), liveOpHours(op));
+        const overrun = ws.isFullyWorked ? 0 : Math.max(0, ws.workedHoursShown - (op.hpd || 0)) / teamSz;
         const bdOpts = { workDays: orgSettings.workDays, holidays: orgSettings.holidays };
         const startH = op.startHour ?? workStartH;
-        const { days } = walkProductiveHours(startH, hpd, dayWindowCfg);
+        const { days } = walkProductiveHours(startH, hpd + overrun, dayWindowCfg);
         return addBD(op.start, days - 1, bdOpts);
       };
       // PTO bars
       const person = people.find(x => x.id === pid);
       if (person) (person.timeOff || []).forEach((to, i) => {
-        if (to.end < tStart || to.start > tEnd) return;
+        if (to.end < _winS || to.start > _winE) return;
         const ptoColor = to.type === "UTO" ? "#f59e0b" : "#10b981";
         bars.push({ type: "pto", id: "pto-" + pid + "-" + i, start: to.start, end: to.end, title: to.reason || (to.type || "PTO"), color: ptoColor, task: null, subs: [], hasSubs: false, personId: pid, toIdx: i, fullStart: to.start, fullEnd: to.end, ptoType: to.type || "PTO" });
       });
@@ -12961,8 +13005,8 @@ ${jobsCtx || "No jobs found."}`;
               // be placed on the timeline — pin it to today as an "unscheduled" bar so
               // it still shows instead of vanishing off the schedule.
               const undated = !op.start || !op.end;
-              if (undated) { if (TD < tStart || TD > tEnd) return; }
-              else if (_visualEnd(op) < tStart || op.start > tEnd) return;
+              if (undated) { if (TD < _winS || TD > _winE) return; }
+              else if (_visualEnd(op) < _winS || op.start > _winE) return;
               const bStart = undated ? TD : op.start;
               const bEnd = undated ? TD : op.end;
               const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
@@ -12978,7 +13022,7 @@ ${jobsCtx || "No jobs found."}`;
             const onAnyOp = (panel.subs || []).some(op => onTeam(op.team, pid));
             if (onPanelTeam && !onAnyOp && panel.status !== "Finished") {
               const pUndated = !panel.start || !panel.end;
-              const pInView = pUndated ? (TD >= tStart && TD <= tEnd) : (_visualEnd(panel) >= tStart && panel.start <= tEnd);
+              const pInView = pUndated ? (TD >= _winS && TD <= _winE) : (_visualEnd(panel) >= _winS && panel.start <= _winE);
               if (pInView) {
                 const pStart = pUndated ? TD : panel.start;
                 const pEnd = pUndated ? TD : panel.end;
@@ -12994,8 +13038,8 @@ ${jobsCtx || "No jobs found."}`;
             if (!onTeam(sub.team, pid)) return;
             if (sub.status === "Finished") return;
             const undated = !sub.start || !sub.end;
-            if (undated) { if (TD < tStart || TD > tEnd) return; }
-            else if (_visualEnd(sub) < tStart || sub.start > tEnd) return;
+            if (undated) { if (TD < _winS || TD > _winE) return; }
+            else if (_visualEnd(sub) < _winS || sub.start > _winE) return;
             const bStart = undated ? TD : sub.start;
             const bEnd = undated ? TD : sub.end;
             const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
@@ -13014,7 +13058,7 @@ ${jobsCtx || "No jobs found."}`;
             // Position chip on wire start date (first op start), fallback to panel start
             const wireOp = (panel.subs || []).find(op => op.title === "Wire");
             const chipDate = wireOp ? wireOp.start : panel.start;
-            if (chipDate < tStart || chipDate > tEnd) return;
+            if (chipDate < _winS || chipDate > _winE) return;
             const activeStep = !e.designed ? "Designed" : !e.verified ? "Verified" : "Perforex";
             bars.push({
               type: "eng-chip",
@@ -13082,7 +13126,12 @@ ${jobsCtx || "No jobs found."}`;
       rowList.push({ type: "group", role, members: roleMap[role] || [] });
       roleMap[role].forEach(p => {
         if (sFPers.length > 0 && !sFPers.includes(String(p.id))) return;
-        const bars = isC ? [] : getPersonBars(p.id).filter(passesScheduleBarFilter);
+        // Left edge widened by that bound so a pushed bar is never filtered out of a
+        // window it is actually painted in. Anything that lands off-screen after all is
+        // clipped by the row as usual, which is the harmless direction to be wrong in.
+        const _slack = overrunSlackDays.get(String(p.id)) || 0;
+        const _barsWinS = _slack > 0 ? addBD(tStart, -_slack, { workDays: orgSettings.workDays, holidays: orgSettings.holidays }) : tStart;
+        const bars = isC ? [] : getPersonBars(p.id, _barsWinS, tEnd).filter(passesScheduleBarFilter);
         rowList.push({ type: "person", person: p, bars, hidden: isC });
       });
     });
@@ -13592,9 +13641,20 @@ ${jobsCtx || "No jobs found."}`;
             // day fills up — instead of being a special case layered on top.
             // Bars with a stored startHour are honoured where they are and simply
             // advance the cursor past themselves.
+            // This person's WHOLE schedule, not the visible slice. Both layout passes below
+            // — the intra-day packing and the overrun push — decide where a bar sits, and
+            // both used to read the window-filtered `bars`. That made a bar's position
+            // depend on which of its NEIGHBOURS happened to be on screen: pan a day, a
+            // neighbour drops out of the list, the packing cursor or the carry changes, and
+            // this bar moves. Layout has to be a property of the schedule, not of the
+            // viewport, or scrolling rearranges the thing you are trying to read.
+            //
+            // Same function and same rules as the visible list, only a wider window, so
+            // membership and ordering cannot drift from the bars actually drawn.
+            const allBars = getPersonBars(p.id, pushWinS, pushWinE);
             const singleDayStacking = {}; // { [date]: { [barId]: packedStartHour } }
             if (tMode === "month" || tMode === "week") {
-              const _dayBars = bars.filter(b => { const _tsz = Math.max(1, (b.task?.team || []).length); const _phd = (b.task?.hpd || 0) > 0 ? b.task.hpd / _tsz : productiveHoursPerDay; return b.type === "task" && b.task?.start && b.task?.end && b.task.start === b.task.end && _phd > 0 && _phd <= productiveHoursPerDay; });
+              const _dayBars = allBars.filter(b => { const _tsz = Math.max(1, (b.task?.team || []).length); const _phd = (b.task?.hpd || 0) > 0 ? b.task.hpd / _tsz : productiveHoursPerDay; return b.type === "task" && b.task?.start && b.task?.end && b.task.start === b.task.end && _phd > 0 && _phd <= productiveHoursPerDay; });
               _dayBars.sort((a, b) => ((a.task?.startHour ?? workStartH) - (b.task?.startHour ?? workStartH)) || String(a.id).localeCompare(String(b.id)));
               const _cursor = {};
               _dayBars.forEach(bar => {
@@ -13633,20 +13693,62 @@ ${jobsCtx || "No jobs found."}`;
             // the work on the heaviest view.
             const overrunPushH = {}, rowBarWS = {};
             {
-              let carryH = 0;
-              const ordered = bars
+              // (see the collision walk below)
+              // Accumulated over the person's ENTIRE schedule, not the visible slice.
+              //
+              // This read `bars`, which getPersonBars has already filtered down to the
+              // window — so the carry only counted overruns that happened to be on screen,
+              // and the push became a function of the scroll position. Pan one day, an
+              // overrunning op crosses tStart, its hours drop out of the carry, and every
+              // later op on that row jumps by the push. Pan back and they jump again. That
+              // is the schedule rearranging itself as you scroll, and when the push was
+              // large enough to put _layoutStart past tEnd the bar was painted off the edge
+              // and simply disappeared — while the filter, which tests the UNpushed dates,
+              // had happily kept it in the list. Nothing was missing; it was off-screen.
+              //
+              // Same function, same rules, wider window, so the ordering and membership
+              // cannot drift from the bars actually drawn.
+              const ordered = allBars
                 .filter(b => b.type === "task" && b.task && b.start)
                 .sort((a, b) => String(a.start).localeCompare(String(b.start))
                   || ((a.task?.startHour ?? workStartH) - (b.task?.startHour ?? workStartH)));
+              // A job is only pushed by however much the job before it actually runs INTO
+              // it. Idle time in between absorbs the overrun first.
+              //
+              // This used to carry the overrun forward as a running total and hand the whole
+              // thing to every later op on the row, whether or not it reached them. So an op
+              // 56h over its estimate shoved a job created three weeks later by seven working
+              // days, across three idle days that should have swallowed it whole — the job
+              // appeared nowhere near where it was scheduled, and worse for jobs added while
+              // something was already running long. Since a job here only finishes when
+              // someone asks it to, that overrun grows all day, and everything downstream
+              // drifted with it.
+              //
+              // Each op is placed on a productive-hours line measured from the row's first,
+              // then pushed by the overlap with where the previous one now ENDS. Slack gives
+              // a push of zero; a genuine collision still cascades, because each op's end is
+              // computed after its own push is applied.
+              const _rowAnchor = ordered.length ? ordered[0].start : null;
+              const _rowBDOpts = { workDays: orgSettings.workDays, holidays: orgSettings.holidays };
+              const _startProd = b => diffBD(_rowAnchor, b.start, _rowBDOpts) * productiveHoursPerDay
+                + Math.max(0, (((b.task?.startHour ?? workStartH) - workStartH) / Math.max(0.0001, totalWorkH)) * productiveHoursPerDay);
+              let _prevEnd = null;
               for (const b of ordered) {
-                // Assigned BEFORE this bar's own overrun is added: an overrunning op
-                // grows in place, it does not shove itself.
-                if (carryH > 0) overrunPushH[b.id] = carryH;
+                const _sp = _startProd(b);
+                // Pushed only by the part of the previous op that reaches past this start.
+                const _push = _prevEnd == null ? 0 : Math.max(0, _prevEnd - _sp);
+                if (_push > 0) overrunPushH[b.id] = _push;
                 const ws = deriveWorkedState(b.task, producedFor(b.task), liveOpHours(b.task));
                 rowBarWS[b.id] = ws;
-                if (ws.isFullyWorked) continue;
                 const tsz = Math.max(1, (b.task.team || []).length);
-                carryH += Math.max(0, ws.workedHoursShown - (b.task.hpd || 0)) / tsz;
+                // Its own length: the estimate, grown by however far past it the work has run.
+                // A finished op stops growing but still occupies the time it was given.
+                const _own = ((b.task.hpd || 0) > 0 ? b.task.hpd / tsz : productiveHoursPerDay)
+                  + (ws.isFullyWorked ? 0 : Math.max(0, ws.workedHoursShown - (b.task.hpd || 0)) / tsz);
+                const _end = _sp + _push + _own;
+                // max(), not assignment: ops can be listed in an order where an earlier-ending
+                // one follows a later-ending one, and the blocker is whichever reaches furthest.
+                _prevEnd = _prevEnd == null ? _end : Math.max(_prevEnd, _end);
               }
             }
             const isDrop = dropTarget === p.id;
@@ -13691,9 +13793,31 @@ ${jobsCtx || "No jobs found."}`;
                     // exact values the release commits — so the ghost shows precisely where the bar lands.
                     // (Previously it glided at the raw cursor position, which could sit up to a full column
                     // off the floored drop day in week/day mode where there's no hour offset to absorb it.)
-                    const _gStart = _liveRef?.snapStart || snapStart;
-                    const _gEnd = _liveRef?.snapEnd || snapEnd;
-                    const _dropHour = _liveRef?.dropHour ?? workStartH;
+                    const _gStartStored = _liveRef?.snapStart || snapStart;
+                    const _gEndStored = _liveRef?.snapEnd || snapEnd;
+                    const _dropHourStored = _liveRef?.dropHour ?? workStartH;
+                    // snapStart/dropHour are where the drop is STORED. The bar is PAINTED at that
+                    // position plus its overrun push, so the ghost has to be too — otherwise it
+                    // previews a spot the bar will never appear in, sitting a couple of working
+                    // days behind the card while still tracking the cursor faithfully from there.
+                    //
+                    // Applying the push here, before anything else reads these, is what keeps this
+                    // fix to three lines: every calculation below — the weekday segments, the width
+                    // budget, the per-segment caps — carries on working in exactly one space.
+                    const { _gStart, _gEnd, _dropHour } = (() => {
+                      const _pBD = teamDragInfo.pushBD || 0, _pHD = teamDragInfo.pushHourDelta || 0;
+                      if (!_pBD && !_pHD) return { _gStart: _gStartStored, _gEnd: _gEndStored, _dropHour: _dropHourStored };
+                      const _bdo = { workDays: orgSettings.workDays, holidays: orgSettings.holidays };
+                      let _extraBD = _pBD, _h = _dropHourStored + _pHD, _g = 0;
+                      // Same rollover the render does: an hour past quitting time is the next
+                      // working day, not a bar hanging off the end of this one.
+                      while (_h >= workEndH && totalWorkH > 0 && _g++ < 50) { _h -= totalWorkH; _extraBD++; }
+                      return {
+                        _gStart: _extraBD ? addBD(_gStartStored, _extraBD, _bdo) : _gStartStored,
+                        _gEnd: _extraBD ? addBD(_gEndStored, _extraBD, _bdo) : _gEndStored,
+                        _dropHour: _h,
+                      };
+                    })();
                     const _ghostBarHpd = teamDragInfo.barHpd || 0;
                     const _oneDayW = 1 / nDays * 100;
                     const _ghostOffsetH = Math.max(0, _dropHour - workStartH);
@@ -13841,6 +13965,20 @@ ${jobsCtx || "No jobs found."}`;
                     _layoutEnd = addBD(_layoutEnd, 1, _barBDOpts);
                   }
                   const _barStartH = _pushH > 0 ? _pushedStartH : _baseStartH;
+                  // The push, as the two numbers needed to reapply it: working days moved, and
+                  // the leftover hour shift. Taken as the DIFFERENCE the lines above actually
+                  // produced, so the rollover while-loop is already counted and there is no
+                  // second copy of this arithmetic to fall out of step.
+                  //
+                  // The drag ghost needs these. A job only finishes when someone asks for it to
+                  // finish, so an op still being worked keeps growing and keeps shoving the ops
+                  // after it on that row forward — those neighbours are PAINTED at _layoutStart
+                  // while handleTeamDrag reasons entirely in stored dates. Dragging one meant
+                  // grabbing a bar in one place and previewing it in another, off by exactly this.
+                  // (_dragBlocked below stops the overrunning op itself being dragged for the same
+                  // reason, but it never covered the ops it pushes.)
+                  const _pushBD = _pushH > 0 ? diffBD(bar.start, _layoutStart, _barBDOpts) : 0;
+                  const _pushHourDelta = _pushH > 0 ? (_barStartH - _baseStartH) : 0;
                   // The single source of truth for this bar's length. Walking the day and
                   // stepping over only the lunch/breaks the work actually reaches replaces
                   // three separate approximations that disagreed with each other:
@@ -14337,7 +14475,20 @@ ${jobsCtx || "No jobs found."}`;
                       const _opVisual = (op) => {
                         if (!op.start || !op.end) return { endDate: op.end || op.start, endHour: workEndH };
                         const _tSz = Math.max(1, (op.team || []).length);
-                        const _h = (op.hpd || 0) > 0 ? op.hpd / _tSz : productiveHoursPerDay;
+                        // The overrun counts. An op past its estimate keeps growing, and the time it
+                        // has grown into is occupied — someone is standing there working. Measuring
+                        // only the ESTIMATE meant the extension was invisible to this check, so a job
+                        // could be dropped straight on top of the part of an overworked op that runs
+                        // beyond its estimate: no red ghost, no rejected drop, two jobs booked over
+                        // each other. The bar on screen showed the conflict the whole time; only the
+                        // collision test could not see it.
+                        //
+                        // Same operands as the render's _barHpd and the schedule filter's
+                        // _visualEnd — per-person divide, never on a finished op — so all three
+                        // agree on where an op ends.
+                        const _ws = deriveWorkedState(op, producedFor(op), liveOpHours(op));
+                        const _over = _ws.isFullyWorked ? 0 : Math.max(0, _ws.workedHoursShown - (op.hpd || 0)) / _tSz;
+                        const _h = ((op.hpd || 0) > 0 ? op.hpd / _tSz : productiveHoursPerDay) + _over;
                         const _sH = op.startHour ?? workStartH;
                         const _w = walkProductiveHours(_sH, _h, dayWindowCfg);
                         if (_w.days === 1 && op.endHour != null) return { endDate: op.start, endHour: op.endHour };
@@ -14400,7 +14551,7 @@ ${jobsCtx || "No jobs found."}`;
                       const _movingBarIds = new Set();
                       if (isMultiDrag) multiDragMembers.forEach(m => _movingBarIds.add(m.id));
                       if (isGroupDrag && depsMode === "locked") groupMembers.forEach(m => _movingBarIds.add(m.id));
-                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, multiDragSnaps, isGroupDrag, multiDragIds: _movingBarIds.size > 0 ? _movingBarIds : null, dropHour, barHpd: _dragBarHpd, hasOverlap, snapConnector: _snapConnector ? { ..._snapConnector, ghostPersonId: targetPid } : null });
+                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, multiDragSnaps, isGroupDrag, multiDragIds: _movingBarIds.size > 0 ? _movingBarIds : null, dropHour, barHpd: _dragBarHpd, hasOverlap, pushBD: _pushBD, pushHourDelta: _pushHourDelta, snapConnector: _snapConnector ? { ..._snapConnector, ghostPersonId: targetPid } : null });
                     };
                     const onU = me => {
                       cancelAnimationFrame(autoScrollRaf); autoScrollRaf = null;
