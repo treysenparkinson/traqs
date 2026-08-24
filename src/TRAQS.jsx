@@ -12873,13 +12873,25 @@ ${jobsCtx || "No jobs found."}`;
       // Mirrors _segsEnd in the team-view bar render so the visibility filter and the
       // visual bar end stay in sync — bars whose hpd extends past op.end stay in view until
       // their true visual end pans off the left.
+      //
+      // The overrun has to be in here for that to hold. An op past its estimate keeps GROWING
+      // rather than pinning at 100%, and the render builds its length from _barHpd, which is
+      // hpd/teamSz PLUS the overrun. This estimate carried only the hpd half, so it reported a
+      // shorter bar than the one being painted — and the caller's `_visualEnd(op) < tStart`
+      // then dropped an overrunning bar from the list while the extension the render would have
+      // drawn was still on screen. The bar vanished whole, mid-pan, with part of it still in
+      // view. Same arithmetic and same operands as the render's _overrunPerPerson so the two
+      // cannot drift again: divided by team size for the same reason hpd is (the budget is
+      // per-person, worked hours are the team's total), and never applied to a finished op.
       const _visualEnd = (op) => {
         if (!op || !op.start || !op.end) return op?.end;
         const teamSz = Math.max(1, (op.team || []).length);
         const hpd = (op.hpd || 0) > 0 ? op.hpd / teamSz : productiveHoursPerDay;
+        const ws = deriveWorkedState(op, producedFor(op), liveOpHours(op));
+        const overrun = ws.isFullyWorked ? 0 : Math.max(0, ws.workedHoursShown - (op.hpd || 0)) / teamSz;
         const bdOpts = { workDays: orgSettings.workDays, holidays: orgSettings.holidays };
         const startH = op.startHour ?? workStartH;
-        const { days } = walkProductiveHours(startH, hpd, dayWindowCfg);
+        const { days } = walkProductiveHours(startH, hpd + overrun, dayWindowCfg);
         return addBD(op.start, days - 1, bdOpts);
       };
       // PTO bars
@@ -13621,6 +13633,17 @@ ${jobsCtx || "No jobs found."}`;
                 {/* Ghost: dragged bar + dep-group member previews */}
                 {teamDragInfo && (() => {
                   const nDays = days.length;
+                  // Ghosts are positioned in percentages of the timeline and sit at zIndex 34/35 —
+                  // above the sticky name gutter (10). Now that their segments keep a true start that
+                  // can be negative, an unclipped ghost would paint across the names, so each piece is
+                  // trimmed to [0, 100] here. Trimming is not the same as the start clamp this
+                  // replaced: the clamp MOVED the segment to the edge (and dropped it entirely once
+                  // the whole span fell outside), where this removes only the off-screen part and
+                  // leaves the visible remainder exactly where it belongs.
+                  const clipToTimeline = (left, width) => {
+                    const l = Math.max(0, left), r = Math.min(100, left + width);
+                    return r > l ? { left: l, width: r - l } : null;
+                  };
                   const { snapStart, snapEnd, hasOverlap, barColor, groupSnaps } = teamDragInfo;
                   const gc = hasOverlap ? "#ef4444" : barColor || T.accent;
                   const ghosts = [];
@@ -13638,11 +13661,18 @@ ${jobsCtx || "No jobs found."}`;
                     const _ghostOffsetH = Math.max(0, _dropHour - workStartH);
                     const _ghostHourOffW = (_ghostOffsetH / totalWorkH) * _oneDayW;
                     // Width in working-day units (weekends excluded), matching the committed bar.
-                    const _ghostWidthPct = _ghostBarHpd > 0
-                      ? Math.max(0.03 / nDays * 100, (_ghostBarHpd / productiveHoursPerDay) / nDays * 100)
+                    // Width comes from the WALK's wall-clock span, exactly as the committed bar's
+                    // _wBudget does. A raw hpd/productiveHoursPerDay fraction is a productive-hours
+                    // figure spent on a clock-based axis, so it disagreed with the bar it previews by
+                    // however much lunch and break time the span crosses — the dashed outline read
+                    // short, then the bar landed longer than it promised.
+                    const _ghostWalk = _ghostBarHpd > 0 ? walkProductiveHours(_dropHour, _ghostBarHpd, dayWindowCfg) : null;
+                    const _ghostWidthPct = _ghostWalk
+                      ? Math.max(0.03 / nDays * 100, _ghostWalk.columns / nDays * 100)
                       : (Math.max(diffD(_gStart, _gEnd) + 1, 1) / nDays * 100);
                     // Split across weekend/holiday gaps the same way the committed bar (and group ghosts) do.
-                    const _segs = weekdaySegments(_gStart, _gEnd, tStart, tEnd, orgSettings.workDays);
+                    // noClampStart, like the bar's own call — see the note on the group ghosts below.
+                    const _segs = weekdaySegments(_gStart, _gEnd, tStart, tEnd, orgSettings.workDays, true);
                     let _wRem = _ghostWidthPct;
                     _segs.forEach((seg, si) => {
                       const isFirst = si === 0;
@@ -13659,8 +13689,10 @@ ${jobsCtx || "No jobs found."}`;
                       const segW = Math.max(_ghostFloor, Math.min(_segAvailW, _wRem));
                       _wRem = Math.max(0, _wRem - segW);
                       if (segW <= 0) return;
+                      const _clip = clipToTimeline(segLeft, segW);
+                      if (!_clip) return;
                       const _gi = ghosts.length;
-                      ghosts.push(<div key={`team-ghost-${_gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 26, border: `2px dashed ${gc}`, background: gc + (hasOverlap ? "55" : "18"), boxShadow: `0 0 ${hasOverlap ? 24 : 16}px ${gc}${hasOverlap ? "BB" : "66"}`, pointerEvents: "none", zIndex: 35 }} />);
+                      ghosts.push(<div key={`team-ghost-${_gi}`} style={{ position: "absolute", top: 4, left: `calc(${_clip.left}% + 2px)`, width: `calc(${_clip.width}% - 4px)`, height: rH - 8, borderRadius: 26, border: `2px dashed ${gc}`, background: gc + (hasOverlap ? "55" : "18"), boxShadow: `0 0 ${hasOverlap ? 24 : 16}px ${gc}${hasOverlap ? "BB" : "66"}`, pointerEvents: "none", zIndex: 35 }} />);
                     });
                   }
                   (groupSnaps || []).forEach(gs => {
@@ -13670,20 +13702,36 @@ ${jobsCtx || "No jobs found."}`;
                       const _gsOneDayW = 1 / nDays * 100;
                       const _gsHourOffW = (_gsOffH / totalWorkH) * _gsOneDayW;
                       const _gsHpd = gs.barHpd || 0;
-                      const _gsWBudget = _gsHpd > 0 ? Math.max(0.03 / nDays * 100, (_gsHpd / productiveHoursPerDay) / nDays * 100) : (Math.max(diffD(gs.snapStart, gs.snapEnd) + 1, 1) / nDays * 100);
-                      const _gsSegs = weekdaySegments(gs.snapStart, gs.snapEnd, tStart, tEnd, orgSettings.workDays);
+                      const _gsWalk = _gsHpd > 0 ? walkProductiveHours(_gsDropHour, _gsHpd, dayWindowCfg) : null;
+                      const _gsWBudget = _gsWalk ? Math.max(0.03 / nDays * 100, _gsWalk.columns / nDays * 100) : (Math.max(diffD(gs.snapStart, gs.snapEnd) + 1, 1) / nDays * 100);
+                      // noClampStart. All three ghost calls omitted it while the bar they preview
+                      // passes it, and that one missing argument is what made a dragged bar vanish:
+                      // with the start clamped to tStart the ghost stops tracking the cursor and pins
+                      // to column 0 once its start crosses the left edge, then s > e returns NO
+                      // segments at all as soon as its end follows — the whole ghost gone while most
+                      // of the bar is still on screen. Unclamped, seg.start falls outside `days`,
+                      // indexOf gives -1, and the diffD fallback below produces the negative offset
+                      // that lets the row's overflow clip it like any other partly-scrolled bar.
+                      const _gsSegs = weekdaySegments(gs.snapStart, gs.snapEnd, tStart, tEnd, orgSettings.workDays, true);
                       let _gsWRemaining = _gsWBudget;
                       _gsSegs.forEach((seg, gi) => {
                         const isFirst = gi === 0;
-                        const isLast = gi === _gsSegs.length - 1;
                         const _segIdx = days.indexOf(seg.start);
                         const segLeft = (_segIdx >= 0 ? _segIdx : diffD(tStart, seg.start)) / nDays * 100 + (isFirst ? _gsHourOffW : 0);
                         const _segEndIdx = days.indexOf(seg.end);
                         const _segRightPct = (_segEndIdx >= 0 ? _segEndIdx + 1 : diffD(tStart, seg.end) + 1) / nDays * 100;
                         const _segAvailW = _segRightPct - segLeft;
-                        const segW = isLast ? Math.max(0, _gsWRemaining) : Math.max(0.5, Math.min(_gsWRemaining, _segAvailW));
+                        // Capped at its own columns, with a floor that can never exceed the segment —
+                        // the same correction the primary ghost above already carries. Letting the
+                        // last piece absorb the remaining budget uncapped previewed a landing that
+                        // ran straight across the non-working column after it.
+                        const _gsFloor = Math.min(0.5, Math.max(0, _segAvailW));
+                        const segW = Math.max(_gsFloor, Math.min(_segAvailW, _gsWRemaining));
                         _gsWRemaining = Math.max(0, _gsWRemaining - segW);
-                        ghosts.push(<div key={`ghost-grp-${gs.id}-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 26, border: `2px dashed ${gc}88`, background: gc + "10", boxShadow: `0 0 10px ${gc}44`, pointerEvents: "none", zIndex: 34 }} />);
+                        if (segW <= 0) return;
+                        const _gsClip = clipToTimeline(segLeft, segW);
+                        if (!_gsClip) return;
+                        ghosts.push(<div key={`ghost-grp-${gs.id}-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${_gsClip.left}% + 2px)`, width: `calc(${_gsClip.width}% - 4px)`, height: rH - 8, borderRadius: 26, border: `2px dashed ${gc}88`, background: gc + "10", boxShadow: `0 0 10px ${gc}44`, pointerEvents: "none", zIndex: 34 }} />);
                       });
                     }
                   });
@@ -13697,20 +13745,24 @@ ${jobsCtx || "No jobs found."}`;
                     const _msOneDayW = 1 / nDays * 100;
                     const _msHourOffW = (_msOffH / totalWorkH) * _msOneDayW;
                     const _msHpd = ms.barHpd || 0;
-                    const _msWBudget = _msHpd > 0 ? Math.max(0.03 / nDays * 100, (_msHpd / productiveHoursPerDay) / nDays * 100) : (Math.max(diffD(ms.snapStart, ms.snapEnd) + 1, 1) / nDays * 100);
-                    const _msSegs = weekdaySegments(ms.snapStart, ms.snapEnd, tStart, tEnd, orgSettings.workDays);
+                    const _msWalk = _msHpd > 0 ? walkProductiveHours(_msDropHour, _msHpd, dayWindowCfg) : null;
+                    const _msWBudget = _msWalk ? Math.max(0.03 / nDays * 100, _msWalk.columns / nDays * 100) : (Math.max(diffD(ms.snapStart, ms.snapEnd) + 1, 1) / nDays * 100);
+                    const _msSegs = weekdaySegments(ms.snapStart, ms.snapEnd, tStart, tEnd, orgSettings.workDays, true);
                     let _msWRemaining = _msWBudget;
                     _msSegs.forEach((seg, gi) => {
                       const isFirst = gi === 0;
-                      const isLast = gi === _msSegs.length - 1;
                       const _segIdx = days.indexOf(seg.start);
                       const segLeft = (_segIdx >= 0 ? _segIdx : diffD(tStart, seg.start)) / nDays * 100 + (isFirst ? _msHourOffW : 0);
                       const _segEndIdx = days.indexOf(seg.end);
                       const _segRightPct = (_segEndIdx >= 0 ? _segEndIdx + 1 : diffD(tStart, seg.end) + 1) / nDays * 100;
                       const _segAvailW = _segRightPct - segLeft;
-                      const segW = isLast ? Math.max(0, _msWRemaining) : Math.max(0.5, Math.min(_msWRemaining, _segAvailW));
+                      const _msFloor = Math.min(0.5, Math.max(0, _segAvailW));
+                      const segW = Math.max(_msFloor, Math.min(_segAvailW, _msWRemaining));
                       _msWRemaining = Math.max(0, _msWRemaining - segW);
-                      ghosts.push(<div key={`ghost-multi-${ms.id}-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 26, border: `2px dashed ${gc}`, background: gc + "1a", boxShadow: `0 0 14px ${gc}66`, pointerEvents: "none", zIndex: 35 }} />);
+                      if (segW <= 0) return;
+                      const _msClip = clipToTimeline(segLeft, segW);
+                      if (!_msClip) return;
+                      ghosts.push(<div key={`ghost-multi-${ms.id}-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${_msClip.left}% + 2px)`, width: `calc(${_msClip.width}% - 4px)`, height: rH - 8, borderRadius: 26, border: `2px dashed ${gc}`, background: gc + "1a", boxShadow: `0 0 14px ${gc}66`, pointerEvents: "none", zIndex: 35 }} />);
                     });
                   });
                   return ghosts.length ? <>{ghosts}</> : null;
