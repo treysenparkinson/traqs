@@ -1195,10 +1195,22 @@ class AppState {
     /// Admin approves a completion request.
     /// When panelId/opId are nil: finishes the whole job tree.
     /// When panelId is set: finishes only the specific panel (or op if opId is also set).
-    func approveJobCompletion(jobId: String, panelId: String? = nil, opId: String? = nil, requestId: String) async {
-        guard can(.approveCompletions), let me = currentPerson, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
+    /// Returns whether the decision was actually applied. `false` means it was
+    /// refused — no permission, the job isn't loaded, or the request is already
+    /// resolved — and the caller should say so rather than leave the buttons
+    /// sitting there as if nothing happened.
+    @discardableResult
+    func approveJobCompletion(jobId: String, panelId: String? = nil, opId: String? = nil, requestId: String) async -> Bool {
+        guard can(.approveCompletions), let me = currentPerson, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return false }
         let now = Date.nowISO()
         var job = jobs[idx]
+        // Refuse BEFORE touching job/panel status: re-approving an already
+        // resolved request would re-finish the tree and re-fire the resolution
+        // notification. See CompletionRequestRules.
+        guard let resolved = CompletionRequestRules.applyDecision(
+            to: job.finishRequests, requestId: requestId, newStatus: "approved",
+            allowedFrom: ["pending"], resolvedBy: me.id, resolvedByName: me.name, resolvedAt: now)
+        else { return false }
         if let panelId {
             job.subs = job.subs.map { p in
                 guard p.id == panelId else { return p }
@@ -1223,38 +1235,45 @@ class AppState {
             }
         }
         job.finishRequest = nil
-        job.finishRequests = (job.finishRequests ?? []).map { e in
-            guard e.id == requestId else { return e }
-            var e = e; e.status = "approved"; e.resolvedBy = me.id; e.resolvedByName = me.name; e.resolvedAt = now
-            return e
-        }
+        job.finishRequests = resolved
         updateJob(job)
         cacheJobLocally(job)
         await notifyCompletionResolution(job: job, requestId: requestId, outcome: "approved")
+        return true
     }
 
     /// Admin denies a completion request → the item stays active/overdue.
-    func denyJobCompletion(jobId: String, panelId: String? = nil, opId: String? = nil, requestId: String) async {
-        guard can(.approveCompletions), let me = currentPerson, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
+    /// Returns whether the decision was applied — see `approveJobCompletion`.
+    @discardableResult
+    func denyJobCompletion(jobId: String, panelId: String? = nil, opId: String? = nil, requestId: String) async -> Bool {
+        guard can(.approveCompletions), let me = currentPerson, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return false }
         let now = Date.nowISO()
         var job = jobs[idx]
+        guard let resolved = CompletionRequestRules.applyDecision(
+            to: job.finishRequests, requestId: requestId, newStatus: "declined",
+            allowedFrom: ["pending"], resolvedBy: me.id, resolvedByName: me.name, resolvedAt: now)
+        else { return false }
         job.finishRequest = nil
-        job.finishRequests = (job.finishRequests ?? []).map { e in
-            guard e.id == requestId else { return e }
-            var e = e; e.status = "declined"; e.resolvedBy = me.id; e.resolvedByName = me.name; e.resolvedAt = now
-            return e
-        }
+        job.finishRequests = resolved
         updateJob(job)
         cacheJobLocally(job)
         await notifyCompletionResolution(job: job, requestId: requestId, outcome: "declined")
+        return true
     }
 
     /// Admin undoes an approved completion.
     /// When panelId/opId are nil: reopens the whole job tree.
     /// When panelId is set: reopens only the specific panel (or op).
-    func undoJobCompletion(jobId: String, panelId: String? = nil, opId: String? = nil, requestId: String) async {
-        guard let me = currentPerson, me.isAdmin, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
+    /// Returns whether the undo was applied — only an APPROVED request can be
+    /// reopened, so a repeated press is a no-op rather than a second reopen.
+    @discardableResult
+    func undoJobCompletion(jobId: String, panelId: String? = nil, opId: String? = nil, requestId: String) async -> Bool {
+        guard let me = currentPerson, me.isAdmin, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return false }
         var job = jobs[idx]
+        guard let reopened = CompletionRequestRules.applyDecision(
+            to: job.finishRequests, requestId: requestId, newStatus: "pending",
+            allowedFrom: ["approved"], resolvedBy: nil, resolvedByName: nil, resolvedAt: nil)
+        else { return false }
         if let panelId {
             job.subs = job.subs.map { p in
                 guard p.id == panelId else { return p }
@@ -1279,11 +1298,7 @@ class AppState {
                 return p
             }
         }
-        job.finishRequests = (job.finishRequests ?? []).map { e in
-            guard e.id == requestId else { return e }
-            var e = e; e.status = "pending"; e.resolvedBy = nil; e.resolvedByName = nil; e.resolvedAt = nil
-            return e
-        }
+        job.finishRequests = reopened
         if panelId == nil, let entry = job.finishRequests?.first(where: { $0.id == requestId }) {
             job.finishRequest = FinishRequestStamp(requestId: entry.id, by: entry.by, byName: entry.byName, at: entry.at)
         }
@@ -1327,6 +1342,7 @@ class AppState {
         updateJob(job)
         cacheJobLocally(job)
         await notifyCompletionResolution(job: job, requestId: requestId, outcome: "reopened")
+        return true
     }
 
     /// Push (not a chat message) telling the requester their completion request was

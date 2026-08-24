@@ -74,7 +74,7 @@ struct EditProfileView: View {
                                 }
                             }
                         }
-                        .padding(16)
+                        .padding(T.insetHero)
                         .frostedCard(radius: T.cornerHero)
 
                         // ── About (folded in from the retired Settings sheet) ──
@@ -90,7 +90,7 @@ struct EditProfileView: View {
                             aboutRow(label: "TRAQS",
                                      value: "\(appVersionString) (\(appBuildString))")
                         }
-                        .padding(16)
+                        .padding(T.insetHero)
                         .frostedCard(radius: T.cornerHero)
 
                         if let error {

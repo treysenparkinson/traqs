@@ -196,7 +196,7 @@ struct ClientDetailView: View {
                             }
                         }
                     }
-                    .padding(18)
+                    .padding(T.insetHero)
                     .frostedCard(radius: T.cornerHero)
 
                     // ── Contact info ──

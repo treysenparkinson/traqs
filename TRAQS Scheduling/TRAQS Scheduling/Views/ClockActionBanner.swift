@@ -60,11 +60,14 @@ struct ClockActionBanner: View {
     var autoDismissAfter: Double = 1.6
     let onDismiss: () -> Void
 
+    /// Drives the shared modal entrance/exit — see ModalPop. The banner owns
+    /// both; the page presenting it must not animate.
     @State private var shown = false
 
     /// Softer than any card on the page — the banner should read as a floating
-    /// pebble, not another panel.
-    private let radius: CGFloat = 36
+    /// pebble, not another panel. Moved 36 → 46 with the rest of the scale, and
+    /// matches the clock PIN pad it sits alongside.
+    private let radius: CGFloat = 46
 
     var body: some View {
         // Touch the theme so a live Customize accent change re-tints the banner
@@ -124,19 +127,23 @@ struct ClockActionBanner: View {
         // Real frosted glass — the shared recipe, also used by the PIN pad and
         // the end-job photo prompt.
         .glassPanel(radius: radius)
-        .scaleEffect(shown ? 1 : 0.88)
-        .opacity(shown ? 1 : 0)
+        .modalPop(shown)
         .contentShape(shape)
-        .onTapGesture { onDismiss() }
+        .onTapGesture { close() }
         .sensoryFeedback(.success, trigger: kind)
         .onAppear {
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.72)) { shown = true }
+            withAnimation(modalPopAnimation) { shown = true }
             // Keyed to `kind` via the caller's .id(), so a second toggle while
             // one is still up replaces the view (and this timer) cleanly.
             Task {
                 try? await Task.sleep(nanoseconds: UInt64(autoDismissAfter * 1_000_000_000))
-                if !Task.isCancelled { onDismiss() }
+                if !Task.isCancelled { close() }
             }
         }
+    }
+
+    /// Animates out first, THEN lets the page remove us — the shared modal exit.
+    private func close() {
+        modalPopDismiss({ shown = $0 }) { onDismiss() }
     }
 }

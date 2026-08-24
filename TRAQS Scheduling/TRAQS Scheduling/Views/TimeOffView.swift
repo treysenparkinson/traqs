@@ -296,12 +296,12 @@ private struct TimeOffApprovalCard: View {
                         Button { denying = false; reason = "" } label: {
                             Text("Cancel").font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
                                 .frame(maxWidth: .infinity).padding(.vertical, 11)
-                                .background(RoundedRectangle(cornerRadius: T.cornerSm).stroke(Color(hex: T.hair), lineWidth: 1))
+                                .background(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
                         }.buttonStyle(.plain).disabled(busy)
                         Button { decide("deny") } label: {
                             Text(busy ? "Saving…" : "Confirm Deny").font(TTypo.smBold(14)).foregroundStyle(T.onColor("#ef4444"))
-                                .frame(maxWidth: .infinity).padding(.vertical, 11)
-                                .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#ef4444")))
+                                .frame(maxWidth: .infinity).padding(.vertical, 13)
+                                .background(Capsule().fill(Color(hex: "#ef4444")))
                         }.buttonStyle(.plain).disabled(busy)
                     }
                 }
@@ -309,13 +309,13 @@ private struct TimeOffApprovalCard: View {
                 HStack(spacing: 10) {
                     Button { denying = true } label: {
                         Text("Deny").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#ef4444"))
-                            .frame(maxWidth: .infinity).padding(.vertical, 12)
-                            .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#ef4444")))
+                            .frame(maxWidth: .infinity).padding(.vertical, 14)
+                            .background(Capsule().fill(Color(hex: "#ef4444")))
                     }.buttonStyle(.plain).disabled(busy)
                     Button { decide("approve") } label: {
                         Text(busy ? "Saving…" : "Approve").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#10b981"))
-                            .frame(maxWidth: .infinity).padding(.vertical, 12)
-                            .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#10b981")))
+                            .frame(maxWidth: .infinity).padding(.vertical, 14)
+                            .background(Capsule().fill(Color(hex: "#10b981")))
                     }.buttonStyle(.plain).disabled(busy)
                 }
             }
@@ -354,7 +354,7 @@ private struct TimeOffEmptyState: View {
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
-        .padding(22)
+        .padding(T.insetHero)
         .frostedCard()
     }
 }

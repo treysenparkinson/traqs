@@ -55,7 +55,7 @@ struct FinishRequestRow: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 9)
                             .foregroundStyle(Color(hex: T.red))
-                            .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: T.red).opacity(0.10)))
+                            .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: T.red).opacity(0.10)))
                     }
                     Button { approve() } label: {
                         Label("Approve", systemImage: "checkmark")
@@ -63,7 +63,7 @@ struct FinishRequestRow: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 9)
                             .foregroundStyle(Color(hex: T.green))
-                            .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: T.green).opacity(0.10)))
+                            .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: T.green).opacity(0.10)))
                     }
                 }
                 .buttonStyle(.plain)
@@ -166,7 +166,7 @@ struct TimeOffQueueRow: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 9)
                             .foregroundStyle(Color(hex: T.red))
-                            .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: T.red).opacity(0.10)))
+                            .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: T.red).opacity(0.10)))
                     }
                     Button { decide("approve") } label: {
                         Label("Approve", systemImage: "checkmark")
@@ -174,7 +174,7 @@ struct TimeOffQueueRow: View {
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 9)
                             .foregroundStyle(Color(hex: T.green))
-                            .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: T.green).opacity(0.10)))
+                            .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: T.green).opacity(0.10)))
                     }
                 }
                 .buttonStyle(.plain)

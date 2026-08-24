@@ -250,7 +250,7 @@ struct ApprovalQueueView: View {
             .disabled(appState.currentPerson == nil)
             .opacity(appState.currentPerson == nil ? 0.5 : 1)
         }
-        .padding(14)
+        .padding(T.insetHero)
         .frostedCard(radius: T.cornerHero)   // even rounder card edges (matches Jobs hero cards)
     }
 

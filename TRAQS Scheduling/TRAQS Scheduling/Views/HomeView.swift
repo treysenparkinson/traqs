@@ -201,7 +201,7 @@ private struct TodayDateCard: View {
                 }
             }
         }
-        .padding(16)
+        .padding(T.insetHero)
         .frostedCard()
     }
 }
@@ -251,7 +251,7 @@ private struct ShiftStatusHero: View {
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(16)
+            .padding(T.insetHero)
             .frostedCard()
             .aspectRatio(1, contentMode: .fit)
         }
@@ -275,13 +275,22 @@ private struct NewMessagesCard: View {
 
                 if senders.isEmpty {
                     Spacer(minLength: 0)
-                    HStack(spacing: 7) {
+                    // Tick and label stay on ONE line, side by side. This card is
+                    // a square roughly 166–174pt wide on most phones, so once the
+                    // content inset went to T.insetHero there was only ~120pt of
+                    // room here — the label wrapped and the row read as stacked.
+                    // The tick is sized down and the label is allowed to shrink
+                    // rather than wrap, which holds the layout on a 375pt screen.
+                    HStack(spacing: 6) {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 18, weight: .bold))
+                            .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(Color(hex: T.green))
+                            .layoutPriority(1)
                         Text("No new messages!")
                             .font(TTypo.sm(13))
                             .foregroundStyle(Color(hex: T.muted))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                     }
                     .frame(maxWidth: .infinity)
                     Spacer(minLength: 0)
@@ -313,7 +322,7 @@ private struct NewMessagesCard: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(16)
+            .padding(T.insetHero)
             .frostedCard()
             .aspectRatio(1, contentMode: .fit)
         }
@@ -353,7 +362,7 @@ private struct SuggestedJobCard: View {
                 }
             }
         }
-        .padding(16)
+        .padding(T.insetHero)
         .frostedCard()
     }
 }

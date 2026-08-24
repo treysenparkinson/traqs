@@ -35,6 +35,10 @@ struct EndJobPhotoOverlay: View {
     let onClose: (_ clockOut: Bool) -> Void
 
     @Environment(AppState.self) private var appState
+    /// Observed so a live Customize preset change re-tints `T.wellFill` below —
+    /// the T.* globals it reads aren't observable on their own. Same reason
+    /// FrostedCard and GlassPanel touch the theme.
+    @Environment(ThemeSettings.self) private var theme
 
     private struct PickedFile: Equatable { let data: Data; let name: String; let mime: String }
 
@@ -70,18 +74,15 @@ struct EndJobPhotoOverlay: View {
                 if menuOpen { setMenu(false) } else { dismiss(clockOut: false) }
             }
 
-            card
-                .scaleEffect(appear ? 1 : 0.88)
-                .opacity(appear ? 1 : 0)
+            card.modalPop(appear)
         }
         .presentationBackground(.clear)   // let the jobs screen show through
         .onAppear {
-            // Fades and scales up in place at the centre. The cover itself is
+            // The shared modal entrance (see ModalPop). The cover itself is
             // presented with animations disabled (see TaskCardV1's STOP action),
-            // so this is the ONLY entrance animation — without it the card would
-            // just pop in. Same spring as the break/lunch banner, so the two
-            // modals arrive with the same weight.
-            withAnimation(.spring(response: 0.34, dampingFraction: 0.72)) { appear = true }
+            // so this spring is the ONLY entrance animation — which is exactly
+            // the condition the other two modals now reproduce.
+            withAnimation(modalPopAnimation) { appear = true }
         }
         .sheet(isPresented: $showCamera) {
             CameraPicker { image in pickedImage = image; pickedFile = nil; errorText = nil }
@@ -98,7 +99,7 @@ struct EndJobPhotoOverlay: View {
 
     private var card: some View {
         VStack(spacing: 14) {
-            Text("Please take a picture of your panel before ending.")
+            Text("Please take a picture of your panel.")
                 .font(TTypo.bodyBold(15))
                 .foregroundStyle(Color(hex: T.text))
                 .multilineTextAlignment(.center)
@@ -142,9 +143,12 @@ struct EndJobPhotoOverlay: View {
                 .foregroundStyle(Color(hex: T.muted))
                 .disabled(isWorking)
         }
-        .padding(20)
-        // Extra headroom so the message clears the cancel X in the corner.
-        .padding(.top, 28)
+        .padding(T.insetHero)
+        // Headroom for the cancel X. The X now sits 18pt in from a 46pt corner
+        // and is 36pt across, so it runs to 54pt down the card — this puts the
+        // first line of the message at 70pt, clearing it by 16 instead of
+        // landing right against it.
+        .padding(.top, 46)
         .frame(maxWidth: 320)
         // Real frosted glass at the break/lunch banner's radius — this used to
         // be .frostedCard(), which despite the name is an opaque surface fill
@@ -170,7 +174,10 @@ struct EndJobPhotoOverlay: View {
         }
         .buttonStyle(.plain)
         .disabled(isWorking)
-        .padding(12)
+        // 12 put the button hard against the glass edge once the panel radius
+        // went to 46 — the corner arc curls in behind it. 18 matches the clock
+        // PIN pad's X and leaves ~14pt between the button and the arc.
+        .padding(18)
     }
 
     // MARK: Attachment area + Liquid Glass source menu
@@ -184,12 +191,16 @@ struct EndJobPhotoOverlay: View {
     /// other rather than cross-fading. This replaced a `.confirmationDialog`,
     /// whose stock action sheet looked unrelated to every other surface here.
     private var attachmentArea: some View {
+        _ = theme.bgPresetId
         let shape = RoundedRectangle(cornerRadius: T.cornerMd)
         return GlassEffectContainer(spacing: 16) {
             ZStack {
-                // Soft tinted panel, no border — the dashed dropzone outline it
-                // used to carry read as clutter next to the glass "+".
-                shape.fill(Color(hex: T.pillIndigoBg).opacity(0.6))
+                // Recessed well, no border — the dashed dropzone outline it used
+                // to carry read as clutter next to the glass "+". T.wellFill,
+                // not a flat pill tint: this has to be DARKER than the card on
+                // every preset, and the old fixed lavender came out lighter than
+                // the card on the dark ones.
+                shape.fill(T.wellFill)
 
                 if let img = pickedImage {
                     Image(uiImage: img)
@@ -300,11 +311,7 @@ struct EndJobPhotoOverlay: View {
     /// cleared with animations disabled so it never slides, which means the
     /// card has to run its own exit — otherwise it would vanish in one frame.
     private func dismiss(clockOut: Bool) {
-        withAnimation(.easeOut(duration: 0.18)) { appear = false }
-        Task {
-            try? await Task.sleep(nanoseconds: 180_000_000)
-            onClose(clockOut)
-        }
+        modalPopDismiss({ appear = $0 }) { onClose(clockOut) }
     }
 
     // MARK: Source handlers

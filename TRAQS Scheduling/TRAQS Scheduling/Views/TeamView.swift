@@ -455,7 +455,7 @@ struct PersonDetailView: View {
                                 Spacer()
                                 StatusBadge(status: item.op.status)
                             }
-                            .padding(12)
+                            .padding(T.insetMd)
                             .frostedCard(radius: T.cornerMd)
                         }
                     }

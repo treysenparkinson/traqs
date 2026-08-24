@@ -292,7 +292,9 @@ struct MessagesView: View {
                                 LazyVStack(spacing: 12) {
                                     ForEach(threads) { t in
                                         threadRow(t)
-                                            .frostedPill()
+                                            // rim: false — inbox rows are a list,
+                                            // not cards to look at.
+                                            .frostedPill(rim: false)
                                     }
                                 }
                                 .padding(.horizontal, 16)
@@ -1156,8 +1158,8 @@ struct ThreadDetailView: View {
                                 // pill on one line, but grows into a rounded-square as
                                 // the text wraps — a Capsule's height/2 radius would
                                 // curve the sides inward and clip the text.
-                                .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(.ultraThinMaterial))
-                                .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
+                                .background(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).fill(.ultraThinMaterial))
+                                .overlay(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
                                 .lineLimit(1...5)
 
                             // Send is allowed with text OR an attachment (or both).
@@ -1394,7 +1396,7 @@ struct ThreadDetailView: View {
                         .resizable()
                         .scaledToFill()
                         .frame(width: 64, height: 64)
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: T.cornerSm, style: .continuous))
                 } else if let file = pickedFile {
                     VStack(spacing: 3) {
                         Image(systemName: "doc.fill")
@@ -1406,10 +1408,10 @@ struct ThreadDetailView: View {
                             .foregroundStyle(Color(hex: T.muted))
                     }
                     .frame(width: 64, height: 64)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(Color(hex: T.surface)))
+                    .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: T.surface)))
                 }
             }
-            .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: T.hair), lineWidth: 1))
+            .overlay(RoundedRectangle(cornerRadius: T.cornerSm).stroke(Color(hex: T.hair), lineWidth: 1))
 
             Button {
                 pickedImage = nil; pickedFile = nil; photoItem = nil
@@ -1671,7 +1673,7 @@ private struct AttachmentBubble: View {
                     fileChip
                 case .empty:
                     ZStack {
-                        RoundedRectangle(cornerRadius: 16).fill(Color(hex: T.surface))
+                        RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.surface))
                         ProgressView().tint(Color(hex: T.muted))
                     }
                     .frame(width: 200, height: 150)
@@ -1680,8 +1682,8 @@ private struct AttachmentBubble: View {
                 }
             }
             .frame(maxWidth: 220, maxHeight: 260)
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .clipShape(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous)
                 .stroke(Color(hex: T.hair), lineWidth: isMe ? 0 : 1))
         } else {
             fileChip
@@ -1700,7 +1702,7 @@ private struct AttachmentBubble: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous)
                 .fill(isMe ? AnyShapeStyle(T.brandGradient()) : AnyShapeStyle(Color(hex: T.surface)))
         )
     }
@@ -1858,7 +1860,7 @@ struct MessageBubble: View {
                                     // keep the solid brand gradient, which is what
                                     // makes the two sides read apart at a glance.
                                     shape.glassFill()
-                                        .overlay(shape.strokeBorder(Color(hex: T.border), lineWidth: 1))
+                                        .overlay(shape.specularRim())
                                         .compositingGroup()
                                         .shadow(color: .black.opacity(T.ambientShadowOpacity),
                                                 radius: T.ambientShadowRadius * 0.6, x: 0, y: T.ambientShadowY * 0.6)
@@ -1963,20 +1965,24 @@ struct TimeOffRequestBubble: View {
     private var req: TimeOffRequest? {
         appState.timeOffRequests.first { $0.id == message.timeOffRequestId }
     }
-    private var status: String { req?.status ?? "pending" }
+    /// `nil` = not known yet (the request list hasn't loaded). Optional for the
+    /// same reason as CompletionRequestBubble.status: defaulting to "pending"
+    /// put live Approve/Deny on a request whose real status we hadn't got.
+    private var status: String? { req?.status }
     private var type: String { req?.type ?? message.toType ?? "PTO" }
     private var startD: String { req?.start ?? message.toStart ?? "" }
     private var endD: String { req?.end ?? message.toEnd ?? "" }
     private var note: String { req?.note ?? message.toNote ?? "" }
     private var who: String { req?.personName ?? message.toPersonName ?? message.authorName }
     private var typeColor: Color { type == "UTO" ? Color(hex: "#F59E0B") : Color(hex: "#10B981") }
-    private var pending: Bool { status == "pending" }
+    private var pending: Bool { CompletionRequestRules.isActionable(status) }
     private var statusPill: (label: String, kind: TagKind, dot: Bool) {
         switch status {
         case "approved":  return ("Approved", .green, false)
         case "denied":    return ("Denied", .magenta, false)
         case "cancelled": return ("Cancelled", .neutral, false)
-        default:          return ("Pending", .amber, true)
+        case "pending":   return ("Pending", .amber, true)
+        default:          return ("—", .neutral, false)   // unknown, not pending
         }
     }
     private var rangeLabel: String {
@@ -2041,12 +2047,12 @@ struct TimeOffRequestBubble: View {
                             Button { denying = false; reason = "" } label: {
                                 Text("Cancel").font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
                                     .frame(maxWidth: .infinity).padding(.vertical, 11)
-                                    .background(RoundedRectangle(cornerRadius: T.cornerSm).stroke(Color(hex: T.hair), lineWidth: 1))
+                                    .background(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
                             }.buttonStyle(.plain)
                             Button { decide("deny") } label: {
                                 Text("Confirm Deny").font(TTypo.smBold(14)).foregroundStyle(T.onColor("#ef4444"))
-                                    .frame(maxWidth: .infinity).padding(.vertical, 11)
-                                    .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#ef4444")))
+                                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+                                    .background(Capsule().fill(Color(hex: "#ef4444")))
                             }.buttonStyle(.plain).disabled(busy)
                         }
                     }
@@ -2054,20 +2060,20 @@ struct TimeOffRequestBubble: View {
                     HStack(spacing: 10) {
                         Button { denying = true } label: {
                             Text("Deny").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#ef4444"))
-                                .frame(maxWidth: .infinity).padding(.vertical, 12)
-                                .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#ef4444")))
+                                .frame(maxWidth: .infinity).padding(.vertical, 14)
+                                .background(Capsule().fill(Color(hex: "#ef4444")))
                         }.buttonStyle(.plain).disabled(busy)
                         Button { decide("approve") } label: {
                             Text("Approve").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#10b981"))
-                                .frame(maxWidth: .infinity).padding(.vertical, 12)
-                                .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#10b981")))
+                                .frame(maxWidth: .infinity).padding(.vertical, 14)
+                                .background(Capsule().fill(Color(hex: "#10b981")))
                         }.buttonStyle(.plain).disabled(busy)
                     }
                 }
             }
         }
-        .padding(14)
-        .frostedCard(radius: T.cornerMd)
+        .padding(T.insetLg)
+        .frostedCard(radius: T.cornerLg)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
@@ -2097,15 +2103,29 @@ struct CompletionRequestBubble: View {
         guard let id = message.finishRequestId else { return nil }
         return job?.finishRequests?.first { $0.id == id }
     }
-    private var status: String { entry?.status ?? "pending" }
-    private var pending: Bool { status == "pending" }
+    /// `nil` = genuinely NOT KNOWN — the job isn't loaded, or this request isn't
+    /// in its history. Deliberately optional: this used to default to "pending",
+    /// which meant an already-approved request rendered live Approve/Deny
+    /// buttons any time its job was momentarily missing (a failed save rolls the
+    /// whole `jobs` array back), so it could be resolved over and over.
+    private var status: String? {
+        CompletionRequestRules.displayStatus(entries: job?.finishRequests,
+                                             requestId: message.finishRequestId)
+    }
+    /// Actions are offered ONLY for a request we know is pending.
+    private var pending: Bool { CompletionRequestRules.isActionable(status) }
     private var statusPill: (label: String, kind: TagKind, dot: Bool) {
         switch status {
         case "approved": return ("Approved", .green, false)
         case "declined": return ("Declined", .red, false)
-        default:         return ("Pending", .amber, true)
+        case "pending":  return ("Pending", .amber, true)
+        default:         return ("—", .neutral, false)   // unknown, not pending
         }
     }
+    /// Set when a decision is refused — an already-resolved request, or one whose
+    /// job isn't loaded. Without this the press was a silent no-op and the
+    /// buttons just sat there, which read as "I approved it and nothing happened".
+    @State private var refused: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -2147,7 +2167,7 @@ struct CompletionRequestBubble: View {
                 Text(message.text).font(TTypo.sm(13)).foregroundStyle(Color(hex: T.muted))
             }
 
-            if status != "pending", let by = entry?.resolvedByName, !by.isEmpty {
+            if let status, status != "pending", let by = entry?.resolvedByName, !by.isEmpty {
                 Text("\(statusPill.label) by \(by)")
                     .font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted))
             }
@@ -2160,53 +2180,69 @@ struct CompletionRequestBubble: View {
                         Text(message.panelId != nil ? "Undo — reopen task" : "Undo — reopen job")
                     }
                     .font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.accent))
-                    .frame(maxWidth: .infinity).padding(.vertical, 11)
-                    .background(RoundedRectangle(cornerRadius: T.cornerSm).stroke(Color(hex: T.accent).opacity(0.5), lineWidth: 1))
+                    .frame(maxWidth: .infinity).padding(.vertical, 13)
+                    .background(Capsule().stroke(Color(hex: T.accent).opacity(0.5), lineWidth: 1))
                 }.buttonStyle(.plain).disabled(busy)
             }
 
+            if let refused {
+                Text(refused)
+                    .font(TTypo.xs(12)).foregroundStyle(Color(hex: T.muted))
+            }
+
             if appState.isAdmin && pending {
+                // Capsules, matching every other action pill in the app.
                 HStack(spacing: 10) {
                     Button { decide(false) } label: {
                         Text("Deny").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#ef4444"))
-                            .frame(maxWidth: .infinity).padding(.vertical, 12)
-                            .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#ef4444")))
+                            .frame(maxWidth: .infinity).padding(.vertical, 14)
+                            .background(Capsule().fill(Color(hex: "#ef4444")))
                     }.buttonStyle(.plain).disabled(busy)
                     Button { decide(true) } label: {
                         Text("Approve").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#10b981"))
-                            .frame(maxWidth: .infinity).padding(.vertical, 12)
-                            .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#10b981")))
+                            .frame(maxWidth: .infinity).padding(.vertical, 14)
+                            .background(Capsule().fill(Color(hex: "#10b981")))
                     }.buttonStyle(.plain).disabled(busy)
                 }
             }
         }
-        .padding(14)
-        .frostedCard(radius: T.cornerMd)
+        // T.insetMd, not 14: this card is on the rounder radius now, and the
+        // job title was running into the corner arc.
+        .padding(T.insetLg)
+        .frostedCard(radius: T.cornerLg)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func decide(_ approve: Bool) {
         guard let jobId = message.jobId, let reqId = message.finishRequestId else { return }
         busy = true   // disables buttons during the async; status then drives visibility
+        refused = nil
         Task {
+            let ok: Bool
             if approve {
-                await appState.approveJobCompletion(jobId: jobId, panelId: message.panelId,
-                                                    opId: message.opId, requestId: reqId)
+                ok = await appState.approveJobCompletion(jobId: jobId, panelId: message.panelId,
+                                                         opId: message.opId, requestId: reqId)
             } else {
-                await appState.denyJobCompletion(jobId: jobId, panelId: message.panelId,
-                                                 opId: message.opId, requestId: reqId)
+                ok = await appState.denyJobCompletion(jobId: jobId, panelId: message.panelId,
+                                                      opId: message.opId, requestId: reqId)
             }
             busy = false
+            // A refusal means the request was already resolved (or its job isn't
+            // loaded). Say so — the old code returned silently and left the
+            // buttons up, which looked like the tap had done nothing.
+            if !ok { refused = "Already resolved — pull to refresh." }
         }
     }
 
     private func undo() {
         guard let jobId = message.jobId, let reqId = message.finishRequestId else { return }
         busy = true
+        refused = nil
         Task {
-            await appState.undoJobCompletion(jobId: jobId, panelId: message.panelId,
-                                             opId: message.opId, requestId: reqId)
+            let ok = await appState.undoJobCompletion(jobId: jobId, panelId: message.panelId,
+                                                      opId: message.opId, requestId: reqId)
             busy = false
+            if !ok { refused = "Already reopened — pull to refresh." }
         }
     }
 }
@@ -2519,9 +2555,9 @@ struct EditGroupSheet: View {
                                 .textFieldStyle(.plain)
                                 .foregroundColor(Color(hex: T.text))
                                 .padding(12)
-                                .background(RoundedRectangle(cornerRadius: 10).glassFill())
-                                .overlay(RoundedRectangle(cornerRadius: 10)
-                                    .stroke(Color(hex: T.border), lineWidth: 1))
+                                .background(RoundedRectangle(cornerRadius: T.cornerSm).glassFill())
+                                .overlay(RoundedRectangle(cornerRadius: T.cornerSm)
+                                    .specularRim())
                                 .padding(.horizontal, 16)
 
                             Text("Clear it to go back to naming the group after its members.")
@@ -2558,7 +2594,7 @@ struct EditGroupSheet: View {
                                 .padding(.vertical, 14)
                                 .background(selectedIds.isEmpty ? Color(hex: T.border) : Color(hex: T.accent))
                                 .foregroundColor(T.onAccent)
-                                .cornerRadius(12)
+                                .cornerRadius(T.cornerSm)
                         }
                         .buttonStyle(.plain)
                         .disabled(selectedIds.isEmpty)
@@ -2802,8 +2838,8 @@ struct NewGroupSheet: View {
                                 .foregroundColor(Color(hex: T.text))
                                 .padding(12)
                                 .background(Color(hex: T.surface))
-                                .cornerRadius(10)
-                                .overlay(RoundedRectangle(cornerRadius: 10).stroke(Color(hex: T.border), lineWidth: 1))
+                                .cornerRadius(T.cornerSm)
+                                .overlay(RoundedRectangle(cornerRadius: T.cornerSm).stroke(Color(hex: T.border), lineWidth: 1))
                                 .padding(.horizontal, 16)
                         }
 
@@ -2840,7 +2876,7 @@ struct NewGroupSheet: View {
                                 .padding(.vertical, 14)
                                 .background(selectedIds.isEmpty ? Color(hex: T.border) : Color(hex: T.accent))
                                 .foregroundColor(T.onAccent)
-                                .cornerRadius(12)
+                                .cornerRadius(T.cornerSm)
                         }
                         .buttonStyle(.plain)
                         .disabled(selectedIds.isEmpty)
@@ -3083,8 +3119,8 @@ struct NewMessageSheet: View {
                             .font(TTypo.smBold(15))
                             .foregroundStyle(Color(hex: T.ink))
                             .padding(.horizontal, 24).padding(.vertical, 14)
-                            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(Color(hex: T.surface)))
-                            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
+                            .background(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).fill(Color(hex: T.surface)))
+                            .overlay(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
                             .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 4)
                     }
                     .buttonStyle(.plain)
@@ -3099,7 +3135,7 @@ struct NewMessageSheet: View {
                         .foregroundStyle(T.onGradient)
                         .padding(.horizontal, 24).padding(.vertical, 14)
                         .background(
-                            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous)
                                 // Disabled = muted grey, not progressTrack: that
                                 // chart token is near-white on light presets, which
                                 // left this button invisible AND its white label

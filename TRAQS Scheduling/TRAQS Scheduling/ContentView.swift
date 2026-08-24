@@ -176,8 +176,8 @@ private struct OrgPickerView: View {
                             }
                             .padding()
                             .background(Color(hex: T.surface))
-                            .cornerRadius(12)
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: T.border), lineWidth: 1))
+                            .cornerRadius(T.cornerSm)
+                            .overlay(RoundedRectangle(cornerRadius: T.cornerSm).stroke(Color(hex: T.border), lineWidth: 1))
                         }
                         .buttonStyle(.plain)
                     }
@@ -234,7 +234,7 @@ private struct ErrorBanner: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(Color.red.opacity(0.92))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: T.cornerSm, style: .continuous))
                 .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
                 .padding(.horizontal, 12)
                 .padding(.top, 8)

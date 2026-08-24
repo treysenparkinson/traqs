@@ -94,6 +94,9 @@ struct SBox<Content: View>: View {
     var fill: Color? = nil           // nil = white SURFACE
     var stroke: Color? = nil         // nil = hairline T.hair
     var dashed: Bool = false
+    /// `false` drops the glass bevel for a plain hairline. Long lists of rows
+    /// set this — see `flatHairline`.
+    var rim: Bool = true
     var raised: Bool = false         // adds soft raised shadow
     var sky: Bool = false            // adds active sky-tinted shadow + 1px sky ring
     var active: Bool = false         // like `sky` but uses the brand gradient START (indigo) — for the active hero card
@@ -127,7 +130,17 @@ struct SBox<Content: View>: View {
         // by the stroke ring, not the shadow).
         return content()
             .background {
-                if let f { shape.fill(f) } else { shape.glassFill() }
+                // The glass branch gets the rim inside `glassFill()`. The solid
+                // branch doesn't go through it, so it takes the rim here —
+                // otherwise a state-tinted card would be the one flat-edged
+                // surface sitting in a list of glass ones. Scoped to the
+                // background, so the blend group wraps the fill only and the
+                // card's content never pays for it.
+                if let f {
+                    shape.fill(f)
+                } else {
+                    shape.glassFill()
+                }
             }
             .overlay { glowOverlay(shape) }
             .overlay { strokeOverlay(shape, hairline: s, highlight: highlight) }
@@ -148,9 +161,17 @@ struct SBox<Content: View>: View {
     @ViewBuilder
     private func strokeOverlay(_ shape: RoundedRectangle, hairline: Color, highlight: Color?) -> some View {
         ZStack {
-            // Flat hairline border only — no glossy white top-edge reflection.
-            shape.strokeBorder(style: StrokeStyle(lineWidth: 1, dash: dashed ? [4, 3] : []))
-                .foregroundStyle(hairline)
+            // The glass rim carries the hairline as its middle stop, so this is
+            // one stroke, not a rim plus a border painted over it. A dashed box
+            // is the exception — a dashed dropzone edge is a state, not glass.
+            if dashed {
+                shape.strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    .foregroundStyle(hairline)
+            } else if rim {
+                shape.specularRim()
+            } else {
+                shape.flatHairline(hairline)
+            }
             if let highlight {               // active/sky/amber ring
                 shape.strokeBorder(highlight.opacity(0.35), lineWidth: 1)
             }
@@ -896,6 +917,8 @@ struct GradientRing: View {
 struct FrostedCard: ViewModifier {
     @Environment(ThemeSettings.self) private var theme
     var radius: CGFloat = T.cornerHero
+    /// `false` drops the glass bevel for a plain hairline — see `flatHairline`.
+    var rim: Bool = true
     func body(content: Content) -> some View {
         // Touch the theme so a live Customize background/accent change
         // re-renders every surface immediately (the T.* tokens it
@@ -916,20 +939,26 @@ struct FrostedCard: ViewModifier {
         // keeps a card's edge findable against a moving background.
         return content
             .background(shape.glassFill())
-            .overlay(shape.strokeBorder(Color(hex: T.border), lineWidth: 1))
+            // ONE stroke: the glass rim, which carries the flat hairline as its
+            // middle stop. This used to be a separate opaque `T.border` overlay
+            // painted straight over the rim, which is why cards had no visible
+            // glass edge. Still a plain stroke with no blend mode, so the note
+            // above about avoiding offscreen passes holds.
+            .overlay(rim ? AnyView(shape.specularRim()) : AnyView(shape.flatHairline()))
     }
 }
 
 extension View {
-    func frostedCard(radius: CGFloat = T.cornerHero) -> some View {
-        modifier(FrostedCard(radius: radius))
+    /// `rim: false` for rows in a long list — the glass bevel is for cards.
+    func frostedCard(radius: CGFloat = T.cornerHero, rim: Bool = true) -> some View {
+        modifier(FrostedCard(radius: radius, rim: rim))
     }
     /// Same frosted treatment as `frostedCard` but fully pill-shaped (Capsule).
-    func frostedPill() -> some View {
-        modifier(FrostedPill())
+    func frostedPill(rim: Bool = true) -> some View {
+        modifier(FrostedPill(rim: rim))
     }
     /// Real frosted glass, for modal surfaces. See `GlassPanel`.
-    func glassPanel(radius: CGFloat = 36) -> some View {
+    func glassPanel(radius: CGFloat = 46) -> some View {
         modifier(GlassPanel(radius: radius))
     }
 }
@@ -959,17 +988,26 @@ extension View {
 /// turning them opaque).
 let glassSurfaceTint: Double = 0.22
 
-extension Shape {
+// `InsettableShape`, not `Shape`: the specular rim below is drawn with
+// `strokeBorder`, which insets by half the line width so the stroke lands
+// INSIDE the fill instead of straddling its edge. Every caller was already
+// insettable (they all stroke their own borders), so this narrowed nothing.
+extension InsettableShape {
     /// Frosted-glass fill for a shape — a drop-in for `.fill(Color(hex: T.surface))`
     /// on containers that build their own background and border rather than going
     /// through `.frostedCard()`. Swapping just the fill leaves their existing
     /// overlays, strokes and shadows untouched.
     ///
+    /// This is the FILL only. The glass edge is a separate overlay — see
+    /// `specularRim()` — because it has to sit above the surface, not inside
+    /// its background where the call site's own border would cover it.
+    ///
     /// For containers only. Buttons, text fields, chips and status marks keep
     /// solid fills: they need to read as opaque objects ON the glass, and an input
     /// you're typing into shouldn't have moving colour behind the caret.
     /// With glass switched off this paints the flat opaque surface colour — white
-    /// on light presets, near-black on Charcoal.
+    /// on light presets, near-black on Charcoal — and drops the rim with it,
+    /// which is the point: no glass, no glass edge.
     @ViewBuilder
     func glassFill() -> some View {
         if T.glassEnabled {
@@ -983,11 +1021,140 @@ extension Shape {
     }
 }
 
+// ── The app-wide glass edge ────────────────────────────────────────────────
+//
+// One recipe, used by every frosted surface: cards, pills, modal panels, and
+// the controls that sit on them. Bright at the top-left, gone by the
+// bottom-right, the way a real glass edge picks up a single light source.
+//
+// Lit on one side, shadowed on the other — a glass edge needs both halves to
+// read. See `T.rimTop` / `T.rimShade` for why: an earlier highlight-only
+// version used `.plusLighter`, which is additive, so on the light presets the
+// white stroke clamped to white and the rim simply wasn't there.
+//
+// Plain blending, deliberately. That means no compositing group, so this is
+// cheap enough for the surfaces that render per-row down long lists.
+//
+// This stroke REPLACES a surface's flat hairline rather than joining it. The
+// hairline (`T.border`) is opaque and was drawn as an overlay on top of the
+// rim, covering 83% of it — which is why the rim only ever showed on
+// GlassPanel, the one surface with no hairline. So the hairline colour is now
+// the gradient's middle stop: the edge stays findable all the way round (the
+// whole reason the hairline existed) and there is only ever ONE stroke.
+extension InsettableShape {
+    /// The plain edge — the flat hairline on its own, no bevel. For surfaces
+    /// that opt OUT of the glass look via `rim: false`: long lists of rows,
+    /// where a lit edge on every row reads as noise rather than as material.
+    /// The rim is for cards you're meant to look AT.
+    func flatHairline(_ color: Color = Color(hex: T.border), lineWidth: CGFloat = 1) -> some View {
+        strokeBorder(color, lineWidth: lineWidth)
+            .allowsHitTesting(false)
+    }
+
+    /// The glass rim: highlight at the top-left, the flat hairline through the
+    /// middle, shadow at the bottom-right. Use INSTEAD of a `T.border` /
+    /// `T.hair` stroke, never on top of one.
+    func specularRim(lineWidth: CGFloat = T.rimWidth) -> some View {
+        strokeBorder(
+            LinearGradient(
+                stops: [
+                    .init(color: Color(hex: T.highlightStroke).opacity(T.rimTop), location: 0.00),
+                    .init(color: Color(hex: T.highlightStroke).opacity(T.rimMid), location: 0.26),
+                    .init(color: Color(hex: T.border),                            location: 0.50),
+                    .init(color: .black.opacity(T.rimShade),                      location: 1.00),
+                ],
+                startPoint: .topLeading, endPoint: .bottomTrailing),
+            lineWidth: lineWidth)
+        .allowsHitTesting(false)
+    }
+}
+
+extension View {
+    /// Puts the glass rim on this view. The shape must match the surface's own —
+    /// a rim tracing a different radius than the fill under it is worse than no
+    /// rim at all.
+    func glassRim<S: InsettableShape>(_ shape: S, lineWidth: CGFloat = T.rimWidth) -> some View {
+        overlay(shape.specularRim(lineWidth: lineWidth))
+    }
+
+    /// Convenience for the common case: a continuous rounded rect.
+    func glassRim(radius: CGFloat, lineWidth: CGFloat = T.rimWidth) -> some View {
+        glassRim(RoundedRectangle(cornerRadius: radius, style: .continuous),
+                 lineWidth: lineWidth)
+    }
+}
+
+// ── The app's one modal entrance ───────────────────────────────────────────
+//
+// Every popup swells into place at the centre: 0.88 → 1 with a matching fade,
+// on one spring. Used by the end-job attachment prompt, the lunch/break shout,
+// and the clock PIN pad, so all three arrive with the same weight.
+//
+// Two rules for call sites, both learned the hard way:
+//
+//  1. Nothing may slide. These are centred modals; anything that moves in from
+//     an edge reads as arriving from outside the screen rather than opening
+//     where you're looking.
+//  2. THE PRESENTER MUST NOT ANIMATE. The modal owns its whole entrance and
+//     exit; the parent only adds or removes it. Concretely, the presenting site
+//     needs all three of:
+//
+//       - `.transition(.identity)`, since SwiftUI's default insertion is a fade
+//         that would run alongside this spring;
+//       - NO `.animation(_:value:)` on the presenting flag. That modifier
+//         applies to the WHOLE subtree, so it also springs the page blur and
+//         the layout underneath — which reads as glitching, not as a popup;
+//       - every write to the flag wrapped in `withTransaction(.noAnimation)`.
+//
+//     A `.fullScreenCover` gets this for free from `withTransaction(.noAnimation)`
+//     on its binding, which is why the end-job attachment prompt has always
+//     looked right and the in-hierarchy modals had to be brought to match it.
+//
+//  3. Exit is `modalPopDismiss`, NOT a removal transition — the modal animates
+//     itself out and only then lets the presenter tear it down.
+let modalPopAnimation: Animation = .spring(response: 0.34, dampingFraction: 0.72)
+
+struct ModalPop: ViewModifier {
+    /// Flipped true in the modal's `onAppear`, inside `withAnimation(modalPopAnimation)`.
+    let shown: Bool
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(shown ? 1 : 0.88)
+            .opacity(shown ? 1 : 0)
+    }
+}
+
+extension View {
+    func modalPop(_ shown: Bool) -> some View { modifier(ModalPop(shown: shown)) }
+}
+
+/// The exit curve, and how long a presenter must wait before tearing the modal
+/// down. These two MUST stay in step — clear the flag early and the modal
+/// vanishes mid-animation.
+let modalPopExitAnimation: Animation = .easeOut(duration: 0.18)
+let modalPopExitNanos: UInt64 = 180_000_000
+
+/// Runs the shared modal exit: shrink and fade out, then hand back to the
+/// presenter once the animation has actually finished.
+///
+/// The presenter's callback MUST clear its flag inside
+/// `withTransaction(.noAnimation)` — see the note on `modalPopAnimation`.
+@MainActor
+func modalPopDismiss(_ shown: @escaping (Bool) -> Void,
+                     then finish: @escaping () -> Void) {
+    withAnimation(modalPopExitAnimation) { shown(false) }
+    Task {
+        try? await Task.sleep(nanoseconds: modalPopExitNanos)
+        finish()
+    }
+}
+
 struct GlassPanel: ViewModifier {
     @Environment(ThemeSettings.self) private var theme
-    /// Default 36 — softer than any card on a page, so a modal reads as a
-    /// floating pebble rather than another panel.
-    var radius: CGFloat = 36
+    /// Default 46 — the clock PIN pad's radius, which set the house shape. Still
+    /// softer than a card (T.cornerHero, 42), so a modal reads as a floating
+    /// pebble rather than another panel.
+    var radius: CGFloat = 46
 
     func body(content: Content) -> some View {
         // Touch the theme so a live Customize change re-tints the surface (the
@@ -1007,6 +1174,10 @@ struct GlassPanel: ViewModifier {
                     shape.fill(Color(hex: T.surface).opacity(glassSurfaceTint))
                 }
             }
+            // The app-wide glass edge. Applied before the group below so it is
+            // inside the shadow's compositing group rather than casting one of
+            // its own.
+            .overlay(shape.specularRim())
             // Modals float over content, so they need their own lift. Cards
             // deliberately skip this — see FrostedCard.
             .compositingGroup()
@@ -1078,15 +1249,16 @@ let modalPageBlurRadius: CGFloat = 3
 // hairline border + ambient float shadow, with capsule ends).
 struct FrostedPill: ViewModifier {
     @Environment(ThemeSettings.self) private var theme
+    var rim: Bool = true
     func body(content: Content) -> some View {
         _ = theme.bgPresetId; _ = theme.accent; _ = theme.frostedGlass
         let shape = Capsule(style: .continuous)
-        // The capsule variant of FrostedCard — same glass recipe, same reason for
-        // skipping the shadow/compositingGroup (these render per-row in the
-        // Messages inbox).
+        // The capsule variant of FrostedCard — same glass recipe, and the rim
+        // rides along inside `glassFill()`, so a pill and a card are the same
+        // material by construction.
         return content
             .background(shape.glassFill())
-            .overlay(shape.strokeBorder(Color(hex: T.border), lineWidth: 1))
+            .overlay(rim ? AnyView(shape.specularRim()) : AnyView(shape.flatHairline()))
     }
 }
 
@@ -1172,7 +1344,13 @@ struct TagPill: View {
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 4)
-        .background(Capsule().fill(kind.bg))
+        .background(
+            Capsule().fill(kind.bg)
+                // Thinner than the house 1.2: a chip is ~20pt tall, and the full
+                // width reads as a bright outline at that size rather than as an
+                // edge catching light.
+                .overlay(Capsule().specularRim(lineWidth: 0.8))
+        )
     }
 }
 

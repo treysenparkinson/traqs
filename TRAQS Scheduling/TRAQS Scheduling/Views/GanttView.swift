@@ -1264,7 +1264,7 @@ private struct DatePickerSheet: View {
                     .datePickerStyle(.graphical)
                     .labelsHidden()
                     .tint(Color(hex: T.sky))
-                    .padding(.horizontal, 16)
+                    .padding(.horizontal, T.insetLg)
                     .frostedCard(radius: T.cornerLg)
                     .padding(.horizontal, 16)
 

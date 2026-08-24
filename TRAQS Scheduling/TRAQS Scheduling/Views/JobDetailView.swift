@@ -92,7 +92,7 @@ struct JobDetailView: View {
                         }
                         .padding(.top, 2)
                     }
-                    .padding(18)
+                    .padding(T.insetHero)
                     .frostedCard(radius: T.cornerHero)
 
                     // Info grid
@@ -235,7 +235,7 @@ struct InfoCell: View {
             }
             Spacer()
         }
-        .padding(12)
+        .padding(T.insetMd)
         .frostedCard(radius: T.cornerMd)
     }
 }

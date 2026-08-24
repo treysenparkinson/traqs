@@ -901,7 +901,7 @@ private struct OverHoursList: View {
                 ForEach(jobs) { OverHoursRow(job: $0) }
             }
         }
-        .frostedCard(radius: T.cornerMd)
+        .frostedCard(radius: T.cornerMd, rim: false)   // a list, not a card to look at
     }
 }
 
@@ -987,7 +987,7 @@ private struct EfficiencyCard: View {
                 Spacer()
             }
         }
-        .padding(18)
+        .padding(T.insetHero)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frostedCard(radius: T.cornerHero)
     }
@@ -1147,7 +1147,7 @@ private struct RunningEntryCard: View {
             }
             .fixedSize()
         }
-        .padding(14)
+        .padding(T.insetHero)
         .frostedCard()
     }
 }
@@ -1188,7 +1188,7 @@ private struct EntryGroupCard: View {
                     }
                 }
             }
-            .frostedCard(radius: T.cornerMd)
+            .frostedCard(radius: T.cornerMd, rim: false)   // a list, not a card to look at
         }
     }
 }
@@ -1242,7 +1242,7 @@ private struct HoursEmptyState: View {
                 .foregroundStyle(Color(hex: T.muted))
         }
         .frame(maxWidth: .infinity)
-        .padding(22)
+        .padding(T.insetHero)
         .frostedCard()
     }
 }

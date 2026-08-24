@@ -481,7 +481,7 @@ struct AvailabilityCheckSheet: View {
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(RoundedRectangle(cornerRadius: T.cornerMd).glassFill())
-                    .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.border)))
+                    .overlay(RoundedRectangle(cornerRadius: T.cornerMd).specularRim())
             }
 
             Button {
@@ -590,10 +590,10 @@ struct AvailabilityCheckSheet: View {
                                         .font(.system(size: 12, weight: .semibold))
                                         .foregroundStyle(Color(hex: T.muted))
                                 }
-                                .padding(12)
+                                .padding(T.insetMd)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .background(RoundedRectangle(cornerRadius: T.cornerMd).glassFill())
-                                .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.border)))
+                                .overlay(RoundedRectangle(cornerRadius: T.cornerMd).specularRim())
                             }
                             .buttonStyle(.plain)
                         }
@@ -647,14 +647,14 @@ struct AvailabilityCheckSheet: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: T.cornerMd).glassFill())
-        .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.border)))
+        .overlay(RoundedRectangle(cornerRadius: T.cornerMd).specularRim())
     }
 
     private func fieldCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: 10) { content() }
             .padding(14)
             .background(RoundedRectangle(cornerRadius: T.cornerMd).glassFill())
-            .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.border)))
+            .overlay(RoundedRectangle(cornerRadius: T.cornerMd).specularRim())
     }
 
     // Compute + AI

@@ -281,6 +281,9 @@ private struct StatTile: View {
                 .lineLimit(1)
         }
         .frame(maxWidth: .infinity)
+        // Deliberately below T.insetMd: the content is centred in a full-width
+        // tile, so it never comes near the corner arc, and a wider inset only
+        // costs the label width it needs before minimumScaleFactor shrinks it.
         .padding(.horizontal, 4)
         .padding(.vertical, 12)
         .frostedCard(radius: T.cornerMd)
@@ -457,7 +460,7 @@ private struct OnJobCard: View {
                     .padding(.top, 2)
             }
         }
-        .padding(12)
+        .padding(T.insetMd)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frostedCard(radius: T.cornerMd)
     }
@@ -489,7 +492,7 @@ private struct OnBreakCard: View {
                                sinceISO: person.activeBreak?.startedAt)
             }
         }
-        .padding(12)
+        .padding(T.insetMd)
         .frostedCard(radius: T.cornerMd)
     }
 }
@@ -519,7 +522,7 @@ private struct OnLunchCard: View {
                 ProductionPill(label: "Lunch", kind: .amber, sinceISO: sinceISO)
             }
         }
-        .padding(12)
+        .padding(T.insetMd)
         .frostedCard(radius: T.cornerMd)
     }
 }
@@ -560,7 +563,7 @@ private struct IdleOrOfflineCard: View {
                 }
             }
         }
-        .padding(12)
+        .padding(T.insetMd)
         .frostedCard(radius: T.cornerMd)
     }
 }

@@ -56,13 +56,38 @@ enum T {
     static let priHigh   = "#EF4444"
 
     // ── Corner radii (revamp: rounder, softer everywhere) ───────────────────
-    static let cornerXs: CGFloat = 7
-    static let cornerSm: CGFloat = 10    // chips, small pills
-    static let cornerMd: CGFloat = 16    // body cards, list rows
-    static let cornerLg: CGFloat = 20    // hero cards, large surfaces
-    static let cornerXl: CGFloat = 24    // very large surfaces
+    //
+    // Rounded up across the board so every surface matches the clock PIN pad,
+    // which set the house radius. The whole scale moved together rather than
+    // one token at a time — a card at 22 next to a chip still at 10 reads as a
+    // mistake, where both moving reads as the app's shape.
+    //
+    // Two tokens deliberately did NOT move: `cornerBlock` (the schedule
+    // timeline's bars are near-square per spec, and rounding them costs
+    // readable width on short blocks) and `cornerPill` (already fully round).
+    static let cornerXs: CGFloat = 10    // was 7
+    static let cornerSm: CGFloat = 14    // was 10 — chips, small pills
+    static let cornerMd: CGFloat = 22    // was 16 — body cards, list rows
+    static let cornerLg: CGFloat = 28    // was 20 — hero cards, large surfaces
+    static let cornerXl: CGFloat = 34    // was 24 — very large surfaces
     static let cornerPill: CGFloat = 9999
     static let cornerBlock: CGFloat = 3  // schedule-timeline bars — nearly square per spec
+
+    // ── Content insets, paired to the radii above ──────────────────────────
+    //
+    // A rounded corner eats into the box: on a 42pt corner the shape's left
+    // edge is still 9pt inboard at the height of the first line of text, so a
+    // 16pt inset leaves only 7pt of real clearance and a 12pt inset actually
+    // collides with the arc. These are the insets that keep text clear —
+    // roughly 0.55 × radius, which lands ~20pt of clearance at every step.
+    //
+    // Use these instead of a literal whenever the padding is insetting content
+    // inside one of these shapes. That way the two move together the next time
+    // the radius scale changes, rather than the padding silently going stale.
+    static let insetSm:   CGFloat = 10   // pairs with cornerSm   (14)
+    static let insetMd:   CGFloat = 14   // pairs with cornerMd   (22)
+    static let insetLg:   CGFloat = 18   // pairs with cornerLg   (28)
+    static let insetHero: CGFloat = 24   // pairs with cornerHero (42)
 
     // ── Shadow recipes ─────────────────────────────────────────────────────
     static let raisedShadowOpacity: Double  = 0.06
@@ -110,6 +135,26 @@ enum T {
     /// Hairline around a control fill; gives the shape an edge on glass.
     static var controlHairline: Color { Color(hex: ink).opacity(0.07) }
 
+    /// Whether the active background preset is a dark one. Derived from the
+    /// ink, which the preset writes (`applyBgToT`): light presets set a near
+    /// black ink, dark presets a near white one. Lets the `T.*` helpers below
+    /// adapt without needing a view context to read ThemeSettings.
+    static var isDarkTheme: Bool { Color(hex: ink).perceivedBrightness > 140 }
+
+    /// Fill for a RECESSED area — a dropzone, an attachment well, an input
+    /// trough — that should read as sunk INTO the surface it sits on. So it is
+    /// always darker than that surface: a soft indigo tint on light presets,
+    /// and genuinely dark on dark ones.
+    ///
+    /// This used to be a flat `pillIndigoBg` at 0.6. That token is a `static
+    /// let` light lavender with no preset awareness, so on a dark theme the
+    /// end-job attachment box came out as a pale slab floating on a dark card —
+    /// lighter than everything around it, which is the opposite of recessed.
+    static var wellFill: Color {
+        isDarkTheme ? Color.black.opacity(0.30)
+                    : Color(hex: pillIndigoBg).opacity(0.6)
+    }
+
     // ── Frosted glass on/off ──
     // Mirrors ThemeSettings.frostedGlass. Lives on T because the glass helpers
     // include `Shape.glassFill()`, a Shape extension — it has no view context, so
@@ -131,8 +176,35 @@ enum T {
     static let presenceIdle  = "#9AA0AC"
 
     // ── New radius + glassy highlight stroke ──
-    static let cornerHero: CGFloat = 30            // hero / large frosted cards (matches the Jobs cards)
+    static let cornerHero: CGFloat = 42            // was 30 — hero / large frosted cards
     static let highlightStroke = "#FFFFFF"         // used at low alpha as a white→clear top edge
+
+    // ── Specular rim (the app-wide glass edge) ─────────────────────────────
+    //
+    // Every frosted surface is edged with a stroke of `highlightStroke` that is
+    // bright at the top-left and gone by the bottom-right — the way a real
+    // glass edge picks up a single light source. Drawn with `.plusLighter`, so
+    // it ADDS light to whatever is under it instead of painting white on top;
+    // that's what keeps it from going chalky on the light presets and invisible
+    // on Charcoal.
+    //
+    // A real glass edge is lit on one side and in shadow on the other, and it
+    // needs BOTH to read. An earlier version was highlight-only, drawn with
+    // `.plusLighter` — which is additive, so on a near-white card the white
+    // stroke clamped straight to white and the rim was invisible on every light
+    // preset. It only ever showed on Charcoal.
+    //
+    // So: white down the top-left, transparent through the middle, and a soft
+    // dark down the bottom-right. Normal blending, no `.plusLighter` — which
+    // also means no compositing group, so this costs nothing to render and is
+    // safe on the surfaces that draw per-row in long lists.
+    //
+    // THE dials for the whole app's glass edge. `rimShade` is what carries the
+    // effect on light presets; `rimTop` is what carries it on dark ones.
+    static let rimTop:   Double  = 0.55   // highlight at the top-left corner
+    static let rimMid:   Double  = 0.10   // where the highlight has fallen off
+    static let rimShade: Double  = 0.18   // shadow down the bottom-right
+    static let rimWidth: CGFloat = 1.2
 
     // ── CTA glow shadow (accompanies every gradient pill) ──
     static var ctaGlowColor   = "#7B5BE8"          // mirrors accent end for custom accents

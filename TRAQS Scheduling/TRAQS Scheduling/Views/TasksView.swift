@@ -893,9 +893,9 @@ private struct MonthCalendar: View {
                 }
             }
         }
-        .padding(14)
+        .padding(T.insetLg)
         .background(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).glassFill())
-        .overlay(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).specularRim())
         .shadow(color: Color.black.opacity(T.raisedShadowOpacity),
                 radius: T.raisedShadowRadius, x: 0, y: T.raisedShadowY)
     }
@@ -1032,9 +1032,9 @@ private struct YearHeatmap: View {
                 }
             }
         }
-        .padding(14)
+        .padding(T.insetLg)
         .background(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).glassFill())
-        .overlay(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).specularRim())
         .shadow(color: Color.black.opacity(T.raisedShadowOpacity),
                 radius: T.raisedShadowRadius, x: 0, y: T.raisedShadowY)
     }
@@ -1487,7 +1487,12 @@ struct TaskCardV1: View {
                                           : await appState.endBreak()
                         breakBusy = false
                         if ok {
-                            withAnimation(.easeOut(duration: 0.18)) {
+                            // No animation here: the banner runs its own
+                            // entrance (see ModalPop), and an ambient curve on
+                            // this write plays underneath it — which is what
+                            // made the break/lunch popup arrive differently
+                            // from the end-job attachment prompt below.
+                            withTransaction(.noAnimation) {
                                 appNav.jobsBreakBanner = starting ? .breakStarted : .breakEnded
                                 appNav.blurTabBar = true
                             }
@@ -1657,7 +1662,11 @@ private struct AllJobsCard: View {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                SBox(size: .md) {
+                // rim: false — this is a browseable list of thin rows, and a lit
+                // edge on every one reads as noise. The glass rim is kept for
+                // the TaskCardV1 cards revealed on expand, which are the ones
+                // carrying the START / BREAK / STOP actions.
+                SBox(size: .md, rim: false) {
                     HStack(spacing: 10) {
                         Circle().fill(Color(hex: job.color)).frame(width: 7, height: 7)
 
@@ -1816,7 +1825,7 @@ private struct LogTimeConfirmSheet: View {
                         metricRow("Window", dateRange, sub: nil)
                     }
                 }
-                .padding(18)
+                .padding(T.insetHero)
                 .frostedCard(radius: T.cornerHero)
                 .padding(.horizontal, 24)
 
@@ -1903,7 +1912,7 @@ struct JobRow: View {
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
         .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).glassFill())
-        .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
+        .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).specularRim())
     }
 }
 

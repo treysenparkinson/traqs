@@ -200,14 +200,13 @@ struct TimeClockView: View {
                 ClockPinOverlay(
                     title: "Clock In",
                     personName: appState.currentPerson?.name,
-                    onCancel: { withAnimation(.easeOut(duration: 0.15)) { showPinPrompt = false } },
-                    onSubmit: { pin in
-                        let ok = await appState.payClockIn(pin: pin)
-                        if ok { withAnimation(.easeOut(duration: 0.15)) { showPinPrompt = false } }
-                        return ok
-                    }
+                    onClose: { withTransaction(.noAnimation) { showPinPrompt = false } },
+                    onSubmit: { pin in await appState.payClockIn(pin: pin) }
                 )
-                .transition(.opacity)
+                // Entry is the pad's OWN spring (see ClockPinOverlay.appear) —
+                // an insertion transition here would cross-fade on top of it and
+                // fight the scale. Removal still fades.
+                .transition(.identity)   // the pad animates itself — see ModalPop
                 .zIndex(10)
             }
 
@@ -217,14 +216,13 @@ struct TimeClockView: View {
                 ClockPinOverlay(
                     title: "Clock Out",
                     personName: appState.currentPerson?.name,
-                    onCancel: { withAnimation(.easeOut(duration: 0.15)) { showClockOutPin = false } },
-                    onSubmit: { pin in
-                        let ok = await appState.payClockOut(pin: pin)
-                        if ok { withAnimation(.easeOut(duration: 0.15)) { showClockOutPin = false } }
-                        return ok
-                    }
+                    onClose: { withTransaction(.noAnimation) { showClockOutPin = false } },
+                    onSubmit: { pin in await appState.payClockOut(pin: pin) }
                 )
-                .transition(.opacity)
+                // Entry is the pad's OWN spring (see ClockPinOverlay.appear) —
+                // an insertion transition here would cross-fade on top of it and
+                // fight the scale. Removal still fades.
+                .transition(.identity)   // the pad animates itself — see ModalPop
                 .zIndex(10)
             }
 
@@ -232,16 +230,13 @@ struct TimeClockView: View {
             // triggered mid-flow is never buried.
             if let banner {
                 ClockActionBanner(kind: banner) {
-                    withAnimation(.easeOut(duration: 0.18)) { self.banner = nil }
+                    withTransaction(.noAnimation) { self.banner = nil }
                 }
                 .id(banner)
-                .transition(.opacity)
+                .transition(.identity)
                 .zIndex(20)
             }
         }
-        .animation(.easeInOut(duration: 0.18), value: showPinPrompt)
-        .animation(.easeInOut(duration: 0.18), value: showClockOutPin)
-        .animation(.easeInOut(duration: 0.18), value: banner)
         // Confirm fallback for people with no PIN set — still guards the
         // full-width Clock Out button against a stray tap.
         .alert("Clock out?", isPresented: $showClockOutConfirm) {
@@ -275,7 +270,7 @@ struct TimeClockView: View {
     /// Show the big confirmation. Replaces whatever is on screen so a fast
     /// Lunch→Break tap reads the second action, not a stale first one.
     private func showBanner(_ kind: ClockActionBannerKind) {
-        withAnimation(.easeOut(duration: 0.18)) { banner = kind }
+        withTransaction(.noAnimation) { banner = kind }
     }
 
     private func reload() async {
@@ -457,7 +452,7 @@ private struct RingStatCard: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 18)
-        .padding(.horizontal, 12)
+        .padding(.horizontal, T.insetHero)
         .frostedCard()
     }
 }
@@ -697,22 +692,21 @@ private struct WeekBarsCard: View {
                 }
             }
         }
-        .padding(16)
+        .padding(T.insetHero)
         .frostedCard()
     }
 }
 
 // MARK: - Clock PIN overlay (task 2)
 
-// A focused numeric PIN pad shown before clocking in OR out when the person has
-// a PIN set. `title` names the action so the two uses are never confused.
-// `onSubmit` returns whether the PIN was accepted; a rejection clears the entry
-// and shows "Incorrect PIN" so the worker can retry.
 private struct ClockPinOverlay: View {
     @Environment(ThemeSettings.self) private var theme
     let title: String
     let personName: String?
-    let onCancel: () -> Void
+    /// Closes the pad. Called for cancel AND for a successful PIN — the pad
+    /// runs its own exit animation first, so the page must NOT dismiss it
+    /// itself from `onSubmit`.
+    let onClose: () -> Void
     let onSubmit: (String) async -> Bool
 
     @State private var pin = ""
@@ -720,9 +714,19 @@ private struct ClockPinOverlay: View {
     @State private var submitting = false
     /// Bumped on every key press so `.sensoryFeedback` fires a tap haptic each time.
     @State private var tapTick = 0
+    /// Drives the shared modal entrance/exit — see ModalPop. The pad owns both;
+    /// the page presenting it must not animate.
+    @State private var appear = false
     private let maxDigits = 8
     private let keySize: CGFloat = 78
     private let keySpacing: CGFloat = 18
+    /// This pad is where the app's radius was set: it went to 46 first, the rest
+    /// of the scale followed, and `glassPanel`'s default is now this same value.
+    /// Kept as a named constant because the close-X inset below depends on it.
+    private let padRadius: CGFloat = 46
+    /// A hair below the app-wide `glassSurfaceTint` (0.22) — the one dial for
+    /// how much of the page shows through the pad.
+    private let padSurfaceTint: Double = 0.16
 
     private let digitRows: [[String]] = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"]]
 
@@ -736,7 +740,7 @@ private struct ClockPinOverlay: View {
             // 0.32 this used to be: the card is real glass and a heavy scrim is
             // what it blurs, so the blur now does the separating and extra tint
             // would only turn the frost muddy.
-            ModalScrim { if !submitting { onCancel() } }
+            ModalScrim { if !submitting { close() } }
 
             VStack(spacing: 18) {
                 VStack(spacing: 4) {
@@ -785,17 +789,44 @@ private struct ClockPinOverlay: View {
                 }
             }
             .padding(30)
-            // Real frosted glass — the shared recipe, the same one the
-            // break/lunch banner and the end-job photo prompt use. This used to
-            // be .frostedCard(), which despite the name is an opaque surface
-            // fill — no blur, nothing showing through — so the PIN pad read as a
-            // flat panel next to the break/lunch popups it sits alongside.
-            .glassPanel(radius: T.cornerHero)
+            // Real frosted glass — the same material the break/lunch banner and
+            // the end-job photo prompt use. It is NOT .frostedCard(), which
+            // despite the name is an opaque surface fill with no blur, and left
+            // the PIN pad reading as a flat panel next to those popups.
+            //
+            // The shared modal recipe (see GlassPanel), rebuilt here for
+            // one reason: this pad sits a touch more transparent than the rest.
+            // It's mostly big round keys with air between them, so it can let
+            // more of the blurred page through before the content starts to
+            // swim — `glassSurfaceTint` stays where it is for every other
+            // surface in the app.
+            .background {
+                let shape = RoundedRectangle(cornerRadius: padRadius, style: .continuous)
+                ZStack {
+                    shape.fill(.ultraThinMaterial)
+                    shape.fill(Color(hex: T.surface).opacity(padSurfaceTint))
+                }
+            }
+            // The app-wide glass edge (see `specularRim` in Primitives). This
+            // pad is where the recipe came from; it now takes the shared one so
+            // there is a single place to tune it.
+            //
+            // The edge ONLY. There was also a radial sheen washing in from the
+            // top-left corner — that read as white paint across the face of the
+            // glass rather than as light, and is gone for good.
+            .glassRim(RoundedRectangle(cornerRadius: padRadius, style: .continuous))
+            // Modals float, so they carry their own lift — same as GlassPanel.
+            .shadow(color: .black.opacity(0.22), radius: 24, x: 0, y: 10)
+            // Accent bloom — a halo in the org's colour on top of the neutral
+            // drop shadow above, so the pad glows onto the blurred page. This is
+            // the only thing here still doing "glow"; it tints from the edge
+            // outward rather than laying light over the glass.
+            .shadow(color: Color(hex: T.accentGradientStart).opacity(0.34), radius: 36)
             // Cancel/close = a Liquid Glass X anchored INSIDE the card's top-left
             // (attached before the outer frame/padding so it sits on the card,
             // not floating out in the dimmed backdrop).
             .overlay(alignment: .topLeading) {
-                Button { if !submitting { onCancel() } } label: {
+                Button { if !submitting { close() } } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 15, weight: .bold))
                         .foregroundStyle(Color(hex: T.ink))
@@ -803,14 +834,30 @@ private struct ClockPinOverlay: View {
                         .glassEffect(.regular.interactive(), in: Circle())
                 }
                 .buttonStyle(.plain)
-                .padding(14)
+                // Nudged in from 14: the corner radius above is big enough now
+                // that a 40pt circle at 14 would ride the curve.
+                .padding(18)
             }
             .frame(maxWidth: 360)
             .padding(.horizontal, 20)
             .opacity(submitting ? 0.7 : 1)
             // Physical tap feedback on every key.
             .sensoryFeedback(.impact(weight: .light), trigger: tapTick)
+                .modalPop(appear)
         }
+        // Take the WHOLE screen, safe area included. Without this the pad
+        // centred itself in whatever box it was dropped into and the parent's
+        // implicit animation slid it down from the top into the real centre;
+        // now it's already at the true centre on the first frame and only the
+        // spring below moves it. Same fix the break/lunch banner has.
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea()
+        .onAppear { withAnimation(modalPopAnimation) { appear = true } }
+    }
+
+    /// Animates out first, THEN lets the page remove us — the shared modal exit.
+    private func close() {
+        modalPopDismiss({ appear = $0 }) { onClose() }
     }
 
     // A round digit key.
@@ -829,6 +876,9 @@ private struct ClockPinOverlay: View {
                 // light presets, so these keys had vanished into a white card.
                 .background(Circle().fill(T.controlFill))
                 .overlay(Circle().strokeBorder(T.controlHairline, lineWidth: 1))
+                // Same glass edge as the pad they sit on, so a key reads as a
+                // disc of the same material rather than a hole punched in it.
+                .glassRim(Circle())
         }
         .buttonStyle(.plain)
         .disabled(submitting)
@@ -856,8 +906,11 @@ private struct ClockPinOverlay: View {
                 Circle().fill(filled ? AnyShapeStyle(T.brandGradient())
                                      : AnyShapeStyle(T.controlFill))
             )
-            // Only the neutral key needs an edge; the confirm key has its gradient.
+            // Only the neutral key needs a hairline; the confirm key has its
+            // gradient. Both take the glass rim — the gradient key is still a
+            // disc of the same material, just a lit one.
             .overlay(Circle().strokeBorder(filled ? .clear : T.controlHairline, lineWidth: 1))
+            .glassRim(Circle())
         }
         .buttonStyle(.plain)
         .disabled(submitting || (isConfirm && pin.isEmpty))
@@ -869,7 +922,9 @@ private struct ClockPinOverlay: View {
         Task {
             let ok = await onSubmit(pin)
             submitting = false
-            if !ok {
+            if ok {
+                close()
+            } else {
                 error = "Incorrect PIN"
                 pin = ""
             }

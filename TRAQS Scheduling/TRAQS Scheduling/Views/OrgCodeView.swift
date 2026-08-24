@@ -96,7 +96,7 @@ struct OrgCodeView: View {
                         }
                     }
                 }
-                .padding(20)
+                .padding(T.insetHero)
                 .frostedCard(radius: T.cornerHero)
 
                 Spacer()

@@ -142,20 +142,20 @@ struct JobsHubView: View {
                 .modalPageBlur(appNav.jobsBreakBanner != nil)
 
                 // Break started / ended banner — same frosted-glass popup as the
-                // time clock page. Fades in/out (no slide) via .transition(.opacity).
+                // time clock page, and the same entrance as every other modal.
                 if let kind = appNav.jobsBreakBanner {
                     ClockActionBanner(kind: kind) {
-                        withAnimation(.easeOut(duration: 0.18)) {
+                        withTransaction(.noAnimation) {
                             appNav.jobsBreakBanner = nil
                             appNav.blurTabBar = false
                         }
                     }
                     .id(kind)
-                    .transition(.opacity)
+                    // The banner animates itself in and out — see ModalPop.
+                    .transition(.identity)
                     .zIndex(20)
                 }
             }
-            .animation(.easeInOut(duration: 0.18), value: appNav.jobsBreakBanner)
             // Reserve space INSIDE the NavigationStack so content ends at the top
             // of the floating nav pill (an outer inset is absorbed here).
             .safeAreaInset(edge: .bottom) {
