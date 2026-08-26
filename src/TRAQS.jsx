@@ -21528,7 +21528,15 @@ ${jobsCtx || "No jobs found."}`;
                       : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
                     }
                   </button></Tip>
-                  <textarea value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }} placeholder="Type a message… (Enter to send)" rows={1} style={{ flex: 1, height: 38, background: `var(--tq-field-bg, ${T.surface})`, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, padding: "8px 16px", color: T.text, fontSize: 15, fontFamily: T.font, resize: "none", outline: "none", lineHeight: 1.35, boxSizing: "border-box" }} />
+                  {/* tq-bare: the chat composer opts out of the shared field chrome, the
+                      same way the search bar's own input does. It runs the full width of
+                      the chat pane, so the field swell — a ratio — moved it far more than
+                      it moves a normal field, and it read as the whole bar lurching. The
+                      class carries no styling of its own; it appears only as an exclusion
+                      in the field rules, so this drops the transform, the hover glow and
+                      the focus halo together. The composer paints its own background and
+                      border inline, which is what should be doing that job here. */}
+                  <textarea className="tq-bare" value={chatInput} onChange={e => setChatInput(e.target.value)} onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendChatMessage(); } }} placeholder="Type a message… (Enter to send)" rows={1} style={{ flex: 1, height: 38, background: `var(--tq-field-bg, ${T.surface})`, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, padding: "8px 16px", color: T.text, fontSize: 15, fontFamily: T.font, resize: "none", outline: "none", lineHeight: 1.35, boxSizing: "border-box" }} />
                   <button onClick={sendChatMessage} disabled={(!chatInput.trim() && !chatAttachments.length) || chatSending || chatUploading} style={{ width: 38, height: 38, borderRadius: T.radiusPill, background: (chatInput.trim() || chatAttachments.length) && !chatSending && !chatUploading ? brandGrad(T.accent) : T.border, border: "none", cursor: (chatInput.trim() || chatAttachments.length) && !chatSending && !chatUploading ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "background 0.15s" }}>
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
                   </button>
