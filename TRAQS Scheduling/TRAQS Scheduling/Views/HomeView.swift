@@ -354,7 +354,7 @@ private struct SuggestedJobCard: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            GradientCTA(verticalPadding: 12, action: onJump) {
+            GradientCTA(glass: true, verticalPadding: 12, action: onJump) {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.forward")
                     Text(isActive ? "Go to your job" : "Jump to job")

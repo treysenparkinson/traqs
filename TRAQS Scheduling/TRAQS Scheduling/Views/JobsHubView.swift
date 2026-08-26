@@ -136,10 +136,21 @@ struct JobsHubView: View {
                     .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
                 }
                 .fullScreenCover(isPresented: $showApprovals) { ApprovalQueueView(isPresented: $showApprovals) }
-                // Availability quick-check sheet — presented from this stable
-                // container (not the opacity-animated FAB) so it reliably shows.
-                .sheet(isPresented: $showAvailability) { AvailabilityCheckSheet() }
-                .modalPageBlur(appNav.jobsBreakBanner != nil)
+                .modalPageBlur(appNav.jobsBreakBanner != nil || showAvailability)
+                // Slide the bottom nav pill out while the availability popup is
+                // up, and back in when it closes — MainTabView owns the spring
+                // (see its `.animation(value: appNav.hideTabBar)`), so this is a
+                // plain write. Same handling the clock PIN pads get.
+                //
+                // The popup is tall and centred; unlike the break shout, which
+                // is small enough that the bar can just blur behind it, this one
+                // reaches the bottom edge and the bar would sit on top of it.
+                .onChange(of: showAvailability) { _, shown in
+                    appNav.hideTabBar = shown
+                }
+                // Failsafe: leaving the page with the popup somehow still up
+                // would otherwise strand the bar off-screen for every tab.
+                .onDisappear { appNav.hideTabBar = false }
 
                 // Break started / ended banner — same frosted-glass popup as the
                 // time clock page, and the same entrance as every other modal.
@@ -152,6 +163,19 @@ struct JobsHubView: View {
                     }
                     .id(kind)
                     // The banner animates itself in and out — see ModalPop.
+                    .transition(.identity)
+                    .zIndex(20)
+                }
+
+                // Availability quick-check — the house popup, in-hierarchy, so
+                // it can blur the page behind it directly. Rendered from this
+                // stable container (not the opacity-animated FAB) so it
+                // reliably shows, which is why the old sheet lived here too.
+                if showAvailability {
+                    AvailabilityCheckPopup {
+                        withTransaction(.noAnimation) { showAvailability = false }
+                    }
+                    // Owns its own entrance and exit — see ModalPop.
                     .transition(.identity)
                     .zIndex(20)
                 }
@@ -223,8 +247,7 @@ struct JobsHubView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
+        .glassCircleButton()
         .frame(width: 62, height: 62)
     }
 

@@ -72,7 +72,7 @@ struct CustomizeView: View {
 
                             SLine().padding(.leading, 70)
                             ToggleRow(title: "Frosted Glass",
-                                      subtitle: "*Enabled for Navigation bar and popups at all times",
+                                      subtitle: "*Off flattens cards and panels; buttons, nav bar and prompts stay glass",
                                       isOn: theme.frostedGlass) { on in
                                 theme.setFrostedGlass(on)
                             }
@@ -88,7 +88,7 @@ struct CustomizeView: View {
                     // `version`, which re-renders the whole app via the
                     // root's `.id(version)`. Backing out without Save reverts
                     // (see onDisappear).
-                    GradientCTA {
+                    GradientCTA(glass: true) {
                         didSave = true
                         theme.commitChanges()
                         dismiss()

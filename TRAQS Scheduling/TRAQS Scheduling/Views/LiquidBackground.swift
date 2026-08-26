@@ -3,10 +3,18 @@ import SwiftUI
 // MARK: - Liquid background
 //
 // A SwiftUI port of the web app's "Liquid" background mode (src/TRAQS.jsx —
-// `LiquidBackground` + the `tqLiquidA…D` keyframes). Five heavily blurred blobs
-// wander on four different paths at four tempos; because the periods don't
-// divide evenly (17s / 21s / 19s / 25s / 15s) the overlaps keep re-mixing
-// instead of settling into a loop you can spot.
+// `LiquidBackground` + the `tqLiquidA…D` keyframes).
+//
+// TWO big blobs, on a diagonal, wandering. This was a nine-blob ladder ported
+// straight from the web, which on a phone read as a busy field of colour rather
+// than as liquid — you couldn't follow any one shape, so nothing appeared to
+// move. Two large ones you can actually track, with real ground between them,
+// is the whole effect: fewer, bigger, slower.
+//
+// Their periods (23s / 29s) share no factors, so the pair drifts in and out of
+// phase forever instead of settling into a loop you can spot. That mattered
+// more with nine blobs, but it's cheap to keep and it's what stops the two from
+// pulsing in lockstep.
 //
 // Geometry, colours, opacities and durations are taken straight from the web so
 // the two platforms read as the same effect. Sizes there are percentages of the
@@ -20,18 +28,36 @@ import SwiftUI
 // tried and cost the load-up its punch: a 2.4s appearance needs more presence
 // than a background that sits behind content all day.
 enum LiquidTuning {
-    /// Blob footprint. Leaves roughly half the canvas as ground — see
-    /// `LiquidBackground.blobScale`.
-    static let blobScale: Double = 0.55
-    /// Pigment density. Dense enough that each blob reads as a distinct shape
-    /// rather than haze, which is affordable because the small footprint is what
-    /// limits the overall colour.
-    static let thickness: Double = 1.15
+    /// Blob footprint — THE dial for how much colour is on screen versus how
+    /// much ground shows through. Lower = smaller blobs = more page.
+    ///
+    /// The pair's vertical anchors move with this (see `specs`), so shrinking
+    /// pulls them toward each other instead of leaving a pale band across the
+    /// middle. Below ~0.6 they stop meeting at all and read as two spots rather
+    /// than as a wash.
+    static let blobScale: Double = 0.72
+    /// Pigment density — the SECOND half of how saturated the wash looks, and
+    /// often the more important one. `saturation` decides how vivid a blob's
+    /// colour is; this decides how much of it actually lands, since every blob
+    /// is drawn at well under full alpha and then blurred. A perfectly vivid
+    /// hue at low density still reads as a pastel haze.
+    ///
+    /// Raised with the move to two blobs: nine overlapping ones were stacking
+    /// their alpha into the colour you saw, and two can't. Note `blurRadius`
+    /// tightens as this climbs — the two have to move together, because a heavy
+    /// blur is exactly what turns pigment back into haze.
+    ///
+    /// If body text ever starts to swim on the cards sitting over this, raise
+    /// `glassSurfaceTint` rather than dropping this back.
+    static let thickness: Double = 1.45
     /// Weight the hue ladder toward the accent (~56/22/22).
     static let primaryWeighted: Bool = true
 
     /// Behind pages: noticeable drift without competing with content.
     static let pageEnergy: Double = 3.0
+    /// How far the blob hues are pushed toward full colour. See
+    /// `LiquidBackground.saturation`.
+    static let saturation: Double = 0.45
 }
 
 // MARK: Colour maths (ports of hexToHsl / hslToHex / companionHue)
@@ -105,6 +131,24 @@ enum LiquidColor {
         return warm ? (p + 295).truncatingRemainder(dividingBy: 360) : p + 55
     }
 
+    /// Push a hue toward full colour. `amount` is a FRACTION OF THE HEADROOM
+    /// left, not a flat addition: a dull pick gains a lot, an already-vivid one
+    /// gains only what it can take, and nothing clips to a different colour.
+    ///
+    /// Lightness moves too, and it has to. Saturation only reads near mid
+    /// lightness — a near-white pastel or a near-black deep tone has nowhere to
+    /// put it, so raising S alone leaves both looking exactly as washed out as
+    /// before. Easing L toward 0.55 (at a gentler rate, so a deliberately light
+    /// or dark accent still reads as itself) is what actually makes the wash
+    /// look saturated rather than merely brighter.
+    static func vivid(_ hex: String, _ amount: Double) -> String {
+        guard amount > 0 else { return hex }
+        let (h, s, l) = hexToHSL(hex)
+        return hslToHex(h,
+                        min(1, s + (1 - s) * amount),
+                        l + (0.55 - l) * amount * 0.6)
+    }
+
     /// A THIRD hue for the wash. `companion` rotates one way from the pick; this
     /// rotates the other, so the three tones straddle the chosen colour instead
     /// of stacking to one side of it. Deeper and more saturated than the other
@@ -129,7 +173,9 @@ private struct LiquidStop {
 }
 
 private enum LiquidPath {
-    // tqLiquidA…D, verbatim.
+    // tqLiquidA…D, verbatim. Only A and B are in play now that the wash is two
+    // blobs (see `specs`); C and D are kept as the alternates to swap in if the
+    // pair's wander wants a different shape.
     static let a: [LiquidStop] = [
         .init(t: 0.00, x: 0,     y: 0,     scale: 1.00),
         .init(t: 0.25, x: 0.26,  y: 0.17,  scale: 1.32),
@@ -196,19 +242,29 @@ struct LiquidBackground: View {
     /// barely register over a short splash). Higher runs the same paths faster
     /// and travels further, so the wash visibly churns during a load-up.
     var energy: Double = 1
-    /// Blob footprint, as a fraction of the full-bleed ladder. 1 (the default,
-    /// and the splash) is the original geometry: blobs wide enough to hang off
-    /// alternating edges and meet in the middle, covering the canvas completely.
+    /// Blob footprint, as a fraction of the full-bleed geometry. 1 (the
+    /// default, and the splash) is the largest the pair goes: each blob wider
+    /// than the canvas and about 0.72 of its height, hanging off opposite
+    /// corners so the wash spans it.
     ///
-    /// Below 1 they shrink AND scatter across the width instead of hugging the
-    /// edges — shrinking alone would strand the centre bare. The gaps that opens
-    /// are the point: they're how the ground reads through, so this is the dial
-    /// for the background-to-colour ratio. Roughly, coverage ≈ 9 ellipses of
-    /// 0.76·0.34·scale², so 0.55 leaves about half the canvas as ground.
+    /// Below 1 both blobs shrink in place, opening the diagonal between them.
+    /// That gap is the point — it's how the ground reads through — so this is
+    /// the dial for the background-to-colour ratio. Don't take it far below
+    /// 0.8: two small blobs read as two spots, not as a wash.
     var blobScale: Double = 1
-    /// Weight the hue ladder toward the primary instead of cycling the three
-    /// tones evenly. Splits the pigment about 56/22/22 rather than 33/33/33, so
-    /// the accent dominates and the derived tones merely accent it.
+    /// How far the blob hues are pushed toward full colour, 0…1 — see
+    /// `LiquidColor.vivid`. 0 is the accent and its derived tones exactly as
+    /// picked, which is what this used to do; the wash read washed-out at two
+    /// blobs, where nine overlapping ones had been stacking their colour up.
+    ///
+    /// Applied AFTER the companion/tertiary maths, never before, so the derived
+    /// hues are still worked out from the accent as the user chose it and the
+    /// warm/cool family rule still holds.
+    var saturation: Double = LiquidTuning.saturation
+    /// Pairs the accent with the DEEPER derived tone (`tertiary`) instead of
+    /// the lighter `companion`. With only two blobs there's no ladder left to
+    /// weight, so this became a straight choice of partner: tertiary gives the
+    /// wash body behind content, companion keeps it airier.
     var primaryWeighted: Bool = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -216,10 +272,13 @@ struct LiquidBackground: View {
 
     /// Blur tightens as the wash thickens — a heavy blur is what turns pigment
     /// back into haze, so the two have to move together — and scales with the
-    /// blob's own footprint, because a blur sized for a full-bleed blob would
-    /// dissolve a small one completely. At `blobScale: 1` this is exactly the
-    /// original `max(44, 80 / thickness)`.
-    private var blurRadius: CGFloat { scale * max(44, 80 / thickness) }
+    /// blob's own footprint, because a blur sized for a big blob would dissolve
+    /// a small one completely.
+    ///
+    /// Raised from the nine-blob era's `max(44, 80 / thickness)`: blur has to
+    /// grow with the shape it's softening, and these blobs are roughly twice
+    /// the size. At the old figure their edges read as hard ellipses.
+    private var blurRadius: CGFloat { scale * max(70, 130 / thickness) }
 
     /// Clamped so a caller can't collapse the wash to nothing or inflate it past
     /// the geometry the ladder was designed around.
@@ -231,56 +290,63 @@ struct LiquidBackground: View {
     private func a(_ base: Double) -> Double { min(0.92, base * thickness) }
 
     private var specs: [BlobSpec] {
-        let c = color ?? theme.accent
-        let c2 = LiquidColor.companion(c)
-        let c3 = LiquidColor.tertiary(c)
-        // Nine blobs on a staggered ladder. Each is 0.34 of the height and they
-        // step by 0.13, so every point on screen falls inside at least two of
-        // them; the first starts above the top edge and the last ends below the
-        // bottom one. Sides ALTERNATE and each blob is 0.76 wide with a -0.12
-        // inset, so each pair of neighbours spans the full width between them —
-        // a single 0.76-wide blob leaves ~140pt bare at the edges, which a 50pt
-        // blur cannot bridge. That's what left the top and bottom corners empty.
+        let base = color ?? theme.accent
+        // Two blobs, so two hues. `primaryWeighted` picks the partner: the
+        // deeper tertiary for body behind page content, the lighter companion
+        // otherwise. (The nine-blob version cycled all three down the ladder
+        // and weighted the mix 5:2:2 — with a pair there's nothing to weight.)
         //
-        // Durations are 13–29s with no shared factors, so the eight paths never
-        // line back up and the field keeps re-mixing instead of visibly looping.
-        // The hues cycle down the ladder so no one colour owns a region — evenly
-        // by default, or weighted 5:2:2 toward the primary when asked.
-        let hues = primaryWeighted ? [c, c2, c, c3, c, c2, c, c3, c]
-                                   : [c, c2, c3, c2, c, c3, c2, c, c3]
-        let alphas = [0.55, 0.50, 0.38, 0.34, 0.42, 0.34, 0.38, 0.44, 0.36]
-        let paths = [LiquidPath.a, LiquidPath.b, LiquidPath.c, LiquidPath.d,
-                     LiquidPath.reversed(LiquidPath.b), LiquidPath.reversed(LiquidPath.a),
-                     LiquidPath.reversed(LiquidPath.c), LiquidPath.reversed(LiquidPath.d),
-                     LiquidPath.a]
-        let durations: [Double] = [17, 21, 19, 25, 15, 23, 13, 27, 29]
+        // Both are then pushed toward full colour. Derive first, saturate
+        // second: the partner has to come off the accent as PICKED or the
+        // warm/cool family maths is working from the wrong hue.
+        let partner = primaryWeighted ? LiquidColor.tertiary(base)
+                                      : LiquidColor.companion(base)
+        let hues = [LiquidColor.vivid(base, saturation),
+                    LiquidColor.vivid(partner, saturation)]
 
-        let w = 0.76 * scale
-        let h = 0.34 * scale
-        let fullBleed = scale >= 1
+        // Denser than any single blob in the old ladder. Nine overlapping
+        // shapes built their colour by stacking; two have to carry it alone, so
+        // each one holds more pigment.
+        let alphas = [0.58, 0.50]
 
-        // Shrunk blobs can't reach the edges from the edges, so they scatter
-        // across the width at successive heights: left, middle, right, and back,
-        // with a couple bleeding slightly off each side so the margins aren't
-        // systematically paler than the centre.
-        let scatter: [Double] = [-0.08, 0.34, 0.66, 0.12, 0.48, 0.72, -0.04, 0.40, 0.58]
+        // Two paths with different shapes AND different tempos. Reversing B
+        // means the second blob is never mirroring the first — the pair drifts
+        // apart and back together instead of sliding in parallel.
+        let paths = [LiquidPath.a, LiquidPath.reversed(LiquidPath.b)]
 
-        return (0..<9).map { i in
-            let fromLeading = i % 2 == 0
+        // Coprime, and slower than the old 17/21. Big shapes moving quickly
+        // read as sloshing; these are meant to wander.
+        let durations: [Double] = [23, 29]
+
+        // Each blob is WIDER than the canvas and about three-quarters of its
+        // height, so one alone covers most of the screen and the pair spans it
+        // with room to move. `scale` shrinks both in place.
+        let w = 1.05 * scale
+        let h = 0.72 * scale
+
+        return (0..<2).map { i in
+            let isFirst = i == 0
             return BlobSpec(
                 id: i,
                 w: w,
                 h: h,
-                // Full bleed hangs off alternating edges; scattered places the
-                // leading edge outright.
-                leading: fullBleed ? (fromLeading ? -0.12 : nil) : scatter[i],
-                trailing: fullBleed ? (fromLeading ? nil : -0.12) : nil,
-                // The full-bleed ladder's fixed 0.13 step is tuned to 0.34-tall
-                // blobs. A shrunk one needs its own spacing or the wash would
-                // bunch in the top third: spread the nine evenly top to bottom,
-                // half a blob off each end, keeping a slight vertical overlap.
-                top: fullBleed ? (-0.16 + Double(i) * 0.13)
-                               : (-h * 0.5 + Double(i) * ((1 + h) / 9)),
+                // Opposite corners on a diagonal: one anchored off the leading
+                // edge up top, one off the trailing edge down low. Overlapping
+                // through the middle, leaving the OTHER two corners as ground —
+                // which is what makes the composition read as two shapes on a
+                // background rather than as full-bleed colour.
+                leading:  isFirst ? -0.18 : nil,
+                trailing: isFirst ? nil   : -0.18,
+                // Anchored as fractions of the blob's OWN height, not of the
+                // screen — that's what lets `scale` shrink the pair without
+                // pulling them apart. Two blobs can only span a screen while
+                // their heights still roughly sum to it, so as they shrink they
+                // have to sit closer to the middle; with fixed screen-space
+                // anchors, dropping the scale opened a pale horizontal band
+                // between them instead of the diagonal of ground that's wanted.
+                //
+                // They still hang off the top and bottom edges, just less far.
+                top: isFirst ? -h * 0.15 : 1 - h * 0.85,
                 hex: hues[i],
                 alpha: a(alphas[i]),
                 stops: paths[i],

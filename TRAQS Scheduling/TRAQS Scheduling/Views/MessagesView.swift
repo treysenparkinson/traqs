@@ -196,7 +196,7 @@ struct MessagesView: View {
                                     .foregroundStyle(Color(hex: T.ink))
                                     .padding(.horizontal, 12)
                                     .padding(.vertical, 8)
-                                    .glassEffect(.regular.interactive(), in: Capsule())
+                                    .glassControl(in: Capsule())
                             }
                             .buttonStyle(.plain)
 
@@ -214,7 +214,8 @@ struct MessagesView: View {
                                 }
                                 .padding(.horizontal, 14)
                                 .padding(.vertical, 9)
-                                .glassEffect(.regular.tint(.red.opacity(selectedKeys.isEmpty ? 0.4 : 1.0)).interactive(), in: Capsule())
+                                .glassControl(in: Capsule(),
+                                              tint: .red.opacity(selectedKeys.isEmpty ? 0.4 : 1.0))
                             }
                             .buttonStyle(.plain)
                             .disabled(selectedKeys.isEmpty)
@@ -1142,8 +1143,7 @@ struct ThreadDetailView: View {
                                     .foregroundStyle(Color(hex: T.ink))
                                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                             }
-                            .buttonStyle(.glass)
-                            .buttonBorderShape(.circle)
+                            .glassCircleButton()
                             .frame(width: 44, height: 44)
                             .disabled(isSending)
 
@@ -1158,8 +1158,24 @@ struct ThreadDetailView: View {
                                 // pill on one line, but grows into a rounded-square as
                                 // the text wraps — a Capsule's height/2 radius would
                                 // curve the sides inward and clip the text.
-                                .background(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).fill(.ultraThinMaterial))
-                                .overlay(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
+                                // Native Liquid Glass, the SAME material as the
+                                // paperclip button beside it — not the app's
+                                // `specularRim` treatment, which put a lit bevel
+                                // on the field that its neighbour didn't have.
+                                // Two controls sitting in one row have to be lit
+                                // the same way or the row reads as assembled
+                                // from parts.
+                                //
+                                // It also solves the visibility problem: bare
+                                // `.ultraThinMaterial` was near-invisible on the
+                                // White preset, where system glass carries its
+                                // own tint and edge and reads clearly.
+                                //
+                                // `interactive: false` — that's the press
+                                // response, and this is a field you type in, not
+                                // a button you push.
+                                .glassControl(in: RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous),
+                                              interactive: false)
                                 .lineLimit(1...5)
 
                             // Send is allowed with text OR an attachment (or both).
@@ -1200,6 +1216,13 @@ struct ThreadDetailView: View {
                     // the header. The frost feathers in at the TOP (no hard
                     // hairline) and fills solid down PAST the home indicator
                     // (ignoresSafeArea) so there's no clear strip at the bottom.
+                    //
+                    // Always a real blur, NEVER flattened by the frosted-glass
+                    // toggle — see the matching note on the header plate in
+                    // OverlayWindowController. A masked fill can't go opaque:
+                    // the feather at the top would become a solid slab
+                    // dissolving into nothing. The field, the paperclip and the
+                    // send button on top of it DO still flatten.
                     .background(
                         Rectangle()
                             .fill(.ultraThinMaterial)
@@ -1859,8 +1882,8 @@ struct MessageBubble: View {
                                     // Received messages are frosted glass; sent ones
                                     // keep the solid brand gradient, which is what
                                     // makes the two sides read apart at a glance.
-                                    shape.glassFill()
-                                        .overlay(shape.specularRim())
+                                    Color.clear
+                                        .glassSurface(in: shape, rim: true)
                                         .compositingGroup()
                                         .shadow(color: .black.opacity(T.ambientShadowOpacity),
                                                 radius: T.ambientShadowRadius * 0.6, x: 0, y: T.ambientShadowY * 0.6)
@@ -2047,12 +2070,12 @@ struct TimeOffRequestBubble: View {
                             Button { denying = false; reason = "" } label: {
                                 Text("Cancel").font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
                                     .frame(maxWidth: .infinity).padding(.vertical, 11)
-                                    .background(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
+                                    .glassControl(in: Capsule())
                             }.buttonStyle(.plain)
                             Button { decide("deny") } label: {
                                 Text("Confirm Deny").font(TTypo.smBold(14)).foregroundStyle(T.onColor("#ef4444"))
                                     .frame(maxWidth: .infinity).padding(.vertical, 13)
-                                    .background(Capsule().fill(Color(hex: "#ef4444")))
+                                    .glassCTA(tint: Color(hex: "#ef4444"))
                             }.buttonStyle(.plain).disabled(busy)
                         }
                     }
@@ -2061,12 +2084,12 @@ struct TimeOffRequestBubble: View {
                         Button { denying = true } label: {
                             Text("Deny").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#ef4444"))
                                 .frame(maxWidth: .infinity).padding(.vertical, 14)
-                                .background(Capsule().fill(Color(hex: "#ef4444")))
+                                .glassCTA(tint: Color(hex: "#ef4444"))
                         }.buttonStyle(.plain).disabled(busy)
                         Button { decide("approve") } label: {
                             Text("Approve").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#10b981"))
                                 .frame(maxWidth: .infinity).padding(.vertical, 14)
-                                .background(Capsule().fill(Color(hex: "#10b981")))
+                                .glassCTA(tint: Color(hex: "#10b981"))
                         }.buttonStyle(.plain).disabled(busy)
                     }
                 }
@@ -2181,7 +2204,7 @@ struct CompletionRequestBubble: View {
                     }
                     .font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.accent))
                     .frame(maxWidth: .infinity).padding(.vertical, 13)
-                    .background(Capsule().stroke(Color(hex: T.accent).opacity(0.5), lineWidth: 1))
+                    .glassControl(in: Capsule())
                 }.buttonStyle(.plain).disabled(busy)
             }
 
@@ -2196,12 +2219,12 @@ struct CompletionRequestBubble: View {
                     Button { decide(false) } label: {
                         Text("Deny").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#ef4444"))
                             .frame(maxWidth: .infinity).padding(.vertical, 14)
-                            .background(Capsule().fill(Color(hex: "#ef4444")))
+                            .glassCTA(tint: Color(hex: "#ef4444"))
                     }.buttonStyle(.plain).disabled(busy)
                     Button { decide(true) } label: {
                         Text("Approve").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#10b981"))
                             .frame(maxWidth: .infinity).padding(.vertical, 14)
-                            .background(Capsule().fill(Color(hex: "#10b981")))
+                            .glassCTA(tint: Color(hex: "#10b981"))
                     }.buttonStyle(.plain).disabled(busy)
                 }
             }
@@ -2555,9 +2578,7 @@ struct EditGroupSheet: View {
                                 .textFieldStyle(.plain)
                                 .foregroundColor(Color(hex: T.text))
                                 .padding(12)
-                                .background(RoundedRectangle(cornerRadius: T.cornerSm).glassFill())
-                                .overlay(RoundedRectangle(cornerRadius: T.cornerSm)
-                                    .specularRim())
+                                .glassSurface(in: RoundedRectangle(cornerRadius: T.cornerSm), rim: true)
                                 .padding(.horizontal, 16)
 
                             Text("Clear it to go back to naming the group after its members.")
@@ -2964,6 +2985,10 @@ struct NewDMSheet: View {
 
 struct NewMessageSheet: View {
     @Environment(AppState.self) private var appState
+    /// Observed so the Create button's LABEL colour follows its paint when the
+    /// frosted-glass toggle flips (the background observes itself, the
+    /// foreground can't — see the button below).
+    @Environment(ThemeSettings.self) private var theme
     @Environment(\.dismiss) private var dismiss
     /// (recipientIds excluding me, groupName) — groupName is nil for a 1:1 DM.
     let onStart: ([String], String?) -> Void
@@ -3053,7 +3078,8 @@ struct NewMessageSheet: View {
     }
 
     var body: some View {
-        ZStack {
+        observeTheme
+        return ZStack {
             PageBackground()
 
             ScrollView {
@@ -3119,8 +3145,11 @@ struct NewMessageSheet: View {
                             .font(TTypo.smBold(15))
                             .foregroundStyle(Color(hex: T.ink))
                             .padding(.horizontal, 24).padding(.vertical, 14)
-                            .background(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).fill(Color(hex: T.surface)))
-                            .overlay(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
+                            // Neutral glass, deliberately UNtinted — Create beside
+                            // it is accent-tinted, and two identically-coloured
+                            // glass buttons in one bar would leave the row with no
+                            // primary action. Same material, different weight.
+                            .glassControl(in: RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous))
                             .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 4)
                     }
                     .buttonStyle(.plain)
@@ -3128,21 +3157,34 @@ struct NewMessageSheet: View {
                     Spacer(minLength: 0)
 
                     Button { start() } label: {
-                        HStack(spacing: 7) {
+                        let enabled = !selectedIds.isEmpty
+                        let shape = RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous)
+                        let label = HStack(spacing: 7) {
                             Image(systemName: "plus").font(.system(size: 15, weight: .bold))
                             Text("Create").font(TTypo.smBold(15))
                         }
-                        .foregroundStyle(T.onGradient)
+                        // Tinted glass is tinted with the FLAT accent, so the
+                        // label is judged against that; the disabled state is a
+                        // grey, judged against the gradient's two stops.
+                        .foregroundStyle(enabled ? glassCTALabel() : T.onGradient)
                         .padding(.horizontal, 24).padding(.vertical, 14)
-                        .background(
-                            RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous)
+
+                        Group {
+                            if enabled {
+                                // Same tinted Liquid Glass as Clock In, Start,
+                                // Start Job and Jump to job — this is the one
+                                // action the sheet exists for.
+                                label.glassCTA(in: shape)
+                            } else {
                                 // Disabled = muted grey, not progressTrack: that
                                 // chart token is near-white on light presets, which
                                 // left this button invisible AND its white label
-                                // unreadable.
-                                .fill(selectedIds.isEmpty ? AnyShapeStyle(Color(hex: T.muted).opacity(0.5))
-                                                          : AnyShapeStyle(T.brandGradient()))
-                        )
+                                // unreadable. Deliberately NOT dimmed glass, which
+                                // on a light preset reads as merely faint rather
+                                // than as unavailable.
+                                label.background(shape.fill(Color(hex: T.muted).opacity(0.5)))
+                            }
+                        }
                         .shadow(color: Color(hex: T.ctaGlowColor).opacity(selectedIds.isEmpty ? 0 : T.ctaGlowOpacity),
                                 radius: T.ctaGlowRadius, x: 0, y: T.ctaGlowY)
                         .opacity(selectedIds.isEmpty ? 0.7 : 1)
@@ -3156,6 +3198,10 @@ struct NewMessageSheet: View {
             }
         }
     }
+
+    /// Touched in `body` so a live frosted-glass flip re-renders the Create
+    /// button's label colour. See the property.
+    private var observeTheme: Void { _ = theme.frostedGlass; _ = theme.accent }
 
     private func start() {
         let ids = Array(selectedIds)

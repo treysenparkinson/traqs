@@ -257,9 +257,15 @@ struct AvailabilityCheckButton: View {
     @Binding var isPresented: Bool
 
     var body: some View {
+        // The glass circle morphs into a native menu carrying one row, "Check
+        // for availability"; tapping that row opens the popup. That morph is
+        // the system's own Liquid Glass behaviour on a `Menu` — left exactly as
+        // it was. Only the write is wrapped, because the popup owns its whole
+        // entrance and a transaction here would animate the page underneath it
+        // (see ModalPop). It does NOT touch the menu's own dismissal.
         Menu {
             Button {
-                isPresented = true
+                withTransaction(.noAnimation) { isPresented = true }
             } label: {
                 Label("Check for availability", systemImage: "clock.arrow.circlepath")
             }
@@ -274,11 +280,23 @@ struct AvailabilityCheckButton: View {
     }
 }
 
-// MARK: - Sheet
+// MARK: - Popup
+//
+// A TRAQS popup, not a `.sheet`. It was a detented system sheet wrapped in its
+// own NavigationStack with a "Done" toolbar button — a whole second screen for
+// what is a single question with a single answer. Now it's the house modal: the
+// shared frosted panel, the shared spring entrance (ModalPop), and the Liquid
+// Glass X at the top-left in place of Done.
+//
+// The trigger is unchanged — see `AvailabilityCheckButton` above.
 
-struct AvailabilityCheckSheet: View {
+struct AvailabilityCheckPopup: View {
     @Environment(AppState.self) private var appState
-    @Environment(\.dismiss) private var dismiss
+    /// Called on cancel — the popup runs its own exit animation first, so the
+    /// page must NOT tear it down itself.
+    let onClose: () -> Void
+    /// Drives the shared modal entrance/exit — see ModalPop.
+    @State private var appear = false
 
     @State private var fromDate = Calendar.current.startOfDay(for: Date())
     @State private var toDate = Calendar.current.date(byAdding: .day, value: 14, to: Date()) ?? Date()
@@ -339,27 +357,71 @@ struct AvailabilityCheckSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                Color(hex: T.bg).ignoresSafeArea()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        header
-                        if let r = result { resultCard(r) } else { inputForm }
-                    }
-                    .padding(20)
-                }
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                        .foregroundStyle(Color(hex: T.accent))
-                }
+        ZStack {
+            // Tapping out closes — this is a read-only check, so there's
+            // nothing in flight to protect.
+            ModalScrim { close() }
+
+            card.modalPop(appear)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea()
+        .onAppear { withAnimation(modalPopAnimation) { appear = true } }
+    }
+
+    private var card: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            header
+
+            // Sized to whatever is showing, scrolling ONLY if it can't fit.
+            //
+            // A bare ScrollView is greedy — it takes every point of height it's
+            // offered — so wrapping this in one grew the panel to the full
+            // screen even for the short input form. `ViewThatFits` uses the
+            // plain stack when it fits and hands over to the scroller only when
+            // it wouldn't, which matters here because the popup swaps a compact
+            // form for a result card with alternatives and an AI summary in
+            // place: the panel now resizes to each.
+            ViewThatFits(in: .vertical) {
+                panelContent
+                ScrollView { panelContent }.scrollBounceBehavior(.basedOnSize)
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .padding(T.insetHero)
+        // Headroom for the cancel X — the same 46pt every other popup reserves.
+        .padding(.top, 46)
+        .frame(maxWidth: 400)
+        .glassPanel()
+        // Close, anchored INSIDE the card's top-left. Replaces the "Done"
+        // toolbar button the NavigationStack used to supply.
+        .overlay(alignment: .topLeading) {
+            Button { close() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .frame(width: 36, height: 36)
+                    .glassEffect(.regular.interactive(), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(18)
+        }
+        .padding(.horizontal, 20)
+        // Room top and bottom so a long result can't run to the screen edges;
+        // the ScrollView above takes up the slack.
+        .padding(.vertical, 40)
+    }
+
+    /// The form or the result, built once and used by both `ViewThatFits`
+    /// branches.
+    private var panelContent: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            if let r = result { resultCard(r) } else { inputForm }
+        }
+    }
+
+    /// Animates out first, THEN lets the page remove us — the shared modal exit.
+    private func close() {
+        modalPopDismiss({ appear = $0 }) { onClose() }
     }
 
     // Header
@@ -455,12 +517,25 @@ struct AvailabilityCheckSheet: View {
             Button {
                 runCheck()
             } label: {
-                Text("Find soonest")
+                let enabled = hours > 0
+                let label = Text("Find soonest")
                     .font(TTypo.bodyBold(16))
-                    .foregroundStyle(T.onGradient)
+                    .foregroundStyle(enabled ? glassCTALabel() : T.onGradient)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 15)
-                    .background(Capsule().fill(hours > 0 ? AnyShapeStyle(T.brandGradient()) : AnyShapeStyle(Color(hex: T.muted).opacity(0.4))))
+
+                Group {
+                    if enabled {
+                        // The shared tinted-glass CTA — the one action this
+                        // popup exists to run.
+                        label.glassCTA()
+                    } else {
+                        // Muted grey while there are no hours to check, so
+                        // "nothing to do yet" reads as unavailable rather than
+                        // as merely faint glass.
+                        label.background(Capsule().fill(Color(hex: T.muted).opacity(0.4)))
+                    }
+                }
             }
             .buttonStyle(.plain)
             .disabled(!(hours > 0))
@@ -480,8 +555,7 @@ struct AvailabilityCheckSheet: View {
                     .font(TTypo.sm(14)).foregroundStyle(Color(hex: T.ink))
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: T.cornerMd).glassFill())
-                    .overlay(RoundedRectangle(cornerRadius: T.cornerMd).specularRim())
+                    .glassSurface(in: RoundedRectangle(cornerRadius: T.cornerMd), rim: true)
             }
 
             Button {
@@ -592,8 +666,7 @@ struct AvailabilityCheckSheet: View {
                                 }
                                 .padding(T.insetMd)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(RoundedRectangle(cornerRadius: T.cornerMd).glassFill())
-                                .overlay(RoundedRectangle(cornerRadius: T.cornerMd).specularRim())
+                                .glassSurface(in: RoundedRectangle(cornerRadius: T.cornerMd), rim: true)
                             }
                             .buttonStyle(.plain)
                         }
@@ -646,15 +719,13 @@ struct AvailabilityCheckSheet: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: T.cornerMd).glassFill())
-        .overlay(RoundedRectangle(cornerRadius: T.cornerMd).specularRim())
+        .glassSurface(in: RoundedRectangle(cornerRadius: T.cornerMd), rim: true)
     }
 
     private func fieldCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: 10) { content() }
             .padding(14)
-            .background(RoundedRectangle(cornerRadius: T.cornerMd).glassFill())
-            .overlay(RoundedRectangle(cornerRadius: T.cornerMd).specularRim())
+            .glassSurface(in: RoundedRectangle(cornerRadius: T.cornerMd), rim: true)
     }
 
     // Compute + AI

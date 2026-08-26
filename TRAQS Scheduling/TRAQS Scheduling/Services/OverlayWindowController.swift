@@ -19,6 +19,16 @@ import UIKit
 struct OverlayHeaderContent: View {
     let context: ThreadContext?
     let topInset: CGFloat
+    /// Passed in explicitly and re-published below.
+    ///
+    /// This view is the ROOT of a separate UIWindow, so its hosting controller
+    /// inherits NOTHING from the app's environment — not AppState, not this.
+    /// That was invisible until the frosted-glass toggle went app-wide: the
+    /// header's `HeaderGlassCircle` back button started reading
+    /// `@Environment(ThemeSettings.self)` to decide glass-vs-flat, and a
+    /// non-optional @Environment object that was never provided traps at
+    /// runtime — so opening any thread crashed.
+    let theme: ThemeSettings
 
     private let barHeight: CGFloat = 108
     private let fade: CGFloat = 36   // bottom edge that dissolves into the page
@@ -31,6 +41,15 @@ struct OverlayHeaderContent: View {
                 // Frosted glass: the messages scrolling underneath show through,
                 // blurred. The bottom edge fades to clear so the header dissolves
                 // into the page instead of ending on a hard line.
+                // Always a real blur, NEVER flattened by the frosted-glass
+                // toggle — the one exception among the bars.
+                //
+                // This plate is masked to fade out along its bottom edge, so
+                // "flat" means an opaque slab dissolving into nothing, which
+                // reads as a rendering fault rather than as a design. The blur
+                // is also doing a job here that no flat fill can: the messages
+                // scrolling UNDER it have to stay legible-but-receded, and a
+                // solid surface colour would simply swallow them.
                 Rectangle()
                     .fill(.ultraThinMaterial)
                     .mask(
@@ -48,6 +67,10 @@ struct OverlayHeaderContent: View {
                     .padding(.top, topInset)   // drop below the status bar
             }
             .ignoresSafeArea()
+            // Everything above — the plate and the bar's glass back button —
+            // reads this. It has to be injected here because nothing upstream
+            // of this window can do it.
+            .environment(theme)
         } else {
             Color.clear
         }
@@ -57,6 +80,8 @@ struct OverlayHeaderContent: View {
 @MainActor
 final class OverlayWindowController {
     private let appState: AppState
+    /// Injected into the hosted view — see `OverlayHeaderContent.theme`.
+    private let theme: ThemeSettings
     private var window: UIWindow?
     private var host: UIHostingController<OverlayHeaderContent>?
     private weak var scene: UIWindowScene?
@@ -65,14 +90,17 @@ final class OverlayWindowController {
     // content so there's room below it for a long fade into the page.
     private let barHeight: CGFloat = 108
 
-    init(appState: AppState) { self.appState = appState }
+    init(appState: AppState, theme: ThemeSettings) {
+        self.appState = appState
+        self.theme = theme
+    }
 
     /// Create the overlay window once, on the given scene.
     func attach(to windowScene: UIWindowScene) {
         guard window == nil else { return }
         scene = windowScene
 
-        let h = UIHostingController(rootView: OverlayHeaderContent(context: nil, topInset: 0))
+        let h = UIHostingController(rootView: OverlayHeaderContent(context: nil, topInset: 0, theme: theme))
         h.view.backgroundColor = .clear
 
         let w = UIWindow(windowScene: windowScene)
@@ -120,7 +148,7 @@ final class OverlayWindowController {
             // Show / update. Reset any in-flight exit animation.
             hiding = false
             w.layer.removeAllAnimations()
-            h.rootView = OverlayHeaderContent(context: ctx, topInset: topInset)
+            h.rootView = OverlayHeaderContent(context: ctx, topInset: topInset, theme: theme)
             // Only as tall as the header, so touches below pass through.
             w.frame = CGRect(x: 0, y: 0, width: scene.screen.bounds.width, height: topInset + barHeight)
             w.alpha = 1
@@ -159,8 +187,9 @@ final class OverlayWindowController {
 
 struct OverlayWindowInstaller: UIViewRepresentable {
     let appState: AppState
+    let theme: ThemeSettings
 
-    func makeCoordinator() -> Coordinator { Coordinator(appState: appState) }
+    func makeCoordinator() -> Coordinator { Coordinator(appState: appState, theme: theme) }
 
     func makeUIView(context: Context) -> AnchorView {
         let v = AnchorView()
@@ -178,7 +207,9 @@ struct OverlayWindowInstaller: UIViewRepresentable {
 
     @MainActor final class Coordinator {
         let controller: OverlayWindowController
-        init(appState: AppState) { controller = OverlayWindowController(appState: appState) }
+        init(appState: AppState, theme: ThemeSettings) {
+            controller = OverlayWindowController(appState: appState, theme: theme)
+        }
     }
 
     final class AnchorView: UIView {

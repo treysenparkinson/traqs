@@ -154,7 +154,10 @@ private let tabBarOrder: [TTab] = [.jobs, .hours, .home, .chat, .stats]
 /// floating nav pill (not the physical screen bottom). Applied by MainTabView
 /// for non-NavigationStack tabs, and INSIDE the NavigationStack for the Jobs &
 /// Messages tabs (a NavigationStack absorbs an outer safe-area inset).
-let tabPillBottomInset: CGFloat = 104
+// Space pages reserve at the bottom so their last row clears the floating tab
+// pill. Tracks the bar's outer height — if the bar shrinks and this doesn't,
+// every page just gains dead space at the end of its scroll.
+let tabPillBottomInset: CGFloat = 94
 
 struct TRAQSTabBar: View {
     // Reads the selection and the badge count ITSELF rather than taking them
@@ -178,23 +181,29 @@ struct TRAQSTabBar: View {
 
     // Fixed layout — buttons are fixed-width, so the bar width is deterministic
     // and we can map a drag x → tab without measuring.
-    private let keyW: CGFloat = 65
+    // Scaled down as a set — every one of these drives the bar's size, so
+    // shrinking one alone just changes its proportions. ~13% off the previous
+    // 65 / 83 / 62 / 76.
+    private let keyW: CGFloat = 57
     private let keySpacing: CGFloat = 2
-    private let hPad: CGFloat = 17.5   // +2.5px each side → bar 5px wider L→R
+    private let hPad: CGFloat = 15
     private var tabCount: Int { tabBarOrder.count }
     private var barWidth: CGFloat { hPad * 2 + CGFloat(tabCount) * keyW + CGFloat(tabCount - 1) * keySpacing }
 
     // Accent highlighter size. It's the tallest thing in the bar, so `highlightH`
     // sets the bar's inner height — `vPad` absorbs the difference to keep the
-    // pill's outer height fixed at 76pt (highlightH + vPad * 2).
-    private let highlightW: CGFloat = 83   // keyW + 18
-    private let highlightH: CGFloat = 62
+    // pill's outer height fixed at `barHeight` (highlightH + vPad * 2).
+    private let highlightW: CGFloat = 73   // keyW + 16
+    private let highlightH: CGFloat = 54
+    /// The pill's outer height. `vPad` is derived from it, so this is the one
+    /// number to change if the bar wants to be taller or shorter.
+    private let barHeight: CGFloat = 66
 
     /// How long the highlighter takes to slide to a tapped tab. The page itself
     /// swaps with no animation, so this is what the eye reads as "how long the
     /// tap took" — keep it short.
     private let highlightSlide: Double = 0.15
-    private var vPad: CGFloat { (76 - highlightH) / 2 }
+    private var vPad: CGFloat { (barHeight - highlightH) / 2 }
 
     /// Map a horizontal position (in the bar's local space) to the tab under it.
     private func tab(atX x: CGFloat) -> TTab {
@@ -231,7 +240,9 @@ struct TRAQSTabBar: View {
     var body: some View {
         // Touch the theme so a live Customize accent/background change re-renders
         // the frost immediately (T.* tokens aren't observable on their own).
-        _ = theme.accent; _ = theme.bgPresetId
+        // frostedGlass too: the fill and rim below read the T.* global, which
+        // SwiftUI can't see as a dependency.
+        _ = theme.accent; _ = theme.bgPresetId; _ = theme.frostedGlass
         let shape = Capsule(style: .continuous)
 
         return ZStack(alignment: .leading) {
@@ -268,21 +279,33 @@ struct TRAQSTabBar: View {
         }
         .padding(.horizontal, hPad)
         .padding(.vertical, vPad)   // shrinks as the highlighter grows → pill height locked at 76
-        // Frosted-glass fill (translucent blur + subtle surface tint) with a FLAT
-        // hairline border — the frosted look, minus the glossy reflection.
+        // Frosted-glass fill (translucent blur + subtle surface tint), edged
+        // with the app-wide glass rim.
         // (Measured on device: replacing this whole stack with a plain opaque
         // fill did NOT reduce the per-tap stall, so the blur is not the cost.)
+        // ALWAYS frosted — deliberately NOT `glassFill()`, which would let the
+        // Customize toggle turn the bar into an opaque slab. The bar floats over
+        // every page in the app, and the page showing through it is what says so;
+        // an opaque one reads as a chunk cut out of the screen.
+        //
+        // Same recipe glassFill paints in its glass branch (blur + a
+        // `glassSurfaceTint` of surface), just without the branch.
         .background {
             ZStack {
                 shape.fill(.ultraThinMaterial)
-                // Surface tint eased back from 0.30 so a little more of the page
-                // shows through — .ultraThinMaterial is already the thinnest
-                // system material, so this tint is the only transparency lever.
-                // Don't go much below this or the bar stops reading as frosted.
-                shape.fill(Color(hex: T.surface).opacity(0.22))
+                shape.fill(Color(hex: T.surface).opacity(glassSurfaceTint))
             }
         }
-        .overlay(shape.strokeBorder(Color(hex: T.border), lineWidth: 1))
+        // A FLAT hairline, not the specular rim — the bar keeps the frost
+        // (`glassFill()` above) and loses the lit edge.
+        //
+        // It wore the rim briefly and it was wrong here. A lit bevel says "look
+        // at this object", which is right for a card you're reading and wrong
+        // for permanent chrome that sits over every page: the bar was competing
+        // with the content it frames. The blur alone is enough to separate it —
+        // that's what `flatHairline` exists for, and it's the same call the long
+        // list rows make (`rim: false`) for the same reason.
+        .overlay(shape.flatHairline())
         .compositingGroup()
         .shadow(color: .black.opacity(T.ambientShadowOpacity),
                 radius: T.ambientShadowRadius, x: 0, y: T.ambientShadowY)
@@ -295,7 +318,7 @@ struct TRAQSTabBar: View {
                     .fixedSize()
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .glassEffect(.regular, in: Capsule())
+                    .glassControl(in: Capsule(), interactive: false)
                     // Center on the finger, clamped so it stays over the bar.
                     .offset(x: min(max(x - barWidth / 2, -(barWidth / 2 - 46)), barWidth / 2 - 46),
                             y: -50)
@@ -353,12 +376,12 @@ private struct TabBarIcon: View {
         // the dispatch has to stay in one place. For the traced glyphs the
         // weight becomes a stroke width; for Messages it stays a symbol weight.
         TIconView(icon: tab.icon,
-                  size: 23,
+                  size: 21,
                   // Readable on the accent fill when the highlighter is on this
                   // tab; primary ink otherwise.
                   color: isSelected ? T.onAccent : Color(hex: T.ink),
                   weight: isSelected ? .semibold : .regular)
-            .frame(width: keyW, height: 48)
+            .frame(width: keyW, height: 42)
             .overlay(alignment: .topTrailing) {
                 if badge > 0 {
                     Text(badge > 99 ? "99+" : "\(badge)")

@@ -78,7 +78,7 @@ struct SyncStatusDot: View {
         }
         .padding(.horizontal, showText ? 10 : 7)
         .padding(.vertical, 5)
-        .background(.ultraThinMaterial, in: Capsule())
+        .glassSurface(in: Capsule(), tint: 0)
         .overlay(Capsule().strokeBorder(color(for: badge).opacity(0.25), lineWidth: 1))
         .contentShape(Capsule())
         .onTapGesture {

@@ -357,8 +357,7 @@ struct MoreView: View {
         } label: {
             glassHeaderIcon(.person)
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
+        .glassCircleButton()
         // Own shadow tied to the button so it doesn't drop out for a frame when
         // the menu dismisses (the system glass shadow briefly disappears there).
         .shadow(color: .black.opacity(0.12), radius: 5, x: 0, y: 3)
@@ -380,8 +379,7 @@ struct MoreView: View {
         } label: {
             glassHeaderIcon(.cal)
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
+        .glassCircleButton()
         .shadow(color: .black.opacity(0.12), radius: 5, x: 0, y: 3)
     }
 

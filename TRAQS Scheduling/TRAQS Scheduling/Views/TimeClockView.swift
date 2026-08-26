@@ -67,7 +67,7 @@ struct TimeClockView: View {
                             }
                             .padding(.horizontal, 14)
                             .frame(height: 36)
-                            .glassEffect(.regular.interactive(), in: Capsule())
+                            .glassControl(in: Capsule())
                         }
                         .buttonStyle(.plain)
                     }
@@ -529,6 +529,9 @@ private struct OpenBreakCard: View {
 // "pause" toggle. Clock Out is the widest target on the page, so it's PIN-gated
 // by the caller. While a request is in flight the affected buttons dim.
 private struct PayClockControls: View {
+    /// Observed so the pill labels below re-colour when the frosted-glass
+    /// toggle flips — `glassCTALabel` reads a global SwiftUI can't track.
+    @Environment(ThemeSettings.self) private var theme
     let active: Bool
     let onLunch: Bool
     let onBreak: Bool
@@ -545,7 +548,8 @@ private struct PayClockControls: View {
     private let lunchColor  = "#6366F1"
 
     var body: some View {
-        VStack(spacing: 8) {
+        _ = theme.frostedGlass; _ = theme.accent
+        return VStack(spacing: 8) {
             if active {
                 HStack(spacing: 10) {
                     Button(action: onLunchToggle) {
@@ -583,20 +587,27 @@ private struct PayClockControls: View {
                         .foregroundStyle(Color(hex: T.muted))
                 }
             } else {
-                Button(action: onClockIn) {
+                // Tinted Liquid Glass, matching the Start buttons on the job
+                // cards — the two things a worker presses to begin work now
+                // read as the same object.
+                //
+                // Through GradientCTA rather than hand-rolled with `.glassCTA()`
+                // so the label colour follows the paint: glass is tinted with
+                // the FLAT accent and wants `T.onAccent`, the solid fallback is
+                // a gradient and wants `T.onGradient`. Judging a mid-brightness
+                // accent against the wrong one of those lands on the wrong side
+                // of the black/white flip.
+                GradientCTA(glass: true,
+                            disabled: inFlight,
+                            dimmed: inFlight,
+                            verticalPadding: 14,
+                            action: onClockIn) {
                     HStack(spacing: 9) {
-                        if inFlight { ProgressView().tint(T.onGradient) }
+                        if inFlight { ProgressView().progressViewStyle(.circular) }
                         else { Image(systemName: "play.circle.fill").font(.system(size: 17, weight: .semibold)) }
                         Text("Clock In").font(TTypo.xsBold(13)).tLabel(tracking: 0.6)
                     }
-                    .foregroundStyle(T.onGradient)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Capsule().fill(T.brandGradient()))
-                    .opacity(inFlight ? 0.6 : 1)
                 }
-                .buttonStyle(.plain)
-                .disabled(inFlight)
             }
 
         }
@@ -609,34 +620,33 @@ private struct PayClockControls: View {
     // Otherwise → a solid gradient fill of `fill` (Clock Out), which stays solid:
     // it's the destructive action and needs to read as the most present thing here.
     @ViewBuilder
+    /// Lunch, Break and Clock Out, all as the shared tinted-glass CTA — the
+    /// same object as Clock In above them.
+    ///
+    /// `outline` no longer means an outlined button; it means "this is a
+    /// neutral action, tint it with the accent". Lunch and Break pass it and so
+    /// stay accent-coloured, exactly as they read before, when the outline
+    /// branch ignored `fill` and stroked the accent regardless. Clock Out
+    /// doesn't, so it keeps its red.
     private func pill(icon: String, text: String, fill: Color,
                       outline: Bool = false, busy: Bool = false) -> some View {
-        let content = HStack(spacing: 8) {
+        let tint: Color? = outline ? nil : fill
+        let label = glassCTALabel(tint)
+        return HStack(spacing: 8) {
             if busy {
                 ProgressView()
                     .progressViewStyle(.circular)
-                    .tint(outline ? Color(hex: T.accent) : fill.readableText)
+                    .tint(label)
                     .scaleEffect(0.7)
             } else {
                 Image(systemName: icon).font(.system(size: 16, weight: .semibold))
             }
             Text(text).font(TTypo.xsBold(13)).tLabel(tracking: 0.6)
         }
+        .foregroundStyle(label)
         .frame(maxWidth: .infinity)
         .padding(.vertical, 14)
-
-        if outline {
-            content
-                .foregroundStyle(Color(hex: T.accent).verticalGradient())
-                // Glass off → a solid surface capsule, keeping the accent outline
-                // and label.
-                .background(Capsule().glassFill())
-                .overlay(Capsule().strokeBorder(Color(hex: T.accent).verticalGradient(), lineWidth: 1.5))
-        } else {
-            content
-                .foregroundStyle(fill.readableText)
-                .background(Capsule().fill(fill.verticalGradient()))
-        }
+        .glassCTA(tint: tint)
     }
 }
 
@@ -724,16 +734,19 @@ private struct ClockPinOverlay: View {
     /// of the scale followed, and `glassPanel`'s default is now this same value.
     /// Kept as a named constant because the close-X inset below depends on it.
     private let padRadius: CGFloat = 46
-    /// A hair below the app-wide `glassSurfaceTint` (0.22) — the one dial for
-    /// how much of the page shows through the pad.
-    private let padSurfaceTint: Double = 0.16
+    /// A hair below the app-wide popup tint (`modalSurfaceTint`) — the one dial
+    /// for how much of the page shows through the pad. It can run thinner than
+    /// the other popups because it's mostly big round keys with air between
+    /// them: there's very little fine text here for a busy backdrop to disturb.
+    private let padSurfaceTint: Double = 0.12
 
     private let digitRows: [[String]] = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"]]
 
     var body: some View {
         // Touch the theme so a live Customize accent change re-renders the
         // surface tint below (the T.* tokens aren't observable on their own).
-        _ = theme.accent
+        // frostedGlass too — the confirm key's label colour follows its paint.
+        _ = theme.accent; _ = theme.frostedGlass
         return ZStack {
             // Dimmed and blurred, the same backdrop as the break/lunch banner
             // and the end-job photo prompt. Its tint is lighter than the flat
@@ -814,7 +827,11 @@ private struct ClockPinOverlay: View {
             // The edge ONLY. There was also a radial sheen washing in from the
             // top-left corner — that read as white paint across the face of the
             // glass rather than as light, and is gone for good.
-            .glassRim(RoundedRectangle(cornerRadius: padRadius, style: .continuous))
+            // `always` because the pad is a prompting popup: it stays frosted
+            // whatever the Customize toggle says, so its edge must stay lit to
+            // match. Everything else in the app flattens with the switch.
+            .glassRim(RoundedRectangle(cornerRadius: padRadius, style: .continuous),
+                      always: true)
             // Modals float, so they carry their own lift — same as GlassPanel.
             .shadow(color: .black.opacity(0.22), radius: 24, x: 0, y: 10)
             // Accent bloom — a halo in the org's colour on top of the neutral
@@ -872,19 +889,19 @@ private struct ClockPinOverlay: View {
                 .font(.custom(TFontName.bold.rawValue, size: 27))
                 .foregroundStyle(Color(hex: T.ink))
                 .frame(width: keySize, height: keySize)
-                // T.controlFill, not progressTrack: that token is near-white on
-                // light presets, so these keys had vanished into a white card.
-                .background(Circle().fill(T.controlFill))
-                .overlay(Circle().strokeBorder(T.controlHairline, lineWidth: 1))
-                // Same glass edge as the pad they sit on, so a key reads as a
-                // disc of the same material rather than a hole punched in it.
-                .glassRim(Circle())
+                // Neutral Liquid Glass, the same material as every other round
+                // control in the app. NOT the hand-rolled `specularRim` these
+                // carried before they were flattened — twelve hand-rimmed discs
+                // packed three-across read as texture rather than as buttons.
+                // System glass gives each key its own edge and press response
+                // without that.
+                .glassKeyBackground(filled: false)
         }
         .buttonStyle(.plain)
         .disabled(submitting)
     }
 
-    // A round action key: delete (⌫, neutral) or confirm (✓, gradient fill).
+    // A round action key: delete (⌫, neutral glass) or confirm (✓, tinted glass).
     private func actionKey(icon: String, filled: Bool, action: @escaping () -> Void) -> some View {
         let isConfirm = icon == "checkmark"
         return Button {
@@ -892,25 +909,23 @@ private struct ClockPinOverlay: View {
             guard !submitting else { return }
             action()
         } label: {
+            // The confirm key is the same tinted Liquid Glass as Clock In and
+            // the Start buttons — tinted with the FLAT accent, so its label is
+            // judged against that.
+            let onFill = glassCTALabel()
             Group {
                 if isConfirm && submitting {
-                    ProgressView().tint(T.onGradient)
+                    ProgressView().tint(onFill)
                 } else {
                     Image(systemName: icon)
                         .font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(filled ? T.onGradient : Color(hex: T.ink))
+                        .foregroundStyle(filled ? onFill : Color(hex: T.ink))
                 }
             }
             .frame(width: keySize, height: keySize)
-            .background(
-                Circle().fill(filled ? AnyShapeStyle(T.brandGradient())
-                                     : AnyShapeStyle(T.controlFill))
-            )
-            // Only the neutral key needs a hairline; the confirm key has its
-            // gradient. Both take the glass rim — the gradient key is still a
-            // disc of the same material, just a lit one.
-            .overlay(Circle().strokeBorder(filled ? .clear : T.controlHairline, lineWidth: 1))
-            .glassRim(Circle())
+            // Confirm takes the tinted CTA glass; delete takes the neutral
+            // glass, matching the digits above it — see `glassKeyBackground`.
+            .glassKeyBackground(filled: filled)
         }
         .buttonStyle(.plain)
         .disabled(submitting || (isConfirm && pin.isEmpty))

@@ -241,10 +241,10 @@ struct ApprovalQueueView: View {
                     Image(systemName: "checkmark").font(.system(size: 13, weight: .bold))
                     Text("Approve \(item.pendingStep.label)").font(TTypo.smBold(14))
                 }
-                .foregroundStyle(T.onGradient)
+                .foregroundStyle(glassCTALabel())
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 11)
-                .background(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).fill(T.brandGradient()))
+                .glassCTA(in: RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous))
             }
             .buttonStyle(.plain)
             .disabled(appState.currentPerson == nil)

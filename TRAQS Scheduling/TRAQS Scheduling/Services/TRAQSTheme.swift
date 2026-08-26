@@ -156,14 +156,15 @@ enum T {
     }
 
     // ── Frosted glass on/off ──
-    // Mirrors ThemeSettings.frostedGlass. Lives on T because the glass helpers
-    // include `Shape.glassFill()`, a Shape extension — it has no view context, so
-    // it can't read @Environment. Views that need to RE-RENDER when this flips
-    // still have to observe `theme.frostedGlass`; see FrostedCard and SBox.
+    // Mirrors ThemeSettings.frostedGlass — see there for exactly what it covers
+    // and the three things it deliberately doesn't. Lives on T because the glass
+    // helpers include `Shape.glassFill()`, a Shape extension: it has no view
+    // context, so it can't read @Environment. Views that need to RE-RENDER when
+    // this flips still have to observe `theme.frostedGlass`; see FrostedCard,
+    // SBox and GlassSurface.
     //
-    // Covers page CONTENT only — cards, page boxes, message bubbles, thread rows.
-    // The nav bar, the popups (GlassPanel) and the header buttons
-    // (HeaderGlassCircle) are chrome and stay frosted regardless.
+    // Surfaces only: cards, page boxes, message bubbles, list rows, and the rim
+    // on them. Controls, the nav bar and the prompting popups stay glass.
     static var glassEnabled: Bool = true
 
     // ── Progress track + presence dots ──
@@ -181,30 +182,49 @@ enum T {
 
     // ── Specular rim (the app-wide glass edge) ─────────────────────────────
     //
-    // Every frosted surface is edged with a stroke of `highlightStroke` that is
-    // bright at the top-left and gone by the bottom-right — the way a real
-    // glass edge picks up a single light source. Drawn with `.plusLighter`, so
-    // it ADDS light to whatever is under it instead of painting white on top;
-    // that's what keeps it from going chalky on the light presets and invisible
-    // on Charcoal.
+    // The Apple "glass bubble" edge: a bright glare along the TOP lip, the
+    // sides falling away to almost nothing, a shadowed underside, and then the
+    // bottom lip lighting up again as light bounces back through the material.
+    // Top and bottom both lit is what makes a surface read as a bubble of glass
+    // rather than a rectangle with a highlight on it — it's the single detail
+    // that separates Apple's Liquid Glass from a plain bevel.
     //
-    // A real glass edge is lit on one side and in shadow on the other, and it
-    // needs BOTH to read. An earlier version was highlight-only, drawn with
-    // `.plusLighter` — which is additive, so on a near-white card the white
-    // stroke clamped straight to white and the rim was invisible on every light
-    // preset. It only ever showed on Charcoal.
+    // Drawn as ONE vertical stroke gradient (`.top` → `.bottom`), so the whole
+    // top arc of a rounded rect glows and the whole bottom arc glows, with the
+    // straight left/right runs dimmest in between. An earlier version ran the
+    // gradient diagonally (top-left → bottom-right), which lit one corner and
+    // shadowed the opposite one — a single hard light source, not a lens.
     //
-    // So: white down the top-left, transparent through the middle, and a soft
-    // dark down the bottom-right. Normal blending, no `.plusLighter` — which
-    // also means no compositing group, so this costs nothing to render and is
-    // safe on the surfaces that draw per-row in long lists.
+    // Normal blending, deliberately: no `.plusLighter`, so no compositing
+    // group, so this is cheap enough for surfaces that render per-row down long
+    // lists. (`.plusLighter` was tried first. Being additive, on the light
+    // presets the white stroke clamped straight to white and the rim was
+    // invisible on everything except Charcoal.)
     //
-    // THE dials for the whole app's glass edge. `rimShade` is what carries the
-    // effect on light presets; `rimTop` is what carries it on dark ones.
-    static let rimTop:   Double  = 0.55   // highlight at the top-left corner
-    static let rimMid:   Double  = 0.10   // where the highlight has fallen off
-    static let rimShade: Double  = 0.18   // shadow down the bottom-right
-    static let rimWidth: CGFloat = 1.2
+    // THE dials for the whole app's glass edge, top of the stroke to the
+    // bottom.
+    //
+    // `var`, and PRESET-DRIVEN (see ThemeSettings.applyRimToT) — one set of
+    // numbers could not serve both families. A white glare has nothing to do
+    // against a near-white card, so on the light presets the lips need to run
+    // brighter and the side band needs to be a real grey rather than the faint
+    // `T.border` hairline, which is what made the glass hard to see on white.
+    static var rimTop:  Double  = 0.70   // glare along the top lip
+    static var rimBot:  Double  = 0.50   // the bottom lip, light bouncing back up
+    /// The band down the LEFT AND RIGHT edges — a colour, not an alpha, because
+    /// it has to be darker than the surface on both families and there's no one
+    /// opacity of black that manages it.
+    ///
+    /// This is the contrast that makes the lips read as lips. With the faint
+    /// `T.border` here instead, a card's sides all but vanished and the glare
+    /// looked painted on rather than caught. Each preset pushes AWAY from its
+    /// surface — a definite grey on White, a near-black groove on Charcoal —
+    /// the same trick `progressTrack` uses, and for the same reason.
+    static var rimSide: String  = "#151515"
+    /// How quickly each lip gives way to the side band, as a fraction of the
+    /// stroke's height. Small: a lip is a lip, not a fade over half the card.
+    static var rimLip:  Double  = 0.18
+    static var rimWidth: CGFloat = 1.2
 
     // ── CTA glow shadow (accompanies every gradient pill) ──
     static var ctaGlowColor   = "#7B5BE8"          // mirrors accent end for custom accents

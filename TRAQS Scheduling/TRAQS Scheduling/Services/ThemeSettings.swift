@@ -68,14 +68,34 @@ final class ThemeSettings {
     /// of the static ambient canvas. Unlike accent/preset this feeds no T.*
     /// token — views read it directly — so it has no `applyToT` counterpart.
     var liquidBackground: Bool = ThemeSettings.defaultLiquidBackground
-    /// Whether page CONTENT is frosted glass or the flat opaque surface colour it
-    /// used to be: job cards, the boxes on each page, received message bubbles,
-    /// and the inbox thread rows.
+    /// Whether the app's own SURFACES are frosted glass or flat 2D.
     ///
-    /// Chrome is exempt and stays frosted whatever this says — the nav bar, the
-    /// popups (GlassPanel) and the header buttons (HeaderGlassCircle). On a modal
-    /// the glass is what signals it's floating over the page rather than part of
-    /// it, so it isn't a look to opt out of.
+    /// Off flattens what TRAQS draws: job cards, page boxes, message bubbles,
+    /// list rows, the wells inside popups, the sync pill — all to opaque
+    /// `T.surface` — and collapses the specular rim on them to a flat hairline.
+    /// (`glassFill`, `GlassSurface`, `specularRim`.)
+    ///
+    /// It does NOT reach three things, each for its own reason:
+    ///
+    ///  • CONTROLS. Header buttons, menu buttons, the keypad keys and every
+    ///    glass CTA are Apple's material, not ours. A flat app with native glass
+    ///    controls is a coherent look; one whose buttons went flat too just
+    ///    looks unfinished. (`GlassControl`, `GlassCircleButton`, `GlassCTA`.)
+    ///
+    ///  • THE NAV BAR. It floats over every page, and the page showing through
+    ///    it is what says so. Opaque, it reads as a chunk cut out of the screen.
+    ///
+    ///  • THE PROMPTING POPUPS — the PIN pad, the break/lunch banner, the
+    ///    end-job photo prompt, the start-job and time-off confirms. There the
+    ///    glass is what signals the thing is floating OVER the page rather than
+    ///    being part of it, so it's carrying meaning rather than decoration.
+    ///    Those pass `always: true` to the rim and never call `glassFill()`.
+    ///    See `GlassPanel`.
+    ///
+    /// It governed page CONTENT only at first, which left the rim on everything —
+    /// a lit bevel being the most obviously glassy thing left once the blur is
+    /// gone — and then briefly reached everything, which took the native glass
+    /// off the controls too. This is the line that landed.
     ///
     /// Mirrored into T.glassEnabled because the glass helpers include a Shape
     /// extension, which has no view context and so can't read @Environment.
@@ -218,6 +238,31 @@ final class ThemeSettings {
         T.bg = p.bg; T.surface = p.surface; T.card = p.card; T.border = p.border
         T.text = p.text; T.muted = p.muted
         T.progressTrack = p.track
+        applyRimToT(isLight: p.isLight)
+    }
+
+    /// The glass edge, tuned per preset family — see the `T.rim*` block.
+    ///
+    /// Same shape both ways: white glare across the top lip, a darker band down
+    /// the sides for contrast, the bottom lip lit again. What changes is how
+    /// hard each has to work. On White the lips run near-full white and the side
+    /// band is a definite grey, because a subtle edge on a near-white card is no
+    /// edge at all. On Charcoal the lips can ease off and the band drops BELOW
+    /// the surface colour, so the sides read as a recessed groove.
+    private func applyRimToT(isLight: Bool) {
+        if isLight {
+            T.rimTop   = 0.95
+            T.rimBot   = 0.80
+            T.rimSide  = "#A6ADB9"
+            T.rimLip   = 0.20
+            T.rimWidth = 1.4
+        } else {
+            T.rimTop   = 0.70
+            T.rimBot   = 0.50
+            T.rimSide  = "#151515"
+            T.rimLip   = 0.18
+            T.rimWidth = 1.2
+        }
     }
 
     /// Derive a gradient end-stop from the chosen accent: KEEP the hue (no

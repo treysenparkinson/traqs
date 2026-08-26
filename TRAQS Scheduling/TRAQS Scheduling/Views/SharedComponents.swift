@@ -20,8 +20,7 @@ struct TRAQSLoadingOverlay: View {
             }
             .padding(.vertical, 30)
             .padding(.horizontal, 44)
-            .background(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).glassFill())
-            .overlay(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).specularRim())
+            .glassSurface(in: RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous), rim: true)
             .shadow(color: .black.opacity(0.28), radius: 26, y: 12)
         }
         // Swallow taps so the underlying screen can't be poked mid-action.

@@ -283,6 +283,117 @@ private struct ZoomSource: ViewModifier {
 /// Non-generic on purpose: it's read by both `HeaderGlassCircle` and
 /// `HeaderGlassPill`, and a static on a generic type can't be reached without
 /// naming a type argument.
+// ── Glass controls, and their flat counterparts ────────────────────────────
+//
+// The Customize "frosted glass" switch means NO GLASS ANYWHERE. It used to
+// govern page content only — cards, list boxes, message bubbles, thread rows —
+// leaving the nav bar, the header buttons and every `.glassEffect` control
+// frosted, so turning it off produced a half-flat app rather than a flat one.
+// These two modifiers are the choke points for everything that isn't a card.
+//
+// The prompting popups are the deliberate exception and do NOT go through
+// these: a modal that floats over a blurred page is the one place the glass is
+// carrying meaning rather than decoration. See `GlassPanel`.
+
+/// A native Liquid Glass control.
+///
+/// ALWAYS glass — the Customize frosted-glass toggle does not reach it. That
+/// switch governs the app's own SURFACES: cards, page boxes, message bubbles,
+/// list rows, and the rim on them. Controls are Apple's material, not ours, and
+/// a flat app full of native glass buttons is a coherent look; a flat app whose
+/// buttons have also gone flat just looks unfinished.
+///
+/// Carries no `@Environment` for exactly that reason, which also makes it safe
+/// in an environment-less host — see `OverlayWindowController`, where a
+/// `HeaderGlassCircle` reading the theme once crashed the Messages header.
+struct GlassControl<S: InsettableShape>: ViewModifier {
+    let shape: S
+    /// `.interactive()` gives the glass its press response. Off for decorative
+    /// chrome that isn't a button (the tab bar's drag label).
+    var interactive: Bool = true
+    /// Colours the glass, and carries over as the flat fill — a destructive
+    /// control has to stay red with the glass switched off.
+    var tint: Color? = nil
+
+    func body(content: Content) -> some View {
+        var g: Glass = .regular
+        if let tint { g = g.tint(tint) }
+        if interactive { g = g.interactive() }
+        return content.glassEffect(g, in: shape)
+    }
+}
+
+/// The native `.glass` BUTTON STYLE. Separate from `GlassControl` because
+/// `.buttonStyle(.glass)` supplies the chrome itself — there's no shape to hand
+/// it, so it can't be swapped by changing a background.
+///
+/// Always glass, for the same reason as `GlassControl`.
+struct GlassCircleButton: ViewModifier {
+    func body(content: Content) -> some View {
+        content.buttonStyle(.glass).buttonBorderShape(.circle)
+    }
+}
+
+extension View {
+    /// Liquid Glass when the frosted-glass setting is on, flat when it's off.
+    func glassControl<S: InsettableShape>(in shape: S, interactive: Bool = true,
+                                          tint: Color? = nil) -> some View {
+        modifier(GlassControl(shape: shape, interactive: interactive, tint: tint))
+    }
+    /// The shared frosted SURFACE — blur + tint on, flat `T.surface` off — for
+    /// backgrounds that hand-rolled `.ultraThinMaterial` instead of going
+    /// through `glassFill()`. Pass `tint: 0` to keep a site that had no tint of
+    /// its own looking exactly as it did.
+    ///
+    /// `rim: true` also carries the glass edge, replacing the
+    /// `glassFill()` + `specularRim()` pairs that were written out by hand. Those
+    /// pairs looked right but couldn't FLIP: neither helper observes anything,
+    /// so a view built from them kept its glass until something else happened to
+    /// re-render it. Going through here fixes that for every one of them at once.
+    func glassSurface<S: InsettableShape>(in shape: S,
+                                          tint: Double = glassSurfaceTint,
+                                          rim: Bool = false) -> some View {
+        modifier(GlassSurface(shape: shape, tint: tint, rim: rim))
+    }
+    /// `.buttonStyle(.glass) + .buttonBorderShape(.circle)`, with a flat fallback.
+    func glassCircleButton() -> some View {
+        modifier(GlassCircleButton())
+    }
+}
+
+/// `GlassControl`'s surface counterpart: a frosted BACKGROUND that flattens
+/// with the toggle. Self-observing, so call sites don't each need the theme in
+/// their environment — most of them don't have it.
+struct GlassSurface<S: InsettableShape>: ViewModifier {
+    @Environment(ThemeSettings.self) private var theme
+    let shape: S
+    var tint: Double = glassSurfaceTint
+    /// Add the app-wide glass edge — which collapses to the flat hairline with
+    /// the toggle. On for surfaces that were hand-rolling `glassFill()` plus
+    /// their own `specularRim()`; off for ones whose caller strokes its own
+    /// border, or that sit inside something already edged.
+    var rim: Bool = false
+
+    func body(content: Content) -> some View {
+        // The full observation set, matching FrostedCard: a live Customize
+        // change to the preset, the accent OR the glass switch has to re-render
+        // this, and none of the T.* tokens it reads are observable on their own.
+        _ = theme.bgPresetId; _ = theme.accent; _ = theme.frostedGlass
+        return content
+            .background {
+                if T.glassEnabled {
+                    ZStack {
+                        shape.fill(.ultraThinMaterial)
+                        if tint > 0 { shape.fill(Color(hex: T.surface).opacity(tint)) }
+                    }
+                } else {
+                    shape.fill(Color(hex: T.surface))
+                }
+            }
+            .overlay { if rim { shape.specularRim() } }
+    }
+}
+
 enum HeaderControl {
     static let diameter: CGFloat = 38
 }
@@ -296,7 +407,7 @@ struct HeaderGlassCircle<Content: View>: View {
     var body: some View {
         content()
             .frame(width: Self.diameter, height: Self.diameter)
-            .glassEffect(.regular.interactive(), in: Circle())
+            .glassControl(in: Circle())
     }
 }
 
@@ -314,7 +425,7 @@ struct HeaderGlassPill<Content: View>: View {
     var body: some View {
         content()
             .frame(width: width, height: HeaderControl.diameter)
-            .glassEffect(.regular.interactive(), in: Capsule())
+            .glassControl(in: Capsule())
     }
 }
 
@@ -815,6 +926,7 @@ struct PageBackground: View {
                              thickness: LiquidTuning.thickness,
                              energy: LiquidTuning.pageEnergy,
                              blobScale: LiquidTuning.blobScale,
+                             saturation: LiquidTuning.saturation,
                              primaryWeighted: LiquidTuning.primaryWeighted)
                 .ignoresSafeArea()
         } else {
@@ -864,7 +976,90 @@ private struct AmbientCanvas: View {
 // Generic over its label so existing spinner/icon HStacks drop straight in.
 // `disabled` blocks taps; `dimmed` controls the 0.5 fade independently (so a
 // busy-but-full-color "STOPPING…/Ending…" state stays vivid while non-tappable).
+/// A primary action rendered as Liquid Glass instead of solid paint: a capsule
+/// of glass TINTED with the accent, so it still reads as the accent-coloured
+/// button it was, just made of the same material as everything around it.
+///
+/// Tinted, never clear. An untinted glass CTA is only as visible as whatever
+/// happens to be behind it, which for the one button a screen exists to get you
+/// to press is the wrong trade.
+///
+/// Falls back to the solid brand gradient when frosted glass is off — that IS
+/// the flat look for a CTA, so nothing is lost with the toggle down.
+struct GlassCTA<S: InsettableShape>: ViewModifier {
+    @Environment(ThemeSettings.self) private var theme
+    /// Capsule for a normal button; `Circle()` for the PIN pad's confirm key,
+    /// which is a round key and not a pill.
+    let shape: S
+    /// `nil` = the app accent, and the brand gradient as its flat fallback —
+    /// the primary-action look.
+    ///
+    /// A STATE-coloured button passes its own instead: Clock Out and STOP are
+    /// red because red is what they mean, and tinting them with the accent
+    /// would turn "end this" into just another blue button.
+    var tint: Color? = nil
+
+    func body(content: Content) -> some View {
+        // Accent only — the toggle doesn't reach buttons. `theme.accent` is
+        // still observed because a live Customize accent change has to re-tint
+        // this immediately, and T.accent isn't observable on its own.
+        _ = theme.accent
+        return content.glassEffect(.regular.tint(tint ?? Color(hex: T.accent)).interactive(),
+                                   in: shape)
+    }
+}
+
+/// The legible label colour for a `glassCTA` of this tint — judged against the
+/// FLAT colour the glass is tinted with, not against a gradient.
+func glassCTALabel(_ tint: Color? = nil) -> Color {
+    (tint ?? Color(hex: T.accent)).readableText
+}
+
+extension View {
+    /// See `GlassCTA`. The glass counterpart of a `GradientCTA` background.
+    func glassCTA() -> some View { glassCTA(in: Capsule()) }
+    /// Same, with a state colour and/or a shape of your own.
+    func glassCTA<S: InsettableShape>(in shape: S, tint: Color? = nil) -> some View {
+        modifier(GlassCTA(shape: shape, tint: tint))
+    }
+    /// Capsule, with a state colour — Clock Out red, STOP red.
+    func glassCTA(tint: Color?) -> some View { glassCTA(in: Capsule(), tint: tint) }
+
+    /// A PIN-pad key's paint. Both branches are glass; what differs is weight.
+    ///
+    /// Confirm takes the TINTED CTA glass — it's the primary action, and the
+    /// one key that commits. The digits and the delete key take neutral,
+    /// untinted glass, so the pad reads as one material without twelve keys
+    /// competing with the one that submits.
+    ///
+    /// One helper so the two branches can't drift into different sizes.
+    @ViewBuilder
+    func glassKeyBackground(filled: Bool) -> some View {
+        if filled {
+            glassCTA(in: Circle())
+        } else {
+            glassControl(in: Circle())
+        }
+    }
+
+    /// Picks a CTA's paint: tinted glass when asked for it, the solid brand
+    /// gradient otherwise. One place, so a glass CTA and a solid one can never
+    /// drift into different capsule shapes or paddings.
+    @ViewBuilder
+    func glassOrGradientCapsule(glass: Bool) -> some View {
+        if glass { glassCTA() }
+        else     { background(Capsule().fill(T.brandGradient())) }
+    }
+}
+
 struct GradientCTA<Label: View>: View {
+    /// Observed so the glass/solid branch below re-renders when the Customize
+    /// toggle or accent changes — the T.* tokens aren't observable on their own.
+    @Environment(ThemeSettings.self) private var theme
+    /// Render as tinted Liquid Glass rather than solid gradient — see `GlassCTA`.
+    /// Opt-in per button, not the default: a screen full of glass CTAs has no
+    /// primary action left, so this is for the ONE button a page is about.
+    var glass: Bool = false
     var disabled: Bool = false
     var dimmed: Bool = false
     var fullWidth: Bool = true
@@ -874,13 +1069,16 @@ struct GradientCTA<Label: View>: View {
     @State private var pressed = false
 
     var body: some View {
-        Button(action: action) {
+        _ = theme.accent
+        // Glass is tinted with the flat accent rather than the gradient, so the
+        // label is judged against THAT, not against the gradient's two stops.
+        return Button(action: action) {
             label()
-                .foregroundStyle(T.onGradient)
+                .foregroundStyle(glass ? T.onAccent : T.onGradient)
                 .frame(maxWidth: fullWidth ? .infinity : nil)
                 .padding(.vertical, verticalPadding)
                 .padding(.horizontal, fullWidth ? 0 : 20)
-                .background(Capsule().fill(T.brandGradient()))
+                .glassOrGradientCapsule(glass: glass)
                 .opacity(dimmed ? 0.5 : 1)
                 .scaleEffect(pressed && !disabled ? 0.97 : 1)
                 .shadow(color: Color(hex: T.ctaGlowColor)
@@ -988,6 +1186,20 @@ extension View {
 /// turning them opaque).
 let glassSurfaceTint: Double = 0.22
 
+/// The same knob for POPUPS only — modal panels, the break/lunch banner, the
+/// end-job photo prompt, the clock PIN pad.
+///
+/// A quarter thinner than `glassSurfaceTint` (0.22 → 0.165), deliberately: a
+/// modal already floats over a page that `ModalScrim` has dimmed and blurred,
+/// so it doesn't need to fight for legibility the way a card sitting directly
+/// on the moving liquid wash does. Letting more of that blurred page through is
+/// what makes a popup read as frosted rather than as a solid sheet — the frost
+/// is the separation, the tint was only ever a crutch.
+///
+/// Cards keep `glassSurfaceTint`. Do not collapse these back into one value:
+/// they diverge for a reason, and the reason is what's above them.
+let modalSurfaceTint: Double = glassSurfaceTint * 0.75
+
 // `InsettableShape`, not `Shape`: the specular rim below is drawn with
 // `strokeBorder`, which insets by half the line width so the stroke lands
 // INSIDE the fill instead of straddling its edge. Every caller was already
@@ -1024,13 +1236,20 @@ extension InsettableShape {
 // ── The app-wide glass edge ────────────────────────────────────────────────
 //
 // One recipe, used by every frosted surface: cards, pills, modal panels, and
-// the controls that sit on them. Bright at the top-left, gone by the
-// bottom-right, the way a real glass edge picks up a single light source.
+// the controls that sit on them. A glare across the top lip, a shadowed
+// underside, then the bottom lip lit again — light entering the top of a bubble
+// of glass and bouncing back out of the bottom of it.
 //
-// Lit on one side, shadowed on the other — a glass edge needs both halves to
-// read. See `T.rimTop` / `T.rimShade` for why: an earlier highlight-only
-// version used `.plusLighter`, which is additive, so on the light presets the
-// white stroke clamped to white and the rim simply wasn't there.
+// Both lips lit is the whole trick. Lighting one side and shadowing the
+// other reads as a bevel under a single lamp; lighting top AND bottom reads as
+// a lens. See `T.rimTop` / `T.rimBot` for the dials.
+//
+// The lips are SHORT — `T.rimLip` at each end — so the left and right edges
+// show the dark `T.rimSide` band down nearly their whole length. That contrast
+// is what sells it: a rim that is bright the whole way round reads as paint,
+// where a bright top and bottom against dark sides reads as light caught on a
+// curve. It's also what makes the edge visible at all on the White preset,
+// where the old faint `T.border` down the sides left cards looking flat.
 //
 // Plain blending, deliberately. That means no compositing group, so this is
 // cheap enough for the surfaces that render per-row down long lists.
@@ -1039,7 +1258,7 @@ extension InsettableShape {
 // hairline (`T.border`) is opaque and was drawn as an overlay on top of the
 // rim, covering 83% of it — which is why the rim only ever showed on
 // GlassPanel, the one surface with no hairline. So the hairline colour is now
-// the gradient's middle stop: the edge stays findable all the way round (the
+// the mesh's outer columns: the edge stays findable all the way round (the
 // whole reason the hairline existed) and there is only ever ONE stroke.
 extension InsettableShape {
     /// The plain edge — the flat hairline on its own, no bevel. For surfaces
@@ -1051,21 +1270,46 @@ extension InsettableShape {
             .allowsHitTesting(false)
     }
 
-    /// The glass rim: highlight at the top-left, the flat hairline through the
-    /// middle, shadow at the bottom-right. Use INSTEAD of a `T.border` /
-    /// `T.hair` stroke, never on top of one.
-    func specularRim(lineWidth: CGFloat = T.rimWidth) -> some View {
-        strokeBorder(
-            LinearGradient(
-                stops: [
-                    .init(color: Color(hex: T.highlightStroke).opacity(T.rimTop), location: 0.00),
-                    .init(color: Color(hex: T.highlightStroke).opacity(T.rimMid), location: 0.26),
-                    .init(color: Color(hex: T.border),                            location: 0.50),
-                    .init(color: .black.opacity(T.rimShade),                      location: 1.00),
-                ],
-                startPoint: .topLeading, endPoint: .bottomTrailing),
-            lineWidth: lineWidth)
-        .allowsHitTesting(false)
+    /// The glass rim: a white glare across the top lip, a darker band down the
+    /// left and right edges, and the bottom lip lit again. Use INSTEAD of a
+    /// `T.border` / `T.hair` stroke, never on top of one.
+    ///
+    /// One vertical gradient. The lips occupy only `T.rimLip` at each end, so
+    /// the middle — which is what the two side edges show along nearly their
+    /// whole length — is the dark `T.rimSide` band. That contrast is what makes
+    /// the lips read as light caught on an edge rather than as paint.
+    ///
+    /// Collapses to the flat hairline when the Customize frosted-glass setting
+    /// is off. That switch means "no glass ANYWHERE", and a lit bevel on a flat
+    /// opaque card is the most obviously glassy thing left once the blur is
+    /// gone — it was the one piece the old page-content-only toggle missed.
+    ///
+    /// `always: true` opts out, for the prompting popups. They stay frosted
+    /// whatever the setting says (see `GlassPanel`), so their edge has to stay
+    /// lit too — a flat hairline around real glass is worse than either.
+    ///
+    /// NOTE for callers: `T.glassEnabled` is a plain global, invisible to
+    /// SwiftUI. Any view using this must also touch `theme.frostedGlass` so it
+    /// re-renders when the toggle flips — same as `FrostedCard` and `SBox`.
+    @ViewBuilder
+    func specularRim(lineWidth: CGFloat = T.rimWidth, always: Bool = false) -> some View {
+        if T.glassEnabled || always {
+            strokeBorder(
+                LinearGradient(
+                    stops: [
+                        .init(color: Color(hex: T.highlightStroke).opacity(T.rimTop),
+                              location: 0.00),
+                        .init(color: Color(hex: T.rimSide), location: T.rimLip),
+                        .init(color: Color(hex: T.rimSide), location: 1 - T.rimLip),
+                        .init(color: Color(hex: T.highlightStroke).opacity(T.rimBot),
+                              location: 1.00),
+                    ],
+                    startPoint: .top, endPoint: .bottom),
+                lineWidth: lineWidth)
+            .allowsHitTesting(false)
+        } else {
+            flatHairline(lineWidth: lineWidth)
+        }
     }
 }
 
@@ -1073,14 +1317,16 @@ extension View {
     /// Puts the glass rim on this view. The shape must match the surface's own —
     /// a rim tracing a different radius than the fill under it is worse than no
     /// rim at all.
-    func glassRim<S: InsettableShape>(_ shape: S, lineWidth: CGFloat = T.rimWidth) -> some View {
-        overlay(shape.specularRim(lineWidth: lineWidth))
+    func glassRim<S: InsettableShape>(_ shape: S, lineWidth: CGFloat = T.rimWidth,
+                                      always: Bool = false) -> some View {
+        overlay(shape.specularRim(lineWidth: lineWidth, always: always))
     }
 
     /// Convenience for the common case: a continuous rounded rect.
-    func glassRim(radius: CGFloat, lineWidth: CGFloat = T.rimWidth) -> some View {
+    func glassRim(radius: CGFloat, lineWidth: CGFloat = T.rimWidth,
+                  always: Bool = false) -> some View {
         glassRim(RoundedRectangle(cornerRadius: radius, style: .continuous),
-                 lineWidth: lineWidth)
+                 lineWidth: lineWidth, always: always)
     }
 }
 
@@ -1171,13 +1417,17 @@ struct GlassPanel: ViewModifier {
             .background {
                 ZStack {
                     shape.fill(.ultraThinMaterial)
-                    shape.fill(Color(hex: T.surface).opacity(glassSurfaceTint))
+                    shape.fill(Color(hex: T.surface).opacity(modalSurfaceTint))
                 }
             }
             // The app-wide glass edge. Applied before the group below so it is
             // inside the shadow's compositing group rather than casting one of
             // its own.
-            .overlay(shape.specularRim())
+            //
+            // `always` for the same reason the fill above is unconditional: a
+            // popup stays frosted whatever the Customize toggle says, so its
+            // edge has to stay lit to match.
+            .overlay(shape.specularRim(always: true))
             // Modals float over content, so they need their own lift. Cards
             // deliberately skip this — see FrostedCard.
             .compositingGroup()

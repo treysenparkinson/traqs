@@ -48,22 +48,25 @@ struct FinishRequestRow: View {
                 }
                 .buttonStyle(.plain)
             } else {
+                // Tinted glass — same pair, same treatment as the deny/approve
+                // buttons further down this file.
+                let shape = RoundedRectangle(cornerRadius: T.cornerSm, style: .continuous)
                 HStack(spacing: 10) {
                     Button { decline0() } label: {
                         Label("Decline", systemImage: "xmark")
                             .font(TTypo.smBold(13))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 9)
-                            .foregroundStyle(Color(hex: T.red))
-                            .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: T.red).opacity(0.10)))
+                            .foregroundStyle(glassCTALabel(Color(hex: T.red)))
+                            .glassCTA(in: shape, tint: Color(hex: T.red))
                     }
                     Button { approve() } label: {
                         Label("Approve", systemImage: "checkmark")
                             .font(TTypo.smBold(13))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 9)
-                            .foregroundStyle(Color(hex: T.green))
-                            .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: T.green).opacity(0.10)))
+                            .foregroundStyle(glassCTALabel(Color(hex: T.green)))
+                            .glassCTA(in: shape, tint: Color(hex: T.green))
                     }
                 }
                 .buttonStyle(.plain)
@@ -159,22 +162,27 @@ struct TimeOffQueueRow: View {
                 }
                 .buttonStyle(.plain)
             } else {
+                // Tinted glass, matching the approve/deny pair on the time-off
+                // cards and in the message thread. These were a 10%-opacity
+                // wash behind coloured text, which read as a status chip rather
+                // than as the two buttons that resolve the request.
+                let shape = RoundedRectangle(cornerRadius: T.cornerSm, style: .continuous)
                 HStack(spacing: 10) {
                     Button { denying = true } label: {
                         Label("Deny", systemImage: "xmark")
                             .font(TTypo.smBold(13))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 9)
-                            .foregroundStyle(Color(hex: T.red))
-                            .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: T.red).opacity(0.10)))
+                            .foregroundStyle(glassCTALabel(Color(hex: T.red)))
+                            .glassCTA(in: shape, tint: Color(hex: T.red))
                     }
                     Button { decide("approve") } label: {
                         Label("Approve", systemImage: "checkmark")
                             .font(TTypo.smBold(13))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 9)
-                            .foregroundStyle(Color(hex: T.green))
-                            .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: T.green).opacity(0.10)))
+                            .foregroundStyle(glassCTALabel(Color(hex: T.green)))
+                            .glassCTA(in: shape, tint: Color(hex: T.green))
                     }
                 }
                 .buttonStyle(.plain)
