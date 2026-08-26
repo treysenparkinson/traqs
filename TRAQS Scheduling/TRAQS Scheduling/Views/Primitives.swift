@@ -395,7 +395,10 @@ struct GlassSurface<S: InsettableShape>: ViewModifier {
 }
 
 enum HeaderControl {
-    static let diameter: CGFloat = 38
+    /// Height AND width of every header control — circles and pills alike, so a
+    /// pill differs from a circle only in how long it is, never in how thick.
+    /// Bumped 38 -> 42 for a slightly larger touch target.
+    static let diameter: CGFloat = 42
 }
 
 struct HeaderGlassCircle<Content: View>: View {

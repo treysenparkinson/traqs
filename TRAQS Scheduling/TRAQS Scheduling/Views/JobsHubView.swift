@@ -212,16 +212,20 @@ struct JobsHubView: View {
     private var approvalQueueButton: some View {
         ZStack(alignment: .topTrailing) {
             IconBtn(icon: .select, size: 18) { showApprovals = true }
+            // A plain accent dot, not a count. The exact number of pending
+            // sign-offs isn't actionable from here — you open the queue either
+            // way — and a two-digit badge was wide enough to crowd the controls
+            // beside it. Presence is the whole signal.
             if appState.pendingApprovalCount > 0 {
-                Text("\(appState.pendingApprovalCount)")
-                    .font(TTypo.xsBold(11))
-                    .tnum()
-                    .foregroundStyle(T.onGradient)
-                    .padding(.horizontal, 5)
-                    .frame(minWidth: 18, minHeight: 18)
-                    .background(Capsule().fill(T.brandGradient()))
-                    .offset(x: 5, y: -5)
+                Circle()
+                    .fill(Color(hex: T.accent))
+                    .frame(width: 10, height: 10)
+                    // Rings in the page behind it so the dot stays legible where
+                    // it overlaps the button's own glass edge.
+                    .overlay(Circle().strokeBorder(Color(hex: T.bg), lineWidth: 2))
+                    .offset(x: 2, y: -2)
                     .allowsHitTesting(false)
+                    .accessibilityLabel("Approvals pending")
             }
         }
     }

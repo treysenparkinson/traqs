@@ -6,13 +6,12 @@ import SwiftUI
 // menu · Profile avatar.
 
 struct HomeHeaderControls: View {
-    @Environment(AppState.self) private var appState
-
     var body: some View {
         HStack(spacing: 6) {
-            if appState.isAdmin { AdminHeaderButton() }
+            // Down to a single control. Profile became the first item inside the
+            // settings menu, and Admin moved to the Analytics header — the page an
+            // admin is already on when they want it.
             SettingsGlassMenu()
-            ProfileAvatarButton()
         }
     }
 }
@@ -37,7 +36,10 @@ private struct GlassCircleIcon: View {
 
 // MARK: - Admin button → full-screen AdminView
 
-private struct AdminHeaderButton: View {
+/// Internal, not private: the Analytics header uses it too — it is the one
+/// control that belongs beside the stats an admin is already looking at, rather
+/// than on Home.
+struct AdminHeaderButton: View {
     @State private var showAdmin = false
 
     var body: some View {
@@ -59,10 +61,28 @@ private struct AdminHeaderButton: View {
 
 private struct SettingsGlassMenu: View {
     @Environment(AuthManager.self) private var auth
+    @Environment(AppState.self) private var appState
     @State private var showCustomize = false
+    @State private var showProfile = false
+
+    /// The signed-in person's name, so the profile row reads as "who you are"
+    /// rather than a generic label. Falls back to "Profile" before people load.
+    private var profileTitle: String {
+        let name = appState.currentPerson?.name ?? ""
+        return name.isEmpty ? "Profile" : name
+    }
 
     var body: some View {
         Menu {
+            // Was the avatar button in the header. A menu row can't render the
+            // photo itself — the system draws these as label + SF Symbol — so it
+            // carries the person's NAME, which identifies the account just as well.
+            Button {
+                showProfile = true
+            } label: {
+                Label(profileTitle, systemImage: "person.crop.circle")
+            }
+            Divider()
             Button {
                 showCustomize = true
             } label: {
@@ -81,31 +101,6 @@ private struct SettingsGlassMenu: View {
         }
         .buttonStyle(.plain)
         .sheet(isPresented: $showCustomize) { CustomizeView() }
-    }
-}
-
-// MARK: - Profile avatar → Edit Profile
-
-private struct ProfileAvatarButton: View {
-    @Environment(AppState.self) private var appState
-    @State private var showProfile = false
-
-    private var person: Person? { appState.currentPerson }
-    private var initials: String {
-        let parts = (person?.name ?? "—")
-            .split(separator: " ")
-            .prefix(2)
-            .map { String($0.prefix(1)).uppercased() }
-        return parts.joined()
-    }
-
-    var body: some View {
-        Button { showProfile = true } label: {
-            Avatar(initials: initials.isEmpty ? "—" : initials,
-                   size: 36, gradient: true, imageData: person?.image)
-                .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
         .sheet(isPresented: $showProfile) {
             EditProfileView().edgeSwipeBack { showProfile = false }
         }

@@ -58,16 +58,22 @@ struct TimeClockView: View {
                 VStack(spacing: 0) {
                     TRAQSNavHeader {
                         // Time Off lives here now (removed from the side drawer).
+                        // Through HeaderGlassPill, not a hand-rolled glassControl:
+                        // this was the one header control sizing itself (36pt), so
+                        // it sat thinner than every circular button beside it.
+                        // Routing it here pins it to HeaderControl.diameter, so the
+                        // pill and the circles are exactly the same height and the
+                        // same glass.
                         Button { appNav.openTimeOffPage = true } label: {
-                            HStack(spacing: 6) {
-                                TIconView(icon: .cal, size: 14, color: Color(hex: T.ink))
-                                Text("Time Off")
-                                    .font(TTypo.smBold(13))
-                                    .foregroundStyle(Color(hex: T.ink))
+                            HeaderGlassPill {
+                                HStack(spacing: 6) {
+                                    TIconView(icon: .cal, size: 14, color: Color(hex: T.ink))
+                                    Text("Time Off")
+                                        .font(TTypo.smBold(13))
+                                        .foregroundStyle(Color(hex: T.ink))
+                                }
+                                .padding(.horizontal, 14)
                             }
-                            .padding(.horizontal, 14)
-                            .frame(height: 36)
-                            .glassControl(in: Capsule())
                         }
                         .buttonStyle(.plain)
                     }

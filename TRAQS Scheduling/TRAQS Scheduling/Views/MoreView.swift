@@ -37,7 +37,10 @@ struct MoreView: View {
                 // Sticky header. Calendar jumps weeks; the person button (admins)
                 // picks a worker to view their personal stats.
                 TRAQSNavHeader {
-                    if appState.isAdmin { workerMenu }
+                    if appState.isAdmin {
+                        AdminHeaderButton()
+                        workerMenu
+                    }
                     weekMenu
                 }
                 .overlay(alignment: .center) {
@@ -357,7 +360,7 @@ struct MoreView: View {
         } label: {
             glassHeaderIcon(.person)
         }
-        .glassCircleButton()
+        .buttonStyle(.plain)
         // Own shadow tied to the button so it doesn't drop out for a frame when
         // the menu dismisses (the system glass shadow briefly disappears there).
         .shadow(color: .black.opacity(0.12), radius: 5, x: 0, y: 3)
@@ -379,16 +382,23 @@ struct MoreView: View {
         } label: {
             glassHeaderIcon(.cal)
         }
-        .glassCircleButton()
+        .buttonStyle(.plain)
         .shadow(color: .black.opacity(0.12), radius: 5, x: 0, y: 3)
     }
 
-    /// The menu label glyph. The native `.glass` button style (on the Menu)
-    /// supplies the circular glass chrome and morphs it into the dropdown, so the
-    /// button itself becomes the menu (no separate placeholder circle).
+    /// The menu label — the SAME `HeaderGlassCircle` every other header control
+    /// in the app uses, so these two are exactly the Admin button's size.
+    ///
+    /// These used the native `.buttonStyle(.glass)`, which morphs the circle into
+    /// its dropdown — a nice touch, but that style sizes itself from its label
+    /// plus whatever padding the system chooses, and it landed ~37pt against the
+    /// 42pt everything else runs at. Forcing an outer 42pt frame didn't fix it
+    /// either: the system chrome just inset itself inside the frame. Sizing is the
+    /// visible problem in a row of three circles, so it wins over the morph.
     private func glassHeaderIcon(_ icon: TIcon) -> some View {
-        TIconView(icon: icon, size: 18, color: Color(hex: T.ink))
-            .frame(width: 22, height: 22)
+        HeaderGlassCircle {
+            TIconView(icon: icon, size: 18, color: Color(hex: T.ink))
+        }
     }
 
     /// Start-of-week (Monday) dates for the last 8 weeks, this week first.

@@ -220,13 +220,14 @@ struct MessagesView: View {
                             .buttonStyle(.plain)
                             .disabled(selectedKeys.isEmpty)
                         } else {
-                            // Utility cluster: Select (checkmark) · Search · Filter.
-                            // All use the same headerGlassCircle so sizes match exactly.
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) { selectMode = true }
-                            } label: { headerGlassCircle(.select) }
-                            .buttonStyle(.plain)
-
+                            // Utility cluster: Search · Filter. All use the same
+                            // headerGlassCircle so sizes match exactly.
+                            //
+                            // The Select (checkmark) button is gone: press-and-hold
+                            // on any thread row already enters select mode with that
+                            // row picked (see enterSelectMode), which is both the
+                            // platform convention and strictly better — the button
+                            // could only ever open an EMPTY selection.
                             Button {
                                 withAnimation(.easeInOut(duration: 0.18)) {
                                     showSearch.toggle()
@@ -246,7 +247,15 @@ struct MessagesView: View {
 
                             // New chat (+).
                             Button {
-                                showNewMessage = true   // pick recipients: 1 = DM, 2+ = group
+                                appNav.modalBlur = true
+                                // Animations off, so the cover doesn't slide up from
+                                // the bottom — NewMessageSheet fades and scales in at
+                                // the centre under its own steam, the same as every
+                                // other popup here. Presenting it normally ran BOTH,
+                                // which is what read as it popping up.
+                                withTransaction(Transaction.noAnimation) {
+                                    showNewMessage = true   // 1 = DM, 2+ = group
+                                }
                             } label: { headerGlassCircle(.plus) }
                             .buttonStyle(.plain)
                         }
@@ -341,7 +350,11 @@ struct MessagesView: View {
             }
             // Unified compose: exactly ONE recipient opens a DM, TWO OR MORE
             // create a group (auto-named unless the user typed a name).
-            .sheet(isPresented: $showNewMessage) {
+            // A COVER, not a sheet: the popup draws its own scrim and glass card,
+            // so it needs the whole screen with a clear background rather than a
+            // system sheet's card and dimming. `modalBlur` blurs the inbox behind
+            // it — the popup can't do that itself, being its own presentation.
+            .fullScreenCover(isPresented: $showNewMessage) {
                 NewMessageSheet { recipientIds, groupName in
                     guard let myId = appState.currentPersonId, !recipientIds.isEmpty else { return }
                     if recipientIds.count == 1 {
@@ -360,8 +373,14 @@ struct MessagesView: View {
                         }
                     }
                 }
-                // Swipe-down to dismiss (plus the Cancel button) with a visible grabber.
-                .presentationDragIndicator(.visible)
+                // No drag indicator: that was a SHEET affordance, and this is a
+                // clear cover holding a floating card — there is no sheet edge to
+                // grab. Tapping the scrim or the X closes it.
+                //
+                // Clearing the blur here rather than at each exit covers all three:
+                // the X, a scrim tap, and a successful Create (which dismisses
+                // itself once the thread is queued).
+                .onDisappear { appNav.modalBlur = false }
             }
             .alert("Delete \(selectedKeys.count) conversation\(selectedKeys.count == 1 ? "" : "s")?",
                    isPresented: $showDeleteConfirm) {
@@ -3077,126 +3096,134 @@ struct NewMessageSheet: View {
             .overlay(Capsule(style: .continuous).strokeBorder(Color(hex: T.hair), lineWidth: 1))
     }
 
+    /// Drives the entrance spring — see `modalPopAnimation`.
+    @State private var appear = false
+
     var body: some View {
         observeTheme
+        // The glass-popup idiom every other modal here uses (Start Job, Request
+        // Time Off, the panel photo sheet): a scrim over the page, a glass card
+        // springing in over it. This was a full-screen sheet with its own
+        // PageBackground and a 46pt page title, which read as a whole SCREEN —
+        // picking two names and hitting Create never warranted leaving the inbox.
         return ZStack {
-            PageBackground()
+            // Tap out to cancel: nothing has happened yet, the thread is only
+            // created from the CTA. The page behind is blurred by MainTabView via
+            // appNav.modalBlur — this cover is its own presentation and so can't
+            // blur the page itself.
+            ModalScrim { close() }
 
-            ScrollView {
-                VStack(spacing: 16) {
-                    // Big left-aligned title, matching the page titles elsewhere.
-                    Text("New Message")
-                        .font(.custom(TFontName.extrabold.rawValue, size: 46))
-                        .tracking(-3)
-                        .foregroundStyle(Color(hex: T.ink))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .multilineTextAlignment(.leading)
-                        .padding(.top, 8)
+            card.modalPop(appear)
+        }
+        .presentationBackground(.clear)   // let the inbox show through
+        .onAppear { withAnimation(modalPopAnimation) { appear = true } }
+    }
 
-                    // Recipients — just tap who you want, then Create.
-                    VStack(alignment: .leading, spacing: 10) {
-                        // Top row. Once this is a group the name is the headline
-                        // control and search shrinks to a circle beside it; with
-                        // nothing to name, or while searching, search takes the
-                        // whole row instead of sitting next to an empty gap.
-                        HStack(spacing: 10) {
-                            if nameHasTheRow {
-                                searchCircle
-                                groupNamePill
-                            } else {
-                                searchPill
-                            }
-                        }
-                        .animation(.spring(response: 0.34, dampingFraction: 0.82), value: nameHasTheRow)
-                        // Extra 20 on top of the VStack's own 16, so the title has
-                        // room to breathe before the inputs start.
-                        .padding(.top, 20)
+    // MARK: Card
 
-                        // Same card grid as New Group / Edit Group.
-                        MemberPickerGrid(people: others, selectedIds: $selectedIds)
+    private var card: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("New Message")
+                .font(TTypo.h3(20))
+                .foregroundStyle(Color(hex: T.ink))
 
-                        if others.isEmpty {
-                            Text("No people match “\(query)”")
-                                .font(TTypo.sm(13))
-                                .foregroundStyle(Color(hex: T.muted))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 20)
+            // Sized to its content, scrolling only once the roster can't fit, so
+            // the popup is exactly as tall as it needs to be.
+            //
+            // `HugScroll`, NOT `ViewThatFits`: this card holds text fields (search
+            // and the group name), and a ViewThatFits flips branches the moment the
+            // keyboard changes the offered height, which rebuilds the field and
+            // drops its focus. See "Popups that hold a text field" in Primitives.
+            HugScroll {
+                VStack(alignment: .leading, spacing: 10) {
+                    // Top row. Once this is a group the name is the headline control
+                    // and search shrinks to a circle beside it; with nothing to name,
+                    // or while searching, search takes the whole row.
+                    HStack(spacing: 10) {
+                        if nameHasTheRow {
+                            searchCircle
+                            groupNamePill
+                        } else {
+                            searchPill
                         }
                     }
+                    .animation(.spring(response: 0.34, dampingFraction: 0.82), value: nameHasTheRow)
+
+                    // Same card grid as New Group / Edit Group.
+                    MemberPickerGrid(people: others, selectedIds: $selectedIds)
+
+                    if others.isEmpty {
+                        Text("No people match \u{201C}\(query)\u{201D}")
+                            .font(TTypo.sm(13))
+                            .foregroundStyle(Color(hex: T.muted))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 20)
+                    }
                 }
-                .padding(.horizontal, 16)
-                // On the whole stack, not the title, so the title and everything
-                // under it come down together.
-                .padding(.top, 28)
-                // Clear the floating action bar so the last row stays reachable.
-                .padding(.bottom, 96)
                 .animation(.easeInOut(duration: 0.18), value: isGroup)
             }
-            .scrollIndicators(.visible)
-            .scrollDismissesKeyboard(.interactively)
 
-            // Floating action bar — Cancel (left) + Create (right). Stays pinned
-            // to the bottom while the recipient list scrolls behind it.
-            VStack {
-                Spacer()
-                HStack(spacing: 12) {
-                    Button { dismiss() } label: {
-                        Text("Cancel")
-                            .font(TTypo.smBold(15))
-                            .foregroundStyle(Color(hex: T.ink))
-                            .padding(.horizontal, 24).padding(.vertical, 14)
-                            // Neutral glass, deliberately UNtinted — Create beside
-                            // it is accent-tinted, and two identically-coloured
-                            // glass buttons in one bar would leave the row with no
-                            // primary action. Same material, different weight.
-                            .glassControl(in: RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous))
-                            .shadow(color: .black.opacity(0.12), radius: 12, x: 0, y: 4)
-                    }
-                    .buttonStyle(.plain)
-
-                    Spacer(minLength: 0)
-
-                    Button { start() } label: {
-                        let enabled = !selectedIds.isEmpty
-                        let shape = RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous)
-                        let label = HStack(spacing: 7) {
-                            Image(systemName: "plus").font(.system(size: 15, weight: .bold))
-                            Text("Create").font(TTypo.smBold(15))
-                        }
-                        // Tinted glass is tinted with the FLAT accent, so the
-                        // label is judged against that; the disabled state is a
-                        // grey, judged against the gradient's two stops.
-                        .foregroundStyle(enabled ? glassCTALabel() : T.onGradient)
-                        .padding(.horizontal, 24).padding(.vertical, 14)
-
-                        Group {
-                            if enabled {
-                                // Same tinted Liquid Glass as Clock In, Start,
-                                // Start Job and Jump to job — this is the one
-                                // action the sheet exists for.
-                                label.glassCTA(in: shape)
-                            } else {
-                                // Disabled = muted grey, not progressTrack: that
-                                // chart token is near-white on light presets, which
-                                // left this button invisible AND its white label
-                                // unreadable. Deliberately NOT dimmed glass, which
-                                // on a light preset reads as merely faint rather
-                                // than as unavailable.
-                                label.background(shape.fill(Color(hex: T.muted).opacity(0.5)))
-                            }
-                        }
-                        .shadow(color: Color(hex: T.ctaGlowColor).opacity(selectedIds.isEmpty ? 0 : T.ctaGlowOpacity),
-                                radius: T.ctaGlowRadius, x: 0, y: T.ctaGlowY)
-                        .opacity(selectedIds.isEmpty ? 0.7 : 1)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(selectedIds.isEmpty)
-                    .animation(.easeInOut(duration: 0.18), value: selectedIds.isEmpty)
+            // At the foot of the CARD now, not pinned to the screen. A bar floating
+            // over a popup this size would have covered the roster it existed to
+            // keep reachable.
+            Button { start() } label: {
+                let enabled = !selectedIds.isEmpty
+                let shape = RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous)
+                let label = HStack(spacing: 7) {
+                    Image(systemName: "plus").font(.system(size: 15, weight: .bold))
+                    Text("Create").font(TTypo.smBold(15))
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 18)
+                // Tinted glass is tinted with the FLAT accent, so the label is
+                // judged against that; the disabled state is a grey, judged against
+                // the gradient's two stops.
+                .foregroundStyle(enabled ? glassCTALabel() : T.onGradient)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+
+                Group {
+                    if enabled {
+                        // Same tinted Liquid Glass as Clock In, Start and Start Job
+                        // — this is the one action the popup exists for.
+                        label.glassCTA(in: shape)
+                    } else {
+                        // Disabled = muted grey, not progressTrack: that chart token
+                        // is near-white on light presets, which left this button
+                        // invisible AND its white label unreadable.
+                        label.background(shape.fill(Color(hex: T.muted).opacity(0.5)))
+                    }
+                }
+                .shadow(color: Color(hex: T.ctaGlowColor).opacity(selectedIds.isEmpty ? 0 : T.ctaGlowOpacity),
+                        radius: T.ctaGlowRadius, x: 0, y: T.ctaGlowY)
+                .opacity(selectedIds.isEmpty ? 0.7 : 1)
             }
+            .buttonStyle(.plain)
+            .disabled(selectedIds.isEmpty)
+            .animation(.easeInOut(duration: 0.18), value: selectedIds.isEmpty)
         }
+        .padding(T.insetHero)
+        // Headroom for the cancel X — the same 46pt every other popup reserves, so
+        // the title clears a 36pt button inset 18pt from a 46pt corner.
+        .padding(.top, 46)
+        .frame(maxWidth: 380)
+        .glassPanel()
+        // Cancel, anchored INSIDE the card's top-left (attached after the glass but
+        // before the outer padding, so it sits on the card rather than floating out
+        // in the backdrop). Replaces the old floating Cancel button.
+        .overlay(alignment: .topLeading) {
+            Button { close() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .frame(width: 36, height: 36)
+                    .glassEffect(.regular.interactive(), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(18)
+        }
+        .padding(.horizontal, 24)
+        // Room top and bottom so a tall roster can't reach the screen edges; the
+        // HugScroll above starts scrolling before it gets there.
+        .padding(.vertical, 40)
     }
 
     /// Touched in `body` so a live frosted-glass flip re-renders the Create
@@ -3211,8 +3238,22 @@ struct NewMessageSheet: View {
         // added, where a snapshot taken now would go stale.
         let trimmed = groupName.trimmingCharacters(in: .whitespaces)
         let name: String? = (ids.count > 1 && !trimmed.isEmpty) ? trimmed : nil
-        dismiss()
-        onStart(ids, name)
+        // Animate out first, THEN hand the thread to the presenter — otherwise the
+        // card is torn down mid-curve and the navigation push races the exit.
+        close { onStart(ids, name) }
+    }
+
+    /// The shared modal exit: shrink and fade, and only once that has actually
+    /// finished let the presenter tear the cover down.
+    ///
+    /// The teardown is wrapped in `.noAnimation` for the same reason the
+    /// presentation is — otherwise the cover slides back DOWN over a card that has
+    /// already faded itself out.
+    private func close(then finish: @escaping () -> Void = {}) {
+        modalPopDismiss({ appear = $0 }) {
+            withTransaction(Transaction.noAnimation) { dismiss() }
+            finish()
+        }
     }
 
 }
