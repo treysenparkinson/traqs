@@ -301,6 +301,10 @@ struct AvailabilityCheckPopup: View {
     @State private var fromDate = Calendar.current.startOfDay(for: Date())
     @State private var toDate = Calendar.current.date(byAdding: .day, value: 14, to: Date()) ?? Date()
     @State private var hoursText = ""
+    /// The hours field's keyboard is a `.numberPad` — it has no Return key, so
+    /// the ways out are the Done on the pad, tapping off the field, or tapping
+    /// outside the panel.
+    @FocusState private var hoursFocused: Bool
     @State private var departments: Set<String> = []   // empty = any department
     @State private var deptPickerOpen = false
     @State private var selectedAlt: AvailAlternative?   // a tapped fallback option
@@ -359,13 +363,23 @@ struct AvailabilityCheckPopup: View {
     var body: some View {
         ZStack {
             // Tapping out closes — this is a read-only check, so there's
-            // nothing in flight to protect.
-            ModalScrim { close() }
+            // nothing in flight to protect. While the keyboard is up, though, a
+            // tap outside means "done typing", not "throw away what I typed",
+            // so the first tap only puts the keyboard away.
+            ModalScrim { if hoursFocused { hoursFocused = false } else { close() } }
 
             card.modalPop(appear)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .ignoresSafeArea()
+        // Unlike the time-off popup, this one does NOT collapse around its
+        // field — the whole form stays on screen while the pad is up, and the
+        // pad carries its own Done. Ordinary keyboard avoidance is all it
+        // needs: the panel lifts intact, and `HugScroll` scrolls it if the
+        // remaining height won't hold it. Sides and bottom of the container are
+        // ignored so the card keeps the full width; the top inset stays, so it
+        // can't reach the Dynamic Island. See "Popups that hold a text field"
+        // in Primitives.swift.
+        .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
         .onAppear { withAnimation(modalPopAnimation) { appear = true } }
     }
 
@@ -373,24 +387,23 @@ struct AvailabilityCheckPopup: View {
         VStack(alignment: .leading, spacing: 18) {
             header
 
-            // Sized to whatever is showing, scrolling ONLY if it can't fit.
+            // Sized to whatever is showing, scrolling ONLY if it can't fit —
+            // which matters here because the popup swaps a compact form for a
+            // result card with alternatives and an AI summary in place.
             //
-            // A bare ScrollView is greedy — it takes every point of height it's
-            // offered — so wrapping this in one grew the panel to the full
-            // screen even for the short input form. `ViewThatFits` uses the
-            // plain stack when it fits and hands over to the scroller only when
-            // it wouldn't, which matters here because the popup swaps a compact
-            // form for a result card with alternatives and an AI summary in
-            // place: the panel now resizes to each.
-            ViewThatFits(in: .vertical) {
-                panelContent
-                ScrollView { panelContent }.scrollBounceBehavior(.basedOnSize)
-            }
+            // `HugScroll`, NOT `ViewThatFits`: the hours field is in here, and
+            // a ViewThatFits flips branches the moment the keyboard changes the
+            // offered height, which rebuilds the field and drops its focus.
+            // See "Popups that hold a text field" in Primitives.swift.
+            HugScroll { panelContent }
         }
         .padding(T.insetHero)
         // Headroom for the cancel X — the same 46pt every other popup reserves.
         .padding(.top, 46)
         .frame(maxWidth: 400)
+        // Tapping the panel's own face puts the keyboard away. Behind the
+        // content, so it can't steal the field's own focus tap.
+        .tapToDismissKeyboard { hoursFocused = false }
         .glassPanel()
         // Close, anchored INSIDE the card's top-left. Replaces the "Done"
         // toolbar button the NavigationStack used to supply.
@@ -411,8 +424,7 @@ struct AvailabilityCheckPopup: View {
         .padding(.vertical, 40)
     }
 
-    /// The form or the result, built once and used by both `ViewThatFits`
-    /// branches.
+    /// The form or the result — whichever the popup is showing.
     private var panelContent: some View {
         VStack(alignment: .leading, spacing: 18) {
             if let r = result { resultCard(r) } else { inputForm }
@@ -457,10 +469,37 @@ struct AvailabilityCheckPopup: View {
                         .foregroundStyle(Color(hex: T.ink))
                     Spacer()
                     TextField("e.g. 40", text: $hoursText)
-                        .keyboardType(.decimalPad)
+                        .keyboardType(.numberPad)
+                        .focused($hoursFocused)
                         .multilineTextAlignment(.trailing)
                         .font(TTypo.bodyBold(16))
                         .frame(width: 90)
+                        // A whole number, and ONLY a number. The pad alone
+                        // doesn't guarantee it — paste, dictation and a
+                        // hardware keyboard all reach this field — so anything
+                        // that isn't a digit is dropped as it's typed. `hours`
+                        // parses this, and a rejected character must never
+                        // silently become 0.
+                        .onChange(of: hoursText) { _, new in
+                            let clean = new.filter(\.isNumber)
+                            if clean != new { hoursText = clean }
+                        }
+                        // The number pad has no Return key, so it needs a Done
+                        // of its own. It rides on the pad — iOS puts an input
+                        // accessory across the pad's top edge, right-aligned
+                        // here, since the pad's own keys can't be replaced.
+                        //
+                        // Safe to hang off the field itself: `HugScroll` builds
+                        // its content once, unlike the `ViewThatFits` that used
+                        // to sit here and would have declared this twice.
+                        .toolbar {
+                            ToolbarItemGroup(placement: .keyboard) {
+                                Spacer()
+                                Button("Done") { hoursFocused = false }
+                                    .font(TTypo.bodyBold(16))
+                                    .foregroundStyle(Color(hex: T.accent))
+                            }
+                        }
                 }
             }
 
@@ -515,6 +554,7 @@ struct AvailabilityCheckPopup: View {
             }
 
             Button {
+                hoursFocused = false
                 runCheck()
             } label: {
                 let enabled = hours > 0

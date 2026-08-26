@@ -1395,12 +1395,16 @@ func modalPopDismiss(_ shown: @escaping (Bool) -> Void,
     }
 }
 
+/// The house modal radius — the clock PIN pad's, which set the shape. Still
+/// softer than a card (T.cornerHero, 42), so a modal reads as a floating pebble
+/// rather than another panel. Named so a panel that has to CLIP its content to
+/// its own shape can't drift out of step with the glass drawn around it.
+let modalPanelRadius: CGFloat = 46
+
 struct GlassPanel: ViewModifier {
     @Environment(ThemeSettings.self) private var theme
-    /// Default 46 — the clock PIN pad's radius, which set the house shape. Still
-    /// softer than a card (T.cornerHero, 42), so a modal reads as a floating
-    /// pebble rather than another panel.
-    var radius: CGFloat = 46
+    /// See `modalPanelRadius`.
+    var radius: CGFloat = modalPanelRadius
 
     func body(content: Content) -> some View {
         // Touch the theme so a live Customize change re-tints the surface (the
@@ -1494,6 +1498,104 @@ extension View {
 /// How much to blur the page behind a modal. Small on purpose — a little reads
 /// as depth, more reads as the page being taken away. THE dial for this.
 let modalPageBlurRadius: CGFloat = 3
+
+// ── Popups that hold a text field ───────────────────────────────────────────
+//
+// Two rules, and the first one is the non-obvious one.
+//
+// 1. NEVER SIZE A PANEL WITH `ViewThatFits` IF IT HOLDS A TEXT FIELD.
+//    `ViewThatFits` picks a branch from the height it's offered, and the
+//    keyboard is a safe-area region — so the instant the keyboard opens, the
+//    offered height drops by ~300pt and the branch flips. Flipping branches
+//    rebuilds everything inside with FRESH IDENTITIES, and a rebuilt
+//    `TextField` loses `@FocusState`. The keyboard closes, the height comes
+//    back, the branch flips back, and the panel oscillates forever — the field
+//    reads as simply refusing the keyboard. Use `HugScroll` below instead: one
+//    ScrollView, one identity, no branch to flip.
+//
+// 2. THEN LET SWIFTUI DO THE LIFTING. With the branch swap gone, ordinary
+//    keyboard avoidance is safe, and it beats anything hand-rolled — it moves
+//    the card up AND scrolls the focused field into view inside the scroller.
+//    So DON'T ignore `.keyboard`, and don't offset the card by a measured
+//    keyboard height. Ignore the container inset at the sides and bottom only,
+//    so the card keeps the full width while the top inset still caps it just
+//    under the Dynamic Island:
+//
+//        ZStack { ModalScrim { … }; card.modalPop(appear) }
+//            .frame(maxWidth: .infinity, maxHeight: .infinity)
+//            .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+//
+//    The card then fills whatever is left between the island and the keyboard,
+//    and `HugScroll` scrolls the overflow. The panel stays WHOLE while it does
+//    — no hiding fields to make room. That was tried and reverted: collapsing a
+//    form around its focused field means animating a resize against the
+//    keyboard's own animation, and the two never quite agree.
+//
+// 3. GIVE THE FIELD A DONE. A `.numberPad` has no Return key and a
+//    `TextField(axis: .vertical)` spends Return on a newline, so neither can
+//    put its own keyboard away. Both popups hang a right-aligned Done off the
+//    field via `ToolbarItemGroup(placement: .keyboard)`, which iOS renders as
+//    an accessory bar on the keyboard. Hanging it off the field is only safe
+//    because `HugScroll` builds its content once — under a `ViewThatFits` it
+//    would be declared twice. `ModalScrim` and `tapToDismissKeyboard` are the
+//    other two ways out.
+
+/// A ScrollView that HUGS its content instead of taking every point it's
+/// offered — a panel wrapped in a bare one grows to the full screen even for a
+/// three-field form.
+///
+/// This is the replacement for `ViewThatFits(in: .vertical) { content;
+/// ScrollView { content } }` on any panel holding a text field: same "scroll
+/// only when it doesn't fit" behaviour, but out of a SINGLE view, so nothing is
+/// ever rebuilt and focus is never dropped. See rule 1 above.
+struct HugScroll<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+
+    /// The content's natural height, which caps the scroller. Measured on the
+    /// content, whose height doesn't depend on that cap — so there's no loop.
+    @State private var contentHeight: CGFloat = 0
+
+    var body: some View {
+        ScrollView {
+            content()
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+        }
+        // A MAX, not a fixed height: when the parent offers less (keyboard up),
+        // the scroller takes the smaller amount and scrolls instead. Greedy for
+        // the one frame before the measurement lands, which `ModalPop` spends
+        // at opacity 0 anyway.
+        //
+        // NOT animated. If a caller ever animates content in or out, this
+        // measurement interpolates frame by frame on its own and the cap tracks
+        // it within one frame. A second animation on the cap would make it
+        // CHASE that value instead — content finishes moving, then the panel
+        // catches up behind it, which reads as a two-stage resize.
+        .frame(maxHeight: contentHeight == 0 ? .infinity : contentHeight)
+        // Content shrinking under a scrolled-down offset otherwise leaves the
+        // view parked mid-content and reads as a jump.
+        .defaultScrollAnchor(.top)
+        .scrollBounceBehavior(.basedOnSize)
+        .scrollDismissesKeyboard(.interactively)
+    }
+}
+
+extension View {
+    /// Puts the keyboard away when the panel's own face is tapped — anywhere
+    /// that isn't a control.
+    ///
+    /// A BACKGROUND, deliberately. The same gesture laid OVER the content
+    /// (`.contentShape(Rectangle()).onTapGesture`) swallows the tap that
+    /// focuses a `TextField`, so the field can never take the keyboard in the
+    /// first place. Behind the content, the fields are hit-tested first and
+    /// only taps on empty panel reach this.
+    func tapToDismissKeyboard(_ dismiss: @escaping () -> Void) -> some View {
+        background {
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture(perform: dismiss)
+        }
+    }
+}
 
 // Flat 2D pill — the capsule variant of FrostedCard (surface fill + flat
 // hairline border + ambient float shadow, with capsule ends).

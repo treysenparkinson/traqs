@@ -412,6 +412,10 @@ private struct RequestTimeOffOverlay: View {
     @State private var start = Date()
     @State private var end = Date()
     @State private var note = ""
+    /// The note is a vertical-axis field, so Return types a newline rather than
+    /// dismissing — the ways out are the Done on the keyboard, tapping off the
+    /// field, or tapping outside the panel.
+    @FocusState private var noteFocused: Bool
     @State private var submitting = false
     @State private var error: String?
     @State private var didPrefill = false
@@ -437,13 +441,25 @@ private struct RequestTimeOffOverlay: View {
         _ = theme.frostedGlass; _ = theme.accent
         return ZStack {
             // Tapping out cancels — nothing has happened yet, the request only
-            // goes out from the CTA. Blocked mid-submit.
-            ModalScrim { if !submitting { close() } }
+            // goes out from the CTA. Blocked mid-submit. While the keyboard is
+            // up, a tap outside means "done typing", not "throw the form away",
+            // so the first tap only puts the keyboard away.
+            ModalScrim {
+                guard !submitting else { return }
+                if noteFocused { noteFocused = false } else { close() }
+            }
 
             card.modalPop(appear)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .ignoresSafeArea()
+        // The panel does NOT collapse around its field — the whole form stays
+        // on screen while the keyboard is up, and the keyboard carries its own
+        // Done. Ordinary keyboard avoidance is all it needs: the panel lifts
+        // intact, and `HugScroll` scrolls it if the remaining height won't hold
+        // it. Sides and bottom of the container are ignored so the card keeps
+        // the full width; the top inset stays, so it can't reach the Dynamic
+        // Island. See "Popups that hold a text field" in Primitives.swift.
+        .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
         .onAppear {
             prefillIfNeeded()
             withAnimation(modalPopAnimation) { appear = true }
@@ -458,17 +474,14 @@ private struct RequestTimeOffOverlay: View {
                 .font(TTypo.h3(20))
                 .foregroundStyle(Color(hex: T.ink))
 
-            // Sized to the form, scrolling ONLY if it can't fit.
+            // Sized to the form, scrolling ONLY if it can't fit, so the popup
+            // is exactly as tall as its content.
             //
-            // A bare ScrollView is greedy — it takes every point of height it's
-            // offered — so wrapping the form in one grew the panel to the full
-            // screen no matter how little it held. `ViewThatFits` uses the
-            // plain stack when it fits (so the popup is exactly as tall as its
-            // content) and falls back to the scroller only when it wouldn't.
-            ViewThatFits(in: .vertical) {
-                formFields
-                ScrollView { formFields }.scrollBounceBehavior(.basedOnSize)
-            }
+            // `HugScroll`, NOT `ViewThatFits`: the note field is in here, and a
+            // ViewThatFits flips branches the moment the keyboard changes the
+            // offered height, which rebuilds the field and drops its focus.
+            // See "Popups that hold a text field" in Primitives.swift.
+            HugScroll { formFields }
 
             // The submit. Deliberately large and full-width — it's what the
             // popup exists for, and the only lit thing on the panel.
@@ -493,6 +506,9 @@ private struct RequestTimeOffOverlay: View {
         // so the title clears a 36pt button inset 18pt from a 46pt corner.
         .padding(.top, 46)
         .frame(maxWidth: 380)
+        // Tapping the panel's own face puts the keyboard away. Behind the
+        // content, so it can't steal the note field's own focus tap.
+        .tapToDismissKeyboard { noteFocused = false }
         .glassPanel()
         // Cancel, anchored INSIDE the card's top-left (attached after the glass
         // but before the outer padding, so it sits on the card rather than
@@ -510,64 +526,79 @@ private struct RequestTimeOffOverlay: View {
         }
         .padding(.horizontal, 24)
         // Room top and bottom so a tall form can't reach the screen edges; the
-        // ViewThatFits above hands over to its scroller before it gets there.
+        // HugScroll above starts scrolling before it gets there.
         .padding(.vertical, 40)
     }
 
-    /// The form itself, built once and used by both `ViewThatFits` branches.
+    /// The form itself.
     private var formFields: some View {
-                VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("TYPE")
-                            .font(TTypo.xsBold(11)).tLabel(tracking: 1.4)
-                            .foregroundStyle(Color(hex: T.muted))
-                        Picker("", selection: $type) {
-                            Text("PTO · paid").tag("PTO")
-                            Text("UTO · unpaid").tag("UTO")
-                        }
-                        .pickerStyle(.segmented)
-                    }
-
-                    VStack(spacing: 4) {
-                        DatePicker(selection: $start, displayedComponents: .date) {
-                            Text("Start").font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
-                        }
-                        .tint(Color(hex: T.accentGradientStart))
-                        SLine()
-                        DatePicker(selection: $end, in: start..., displayedComponents: .date) {
-                            Text("End").font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
-                        }
-                        .tint(Color(hex: T.accentGradientStart))
-                    }
-                    .padding(.horizontal, 14).padding(.vertical, 10)
-                    // A well INSIDE the glass panel, so the two date rows read
-                    // as one grouped control rather than as loose text on the
-                    // popup's face.
-                    .glassSurface(in: RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous),
-                                  rim: true)
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("NOTE (OPTIONAL)")
-                            .font(TTypo.xsBold(11)).tLabel(tracking: 1.4)
-                            .foregroundStyle(Color(hex: T.muted))
-                        TextField("Reason…", text: $note, axis: .vertical)
-                            .lineLimit(1...3)
-                            .font(TTypo.sm(14))
-                            .foregroundStyle(Color(hex: T.ink))
-                            .padding(12)
-                            // Native glass, matching the message composer's
-                            // field — an input on a glass panel shouldn't be
-                            // the one flat opaque box on it.
-                            .glassControl(in: RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous),
-                                          interactive: false)
-                    }
-
-                    if let error {
-                        Text(error)
-                            .font(TTypo.xs(12))
-                            .foregroundStyle(Color(hex: "#DC2626"))
-                    }
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("TYPE")
+                    .font(TTypo.xsBold(11)).tLabel(tracking: 1.4)
+                    .foregroundStyle(Color(hex: T.muted))
+                Picker("", selection: $type) {
+                    Text("PTO · paid").tag("PTO")
+                    Text("UTO · unpaid").tag("UTO")
                 }
+                .pickerStyle(.segmented)
+            }
+
+            VStack(spacing: 4) {
+                DatePicker(selection: $start, displayedComponents: .date) {
+                    Text("Start").font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
+                }
+                .tint(Color(hex: T.accentGradientStart))
+                SLine()
+                DatePicker(selection: $end, in: start..., displayedComponents: .date) {
+                    Text("End").font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
+                }
+                .tint(Color(hex: T.accentGradientStart))
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            // A well INSIDE the glass panel, so the two date rows read as one
+            // grouped control rather than as loose text on the popup's face.
+            .glassSurface(in: RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous),
+                          rim: true)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("NOTE (OPTIONAL)")
+                    .font(TTypo.xsBold(11)).tLabel(tracking: 1.4)
+                    .foregroundStyle(Color(hex: T.muted))
+                TextField("Reason…", text: $note, axis: .vertical)
+                    .focused($noteFocused)
+                    .lineLimit(1...3)
+                    .font(TTypo.sm(14))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .padding(12)
+                    // Native glass, matching the message composer's field — an
+                    // input on a glass panel shouldn't be the one flat opaque
+                    // box on it.
+                    .glassControl(in: RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous),
+                                  interactive: false)
+                    // This field is vertical-axis, so Return types a newline and
+                    // can't dismiss — it needs a Done of its own, riding on the
+                    // keyboard's accessory bar, right-aligned.
+                    //
+                    // Safe to hang off the field itself: `HugScroll` builds its
+                    // content once, unlike the `ViewThatFits` that used to sit
+                    // here and would have declared this twice.
+                    .toolbar {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button("Done") { noteFocused = false }
+                                .font(TTypo.bodyBold(16))
+                                .foregroundStyle(Color(hex: T.accent))
+                        }
+                    }
+            }
+
+            if let error {
+                Text(error)
+                    .font(TTypo.xs(12))
+                    .foregroundStyle(Color(hex: "#DC2626"))
+            }
+        }
     }
 
     /// Animates out first, THEN lets the page remove us — the shared modal exit.
@@ -587,6 +618,7 @@ private struct RequestTimeOffOverlay: View {
 
     private func submit() {
         guard !submitting, validRange else { return }
+        noteFocused = false
         submitting = true
         error = nil
         let s = Self.ymd.string(from: start)
