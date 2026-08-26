@@ -60,7 +60,7 @@ struct MainTabView: View {
                 if !appNav.hideTabBar {
                     TRAQSTabBar()
                         .padding(.bottom, 1)
-                        .offset(y: 10)   // sit lower toward the bottom edge
+                        .offset(y: 5)    // sits just off the bottom edge
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         // An in-page modal blurs the page from inside TabHost,
                         // which can't reach the bar out here — so it blurs the
@@ -157,7 +157,7 @@ private let tabBarOrder: [TTab] = [.jobs, .hours, .home, .chat, .stats]
 // Space pages reserve at the bottom so their last row clears the floating tab
 // pill. Tracks the bar's outer height — if the bar shrinks and this doesn't,
 // every page just gains dead space at the end of its scroll.
-let tabPillBottomInset: CGFloat = 94
+let tabPillBottomInset: CGFloat = 99
 
 struct TRAQSTabBar: View {
     // Reads the selection and the badge count ITSELF rather than taking them
@@ -178,6 +178,14 @@ struct TRAQSTabBar: View {
     @State private var dragX: CGFloat? = nil       // finger x while actively dragging (drives label + highlighter)
     @State private var dragStartX: CGFloat? = nil  // where the touch began (nil = no touch down)
     @State private var isDragging = false          // true once the touch moved past the tap threshold
+    /// Bumped on each TAP that changes tabs — the squash-and-stretch trigger.
+    /// Deliberately not `selected`: a drag also moves the selection, and there
+    /// the pill is already under the finger with nothing to leap toward.
+    @State private var hopTick = 0
+    /// Which way that tap is travelling: +1 right, -1 left. Anchors the stretch
+    /// so the pill reaches TOWARD the tab you pressed rather than ballooning
+    /// evenly out of both ends.
+    @State private var travelDir: CGFloat = 1
 
     // Fixed layout — buttons are fixed-width, so the bar width is deterministic
     // and we can map a drag x → tab without measuring.
@@ -199,10 +207,13 @@ struct TRAQSTabBar: View {
     /// number to change if the bar wants to be taller or shorter.
     private let barHeight: CGFloat = 66
 
-    /// How long the highlighter takes to slide to a tapped tab. The page itself
-    /// swaps with no animation, so this is what the eye reads as "how long the
-    /// tap took" — keep it short.
-    private let highlightSlide: Double = 0.15
+    /// The ride to a tapped tab. A spring, not a timing curve: the light
+    /// underdamping is what gives the arrival its bounce.
+    ///
+    /// PERCEIVED latency, not CPU — the page swaps instantly, so while the
+    /// highlighter is still travelling the tap reads as "not done yet". Keep
+    /// `response` short; raise `dampingFraction` toward 1 to take the bounce out.
+    private let highlightSpring: Animation = .spring(response: 0.30, dampingFraction: 0.62)
     private var vPad: CGFloat { (barHeight - highlightH) / 2 }
 
     /// Map a horizontal position (in the bar's local space) to the tab under it.
@@ -251,22 +262,44 @@ struct TRAQSTabBar: View {
             // instantly on tap), and this scoped `.animation` eases only the
             // highlighter's offset toward the new tab. While dragging (dragX set)
             // the animation is disabled so it tracks the finger 1:1.
-            Capsule(style: .continuous)
-                .fill(Color(hex: T.accent).verticalGradient())
-                .shadow(color: Color(hex: T.accent).opacity(0.45), radius: 8, x: 0, y: 3)
-                // Slightly larger than a key cell so the active tab reads clearly.
-                // The height drives the bar's inner height (icons are only 48
-                // tall), so `.padding(.vertical)` below is reduced by the same
-                // amount this grows — the pill's outer size never changes.
+            // Slightly larger than a key cell so the active tab reads clearly.
+            // The height drives the bar's inner height (the icon row is shorter),
+            // so `.padding(.vertical)` below is reduced by the same amount this
+            // grows — the pill's outer size never changes.
+            Color.clear
                 .frame(width: highlightW, height: highlightH)
+                // The same tinted Liquid Glass as Clock In, Start and every other
+                // glass button — it was the last solid-gradient fill left in the
+                // chrome, which made the one thing that moves the odd one out.
+                .glassCTA(in: Capsule(style: .continuous))
+                .shadow(color: Color(hex: T.accent).opacity(0.35), radius: 8, x: 0, y: 3)
+                // Squash and stretch. The pill elongates along its travel and
+                // thins slightly as it goes, then springs back — so it reads as
+                // one piece of liquid being flung to the tab you pressed rather
+                // than a rectangle being repositioned.
+                //
+                // Anchored to the TRAILING side of the motion, so the leading
+                // edge runs ahead toward the target while the back end catches
+                // up. Centre-anchored, it just grows evenly and reads as a pulse.
+                .keyframeAnimator(initialValue: TabHop(), trigger: hopTick) { view, hop in
+                    view.scaleEffect(x: hop.x, y: hop.y,
+                                     anchor: travelDir >= 0 ? .leading : .trailing)
+                } keyframes: { _ in
+                    KeyframeTrack(\.x) {
+                        CubicKeyframe(1.30, duration: 0.13)
+                        SpringKeyframe(1.0, duration: 0.34,
+                                       spring: .init(response: 0.28, dampingRatio: 0.52))
+                    }
+                    KeyframeTrack(\.y) {
+                        CubicKeyframe(0.88, duration: 0.13)
+                        SpringKeyframe(1.0, duration: 0.34,
+                                       spring: .init(response: 0.28, dampingRatio: 0.52))
+                    }
+                }
                 .offset(x: highlightCenterX - highlightW / 2)
-                // PERCEIVED latency, not CPU: the page swaps instantly, so while
-                // the highlighter is still travelling the tap reads as "not done
-                // yet". Shortened 0.22 → 0.15 and given a faster-departing curve
-                // so the indicator arrives closer to when the page does.
-                // `highlightSlide` is the dial — raise it for a lazier glide.
-                .animation(dragX == nil ? .timingCurve(0.25, 0.0, 0.2, 1.0, duration: highlightSlide) : nil,
-                           value: highlightCenterX)
+                // While dragging (dragX set) the animation is off so the pill
+                // tracks the finger 1:1.
+                .animation(dragX == nil ? highlightSpring : nil, value: highlightCenterX)
 
             HStack(spacing: keySpacing) {
                 ForEach(tabBarOrder, id: \.self) { tab in
@@ -278,7 +311,7 @@ struct TRAQSTabBar: View {
             }
         }
         .padding(.horizontal, hPad)
-        .padding(.vertical, vPad)   // shrinks as the highlighter grows → pill height locked at 76
+        .padding(.vertical, vPad)   // shrinks as the highlighter grows → pill height locked
         // Frosted-glass fill (translucent blur + subtle surface tint), edged
         // with the app-wide glass rim.
         // (Measured on device: replacing this whole stack with a plain opaque
@@ -290,22 +323,26 @@ struct TRAQSTabBar: View {
         //
         // Same recipe glassFill paints in its glass branch (blur + a
         // `glassSurfaceTint` of surface), just without the branch.
+        //
+        // The hairline is painted HERE, in the background, not as an `.overlay`.
+        // An overlay is drawn above everything, so when the highlighter stretched
+        // wide enough to reach the bar's ends — jobs → analytics, the longest
+        // throw — the border cut straight across it and the pill looked like it
+        // was travelling INSIDE the bar's wall. Behind the content, the pill
+        // rides over it and reads as an object sitting on the bar.
+        //
+        // A FLAT hairline, not the specular rim. A lit bevel says "look at this
+        // object", which is right for a card you're reading and wrong for
+        // permanent chrome that sits over every page — the bar was competing
+        // with the content it frames. Same call the long list rows make
+        // (`rim: false`), for the same reason.
         .background {
             ZStack {
                 shape.fill(.ultraThinMaterial)
                 shape.fill(Color(hex: T.surface).opacity(glassSurfaceTint))
+                shape.flatHairline()
             }
         }
-        // A FLAT hairline, not the specular rim — the bar keeps the frost
-        // (`glassFill()` above) and loses the lit edge.
-        //
-        // It wore the rim briefly and it was wrong here. A lit bevel says "look
-        // at this object", which is right for a card you're reading and wrong
-        // for permanent chrome that sits over every page: the bar was competing
-        // with the content it frames. The blur alone is enough to separate it —
-        // that's what `flatHairline` exists for, and it's the same call the long
-        // list rows make (`rim: false`) for the same reason.
-        .overlay(shape.flatHairline())
         .compositingGroup()
         .shadow(color: .black.opacity(T.ambientShadowOpacity),
                 radius: T.ambientShadowRadius, x: 0, y: T.ambientShadowY)
@@ -340,6 +377,10 @@ struct TRAQSTabBar: View {
                         // Page changes instantly (no animation transaction) — the
                         // highlighter eases independently via its scoped animation.
                         let target = tab(atX: value.location.x)
+                        if target != selected {
+                            travelDir = centerX(of: target) >= centerX(of: selected) ? 1 : -1
+                            hopTick += 1
+                        }
                         selected = target
                     }
                     if abs(value.location.x - (dragStartX ?? value.location.x)) > 8 {
@@ -364,6 +405,14 @@ struct TRAQSTabBar: View {
 
 // Non-interactive icon cell — selection + the highlighter are driven by
 // TRAQSTabBar's drag gesture / manual highlighter behind these icons.
+/// The highlighter's squash-and-stretch, as one animatable pair. Separate
+/// tracks so `x` can lead while `y` thins — scaling both together would just
+/// zoom the pill.
+private struct TabHop {
+    var x: CGFloat = 1
+    var y: CGFloat = 1
+}
+
 private struct TabBarIcon: View {
     let tab: TTab
     let isSelected: Bool
