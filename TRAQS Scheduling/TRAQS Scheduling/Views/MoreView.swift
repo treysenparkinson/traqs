@@ -511,10 +511,11 @@ private extension MoreView {
     /// Breaks are deliberately NOT subtracted here: they are paid time, so they
     /// stay in pay and come out of production only. Job = elapsed of an open job
     /// clock, minus paused time (which now includes both lunch and breaks).
+    /// Break hours are NOT returned — see the note inside.
     /// `personId` nil = everyone (team view). This is what makes the graph grow
     /// live while someone is clocked in.
-    func liveAccrual(for personId: String?, now: Date) -> [(day: Date, pay: Double, job: Double, brk: Double)] {
-        var out: [(day: Date, pay: Double, job: Double, brk: Double)] = []
+    func liveAccrual(for personId: String?, now: Date) -> [(day: Date, pay: Double, job: Double)] {
+        var out: [(day: Date, pay: Double, job: Double)] = []
         for p in appState.people where personId == nil || p.id == personId {
             if let c = p.activeClockIn, !c.clockIn.isEmpty, let s = Date.fromFlexibleISO8601(c.clockIn) {
                 var ms = now.timeIntervalSince(s) * 1000
@@ -530,21 +531,13 @@ private extension MoreView {
                 }
                 // Still on lunch: close the open range at `now`, as the server does at clock-out.
                 if let open = lunchOpen { ms -= max(0, now.timeIntervalSince(open) * 1000) }
-                // Break time inside the OPEN shift, so the denominator excludes it
-                // live rather than only once the punch is finalised.
-                var brkMs: Double = 0
-                var breakOpen: Date? = nil
-                for ev in c.events.sorted(by: { $0.ts < $1.ts }) {
-                    guard let t = Date.fromFlexibleISO8601(ev.ts) else { continue }
-                    if ev.type == "breakStart" {
-                        breakOpen = t
-                    } else if ev.type == "breakEnd", let open = breakOpen {
-                        brkMs += max(0, t.timeIntervalSince(open) * 1000)
-                        breakOpen = nil
-                    }
-                }
-                if let open = breakOpen { brkMs += max(0, now.timeIntervalSince(open) * 1000) }
-                out.append((s, max(0, ms / 1000 / 3600), 0, max(0, brkMs / 1000 / 3600)))
+                // Break time is deliberately NOT computed here. It came from
+                // `activeClockIn.events`, which only the admin-correction path
+                // (adminBreakStart/End) ever writes — so a worker's own break was
+                // missed, while an admin-entered one was counted twice: once here
+                // and again from the payhours rows. StatsMath.breakHoursByDay now
+                // owns break time outright, open ranges included.
+                out.append((s, max(0, ms / 1000 / 3600), 0))
             }
             if let jc = p.activeJobClock, !jc.clockIn.isEmpty, let s = Date.fromFlexibleISO8601(jc.clockIn) {
                 var ms = now.timeIntervalSince(s) * 1000
@@ -552,7 +545,7 @@ private extension MoreView {
                 if let pa = jc.pausedAt, let ps = Date.fromFlexibleISO8601(pa) {
                     ms -= now.timeIntervalSince(ps) * 1000
                 }
-                out.append((s, 0, max(0, ms / 1000 / 3600), 0))
+                out.append((s, 0, max(0, ms / 1000 / 3600)))
             }
         }
         return out
@@ -586,6 +579,9 @@ private extension MoreView {
         // PERSON inside StatsMath: on the org view these rows cover the whole
         // shop, and a single shared cursor lost most of the break time whenever
         // two people were on break at once.
+        // A break still running is closed at `now` inside StatsMath, so an open
+        // break leaves the denominator immediately instead of only once the
+        // worker ends it.
         let breakByDay = StatsMath.breakHoursByDay(
             appState.timeclockEntries
                 .filter { (personId == nil || $0.personId == personId)
@@ -594,6 +590,7 @@ private extension MoreView {
                     guard let ts = e.timestamp, let d = Date.fromFlexibleISO8601(ts) else { return nil }
                     return StatsMath.BreakRow(personId: e.personId, type: e.eventType ?? "", t: d)
                 },
+            now: now,
             calendar: cal)
         var out: [EffDay] = []
         for offset in 0..<7 {
@@ -601,11 +598,10 @@ private extension MoreView {
             let key = cal.startOfDay(for: day)
             var pay = payByDay[key] ?? 0
             var job = jobByDay[key] ?? 0
-            var brk = breakByDay[key] ?? 0
+            let brk = breakByDay[key] ?? 0
             for a in live where cal.isDate(a.day, inSameDayAs: day) {
                 pay += a.pay
                 job += a.job
-                brk += a.brk
             }
             let label = dows[cal.component(.weekday, from: day) - 1]
             out.append(EffDay(label: label, pay: pay, job: job, breakHours: brk))
@@ -618,12 +614,14 @@ private extension MoreView {
         efficiencyPercent(from: efficiencyDays(for: personId, now: now))
     }
 
-    /// Idle time = paid clocked-in hours NOT logged onto a job for the week
-    /// (everyone) — the complement of Efficiency. Pay is net of LUNCH but
-    /// includes breaks (breaks are paid); production is net of lunch AND breaks.
-    /// So a worker who takes their full breaks and logs everything else shows a
-    /// baseline idle of the break time itself — 0.5h/day on a 9h window with
-    /// 2x15m. That is the intended semantic, not a gap to chase. Live via `now`.
+    /// Idle time = WORKING hours not logged onto a job for the week (everyone) —
+    /// the complement of Efficiency, and measured against the same denominator.
+    ///
+    /// Pay is net of LUNCH but includes breaks (breaks are paid); production is
+    /// net of lunch AND breaks. Working time takes the breaks back out, so a
+    /// worker who takes their full breaks and logs everything else reads 0 idle,
+    /// not the 0.5h/day their 2x15m would otherwise show. Any idle above 0 is
+    /// unexpected downtime. Live via `now`.
     func idleHours(now: Date = Date()) -> Double {
         idleHours(from: efficiencyDays(for: nil, now: now))
     }

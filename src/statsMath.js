@@ -5,7 +5,8 @@
 import { localDay } from "./localDay.js";
 
 /**
- * Paid break hours bucketed by the calendar day each break STARTED.
+ * Paid break hours bucketed by the calendar day each break STARTED,
+ * including a break that is still running.
  *
  * Rows are paired within each person's own sequence. Pairing everyone against a
  * single global cursor silently lost time whenever two people were on break at
@@ -15,8 +16,23 @@ import { localDay } from "./localDay.js";
  * reported fifteen minutes instead of 3h45m, which inflated `working` and
  * pushed team efficiency down.
  *
- * An unpaired start is ignored rather than guessed at — the live accrual covers
- * a break that is still open right now.
+ * A break still RUNNING is closed at `now`, exactly as the server closes an open
+ * lunch range at clock-out.
+ *
+ * This used to ignore an unpaired start, on the assumption that "the live accrual
+ * covers a break that is still open right now." It did not. The only break flow
+ * workers use is `breakBegin`/`breakClear`, which writes `person.activeBreak`
+ * plus a payhours row and never touches `activeClockIn.events` — the sole source
+ * the live accrual read. So an open break was subtracted from NEITHER: pay kept
+ * accruing gross while the job clock sat paused, and efficiency sagged by the
+ * whole elapsed break until the worker ended it. These rows are the one place
+ * every break shows up whichever path recorded it, so the open range is closed
+ * here and the live accrual no longer computes break time at all.
+ *
+ * A start left open on an EARLIER day is still ignored. Accruing it to `now`
+ * would bill an abandoned break every hour since, overrun the day's pay and clamp
+ * working time — and so efficiency — to zero. The server pairs a forgotten break
+ * at clock-out (`closeActiveBreak`); until then it stays out.
  *
  * Days are keyed by the shop's calendar day (see localDay.js). They used to be
  * keyed UTC, which put an evening break on the following day at any negative
@@ -25,9 +41,10 @@ import { localDay } from "./localDay.js";
  * @param {Array} timeclock  pay-clock rows, event rows included
  * @param {string|null} personId  null = the whole team
  * @param {string|null} timeZone  IANA zone; falsy keeps the old UTC keying
+ * @param {number} now  epoch ms an open break is measured to
  * @returns {Object<string, number>} "YYYY-MM-DD" → hours
  */
-export function breakHoursByDay(timeclock, personId, timeZone = null) {
+export function breakHoursByDay(timeclock, personId, timeZone = null, now = Date.now()) {
   const byPerson = new Map();
   (timeclock || [])
     .filter(e => e && !e.deletedAt
@@ -42,6 +59,7 @@ export function breakHoursByDay(timeclock, personId, timeZone = null) {
     });
 
   const out = {};
+  const nowDay = localDay(new Date(now).toISOString(), timeZone);
   for (const rows of byPerson.values()) {
     rows.sort((a, b) => a.t - b.t);
     let open = null;
@@ -52,6 +70,11 @@ export function breakHoursByDay(timeclock, personId, timeZone = null) {
         out[day] = (out[day] || 0) + Math.max(0, (ev.t - open) / 3600000);
         open = null;
       }
+    }
+    // Still on break: count what has elapsed so far, same-day only.
+    if (open != null) {
+      const day = localDay(new Date(open).toISOString(), timeZone);
+      if (day === nowDay) out[day] = (out[day] || 0) + Math.max(0, (now - open) / 3600000);
     }
   }
   return out;

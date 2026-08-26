@@ -84,8 +84,12 @@ private func startOfDay(_ iso: String) -> Date { statsCalendar.startOfDay(for: a
 private func brk(_ person: String, _ type: String, _ iso: String) -> StatsMath.BreakRow {
     StatsMath.BreakRow(personId: person, type: type, t: at(iso))
 }
-private func totalBreak(_ rows: [StatsMath.BreakRow]) -> Double {
-    StatsMath.breakHoursByDay(rows, calendar: statsCalendar).values.reduce(0, +)
+/// Default `now` sits on a LATER day than every fixture below, so an unpaired
+/// start in those fixtures is stale rather than live and stays excluded. Tests
+/// that exercise a break still running pass their own same-day `now`.
+private let statsDefaultNow = at("2026-08-05T00:00:00Z")
+private func totalBreak(_ rows: [StatsMath.BreakRow], now: Date = statsDefaultNow) -> Double {
+    StatsMath.breakHoursByDay(rows, now: now, calendar: statsCalendar).values.reduce(0, +)
 }
 
 struct StatsMathBreakTests {
@@ -130,9 +134,9 @@ struct StatsMathBreakTests {
         #expect(abs(totalBreak(rows) - 0.5) < 0.0001)
     }
 
-    /// An unpaired start is ignored rather than guessed at, and must not swallow
-    /// another person's end.
-    @Test func unpairedStartIsIgnoredWithoutStealingAnotherPersonsEnd() {
+    /// A STALE unpaired start — one left open on an earlier day — is ignored
+    /// rather than guessed at, and must not swallow another person's end.
+    @Test func staleUnpairedStartIsIgnoredWithoutStealingAnotherPersonsEnd() {
         let rows = [
             brk("p1", "breakStart", "2026-08-03T10:00:00Z"),
             brk("p2", "breakStart", "2026-08-03T10:00:00Z"),
@@ -148,9 +152,62 @@ struct StatsMathBreakTests {
             brk("p1", "breakEnd",   "2026-08-03T10:15:00Z"),
             brk("p2", "breakStart", "2026-08-04T10:00:00Z"),
             brk("p2", "breakEnd",   "2026-08-04T10:30:00Z"),
-        ], calendar: statsCalendar)
+        ], now: statsDefaultNow, calendar: statsCalendar)
         #expect(abs((byDay[startOfDay("2026-08-03T00:00:00Z")] ?? 0) - 0.25) < 0.0001)
         #expect(abs((byDay[startOfDay("2026-08-04T00:00:00Z")] ?? 0) - 0.50) < 0.0001)
+    }
+
+    /// The bug this fixes: a break that is STILL RUNNING was counted nowhere.
+    ///
+    /// `breakHoursByDay` ignored an unpaired start on the stated assumption that
+    /// "the live accrual covers a break that is still open right now" — but the
+    /// only break flow workers use (`breakBegin`) writes `person.activeBreak` and
+    /// a payhours row, never `activeClockIn.events`, which is the sole source the
+    /// live accrual read. So an open break was subtracted from neither: pay kept
+    /// accruing gross while production sat paused, and efficiency sagged by the
+    /// whole elapsed break until the worker ended it.
+    @Test func openBreakCountsElapsedTimeUpToNow() {
+        let rows = [brk("p1", "breakStart", "2026-08-03T10:00:00Z")]
+        let now = at("2026-08-03T10:20:00Z")
+        #expect(abs(totalBreak(rows, now: now) - (20.0 / 60.0)) < 0.0001)
+    }
+
+    /// A closed break earlier in the day plus one still running: both count.
+    @Test func closedAndOpenBreakOnSameDayBothCount() {
+        let rows = [
+            brk("p1", "breakStart", "2026-08-03T10:00:00Z"),
+            brk("p1", "breakEnd",   "2026-08-03T10:15:00Z"),
+            brk("p1", "breakStart", "2026-08-03T14:00:00Z"),
+        ]
+        let now = at("2026-08-03T14:10:00Z")
+        #expect(abs(totalBreak(rows, now: now) - (0.25 + 10.0 / 60.0)) < 0.0001)
+    }
+
+    /// An open break is filed under the day it STARTED, like a closed one.
+    @Test func openBreakBucketsUnderItsStartDay() {
+        let byDay = StatsMath.breakHoursByDay(
+            [brk("p1", "breakStart", "2026-08-03T10:00:00Z")],
+            now: at("2026-08-03T10:30:00Z"),
+            calendar: statsCalendar)
+        #expect(abs((byDay[startOfDay("2026-08-03T00:00:00Z")] ?? 0) - 0.5) < 0.0001)
+    }
+
+    /// A start left open on an earlier day is NOT closed at `now` — that would
+    /// credit an abandoned break every hour since, blowing past the day's pay and
+    /// clamping working time (and so efficiency) to zero. The server pairs a
+    /// forgotten break at clock-out; until then it stays out.
+    @Test func staleOpenBreakFromAnEarlierDayIsNotAccruedToNow() {
+        let rows = [brk("p1", "breakStart", "2026-08-03T10:00:00Z")]
+        let now = at("2026-08-04T09:00:00Z")
+        #expect(totalBreak(rows, now: now) == 0)
+    }
+
+    /// A start stamped after `now` (clock skew between a device and the server)
+    /// must not produce negative break time.
+    @Test func openBreakStartingAfterNowContributesNothing() {
+        let rows = [brk("p1", "breakStart", "2026-08-03T10:20:00Z")]
+        let now = at("2026-08-03T10:00:00Z")
+        #expect(totalBreak(rows, now: now) == 0)
     }
 
     /// At shop scale the undercount was ~15×.

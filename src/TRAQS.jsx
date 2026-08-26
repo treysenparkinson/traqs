@@ -16325,20 +16325,13 @@ ${jobsCtx || "No jobs found."}`;
                 else if (ev.type === "lunchEnd" && lunchOpen != null) { ms -= Math.max(0, ev.t - lunchOpen); lunchOpen = null; }
               });
             if (lunchOpen != null) ms -= Math.max(0, statsNow - lunchOpen);   // still on lunch
-            // Break time inside the OPEN shift. Paid, so it stays IN pay — but it
-            // is excluded from the efficiency denominator, so it has to be
-            // tracked separately rather than deducted here.
-            let brkMs = 0, brkOpen = null;
-            [...(ac.events || [])]
-              .map(ev => ({ type: ev.type, t: new Date(ev.ts || ev.at).getTime() }))
-              .filter(ev => ev.t)
-              .sort((a, b) => a.t - b.t)
-              .forEach(ev => {
-                if (ev.type === "breakStart") brkOpen = ev.t;
-                else if (ev.type === "breakEnd" && brkOpen != null) { brkMs += Math.max(0, ev.t - brkOpen); brkOpen = null; }
-              });
-            if (brkOpen != null) brkMs += Math.max(0, statsNow - brkOpen);
-            liveAdds.push({ day: localDay(ac.clockIn, statsTimeZone), pay: Math.max(0, ms / 3600000), prod: 0, brk: Math.max(0, brkMs / 3600000) });
+            // Break time is deliberately NOT computed here. It came from
+            // `ac.events`, which only the admin-correction path (adminBreakStart/
+            // End) ever writes — so a worker's own break was missed, while an
+            // admin-entered one was counted twice: once here and again from the
+            // payhours rows below. breakHoursByDay now owns break time outright,
+            // open ranges included.
+            liveAdds.push({ day: localDay(ac.clockIn, statsTimeZone), pay: Math.max(0, ms / 3600000), prod: 0 });
           }
         }
         const jc = p.activeJobClock;
@@ -16347,7 +16340,7 @@ ${jobsCtx || "No jobs found."}`;
           if (s) {
             let ms = statsNow - s - (jc.totalPausedMs || 0);
             if (jc.pausedAt) ms -= (statsNow - new Date(jc.pausedAt).getTime());
-            liveAdds.push({ day: localDay(jc.clockIn, statsTimeZone), pay: 0, prod: Math.max(0, ms / 3600000), brk: 0 });
+            liveAdds.push({ day: localDay(jc.clockIn, statsTimeZone), pay: 0, prod: Math.max(0, ms / 3600000) });
           }
         }
       });
@@ -16357,13 +16350,15 @@ ${jobsCtx || "No jobs found."}`;
       // and one shared cursor lost most of the break time whenever two people
       // were on break at once. Mirrors StatsMath.breakHoursByDay on iOS so both
       // platforms report the same number.
-      const breakByDay = breakHoursByDay(timeclock, personId, statsTimeZone);
+      // `statsNow` closes a break that is still running, so an open break leaves
+      // the denominator immediately rather than only once the worker ends it.
+      const breakByDay = breakHoursByDay(timeclock, personId, statsTimeZone, statsNow);
       const rows = efficiencyBuckets().map(b => {
         const set = new Set(b.days);
         let pay = timeclock.filter(e => payOk(e) && set.has(dayOf(e))).reduce((a, e) => a + (e.hours || 0), 0);
         let prod = productionHours.filter(s => prodOk(s) && set.has(dayOf(s))).reduce((a, s) => a + (s.hours || 0), 0);
-        let brk = b.days.reduce((a, d) => a + (breakByDay[d] || 0), 0);
-        liveAdds.forEach(a => { if (set.has(a.day)) { pay += a.pay; prod += a.prod; brk += (a.brk || 0); } });
+        const brk = b.days.reduce((a, d) => a + (breakByDay[d] || 0), 0);
+        liveAdds.forEach(a => { if (set.has(a.day)) { pay += a.pay; prod += a.prod; } });
         // Working time = paid time minus the breaks they were required to take.
         // Clamped: malformed data can record more break than pay.
         return { label: b.label, pay, prod, brk, working: Math.max(0, pay - brk) };
