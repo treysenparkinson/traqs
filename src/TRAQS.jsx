@@ -1073,9 +1073,20 @@ select:not(:disabled) {
 .tq-cell-drop {
   transition: box-shadow 0.2s ease, filter 0.2s ease, background-color 0.15s ease, border-color 0.15s ease;
 }
+/* NO edge, no swell, no press flash — a picker cell is a CELL. Category and every
+   other custom column render through this class, and giving it the control edge drew
+   a lit ring around one column of an otherwise plain table, which read as a grid of
+   inputs rather than a list of jobs. A cell also cannot scale without breaking
+   alignment with the rest of its row, which is the same argument the comment above
+   already makes about lifting.
+
+   The accent halo goes too. It was the last piece of button chrome on these, and a
+   soft glow bleeding out of one cell into its neighbours is the same problem the ring
+   was — a table reads as a grid, and anything that spills across a cell boundary
+   fights that. Brightness alone marks the hover: it stays inside the cell. */
 @media (hover: hover) {
   .tq-cell-drop:hover {
-    box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16));
+    box-shadow: none;
     filter: brightness(1.04);
   }
 }
@@ -1176,6 +1187,34 @@ button.tq-noanim:not(:disabled):not([disabled]):not([aria-disabled="true"]):acti
   box-shadow: none !important;
   filter: none !important;
 }
+/* A CONTAINED hover glow, for buttons close to a card edge. Keeps the glow — it is
+   what tells you which control you are about to press — but sized to the room it
+   actually has.
+   
+   The room is ~6px: the My Clock card's body scrolls, and its { margin: -6,
+   padding: 6 } exists purely to give a shadow somewhere to go inside the scroll
+   box. The shared hover glow is 0 6px 22px, which carries roughly 6 + 11 = 17px
+   past the button — well past that 6px, so it ran on into the card's own rim and
+   read as one halo'd border around both.
+
+   0 2px 7px keeps it to about 6px, so it fades out inside the room it has. Alpha
+   drops to ~18% of the accent from 25%, which is the difference between a glow
+   that separates the button from the card and one that draws a ring around it.
+   Distinct from .tq-noanim above, which removes the lift and brightness too. That
+   is more than this needs: the affordance stays, only its reach changes.
+
+   button + class + three :not()s + :hover is (0,5,1), which clears both the
+   app-wide button:...:hover (0,4,1) and .dash-btn:...:hover (0,5,0) without
+   needing to name .dash-btn — so it keeps working if that class ever moves. */
+.traqs-glass button.tq-softglow:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
+  box-shadow: var(--tq-control-edge), 0 2px 7px var(--tq-glow-ring-soft, rgba(0,0,0,0.12)) !important;
+}
+.traqs-glass button.tq-softglow:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
+  box-shadow: var(--tq-control-edge), 0 1px 4px var(--tq-glow-ring-soft, rgba(0,0,0,0.12)) !important;
+}
+/* Glass off, and the contained glow goes with everything else — these three
+   buttons return to the shared dash-btn hover, which is what "as it was before"
+   means. Nothing to contain either, with no card edge for it to run into. */
 /* Sliding-pill segments do NOT lift, glow or scale. They used to — the universal
    button hover, restored here deliberately on the reasoning that a segment is a
    choice you point at rather than chrome. In a track that reads as broken: the
@@ -1288,7 +1327,489 @@ button.tq-x:active {
   background-color: var(--tq-lglass-bg) !important;
   -webkit-backdrop-filter: blur(28px) saturate(1.4);
   backdrop-filter: blur(28px) saturate(1.4);
-  box-shadow: var(--tq-lglass-shadow, 0 24px 60px rgba(0,0,0,0.28)) !important;
+  /* The lit edge rides along with the drop shadow rather than needing a rule of its
+     own: one declaration, so every surface listed above gets it and none can be
+     missed. Insets are listed FIRST — box-shadow paints first-to-last, so the edge
+     sits over the fill while the drop shadow stays behind the box.
+
+     This is also why the whole thing is gated on .traqs-glass and nothing else: with
+     Frosted Glass off, not one of these rules applies and every card keeps the exact
+     border, fill and shadow it had before any of this. */
+  box-shadow: var(--tq-surface-edge), var(--tq-lglass-shadow, 0 24px 60px rgba(0,0,0,0.28)) !important;
+}
+/* ── The same edge on CONTROLS ──────────────────────────────────────────────
+   Named by class, not by the button element. A blanket element selector rings
+   things that are buttons structurally and rows visually — menu items, calendar
+   days, sliding-pill segments, the dismiss on a dialog. These are the classes the
+   app actually uses for a control with a fill:
+     .anim-btn        every <Btn>, so ~94 call sites
+     .icon-btn-glow   the square icon buttons
+     .subtle-all-btn  the outlined All/None pair
+   plus .tq-searchbar, so a search field matches the buttons beside it, and
+    for anything tagged by hand.
+
+   Excluded: .tq-noanim (dialog dismiss, sliders, toggles) and .tq-pill-seg
+   (segmented tracks). Both already opt out of button chrome on purpose, and a
+   groove around a segment inside a track reads as a box in a box.
+
+   !important because Btn paints a resting accent shadow inline, which a plain rule
+   cannot outrank. On those the edge REPLACES that glow rather than layering with
+   it — the same call the surfaces make, where the edge stands in for a border
+   rather than sitting on one.
+
+   Every selector here hangs off .traqs-glass. With Frosted Glass off not one of
+   them matches, and every control is exactly what it was. */
+.traqs-glass button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day),
+.traqs-glass .tq-searchbar {
+  box-shadow: var(--tq-control-edge) !important;
+  /* The outline removal lives in its own rule below — it needs a narrower selector
+     than this one. */
+}
+/* The outline comes off and the edge takes its place. A white button with an accent
+   ring and accent text was wearing both at once, which is the layering this is meant
+   to avoid — an edge standing IN for a border, never on top of one.
+
+   border: none, not border-color: transparent. An inset shadow is drawn from the
+   PADDING box, so any surviving border width holds the ring that far inboard — and
+   since a background paints under a transparent border by default, what you saw was
+   fill at the outer edge and the glass ring a pixel inside it. Taking the width to
+   zero makes the padding box the border box and the ring lands flush. Safe on
+   geometry: everything here is border-box and these buttons size from an explicit
+   height.
+
+   Separate from the box-shadow rule, and deliberately so. This one has to exclude
+   the same places the edge does — a button that keeps its border must not have it
+   taken away — and expressing that needs descendant :not()s. Those are a newer
+   selector feature, so if a browser rejects them it drops THIS rule only: borders
+   stay, edges still land (one pixel inboard, as before). Bundling the two would
+   have meant losing the edge everywhere instead.
+
+   Frosted Glass off, and none of it applies — every outline is back. */
+.traqs-glass button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(.tq-sidebar *):not(.anim-drop *):not(.anim-ctx *):not(.anim-ctx-up *):not(.anim-modal-box *):not(.anim-modal-overlay *) {
+  border: none !important;
+}
+/* box-shadow is ONE property: a rule that sets a hover glow does not add to the
+   edge, it replaces it. So every interactive state has to restate the edge, or the
+   border vanishes the moment you point at the button — which is exactly what it did.
+   Restated here once for all controls rather than in each of the four or five rules
+   that set a hover shadow.
+
+   The glow paired with it is the app-wide value, unchanged; only the edge is added
+   in front of it. Press drops the glow entirely, as the app already does.
+
+   (0,5,1) clears the app-wide hover (0,4,1) and .dash-btn's (0,5,0). The two classes
+   that want something different — .tq-softglow and  — are scoped with
+   .traqs-glass themselves, which puts them at (0,6,1) and keeps them ahead of this. */
+@media (hover: hover) {
+  .traqs-glass button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):hover {
+    box-shadow: var(--tq-control-edge), 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16)) !important;
+  }
+}
+.traqs-glass button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):active {
+  box-shadow: var(--tq-control-edge) !important;
+}
+/* The one width exception, and it earns it. A button that fills its container has no
+   fixed size to tune against: the My Clock buttons run the full width of their card at
+   ~218px, so the global 1.02 moves them 4.4px where it moves the + New Job button
+   2.2px. Same ratio, double the travel, and the wider one reads as a lunge.
+
+   1.008 puts them at 1.7px, in line with New Job. This is the residue of collapsing
+   three tiers into one: a single ratio cannot serve both a 34px icon button and a
+   full-width one, so the widest case keeps an exception rather than dragging the
+   global value down to where small buttons stop moving at all.
+
+   .tq-wide is the marker for anything else that fills its container — add the class
+   rather than another rule. (0,8,0), clear of the global (0,7,1). .tq-softglow sits at
+   (0,9,1) but only declares box-shadow, so the My Clock glow survives this untouched. */
+@media (hover: hover) {
+  .dash-btn:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
+  .tq-wide:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
+    transform: scale(1.008) !important;
+  }
+  .dash-btn:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > svg,
+  .dash-btn:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > span > svg,
+  .tq-wide:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > svg,
+  .tq-wide:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > span > svg {
+    transform: scale(0.9921);
+  }
+}
+.dash-btn:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active,
+.tq-wide:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
+  transform: scale(0.995) !important;
+}
+.dash-btn:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active > svg,
+.dash-btn:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active > span > svg,
+.tq-wide:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active > svg,
+.tq-wide:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active > span > svg {
+  transform: scale(1.005);
+}
+/* Header buttons travel a little further: 1.03 rather than the global 1.02.
+
+   They can afford it. A page header is a short row of small controls with space around
+   them — nothing to shove, and a header button is the one place in the app where the
+   swell is the only feedback, since these are the buttons whose glow was traded away
+   for it. The narrow ones also need the help: at the global ratio a 34px icon button
+   moves 0.7px, which is close to nothing.
+
+       icon button    34px   0.7px -> 1.0px
+       Select         78px   1.6px -> 2.3px
+       + New Job     110px   2.2px -> 3.3px
+
+   Scoped by .tq-pagehdr, on all seven inline header rows plus the shared pageHeader
+   helper. They are identified by minHeight: 50, which is the header row's signature —
+   the helper uses the same number.
+
+   (0,9,0), clear of the global (0,7,1) and of the full-width exception at (0,8,0). */
+@media (hover: hover) {
+  .tq-pagehdr button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
+    transform: scale(1.03) !important;
+  }
+  .tq-pagehdr button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > svg,
+  .tq-pagehdr button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > span > svg {
+    transform: scale(0.9709);
+  }
+}
+.tq-pagehdr button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
+  transform: scale(0.985) !important;
+}
+.tq-pagehdr button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active > svg,
+.tq-pagehdr button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active > span > svg {
+  transform: scale(1.0152);
+}
+/* Buttons that are rows, not controls. A groove around each one reads as a box in
+   a list, so they keep the edge off: menu and dropdown items, and the navigation
+   sidebar — which already opts out of the shared lift and glow for the same
+   reason. border-color is left transparent here rather than restored, because
+   none of these paint a border to begin with.
+
+   The three :not()s are repeated, and they are the only reason this works. The
+   rule above scores (0,4,1) — one class for .traqs-glass, three more for its
+   :not()s, one element for button. A plain .traqs-glass .tq-sidebar button is
+   (0,2,1) and LOSES to it, !important or not, so the sidebar and every menu row
+   kept the edge anyway. Matching the :not()s brings this to (0,5,1). */
+.traqs-glass .tq-sidebar button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day),
+.traqs-glass .anim-drop button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day),
+.traqs-glass .anim-ctx button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day),
+.traqs-glass .anim-ctx-up button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day),
+.traqs-glass .tq-listrow:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day) {
+  box-shadow: none !important;
+}
+/* ...and in their hover and press states, which the rule above would otherwise
+   hand the edge straight back to. Same :not()s again to stay ahead of it. */
+/* The :disabled trio is repeated here too, and it is the whole reason this works.
+   The rule that hands out the edge on hover is .traqs-glass button + three class
+   :not()s + three state :not()s + :hover, which is (0,8,1). Without the state
+   :not()s these sit at (0,6,1) and LOSE — which is why the navigation sidebar lit
+   up the moment you pointed at it, despite an exclusion that looked right. (0,9,1)
+   now. Same trap the codebase already documents twice for .dash-btn. */
+.traqs-glass .tq-sidebar button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
+.traqs-glass .tq-sidebar button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active,
+.traqs-glass .anim-drop button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
+.traqs-glass .anim-drop button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active,
+.traqs-glass .anim-ctx button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
+.traqs-glass .anim-ctx button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active,
+.traqs-glass .anim-ctx-up button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
+.traqs-glass .anim-ctx-up button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active,
+.traqs-glass .tq-listrow:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
+.traqs-glass .tq-listrow:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active,
+.traqs-glass .anim-modal-box .tq-listrow:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
+.traqs-glass .anim-modal-box .tq-listrow:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active,
+.traqs-glass .anim-modal-overlay .tq-listrow:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
+.traqs-glass .anim-modal-overlay .tq-listrow:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
+  box-shadow: none !important;
+}
+/* ── How every button behaves ───────────────────────────────────────────────
+   Swell on hover, squeeze and light up on press, bounce on release. NOT gated on
+   Frosted Glass: this is an interaction rather than a material, and a button should
+   answer the pointer the same way whether or not the app is wearing glass. Only the
+   EDGE further down is gated, since that IS the material.
+
+   It replaces the app-wide lift-and-glow. Nothing here defines the bounce — the
+   app-wide rule already eases transform on cubic-bezier(0.34, 1.56, 0.64, 1), which
+   carries about 10% past whatever target it is given, so the squeeze dips below 0.95
+   and the release swings past the resting size on its own. The one override is the
+   duration: the app drops it to 0.07s on :active, too quick for any of that to show.
+   0.12s lets it read.
+
+   The press highlight is an inset shadow with an enormous spread, not a filter.
+   inset 0 0 0 9999px floods the face with white at 14%, clipped to the border-radius
+   for free, over the fill and under the label. A filter would have brightened the
+   label with it, which reads as the text fading rather than the surface catching
+   light. 9999px so it still reaches the middle of a wide button.
+
+   Hover stays inside @media (hover: hover) for the reason the app-wide rule does: on
+   touch, :hover sticks after a tap and a permanently swollen button reads as broken.
+
+   ONE scale for every button, at 1.02 / 0.99. There were three tiers before — 1.06
+   for small controls, 1.02 for wide ones, 1.008 inside dialogs — because a scale is a
+   RATIO and the same number moves a 110px pill 2px and a 300px one 6px. Matching the
+   travel needed a tier per width, and the tiers grew every time a new width turned up.
+
+   Chosen from the widest button rather than the narrowest, which is the only way one
+   number can be subtle everywhere:
+
+       icon button    34px  ->  0.7px
+       + New Job     110px  ->  2.2px
+       Clock out     218px  ->  4.4px
+       widest        300px  ->  6.0px
+
+   So nothing ever travels further than the + New Job button already did at 1.06
+   (6.6px), and small controls move less than they used to rather than more. The cost
+   is that a 34px icon button barely moves — deliberate, since "never heavy" was the
+   requirement and subtle-but-invisible beats correct-but-lurching.
+
+   Excluded by class, the same three the edge excludes: .tq-noanim (dialog dismiss,
+   sliders, toggles), .tq-pill-seg (segmented tracks), .tq-cal-day (calendar days).
+   Rows are excluded separately below, by ancestor.
+
+   overflow is set WITHOUT !important on purpose. A scaled button needs somewhere to
+   put a glyph that has momentarily grown, but some buttons clip deliberately — and
+   since an inline style outranks a plain rule, those keep their own value. */
+button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day) {
+  overflow: visible;
+}
+button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day) > svg,
+button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day) > span > svg {
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@media (hover: hover) {
+  button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
+    transform: scale(1.02) !important;
+    box-shadow: none !important;
+    filter: none !important;
+    will-change: transform;
+  }
+  /* Counter-scaled by the reciprocal so the glyph renders at its authored size all
+     the way through. Scaling an SVG is a redraw, not a resize: a 2.5px stroke gets
+     thicker with the box, which reads as the icon thickening and shifting rather
+     than the button growing. This pins its SIZE, not its position — the box scales
+     about its centre, so an off-centre glyph still drifts a pixel or two. */
+  button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > svg,
+  button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > span > svg {
+    transform: scale(0.9804);
+  }
+}
+button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
+  transform: scale(0.99) !important;
+  box-shadow: inset 0 0 0 9999px rgba(255, 255, 255, 0.14) !important;
+  transition-duration: 0.12s !important;
+  filter: none !important;
+}
+button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active > svg,
+button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active > span > svg {
+  transform: scale(1.0101);
+  transition-duration: 0.12s;
+}
+/* Buttons that are rows, not controls: the navigation sidebar, and menu, context and
+   dropdown items. A row that swells shoves its neighbours around, and the sidebar
+   already opts out of the shared lift and glow for the same reason.
+
+   Excluded by their own rules rather than by :not(.tq-sidebar *) on the selector
+   above. Ancestor negation is a newer selector feature, and if a browser rejected it
+   the whole rule would drop and NOTHING would animate. This way an unsupported
+   selector costs one exclusion, not the feature. The six :not()s are repeated to
+   reach (0,8,1), ahead of the (0,7,1) above. */
+.tq-sidebar button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
+.anim-drop button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
+.anim-ctx button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
+.anim-ctx-up button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
+.tq-sidebar button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active,
+.anim-drop button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active,
+.anim-ctx button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active,
+.anim-ctx-up button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active,
+/* .tq-listrow — a button that is a ROW. Full-width entries in a list already carry
+   their own border, so the glass edge lands on top of it and reads as one thick
+   doubled line that brightens on hover. And a row has no room to swell without
+   shoving its neighbours. A marker rather than another bespoke rule, because the
+   shape recurs: the job picker, and any list of selectable entries after it. */
+.tq-listrow:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
+.tq-listrow:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active,
+/* Ancestor-scoped copies, and they are not redundant. A listrow inside a dialog is
+   also matched by .anim-modal-box button:not()x6:hover, which ties on class count
+   at eight and wins on having an ELEMENT in the selector — so the plain rule above
+   lost and the row kept swelling. Naming the modal takes these to nine classes. */
+.anim-modal-box .tq-listrow:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
+.anim-modal-box .tq-listrow:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active,
+.anim-modal-overlay .tq-listrow:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
+.anim-modal-overlay .tq-listrow:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
+  transform: none !important;
+}
+.tq-sidebar button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > svg,
+.tq-sidebar button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > span > svg,
+.anim-drop button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > svg,
+.anim-drop button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > span > svg,
+.anim-ctx button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > svg,
+.anim-ctx button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > span > svg,
+.anim-ctx-up button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > svg,
+.anim-ctx-up button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > span > svg,
+.tq-sidebar button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active > svg,
+.tq-sidebar button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active > span > svg,
+.anim-drop button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active > svg,
+.anim-drop button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active > span > svg,
+.anim-ctx button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active > svg,
+.anim-ctx button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active > span > svg,
+.anim-ctx-up button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active > svg,
+.anim-ctx-up button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active > span > svg {
+  transform: none;
+}
+/* Text fields, textareas and selects answer the pointer the same way buttons do —
+   and at the gentle scale, because a field is nearly always wide. Their existing
+   rule lifted and glowed on the same overshoot curve; this swaps the translate for a
+   scale and drops the glow, matching everything else.
+
+   Their selector is copied verbatim from that rule rather than rewritten, so the
+   long list of input types it deliberately skips — checkbox, radio, range, colour,
+   file, button, submit, .tq-bare — cannot drift out of step. Declared after it, at
+   equal specificity, so it wins on order.
+
+   Under Frosted Glass they take the control edge too. */
+@media (hover: hover) {
+  input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover,
+  textarea:not(:disabled):not([readonly]):not(.tq-bare):hover,
+  select:not(:disabled):hover {
+    transform: scale(1.02);
+    box-shadow: none;
+    filter: none;
+  }
+}
+input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):active,
+textarea:not(:disabled):not([readonly]):not(.tq-bare):active,
+select:not(:disabled):active {
+  transform: scale(0.99);
+  transition-duration: 0.12s;
+}
+.traqs-glass input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare),
+.traqs-glass textarea:not(:disabled):not([readonly]):not(.tq-bare),
+.traqs-glass select:not(:disabled) {
+  box-shadow: var(--tq-control-edge);
+}
+@media (hover: hover) {
+  .traqs-glass input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover,
+  .traqs-glass textarea:not(:disabled):not([readonly]):not(.tq-bare):hover,
+  .traqs-glass select:not(:disabled):hover {
+    box-shadow: var(--tq-control-edge);
+  }
+}
+/* Fields inside a dialog get a THIRD, quieter tier: 1.008 / 0.994.
+
+   The gentle 1.02 that suits a 220px search bar still travels 10px on a 500px field
+   and 13px on a 640px one — and the New Job and Edit Job forms are full of exactly
+   those. The number worth matching is the one that already reads right: a Jobs-header
+   pill at 1.06 moves 4.7px. 1.008 puts a 500px field at 4.0px and a 640px one at
+   5.1px, so a long field travels about as far as a small button rather than scaling
+   like it.
+
+       width   1.06     1.02     1.008
+        220px  13.2px    4.4px    1.8px
+        500px  30.0px   10.0px    4.0px
+        640px  38.4px   12.8px    5.1px
+
+   Chosen for the widest case, which is why even the narrow fields in a dialog take it
+   — one tier per context beats a tier per element, and a dialog is where the wide
+   ones live. Named after the modal, so the same field outside one keeps the gentle
+   scale. Icon counter-scale is the reciprocal of THESE values. */
+@media (hover: hover) {
+.anim-modal-box input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover,
+.anim-modal-box textarea:not(:disabled):not([readonly]):not(.tq-bare):hover,
+.anim-modal-box select:not(:disabled):hover,
+.anim-modal-box .tq-drop:hover,
+.anim-modal-overlay input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover,
+.anim-modal-overlay textarea:not(:disabled):not([readonly]):not(.tq-bare):hover,
+.anim-modal-overlay select:not(:disabled):hover,
+.anim-modal-overlay .tq-drop:hover {
+    transform: scale(1.008) !important;
+  }
+.anim-modal-box input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover > svg,
+.anim-modal-box input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover > span > svg,
+.anim-modal-box textarea:not(:disabled):not([readonly]):not(.tq-bare):hover > svg,
+.anim-modal-box textarea:not(:disabled):not([readonly]):not(.tq-bare):hover > span > svg,
+.anim-modal-box select:not(:disabled):hover > svg,
+.anim-modal-box select:not(:disabled):hover > span > svg,
+.anim-modal-box .tq-drop:hover > svg,
+.anim-modal-box .tq-drop:hover > span > svg,
+.anim-modal-overlay input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover > svg,
+.anim-modal-overlay input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover > span > svg,
+.anim-modal-overlay textarea:not(:disabled):not([readonly]):not(.tq-bare):hover > svg,
+.anim-modal-overlay textarea:not(:disabled):not([readonly]):not(.tq-bare):hover > span > svg,
+.anim-modal-overlay select:not(:disabled):hover > svg,
+.anim-modal-overlay select:not(:disabled):hover > span > svg,
+.anim-modal-overlay .tq-drop:hover > svg,
+.anim-modal-overlay .tq-drop:hover > span > svg {
+    transform: scale(0.9921);
+  }
+}
+.anim-modal-box input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):active,
+.anim-modal-box textarea:not(:disabled):not([readonly]):not(.tq-bare):active,
+.anim-modal-box select:not(:disabled):active,
+.anim-modal-box .tq-drop:active,
+.anim-modal-overlay input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):active,
+.anim-modal-overlay textarea:not(:disabled):not([readonly]):not(.tq-bare):active,
+.anim-modal-overlay select:not(:disabled):active,
+.anim-modal-overlay .tq-drop:active {
+  transform: scale(0.994) !important;
+}
+.anim-modal-box input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):active > svg,
+.anim-modal-box input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):active > span > svg,
+.anim-modal-box textarea:not(:disabled):not([readonly]):not(.tq-bare):active > svg,
+.anim-modal-box textarea:not(:disabled):not([readonly]):not(.tq-bare):active > span > svg,
+.anim-modal-box select:not(:disabled):active > svg,
+.anim-modal-box select:not(:disabled):active > span > svg,
+.anim-modal-box .tq-drop:active > svg,
+.anim-modal-box .tq-drop:active > span > svg,
+.anim-modal-overlay input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):active > svg,
+.anim-modal-overlay input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):active > span > svg,
+.anim-modal-overlay textarea:not(:disabled):not([readonly]):not(.tq-bare):active > svg,
+.anim-modal-overlay textarea:not(:disabled):not([readonly]):not(.tq-bare):active > span > svg,
+.anim-modal-overlay select:not(:disabled):active > svg,
+.anim-modal-overlay select:not(:disabled):active > span > svg,
+.anim-modal-overlay .tq-drop:active > svg,
+.anim-modal-overlay .tq-drop:active > span > svg {
+  transform: scale(1.006);
+}
+/* The search bar takes the same treatment at a THIRD of the scale, because a scale
+   is a ratio and what you notice is pixels. It runs 34px collapsed and 220px
+   expanded, so the buttons' 1.06 moves its edge 13.2px — nearly three times the
+   Select button's 4.7px — and the number that reads as a gentle swell on a pill
+   reads as a lunge on something this wide. 1.02 puts the expanded bar at 4.4px, so
+   it travels about as far as its neighbours rather than scaling like them. Its icon
+   counter-scale is the reciprocal of THESE values, not the buttons'. */
+.tq-searchbar {
+  overflow: visible;
+}
+.tq-searchbar > svg,
+.tq-searchbar > span > svg {
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@media (hover: hover) {
+  .tq-searchbar:hover {
+    transform: scale(1.02);
+  }
+  .tq-searchbar:hover > svg,
+  .tq-searchbar:hover > span > svg {
+    transform: scale(0.9804);
+  }
+}
+.tq-searchbar:active {
+  transform: scale(0.985);
+}
+.tq-searchbar:active > svg,
+.tq-searchbar:active > span > svg {
+  transform: scale(1.0152);
+}
+/* ── ...and the edge they wear while Frosted Glass is on ────────────────────
+   box-shadow is one property, so these restate the whole stack: the edge, plus the
+   press highlight the ungated rule above would otherwise own alone. The edge is
+   listed FIRST because box-shadow paints first-to-last — reversed, the white flood
+   covers the border and the button loses its edge at the moment you press it. Glass
+   off and none of this matches, leaving the behaviour above intact and every border
+   where it was. */
+@media (hover: hover) {
+  .traqs-glass button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
+    box-shadow: var(--tq-control-edge) !important;
+  }
+}
+.traqs-glass button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
+  box-shadow: var(--tq-control-edge), inset 0 0 0 9999px rgba(255, 255, 255, 0.14) !important;
 }
 /* Reading surfaces — the job/client list cards (FrostCard), and both export
    windows including the layout designer's toolbar and side rail. They read as too
@@ -1322,8 +1843,13 @@ button.tq-x:active {
      the neighbouring section headers and swallow clicks on them.
 
      Border stays: it comes from the call site like every other glass surface, so
-     fill and blur remain the only intentional differences. */
-  box-shadow: none !important;
+     fill and blur remain the only intentional differences.
+
+     The lit EDGE still applies, which is why this is the edge alone rather than
+     none: it is an inset, drawn inside the element's own box, so the collapse
+     wrapper's overflow has nothing to clip. Saying none here took the edge down
+     with the cast shadow and left the whole Jobs list without one. */
+  box-shadow: var(--tq-surface-edge) !important;
 }
 /* Sticky column headers are TEXT ONLY — no fill and no filter of their own.
    Nothing paints, so nothing can read as a band.
@@ -1394,7 +1920,7 @@ button.tq-x:active {
    that shadow is a plain rule and would never win. Restated here WITH the insets
    so a hovered card keeps its glass edges instead of trading them for the lift. */
 .traqs-glass .anim-card-wrap:hover {
-  box-shadow: var(--tq-lglass-shadow-hover, 0 20px 52px rgba(0,0,0,0.30)) !important;
+  box-shadow: var(--tq-surface-edge), var(--tq-lglass-shadow-hover, 0 20px 52px rgba(0,0,0,0.30)) !important;
 }
 /* Menu rows need NO rule here, and must not get one: they already declare
    background:transparent inline, and their hover fill is set inline by an
@@ -1563,17 +2089,52 @@ input[type="range"].tq-pill-range::-moz-range-thumb {
               box-shadow 0.2s ease, filter 0.2s ease,
               background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
 }
+/* Swell and squeeze, matching the buttons, and at the GENTLE scale: a dropdown
+   trigger is a field, and fields are wide. 1.06 on something spanning half a form
+   lunges — the same trap the search bar and the My Clock buttons hit. Its icon
+   counter-scales by the reciprocal so the chevron neither thickens nor drifts.
+
+   The glow goes. It was the softer --tq-glow-ring rather than the button's --tq-glow
+   precisely because a trigger is mostly empty space and a hard shadow under it read
+   wrong; with the swell doing the work there is nothing left for it to soften. */
 @media (hover: hover) {
   .tq-drop:hover {
-    transform: translateY(-1.5px);
-    /* Softer than the button glow: wider blur, and --tq-glow-ring (25% accent)
-       instead of --tq-glow (40%), so it reads as a diffuse halo rather than a
-       hard shadow under a control that is mostly empty space. */
-    box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16));
-    filter: brightness(1.05);
+    transform: scale(1.02);
+    box-shadow: none;
+    filter: none;
+  }
+  .tq-drop:hover > svg,
+  .tq-drop:hover > span > svg {
+    transform: scale(0.9804);
   }
 }
-.tq-drop:active { transform: translateY(0) scale(0.97); transition-duration: 0.07s !important; }
+.tq-drop:active {
+  transform: scale(0.985);
+  box-shadow: inset 0 0 0 9999px rgba(255, 255, 255, 0.14);
+  transition-duration: 0.12s !important;
+}
+.tq-drop:active > svg,
+.tq-drop:active > span > svg {
+  transform: scale(1.0152);
+}
+.tq-drop > svg,
+.tq-drop > span > svg {
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+/* And the glass edge, since a trigger is a control like any other. Its own hover and
+   press restate it, because box-shadow is one property — the press keeps the
+   highlight alongside it, edge first so the border paints over the flood. */
+.traqs-glass .tq-drop {
+  box-shadow: var(--tq-control-edge);
+}
+@media (hover: hover) {
+  .traqs-glass .tq-drop:hover {
+    box-shadow: var(--tq-control-edge);
+  }
+}
+.traqs-glass .tq-drop:active {
+  box-shadow: var(--tq-control-edge), inset 0 0 0 9999px rgba(255, 255, 255, 0.14);
+}
 
 /* Calendar days highlight in the accent on hover. background-color (not the
    shorthand) so a selected day keeps its brandGrad background-image. */
@@ -1851,7 +2412,7 @@ let T = THEMES.light;
 function elColorT(c) { return T.jobBarMode === "adaptive" ? T.accent : T.jobBarMode === "custom" ? (T.jobBarColor || T.accent) : c; }
 
 const Badge = ({ t, c, lg }) => <span style={{ display: "inline-flex", alignItems: "center", padding: lg ? "5px 14px" : "4px 12px", borderRadius: T.radiusPill, fontSize: lg ? 13 : 12, fontWeight: 700, fontFamily: T.font, background: c + "18", color: c, border: `1px solid ${c}22`, whiteSpace: "nowrap" }}>{t}</span>;
-const Btn = ({ children, onClick, variant = "primary", size = "md", disabled = false, style: sx = {} }) => {
+const Btn = ({ children, onClick, variant = "primary", size = "md", disabled = false, style: sx = {}, className = "" }) => {
   const base = { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, fontFamily: T.font, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer", borderRadius: T.radiusPill, border: "none", whiteSpace: "nowrap", flexShrink: 0 };
   const sizes = { sm: { height: 34, padding: "0 18px", fontSize: 13 }, md: { height: 40, padding: "0 22px", fontSize: 14 } };
   // Every variant renders as the same primary CTA — the iOS brand-gradient pill
@@ -1860,7 +2421,9 @@ const Btn = ({ children, onClick, variant = "primary", size = "md", disabled = f
   // resolve to the one gradient look for a fully consistent treatment.
   const fill = { background: brandGrad(T.accent), color: T.accentText, boxShadow: `0 5px 16px -5px ${hexA(T.accent, 0.55)}`, border: "none" };
   const vars = { primary: fill, ghost: fill, danger: fill, teal: fill, warn: fill };
-  return <button className="anim-btn" onClick={onClick} disabled={disabled} style={{ ...base, ...sizes[size], ...vars[variant], opacity: disabled ? 0.45 : 1, ...sx }}>{children}</button>;
+  // className APPENDS to anim-btn rather than replacing it — every existing call
+  // site relies on that class for the shared hover, and none of them pass one.
+  return <button className={`anim-btn${className ? " " + className : ""}`} onClick={onClick} disabled={disabled} style={{ ...base, ...sizes[size], ...vars[variant], opacity: disabled ? 0.45 : 1, ...sx }}>{children}</button>;
 };
 // Outlined variant used by the select-bar buttons (All/None, Delete): the
 // Secondary role (list/cards surface) as the fill, with a colored ring and a
@@ -2329,13 +2892,20 @@ function SlidingPill({ options, value, onChange, size = "md", style: sx = {} }) 
   const pad = size === "lg" ? "12px 32px" : size === "sm" ? "6px 14px" : "8px 18px";
   const fs  = size === "lg" ? 16 : 13;
   const fw  = size === "lg" ? 800 : 700;
-  // Track uses --tq-toggle-track, the shade every other toggle in the app runs on,
-  // which is derived from the SURFACE. It was T.bg — the page colour — so on any theme
-  // where the page and the card differ, the pill read as a hole punched through its own
-  // card instead of a control sitting on it. The variable already existed and its own
-  // comment says slider pills reuse it; it was just never wired up here.
+  // NO TRACK. These are just buttons sitting next to each other now.
+  //
+  // It used to be a filled pill — --tq-toggle-track, the shade the app's other toggles
+  // run on — with the segments riding inside it. That is the shape of a segmented
+  // control and it carried the baggage of one: a grey slab behind every choice, and an
+  // active state that had to be an absolutely positioned overlay so a crossfade would
+  // not reflow the track. Once each option owns its own fill, the container has nothing
+  // left to do but space them.
+  //
+  // No isolation and no padding either — both existed for the overlay's stacking and
+  // the track's inset. The gap replaces the padding as the only thing keeping them
+  // apart.
   return (
-    <div style={{ display:"flex", background:"var(--tq-toggle-track, rgba(127,127,127,0.22))", borderRadius:T.radiusPill, padding:3, position:"relative", isolation:"isolate", ...sx }}>
+    <div style={{ display:"flex", gap:6, ...sx }}>
       {options.map(opt => {
         const isActive = value === opt.value;
         return (
@@ -2348,13 +2918,20 @@ function SlidingPill({ options, value, onChange, size = "md", style: sx = {} }) 
           // on the page background, and T.text is derived from the CARD surface — on a
           // theme where the two differ, the unselected labels were tinted for a
           // surface they aren't on.
-          <button key={opt.value} className="tq-noanim tq-pill-seg" onClick={() => onChange(opt.value)}
-            style={{ position:"relative", zIndex:1, padding:pad, borderRadius:T.radiusPill, border:"none", fontSize:fs, fontWeight:fw, cursor:"pointer", fontFamily:T.font, background:"transparent", color:isActive?T.accentText:hexA(T.bgText || T.text, 0.75), whiteSpace:"nowrap", transition:"color 0.2s ease" }}>
-            {/* Flat T.accent, matching the Toggle component and every other on/off
-                control. This was brandGrad(T.accent), the only toggle in the app
-                filling with a gradient, which is why it read as the wrong colour. */}
-            <span aria-hidden="true" style={{ position:"absolute", inset:0, borderRadius:T.radiusPill, background:T.accent, opacity:isActive?1:0, transition:"opacity 0.2s ease", pointerEvents:"none", zIndex:0 }} />
-            <span style={{ position:"relative", zIndex:1 }}>{opt.label}</span>
+          // No tq-noanim, no tq-pill-seg. Both were opt-outs from the app's button
+          // chrome, kept because a segment inside a track should not lift or glow
+          // independently of the track. There is no track, so these are ordinary
+          // buttons — they take the hover swell, the press squeeze and the glass edge
+          // like every other button.
+          //
+          // The fill sits on the button itself rather than on an absolutely positioned
+          // overlay, which only existed so a crossfade could not reflow the track.
+          // background-color transitions just as smoothly, and it means the accent IS
+          // the button rather than a layer over it. Flat T.accent, matching the Toggle
+          // component and every other on/off control.
+          <button key={opt.value} onClick={() => onChange(opt.value)}
+            style={{ padding:pad, borderRadius:T.radiusPill, border:"none", fontSize:fs, fontWeight:fw, cursor:"pointer", fontFamily:T.font, background:isActive?T.accent:T.surface, color:isActive?T.accentText:hexA(T.bgText || T.text, 0.75), whiteSpace:"nowrap", transition:"background-color 0.2s ease, color 0.2s ease" }}>
+            {opt.label}
           </button>
         );
       })}
@@ -2795,7 +3372,7 @@ function ApprovalCommentInput({ onAdd }) {
 }
 // Multi-select grouping picker — Workers / Clients / Columns sections, styled like SearchSelect.
 // `value` is an array of { type, id } tokens; clicking a row toggles it and keeps the popup open.
-function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [], columnOpts = [], compact = false, asIconButton = false, onOpen }) {
+function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [], columnOpts = [], compact = false, asIconButton = false, onOpen, btnClass = "" }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [coords, setCoords] = useState(null);
@@ -2906,7 +3483,7 @@ function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [
   </div></FadeOnClose>;
   return <div style={{ position: "relative", ...(asIconButton ? { flexShrink: 0 } : {}) }}>
     {asIconButton
-      ? <button ref={triggerRef} className="icon-btn-glow" onClick={(e) => { e.stopPropagation(); if (!open) onOpen?.(); setOpen(o => !o); }} title="Grouping" style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${value.length > 0 ? T.accent + "88" : T.border}`, background: value.length > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: value.length > 0 ? T.accent : T.textSec, position: "relative" }}>
+      ? <button ref={triggerRef} className={`icon-btn-glow${btnClass ? " " + btnClass : ""}`} onClick={(e) => { e.stopPropagation(); if (!open) onOpen?.(); setOpen(o => !o); }} title="Grouping" style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${value.length > 0 ? T.accent + "88" : T.border}`, background: value.length > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: value.length > 0 ? T.accent : T.textSec, position: "relative" }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
           {value.length > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 12, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{value.length}</span>}
         </button>
@@ -3099,6 +3676,10 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     // `button:hover` rule in the static stylesheet). Updates live with the theme.
     document.documentElement.style.setProperty("--tq-glow", `${a}66`);
     document.documentElement.style.setProperty("--tq-glow-ring", `${a}40`);
+    // A quieter one for buttons that sit close to a card edge (see .tq-softglow).
+    // Same accent, roughly two thirds the alpha, so it still separates the button
+    // from the card without carrying far enough to meet the card's own rim.
+    document.documentElement.style.setProperty("--tq-glow-ring-soft", `${a}2e`);
     el.textContent = `@keyframes glow-pulse { 0%,100% { box-shadow: 0 0 12px ${a}88, 0 0 28px ${a}44; } 50% { box-shadow: 0 0 24px ${a}cc, 0 0 52px ${a}77; } } @keyframes menuIn { from{opacity:0;transform:translateY(-6px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes toolDrop { from{opacity:0;transform:translateY(-7px)} to{opacity:1;transform:translateY(0)} } @keyframes optFlash { 0%{transform:scale(1)} 40%{background:${a}30;transform:scale(1.025)} 70%{background:${a}18;transform:scale(0.99)} 100%{background:transparent;transform:scale(1)} } @keyframes tipIn { from{opacity:0;transform:translateY(5px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes stepIn { from { opacity:0; transform:translateX(calc(var(--sd,1)*32px)) } to { opacity:1; transform:translateX(0) } } @keyframes fadeIn { from { opacity:0; } to { opacity:1; } } @keyframes popBounce { 0%{transform:scale(1)} 40%{transform:scale(1.05)} 75%{transform:scale(0.985)} 100%{transform:scale(1)} } @keyframes fastTraqIn { 0%{opacity:0;transform:translateX(28px) scale(0.7)} 55%{opacity:1;transform:translateX(-4px) scale(1.04)} 80%{transform:translateX(1px) scale(0.99)} 100%{opacity:1;transform:translateX(0) scale(1)} } @keyframes cancelScoot { 0%{transform:translateX(0)} 30%{transform:translateX(-6px)} 70%{transform:translateX(2px)} 100%{transform:translateX(0)} } @keyframes toastInOut { 0%{opacity:0;transform:translate(-50%,12px) scale(0.85)} 12%{opacity:1;transform:translate(-50%,-3px) scale(1.06)} 22%{opacity:1;transform:translate(-50%,0) scale(1)} 78%{opacity:1;transform:translate(-50%,0) scale(1)} 100%{opacity:0;transform:translate(-50%,-8px) scale(0.94)} } @keyframes checkCircle { 0%{stroke-dashoffset:88;opacity:0.6} 100%{stroke-dashoffset:0;opacity:1} } @keyframes checkDraw { 0%{stroke-dashoffset:30} 30%{stroke-dashoffset:30} 100%{stroke-dashoffset:0} } @keyframes checkPop { 0%{transform:scale(0.4)} 60%{transform:scale(1.2)} 100%{transform:scale(1)} } @keyframes newBadgePulse { 0%,100%{box-shadow:0 0 0 0 ${a}66} 50%{box-shadow:0 0 0 6px ${a}00} }`;
   }, [T.accent]);
   // Solid chrome color + the translucent tint used by opt-in `.tq-frost` content (job-list sections).
@@ -3149,6 +3730,50 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
       "--tq-lglass-bg",
       hexA(blendHex(solid, lightSurface ? 0.42 : 0.16), fillAlpha)
     );
+    // Lip and side values mirror the iOS applyRimToT, with the light family running
+    // brighter lips and a real grey side band — a white glare has nothing to do
+    // against a near-white card. #CFD4DC rather than iOS's #A6ADB9: that measures
+    // 2.26 contrast on a white card where the T.border it replaces is 1.34, and at
+    // dashboard-card size the sides are almost the whole perimeter, so it read as a
+    // heavy grey box. #CFD4DC sits at 1.49 — present, not loudest.
+    // The edge itself, assembled once and handed out as two ready-made shadow lists:
+    // one for SURFACES, one for CONTROLS. They differ only in the side band, and
+    // building them from one expression is what stops the two drifting apart.
+    //
+    // Inset shadows rather than a masked pseudo-element ring, for three reasons that
+    // all showed up in practice:
+    //   • The mask version aliased. mask-composite cuts a hard boundary and the
+    //     browser rasterises that inner curve without antialiasing, so it visibly
+    //     stair-stepped on pill-radius buttons. Inset shadows composite against the
+    //     border-radius and stay smooth at any curve.
+    //   • No pseudo-element means no position: relative, so nothing is re-anchored.
+    //     Adding that to modals and menus would have moved their absolutely
+    //     positioned children.
+    //   • It folds into box-shadow declarations that already exist, so every frosted
+    //     surface picks the edge up without a new selector.
+    // A SPREAD ring for the sides, plus two offset lips over the top of it.
+    //
+    // The sides were offset shadows too — inset 1px 0 0 and inset -1px 0 0 — and an
+    // offset inset shadow does not wrap a curve. It covers the straight run of an
+    // edge and fades out around the corner, so on a pill the rounded ends were left
+    // bare and the fill showed through exactly where the border should have been.
+    // That is the background still visible outside the ring. inset 0 0 0 1px has no
+    // direction to lose: it follows the border-radius the whole way around.
+    //
+    // Order is the other half of it. box-shadow paints FIRST-listed on top, so the
+    // lips come first and the uniform ring last — the ring fills the corners behind
+    // them, and the lit top and bottom still read over it.
+    const _edge = side => [
+      `inset 0 1px 0 rgba(255,255,255,${lightSurface ? 0.95 : 0.70})`,
+      `inset 0 -1px 0 rgba(255,255,255,${lightSurface ? 0.80 : 0.50})`,
+      `inset 0 0 0 1px ${side}`,
+    ].join(", ");
+    // A surface's band is a COLOUR — it has to be darker than a near-white card, and
+    // no single black alpha manages that across both families. A control's is an
+    // ALPHA, because the same grey would come out lighter than a saturated fill,
+    // which is the opposite of a groove.
+    document.documentElement.style.setProperty("--tq-surface-edge", _edge(lightSurface ? "#CFD4DC" : "#151515"));
+    document.documentElement.style.setProperty("--tq-control-edge", _edge(lightSurface ? "rgba(0,0,0,0.24)" : "rgba(0,0,0,0.34)"));
     // Separate fill for the list cards (.tq-lglass-card) — currently a little
     // CLEARER than the shared one, not denser. It started out the other way round on
     // the theory that a page-filling table of small text needs more frost than a
@@ -10420,7 +11045,7 @@ ${jobsCtx || "No jobs found."}`;
 
     return <div style={{ display: "flex", flexDirection: "column", paddingTop: 6, gap: 0 }}>
       {/* Title */}
-      <div style={{ display: "flex", alignItems: "baseline", gap: 14, marginBottom: 14, minHeight: 50, flexWrap: "wrap" }}>
+      <div className="tq-pagehdr" style={{ display: "flex", alignItems: "baseline", gap: 14, marginBottom: 14, minHeight: 50, flexWrap: "wrap" }}>
         <h1 style={pageTitle()}>Admin</h1>
         <div style={{ fontSize: 12.5, color: T.textDim }}>{headerLine}</div>
       </div>
@@ -10566,7 +11191,7 @@ ${jobsCtx || "No jobs found."}`;
     // page). approvalMode hides the jobs-grid-only items (rename/add/delete column).
     const openPriEditor = (ev) => { ev.preventDefault(); ev.stopPropagation(); setColCtxMenu({ x: ev.clientX, y: ev.clientY, colId: "pri", isCustom: false, approvalMode: true }); };
     return <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingTop: 6 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, minHeight: 50, flexWrap: "wrap" }}>
+      <div className="tq-pagehdr" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, minHeight: 50, flexWrap: "wrap" }}>
         <h1 style={pageTitle()}>{queueLabel}</h1>
         {fEntries.length > 0 && <span style={{ fontSize: 13, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 16, padding: "3px 12px", flexShrink: 0 }}>{fEntries.length}</span>}
         <div style={{ position: "relative", flex: 1, maxWidth: 320, minWidth: 160 }}>
@@ -10771,7 +11396,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </>, document.body)}
       {/* ── Combined header bar ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto 1fr", alignItems: "center", gap: 6, minHeight: 50 }}>
+      <div className="tq-pagehdr" style={{ display: "grid", gridTemplateColumns: "auto 1fr auto 1fr", alignItems: "center", gap: 6, minHeight: 50 }}>
         <h1 style={pageTitle()}>Jobs</h1>
         {/* Left: collapsible toolbar (list view only) */}
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -11723,7 +12348,7 @@ ${jobsCtx || "No jobs found."}`;
 
     return <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Top bar */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, minHeight: 50, flexShrink: 0 }}>
+      <div className="tq-pagehdr" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, minHeight: 50, flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
         <h1 style={pageTitle()}>Clients</h1>
           <div style={{ position: "relative", flex: 1, maxWidth: 320 }}>
@@ -12104,7 +12729,7 @@ ${jobsCtx || "No jobs found."}`;
   // pages: a page you can go back from puts Back in the same spot every time,
   // and putting it after the title would move it with the title's length.
   const pageHeader = (title, right = null, extra = {}, back = null) => (
-    <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 12 : 22, marginBottom: isMobile ? 12 : 18, minHeight: isMobile ? 34 : 50, ...extra }}>
+    <div className="tq-pagehdr" style={{ display: "flex", alignItems: "center", gap: isMobile ? 12 : 22, marginBottom: isMobile ? 12 : 18, minHeight: isMobile ? 34 : 50, ...extra }}>
       {back}
       <h1 style={pageTitleStyle}>{title}</h1>
       {right && <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>{right}</div>}
@@ -12627,7 +13252,7 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ flex: 1, minHeight: 4 }} />
 
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    <button className="dash-btn" onClick={() => openClockFlow(myState?.isClocked ? "clockOut_pin" : "clockIn_pin")}
+                    <button className="dash-btn tq-softglow" onClick={() => openClockFlow(myState?.isClocked ? "clockOut_pin" : "clockIn_pin")}
                       style={{ padding: "10px 14px", borderRadius: T.radiusPill, border: "none", background: myState?.isClocked ? hexA("#ef4444", 0.16) : brandGrad(T.accent), color: myState?.isClocked ? "#ef4444" : T.accentText, fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: T.font }}>
                       {myState?.isClocked ? "Clock out" : "Clock in"}
                     </button>
@@ -12639,7 +13264,7 @@ ${jobsCtx || "No jobs found."}`;
                         { on: myState?.isOnLunch, label: "Lunch", end: "End lunch", state: myState?.isOnLunch ? "lunchEnd_pin" : "lunchStart_pin", color: "#f59e0b" },
                         { on: myState?.isOnBreak, label: "Break", end: "End break", state: myState?.isOnBreak ? "breakEnd_pin" : "breakStart_pin", color: "#8b5cf6" },
                       ].map(b => (
-                        <button key={b.label} className="dash-btn" disabled={!myState?.isClocked} onClick={() => openClockFlow(b.state)}
+                        <button key={b.label} className="dash-btn tq-softglow" disabled={!myState?.isClocked} onClick={() => openClockFlow(b.state)}
                           style={{ padding: "8px 10px", borderRadius: T.radiusPill, border: `1px solid ${b.on ? b.color : T.border}`, background: b.on ? hexA(b.color, 0.18) : "transparent", color: myState?.isClocked ? (b.on ? b.color : T.textSec) : T.textDim, fontSize: 11.5, fontWeight: 700, cursor: myState?.isClocked ? "pointer" : "not-allowed", opacity: myState?.isClocked ? 1 : 0.5, fontFamily: T.font, whiteSpace: "nowrap" }}>
                           {b.on ? b.end : b.label}
                         </button>
@@ -13259,7 +13884,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* One minHeight. It carried 50 and then 44 — the later key won, so this header
           was 6px shorter than every other page's and its contents, buttons included,
           sat 3px higher once alignItems centred them. */}
-      <div style={{ display: "flex", gap: isMobile ? 6 : 12, marginBottom: isMobile ? 10 : 20, alignItems: "center", minHeight: 50, flexWrap: "wrap", position: "relative", justifyContent: isAdmin ? "flex-start" : "center" }}>
+      <div className="tq-pagehdr" style={{ display: "flex", gap: isMobile ? 6 : 12, marginBottom: isMobile ? 10 : 20, alignItems: "center", minHeight: 50, flexWrap: "wrap", position: "relative", justifyContent: isAdmin ? "flex-start" : "center" }}>
         <h1 style={pageTitle()}>Schedule</h1>
         {isAdmin && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Btn size="sm" style={{ minWidth: 78 }} onClick={() => { setBarSelectMode(m => !m); setSelBars(new Set()); }}>{barSelectMode ? "Done" : "Select"}</Btn>
@@ -15870,7 +16495,7 @@ ${jobsCtx || "No jobs found."}`;
 
     return <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       {/* Header — employee picker (left) · period pill (centered across the page). Hours export moved to the Time Clock page. */}
-      <div style={{ position: "relative", display: "flex", alignItems: "center", minHeight: 50, flexShrink: 0 }}>
+      <div className="tq-pagehdr" style={{ position: "relative", display: "flex", alignItems: "center", minHeight: 50, flexShrink: 0 }}>
         <h1 style={pageTitle()}>Analytics</h1>
         {employeePicker}
         <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)" }}>
@@ -17348,7 +17973,7 @@ ${jobsCtx || "No jobs found."}`;
       if (pinState === "closed") return null;
       return createPortal(
         <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10010, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={closePin}>
-          <div className="tq-lglass" style={{ background: T.card, borderRadius: 26, padding: "52px 32px 32px", width: "100%", maxWidth: 360, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", position: "relative", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
+          <div className="tq-lglass" style={{ background: T.card, borderRadius: 40, padding: "52px 32px 32px", width: "100%", maxWidth: 360, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", position: "relative", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
             <button onClick={closePin} style={{ position: "absolute", top: 16, right: 18, background: "none", border: "none", color: T.textDim, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
 
             {/* Title */}
@@ -18373,7 +18998,7 @@ ${jobsCtx || "No jobs found."}`;
 
       return createPortal(
         <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10010, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={closeStartJobPicker}>
-          <div style={{ background: T.card, borderRadius: 26, padding: "52px 28px 28px", width: "100%", maxWidth: 520, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", position: "relative", maxHeight: "80vh", display: "flex", flexDirection: "column", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: T.card, borderRadius: 26, padding: "52px 28px 28px", width: "100%", maxWidth: 720, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", position: "relative", maxHeight: "80vh", display: "flex", flexDirection: "column", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
             <button onClick={closeStartJobPicker} style={{ position: "absolute", top: 16, right: 18, background: "none", border: "none", color: T.textDim, fontSize: 20, cursor: "pointer", lineHeight: 1 }}>✕</button>
             <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 4 }}>Start Job</div>
             <div style={{ fontSize: 18, fontWeight: 700, color: T.text, marginBottom: 16 }}>Select a job to clock into</div>
@@ -18396,7 +19021,14 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             )}
 
-            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 20 }}>
+             {/* overflowX pinned to hidden, not left to its default. A box with
+                 overflow-y:auto and overflow-x:visible is not a state CSS allows — the
+                 visible axis is computed up to auto — so this list carried a live
+                 horizontal scrollbar waiting on any pixel of horizontal overflow. When
+                 one appeared it took ~14px off the bottom, which is what clipped the
+                 last row. Nothing here wants to scroll sideways: the rows are
+                 full-width and their labels ellipsize. */}
+            <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden", display: "flex", flexDirection: "column", gap: 20 }}>
               {sections.map(section => {
                 const tree = buildTree(section.entries);
                 return (
@@ -18409,7 +19041,7 @@ ${jobsCtx || "No jobs found."}`;
                           <div key={`${section.key}-${jNode.job.id}`} style={{ marginBottom: 8, animation: `toolDrop 0.14s ${ji * 38}ms both ease-out` }}>
 
                             {/* L1 — Job row */}
-                            <button
+                            <button className="tq-listrow"
                               onClick={() => toggleJob(section.key, jNode.job.id)}
                               style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "10px 14px", background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: jobOpen ? `${T.radiusSm}px ${T.radiusSm}px 0 0` : T.radiusSm, cursor: "pointer", fontFamily: T.font, textAlign: "left", transition: "background 0.15s, border-color 0.15s" }}
                               onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
@@ -18430,7 +19062,7 @@ ${jobsCtx || "No jobs found."}`;
                               const l2Radius = !panelOpen && isLastPanel ? `0 0 ${T.radiusSm}px ${T.radiusSm}px` : 0;
                               return (
                                 <div key={`${section.key}-${jNode.job.id}-${pNode.panel.id}`} style={{ animation: `toolDrop 0.14s ${pi * 38}ms both ease-out` }}>
-                                  <button
+                                  <button className="tq-listrow"
                                     onClick={() => togglePanel(section.key, jNode.job.id, pNode.panel.id)}
                                     style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "8px 14px 8px 26px", background: T.bg, border: `1.5px solid ${T.border}`, borderTop: "none", borderRadius: l2Radius, cursor: "pointer", fontFamily: T.font, textAlign: "left", transition: "background 0.15s" }}
                                     onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
@@ -18449,26 +19081,38 @@ ${jobsCtx || "No jobs found."}`;
                                     const isLastOp = oi === pNode.ops.length - 1;
                                     const l3Radius = isLastPanel && isLastOp ? `0 0 ${T.radiusSm}px ${T.radiusSm}px` : 0;
                                     return (
-                                      <button
+                                      // A ROW, not a button. Clicking anywhere on an operation used to clock you
+                                      // straight into it — no confirmation, no way to read the row without
+                                      // committing to it. The row is now inert and the action is an explicit Start
+                                      // button, which also means a <div> rather than a <button>: a button inside a
+                                      // button is invalid, and the outer one would have swallowed the click.
+                                      <div
                                         key={op.id}
-                                        onClick={() => handleStartJob({ jobId: jNode.job.id, jobTitle: jNode.job.title, panelId: pNode.panel.id, panelTitle: pNode.panel.title, opId: op.id, opTitle: op.title })}
-                                        disabled={jobClockLoading}
-                                        style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, width: "100%", padding: "8px 14px 8px 40px", background: T.surface, border: `1.5px solid ${T.border}`, borderTop: "none", borderRadius: l3Radius, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, textAlign: "left", transition: "background 0.15s", opacity: jobClockLoading ? 0.6 : 1, animation: `toolDrop 0.14s ${oi * 38}ms both ease-out` }}
-                                        onMouseEnter={e => { if (!jobClockLoading) e.currentTarget.style.background = T.hover; }}
-                                        onMouseLeave={e => { e.currentTarget.style.background = T.surface; }}
+                                        style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "8px 14px 8px 40px", background: T.surface, border: `1.5px solid ${T.border}`, borderTop: "none", borderRadius: l3Radius, fontFamily: T.font, textAlign: "left", opacity: jobClockLoading ? 0.6 : 1 }}
                                       >
-                                        <div style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>
-                                          <span style={{ fontSize: 13, fontWeight: 600, color: T.text, flex: 1 }}>{op.title}</span>
-                                          {dept && (
-                                            <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}30`, borderRadius: 12, padding: "2px 6px", whiteSpace: "nowrap" }}>
-                                              {dept}
-                                            </span>
+                                        {/* minWidth:0 so a long title ellipsizes instead of pushing the button out of
+                                            the row — the list clips horizontally now, so it would simply vanish. */}
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1, minWidth: 0 }}>
+                                          <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                                            <span style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{op.title}</span>
+                                            {dept && (
+                                              <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}30`, borderRadius: 12, padding: "1px 7px", flexShrink: 0 }}>
+                                                {dept}
+                                              </span>
+                                            )}
+                                          </div>
+                                          {op.start && (
+                                            <div style={{ fontSize: 11, color: T.textDim }}>{fmtRange(op.start, op.end)}</div>
                                           )}
                                         </div>
-                                        {op.start && (
-                                          <div style={{ fontSize: 11, color: T.textDim }}>{fmtRange(op.start, op.end)}</div>
-                                        )}
-                                      </button>
+                                        <button
+                                          onClick={() => handleStartJob({ jobId: jNode.job.id, jobTitle: jNode.job.title, panelId: pNode.panel.id, panelTitle: pNode.panel.title, opId: op.id, opTitle: op.title })}
+                                          disabled={jobClockLoading}
+                                          style={{ flexShrink: 0, padding: "6px 16px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 12, fontWeight: 700, cursor: jobClockLoading ? "not-allowed" : "pointer", fontFamily: T.font, whiteSpace: "nowrap" }}
+                                        >
+                                          {jobClockLoading ? "Starting…" : "Start"}
+                                        </button>
+                                      </div>
                                     );
                                   })}
                                 </div>
@@ -19144,7 +19788,7 @@ ${jobsCtx || "No jobs found."}`;
         {renderPastLogsModal()}
         {/* Header — page title always; Past Logs / Export Hours / Confirm Time
             Sheet are admin-only and simply absent for everyone else. */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", minHeight: 50 }}>
+          <div className="tq-pagehdr" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", minHeight: 50 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
               <h1 style={pageTitleStyle}>Time Clock</h1>
               {/* Accent outline button — the app's existing pattern: page background as
@@ -23527,19 +24171,19 @@ ${jobsCtx || "No jobs found."}`;
             <h1 style={{ ...pageTitleStyle, color: T.text, marginBottom: 18 }}>Customization</h1>
             <div style={card}>
               <div style={lbl}>Theme</div>
-              <div style={{ display: "flex", gap: 4, background: hexLum(T.surface) < 0.5 ? blendHex(T.surface, 0.30) : blendHex(T.surface, -0.14), borderRadius: 999, padding: 3, border: "none" }}>
+              <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
                 {[{ id: "midnight", label: "Dark" }, { id: "frost", label: "Light" }, { id: "custom", label: "Custom" }].map(th => {
                   const active = draftMode === th.id;
-                  return <button key={th.id} onClick={() => setDraftMode(th.id)} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: active ? brandGrad(T.accent) : "transparent", color: active ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>{th.label}</button>;
+                  return <button key={th.id} onClick={() => setDraftMode(th.id)} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: active ? brandGrad(T.accent) : T.surface, color: active ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>{th.label}</button>;
                 })}
               </div>
             </div>
             <div style={card}>
               <div style={lbl}>Sidebar Behavior</div>
-              <div style={{ display: "flex", gap: 4, background: hexLum(T.surface) < 0.5 ? blendHex(T.surface, 0.30) : blendHex(T.surface, -0.14), borderRadius: 999, padding: 3, border: "none" }}>
+              <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
                 {[{ id: "hover", label: "Hover" }, { id: "button", label: "Button" }].map(opt => {
                   const active = draftSidebar === opt.id;
-                  return <button key={opt.id} onClick={() => setDraftSidebar(opt.id)} style={{ flex: 1, padding: "7px 12px", borderRadius: 999, border: "none", background: active ? brandGrad(T.accent) : "transparent", color: active ? T.accentText : T.text, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{opt.label}</button>;
+                  return <button key={opt.id} onClick={() => setDraftSidebar(opt.id)} style={{ flex: 1, padding: "7px 12px", borderRadius: 999, border: "none", background: active ? brandGrad(T.accent) : T.surface, color: active ? T.accentText : T.text, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{opt.label}</button>;
                 })}
               </div>
             </div>
@@ -23555,11 +24199,11 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ marginTop: 14 }}>
                 {/* Color | Image | Liquid. Stored on the theme as bgMode so it
                     persists with the rest of the custom theme. */}
-                <div style={{ display: "flex", gap: 4, background: hexLum(T.surface) < 0.5 ? blendHex(T.surface, 0.30) : blendHex(T.surface, -0.14), borderRadius: 999, padding: 3, border: "none", marginBottom: 14 }}>
+                <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none", marginBottom: 14 }}>
                   {[{ id: "color", label: "Color" }, { id: "image", label: "Image" }, { id: "liquid", label: "Liquid" }].map(o => {
                     const a = (dc.bgMode || "color") === o.id;
                     return <button key={o.id} onClick={() => setDc({ bgMode: o.id })}
-                      style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : "transparent", color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>{o.label}</button>;
+                      style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : T.surface, color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>{o.label}</button>;
                   })}
                 </div>
                 {(dc.bgMode || "color") === "liquid" && (() => {
@@ -23629,10 +24273,10 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>System Elements</div>
-                  <div style={{ display: "flex", gap: 4, background: hexLum(T.surface) < 0.5 ? blendHex(T.surface, 0.30) : blendHex(T.surface, -0.14), borderRadius: 999, padding: 3, border: "none" }}>
+                  <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
                     {[{ id: "system", label: "System" }, { id: "adaptive", label: "Adaptive" }, { id: "custom", label: "Custom" }].map(o => {
                       const a = (dc.jobBarMode || "system") === o.id;
-                      return <button key={o.id} onClick={() => { setDc({ jobBarMode: o.id }); setPreviewView("schedule"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : "transparent", color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
+                      return <button key={o.id} onClick={() => { setDc({ jobBarMode: o.id }); setPreviewView("schedule"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : T.surface, color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
                     })}
                   </div>
                   {(dc.jobBarMode || "system") === "custom" && <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 12 }}>
@@ -23646,19 +24290,19 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
                 <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>List Cells</div>
-                  <div style={{ display: "flex", gap: 4, background: hexLum(T.surface) < 0.5 ? blendHex(T.surface, 0.30) : blendHex(T.surface, -0.14), borderRadius: 999, padding: 3, border: "none" }}>
+                  <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
                     {[{ id: "system", label: "System" }, { id: "adaptive", label: "Adaptive" }].map(o => {
                       const a = (dc.cellColorMode || "system") === o.id;
-                      return <button key={o.id} onClick={() => { setDc({ cellColorMode: o.id }); setPreviewView("jobs"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : "transparent", color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
+                      return <button key={o.id} onClick={() => { setDc({ cellColorMode: o.id }); setPreviewView("jobs"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : T.surface, color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
                     })}
                   </div>
                 </div>
                 <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>Schedule Grid</div>
-                  <div style={{ display: "flex", gap: 4, background: hexLum(T.surface) < 0.5 ? blendHex(T.surface, 0.30) : blendHex(T.surface, -0.14), borderRadius: 999, padding: 3, border: "none" }}>
+                  <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
                     {[{ id: true, label: "On" }, { id: false, label: "Off" }].map(o => {
                       const a = (dc.scheduleGrid !== false) === o.id;
-                      return <button key={String(o.id)} onClick={() => { setDc({ scheduleGrid: o.id }); setPreviewView("schedule"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : "transparent", color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
+                      return <button key={String(o.id)} onClick={() => { setDc({ scheduleGrid: o.id }); setPreviewView("schedule"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : T.surface, color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
                     })}
                   </div>
                 </div>
@@ -23690,10 +24334,10 @@ ${jobsCtx || "No jobs found."}`;
           {/* Live preview */}
           <div style={{ flex: 1, minWidth: 0, padding: 36, display: "flex", flexDirection: "column", gap: 14, background: T.bg }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <div style={{ display: "flex", gap: 3, background: hexLum(T.surface) < 0.5 ? blendHex(T.surface, 0.30) : blendHex(T.surface, -0.14), borderRadius: 999, padding: 3, border: "none" }}>
+              <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
                 {[{ id: "jobs", label: "Jobs" }, { id: "schedule", label: "Schedule" }].map(v => {
                   const a = previewView === v.id;
-                  return <button key={v.id} onClick={() => setPreviewView(v.id)} style={{ padding: "5px 16px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : "transparent", color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{v.label}</button>;
+                  return <button key={v.id} onClick={() => setPreviewView(v.id)} style={{ padding: "5px 16px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : T.surface, color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{v.label}</button>;
                 })}
               </div>
             </div>
@@ -24515,10 +25159,10 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "-0.045em", textTransform: "uppercase", marginBottom: 10 }}>Sidebar</div>
-              <div style={{ display: "flex", gap: 4, background: hexLum(T.surface) < 0.5 ? blendHex(T.surface, 0.30) : blendHex(T.surface, -0.14), borderRadius: 999, padding: 3, border: "none" }}>
+              <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
                 {[{ id: "hover", label: "Hover" }, { id: "button", label: "Button" }].map(opt => {
                   const active = sidebarMode === opt.id;
-                  return <button key={opt.id} onClick={() => setSidebarMode(opt.id)} style={{ flex: 1, padding: "6px 12px", borderRadius: 999, border: "none", background: active ? brandGrad(T.accent) : "transparent", color: active ? T.accentText : T.text, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{opt.label}</button>;
+                  return <button key={opt.id} onClick={() => setSidebarMode(opt.id)} style={{ flex: 1, padding: "6px 12px", borderRadius: 999, border: "none", background: active ? brandGrad(T.accent) : T.surface, color: active ? T.accentText : T.text, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{opt.label}</button>;
                 })}
               </div>
             </div>
@@ -24674,20 +25318,20 @@ ${jobsCtx || "No jobs found."}`;
               {/* ── Theme ── */}
               <div style={card}>
                 <div style={lbl}>Theme</div>
-                <div style={{ display: "flex", gap: 4, background: hexLum(T.surface) < 0.5 ? blendHex(T.surface, 0.30) : blendHex(T.surface, -0.14), borderRadius: 999, padding: 3, border: "none" }}>
+                <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
                   {[{ id: "midnight", label: "Dark" }, { id: "frost", label: "Light" }, { id: "custom", label: "Custom" }].map(th => {
                     const active = draftMode === th.id;
-                    return <button key={th.id} onClick={() => setDraftMode(th.id)} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: active ? brandGrad(T.accent) : "transparent", color: active ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>{th.label}</button>;
+                    return <button key={th.id} onClick={() => setDraftMode(th.id)} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: active ? brandGrad(T.accent) : T.surface, color: active ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>{th.label}</button>;
                   })}
                 </div>
               </div>
               {/* ── Sidebar Behavior ── */}
               <div style={card}>
                 <div style={lbl}>Sidebar Behavior</div>
-                <div style={{ display: "flex", gap: 4, background: hexLum(T.surface) < 0.5 ? blendHex(T.surface, 0.30) : blendHex(T.surface, -0.14), borderRadius: 999, padding: 3, border: "none" }}>
+                <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
                   {[{ id: "hover", label: "Hover" }, { id: "button", label: "Button" }].map(opt => {
                     const active = draftSidebar === opt.id;
-                    return <button key={opt.id} onClick={() => setDraftSidebar(opt.id)} style={{ flex: 1, padding: "7px 12px", borderRadius: 999, border: "none", background: active ? brandGrad(T.accent) : "transparent", color: active ? T.accentText : T.text, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{opt.label}</button>;
+                    return <button key={opt.id} onClick={() => setDraftSidebar(opt.id)} style={{ flex: 1, padding: "7px 12px", borderRadius: 999, border: "none", background: active ? brandGrad(T.accent) : T.surface, color: active ? T.accentText : T.text, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{opt.label}</button>;
                   })}
                 </div>
               </div>
@@ -24703,10 +25347,10 @@ ${jobsCtx || "No jobs found."}`;
                   {/* System Elements — every per-entity color (job bars, avatars, clients, dots) */}
                   <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>System Elements</div>
-                    <div style={{ display: "flex", gap: 4, background: hexLum(T.surface) < 0.5 ? blendHex(T.surface, 0.30) : blendHex(T.surface, -0.14), borderRadius: 999, padding: 3, border: "none" }}>
+                    <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
                       {[{ id: "system", label: "System" }, { id: "adaptive", label: "Adaptive" }, { id: "custom", label: "Custom" }].map(o => {
                         const a = (dc.jobBarMode || "system") === o.id;
-                        return <button key={o.id} onClick={() => { setDc({ jobBarMode: o.id }); setPreviewView("schedule"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : "transparent", color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
+                        return <button key={o.id} onClick={() => { setDc({ jobBarMode: o.id }); setPreviewView("schedule"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : T.surface, color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
                       })}
                     </div>
                     {(dc.jobBarMode || "system") === "custom" && <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 12 }}>
@@ -24721,20 +25365,20 @@ ${jobsCtx || "No jobs found."}`;
                   {/* List Cells — jobs-list status/priority cells ONLY (independent of System Elements) */}
                   <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>List Cells</div>
-                    <div style={{ display: "flex", gap: 4, background: hexLum(T.surface) < 0.5 ? blendHex(T.surface, 0.30) : blendHex(T.surface, -0.14), borderRadius: 999, padding: 3, border: "none" }}>
+                    <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
                       {[{ id: "system", label: "System" }, { id: "adaptive", label: "Adaptive" }].map(o => {
                         const a = (dc.cellColorMode || "system") === o.id;
-                        return <button key={o.id} onClick={() => { setDc({ cellColorMode: o.id }); setPreviewView("jobs"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : "transparent", color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
+                        return <button key={o.id} onClick={() => { setDc({ cellColorMode: o.id }); setPreviewView("jobs"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : T.surface, color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
                       })}
                     </div>
                   </div>
                   {/* Schedule Grid — show/hide the day-column & row gridlines on the Schedule page */}
                   <div style={{ marginTop: 18, paddingTop: 16, borderTop: `1px solid ${T.border}` }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: T.text, marginBottom: 10 }}>Schedule Grid</div>
-                    <div style={{ display: "flex", gap: 4, background: hexLum(T.surface) < 0.5 ? blendHex(T.surface, 0.30) : blendHex(T.surface, -0.14), borderRadius: 999, padding: 3, border: "none" }}>
+                    <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
                       {[{ id: true, label: "On" }, { id: false, label: "Off" }].map(o => {
                         const a = (dc.scheduleGrid !== false) === o.id;
-                        return <button key={String(o.id)} onClick={() => { setDc({ scheduleGrid: o.id }); setPreviewView("schedule"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : "transparent", color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
+                        return <button key={String(o.id)} onClick={() => { setDc({ scheduleGrid: o.id }); setPreviewView("schedule"); }} style={{ flex: 1, padding: "7px 8px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : T.surface, color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{o.label}</button>;
                       })}
                     </div>
                   </div>
@@ -24815,10 +25459,10 @@ ${jobsCtx || "No jobs found."}`;
             {/* Live preview — mirrors the home / jobs-list view (blank placeholder rows) */}
             <div style={{ flex: 1, minWidth: 0, padding: 36, display: "flex", flexDirection: "column", gap: 14, background: T.bg }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <div style={{ display: "flex", gap: 3, background: hexLum(T.surface) < 0.5 ? blendHex(T.surface, 0.30) : blendHex(T.surface, -0.14), borderRadius: 999, padding: 3, border: "none" }}>
+                <div style={{ display: "flex", gap: 6, borderRadius: 999, border: "none" }}>
                   {[{ id: "jobs", label: "Jobs" }, { id: "schedule", label: "Schedule" }].map(v => {
                     const a = previewView === v.id;
-                    return <button key={v.id} onClick={() => setPreviewView(v.id)} style={{ padding: "5px 16px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : "transparent", color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{v.label}</button>;
+                    return <button key={v.id} onClick={() => setPreviewView(v.id)} style={{ padding: "5px 16px", borderRadius: 999, border: "none", background: a ? brandGrad(T.accent) : T.surface, color: a ? T.accentText : T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, transition: "background 0.15s, color 0.15s" }}>{v.label}</button>;
                   })}
                 </div>
               </div>
@@ -25789,7 +26433,13 @@ ${jobsCtx || "No jobs found."}`;
 
       return (<div>
         <div style={{ position: "fixed", inset: 0, zIndex: 10012 }} onClick={() => setClockPopover(null)} />
-        <div style={{ position: "fixed", left: clockPopover.x, top: clockPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 180, fontFamily: T.font, animation: "menuIn 0.15s ease-out" }}>
+        {/* anim-drop, not a bare div. The glass is opt-in BY CLASS — the frosted rule
+            lists .tq-lglass, .tq-frost, .anim-card-wrap, .anim-modal-box,
+            .anim-modal-overlay > div, .anim-ctx, .anim-ctx-up and .anim-drop — so a
+            floating menu built without one gets no fill, no blur and no edge, however
+            much it looks like every other menu. This is the class for exactly this
+            shape, and it also matches the menuIn animation already in use here. */}
+        <div className="anim-drop" style={{ position: "fixed", left: clockPopover.x, top: clockPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 180, fontFamily: T.font, animation: "menuIn 0.15s ease-out" }}>
           {options.map((opt, oi) => {
             const fk = `clockPop-${opt.key}`;
             const disabled = !!opt.disabled;
