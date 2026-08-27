@@ -55,7 +55,11 @@ struct JobsHubView: View {
                     // published to HeaderControlsHost (registered at the bottom
                     // of this view) so their glass can morph into the next tab's
                     // instead of being torn down with the page.
-                    TRAQSNavHeader()
+                    // No header here — the shell owns the one persistent GlassHeader
+                    // (§2). The spacer reserves its height so content starts below it and
+                    // still SCROLLS UNDER it, which is what gives the glass something live
+                    // to refract (§8 — glass over a static background renders flat).
+                    Color.clear.frame(height: GlassHeader.height)
 
                     // (The "Jobs" title now scrolls inside the list content —
                     // see TasksView — so the header is just the buttons and

@@ -211,7 +211,11 @@ struct MessagesView: View {
                     // Logo and row height only — the controls are published
                     // to HeaderControlsHost (registered at the bottom of this
                     // view) so their glass can morph across a tab switch.
-                    TRAQSNavHeader()
+                    // No header here — the shell owns the one persistent GlassHeader
+                    // (§2). The spacer reserves its height so content starts below it and
+                    // still SCROLLS UNDER it, which is what gives the glass something live
+                    // to refract (§8 — glass over a static background renders flat).
+                    Color.clear.frame(height: GlassHeader.height)
 
                     PageTitle(title: "Messages",
                               size: titleSize,

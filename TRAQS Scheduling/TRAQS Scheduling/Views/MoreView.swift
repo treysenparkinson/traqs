@@ -41,7 +41,10 @@ struct MoreView: View {
                 // Logo and row height only — the controls are published to
                 // HeaderControlsHost (registered at the bottom of this view) so
                 // their glass can morph across a tab switch.
-                TRAQSNavHeader()
+                // No header here — the shell owns the one persistent
+                // GlassHeader (§2). The spacer reserves its height; the selected
+                // worker's name still rides on that row.
+                Color.clear.frame(height: GlassHeader.height)
                 .overlay(alignment: .center) {
                     if let name = selectedWorkerName {
                         Text("\(name)'s Analytics")

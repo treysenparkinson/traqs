@@ -75,6 +75,14 @@ final class AppNav {
     var showNewMessage = false
     var showDeleteThreads = false
 
+    // Account menu + Admin, opened from the header and presented by the shell.
+    var showAdmin = false
+    /// The header's Log out row. AuthManager isn't reachable from AppNav, so the
+    /// shell — which has it — consumes this and calls logout().
+    var logoutRequested = false
+    var showCustomize = false
+    var showProfile = false
+
     // Analytics
     var statsWorkerId: String? = nil
     var statsWeekAnchor: Date = Date()

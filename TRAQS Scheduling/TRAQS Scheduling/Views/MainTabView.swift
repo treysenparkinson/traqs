@@ -34,7 +34,13 @@ struct MainTabView: View {
     @Environment(AppNav.self) private var appNav
     @Environment(AppState.self) private var appState
     @Environment(ThemeSettings.self) private var themeSettings
+    @Environment(AuthManager.self) private var auth
     @State private var showTimeOff: Bool = false
+
+    /// MUST live here, in the shell. Declared inside GlassHeader (or a page) it
+    /// would die with that view, and the outgoing and incoming glass shapes
+    /// would never share an identity space — see §2/§5.3 of the header brief.
+    @Namespace private var headerNamespace
 
     var body: some View {
         return ZStack(alignment: .bottom) {
@@ -51,15 +57,12 @@ struct MainTabView: View {
             // itself is unaffected by this blur and stays sharp.
             Group {
                 TabHost()
-                    // Phase 6: subtle sync-status indicator, just below the nav header.
+                    // THE header. One instance, above the TabView, alive for the
+                    // life of the app — pages render content only. The namespace
+                    // is handed down from here.
                     .overlay(alignment: .top) {
-                        SyncStatusDot().padding(.top, 52)
+                        HeaderHost(namespace: headerNamespace)
                     }
-                    // Every tab's header controls, drawn ONCE out here so the
-                    // glass can morph across a tab switch. Inside the pages
-                    // there was nothing to morph from — a TabView swaps in a
-                    // single frame. See HeaderControls.swift.
-                    .overlay(alignment: .top) { HeaderControlsHost() }
 
                 // TRAQS frosted floating pill (icon-only).
                 if !appNav.hideTabBar {
@@ -93,6 +96,21 @@ struct MainTabView: View {
         .fullScreenCover(isPresented: $showTimeOff) {
             TimeOffView().edgeSwipeBack { showTimeOff = false }
         }
+        // Destinations the header's account menu and Admin button open. They are
+        // presented HERE because the header lives in the shell now — a control
+        // can't present from a view that outlives every page.
+        .fullScreenCover(isPresented: Bindable(appNav).showAdmin) {
+            AdminView().edgeSwipeBack { appNav.showAdmin = false }
+        }
+        .sheet(isPresented: Bindable(appNav).showCustomize) { CustomizeView() }
+        .sheet(isPresented: Bindable(appNav).showProfile) {
+            EditProfileView().edgeSwipeBack { appNav.showProfile = false }
+        }
+        .onChange(of: appNav.logoutRequested) { _, wants in
+            guard wants else { return }
+            appNav.logoutRequested = false
+            auth.logout()
+        }
         .onChange(of: appNav.openTimeOffPage, initial: true) { _, open in
             if open {
                 showTimeOff = true
@@ -100,6 +118,131 @@ struct MainTabView: View {
             }
         }
         .preferredColorScheme(themeSettings.isLightTheme ? .light : .dark)
+    }
+}
+
+// MARK: - Header host
+//
+// Reads `appNav.selected` ITSELF and holds the per-tab configs. Kept out of
+// MainTabView's body for the same reason TabHost is: a selection read up there
+// re-runs the shell on every tap, rebuilding the TabView and all five pages.
+//
+// The NAMESPACE is not declared here — it is passed in from the shell, so it
+// outlives every change to this view.
+
+private struct HeaderHost: View {
+    let namespace: Namespace.ID
+    @Environment(AppNav.self) private var appNav
+    @Environment(AppState.self) private var appState
+
+    var body: some View {
+        GlassHeader(config: config(for: appNav.selected), namespace: namespace)
+    }
+
+    /// What each tab's header holds. Slots are roles, never icons or indices
+    /// (§3): a slot on both sides of a switch keeps its glass and swaps its
+    /// glyph; a slot on one side only materializes or dissolves.
+    private func config(for tab: TTab) -> HeaderConfig {
+        switch tab {
+        case .home:
+            return HeaderConfig(pills: [
+                HeaderPill(slot: .profile, content: .avatar, action: .menu(.account))
+            ])
+
+        case .jobs:
+            var pills: [HeaderPill] = [
+                // Just an eye. The old label ("List"/"Gantt") named the mode you
+                // were LEAVING as often as the one you were in.
+                HeaderPill(slot: .viewMode, content: .icon(.eye),
+                           action: .tap({ appNav.jobsMode.toggle() })),
+                // Search is list-only, but stays MOUNTED in gantt and just fades
+                // — removing it resizes the cluster on every mode flip.
+                HeaderPill(slot: .search, content: .icon(.search),
+                           dimmed: appNav.jobsMode != .list,
+                           action: .tap({
+                               withAnimation(.easeInOut(duration: 0.18)) {
+                                   appNav.jobsSearchOpen.toggle()
+                                   if !appNav.jobsSearchOpen { appNav.jobsSearchText = "" }
+                               }
+                           }))
+            ]
+            if appState.canViewApprovalQueue {
+                pills.append(HeaderPill(
+                    slot: .approvals,
+                    content: .badgedIcon(.select, showsBadge: appState.pendingApprovalCount > 0),
+                    action: .tap({ appNav.showApprovalQueue = true })))
+            }
+            if appState.currentPerson?.isAdmin == true {
+                // Alone, not in the cluster: it asks about PEOPLE, where the
+                // other three act on the jobs list.
+                pills.append(HeaderPill(
+                    slot: .availability,
+                    content: .symbol("clock.arrow.circlepath", tint: Color(hex: T.accent)),
+                    style: .prominent,
+                    action: .menu(.availability)))
+            }
+            return HeaderConfig(pills: pills)
+
+        case .hours:
+            return HeaderConfig(pills: [
+                HeaderPill(slot: .timeOff, content: .label(.cal, "Time Off"),
+                           action: .tap({ appNav.openTimeOffPage = true }))
+            ])
+
+        case .stats:
+            var pills: [HeaderPill] = []
+            if appState.isAdmin {
+                pills.append(HeaderPill(slot: .worker, content: .icon(.person),
+                                        action: .menu(.worker)))
+            }
+            pills.append(HeaderPill(slot: .week, content: .icon(.cal), action: .menu(.week)))
+            if appState.isAdmin {
+                // Alone: Admin goes somewhere else entirely, where worker and
+                // week both scope THIS page.
+                pills.append(HeaderPill(slot: .admin, content: .icon(.admin),
+                                        style: .prominent, action: .tap({
+                    appNav.showAdmin = true
+                })))
+            }
+            return HeaderConfig(pills: pills)
+
+        case .chat:
+            // Nothing while a thread is open: that header is drawn in a separate
+            // UIWindow (see OverlayWindowController) and would show through.
+            guard appState.activeMessageThread == nil else { return HeaderConfig() }
+            if appNav.chatSelectMode {
+                return HeaderConfig(pills: [
+                    HeaderPill(slot: .selectDelete,
+                               content: .deleteCount(appNav.chatSelectedKeys.count),
+                               tint: .red.opacity(appNav.chatSelectedKeys.isEmpty ? 0.4 : 1.0),
+                               action: .tap({ appNav.showDeleteThreads = true })),
+                    HeaderPill(slot: .selectDone, content: .text("Done"), action: .tap({
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            appNav.chatSelectMode = false
+                            appNav.chatSelectedKeys = []
+                        }
+                    }))
+                ])
+            }
+            return HeaderConfig(pills: [
+                HeaderPill(slot: .search, content: .icon(.search), action: .tap({
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        appNav.chatSearchOpen.toggle()
+                        if !appNav.chatSearchOpen { appNav.chatSearchText = "" }
+                    }
+                })),
+                HeaderPill(slot: .filter, content: .icon(.filter), action: .menu(.filter)),
+                // Alone: search and filter narrow what you're looking at,
+                // compose MAKES something.
+                HeaderPill(slot: .compose, content: .icon(.plus),
+                           style: .prominent, action: .tap({
+                    appNav.modalBlur = true
+                    // Animations off, so the cover doesn't slide up from the
+                    // bottom — NewMessageSheet springs in at the centre itself.
+                    withTransaction(Transaction.noAnimation) { appNav.showNewMessage = true }
+                }))
+            ])
+        }
     }
 }
 
@@ -175,7 +318,15 @@ struct TRAQSTabBar: View {
 
     private var selected: TTab {
         get { appNav.selected }
-        nonmutating set { appNav.selected = newValue }
+        // The header morph is driven by THIS animation — an unanimated write
+        // gives glassEffectID nothing to interpolate and the controls just swap
+        // (§10 step 8). Historically this was deliberately unanimated because
+        // wrapping it made the page wait on the animation; watch for tap lag.
+        nonmutating set {
+            withAnimation(.bouncy(duration: 0.4, extraBounce: 0.05)) {
+                appNav.selected = newValue
+            }
+        }
     }
     private var messagesBadge: Int { appState.totalUnreadMessages }
 

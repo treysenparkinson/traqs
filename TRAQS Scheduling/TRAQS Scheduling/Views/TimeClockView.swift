@@ -56,9 +56,11 @@ struct TimeClockView: View {
                 PageBackground()
 
                 VStack(spacing: 0) {
-                    // Controls hoisted to HeaderControlsHost — see the
-                    // registration at the bottom of this view.
-                    TRAQSNavHeader()
+                    // No header here — the shell owns the one persistent GlassHeader (§2).
+                    // `safeAreaPadding`, NOT a spacer above the ScrollView: it insets the
+                    // content so it STARTS below the header while still scrolling UNDER it.
+                    // A spacer would start the scroll view below the glass, leaving it over
+                    // a static background, which renders flat and grey (§8).
 
                     ScrollViewReader { _ in
                       ScrollView {
@@ -164,6 +166,7 @@ struct TimeClockView: View {
                       }
                       .scrollIndicators(.visible)
                       .topFadeMask()
+                      .safeAreaPadding(.top, GlassHeader.height)
                       .refreshable { await reload() }
                     }
                 }

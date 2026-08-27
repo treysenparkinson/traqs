@@ -15,10 +15,11 @@ struct HomeView: View {
             PageBackground()
 
             VStack(spacing: 0) {
-                // Logo and row height only — the controls are drawn by
-                // HeaderControlsHost, above the TabView, so they can morph into
-                // the next page's. Registered below.
-                TRAQSNavHeader()
+                // No header here — the shell owns the one persistent GlassHeader (§2).
+                // `safeAreaPadding`, NOT a spacer above the ScrollView: it insets the
+                // content so it STARTS below the header while still scrolling UNDER it.
+                // A spacer would start the scroll view below the glass, leaving it over
+                // a static background, which renders flat and grey (§8).
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
@@ -75,6 +76,7 @@ struct HomeView: View {
                 .topFadeMask()
                 .refreshable { await reload() }
             }
+            .safeAreaPadding(.top, GlassHeader.height)
             // Home is the landing tab; pull the pay-clock entries + settings the
             // hero needs (jobs/people come from the app-level loadAll).
             .task {
