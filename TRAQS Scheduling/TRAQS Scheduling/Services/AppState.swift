@@ -233,6 +233,25 @@ class AppState {
 
     // MARK: - Setup
 
+    /// Remember an org code BEFORE the user has signed in.
+    ///
+    /// The launch flow resolves the org first and authenticates second (matching
+    /// the web's AuthGate), so there is a window where we know the org but have
+    /// no token — and `configure` can't run without one, since it builds the API
+    /// service and starts realtime. This persists the code alone; `configure`
+    /// then picks it up from `orgCode` the moment Auth0 returns.
+    func rememberOrg(code: String) {
+        orgCode = code
+        _ = KeychainHelper.save(code, forKey: KeychainHelper.orgCodeKey)
+    }
+
+    /// "Switch organization" — drop the remembered code and go back to asking.
+    func forgetOrg() {
+        orgCode = ""
+        configuredOrgCode = nil
+        KeychainHelper.delete(forKey: KeychainHelper.orgCodeKey)
+    }
+
     func configure(auth: AuthManager, orgCode: String) {
         AppState.shared = self   // expose to the silent-push background handler
         // Idempotent: ContentView.handleAuthState fires from BOTH the

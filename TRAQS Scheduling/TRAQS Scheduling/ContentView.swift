@@ -17,16 +17,19 @@ struct RootView: View {
     var body: some View {
         ZStack(alignment: .top) {
             Group {
-                if !auth.isAuthenticated {
-                    LoginView()
+                // Org FIRST, sign-in second — the order the web's AuthGate uses.
+                // It ran the other way round here, which meant a person could be
+                // signed in before the app knew which organization they were
+                // signing in to. WelcomeView covers both stages and carries its
+                // own load-up.
+                if appState.orgCode.isEmpty || !auth.isAuthenticated {
+                    WelcomeView(autoLinkError: lookupError)
                 } else if lookupInFlight {
                     OrgLinkingView()
                 } else if lookupMatches.count > 1 && appState.orgCode.isEmpty {
                     OrgPickerView(matches: lookupMatches) { pick in
                         applyOrg(code: pick.code)
                     }
-                } else if appState.orgCode.isEmpty {
-                    OrgCodeView(noticeEmail: auth.userEmail, autoLinkError: lookupError)
                 } else {
                     MainTabView()
                         .task { await appState.loadAll() }
