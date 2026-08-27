@@ -56,11 +56,16 @@ struct TimeClockView: View {
                 PageBackground()
 
                 VStack(spacing: 0) {
-                    // No header here — the shell owns the one persistent GlassHeader (§2).
-                    // `safeAreaPadding`, NOT a spacer above the ScrollView: it insets the
-                    // content so it STARTS below the header while still scrolling UNDER it.
-                    // A spacer would start the scroll view below the glass, leaving it over
-                    // a static background, which renders flat and grey (§8).
+                    // No header here — the shell owns the one persistent GlassHeader
+                    // (§2). The spacer reserves its height so the scroll view's FRAME
+                    // starts below the header, which is what actually stops content
+                    // riding up over the wordmark and the header controls. Insetting
+                    // the scroll CONTENT instead (`.safeAreaPadding(.top)`) left the
+                    // frame spanning to the top of the screen, so rows scrolled under
+                    // the glass — fine while `topFadeMask` still faded them out, and
+                    // plainly wrong once it became a no-op. Every other tab reserves
+                    // the header this way; Analytics is the reference.
+                    Color.clear.frame(height: GlassHeader.height)
 
                     ScrollViewReader { _ in
                       ScrollView {
@@ -166,7 +171,6 @@ struct TimeClockView: View {
                       }
                       .scrollIndicators(.visible)
                       .topFadeMask()
-                      .safeAreaPadding(.top, GlassHeader.height)
                       .refreshable { await reload() }
                     }
                 }
@@ -192,7 +196,9 @@ struct TimeClockView: View {
                     title: "Clock In",
                     personName: appState.currentPerson?.name,
                     onClose: { withTransaction(.noAnimation) { showPinPrompt = false } },
-                    onSubmit: { pin in await appState.payClockIn(pin: pin) }
+                    // showsOverlay: false — the pad shows the spinner and the
+                    // checkmark itself; the full-screen card would land on top.
+                    onSubmit: { pin in await appState.payClockIn(pin: pin, showsOverlay: false) }
                 )
                 // Entry is the pad's OWN spring (see ClockPinOverlay.appear) —
                 // an insertion transition here would cross-fade on top of it and
@@ -208,7 +214,7 @@ struct TimeClockView: View {
                     title: "Clock Out",
                     personName: appState.currentPerson?.name,
                     onClose: { withTransaction(.noAnimation) { showClockOutPin = false } },
-                    onSubmit: { pin in await appState.payClockOut(pin: pin) }
+                    onSubmit: { pin in await appState.payClockOut(pin: pin, showsOverlay: false) }
                 )
                 // Entry is the pad's OWN spring (see ClockPinOverlay.appear) —
                 // an insertion transition here would cross-fade on top of it and
@@ -514,7 +520,7 @@ private struct OpenBreakCard: View {
 // MARK: - Pay clock controls (Hours; admin opt-in via iosPayClockEnabled)
 
 // Clocked out → a single Clock In button on the signature brand gradient.
-// Clocked in → Lunch + Break side by side, with a full-width red Clock Out
+// Clocked in → Lunch + Break side by side, with a full-width Clock Out
 // underneath. Lunch pauses paid time; Break is presence-only (the pay clock
 // keeps running), which is why they're separate controls rather than one
 // "pause" toggle. Clock Out is the widest target on the page, so it's PIN-gated
@@ -535,9 +541,6 @@ private struct PayClockControls: View {
     let onLunchToggle: () -> Void
     let onBreakToggle: () -> Void
 
-    // Indigo matches the "On lunch" status pill; green signals "back to work".
-    private let lunchColor  = "#6366F1"
-
     var body: some View {
         _ = theme.frostedGlass; _ = theme.accent
         return VStack(spacing: 8) {
@@ -546,8 +549,7 @@ private struct PayClockControls: View {
                     Button(action: onLunchToggle) {
                         pill(icon: onLunch ? "play.circle.fill" : "fork.knife",
                              text: onLunch ? "End Lunch" : "Lunch",
-                             fill: Color(hex: onLunch ? T.green : lunchColor),
-                             outline: true)
+                             tint: nil)
                     }
                     .buttonStyle(.plain)
                     .disabled(inFlight)
@@ -556,8 +558,7 @@ private struct PayClockControls: View {
                     Button(action: onBreakToggle) {
                         pill(icon: onBreak ? "play.circle.fill" : "cup.and.saucer.fill",
                              text: onBreak ? "End Break" : "Break",
-                             fill: Color(hex: onBreak ? T.green : T.amber),
-                             outline: true,
+                             tint: nil,
                              busy: breakInFlight)
                     }
                     .buttonStyle(.plain)
@@ -566,7 +567,7 @@ private struct PayClockControls: View {
                 }
 
                 Button(action: onClockOut) {
-                    pill(icon: "stop.circle.fill", text: "Clock Out", fill: Color(hex: T.red))
+                    pill(icon: "stop.circle.fill", text: "Clock Out", tint: Color(hex: T.accent))
                 }
                 .buttonStyle(.plain)
                 .disabled(inFlight || clockOutBlocked)
@@ -604,25 +605,21 @@ private struct PayClockControls: View {
         }
     }
 
-    // Shared capsule label for the clocked-in buttons.
-    // `outline: true` → a frosted-glass button with an accent-gradient border and
-    // matching icon/label (Lunch and Break). The fill used to be Color.clear,
-    // which read as a hole once the pages went to glass over a moving wash.
-    // Otherwise → a solid gradient fill of `fill` (Clock Out), which stays solid:
-    // it's the destructive action and needs to read as the most present thing here.
-    @ViewBuilder
-    /// Lunch, Break and Clock Out, all as the shared tinted-glass CTA — the
-    /// same object as Clock In above them.
+    /// Lunch, Break and Clock Out as one capsule, differing only in their glass.
     ///
-    /// `outline` no longer means an outlined button; it means "this is a
-    /// neutral action, tint it with the accent". Lunch and Break pass it and so
-    /// stay accent-coloured, exactly as they read before, when the outline
-    /// branch ignored `fill` and stroked the accent regardless. Clock Out
-    /// doesn't, so it keeps its red.
-    private func pill(icon: String, text: String, fill: Color,
-                      outline: Bool = false, busy: Bool = false) -> some View {
-        let tint: Color? = outline ? nil : fill
-        let label = glassCTALabel(tint)
+    /// `tint: nil` is PLAIN glass and ink — Lunch and Break take it. They are
+    /// mid-shift adjustments, not decisions, and colouring them (accent, or the
+    /// old indigo/amber/green state pairs) put three competing verdicts on a row
+    /// where nothing needs deciding. It routes through `glassControl` rather
+    /// than `glassCTA` because `glassCTA(tint: nil)` means "use the accent", not
+    /// "use no tint".
+    ///
+    /// Clock Out passes the ACCENT. It was red, which read as a warning about an
+    /// action every shift ends with; the PIN gate on the caller is what actually
+    /// guards it.
+    private func pill(icon: String, text: String, tint: Color?,
+                      busy: Bool = false) -> some View {
+        let label = tint.map(glassCTALabel) ?? Color(hex: T.ink)
         return HStack(spacing: 8) {
             if busy {
                 ProgressView()
@@ -637,7 +634,7 @@ private struct PayClockControls: View {
         .foregroundStyle(label)
         .frame(maxWidth: .infinity)
         .padding(.vertical, 14)
-        .glassCTA(tint: tint)
+        .glassControl(in: Capsule(), tint: tint)
     }
 }
 
@@ -712,7 +709,16 @@ private struct ClockPinOverlay: View {
 
     @State private var pin = ""
     @State private var error: String?
-    @State private var submitting = false
+    /// Where the pad is in its own flow.
+    ///
+    /// The pad used to stay up, dimmed to 0.7, while `payClockIn` raised the
+    /// full-screen loading card over it — two overlays for one action. It runs
+    /// the whole thing itself now: the keypad gives way to the spinner in the
+    /// same panel, the spinner becomes a checkmark, and only then does the pad
+    /// leave. A wrong PIN springs it back to `.entry`, which is why it can't
+    /// simply close on submit.
+    @State private var phase: PadPhase = .entry
+    private var submitting: Bool { phase != .entry }
     /// Bumped on every key press so `.sensoryFeedback` fires a tap haptic each time.
     @State private var tapTick = 0
     /// Drives the shared modal entrance/exit — see ModalPop. The pad owns both;
@@ -730,6 +736,9 @@ private struct ClockPinOverlay: View {
     /// the other popups because it's mostly big round keys with air between
     /// them: there's very little fine text here for a busy backdrop to disturb.
     private let padSurfaceTint: Double = 0.12
+    /// Side of the square the pad becomes once the PIN is submitted — see
+    /// `progressContent`.
+    private let padSquareSide: CGFloat = 168
 
     private let digitRows: [[String]] = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"]]
 
@@ -747,51 +756,9 @@ private struct ClockPinOverlay: View {
             ModalScrim { if !submitting { close() } }
 
             VStack(spacing: 18) {
-                VStack(spacing: 4) {
-                    Text(title)
-                        .font(.custom(TFontName.bold.rawValue, size: 20))
-                        .foregroundStyle(Color(hex: T.ink))
-                    Text(personName.map { "Enter \($0)'s PIN" } ?? "Enter your PIN")
-                        .font(TTypo.xs(12))
-                        .foregroundStyle(Color(hex: T.muted))
-                }
-
-                // PIN dots — at least four, growing with longer PINs.
-                HStack(spacing: 12) {
-                    ForEach(0..<max(pin.count, 4), id: \.self) { i in
-                        Circle()
-                            .fill(i < pin.count ? Color(hex: T.accentGradientStart) : T.controlFillStrong)
-                            .frame(width: 12, height: 12)
-                    }
-                }
-                .frame(height: 14)
-                .animation(.easeOut(duration: 0.1), value: pin)
-
-                if let error {
-                    Text(error)
-                        .font(TTypo.xs(12))
-                        .foregroundStyle(Color(hex: T.red))
-                }
-
-                // Circular, tap-friendly keypad. Action row: Delete (⌫) · 0 · Confirm (✓).
-                VStack(spacing: keySpacing) {
-                    ForEach(digitRows, id: \.self) { row in
-                        HStack(spacing: keySpacing) {
-                            ForEach(row, id: \.self) { digitKey($0) }
-                        }
-                    }
-                    HStack(spacing: keySpacing) {
-                        // Backspace, not an X — this rubs out the last digit, and
-                        // an X next to the card's cancel X read as a second way
-                        // to close the pad rather than an edit key.
-                        actionKey(icon: "delete.backward", filled: false) {
-                            if !pin.isEmpty { pin.removeLast(); error = nil }
-                        }
-                        digitKey("0")
-                        actionKey(icon: "checkmark", filled: true) { submit() }
-                    }
-                }
+                if phase == .entry { entryContent } else { progressContent }
             }
+
             .padding(30)
             // Real frosted glass — the same material the break/lunch banner and
             // the end-job photo prompt use. It is NOT .frostedCard(), which
@@ -834,21 +801,25 @@ private struct ClockPinOverlay: View {
             // (attached before the outer frame/padding so it sits on the card,
             // not floating out in the dimmed backdrop).
             .overlay(alignment: .topLeading) {
-                Button { if !submitting { close() } } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(Color(hex: T.ink))
-                        .frame(width: 40, height: 40)
-                        .glassEffect(.regular.interactive(), in: Circle())
+                // Gone once the request is out — there is nothing to cancel from
+                // here any more, and a live X beside a spinner invites a tap
+                // that would only orphan the action.
+                if phase == .entry {
+                    Button { close() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(Color(hex: T.ink))
+                            .frame(width: 40, height: 40)
+                            .glassEffect(.regular.interactive(), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    // Nudged in from 14: the corner radius above is big enough now
+                    // that a 40pt circle at 14 would ride the curve.
+                    .padding(18)
                 }
-                .buttonStyle(.plain)
-                // Nudged in from 14: the corner radius above is big enough now
-                // that a 40pt circle at 14 would ride the curve.
-                .padding(18)
             }
             .frame(maxWidth: 360)
             .padding(.horizontal, 20)
-            .opacity(submitting ? 0.7 : 1)
             // Physical tap feedback on every key.
             .sensoryFeedback(.impact(weight: .light), trigger: tapTick)
                 .modalPop(appear)
@@ -861,6 +832,80 @@ private struct ClockPinOverlay: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea()
         .onAppear { withAnimation(modalPopAnimation) { appear = true } }
+    }
+
+    /// Title, dots, error and keypad — the pad at rest.
+    @ViewBuilder
+    private var entryContent: some View {
+        VStack(spacing: 4) {
+            Text(title)
+                .font(.custom(TFontName.bold.rawValue, size: 20))
+                .foregroundStyle(Color(hex: T.ink))
+            Text(personName.map { "Enter \($0)'s PIN" } ?? "Enter your PIN")
+                .font(TTypo.xs(12))
+                .foregroundStyle(Color(hex: T.muted))
+        }
+
+        // PIN dots — at least four, growing with longer PINs.
+        HStack(spacing: 12) {
+            ForEach(0..<max(pin.count, 4), id: \.self) { i in
+                Circle()
+                    .fill(i < pin.count ? Color(hex: T.accentGradientStart) : T.controlFillStrong)
+                    .frame(width: 12, height: 12)
+            }
+        }
+        .frame(height: 14)
+        .animation(.easeOut(duration: 0.1), value: pin)
+
+        if let error {
+            Text(error)
+                .font(TTypo.xs(12))
+                .foregroundStyle(Color(hex: T.red))
+        }
+
+        // Circular, tap-friendly keypad. Action row: Delete (⌫) · 0 · Confirm (✓).
+        VStack(spacing: keySpacing) {
+            ForEach(digitRows, id: \.self) { row in
+                HStack(spacing: keySpacing) {
+                    ForEach(row, id: \.self) { digitKey($0) }
+                }
+            }
+            HStack(spacing: keySpacing) {
+                // Backspace, not an X — this rubs out the last digit, and
+                // an X next to the card's cancel X read as a second way
+                // to close the pad rather than an edit key.
+                actionKey(icon: "delete.backward", filled: false) {
+                    if !pin.isEmpty { pin.removeLast(); error = nil }
+                }
+                digitKey("0")
+                actionKey(icon: "checkmark", filled: true) { submit() }
+            }
+        }
+    }
+
+    /// Working and landed. The panel keeps its glass and shrinks around this,
+    /// so the pad becomes the confirmation rather than handing off to one.
+    ///
+    /// A SQUARE. At rest the pad is a tall keypad-shaped rectangle; once the
+    /// action is committed there is one mark and one word in it, and holding the
+    /// keypad's proportions left them stranded in a wide empty panel. The outer
+    /// padding is uniform, so a square here makes the whole panel square.
+    private var progressContent: some View {
+        VStack(spacing: 16) {
+            ClockProgressMark(done: phase == .done)
+            Text(phase == .done ? doneTitle : title)
+                .font(.custom(TFontName.bold.rawValue, size: 17))
+                .foregroundStyle(Color(hex: T.ink))
+                .contentTransition(.opacity)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .frame(width: padSquareSide, height: padSquareSide)
+    }
+
+    /// "Clock In" → "Clocked In". The pad is told a verb; this is its past tense.
+    private var doneTitle: String {
+        title.hasSuffix("In") ? "Clocked In" : "Clocked Out"
     }
 
     /// Animates out first, THEN lets the page remove us — the shared modal exit.
@@ -924,16 +969,27 @@ private struct ClockPinOverlay: View {
 
     private func submit() {
         guard !pin.isEmpty, !submitting else { return }
-        submitting = true
+        withAnimation(padPhaseAnimation) { phase = .working }
         Task {
             let ok = await onSubmit(pin)
-            submitting = false
             if ok {
+                withAnimation(padPhaseAnimation) { phase = .done }
+                // Long enough for the tick to draw and be read, then the pad
+                // leaves on its usual exit.
+                try? await Task.sleep(nanoseconds: 850_000_000)
                 close()
             } else {
-                error = "Incorrect PIN"
                 pin = ""
+                withAnimation(padPhaseAnimation) { phase = .entry }
+                error = "Incorrect PIN"
             }
         }
     }
 }
+
+/// Where the PIN pad is in its own flow — see `ClockPinOverlay.phase`.
+private enum PadPhase { case entry, working, done }
+
+/// The curve the pad resizes on as the keypad gives way to the progress mark.
+/// A spring, so the panel settles into its new height rather than stepping.
+private let padPhaseAnimation: Animation = .spring(response: 0.36, dampingFraction: 0.82)

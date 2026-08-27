@@ -42,7 +42,11 @@ struct TasksView: View {
         let _ = appState.jobs.count
         return ScrollView {
             VStack(spacing: 0) {
-                // ("Jobs" title is rendered statically by JobsHubView above.)
+                // The "Jobs" title scrolls WITH the list — same placement Home and
+                // Analytics use for theirs. It used to be pinned by JobsHubView.
+                JobsHeaderBar()
+                    .padding(.top, pageTitleTopInset)
+                    .padding(.bottom, 6)
 
                 // TODAY — the specific tasks SCHEDULED for you today (per the web
                 // scheduler) pinned at the very top of the page, as your individual
@@ -80,7 +84,11 @@ struct TasksView: View {
                     if !workingTasks.isEmpty {
                         VStack(spacing: 12) {
                             ForEach(workingTasks) { task in
-                                NavigationLink(value: task.job) {
+                                // A Button, NOT a NavigationLink. Nothing pushes a
+                                // Job any more — the detail is a popup — so a link
+                                // here appended to a path with no destination and
+                                // the tap did nothing at all.
+                                Button { onOpenJob(task.job) } label: {
                                     TaskCardV1(task: task, onOpen: { onOpenJob(task.job) })
                                 }
                                 .zoomSource(id: task.job.id)
@@ -400,7 +408,7 @@ struct TasksView: View {
                 // shadow/offscreen pass). "All Jobs" can be the whole org's job list.
                 LazyVStack(spacing: 12) {
                     ForEach(others) { job in
-                        AllJobsCard(job: job, panels: panelsFor(job))
+                        AllJobsCard(job: job, panels: panelsFor(job), onOpenJob: onOpenJob)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -445,7 +453,7 @@ struct TasksView: View {
     private func cardStack(_ items: [TaskAssignment]) -> some View {
         LazyVStack(spacing: 12) {
             ForEach(items) { task in
-                NavigationLink(value: task.job) {
+                Button { onOpenJob(task.job) } label: {
                     TaskCardV1(task: task, onOpen: { onOpenJob(task.job) })
                 }
                 .zoomSource(id: task.job.id)
@@ -559,7 +567,7 @@ struct TasksView: View {
         if !jobs.isEmpty {
             VStack(spacing: 12) {
                 ForEach(jobs) { job in
-                    AllJobsCard(job: job, panels: panelsFor(job))
+                    AllJobsCard(job: job, panels: panelsFor(job), onOpenJob: onOpenJob)
                 }
             }
             .padding(.horizontal, 16)
@@ -790,6 +798,10 @@ struct TasksView: View {
 private struct DayGroupedTaskList: View {
     let days: [Date]
     let tasksByDay: [Date: [TaskAssignment]]
+    /// Opens a card's job detail popup. Defaulted because this view currently
+    /// has NO call sites — it is left over from the day-grouped Week/Month list
+    /// and nothing builds it any more.
+    var onOpenJob: (Job) -> Void = { _ in }
     private let cal = Calendar.current
 
     var body: some View {
@@ -801,7 +813,7 @@ private struct DayGroupedTaskList: View {
                     DayHeader(day: day, count: dayTasks.count)
                     VStack(spacing: 12) {
                         ForEach(dayTasks) { task in
-                            NavigationLink(value: task.job) {
+                            Button { onOpenJob(task.job) } label: {
                                 TaskCardV1(task: task)
                             }
                             .zoomSource(id: task.job.id)
@@ -1189,11 +1201,11 @@ struct TaskCardV1: View {
     @Environment(AppState.self) private var appState
     @Environment(AppNav.self) private var appNav
     /// Observed so the BREAK button's label re-colours when the frosted-glass
-    /// toggle flips — `glassCTALabel` reads a global SwiftUI can't track.
+    /// toggle flips — `T.ink` reads a global SwiftUI can't track.
     @Environment(ThemeSettings.self) private var theme
     let task: TaskAssignment
     /// Menu "Information" action — open the job's detail (default no-op for the
-    /// dead AllJobsCard call site, which still wraps the card in a NavigationLink).
+    /// AllJobsCard call site, whose cards open the job detail popup instead).
     var onOpen: () -> Void = {}
     /// Request Completion send-feedback phase: 0 idle · 1 sending · 2 sent.
     @State private var reqPhase = 0
@@ -1354,7 +1366,17 @@ struct TaskCardV1: View {
                     Spacer(minLength: 6)
                     // 3-dot Liquid-Glass menu (replaces the old date + chevron).
                     Menu {
-                        Button { onOpen() } label: { Label("Job Details", systemImage: "info.circle") }
+                        // Hopped off the menu's dismissal, deliberately. A Menu
+                        // item's action is performed by UIKit WHILE it animates
+                        // the menu away, so the cover was presented inside that
+                        // animation block and slid up from the bottom no matter
+                        // what transaction the write carried — the card tap,
+                        // which has no menu around it, faded in correctly the
+                        // whole time. One main-actor hop lets the dismissal
+                        // finish first, and the popup runs its own entrance.
+                        Button { Task { @MainActor in onOpen() } } label: {
+                            Label("Job Details", systemImage: "info.circle")
+                        }
                         Divider()
                         Button { requestCompletion() } label: { Label("Request Completion", systemImage: "checkmark.seal") }
                     } label: {
@@ -1570,11 +1592,15 @@ struct TaskCardV1: View {
                         }
                     }
                 } label: {
-                    // The shared tinted-glass CTA, matching STOP beside it and
-                    // Break on the Hours page. It was an outlined capsule, which
-                    // left the two buttons in this row built differently from
-                    // each other and from every other action in the app.
-                    let breakLabel = glassCTALabel()
+                    // PLAIN glass and ink, matching Break on the Hours page.
+                    // It was the accent-tinted CTA, which put it in a dead heat
+                    // with STOP beside it — the two read as equal calls to
+                    // action when only one of them ends the job. Untinted, the
+                    // row has one primary and one secondary.
+                    //
+                    // `glassControl`, not `glassCTA`: `glassCTA(tint: nil)`
+                    // means "use the accent", not "use no tint".
+                    let breakLabel = Color(hex: T.ink)
                     HStack(spacing: 6) {
                         if breakBusy {
                             ProgressView().progressViewStyle(.circular)
@@ -1589,7 +1615,7 @@ struct TaskCardV1: View {
                     .foregroundStyle(breakLabel)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .glassCTA()
+                    .glassControl(in: Capsule())
                 }
                 .buttonStyle(.plain)
                 .disabled(breakBusy)
@@ -1733,6 +1759,9 @@ private struct AllJobsCard: View {
     @Environment(AppState.self) private var appState
     let job: Job
     let panels: [TaskAssignment]
+    /// Opens a panel's job detail. Passed down from TasksView — these cards sit
+    /// several views deep, and the popup is presented all the way up in the hub.
+    var onOpenJob: (Job) -> Void = { _ in }
     @State private var isExpanded = false
 
     var body: some View {
@@ -1787,7 +1816,7 @@ private struct AllJobsCard: View {
                     NoJobsPlaceholder(text: "No panels scheduled")
                 } else {
                     ForEach(panels) { task in
-                        NavigationLink(value: task.job) {
+                        Button { onOpenJob(task.job) } label: {
                             TaskCardV1(task: task)
                         }
                         .zoomSource(id: task.job.id)

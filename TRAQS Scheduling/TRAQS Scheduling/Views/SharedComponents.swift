@@ -6,17 +6,20 @@ import SwiftUI
 // Driven by a non-nil message; the call site animates it in/out.
 struct TRAQSLoadingOverlay: View {
     let message: String
+    /// The action landed. Swaps the spinner for the checkmark — see
+    /// `ClockProgressMark`. The caller holds this for a beat before clearing the
+    /// overlay, so the confirmation is actually seen.
+    var done: Bool = false
     var body: some View {
         ZStack {
             Color.black.opacity(0.45)
                 .ignoresSafeArea()
             VStack(spacing: 16) {
-                ProgressView()
-                    .controlSize(.large)
-                    .tint(Color(hex: T.sky))
+                ClockProgressMark(done: done)
                 Text(message)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Color(hex: T.ink))
+                    .contentTransition(.opacity)
             }
             .padding(.vertical, 30)
             .padding(.horizontal, 44)
@@ -26,6 +29,94 @@ struct TRAQSLoadingOverlay: View {
         // Swallow taps so the underlying screen can't be poked mid-action.
         .contentShape(Rectangle())
         .onTapGesture { }
+    }
+}
+
+// MARK: - Clock progress mark
+//
+// A spinner while the request is out, then a checkmark that draws itself on.
+// ONE view, shared by the PIN pad and the full-screen loading overlay, so the
+// two endings of a clock in/out can't drift into different confirmations.
+
+struct ClockProgressMark: View {
+    let done: Bool
+    var size: CGFloat = 64
+
+    /// How much of the tick is drawn — animated from 0 so the stroke travels
+    /// rather than appearing whole.
+    @State private var trim: CGFloat = 0
+    /// The disc's settle. Starts under 1 so the mark lands with a little weight.
+    @State private var pop: CGFloat = 0.7
+    /// The sweep's rotation, driven forever while the request is out.
+    @State private var spin: Double = 0
+
+    /// Ring weight. Proportional to `size` so the mark scales as one object.
+    private var stroke: CGFloat { size * 0.085 }
+
+    var body: some View {
+        ZStack {
+            if done {
+                Circle()
+                    .fill(Color(hex: T.statusFinished).opacity(0.16))
+                    .scaleEffect(pop)
+                CheckmarkPath()
+                    .trim(from: 0, to: trim)
+                    .stroke(Color(hex: T.statusFinished),
+                            style: StrokeStyle(lineWidth: stroke,
+                                               lineCap: .round, lineJoin: .round))
+                    .padding(size * 0.3)
+                    .scaleEffect(pop)
+            } else {
+                // A brand-coloured sweep on its own faint track, NOT the stock
+                // `ProgressView`. The system spinner is a grey pinwheel that
+                // belongs to no part of this app — next to a glass panel and a
+                // gradient CTA it read as a placeholder. The track keeps the
+                // circle whole so the sweep travels around something.
+                Circle()
+                    .stroke(Color(hex: T.accentGradientStart).opacity(0.13),
+                            lineWidth: stroke)
+                    .padding(stroke / 2)
+                Circle()
+                    .trim(from: 0, to: 0.3)
+                    .stroke(
+                        AngularGradient(
+                            colors: [Color(hex: T.accentGradientEnd),
+                                     Color(hex: T.accentGradientStart)],
+                            center: .center),
+                        style: StrokeStyle(lineWidth: stroke, lineCap: .round))
+                    .padding(stroke / 2)
+                    // Starts at 12 o'clock rather than 3, so the head leads from
+                    // the top on the first frame.
+                    .rotationEffect(.degrees(-90 + spin))
+            }
+        }
+        .frame(width: size, height: size)
+        .onAppear {
+            withAnimation(.linear(duration: 0.85).repeatForever(autoreverses: false)) {
+                spin = 360
+            }
+        }
+        .onChange(of: done, initial: true) { _, landed in
+            guard landed else { return }
+            trim = 0
+            pop = 0.7
+            withAnimation(.spring(response: 0.34, dampingFraction: 0.6)) { pop = 1 }
+            // Slightly behind the disc, so the tick draws INTO a circle that is
+            // already there rather than racing it.
+            withAnimation(.easeOut(duration: 0.28).delay(0.06)) { trim = 1 }
+        }
+        .sensoryFeedback(.success, trigger: done)
+    }
+}
+
+/// The tick, as a path so it can be trimmed and drawn on.
+struct CheckmarkPath: Shape {
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: rect.minX, y: rect.midY))
+        p.addLine(to: CGPoint(x: rect.minX + rect.width * 0.36, y: rect.maxY))
+        p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        return p
     }
 }
 

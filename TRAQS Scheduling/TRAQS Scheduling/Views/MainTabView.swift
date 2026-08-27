@@ -73,23 +73,23 @@ struct MainTabView: View {
                         // An in-page modal blurs the page from inside TabHost,
                         // which can't reach the bar out here — so it blurs the
                         // bar through this instead, and the two match.
-                        .modalPageBlur(appNav.blurTabBar)
+                        .shellBlur(\.blurTabBar)
                 }
             }
-            .modalPageBlur(appNav.modalBlur)
+            .shellBlur(\.modalBlur)
 
             // Global blocking-action loading overlay (clock in/out). Above all.
             if let label = appState.clockActionLabel {
-                TRAQSLoadingOverlay(message: label)
+                TRAQSLoadingOverlay(message: appState.clockActionDone
+                                        ? (label.hasPrefix("Clocking In") ? "Clocked In" : "Clocked Out")
+                                        : label,
+                                    done: appState.clockActionDone)
                     .transition(.opacity)
                     .zIndex(10)
             }
         }
         .animation(.spring(response: 0.34, dampingFraction: 0.86), value: appNav.hideTabBar)
         .animation(.easeInOut(duration: 0.18), value: appState.clockActionLabel)
-        // Blur eases in/out with the modal it belongs to rather than snapping.
-        .animation(.easeInOut(duration: 0.2), value: appNav.modalBlur)
-        .animation(.easeInOut(duration: 0.2), value: appNav.blurTabBar)
         // A tapped time-off push flips appNav.openTimeOffPage → present the Time
         // Off page and reset the flag so it fires once. `initial: true` also
         // catches a cold-start tap where the flag is already set.
@@ -118,6 +118,38 @@ struct MainTabView: View {
             }
         }
         .preferredColorScheme(themeSettings.isLightTheme ? .light : .dark)
+    }
+}
+
+/// Blurs its content while one of AppNav's blur flags is up, reading that flag
+/// ITSELF rather than letting the shell read it.
+///
+/// The read HAS to live in a modifier. MainTabView read `appNav.modalBlur`
+/// inline, so opening any modal re-ran the shell's whole body — rebuilding the
+/// TabView, the header host and the tab bar — and the page visibly re-rendered a
+/// beat after the modal arrived. Under the job popup's zoom transition that
+/// landed right in the middle of the animation. It is the same trap the note on
+/// `TabHost` describes for `appNav.selected`.
+///
+/// A ViewModifier's body re-runs on its own dependency WITHOUT re-evaluating the
+/// content it wraps, so the flip costs a blur and nothing else. The animation
+/// lives here too, for the same reason: on the shell it was another read.
+private struct ShellBlur: ViewModifier {
+    @Environment(AppNav.self) private var appNav
+    let flag: KeyPath<AppNav, Bool>
+
+    func body(content: Content) -> some View {
+        let on = appNav[keyPath: flag]
+        return content
+            .modalPageBlur(on)
+            // Eases in/out with the modal it belongs to rather than snapping.
+            .animation(.easeInOut(duration: 0.2), value: on)
+    }
+}
+
+private extension View {
+    func shellBlur(_ flag: KeyPath<AppNav, Bool>) -> some View {
+        modifier(ShellBlur(flag: flag))
     }
 }
 
@@ -480,23 +512,30 @@ struct TRAQSTabBar: View {
         // Same recipe glassFill paints in its glass branch (blur + a
         // `glassSurfaceTint` of surface), just without the branch.
         //
-        // The hairline is painted HERE, in the background, not as an `.overlay`.
-        // An overlay is drawn above everything, so when the highlighter stretched
-        // wide enough to reach the bar's ends — jobs → analytics, the longest
-        // throw — the border cut straight across it and the pill looked like it
-        // was travelling INSIDE the bar's wall. Behind the content, the pill
-        // rides over it and reads as an object sitting on the bar.
+        // The edge is painted HERE, in the background, not as an `.overlay`.
+        // This part is load-bearing and must not change: an overlay is drawn
+        // above everything, so when the highlighter stretched wide enough to
+        // reach the bar's ends — jobs → analytics, the longest throw — the
+        // border cut straight across it and the pill looked like it was
+        // travelling INSIDE the bar's wall. Behind the content, the pill rides
+        // over it and reads as an object sitting on the bar.
         //
-        // A FLAT hairline, not the specular rim. A lit bevel says "look at this
-        // object", which is right for a card you're reading and wrong for
-        // permanent chrome that sits over every page — the bar was competing
-        // with the content it frames. Same call the long list rows make
-        // (`rim: false`), for the same reason.
+        // The GLASS RIM, not the flat hairline. This reverses an earlier call
+        // here — the argument for flat was that a lit bevel says "look at this
+        // object", which is right for a card and wrong for permanent chrome. In
+        // practice the bar is the only always-frosted surface in the app wearing
+        // a plain `T.border` stroke, and next to the PIN pad and the popups it
+        // read as unfinished rather than as restrained.
+        //
+        // `always: true` for the same reason the fill is unconditional: the bar
+        // stays frosted whatever the Customize toggle says, so its edge has to
+        // stay lit to match. Flattening only the rim would leave a hairline
+        // tracing a piece of glass.
         .background {
             ZStack {
                 shape.fill(.ultraThinMaterial)
                 shape.fill(Color(hex: T.surface).opacity(glassSurfaceTint))
-                shape.flatHairline()
+                shape.specularRim(always: true)
             }
         }
         .compositingGroup()

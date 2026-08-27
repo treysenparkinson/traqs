@@ -25,6 +25,11 @@ struct ApprovalQueueView: View {
     /// the back button work only intermittently.
     @Binding var isPresented: Bool
     @State private var path: [Job] = []
+    /// The job whose read-only detail popup is open, and the panel to open it on.
+    ///
+    /// A cover, not an in-hierarchy overlay, for the same reason as the Jobs
+    /// tab's — and here it also has to clear this view's own header.
+    @State private var detailTarget: JobDetailTarget?
     @State private var search = ""
     @FocusState private var searchFocused: Bool
 
@@ -87,9 +92,22 @@ struct ApprovalQueueView: View {
                         .padding(.bottom, 8)
                     content
                 }
+                // This queue is itself a cover, so appNav.modalBlur (which
+                // MainTabView applies) sits UNDERNEATH it and can't reach here.
+                // The queue blurs its own content instead.
+                .modalPageBlur(detailTarget != nil)
             }
-            .navigationDestination(for: Job.self) { JobDetailView(job: $0) }
             .toolbar(.hidden, for: .navigationBar)
+            // Read-only job details, as a popup rather than a push — the queue is
+            // a working list, and stepping off it to read a job meant losing your
+            // place in it.
+            .fullScreenCover(item: $detailTarget) { target in
+                JobDetailPopup(seedJob: target.job,
+                               highlightPanelId: target.panelId,
+                               highlightOpId: target.opId) {
+                    withTransaction(.noAnimation) { detailTarget = nil }
+                }
+            }
         }
     }
 
@@ -207,8 +225,14 @@ struct ApprovalQueueView: View {
 
     private func row(_ item: ApprovalItem) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            // Info — tapping opens the full job detail (also where Undo lives).
-            Button { path.append(item.job) } label: {
+            // Info — tapping opens the job's read-only detail, with THIS panel
+            // already expanded, so the row you're judging is the one you land on.
+            Button {
+                // No animation: the popup runs its own entrance — see ModalPop.
+                withTransaction(.noAnimation) {
+                    detailTarget = JobDetailTarget(job: item.job, panelId: item.panel.id)
+                }
+            } label: {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
                         Text(item.panel.title)

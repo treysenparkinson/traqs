@@ -297,7 +297,19 @@ struct MessagesView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     // The list is a sheet anchored to the bottom of the page:
                     // rounded lip at the top, running clean off the bottom edge.
-                    .frostedSheetTop()
+                    //
+                    // `cornerHero`, not the modifier's default `cornerLg` (42 vs
+                    // 28). This lip is the biggest single arc on the page and it
+                    // sits right under the title, so it sets how soft the whole
+                    // screen reads. The rim's solid and fade bands are sized off
+                    // the radius inside FrostedSheetTop, so the lit lip still
+                    // covers the whole curve at the wider arc.
+                    .frostedSheetTop(radius: T.cornerHero)
+                    // Dropped clear of the title rather than tucked under it —
+                    // AFTER the frost, so the sheet itself moves down and takes
+                    // its lip with it. Inside the frost this would only have
+                    // indented the rows and left the lip where it was.
+                    .padding(.top, threadSheetTopInset)
                     // …which it can only do if the scroll area itself reaches
                     // that edge. This page used to reserve room for the floating
                     // tab pill with a safeAreaInset, which stopped the sheet
@@ -464,6 +476,12 @@ struct MessagesView: View {
     private var listBottomClearance: CGFloat {
         (appNav.hideTabBar ? 40 : tabPillBottomInset) + 24
     }
+
+    /// Air between the "Messages" title and the sheet's lip. THE dial for how
+    /// far down the inbox sits — the sheet used to start right under the title,
+    /// which left the two reading as one block rather than a page heading above
+    /// a surface.
+    private let threadSheetTopInset: CGFloat = 16
 
     /// The hairline between two threads. Full-bleed, matching the sheet — an
     /// inset divider would imply the avatar column is a separate gutter.
@@ -2086,6 +2104,10 @@ struct TimeOffRequestBubble: View {
     private var who: String { req?.personName ?? message.toPersonName ?? message.authorName }
     private var typeColor: Color { type == "UTO" ? Color(hex: "#F59E0B") : Color(hex: "#10B981") }
     private var pending: Bool { CompletionRequestRules.isActionable(status) }
+    /// Decided, and therefore undoable. CANCELLED is deliberately excluded: that
+    /// was the requester withdrawing, which isn't the approver's to reverse —
+    /// timeoff.js refuses a reopen from it.
+    private var decided: Bool { status == "approved" || status == "denied" }
     private var statusPill: (label: String, kind: TagKind, dot: Bool) {
         switch status {
         case "approved":  return ("Approved", .green, false)
@@ -2144,7 +2166,7 @@ struct TimeOffRequestBubble: View {
                     .foregroundStyle(Color(hex: T.muted))
             }
 
-            if appState.isAdmin && pending {
+            if appState.isAdmin && (pending || decided) {
                 if denying {
                     VStack(spacing: 8) {
                         TextField("Reason (optional)…", text: $reason)
@@ -2167,18 +2189,18 @@ struct TimeOffRequestBubble: View {
                         }
                     }
                 } else {
-                    HStack(spacing: 10) {
-                        Button { denying = true } label: {
-                            Text("Deny").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#ef4444"))
-                                .frame(maxWidth: .infinity).padding(.vertical, 14)
-                                .glassCTA(tint: Color(hex: "#ef4444"))
-                        }.buttonStyle(.plain).disabled(busy)
-                        Button { decide("approve") } label: {
-                            Text("Approve").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#10b981"))
-                                .frame(maxWidth: .infinity).padding(.vertical, 14)
-                                .glassCTA(tint: Color(hex: "#10b981"))
-                        }.buttonStyle(.plain).disabled(busy)
-                    }
+                    // Deny opens the reason field rather than firing the denial,
+                    // so the morph runs on the DECISION, not on the first tap.
+                    DecisionActions(
+                        deny: .init(title: "Deny", systemImage: "xmark",
+                                    tint: Color(hex: "#ef4444")) { denying = true },
+                        approve: .init(title: "Approve", systemImage: "checkmark",
+                                       tint: Color(hex: "#10b981")) { decide("approve") },
+                        undo: .init(title: "Undo — back to pending",
+                                    systemImage: "arrow.uturn.backward",
+                                    tint: nil) { reopen() },
+                        resolved: decided,
+                        busy: busy)
                 }
             }
         }
@@ -2195,6 +2217,17 @@ struct TimeOffRequestBubble: View {
             busy = false
             denying = false
             reason = ""
+        }
+    }
+
+    /// Undo the decision — the request goes back to the approval queue. Undoing
+    /// an approval also pulls the day back out of the schedule, server-side.
+    private func reopen() {
+        guard let id = message.timeOffRequestId else { return }
+        busy = true
+        Task {
+            await appState.reopenTimeOff(id: id)
+            busy = false
         }
     }
 }
@@ -2287,38 +2320,31 @@ struct CompletionRequestBubble: View {
                     .font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted))
             }
 
-            // Undo an approval — reopen the item (in case it needs to come back).
-            if appState.isAdmin && status == "approved" {
-                Button { undo() } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: "arrow.uturn.backward")
-                        Text(message.panelId != nil ? "Undo — reopen task" : "Undo — reopen job")
-                    }
-                    .font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.accent))
-                    .frame(maxWidth: .infinity).padding(.vertical, 13)
-                    .glassControl(in: Capsule())
-                }.buttonStyle(.plain).disabled(busy)
-            }
-
             if let refused {
                 Text(refused)
                     .font(TTypo.xs(12)).foregroundStyle(Color(hex: T.muted))
             }
 
-            if appState.isAdmin && pending {
-                // Capsules, matching every other action pill in the app.
-                HStack(spacing: 10) {
-                    Button { decide(false) } label: {
-                        Text("Deny").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#ef4444"))
-                            .frame(maxWidth: .infinity).padding(.vertical, 14)
-                            .glassCTA(tint: Color(hex: "#ef4444"))
-                    }.buttonStyle(.plain).disabled(busy)
-                    Button { decide(true) } label: {
-                        Text("Approve").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#10b981"))
-                            .frame(maxWidth: .infinity).padding(.vertical, 14)
-                            .glassCTA(tint: Color(hex: "#10b981"))
-                    }.buttonStyle(.plain).disabled(busy)
-                }
+            // Deny/Approve while the request is open; once it's approved the pair
+            // melts into the Undo that reopens the item. ONE control across both
+            // states, so the change is a morph rather than one set of buttons
+            // being swapped out for another — see DecisionActions.
+            //
+            // A DECLINED request still shows nothing: `undoJobCompletion` only
+            // accepts "approved" (CompletionRequestRules.applyDecision), so an
+            // Undo here would be a button that refuses every press.
+            if appState.isAdmin && (pending || status == "approved") {
+                DecisionActions(
+                    deny: .init(title: "Deny", systemImage: "xmark",
+                                tint: Color(hex: "#ef4444")) { decide(false) },
+                    approve: .init(title: "Approve", systemImage: "checkmark",
+                                   tint: Color(hex: "#10b981")) { decide(true) },
+                    undo: .init(title: message.panelId != nil ? "Undo — reopen task"
+                                                             : "Undo — reopen job",
+                                systemImage: "arrow.uturn.backward",
+                                tint: nil) { undo() },
+                    resolved: status == "approved",
+                    busy: busy)
             }
         }
         // T.insetMd, not 14: this card is on the rounder radius now, and the

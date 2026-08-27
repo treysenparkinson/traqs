@@ -1,5 +1,23 @@
 import SwiftUI
 
+// MARK: - Job detail — the pushed screen. NO LONGER REACHABLE.
+//
+// A job's details open as a read-only popup now (JobDetailPopup), so nothing
+// navigates here any more: the `navigationDestination(for: Job.self)` that fed
+// it is gone from both JobsHubView and ApprovalQueueView.
+//
+// Kept rather than deleted, on purpose. This file holds the ONLY iOS
+// implementation of several things the popup deliberately dropped — Edit
+// (JobEditView), Delete, per-panel and per-op Reschedule (RescheduleSheet), the
+// op-level team picker, the engineering sign-off buttons (EngStepButton, with
+// its Undo), and Request Finish, which is the only caller anywhere of
+// `timeclockFinishRequest`. Re-attaching any of them means wiring a destination
+// back up, not writing them again.
+//
+// `progressFill` also lives here and IS still used — ScheduleJobSheet and
+// JobDetailPopup both call it. Moving or deleting this file has to take that
+// with it.
+
 struct JobDetailView: View {
     @Environment(AppState.self) private var appState
     @Environment(\.dismiss) private var dismiss

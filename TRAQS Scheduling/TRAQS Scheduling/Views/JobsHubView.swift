@@ -14,8 +14,18 @@ struct JobsHubView: View {
 
     // Navigation + chrome state, lifted here so it survives a list↔gantt swap.
     @State private var path: [Job] = []
-    /// Shared with the job cards (via the environment) so pushing a job zooms out
-    /// of the tapped card instead of sliding a new screen over it.
+    /// The job whose read-only detail popup is open. Tapping a card no longer
+    /// PUSHES — a job's details are something you check and dismiss, and pushing
+    /// meant losing your scroll position in the list to do it.
+    ///
+    /// Drives a `.fullScreenCover`, NOT an in-hierarchy overlay. The shell's
+    /// glass header and the floating nav pill are drawn by MainTabView on top of
+    /// every page, so a popup living inside this page renders UNDER both and
+    /// can't blur them either. A cover is its own presentation, above the lot.
+    @State private var detailTarget: JobDetailTarget?
+    /// Shared with the job cards (via the environment). The zoom morph belonged
+    /// to the pushed detail screen; the cards still publish their source ids, so
+    /// re-attaching a pushed destination later needs no change on their side.
     @Namespace private var zoomNS
     /// Header-driven state lives in AppNav: these controls are drawn by
     /// HeaderControlsHost, above the TabView, and a host can't reach a page's
@@ -81,20 +91,20 @@ struct JobsHubView: View {
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
 
-                    // Static "Jobs" title — rendered once HERE (not inside the
-                    // swapped list/gantt views) so it sits in the exact same
-                    // place across both modes with zero shift. The range FAB sits
-                    // on the right of the title row (list mode only).
-                    JobsHeaderBar()
-                        .padding(.top, pageTitleTopInset)
-                        .padding(.bottom, 6)
+                    // The "Jobs" title is NOT here any more — it scrolls with the
+                    // content, the way Home's and Analytics' titles do, so the only
+                    // thing fixed to the top of the page is the shell's header.
+                    // Both modes render it through the same `JobsHeaderBar`, so
+                    // list and gantt can't drift into different title treatments;
+                    // what they no longer share is its scroll offset, which is the
+                    // price of having it scroll at all.
 
                     // Content — list/gantt crossfade. Both views stay mounted and
                     // crossfade via opacity, keyed on jobsMode (a switch + per-branch
                     // .transition could leave the outgoing view stuck on rapid
                     // toggles; opacity is glitch-free and preserves scroll state).
                     ZStack {
-                        TasksView(searchText: searchText, segment: $jobsSegment, onOpenJob: { path.append($0) })
+                        TasksView(searchText: searchText, segment: $jobsSegment, onOpenJob: { openDetail($0) })
                             .opacity(appNav.jobsMode == .list ? 1 : 0)
                             .allowsHitTesting(appNav.jobsMode == .list)
                         GanttView()
@@ -105,6 +115,23 @@ struct JobsHubView: View {
                     .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
                 }
                 .fullScreenCover(isPresented: Bindable(appNav).showApprovalQueue) { ApprovalQueueView(isPresented: Bindable(appNav).showApprovalQueue) }
+                // Read-only job details, over everything — see `detailTarget`.
+                // NO `.navigationTransition(.zoom(...))`. A zoom presentation
+                // shrinks the PRESENTER to fly the card up, which pulled the
+                // whole page in, showed the window surface as a white border
+                // around it, and snapped back on landing. The popup springs up
+                // on its own instead (ModalPop) and the page stays put.
+                .fullScreenCover(item: $detailTarget) { target in
+                    JobDetailPopup(seedJob: target.job,
+                                   highlightPanelId: target.panelId,
+                                   highlightOpId: target.opId) {
+                        // BOTH writes inside, for the reason in `openDetail`.
+                        withTransaction(.noAnimation) {
+                            detailTarget = nil
+                            appNav.modalBlur = false
+                        }
+                    }
+                }
                 .modalPageBlur(appNav.jobsBreakBanner != nil || showAvailability)
                 // Slide the bottom nav pill out while the availability popup is
                 // up, and back in when it closes — MainTabView owns the spring
@@ -154,13 +181,9 @@ struct JobsHubView: View {
             .safeAreaInset(edge: .bottom) {
                 Color.clear.frame(height: appNav.hideTabBar ? 0 : tabPillBottomInset)
             }
-            // The system zoom morph: the detail screen grows out of the card that
-            // was tapped. `sourceID` must match the id each card passes to
-            // `.zoomSource(id:)`.
-            .navigationDestination(for: Job.self) { job in
-                JobDetailView(job: job)
-                    .navigationTransition(.zoom(sourceID: job.id, in: zoomNS))
-            }
+            // No `navigationDestination(for: Job.self)` any more — a job's detail
+            // is a popup (see `detailJob`), not a screen. `path` stays for other
+            // pushes and so a deep link has somewhere to land.
             .toolbar(.hidden, for: .navigationBar)
             .environment(\.zoomNamespace, zoomNS)
             .task {
@@ -217,8 +240,31 @@ struct JobsHubView: View {
         let f = DateFormatter(); f.dateFormat = "d"; return f.string(from: Date())
     }
 
+    /// Open a job's read-only detail popup.
+    ///
+    /// `modalBlur` is what blurs the page, the glass header AND the nav pill —
+    /// MainTabView applies it to all three as one layer. The cover is a separate
+    /// presentation, so it stays sharp on top of that.
+    ///
+    /// Presented WITHOUT animation, like every other modal here: the popup fades
+    /// and scales up from the centre on its own (ModalPop), and the cover's
+    /// default slide-up-from-the-bottom would play underneath it.
+    ///
+    /// BOTH writes go inside the transaction, and that is load-bearing. With the
+    /// blur set outside it, SwiftUI batched the two changes into ONE update pass
+    /// and that pass took the transaction in effect at the FIRST change — the
+    /// default, animated one. `disablesAnimations` never reached the cover and
+    /// it slid up regardless. The blur still eases, because ShellBlur carries
+    /// its own `.animation(_:value:)`, which outranks the transaction.
+    private func openDetail(_ job: Job) {
+        withTransaction(.noAnimation) {
+            appNav.modalBlur = true
+            detailTarget = JobDetailTarget(job: job)
+        }
+    }
+
     /// Resolve a pending Jobs-tab deep link:
-    /// - `.job` → push that job's detail.
+    /// - `.job` → open that job's detail popup.
     /// - `.approvals` → open the Approval Queue for approvers; otherwise fall back
     ///   to the job detail (so a non-approver who taps a step/ready push still
     ///   lands somewhere useful).
@@ -228,7 +274,7 @@ struct JobsHubView: View {
         switch appNav.pendingDeepLink {
         case let .job(number):
             guard let job = appState.jobs.first(where: { $0.jobNumber == number }) else { return }
-            path = [job]
+            openDetail(job)
             appNav.pendingDeepLink = nil
         case let .approvals(number):
             if appState.canViewApprovalQueue {
@@ -237,7 +283,7 @@ struct JobsHubView: View {
             } else {
                 // Not an approver → behave like a job deep link.
                 guard let job = appState.jobs.first(where: { $0.jobNumber == number }) else { return }
-                path = [job]
+                openDetail(job)
                 appNav.pendingDeepLink = nil
             }
         default:

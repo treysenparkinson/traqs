@@ -176,6 +176,13 @@ class AppState {
     var payClockInSource: String?
     var isPayClocking = false          // in-flight guard for the CTA spinner
     var clockActionLabel: String? = nil   // non-nil drives the full-screen TRAQS loading overlay ("Clocking In…"/"Clocking Out…")
+    /// The clock action succeeded and the overlay is holding its checkmark.
+    var clockActionDone: Bool = false
+    /// Re-entrancy guards for the actions that no longer hold `isPayClocking`.
+    /// Deliberately NOT rendered anywhere: `isPayClocking` dims three buttons,
+    /// which is exactly the wait these two exist to avoid.
+    private var lunchInFlight = false
+    private var breakInFlight = false
 
     // MARK: - Auth / Org
     /// Persisted so a flaky people-fetch can't briefly blank out the
@@ -1677,6 +1684,27 @@ class AppState {
         }
     }
 
+    /// Undo a time-off decision — the request goes back to pending.
+    ///
+    /// NOT `cancel`. Cancel is the requester withdrawing; this is the approver
+    /// changing their mind, so the request stays alive and returns to the queue.
+    /// Undoing an approval also pulls the entry back out of `person.timeOff`
+    /// server-side, which is why this refreshes the requests AND leaves the
+    /// people delta-sync to the change the server publishes.
+    @discardableResult
+    func reopenTimeOff(id: String) async -> Bool {
+        guard let api else { return false }
+        do {
+            _ = try await api.decideTimeOff(id: id, action: "reopen")
+            await refreshTimeOffRequests()
+            return true
+        } catch {
+            await refreshTimeOffRequests()
+            clockError = "Couldn't reopen the request: \(error.localizedDescription)"
+            return false
+        }
+    }
+
     /// Pull just the org settings. Views like the Schedule and Tasks
     /// tabs call this on appear so changes the admin makes on the
     /// Netlify desktop (workdays, holidays, hpd, etc.) show up
@@ -2439,14 +2467,18 @@ class AppState {
     /// it (and auto-accepts when they have none). A wrong PIN comes back as 401
     /// and reverts the optimistic flip with an "Invalid PIN" error.
     @discardableResult
-    func payClockIn(pin: String? = nil) async -> Bool {
+    /// - Parameter showsOverlay: whether to raise the full-screen "Clocking In…"
+    ///   card. The PIN pad passes `false` — it runs the same spinner and
+    ///   checkmark inside its own panel, and two of them on screen at once was
+    ///   the pad sitting dimmed behind a loading card that had covered it.
+    func payClockIn(pin: String? = nil, showsOverlay: Bool = true) async -> Bool {
         guard let api, let personId = currentPersonId, !isPayClocking else { return false }
         guard canClockInOut else { return false }   // worker permission gate
         let prevActive = payClockInActive, prevStart = payClockInStart, prevSource = payClockInSource
         let prevClock = currentPerson?.activeClockIn
         isPayClocking = true
-        clockActionLabel = "Clocking In…"
-        defer { isPayClocking = false; clockActionLabel = nil }
+        if showsOverlay { clockActionLabel = "Clocking In…" }
+        defer { isPayClocking = false; clockActionLabel = nil; clockActionDone = false }
         // Optimistic — flip the flags AND the canonical activeClockIn field on the
         // same frame so every reader (TimeClockView's flag-based CTA and the Home
         // card's field-based status/timer) shows clocked-in instantly instead of
@@ -2491,6 +2523,12 @@ class AppState {
             clockError = "Failed to clock in for pay: \(error.localizedDescription)"
             return false
         }
+        // Hold the checkmark long enough to be read. The `defer` above clears
+        // both flags, so the overlay comes down on its own once this returns.
+        if showsOverlay {
+            clockActionDone = true
+            try? await Task.sleep(nanoseconds: 750_000_000)
+        }
         return true
     }
 
@@ -2501,7 +2539,8 @@ class AppState {
     /// full-width Clock Out button can't end a shift. Returns whether the
     /// clock-out went through — the PIN pad stays open on `false`.
     @discardableResult
-    func payClockOut(pin: String? = nil) async -> Bool {
+    /// - Parameter showsOverlay: see `payClockIn(pin:showsOverlay:)`.
+    func payClockOut(pin: String? = nil, showsOverlay: Bool = true) async -> Bool {
         guard let api, let personId = currentPersonId, !isPayClocking else { return false }
         guard canClockInOut else { return false }   // worker permission gate
         // Must log out of the current job before clocking out (server enforces too).
@@ -2511,8 +2550,8 @@ class AppState {
         }
         let prevActive = payClockInActive, prevStart = payClockInStart, prevSource = payClockInSource
         isPayClocking = true
-        clockActionLabel = "Clocking Out…"
-        defer { isPayClocking = false; clockActionLabel = nil }
+        if showsOverlay { clockActionLabel = "Clocking Out…" }
+        defer { isPayClocking = false; clockActionLabel = nil; clockActionDone = false }
         payClockInActive = false
         payClockInStart = nil
         payClockInSource = nil
@@ -2554,6 +2593,12 @@ class AppState {
             clockChangeAt = Date()
             clockError = "Failed to clock out for pay: \(error.localizedDescription)"
             return false
+        }
+        // Hold the checkmark long enough to be read. The `defer` above clears
+        // both flags, so the overlay comes down on its own once this returns.
+        if showsOverlay {
+            clockActionDone = true
+            try? await Task.sleep(nanoseconds: 750_000_000)
         }
         return true
     }
@@ -2598,26 +2643,38 @@ class AppState {
     /// Returns whether the toggle stuck, so the caller can show the big
     /// LUNCH STARTED / LUNCH ENDED banner only when it actually happened.
     @discardableResult
+    /// Toggle lunch. Returns as soon as the LOCAL state is correct; the request
+    /// goes out behind it.
+    ///
+    /// This used to hold `isPayClocking` for the whole round trip, which dimmed
+    /// and disabled Lunch, Break AND Clock Out together until the server
+    /// answered — a wait of a second or more for a state the optimistic
+    /// `appendLocalClockEvent` below had already made true on this device. The
+    /// re-entrancy guard is now `lunchInFlight`, which nothing renders, so the
+    /// buttons stay live while the request finishes.
     func payLunchToggle() async -> Bool {
-        guard let api, let personId = currentPersonId, !isPayClocking else { return false }
+        guard let api, let personId = currentPersonId, !lunchInFlight else { return false }
         let starting = !payOnLunch
-        isPayClocking = true
-        defer { isPayClocking = false }
+        lunchInFlight = true
         let evt = ClockEvent(type: starting ? "lunchStart" : "lunchEnd",
                              ts: Date.isoPlainString(Date()))
-        appendLocalClockEvent(personId: personId, evt)
-        do {
-            if starting { try await api.payLunchStart(personId: personId) }
-            else        { try await api.payLunchEnd(personId: personId) }
-            // Optimistic event already appended; server publishes "people" → delta-sync.
-        } catch APIError.httpError(409) {
-            await deltaSyncNow()            // server already in the target state
-            reconcilePayClock(force: true)
-        } catch {
-            removeLastLocalClockEvent(personId: personId, type: evt.type)   // revert
-            clockChangeAt = Date()
-            clockError = "Failed to \(starting ? "start" : "end") lunch: \(error.localizedDescription)"
-            return false
+        appendLocalClockEvent(personId: personId, evt)   // the screen is correct from here
+        Task {
+            defer { lunchInFlight = false }
+            do {
+                if starting { try await api.payLunchStart(personId: personId) }
+                else        { try await api.payLunchEnd(personId: personId) }
+                // Optimistic event already appended; server publishes "people" → delta-sync.
+            } catch APIError.httpError(409) {
+                await deltaSyncNow()            // server already in the target state
+                reconcilePayClock(force: true)
+            } catch {
+                // The revert is the failure report. It lands a beat after the
+                // banner, which is the price of not waiting for the server.
+                removeLastLocalClockEvent(personId: personId, type: evt.type)
+                clockChangeAt = Date()
+                clockError = "Failed to \(starting ? "start" : "end") lunch: \(error.localizedDescription)"
+            }
         }
         return true
     }
@@ -2698,43 +2755,57 @@ class AppState {
     /// running. Schedules the local "ending soon" reminder. Returns whether it
     /// stuck, so the caller can show the BREAK STARTED banner only on success.
     @discardableResult
+    /// Start a break. Returns as soon as the LOCAL state is correct.
+    ///
+    /// The caller used to await the request AND a full `refreshJobsQuietly()` —
+    /// an entire `fetchJobs()` of the job tree — before releasing its button and
+    /// raising the banner. Nothing on the Hours screen needs the job tree to
+    /// render a break, so that refetch is fire-and-forget now and the round trip
+    /// runs behind the UI.
     func startBreak() async -> Bool {
-        guard let api, let personId = currentPersonId else { return false }
+        guard let api, let personId = currentPersonId, !breakInFlight else { return false }
         let minutes = orgSettings.breaks.first?.durationMinutes ?? 15
         let optimistic = ActiveBreak(startedAt: Date.isoPlainString(Date()),
                                      durationMinutes: minutes)
-        setLocalBreak(personId: personId, optimistic)
+        breakInFlight = true
+        setLocalBreak(personId: personId, optimistic)   // the screen is correct from here
         BreakReminder.schedule(durationMinutes: minutes)
-        do {
-            try await api.breakBegin(personId: personId, durationMinutes: minutes)
-            await refreshJobsQuietly()
-        } catch APIError.httpError(409) {
-            await refreshJobsQuietly()   // already on break server-side — fine
-        } catch {
-            setLocalBreak(personId: personId, nil)   // revert
-            BreakReminder.cancel()
-            clockError = error.localizedDescription
-            return false
+        Task {
+            defer { breakInFlight = false }
+            do {
+                try await api.breakBegin(personId: personId, durationMinutes: minutes)
+                await refreshJobsQuietly()
+            } catch APIError.httpError(409) {
+                await refreshJobsQuietly()   // already on break server-side — fine
+            } catch {
+                setLocalBreak(personId: personId, nil)   // revert
+                BreakReminder.cancel()
+                clockError = error.localizedDescription
+            }
         }
         return true
     }
 
     /// End the break. The ONLY way a break ends — there is no auto-expiry.
+    /// Returns as soon as the local state is correct; see `startBreak`.
     @discardableResult
     func endBreak() async -> Bool {
-        guard let api, let personId = currentPersonId else { return false }
+        guard let api, let personId = currentPersonId, !breakInFlight else { return false }
         let previous = myActiveBreak
-        setLocalBreak(personId: personId, nil)
+        breakInFlight = true
+        setLocalBreak(personId: personId, nil)   // the screen is correct from here
         BreakReminder.cancel()
-        do {
-            try await api.breakEnd(personId: personId)
-            await refreshJobsQuietly()
-        } catch APIError.httpError(409) {
-            await refreshJobsQuietly()   // already cleared server-side — fine
-        } catch {
-            setLocalBreak(personId: personId, previous)   // revert
-            clockError = error.localizedDescription
-            return false
+        Task {
+            defer { breakInFlight = false }
+            do {
+                try await api.breakEnd(personId: personId)
+                await refreshJobsQuietly()
+            } catch APIError.httpError(409) {
+                await refreshJobsQuietly()   // already cleared server-side — fine
+            } catch {
+                setLocalBreak(personId: personId, previous)   // revert
+                clockError = error.localizedDescription
+            }
         }
         return true
     }

@@ -32,7 +32,11 @@ struct GanttView: View {
         ScrollView {
             VStack(spacing: 0) {
 
-            // ("Jobs" title is rendered statically by JobsHubView above.)
+            // Scrolls with the timeline, and through the SAME view the list mode
+            // uses — the two modes must not grow separate titles.
+            JobsHeaderBar()
+                .padding(.top, pageTitleTopInset)
+                .padding(.bottom, 6)
 
             // Segmented Day/Week/Agenda — V1 default is Day
             HStack { Spacer()

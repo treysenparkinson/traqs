@@ -15,11 +15,16 @@ struct HomeView: View {
             PageBackground()
 
             VStack(spacing: 0) {
-                // No header here — the shell owns the one persistent GlassHeader (§2).
-                // `safeAreaPadding`, NOT a spacer above the ScrollView: it insets the
-                // content so it STARTS below the header while still scrolling UNDER it.
-                // A spacer would start the scroll view below the glass, leaving it over
-                // a static background, which renders flat and grey (§8).
+                // No header here — the shell owns the one persistent GlassHeader
+                // (§2). The spacer reserves its height so the scroll view's FRAME
+                // starts below the header, which is what actually stops content
+                // riding up over the wordmark and the header controls. Insetting
+                // the scroll CONTENT instead (`.safeAreaPadding(.top)`) left the
+                // frame spanning to the top of the screen, so rows scrolled under
+                // the glass — fine while `topFadeMask` still faded them out, and
+                // plainly wrong once it became a no-op. Every other tab reserves
+                // the header this way; Analytics is the reference.
+                Color.clear.frame(height: GlassHeader.height)
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
@@ -76,7 +81,6 @@ struct HomeView: View {
                 .topFadeMask()
                 .refreshable { await reload() }
             }
-            .safeAreaPadding(.top, GlassHeader.height)
             // Home is the landing tab; pull the pay-clock entries + settings the
             // hero needs (jobs/people come from the app-level loadAll).
             .task {
