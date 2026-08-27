@@ -5,35 +5,6 @@ import SwiftUI
 // header's trailing edge. One control: your profile picture, which morphs into
 // the account menu.
 
-struct HomeHeaderControls: View {
-    var body: some View {
-        HStack(spacing: 6) {
-            // Down to a single control. Profile, Customization and Log out all
-            // live inside this one menu, and Admin moved to the Analytics header —
-            // the page an admin is already on when they want it.
-            AccountGlassMenu()
-        }
-    }
-}
-
-// Liquid Glass circle label. Sizing lives in HeaderGlassCircle so these match
-// every other header control in the app — they used to be 36 here while other
-// pages ran 32, 34 and 38.
-private struct GlassCircleIcon: View {
-    let systemName: String
-    /// Ink by default — header glyphs read as plain black or white, and an accent
-    /// tint on a permanent control reads as a selected state.
-    var color: Color = Color(hex: T.ink)
-
-    var body: some View {
-        HeaderGlassCircle {
-            Image(systemName: systemName)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(color)
-        }
-    }
-}
-
 // MARK: - Admin button → full-screen AdminView
 
 /// Internal, not private: the Analytics header uses it too — it is the one
@@ -44,8 +15,13 @@ struct AdminHeaderButton: View {
 
     var body: some View {
         Button { showAdmin = true } label: {
-            GlassCircleIcon(systemName: "shield.lefthalf.filled",
-                            color: Color(hex: T.ink))
+            // Bare — HeaderControlsHost paints the glass so the shape sits at
+            // the level glassEffectID binds to. See that host's note.
+            HeaderSlot {
+                Image(systemName: "shield.lefthalf.filled")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color(hex: T.ink))
+            }
         }
         .buttonStyle(.plain)
         .fullScreenCover(isPresented: $showAdmin) {
@@ -64,7 +40,9 @@ struct AdminHeaderButton: View {
 // says whose account it is. It also matches where every other app puts this, so
 // it needs no learning.
 
-private struct AccountGlassMenu: View {
+/// Internal, not private: HomeView publishes this into the app-wide header host
+/// rather than rendering it itself. See HeaderControls.swift.
+struct AccountGlassMenu: View {
     @Environment(AuthManager.self) private var auth
     @Environment(AppState.self) private var appState
     @State private var showCustomize = false
@@ -81,14 +59,18 @@ private struct AccountGlassMenu: View {
     @ViewBuilder
     private var profileLabel: some View {
         if let me = appState.currentPerson {
-            HeaderGlassCircle {
+            HeaderSlot {
                 Avatar(initials: Initials.from(me),
                        size: HeaderControl.diameter - avatarInset * 2,
                        fill: .personFill(me.color),
                        imageData: me.image)
             }
         } else {
-            GlassCircleIcon(systemName: "person.crop.circle", color: Color(hex: T.ink))
+            HeaderSlot {
+                Image(systemName: "person.crop.circle")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color(hex: T.ink))
+            }
         }
     }
 

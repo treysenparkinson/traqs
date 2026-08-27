@@ -49,6 +49,36 @@ final class AppNav {
     /// list view's deep-link consumer can resolve the tapped job (see below).
     var jobsMode: JobsViewMode = .list
 
+    // MARK: - Header state
+    //
+    // The state behind the app-wide header controls, held here rather than in the
+    // pages because the CONTROLS live here — see HeaderControls.swift. A page
+    // reads and writes these exactly as it used to read its own @State; the only
+    // difference is that the header can reach them too.
+    //
+    // This is the cost the morph charges. The controls have to be concrete views
+    // the host builds itself, and a host can't reach into five pages' private
+    // @State, so the state that drives them comes out here.
+
+    // Jobs
+    var jobsSearchOpen = false
+    var jobsSearchText = ""
+    var showApprovalQueue = false
+    var showAvailability = false
+
+    // Messages
+    var chatSearchOpen = false
+    var chatSearchText = ""
+    var chatFilter: ChatFilter = .all
+    var chatSelectMode = false
+    var chatSelectedKeys: Set<String> = []
+    var showNewMessage = false
+    var showDeleteThreads = false
+
+    // Analytics
+    var statsWorkerId: String? = nil
+    var statsWeekAnchor: Date = Date()
+
     // MARK: - Push deep links
     //
     // A tapped push carries a `data` dict set server-side. Three shapes reach

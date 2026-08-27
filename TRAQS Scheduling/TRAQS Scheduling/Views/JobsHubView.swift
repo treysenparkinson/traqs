@@ -12,20 +12,29 @@ struct JobsHubView: View {
     @Environment(AppState.self) private var appState
     @Environment(AppNav.self) private var appNav
 
-    /// How far the List/Gantt toggle slides right in gantt mode: the width of the
-    /// search button it slides into, plus the trailing HStack's 6pt gap (that
-    /// spacing is set in TRAQSNavHeader).
-    private static var searchSlotWidth: CGFloat { HeaderControl.diameter + 6 }
-
     // Navigation + chrome state, lifted here so it survives a list↔gantt swap.
     @State private var path: [Job] = []
     /// Shared with the job cards (via the environment) so pushing a job zooms out
     /// of the tapped card instead of sliding a new screen over it.
     @Namespace private var zoomNS
-    @State private var showApprovals = false
-    @State private var showAvailability = false
-    @State private var showSearch = false
-    @State private var searchText = ""
+    /// Header-driven state lives in AppNav: these controls are drawn by
+    /// HeaderControlsHost, above the TabView, and a host can't reach a page's
+    /// private @State. See HeaderControls.swift. The page reads and writes them
+    /// exactly as it did its own @State.
+    private var showApprovals: Bool {
+        get { appNav.showApprovalQueue } nonmutating set { appNav.showApprovalQueue = newValue }
+    }
+    private var showAvailability: Bool {
+        get { appNav.showAvailability } nonmutating set { appNav.showAvailability = newValue }
+    }
+    private var showSearch: Bool {
+        get { appNav.jobsSearchOpen } nonmutating set { appNav.jobsSearchOpen = newValue }
+    }
+    private var searchText: String {
+        get { appNav.jobsSearchText } nonmutating set { appNav.jobsSearchText = newValue }
+    }
+    /// Focus stays HERE — a @FocusState belongs to the view owning the field.
+    /// The hoisted button only flips `jobsSearchOpen`; this page takes focus.
     @FocusState private var searchFocused: Bool
     @State private var jobsSegment: TasksView.JobsSegment = .today   // list range (Today/Week/Month/Year)
 
@@ -42,55 +51,11 @@ struct JobsHubView: View {
                     // Persistent header. The leading trailing-button is mode
                     // specific (search in list, jump-to-date in gantt); the
                     // view toggle and add button are shared.
-                    TRAQSNavHeader {
-                        // List/Gantt toggle sits FIRST, to the left of search —
-                        // except in gantt mode, where the search button fades out
-                        // and would leave the toggle with a hole beside it. Slide
-                        // the toggle right into that vacated slot instead.
-                        //
-                        // An OFFSET, not a reorder: swapping the two in the HStack
-                        // would give the toggle a new identity, so SwiftUI would
-                        // tear it down and rebuild it — losing the glass continuity
-                        // and popping, which is the same failure the search button's
-                        // fixed-slot fade (below) exists to avoid. Offset leaves the
-                        // header's structure untouched and just moves the pill.
-                        JobsViewToggleButton()
-                            .offset(x: appNav.jobsMode == .gantt ? Self.searchSlotWidth : 0)
-                            .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
-
-                        // Search is list-only (the gantt view has its own date
-                        // controls in its body), but the button stays MOUNTED in
-                        // both modes and just fades its opacity. Conditionally
-                        // inserting/removing it made the icon pop out of the
-                        // header layout the instant you switched — reading as a
-                        // glitchy jump. Keeping the fixed-size slot and fading it
-                        // (non-interactive in gantt) keeps the header dead-stable.
-                        IconBtn(icon: .search, size: 18) {
-                            withAnimation(.easeInOut(duration: 0.18)) {
-                                showSearch.toggle()
-                                if !showSearch { searchText = "" }
-                            }
-                            if showSearch { searchFocused = true }
-                        }
-                        .opacity(appNav.jobsMode == .list ? 1 : 0)
-                        .allowsHitTesting(appNav.jobsMode == .list)
-                        .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
-                        // Approval Queue entry — replaces the old create-job "+".
-                        // Only approvers (admin || canSignOff) see it; a badge shows
-                        // how many panels are awaiting a sign-off step.
-                        if appState.canViewApprovalQueue {
-                            approvalQueueButton
-                        }
-                        // Availability quick-check — admin only, at the far right,
-                        // set off from the other controls by a hairline divider.
-                        if appState.currentPerson?.isAdmin == true {
-                            Rectangle()
-                                .fill(Color(hex: T.muted).opacity(0.5))
-                                .frame(width: 1, height: 22)
-                                .padding(.horizontal, 2)
-                            AvailabilityCheckButton(isPresented: $showAvailability)
-                        }
-                    }
+                    // Logo and row height only. The trailing controls are
+                    // published to HeaderControlsHost (registered at the bottom
+                    // of this view) so their glass can morph into the next tab's
+                    // instead of being torn down with the page.
+                    TRAQSNavHeader()
 
                     // (The "Jobs" title now scrolls inside the list content —
                     // see TasksView — so the header is just the buttons and
@@ -98,7 +63,7 @@ struct JobsHubView: View {
 
                     // Search field — slides in under the header, list mode only.
                     if appNav.jobsMode == .list && showSearch {
-                        SearchBar(text: $searchText,
+                        SearchBar(text: Bindable(appNav).jobsSearchText,
                                   placeholder: "Search jobs, customers…",
                                   focused: $searchFocused,
                                   onCancel: {
@@ -135,7 +100,7 @@ struct JobsHubView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
                 }
-                .fullScreenCover(isPresented: $showApprovals) { ApprovalQueueView(isPresented: $showApprovals) }
+                .fullScreenCover(isPresented: Bindable(appNav).showApprovalQueue) { ApprovalQueueView(isPresented: Bindable(appNav).showApprovalQueue) }
                 .modalPageBlur(appNav.jobsBreakBanner != nil || showAvailability)
                 // Slide the bottom nav pill out while the availability popup is
                 // up, and back in when it closes — MainTabView owns the spring
@@ -205,29 +170,15 @@ struct JobsHubView: View {
             // cold-start load brings the job in.
             .onChange(of: appNav.pendingDeepLink, initial: true) { _, _ in consumeJobDeepLink() }
             .onChange(of: appState.jobs.count) { _, _ in consumeJobDeepLink() }
+            // The hoisted search button only flips the flag; taking focus is
+            // still this page's job (see `searchFocused`).
+            .onChange(of: showSearch) { _, open in if open { searchFocused = true } }
         }
-    }
-
-    /// The Approval Queue entry button with a pending-count badge.
-    private var approvalQueueButton: some View {
-        ZStack(alignment: .topTrailing) {
-            IconBtn(icon: .select, size: 18) { showApprovals = true }
-            // A plain accent dot, not a count. The exact number of pending
-            // sign-offs isn't actionable from here — you open the queue either
-            // way — and a two-digit badge was wide enough to crowd the controls
-            // beside it. Presence is the whole signal.
-            if appState.pendingApprovalCount > 0 {
-                Circle()
-                    .fill(Color(hex: T.accent))
-                    .frame(width: 10, height: 10)
-                    // Rings in the page behind it so the dot stays legible where
-                    // it overlaps the button's own glass edge.
-                    .overlay(Circle().strokeBorder(Color(hex: T.bg), lineWidth: 2))
-                    .offset(x: 2, y: -2)
-                    .allowsHitTesting(false)
-                    .accessibilityLabel("Approvals pending")
-            }
-        }
+        // Header controls, drawn by HeaderControlsHost above the TabView.
+        //
+        // "search" is deliberately the SAME id Messages uses: it is the same
+        // control meaning the same thing, so its glass flows straight across
+        // that tab switch instead of one dissolving while the other grows.
     }
 
     /// Liquid-glass calendar FAB (same 62pt footprint) whose tap opens a native

@@ -21,13 +21,15 @@ struct MoreView: View {
     @Environment(AppNav.self) private var appNav
     /// Any day within the week being shown; defaults to the current week. The
     /// calendar button in the header repoints this to jump to another week.
-    @State private var weekAnchor: Date = Date()
+    /// In AppNav because the menu that drives it is drawn by
+    /// HeaderControlsHost — see HeaderControls.swift.
+    private var weekAnchor: Date { appNav.statsWeekAnchor }
     @State private var overHoursExpanded = false
     /// Drives the STOP affordance on the live "Past Jobs" running-clock card.
     @State private var isStopping = false
     /// Admin-only: pick a worker to view THEIR personal stats. nil = the org
     /// dashboard (admins) / your own stats (everyone else).
-    @State private var selectedWorkerId: String? = nil
+    private var selectedWorkerId: String? { appNav.statsWorkerId }
 
     var body: some View {
         ZStack {
@@ -36,13 +38,10 @@ struct MoreView: View {
             VStack(spacing: 0) {
                 // Sticky header. Calendar jumps weeks; the person button (admins)
                 // picks a worker to view their personal stats.
-                TRAQSNavHeader {
-                    if appState.isAdmin {
-                        AdminHeaderButton()
-                        workerMenu
-                    }
-                    weekMenu
-                }
+                // Logo and row height only — the controls are published to
+                // HeaderControlsHost (registered at the bottom of this view) so
+                // their glass can morph across a tab switch.
+                TRAQSNavHeader()
                 .overlay(alignment: .center) {
                     if let name = selectedWorkerName {
                         Text("\(name)'s Analytics")
@@ -187,6 +186,9 @@ struct MoreView: View {
         // combined update, not four staggered spurts). The data is also warmed
         // in the background by loadAll, so it's usually already populated here.
         .task { appState.warmStatsData() }
+        // "admin" is shared with nothing else today, but the WEEK menu is the
+        // control this tab always has — it keeps its own id so it is the anchor
+        // the rest merge out of on the way to another tab.
     }
 
     // MARK: Title (Analytics + selected week in accent)
@@ -349,80 +351,6 @@ struct MoreView: View {
 
     /// Liquid-glass person button → native menu of workers (admins). "Everyone"
     /// returns to the org dashboard; the current selection is checked.
-    private var workerMenu: some View {
-        Menu {
-            Picker("Worker", selection: $selectedWorkerId) {
-                Text("Everyone").tag(String?.none)
-                ForEach(appState.people.sorted { $0.name < $1.name }) { p in
-                    Text(p.name).tag(String?.some(p.id))
-                }
-            }
-        } label: {
-            glassHeaderIcon(.person)
-        }
-        .buttonStyle(.plain)
-        // Own shadow tied to the button so it doesn't drop out for a frame when
-        // the menu dismisses (the system glass shadow briefly disappears there).
-        .shadow(color: .black.opacity(0.12), radius: 5, x: 0, y: 3)
-    }
-
-    /// Liquid-glass calendar button → native menu of recent weeks; picking one
-    /// repoints the stats week. The current week is checked.
-    private var weekMenu: some View {
-        Menu {
-            ForEach(weekStarts, id: \.self) { start in
-                Button { weekAnchor = start } label: {
-                    if sameWeek(start, weekAnchor) {
-                        Label(weekLabel(start), systemImage: "checkmark")
-                    } else {
-                        Text(weekLabel(start))
-                    }
-                }
-            }
-        } label: {
-            glassHeaderIcon(.cal)
-        }
-        .buttonStyle(.plain)
-        .shadow(color: .black.opacity(0.12), radius: 5, x: 0, y: 3)
-    }
-
-    /// The menu label — the SAME `HeaderGlassCircle` every other header control
-    /// in the app uses, so these two are exactly the Admin button's size.
-    ///
-    /// These used the native `.buttonStyle(.glass)`, which morphs the circle into
-    /// its dropdown — a nice touch, but that style sizes itself from its label
-    /// plus whatever padding the system chooses, and it landed ~37pt against the
-    /// 42pt everything else runs at. Forcing an outer 42pt frame didn't fix it
-    /// either: the system chrome just inset itself inside the frame. Sizing is the
-    /// visible problem in a row of three circles, so it wins over the morph.
-    private func glassHeaderIcon(_ icon: TIcon) -> some View {
-        HeaderGlassCircle {
-            TIconView(icon: icon, size: 18, color: Color(hex: T.ink))
-        }
-    }
-
-    /// Start-of-week (Monday) dates for the last 8 weeks, this week first.
-    private var weekStarts: [Date] {
-        let cal = Calendar.current
-        let thisStart = StatsMath.weekInterval(containing: Date(), calendar: cal).start
-        return (0..<8).compactMap { cal.date(byAdding: .day, value: -7 * $0, to: thisStart) }
-    }
-    private func weekLabel(_ start: Date) -> String {
-        let cal = Calendar.current
-        let end = cal.date(byAdding: .day, value: 6, to: start) ?? start
-        let f = DateFormatter.display("MMM d")
-        let range = "\(f.string(from: start)) – \(f.string(from: end))"
-        return sameWeek(start, Date()) ? "This week · \(range)" : range
-    }
-    /// Compared by Monday-anchored week start, not `.weekOfYear` — otherwise on a
-    /// Sunday the picker checkmark and the "This week" label point at the week
-    /// that is about to begin rather than the one being shown.
-    private func sameWeek(_ a: Date, _ b: Date) -> Bool {
-        let cal = Calendar.current
-        return StatsMath.weekInterval(containing: a, calendar: cal).start
-            == StatsMath.weekInterval(containing: b, calendar: cal).start
-    }
-
     /// Operations a person is assigned to (leaf ops across all jobs).
     private func ops(for personId: String) -> [Operation] {
         appState.jobs.flatMap { $0.subs }.flatMap { $0.subs }.filter { $0.team.contains(personId) }

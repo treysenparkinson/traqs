@@ -15,10 +15,10 @@ struct HomeView: View {
             PageBackground()
 
             VStack(spacing: 0) {
-                TRAQSNavHeader {
-                    // Account controls (top-right): Admin · Settings · Profile.
-                    HomeHeaderControls()
-                }
+                // Logo and row height only — the controls are drawn by
+                // HeaderControlsHost, above the TabView, so they can morph into
+                // the next page's. Registered below.
+                TRAQSNavHeader()
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {

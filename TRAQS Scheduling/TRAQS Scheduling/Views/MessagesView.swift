@@ -25,11 +25,23 @@ struct MessagesView: View {
     @Environment(AppNav.self) private var appNav
     @State private var showNewGroup = false
     @State private var showNewDM = false
-    @State private var showNewMessage = false   // unified compose: 1 = DM, 2+ = group
-    @State private var filter: ChatFilter = .all
+    /// Header-driven state lives in AppNav: these controls are drawn by
+    /// HeaderControlsHost, above the TabView, and a host can't reach a page's
+    /// private @State. See HeaderControls.swift.
+    private var showNewMessage: Bool {
+        get { appNav.showNewMessage } nonmutating set { appNav.showNewMessage = newValue }
+    }
+    private var filter: ChatFilter { appNav.chatFilter }
     @State private var navigationPath = NavigationPath()
-    @State private var searchText = ""
-    @State private var showSearch = false
+    private var searchText: String {
+        get { appNav.chatSearchText } nonmutating set { appNav.chatSearchText = newValue }
+    }
+    private var showSearch: Bool {
+        get { appNav.chatSearchOpen } nonmutating set { appNav.chatSearchOpen = newValue }
+    }
+    /// Focus stays HERE even though the search button no longer does — a
+    /// @FocusState binding isn't safe to capture in an escaping closure, so the
+    /// hoisted button only flips `showSearch` and this page reacts.
     @FocusState private var searchFocused: Bool
 
     /// How far the thread list has scrolled from ITS OWN top, in points. Drives
@@ -39,9 +51,15 @@ struct MessagesView: View {
     // Bulk-select / delete state. When `selectMode` is on, rows render
     // a checkbox indicator instead of navigating on tap, and the top
     // bar swaps its icons for [Done, Delete].
-    @State private var selectMode = false
-    @State private var selectedKeys: Set<String> = []
-    @State private var showDeleteConfirm = false
+    private var selectMode: Bool {
+        get { appNav.chatSelectMode } nonmutating set { appNav.chatSelectMode = newValue }
+    }
+    private var selectedKeys: Set<String> {
+        get { appNav.chatSelectedKeys } nonmutating set { appNav.chatSelectedKeys = newValue }
+    }
+    private var showDeleteConfirm: Bool {
+        get { appNav.showDeleteThreads } nonmutating set { appNav.showDeleteThreads = newValue }
+    }
 
     var allThreads: [MessageThread] {
         let myId = appState.currentPersonId
@@ -190,81 +208,10 @@ struct MessagesView: View {
 
                 VStack(spacing: 0) {
                     // Sticky header.
-                    TRAQSNavHeader {
-                        if selectMode {
-                            Button {
-                                exitSelectMode()
-                            } label: {
-                                Text("Done")
-                                    .font(TTypo.smBold(14))
-                                    .foregroundStyle(Color(hex: T.ink))
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 8)
-                                    .glassControl(in: Capsule())
-                            }
-                            .buttonStyle(.plain)
-
-                            Button {
-                                showDeleteConfirm = true
-                            } label: {
-                                HStack(spacing: 6) {
-                                    TIconView(icon: .trash, size: 16, color: .red.readableText, weight: .bold)
-                                    if !selectedKeys.isEmpty {
-                                        Text("\(selectedKeys.count)")
-                                            .font(TTypo.smBold(13))
-                                            .foregroundStyle(.red.readableText)
-                                            .tnum()
-                                    }
-                                }
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 9)
-                                .glassControl(in: Capsule(),
-                                              tint: .red.opacity(selectedKeys.isEmpty ? 0.4 : 1.0))
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(selectedKeys.isEmpty)
-                        } else {
-                            // Utility cluster: Search · Filter. All use the same
-                            // headerGlassCircle so sizes match exactly.
-                            //
-                            // The Select (checkmark) button is gone: press-and-hold
-                            // on any thread row already enters select mode with that
-                            // row picked (see enterSelectMode), which is both the
-                            // platform convention and strictly better — the button
-                            // could only ever open an EMPTY selection.
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.18)) {
-                                    showSearch.toggle()
-                                    if !showSearch { searchText = "" }
-                                }
-                                if showSearch { searchFocused = true }
-                            } label: { headerGlassCircle(.search) }
-                            .buttonStyle(.plain)
-
-                            filterMenuButton
-
-                            // Hairline separating the utility buttons from New chat.
-                            Rectangle()
-                                .fill(Color(hex: T.muted).opacity(0.5))
-                                .frame(width: 1, height: 22)
-                                .padding(.horizontal, 2)
-
-                            // New chat (+).
-                            Button {
-                                appNav.modalBlur = true
-                                // Animations off, so the cover doesn't slide up from
-                                // the bottom — NewMessageSheet fades and scales in at
-                                // the centre under its own steam, the same as every
-                                // other popup here. Presenting it normally ran BOTH,
-                                // which is what read as it popping up.
-                                withTransaction(Transaction.noAnimation) {
-                                    showNewMessage = true   // 1 = DM, 2+ = group
-                                }
-                            } label: { headerGlassCircle(.plus) }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                    .animation(.easeInOut(duration: 0.18), value: selectMode)
+                    // Logo and row height only — the controls are published
+                    // to HeaderControlsHost (registered at the bottom of this
+                    // view) so their glass can morph across a tab switch.
+                    TRAQSNavHeader()
 
                     PageTitle(title: "Messages",
                               size: titleSize,
@@ -277,7 +224,7 @@ struct MessagesView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
 
                     if showSearch {
-                        SearchBar(text: $searchText,
+                        SearchBar(text: Bindable(appNav).chatSearchText,
                                   placeholder: "Search conversations…",
                                   focused: $searchFocused,
                                   onCancel: {
@@ -389,7 +336,7 @@ struct MessagesView: View {
             // so it needs the whole screen with a clear background rather than a
             // system sheet's card and dimming. `modalBlur` blurs the inbox behind
             // it — the popup can't do that itself, being its own presentation.
-            .fullScreenCover(isPresented: $showNewMessage) {
+            .fullScreenCover(isPresented: Bindable(appNav).showNewMessage) {
                 NewMessageSheet { recipientIds, groupName in
                     guard let myId = appState.currentPersonId, !recipientIds.isEmpty else { return }
                     if recipientIds.count == 1 {
@@ -418,7 +365,7 @@ struct MessagesView: View {
                 .onDisappear { appNav.modalBlur = false }
             }
             .alert("Delete \(selectedKeys.count) conversation\(selectedKeys.count == 1 ? "" : "s")?",
-                   isPresented: $showDeleteConfirm) {
+                   isPresented: Bindable(appNav).showDeleteThreads) {
                 Button("Cancel", role: .cancel) { }
                 Button("Delete", role: .destructive) {
                     let keys = selectedKeys
@@ -457,36 +404,7 @@ struct MessagesView: View {
         }
         // Leaving the Messages tab entirely → always restore the bar.
         .onDisappear { appNav.hideTabBar = false }
-    }
-
-    /// Every Messages-header icon button, sized and styled by HeaderGlassCircle
-    /// along with the rest of the app's header controls.
-    ///
-    /// These were flattened to plain chips once because four interactive-glass
-    /// circles in one header row were the main "glassEffect updated multiple times
-    /// per frame" source on this page. They're glass again by request — bounded at
-    /// four in a static header rather than one per list row, but if that warning
-    /// returns this row is where it comes from.
-    @ViewBuilder
-    private func headerGlassCircle(_ icon: TIcon) -> some View {
-        HeaderGlassCircle {
-            TIconView(icon: icon, size: 18, color: Color(hex: T.ink))
-        }
-    }
-
-    /// Header filter button whose tap opens a native menu of chat filters.
-    private var filterMenuButton: some View {
-        Menu {
-            Picker("Filter", selection: $filter) {
-                ForEach(ChatFilter.allCases, id: \.self) { opt in
-                    Text(opt.label).tag(opt)
-                }
-            }
-        } label: {
-            headerGlassCircle(.filter)
-        }
-        .buttonStyle(.plain)
-        .fixedSize()
+        .onChange(of: showSearch) { _, open in if open { searchFocused = true } }
     }
 
     /// Navigate to the thread named by a pending `.thread` deep link.
@@ -605,6 +523,17 @@ struct MessagesView: View {
             selectMode = false
             selectedKeys = []
         }
+    }
+}
+
+/// A bare header glyph. No glass of its own — HeaderControlsHost paints it, so
+/// that every control's shape sits at the same level and can morph. See the note
+/// on that host.
+struct HeaderGlyph: View {
+    let icon: TIcon
+    var size: CGFloat = 18
+    var body: some View {
+        TIconView(icon: icon, size: size, color: Color(hex: T.ink))
     }
 }
 

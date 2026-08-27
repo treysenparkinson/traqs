@@ -55,6 +55,11 @@ struct MainTabView: View {
                     .overlay(alignment: .top) {
                         SyncStatusDot().padding(.top, 52)
                     }
+                    // Every tab's header controls, drawn ONCE out here so the
+                    // glass can morph across a tab switch. Inside the pages
+                    // there was nothing to morph from — a TabView swaps in a
+                    // single frame. See HeaderControls.swift.
+                    .overlay(alignment: .top) { HeaderControlsHost() }
 
                 // TRAQS frosted floating pill (icon-only).
                 if !appNav.hideTabBar {

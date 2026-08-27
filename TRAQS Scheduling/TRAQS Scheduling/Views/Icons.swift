@@ -17,7 +17,7 @@ enum TIcon: String {
     case person, map, list, cal, sparkle, bell, signOut
     case clients, team
     case select, trash, admin
-    case gantt
+    case gantt, eye
 
     var sfName: String {
         switch self {
@@ -57,6 +57,7 @@ enum TIcon: String {
         case .trash:     return "trash"
         case .admin:     return "shield.lefthalf.filled"
         case .gantt:     return "chart.bar.xaxis"
+        case .eye:       return "eye"
         }
     }
 
