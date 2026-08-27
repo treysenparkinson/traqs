@@ -1181,12 +1181,23 @@ extension View {
 // takes when it fills the rest of the page rather than sitting in it as a card.
 // Contrast with `frostedPill`, which gives every row its own floating shape.
 //
-// No stroke, deliberately. A hairline on a sheet this size would draw a line
-// straight across the bottom of the screen, and the top edge is already legible
-// from the material change alone.
+// The glass rim is MASKED to the top of the sheet. It belongs on the panel's
+// own edge — the lip you can actually see — and nowhere else: this sheet runs
+// off the bottom of the screen, so an unmasked rim would draw its dark side
+// bands down the full height of the page and close with a lit lip across the
+// very bottom edge, neither of which is an edge anyone sees as an edge.
+//
+// Note this is the SHEET's border, not the rows'. The threads inside it are
+// separated by hairlines and carry no edge of their own — a lit rim per row is
+// exactly the noise `flatHairline` exists to avoid.
 struct FrostedSheetTop: ViewModifier {
     @Environment(ThemeSettings.self) private var theme
     var radius: CGFloat = T.cornerLg
+    /// How far down the rim stays at full strength before it starts to go, and
+    /// how long it takes to disappear. Sized off the corner arc so the lit lip
+    /// always covers the whole curve and a little of the straight below it.
+    private var rimSolid: CGFloat { radius }
+    private var rimFade: CGFloat { radius * 1.6 }
 
     private var shape: UnevenRoundedRectangle {
         UnevenRoundedRectangle(topLeadingRadius: radius,
@@ -1212,6 +1223,28 @@ struct FrostedSheetTop: ViewModifier {
                     .glassFill()
                     .allowsHitTesting(false)
             }
+            .overlay(alignment: .top) { topRim }
+    }
+
+    /// The app's glass edge, cut off below the lip. `specularRim` draws one
+    /// vertical gradient around a CLOSED shape — lit top, dark sides, lit bottom
+    /// — which assumes you can see all of it. Here only the top is on screen, so
+    /// the rest is masked away rather than left to band down the page.
+    ///
+    /// Collapses to the flat hairline with frosted glass switched off, same as
+    /// every other surface.
+    private var topRim: some View {
+        shape
+            .specularRim()
+            .mask(alignment: .top) {
+                VStack(spacing: 0) {
+                    Rectangle().fill(.black).frame(height: rimSolid)
+                    LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                        .frame(height: rimFade)
+                    Spacer(minLength: 0)
+                }
+            }
+            .allowsHitTesting(false)
     }
 }
 
