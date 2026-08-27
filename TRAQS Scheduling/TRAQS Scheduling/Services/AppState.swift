@@ -1,7 +1,14 @@
 import Foundation
 import Combine
 import SwiftUI
+// Push notifications are iOS-only for now: OneSignal ships no macOS SDK, so the
+// Mac app — which compiles this same file — has to build without it. Guarded
+// rather than split into a protocol: the iOS path stays exactly as it was, and a
+// Mac build simply has no push registration, which is correct until there is a
+// macOS push story to write.
+#if canImport(OneSignalFramework)
 import OneSignalFramework
+#endif
 import SwiftData
 import Network
 
@@ -2033,7 +2040,9 @@ class AppState {
     // ran. Poll the SDK for up to ~10s post-login since the subscription ID
     // isn't always ready immediately after init.
     private var pushRegisterTask: Task<Void, Never>?
+    #if canImport(OneSignalFramework)
     private var pushSubObserver: PushSubscriptionObserver?
+    #endif
 
     /// Write this device's OneSignal subscription id to the roster, which is what
     /// actually opts it into native pushes — the server skips anyone whose record
@@ -2054,6 +2063,7 @@ class AppState {
     /// gives up, an observer catches an id that arrives later or changes (reinstall,
     /// token rotation), and `handleForeground` retries each time the app is opened.
     func registerPushTokenIfNeeded() {
+        #if canImport(OneSignalFramework)
         observePushSubscription()
         pushRegisterTask?.cancel()
         pushRegisterTask = Task { [weak self] in
@@ -2076,6 +2086,7 @@ class AppState {
                 print("[onesignal] pushToken NOT registered after 10s (subscriptionId=\(OneSignal.User.pushSubscription.id ?? "nil"), personId=\(self.currentPersonId ?? "nil"), peopleLoaded=\(!self.people.isEmpty)). Will retry on subscription change / next foreground.")
             }
         }
+        #endif
     }
 
     /// Catch a subscription id that shows up after the poll window, or changes later
@@ -2083,6 +2094,7 @@ class AppState {
     /// whose id changed keeps a stale token in the roster and silently stops
     /// receiving pushes.
     private func observePushSubscription() {
+        #if canImport(OneSignalFramework)
         guard pushSubObserver == nil else { return }
         let obs = PushSubscriptionObserver { [weak self] id in
             guard let self, let id, !id.isEmpty else { return }
@@ -2090,6 +2102,7 @@ class AppState {
         }
         pushSubObserver = obs
         OneSignal.User.pushSubscription.addObserver(obs)
+        #endif
     }
 
     private func writePushToken(_ token: String) async {
@@ -3260,6 +3273,7 @@ extension AppState {
 /// AppState can't conform directly — it's a `@MainActor @Observable` class while the
 /// callback arrives off-actor — so this thin NSObject adapter hops back to main,
 /// the same pattern PushClickHandler uses for notification taps.
+#if canImport(OneSignalFramework)
 final class PushSubscriptionObserver: NSObject, OSPushSubscriptionObserver {
     private let onChange: (String?) -> Void
     init(_ onChange: @escaping (String?) -> Void) { self.onChange = onChange }
@@ -3270,3 +3284,4 @@ final class PushSubscriptionObserver: NSObject, OSPushSubscriptionObserver {
         Task { @MainActor in cb(id) }
     }
 }
+#endif

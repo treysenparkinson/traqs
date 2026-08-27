@@ -5,20 +5,9 @@ import SwiftUI
 // glowy, floating above the content. Selection is bound to AppNav.selected so
 // push-notification deep links (which set `selected`) keep working.
 
-enum TTab: Int, CaseIterable, Hashable {
-    // Home is the default landing tab (a daily debrief). The Jobs tab subsumes
-    // the old Schedule tab: it toggles between list and gantt via `AppNav.jobsMode`.
-    case home, jobs, hours, stats, chat
-
-    var label: String {
-        switch self {
-        case .home:     return "Home"
-        case .jobs:     return "Jobs"
-        case .hours:    return "Time Clock"
-        case .stats:    return "Analytics"
-        case .chat:     return "Messages"
-        }
-    }
+/// `TTab` itself lives in Services/NavigationTypes — AppNav stores it. This is
+/// the half that needs a view type.
+extension TTab {
     var icon: TIcon {
         switch self {
         case .home:     return .home
@@ -697,17 +686,8 @@ struct JobsViewToggleButton: View {
 // events). Shown as a TagPill (e.g. on the Home screen) so people see their
 // current state.
 
-enum ShiftStatus {
-    case offline, clockedIn, lunch, onBreak
-
-    var label: String {
-        switch self {
-        case .offline:   return "Offline"
-        case .clockedIn: return "Clocked in"
-        case .lunch:     return "Lunch"
-        case .onBreak:   return "Break"
-        }
-    }
+/// `ShiftStatus` lives in Services/NavigationTypes — AppState computes it.
+extension ShiftStatus {
     var kind: TagKind {
         switch self {
         case .offline:   return .neutral
@@ -716,5 +696,4 @@ enum ShiftStatus {
         case .onBreak:   return .amber
         }
     }
-    var dot: Bool { self != .offline }
 }

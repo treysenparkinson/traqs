@@ -1,5 +1,12 @@
 import SwiftUI
+// Push notifications are iOS-only for now: OneSignal ships no macOS SDK, so the
+// Mac app — which compiles this same file — has to build without it. Guarded
+// rather than split into a protocol: the iOS path stays exactly as it was, and a
+// Mac build simply has no push registration, which is correct until there is a
+// macOS push story to write.
+#if canImport(OneSignalFramework)
 import OneSignalFramework
+#endif
 
 // MARK: - Jobs tab view mode
 // The Jobs tab merges the old Jobs (list) and Schedule (gantt) pages into one.
@@ -159,13 +166,16 @@ final class AppNav {
     // Registered once at launch and retained for the app's lifetime. OneSignal
     // (v5) caches a cold-start click and replays it the instant a listener is
     // added, so this also covers "tapped while the app was killed".
+    #if canImport(OneSignalFramework)
     private var clickHandler: PushClickHandler?
     /// Held so OneSignal's listener isn't deallocated (it holds only a weak ref).
     private var foregroundHandler: PushForegroundHandler?
+    #endif
 
     /// - Parameter activeThreadKey: the thread the user is currently reading, if
     ///   any. Used to suppress a push for a conversation that's already on screen.
     func registerPushHandlers(activeThreadKey: @escaping () -> String? = { nil }) {
+        #if canImport(OneSignalFramework)
         guard clickHandler == nil else { return }
         let handler = PushClickHandler { [weak self] data in
             self?.handleNotification(data)
@@ -179,8 +189,11 @@ final class AppNav {
         let foreground = PushForegroundHandler(activeThreadKey: activeThreadKey)
         foregroundHandler = foreground
         OneSignal.Notifications.addForegroundLifecycleListener(foreground)
+        #endif
     }
 }
+
+#if canImport(OneSignalFramework)
 
 /// Suppresses the banner for a message push whose thread is already open.
 ///
@@ -219,3 +232,4 @@ final class PushClickHandler: NSObject, OSNotificationClickListener {
         Task { @MainActor in handler(data) }
     }
 }
+#endif

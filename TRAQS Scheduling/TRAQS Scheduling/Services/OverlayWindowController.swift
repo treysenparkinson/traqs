@@ -1,3 +1,8 @@
+// The Messages thread header lives in its own UIWindow so the keyboard can't
+// displace it. UIWindow is UIKit, so on macOS — which compiles this same file
+// via the shared Services group — the whole thing compiles out. The Mac app
+// draws that header in its own window chrome instead.
+#if canImport(UIKit)
 import SwiftUI
 import UIKit
 
@@ -262,3 +267,5 @@ struct ThemeStyleSync: UIViewRepresentable {
         }
     }
 }
+
+#endif

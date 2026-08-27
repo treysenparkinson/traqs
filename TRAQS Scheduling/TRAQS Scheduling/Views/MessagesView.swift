@@ -7,18 +7,7 @@ import QuickLook
 // MARK: - Chat V1 (Inbox) · TRAQS Light
 // Inbox / channel list. DMs + group threads.
 
-enum ChatFilter: String, CaseIterable, Hashable {
-    case all, unread, dms, groups, mentions
-    var label: String {
-        switch self {
-        case .all:      return "All"
-        case .unread:   return "Unread"
-        case .dms:      return "DMs"
-        case .groups:   return "Groups"
-        case .mentions: return "Mentions"
-        }
-    }
-}
+// `ChatFilter` lives in Services/NavigationTypes — AppNav stores it.
 
 struct MessagesView: View {
     @Environment(AppState.self) private var appState

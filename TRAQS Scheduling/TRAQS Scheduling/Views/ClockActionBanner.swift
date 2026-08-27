@@ -13,46 +13,8 @@ import SwiftUI
 //
 // Auto-dismisses after `autoDismissAfter`; a tap anywhere closes it early.
 
-enum ClockActionBannerKind: Equatable {
-    case lunchStarted, lunchEnded, breakStarted, breakEnded
-
-    /// The dominant word — the thing they're meant to read at a glance.
-    var word: String {
-        switch self {
-        case .lunchStarted, .lunchEnded: return "LUNCH"
-        case .breakStarted, .breakEnded: return "BREAK"
-        }
-    }
-
-    var state: String { started ? "STARTED" : "ENDED" }
-
-    var started: Bool {
-        switch self {
-        case .lunchStarted, .breakStarted: return true
-        case .lunchEnded, .breakEnded:     return false
-        }
-    }
-
-    var icon: String {
-        if !started { return "play.circle.fill" }
-        switch self {
-        case .lunchStarted: return "fork.knife"
-        case .breakStarted: return "cup.and.saucer.fill"
-        default:            return "play.circle.fill"
-        }
-    }
-
-    /// One plain-language line under the shout, so there's no ambiguity about
-    /// what it did to their pay.
-    var subtitle: String {
-        switch self {
-        case .lunchStarted: return "Your pay clock is paused"
-        case .lunchEnded:   return "Your pay clock is running again"
-        case .breakStarted: return "You're still on the clock"
-        case .breakEnded:   return "Welcome back"
-        }
-    }
-}
+// `ClockActionBannerKind` lives in Services/NavigationTypes — the time-clock
+// actions raise it, and the Mac app's Services build needs it without this view.
 
 struct ClockActionBanner: View {
     @Environment(ThemeSettings.self) private var theme

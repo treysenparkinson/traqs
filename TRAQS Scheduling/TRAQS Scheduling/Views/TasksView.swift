@@ -1173,23 +1173,7 @@ struct JobsHeaderBar: View {
 // One scheduled task — the canonical unit of work shown in the Jobs list.
 // `op == nil` means the user is on `panel.team` but no specific op.
 
-struct TaskAssignment: Identifiable {
-    let job: Job
-    let panel: Panel
-    let op: Operation?
-    /// Whether the current user is actually scheduled to this work. Defaults to
-    /// true so existing "my tasks" call sites are unchanged; the ALL JOBS section
-    /// passes `false` for jobs the user isn't assigned to.
-    var isMine: Bool = true
-
-    var id: String { "\(job.id)/\(panel.id)/\(op?.id ?? "panel")" }
-
-    var title: String { op?.title.isEmpty == false ? op!.title : panel.title }
-    var status: JobStatus { op?.status ?? panel.status }
-    var hpd: Double { op?.hpd ?? panel.hpd }
-    var startDate: Date? { (op?.start ?? panel.start).asDate }
-    var endDate: Date? { (op?.end ?? panel.end).asDate }
-}
+// `TaskAssignment` lives in Services/NavigationTypes — AppState returns it.
 
 // MARK: - TaskCardV1
 // Task-prominent card. Top row carries the task's department tag + job ID +

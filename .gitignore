@@ -28,3 +28,8 @@ xcuserdata/
 
 # Netlify
 .netlify/
+
+# macOS native shell build output
+TRAQS MacBook Native/.build/
+TRAQS MacBook Native/*.xcodeproj/project.xcworkspace/
+TRAQS MacBook Native/*.xcodeproj/xcuserdata/
