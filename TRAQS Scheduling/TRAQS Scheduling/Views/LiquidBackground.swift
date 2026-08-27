@@ -53,11 +53,24 @@ enum LiquidTuning {
     /// Weight the hue ladder toward the accent (~56/22/22).
     static let primaryWeighted: Bool = true
 
+    /// How much of the wash actually lands behind pages, 0…1. A flat multiplier
+    /// on the finished blob layer, applied AFTER `thickness` and the blur — so
+    /// unlike turning `thickness` down, it takes colour out without letting the
+    /// blur widen and dissolve the two shapes back into haze.
+    ///
+    /// Reach for this when the wash is the right LOOK but too present; reach for
+    /// `thickness` when it's the pigment itself that's wrong.
+    static let pageOpacity: Double = 0.49
+
     /// Behind pages: noticeable drift without competing with content.
     static let pageEnergy: Double = 3.0
     /// How far the blob hues are pushed toward full colour. See
     /// `LiquidBackground.saturation`.
-    static let saturation: Double = 0.45
+    ///
+    /// PAGE only. The splash pins its own value — it used to inherit this one
+    /// through `LiquidBackground`'s default, which quietly made this dial the
+    /// whole app's despite the note above saying otherwise.
+    static let saturation: Double = 0.30
 }
 
 // MARK: Colour maths (ports of hexToHsl / hslToHex / companionHue)
@@ -234,6 +247,9 @@ struct LiquidBackground: View {
     var color: String? = nil
     /// Painted behind the blobs so the wash works on any ground.
     var base: AnyShapeStyle? = nil
+    /// Strength of the WASH — the blob layer only. `base` is deliberately outside
+    /// it: the ground is the page's paint, not part of the effect, and fading it
+    /// would let whatever sits behind PageBackground show through.
     var opacity: Double = 1
     /// Density of the wash. 1 = the web's values; above that the blobs carry
     /// more pigment and blur less, so the colour reads as body rather than haze.
@@ -260,7 +276,12 @@ struct LiquidBackground: View {
     /// Applied AFTER the companion/tertiary maths, never before, so the derived
     /// hues are still worked out from the accent as the user chose it and the
     /// warm/cool family rule still holds.
-    var saturation: Double = LiquidTuning.saturation
+    ///
+    /// Both call sites pass their own — this default is just a sane middle for a
+    /// third. It is deliberately NOT `LiquidTuning.saturation`: that is the page
+    /// canvas's dial, and defaulting to it silently dragged the splash along
+    /// whenever the page was retuned.
+    var saturation: Double = 0.45
     /// Pairs the accent with the DEEPER derived tone (`tertiary`) instead of
     /// the lighter `companion`. With only two blobs there's no ladder left to
     /// weight, so this became a straight choice of partner: tertiary gives the
@@ -360,16 +381,18 @@ struct LiquidBackground: View {
             let W = geo.size.width, H = geo.size.height
             ZStack(alignment: .topLeading) {
                 if let base { Rectangle().fill(base) }
-                ForEach(specs) { s in
-                    let w = W * s.w, h = H * s.h
-                    let x = s.leading.map { $0 * W } ?? (W - (s.trailing ?? 0) * W - w)
-                    blob(s, w: w, h: h)
-                        .offset(x: x, y: s.top * H)
+                ZStack(alignment: .topLeading) {
+                    ForEach(specs) { s in
+                        let w = W * s.w, h = H * s.h
+                        let x = s.leading.map { $0 * W } ?? (W - (s.trailing ?? 0) * W - w)
+                        blob(s, w: w, h: h)
+                            .offset(x: x, y: s.top * H)
+                    }
                 }
+                .opacity(opacity)
             }
             .frame(width: W, height: H)
         }
-        .opacity(opacity)
         .clipped()
         .allowsHitTesting(false)
     }

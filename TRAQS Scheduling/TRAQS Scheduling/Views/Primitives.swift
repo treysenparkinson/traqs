@@ -926,6 +926,7 @@ struct PageBackground: View {
             // tertiary tones derived inside LiquidBackground — all three stay in
             // the accent's own warm/cool family, so the wash can't clash with it.
             LiquidBackground(base: AmbientCanvas.ground(light: themeSettings.isLightTheme),
+                             opacity: LiquidTuning.pageOpacity,
                              thickness: LiquidTuning.thickness,
                              energy: LiquidTuning.pageEnergy,
                              blobScale: LiquidTuning.blobScale,
@@ -1158,9 +1159,59 @@ extension View {
     func frostedPill(rim: Bool = true) -> some View {
         modifier(FrostedPill(rim: rim))
     }
+    /// The frosted treatment for a sheet that runs OFF the bottom of the screen:
+    /// rounded at the top two corners, square at the bottom.
+    ///
+    /// Fills the view's own frame, so the view has to REACH the bottom edge —
+    /// don't reserve space above a floating tab pill and expect the fill to
+    /// stretch into it. Let the scroll area run full height and pad its content
+    /// instead (see MessagesView).
+    func frostedSheetTop(radius: CGFloat = T.cornerLg) -> some View {
+        modifier(FrostedSheetTop(radius: radius))
+    }
     /// Real frosted glass, for modal surfaces. See `GlassPanel`.
     func glassPanel(radius: CGFloat = 46) -> some View {
         modifier(GlassPanel(radius: radius))
+    }
+}
+
+// ── FrostedSheetTop: a frosted panel anchored to the bottom of the screen ──
+//
+// One continuous surface with only its TOP corners rounded — the shape a list
+// takes when it fills the rest of the page rather than sitting in it as a card.
+// Contrast with `frostedPill`, which gives every row its own floating shape.
+//
+// No stroke, deliberately. A hairline on a sheet this size would draw a line
+// straight across the bottom of the screen, and the top edge is already legible
+// from the material change alone.
+struct FrostedSheetTop: ViewModifier {
+    @Environment(ThemeSettings.self) private var theme
+    var radius: CGFloat = T.cornerLg
+
+    private var shape: UnevenRoundedRectangle {
+        UnevenRoundedRectangle(topLeadingRadius: radius,
+                               bottomLeadingRadius: 0,
+                               bottomTrailingRadius: 0,
+                               topTrailingRadius: radius,
+                               style: .continuous)
+    }
+
+    func body(content: Content) -> some View {
+        // Same observation FrostedCard needs: glassFill() reads the T.* globals,
+        // which SwiftUI cannot see as dependencies, so a live Customize change
+        // would otherwise leave this surface stale.
+        _ = theme.bgPresetId; _ = theme.accent; _ = theme.frostedGlass
+        return content
+            // The content lives INSIDE the sheet, so it has to be cut to the same
+            // shape. A ScrollView clips to its own rectangular bounds, which
+            // leaves the two top corners uncovered: rows and their separator
+            // hairlines kept drawing square into the curve and spilled past it.
+            .clipShape(shape)
+            .background(alignment: .top) {
+                shape
+                    .glassFill()
+                    .allowsHitTesting(false)
+            }
     }
 }
 

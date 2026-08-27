@@ -70,7 +70,7 @@ struct SplashView: View {
             // them was tried and the splash lost its punch — a full-bleed, heavier
             // wash is what reads in 2.4s, where the page needs to stay quiet
             // behind content all day.
-            LiquidBackground(thickness: 1.6, energy: 3.4)
+            LiquidBackground(thickness: 1.6, energy: 3.4, saturation: 0.45)
                 .ignoresSafeArea()
                 .opacity(poolIn ? 1 : 0)
 
