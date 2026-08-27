@@ -33,86 +33,70 @@ extension View {
     func shakeIfChanged(_ token: Int) -> some View { modifier(ShakeIfChanged(token: token)) }
 }
 
-// MARK: - Sync status indicator (Phase 6, STEP 4)
+// MARK: - Sync status mark
 //
-// Silent when everything is healthy (renders nothing). Shows a small colored dot
-// only when there's something worth surfacing. Tapping expands a one-line status
-// message; there's no dismissable alert — if the user can't act on it, we don't
-// nag. States come from AppState.syncBadge (network reachability + Ably state +
-// sync-in-flight + recent failure), debounced upstream so it doesn't flicker.
+// A very small glyph beside the wordmark. Silent when everything is healthy —
+// it renders nothing at all, which is most of the time.
+//
+// Replaces a floating capsule that sat under the header and spelled the state
+// out in words ("Reconnecting…", "Sync problem — will retry"). A sentence is a
+// lot of chrome for something the user cannot act on, and it moved the eye away
+// from the page. Connection state is ambient, so it reads as a mark on the
+// brand lockup rather than as a notice.
+//
+// States come from AppState.syncBadge, debounced upstream so it can't flicker:
+//   • offline / error → wifi with an exclamation, pulsing (something is wrong)
+//   • reconnecting    → plain wifi, pulsing (it is working on it)
+//   • reconnected     → a check, steady, for the ~2s the flash lasts
+//   • syncing/hidden  → nothing
 
-struct SyncStatusDot: View {
+struct SyncStatusMark: View {
     @Environment(AppState.self) private var appState
-    @State private var expanded = false
-    @State private var collapseTask: Task<Void, Never>?
+    /// Drives the breathing. Only ever animated for the two pulsing states, so
+    /// nothing is left running once the mark goes quiet.
+    @State private var dim = false
 
     var body: some View {
         let badge = appState.syncBadge
         Group {
-            if badge != .hidden {
-                content(for: badge)
-                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+            switch badge {
+            case .offline, .error:
+                mark("wifi.exclamationmark", Color(hex: T.red), "Offline — changes won't sync")
+                    .opacity(dim ? 0.3 : 1)
+            case .reconnecting:
+                mark("wifi", Color(hex: T.amber), "Reconnecting")
+                    .opacity(dim ? 0.25 : 1)
+            case .reconnected:
+                mark("checkmark", Color(hex: T.green), "Connected")
+            case .syncing, .hidden:
+                EmptyView()
             }
         }
         .animation(.easeInOut(duration: 0.25), value: badge)
-        // Reset the expanded label whenever the state changes.
-        .onChange(of: badge) { _, _ in expanded = false }
+        .onChange(of: badge, initial: true) { _, now in setPulse(for: now) }
     }
 
-    @ViewBuilder
-    private func content(for badge: AppState.SyncBadge) -> some View {
-        let showText = expanded || badge == .reconnected   // reconnected auto-announces
-        HStack(spacing: 6) {
-            if badge == .syncing {
-                ProgressView().scaleEffect(0.6).frame(width: 10, height: 10)
-            } else {
-                Circle().fill(color(for: badge)).frame(width: 8, height: 8)
-                    .shadow(color: color(for: badge).opacity(0.5), radius: 3)
+    private func mark(_ symbol: String, _ color: Color, _ label: String) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 11, weight: .bold))
+            .foregroundStyle(color)
+            .accessibilityLabel(label)
+            .transition(.opacity.combined(with: .scale(scale: 0.8)))
+    }
+
+    /// Start the breathing for the two unsettled states, stop it otherwise.
+    ///
+    /// `repeatForever` really does mean forever, so it has to be turned off
+    /// explicitly — left running behind a hidden mark it would keep the view
+    /// re-rendering for the life of the app.
+    private func setPulse(for badge: AppState.SyncBadge) {
+        let pulsing = badge == .offline || badge == .error || badge == .reconnecting
+        if pulsing {
+            withAnimation(.easeInOut(duration: 0.75).repeatForever(autoreverses: true)) {
+                dim = true
             }
-            if showText, let msg = message(for: badge) {
-                Text(msg)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-            }
-        }
-        .padding(.horizontal, showText ? 10 : 7)
-        .padding(.vertical, 5)
-        .glassSurface(in: Capsule(), tint: 0)
-        .overlay(Capsule().strokeBorder(color(for: badge).opacity(0.25), lineWidth: 1))
-        .contentShape(Capsule())
-        .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
-            scheduleCollapse()
-        }
-    }
-
-    private func scheduleCollapse() {
-        collapseTask?.cancel()
-        guard expanded else { return }
-        collapseTask = Task {
-            try? await Task.sleep(nanoseconds: 4_000_000_000)
-            guard !Task.isCancelled else { return }
-            await MainActor.run { withAnimation { expanded = false } }
-        }
-    }
-
-    private func color(for badge: AppState.SyncBadge) -> Color {
-        switch badge {
-        case .reconnected:  return .green
-        case .reconnecting: return .orange
-        case .offline, .error: return .red
-        case .syncing, .hidden: return .secondary
-        }
-    }
-
-    private func message(for badge: AppState.SyncBadge) -> String? {
-        switch badge {
-        case .reconnected:  return "Reconnected"
-        case .reconnecting: return "Reconnecting…"
-        case .offline:      return "Offline — changes won't sync"
-        case .error:        return "Sync problem — will retry"
-        case .syncing, .hidden: return nil
+        } else {
+            withAnimation(.easeInOut(duration: 0.2)) { dim = false }
         }
     }
 }
