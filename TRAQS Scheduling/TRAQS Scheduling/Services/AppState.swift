@@ -36,11 +36,17 @@ class AppState {
     /// Non-nil while a message thread is open. The overlay header window observes
     /// this to show/hide and to render the current thread's back button.
     var activeMessageThread: ThreadContext? = nil
-    /// True while a full-screen attachment viewer is presented. The overlay header
-    /// window sits above the app's normal window level, so it would otherwise
-    /// float over the viewer and cover QuickLook's Done button — the controller
-    /// hides the header while this is set, and restores it on dismiss.
-    var attachmentViewerPresented = false
+    /// True while ANY modal owns the screen above an open thread.
+    ///
+    /// The overlay header lives in its own UIWindow one level ABOVE the app's, so
+    /// nothing presented normally can cover it: the header keeps floating over the
+    /// modal, and its back button still pops the navigation stack underneath. The
+    /// controller hides the header while this is set, and restores it on dismiss.
+    ///
+    /// This started life as `attachmentViewerPresented`, gating only QuickLook —
+    /// which is why the add-people picker inherited exactly the same bug the flag
+    /// existed to fix. Every modal presented from inside a thread must set it.
+    var threadModalPresented = false
     /// Members popover open/close. Shared here (not @State) because the toggle
     /// comes from the header in the overlay WINDOW, while the popover renders in
     /// ThreadDetailView's own (main-window) view tree.
@@ -1019,15 +1025,20 @@ class AppState {
 
     /// Finish requests this user may act on — anyone who can approve work.
     ///
-    /// Job-level only: `finishRequests` lives on Job alone, and FinishRequestEntry
-    /// carries no panel/op reference, so which sub-unit a request came from isn't
-    /// recoverable from the model. requestTaskCompletion appends to the JOB even
-    /// when the worker tapped a specific op — the context is only in the chat
-    /// message it posts. Surfacing the job is therefore the honest granularity;
-    /// showing a panel name here would mean inventing one.
+    /// Walks the WHOLE tree, not just the job. `finishRequests` used to be
+    /// modelled on Job alone, which is why this said the sub-unit "isn't
+    /// recoverable from the model" — it now lives on Panel and Operation too, so
+    /// a request raised against one op is both findable and actionable at the
+    /// level it was raised.
     struct PendingFinish: Identifiable {
         let job: Job
         let request: FinishRequestEntry
+        /// nil/nil = the whole job. Passed straight to approve/deny so the
+        /// decision resolves the same item the request sits on.
+        var panelId: String? = nil
+        var opId: String? = nil
+        /// "Panel › Op", or empty for a job-level request.
+        var contextLabel: String = ""
         var id: String { request.id }
     }
 
@@ -1043,6 +1054,19 @@ class AppState {
         for job in jobs {
             for r in job.finishRequests ?? [] where r.status == "pending" {
                 out.append(PendingFinish(job: job, request: r))
+            }
+            for panel in job.subs {
+                for r in panel.finishRequests ?? [] where r.status == "pending" {
+                    out.append(PendingFinish(job: job, request: r, panelId: panel.id,
+                                             contextLabel: panel.title))
+                }
+                for op in panel.subs {
+                    for r in op.finishRequests ?? [] where r.status == "pending" {
+                        out.append(PendingFinish(job: job, request: r, panelId: panel.id,
+                                                 opId: op.id,
+                                                 contextLabel: "\(panel.title) › \(op.title)"))
+                    }
+                }
             }
         }
         return out.sorted { $0.request.at > $1.request.at }
@@ -1199,6 +1223,47 @@ class AppState {
     /// refused — no permission, the job isn't loaded, or the request is already
     /// resolved — and the caller should say so rather than leave the buttons
     /// sitting there as if nothing happened.
+
+    // MARK: Completion requests — reading and writing the RIGHT item
+
+    /// The entries for a request, from the item it was raised against: sub-op,
+    /// else panel, else the job. See `CompletionRequestRules.target` — a
+    /// task-level request does not live on the job, so approve/deny/undo used to
+    /// look it up on `job.finishRequests`, find nothing, and refuse.
+    private func finishEntries(_ job: Job, _ panelId: String?, _ opId: String?) -> [FinishRequestEntry]? {
+        CompletionRequestRules.target(job: job, panelId: panelId, opId: opId).entries
+    }
+
+    /// Write resolved entries back to that same item, and clear the pending
+    /// stamp/flag the web clears alongside them.
+    private func applyFinishEntries(_ job: inout Job, _ panelId: String?, _ opId: String?,
+                                    _ entries: [FinishRequestEntry]) {
+        guard let panelId else {
+            job.finishRequest = nil
+            job.finishRequests = entries
+            return
+        }
+        job.subs = job.subs.map { p in
+            guard p.id == panelId else { return p }
+            var p = p
+            guard let opId else {
+                p.finishRequest = nil
+                p.pendingFinish = false
+                p.finishRequests = entries
+                return p
+            }
+            p.subs = p.subs.map { o in
+                guard o.id == opId else { return o }
+                var o = o
+                o.finishRequest = nil
+                o.pendingFinish = false
+                o.finishRequests = entries
+                return o
+            }
+            return p
+        }
+    }
+
     @discardableResult
     func approveJobCompletion(jobId: String, panelId: String? = nil, opId: String? = nil, requestId: String) async -> Bool {
         guard can(.approveCompletions), let me = currentPerson, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return false }
@@ -1208,7 +1273,7 @@ class AppState {
         // resolved request would re-finish the tree and re-fire the resolution
         // notification. See CompletionRequestRules.
         guard let resolved = CompletionRequestRules.applyDecision(
-            to: job.finishRequests, requestId: requestId, newStatus: "approved",
+            to: finishEntries(job, panelId, opId), requestId: requestId, newStatus: "approved",
             allowedFrom: ["pending"], resolvedBy: me.id, resolvedByName: me.name, resolvedAt: now)
         else { return false }
         if let panelId {
@@ -1234,8 +1299,7 @@ class AppState {
                 return p
             }
         }
-        job.finishRequest = nil
-        job.finishRequests = resolved
+        applyFinishEntries(&job, panelId, opId, resolved)
         updateJob(job)
         cacheJobLocally(job)
         await notifyCompletionResolution(job: job, requestId: requestId, outcome: "approved")
@@ -1250,11 +1314,10 @@ class AppState {
         let now = Date.nowISO()
         var job = jobs[idx]
         guard let resolved = CompletionRequestRules.applyDecision(
-            to: job.finishRequests, requestId: requestId, newStatus: "declined",
+            to: finishEntries(job, panelId, opId), requestId: requestId, newStatus: "declined",
             allowedFrom: ["pending"], resolvedBy: me.id, resolvedByName: me.name, resolvedAt: now)
         else { return false }
-        job.finishRequest = nil
-        job.finishRequests = resolved
+        applyFinishEntries(&job, panelId, opId, resolved)
         updateJob(job)
         cacheJobLocally(job)
         await notifyCompletionResolution(job: job, requestId: requestId, outcome: "declined")
@@ -1271,7 +1334,7 @@ class AppState {
         guard let me = currentPerson, me.isAdmin, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return false }
         var job = jobs[idx]
         guard let reopened = CompletionRequestRules.applyDecision(
-            to: job.finishRequests, requestId: requestId, newStatus: "pending",
+            to: finishEntries(job, panelId, opId), requestId: requestId, newStatus: "pending",
             allowedFrom: ["approved"], resolvedBy: nil, resolvedByName: nil, resolvedAt: nil)
         else { return false }
         if let panelId {
@@ -1298,9 +1361,31 @@ class AppState {
                 return p
             }
         }
-        job.finishRequests = reopened
-        if panelId == nil, let entry = job.finishRequests?.first(where: { $0.id == requestId }) {
-            job.finishRequest = FinishRequestStamp(requestId: entry.id, by: entry.by, byName: entry.byName, at: entry.at)
+        applyFinishEntries(&job, panelId, opId, reopened)
+        // Re-arm the pending stamp on whichever item the request belongs to, so
+        // the reopened request reads as pending again to the web, which checks
+        // the stamp as well as the row.
+        if let entry = reopened.first(where: { $0.id == requestId }) {
+            let stamp = FinishRequestStamp(requestId: entry.id, by: entry.by,
+                                           byName: entry.byName, at: entry.at)
+            if let panelId {
+                job.subs = job.subs.map { p in
+                    guard p.id == panelId else { return p }
+                    var p = p
+                    if let opId {
+                        p.subs = p.subs.map { o in
+                            guard o.id == opId else { return o }
+                            var o = o; o.finishRequest = stamp; o.pendingFinish = true; return o
+                        }
+                    } else {
+                        p.finishRequest = stamp
+                        p.pendingFinish = true
+                    }
+                    return p
+                }
+            } else {
+                job.finishRequest = stamp
+            }
         }
         // If the whole job is in the past (overdue), pull it forward so it lands
         // back on the current schedule — a reopened past-dated job is otherwise

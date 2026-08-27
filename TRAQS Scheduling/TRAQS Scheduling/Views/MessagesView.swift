@@ -32,6 +32,10 @@ struct MessagesView: View {
     @State private var showSearch = false
     @FocusState private var searchFocused: Bool
 
+    /// How far the thread list has scrolled from ITS OWN top, in points. Drives
+    /// the title collapse below — nothing else reads it.
+    @State private var listScrollY: CGFloat = 0
+
     // Bulk-select / delete state. When `selectMode` is on, rows render
     // a checkbox indicator instead of navigating on tap, and the top
     // bar swaps its icons for [Done, Delete].
@@ -262,8 +266,15 @@ struct MessagesView: View {
                     }
                     .animation(.easeInOut(duration: 0.18), value: selectMode)
 
-                    PageTitle(title: "Messages")
+                    PageTitle(title: "Messages",
+                              size: titleSize,
+                              tracking: titleTracking)
                         .padding(.bottom, 6)
+                        // No animation modifier, deliberately. The size is a pure
+                        // function of the live scroll offset, so it already tracks
+                        // the finger — animating it would make the title lag
+                        // behind the list it is supposed to be moving with.
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                     if showSearch {
                         SearchBar(text: $searchText,
@@ -291,37 +302,61 @@ struct MessagesView: View {
                                 ChatEmptyState(filter: filter)
                                     .padding(.top, 80)
                             } else {
-                                // No title — you're on the Messages tab looking at
-                                // a list of threads, so "Inbox" only restated it.
-                                // The row stays for MARK ALL READ.
-                                TSectionTitle(title: "",
-                                              action: "MARK ALL READ",
-                                              onAction: { appState.markAllThreadsRead() })
-                                // Lazy: only on-screen rows build (each row pays an
-                                // avatar decode + frosted-pill shadow pass).
-                                LazyVStack(spacing: 12) {
+                                // Straight to the threads: no section title (you're
+                                // on the Messages tab looking at a list of threads,
+                                // so "Inbox" only restated it) and no MARK ALL READ
+                                // row. The sheet's rounded lip is the list's header
+                                // now.
+                                //
+                                // Lazy: only on-screen rows build (each row pays
+                                // an avatar decode).
+                                //
+                                // Flat rows on ONE sheet, not a stack of frosted
+                                // pills. Every row carrying its own shape and
+                                // shadow made the inbox read as a pile of cards
+                                // to look AT; threads are a list you scan down,
+                                // so they share a surface and are separated by a
+                                // hairline. Full-bleed too — the row's own
+                                // padding is the margin now.
+                                LazyVStack(spacing: 0) {
                                     ForEach(threads) { t in
+                                        // Between rows only: no line above the
+                                        // first (it would sit just under the
+                                        // sheet's rounded lip) or below the last.
+                                        if t.id != threads.first?.id { threadDivider }
                                         threadRow(t)
-                                            // rim: false — inbox rows are a list,
-                                            // not cards to look at.
-                                            .frostedPill(rim: false)
                                     }
                                 }
-                                .padding(.horizontal, 16)
-                                .padding(.bottom, 24)
+                                .padding(.bottom, listBottomClearance)
                             }
                         }
                         .animation(.easeInOut(duration: 0.18), value: filter)
                     }
                     .scrollIndicators(.visible)
+                    // The one input to the collapse: distance scrolled from the
+                    // top of the threads. `contentInsets.top` is added back so a
+                    // list sitting at rest reads as exactly 0 whether or not the
+                    // search bar is showing above it.
+                    .onScrollGeometryChange(for: CGFloat.self) { geo in
+                        geo.contentOffset.y + geo.contentInsets.top
+                    } action: { _, y in
+                        listScrollY = y
+                    }
                     .topFadeMask()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    // The list is a sheet anchored to the bottom of the page:
+                    // rounded lip at the top, running clean off the bottom edge.
+                    .frostedSheetTop()
+                    // …which it can only do if the scroll area itself reaches
+                    // that edge. This page used to reserve room for the floating
+                    // tab pill with a safeAreaInset, which stopped the sheet
+                    // short and left a band of bare page showing between it and
+                    // the pill. The pill floats OVER the list now (as the design
+                    // has it), the home indicator's inset is ignored too so the
+                    // frost bleeds to the physical edge, and the clearance both
+                    // used to buy is `listBottomClearance` on the content.
+                    .ignoresSafeArea(.container, edges: .bottom)
                 }
-            }
-            // Reserve space INSIDE the NavigationStack so the inbox ends at the
-            // top of the floating nav pill (an outer inset is absorbed here).
-            .safeAreaInset(edge: .bottom) {
-                Color.clear.frame(height: appNav.hideTabBar ? 0 : tabPillBottomInset)
             }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: String.self) { key in
@@ -462,6 +497,60 @@ struct MessagesView: View {
         appNav.pendingDeepLink = nil
     }
 
+    // MARK: Collapsing title
+    //
+    // The title gives up its height to the list as you scroll INTO the threads,
+    // and takes it back as you return to the top. Nothing else drives it: not a
+    // page offset, not the header — only how far the list has scrolled from its
+    // own first row, which is why the sheet's lip and the title move as one.
+
+    /// Full size, at rest. `PageTitle`'s own default.
+    private let titleSizeFull: CGFloat = 56
+    /// Collapsed size. Still clearly the page's title, just well out of the way —
+    /// this is the dial for how much of the list the collapse buys back (~34pt
+    /// of line height, plus the leading that comes off with it).
+    private let titleSizeSmall: CGFloat = 22
+    /// Scroll distance the whole transition happens over. Short on purpose: the
+    /// title should be out of the way almost as soon as you commit to scrolling,
+    /// and back at full size only when you're genuinely near the top again.
+    private let titleCollapseDistance: CGFloat = 64
+
+    /// 0 = list at its top, title full size · 1 = fully collapsed.
+    private var titleCollapse: CGFloat {
+        min(1, max(0, listScrollY / titleCollapseDistance))
+    }
+
+    private var titleSize: CGFloat {
+        titleSizeFull + (titleSizeSmall - titleSizeFull) * titleCollapse
+    }
+
+    /// Tracking is absolute in points, so the -4 that reads as tight at 56pt is
+    /// nearly twice as tight at 30. Scaling it with the size keeps the collapsed
+    /// title looking like the same typeface rather than a condensed one — the
+    /// same correction `ThreadTopBar` makes for its own title.
+    private var titleTracking: CGFloat {
+        -4 * (titleSize / titleSizeFull)
+    }
+
+    /// Room after the last thread. The list now runs under the floating tab
+    /// pill and the home indicator rather than stopping above them, so this is
+    /// what keeps the final row reachable — it replaces the `safeAreaInset` this
+    /// page used to reserve.
+    ///
+    /// `tabPillBottomInset` already covers the pill and its offset from the
+    /// bottom edge; with the bar hidden only the home indicator is left to clear.
+    private var listBottomClearance: CGFloat {
+        (appNav.hideTabBar ? 40 : tabPillBottomInset) + 24
+    }
+
+    /// The hairline between two threads. Full-bleed, matching the sheet — an
+    /// inset divider would imply the avatar column is a separate gutter.
+    private var threadDivider: some View {
+        Rectangle()
+            .fill(Color(hex: T.hair).opacity(0.55))
+            .frame(height: 1)
+    }
+
     /// Renders a single inbox row, switching between navigation mode and
     /// select-mode tap-to-toggle. Extracted so the ForEach above stays
     /// readable and the row's two modes share the same ChannelRow.
@@ -474,12 +563,14 @@ struct MessagesView: View {
                 else { selectedKeys.insert(t.key) }
             } label: {
                 ChannelRow(thread: t, people: appState.people,
+                           groups: appState.groups,
                            selectMode: true, isSelected: isSelected)
             }
             .buttonStyle(.plain)
         } else {
             NavigationLink(value: t.key) {
                 ChannelRow(thread: t, people: appState.people,
+                           groups: appState.groups,
                            selectMode: false, isSelected: false)
             }
             .buttonStyle(.plain)
@@ -522,8 +613,19 @@ struct MessagesView: View {
 private struct ChannelRow: View {
     let thread: MessageThread
     let people: [Person]
+    /// Needed to show a group's FULL membership rather than only the people who
+    /// have spoken in it — see `ThreadRoster`.
+    let groups: [ChatGroup]
     var selectMode: Bool = false
     var isSelected: Bool = false
+
+    /// The row's identity mark. One constant because a DM avatar, a group's
+    /// stack and the unknown-thread fallback all have to line up in the same
+    /// column — they drifted apart when this was written out four times.
+    private let avatarSize: CGFloat = 52
+    /// Each face in a group's cluster. Smaller than a DM's single avatar because
+    /// three of them overlap into a mark of roughly the same weight.
+    private let stackAvatarSize: CGFloat = 30
 
     private var subtitle: String {
         thread.lastMessage.map { $0.text } ?? ""
@@ -531,11 +633,7 @@ private struct ChannelRow: View {
     private var avatarColor: Color {
         Color(hex: thread.lastMessage?.authorColor ?? T.muted)
     }
-    private var initials: String {
-        let name = thread.displayTitle
-        let parts = name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
-        return parts.joined()
-    }
+    private var initials: String { Initials.from(thread.displayTitle) }
 
     /// The DM partner — the member who isn't me, resolved from the
     /// `dm:<id>_<id>` key so we can show their real photo/color even before
@@ -547,22 +645,20 @@ private struct ChannelRow: View {
         return people.first(where: { $0.id == otherId })
     }
 
-    private func personInitials(_ name: String) -> String {
-        name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }.joined()
-    }
+    private func personInitials(_ name: String) -> String { Initials.from(name) }
 
-    /// Unique participants in this thread, derived from message authorIds.
-    /// Stable order by first appearance so the avatar stack doesn't shuffle
-    /// across re-renders.
+    /// Everyone in this thread — the SAME resolution the thread header uses.
+    ///
+    /// This used to walk `thread.messages` and collect `authorId`s, which meant
+    /// a group's stack showed one avatar per person who had SPOKEN, not per
+    /// member. A crew of four where only one person had posted rendered a single
+    /// circle; opening the thread then showed all four, because the header
+    /// resolved the group properly. `ThreadRoster` is now the one answer.
     private var participants: [Person] {
-        var seen = Set<String>()
-        var ordered: [Person] = []
-        for m in thread.messages {
-            guard !m.authorId.isEmpty, seen.insert(m.authorId).inserted,
-                  let p = people.first(where: { $0.id == m.authorId }) else { continue }
-            ordered.append(p)
-        }
-        return ordered
+        ThreadRoster.participants(threadKey: thread.key,
+                                  messages: thread.messages,
+                                  people: people,
+                                  groups: groups)
     }
 
     /// Date the last message was sent, shown top-right of the row.
@@ -589,27 +685,27 @@ private struct ChannelRow: View {
                 // A DM shows the OTHER person's real avatar — their photo if set,
                 // otherwise their preferred color — so it's clearly a 1:1 chat.
                 if let p = dmPartner {
-                    Avatar(initials: personInitials(p.name), size: 46,
+                    Avatar(initials: personInitials(p.name), size: avatarSize,
                            fill: .personFill(p.color), imageData: p.image)
                 } else {
-                    Avatar(initials: initials, size: 46, gradient: true)
+                    Avatar(initials: initials, size: avatarSize, gradient: true)
                 }
             } else if !participants.isEmpty {
                 ParticipantStack(people: participants,
-                                 avatarSize: 26,
+                                 avatarSize: stackAvatarSize,
                                  maxShown: 3)
-                    // minWidth, NOT width: three 26pt avatars are wider than 46,
-                    // and a fixed frame doesn't clip — the cluster simply spilled
-                    // out of it and sat on top of the thread title. A minimum keeps
-                    // group rows aligned with the 46pt DM avatar while letting a
-                    // "+N" cluster take the room it needs.
-                    .frame(minWidth: 46, alignment: .leading)
+                    // minWidth, NOT width: three overlapping avatars are wider
+                    // than one, and a fixed frame doesn't clip — the cluster simply
+                    // spilled out of it and sat on top of the thread title. A
+                    // minimum keeps group rows aligned with the DM avatar's column
+                    // while letting a "+N" cluster take the room it needs.
+                    .frame(minWidth: avatarSize, alignment: .leading)
             } else {
                 // Fallback for a thread with no decodable participants
                 // (e.g. server returned messages whose authorIds don't
                 // match any person we know about — shouldn't normally
                 // happen, but keeps the row from rendering blank).
-                Avatar(initials: "#", size: 46, gradient: true)
+                Avatar(initials: "#", size: avatarSize, gradient: true)
             }
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -644,8 +740,14 @@ private struct ChannelRow: View {
             }
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 18)
-        .contentShape(Capsule())
+        // The row's height, and the main dial for how substantial the list feels.
+        // Went 18 → 14 when the pills became flat rows (that padding had been
+        // buying each pill its body), which read as too thin once the hairlines
+        // were doing the separating — so back up past where it started.
+        .padding(.vertical, 20)
+        // Rectangle, not Capsule: the row is square now, and a capsule hit area
+        // would leave its corners dead.
+        .contentShape(Rectangle())
     }
 }
 
@@ -712,6 +814,9 @@ struct MessageThread: Identifiable {
 
 struct ThreadDetailView: View {
     @Environment(AppState.self) private var appState
+    /// Only for `modalBlur` — a popup presented as its own cover can't blur the
+    /// page behind it, so MainTabView does it on the popup's behalf.
+    @Environment(AppNav.self) private var appNav
     @Environment(\.dismiss) private var dismiss
     let threadKey: String
     /// Open another thread (used when adding people to a DM spins up a group).
@@ -722,7 +827,7 @@ struct ThreadDetailView: View {
     @State private var sendError: String? = nil
     @State private var sendShakeToken = 0      // bumped on send failure → shakes the composer
     @State private var myMessageIds: Set<String> = []
-    @State private var showAddPeople = false            // add-people multi-select sheet?
+    @State private var showAddPeople = false            // add/edit-members popup?
     @State private var peopleListHeight: CGFloat = 0     // measured pill-stack height
 
     // Composer focus — used to re-pin the scroll to the bottom when the
@@ -989,19 +1094,19 @@ struct ThreadDetailView: View {
     /// - Job/panel/op: union of authors and participantIds from messages so
     ///   far (best-effort — the desktop doesn't carry membership on those
     ///   scopes either; this matches who's actually been involved).
+    /// The header's roster. Shares `ThreadRoster` with the inbox row so the
+    /// stack you tap is the stack you land on — they disagreed before, which is
+    /// how the row's missing avatars went unnoticed here.
+    ///
+    /// One behaviour change in the move: the fallback tier used to build a `Set`
+    /// of ids, so its order was whatever hashing produced and the header's
+    /// avatars could reshuffle between renders. `ThreadRoster` keeps first
+    /// appearance.
     private var threadParticipants: [Person] {
-        if threadKey.hasPrefix("dm:") {
-            let ids = String(threadKey.dropFirst(3)).components(separatedBy: "_")
-            return ids.compactMap { id in appState.people.first(where: { $0.id == id }) }
-        }
-        if threadKey.hasPrefix("group:") {
-            let ref = String(threadKey.dropFirst(6))
-            if let g = appState.groups.first(where: { $0.id == ref || $0.name == ref }) {
-                return g.memberIds.compactMap { id in appState.people.first(where: { $0.id == id }) }
-            }
-        }
-        let ids = Set(liveMessages.flatMap { [$0.authorId] + $0.participantIds })
-        return ids.compactMap { id in appState.people.first(where: { $0.id == id }) }
+        ThreadRoster.participants(threadKey: threadKey,
+                                  messages: liveMessages,
+                                  people: appState.people,
+                                  groups: appState.groups)
     }
 
     var body: some View {
@@ -1271,22 +1376,33 @@ struct ThreadDetailView: View {
         // its ▾ is tapped. Rendered here in the main window; toggled via the
         // shared appState.showThreadMembers flag from the overlay header.
         .overlay { peoplePopoverOverlay }
-        // A group thread gets the full Edit Group sheet — rename, add AND remove.
+        // A group thread gets the full Edit Group popup — rename, add AND remove.
         // Anything else (a DM spinning up a group) keeps the add-only picker, since
         // there's no group to edit yet.
-        .sheet(isPresented: $showAddPeople) {
-            if let group = editableGroup {
-                EditGroupSheet(group: group) { name, memberIds in
-                    Task { await appState.updateGroup(id: group.id, name: name, memberIds: memberIds) }
+        //
+        // A COVER, not a sheet, and for the same two reasons NewMessageSheet is
+        // one. Picking a name or two never warranted a whole SCREEN sliding up
+        // over the conversation; and a popup needs the full screen with a clear
+        // background so it can draw its own scrim and glass card rather than
+        // inherit a system sheet's.
+        .fullScreenCover(isPresented: $showAddPeople) {
+            Group {
+                if let group = editableGroup {
+                    EditGroupPopup(group: group) { name, memberIds in
+                        Task { await appState.updateGroup(id: group.id, name: name, memberIds: memberIds) }
+                    }
+                } else {
+                    AddPeoplePopup(excludedIds: Set(threadParticipants.map { $0.id })) { ids in
+                        addPeople(ids)
+                    }
                 }
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-            } else {
-                AddPeopleSheet(excludedIds: Set(threadParticipants.map { $0.id })) { ids in
-                    addPeople(ids)
-                }
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
+            }
+            // Covers every exit — the X, a scrim tap, and a successful save (which
+            // dismisses itself). Restoring the header here rather than at each one
+            // is what keeps it from being left hidden by a path we forgot about.
+            .onDisappear {
+                appNav.modalBlur = false
+                appState.threadModalPresented = false
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -1334,7 +1450,7 @@ struct ThreadDetailView: View {
     //
     // FAB-style popout from the header: the thread's people slide out as pills
     // (staggered spring), with an "Add person" pill below. Tapping it presents
-    // AddPeopleSheet (search + multi-select + Add). Open state lives in
+    // AddPeoplePopup (search + multi-select + Add). Open state lives in
     // appState.showThreadMembers because the ▾ toggle comes from the overlay
     // window's header, while this popover renders in the main-window view tree.
     /// Blur is only as tall as the pill stack (+ a soft fade tail).
@@ -1371,7 +1487,7 @@ struct ThreadDetailView: View {
                     }
                     // Add-person pill sits below the roster (reveals last).
                     if canAddPeople {
-                        AddPersonPill(isGroup: editableGroup != nil) { showAddPeople = true }
+                        AddPersonPill(isGroup: editableGroup != nil) { openAddPeople() }
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                             .animation(.spring(response: 0.32, dampingFraction: 0.74)
                                         .delay(Double(people.count) * 0.05), value: appState.showThreadMembers)
@@ -1390,6 +1506,27 @@ struct ThreadDetailView: View {
         .onPreferenceChange(PeopleListHeightKey.self) { peopleListHeight = $0 }
     }
 
+    /// Open the add/edit-members popup.
+    ///
+    /// Two things have to happen alongside the flag, and BOTH were the bug:
+    ///
+    /// * `threadModalPresented` stands the overlay header window down. That
+    ///   window outranks any normal presentation, so without this the thread's
+    ///   header stayed stranded on top of the picker — and its back button, which
+    ///   pops the navigation stack, read as "cancel" and took you out of the
+    ///   thread entirely instead of out of the picker.
+    /// * `modalBlur` blurs the page behind. The popup is its own presentation and
+    ///   so cannot blur the page itself.
+    ///
+    /// Animations off for the presentation, so the cover doesn't ALSO slide up
+    /// from the bottom under a card that springs in at the centre under its own
+    /// steam — the same transaction NewMessageSheet is presented in.
+    private func openAddPeople() {
+        appState.threadModalPresented = true
+        appNav.modalBlur = true
+        withTransaction(Transaction.noAnimation) { showAddPeople = true }
+    }
+
     /// Adding people is supported for group chats (append members) and DMs
     /// (spin up a group). Job/panel/op membership comes from the job team.
     private var canAddPeople: Bool {
@@ -1406,7 +1543,7 @@ struct ThreadDetailView: View {
 
     /// Add the picked people. Group → append + persist. DM → spin up a group
     /// from the pair + picks and open it (the original DM stays intact).
-    /// DM only. A group thread goes through EditGroupSheet instead, which SETS the
+    /// DM only. A group thread goes through EditGroupPopup instead, which SETS the
     /// roster (so it can remove people) and can rename — hence no group branch here.
     private func addPeople(_ ids: [String]) {
         guard !ids.isEmpty, threadKey.hasPrefix("dm:") else { return }
@@ -1424,9 +1561,7 @@ struct ThreadDetailView: View {
     /// Readable auto-name for a group spun up from a DM: comma-joined first
     /// names, truncated with "+N" past three.
 
-    private func personInitials(_ name: String) -> String {
-        name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }.joined()
-    }
+    private func personInitials(_ name: String) -> String { Initials.from(name) }
 
     /// Thumbnail (image) or doc chip (file) for the pending attachment, with a
     /// remove button. Tapping the paperclip again re-opens the source dialog.
@@ -1695,12 +1830,12 @@ private struct AttachmentBubble: View {
     var body: some View {
         Button {
             // Hide the overlay header window so it doesn't float over the viewer.
-            appState.attachmentViewerPresented = true
+            appState.threadModalPresented = true
             showViewer = true
         } label: { thumbnail }
             .buttonStyle(.plain)
             .fullScreenCover(isPresented: $showViewer,
-                             onDismiss: { appState.attachmentViewerPresented = false }) {
+                             onDismiss: { appState.threadModalPresented = false }) {
                 AttachmentViewer(attachment: attachment)
             }
     }
@@ -1868,7 +2003,7 @@ struct MessageBubble: View {
                 if isMe { Spacer(minLength: 40) }
 
                 if !isMe {
-                    Avatar(initials: String(message.authorName.prefix(1)).uppercased(),
+                    Avatar(initials: Initials.from(message.authorName),
                            size: 28, gradient: true,
                            imageData: appState.people.first { $0.id == message.authorId }?.image)
                 }
@@ -2141,18 +2276,23 @@ struct CompletionRequestBubble: View {
     @State private var busy = false
 
     private var job: Job? { appState.jobs.first { $0.id == message.jobId } }
+    /// The item the request was actually raised against — sub-op, else panel,
+    /// else the job. NOT always the job: see `CompletionRequestRules.target`.
+    private var target: CompletionRequestRules.TargetState {
+        CompletionRequestRules.target(job: job, panelId: message.panelId, opId: message.opId)
+    }
     private var entry: FinishRequestEntry? {
         guard let id = message.finishRequestId else { return nil }
-        return job?.finishRequests?.first { $0.id == id }
+        return target.entries?.first { $0.id == id }
     }
-    /// `nil` = genuinely NOT KNOWN — the job isn't loaded, or this request isn't
-    /// in its history. Deliberately optional: this used to default to "pending",
-    /// which meant an already-approved request rendered live Approve/Deny
-    /// buttons any time its job was momentarily missing (a failed save rolls the
-    /// whole `jobs` array back), so it could be resolved over and over.
+    /// `nil` = genuinely NOT KNOWN — the item isn't loaded, or carries nothing
+    /// about this request. Deliberately optional: this used to default to
+    /// "pending", which meant an already-approved request rendered live
+    /// Approve/Deny buttons any time its job was momentarily missing (a failed
+    /// save rolls the whole `jobs` array back), so it could be resolved over and
+    /// over.
     private var status: String? {
-        CompletionRequestRules.displayStatus(entries: job?.finishRequests,
-                                             requestId: message.finishRequestId)
+        CompletionRequestRules.status(target: target, requestId: message.finishRequestId)
     }
     /// Actions are offered ONLY for a request we know is pending.
     private var pending: Bool { CompletionRequestRules.isActionable(status) }
@@ -2305,10 +2445,7 @@ struct ThreadTopBar: View {
 
     /// Initials for the DM's single leading avatar, derived from the title
     /// (which already resolves to the other person's name).
-    private var titleInitials: String {
-        let parts = title.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
-        return parts.joined()
-    }
+    private var titleInitials: String { Initials.from(title) }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -2402,12 +2539,7 @@ private struct ParticipantStack: View {
         }
     }
 
-    private func initials(_ name: String) -> String {
-        name.split(separator: " ")
-            .prefix(2)
-            .map { String($0.prefix(1)).uppercased() }
-            .joined()
-    }
+    private func initials(_ name: String) -> String { Initials.from(name) }
 }
 
 // MARK: - Header popover pills
@@ -2463,11 +2595,11 @@ private struct AddPersonPill: View {
     }
 }
 
-// MARK: - Add People Sheet (search + multi-select + Add)
+// MARK: - Add People Popup (search + multi-select + Add)
 
-/// Presented from the header popover's "Add person" pill. Lists all workers
-/// not already in the thread, with a search bar and multi-select; "Add" (top
-/// right) hands the picked ids back to the caller.
+/// Presented from the header popover's "Add person" pill. Lists every worker not
+/// already in the thread, with search and multi-select; the CTA hands the picked
+/// ids back to the caller.
 // MARK: - Member picker grid
 //
 // The 3-up grid of square person cards shared by New Group and Edit Group, so the
@@ -2532,20 +2664,23 @@ struct MemberPickerGrid: View {
         .buttonStyle(.plain)
     }
 
-    static func initials(_ p: Person) -> String {
-        let parts = p.name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
-        let j = parts.joined()
-        return j.isEmpty ? "?" : j
-    }
+    static func initials(_ p: Person) -> String { Initials.from(p) }
 }
 
-// MARK: - Edit Group Sheet
+// MARK: - Edit Group Popup
 //
 // iOS parity with the web's Edit Group modal: rename the group and add OR REMOVE
-// members. Group threads previously only had AddPeopleSheet, which could add and
-// nothing else — no rename, no removal.
-struct EditGroupSheet: View {
+// members. Group threads previously only had the add-only picker, which could add
+// and nothing else — no rename, no removal.
+//
+// A glass popup, not the full screen it used to slide up: this is reached from a
+// pill in the thread's own header, and taking the whole conversation away to
+// tick two names never matched the size of the job.
+struct EditGroupPopup: View {
     @Environment(AppState.self) private var appState
+    /// Observed so the Save button's LABEL colour follows its paint when the
+    /// frosted-glass toggle flips.
+    @Environment(ThemeSettings.self) private var theme
     @Environment(\.dismiss) private var dismiss
 
     let group: ChatGroup
@@ -2556,6 +2691,8 @@ struct EditGroupSheet: View {
     @State private var selectedIds: Set<String>
     @State private var showLeaveConfirm = false
     @State private var showDeleteConfirm = false
+    /// Drives the entrance spring — see `modalPopAnimation`.
+    @State private var appear = false
 
     init(group: ChatGroup, onSave: @escaping (String, [String]) -> Void) {
         self.group = group
@@ -2576,143 +2713,190 @@ struct EditGroupSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                PageBackground()
+        observeTheme
+        return ZStack {
+            // Tap out to cancel: nothing is persisted until Save.
+            ModalScrim { close() }
+            card.modalPop(appear)
+        }
+        .presentationBackground(.clear)
+        .onAppear { withAnimation(modalPopAnimation) { appear = true } }
+        .confirmationDialog("Leave this group?", isPresented: $showLeaveConfirm, titleVisibility: .visible) {
+            Button("Leave", role: .destructive) {
+                guard let me = appState.currentPersonId else { return }
+                close { Task { await appState.removeGroupMember(groupId: group.id, personId: me) } }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("You'll stop receiving messages from this group.")
+        }
+        .confirmationDialog("Delete this group?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                close { Task { await appState.deleteGroup(id: group.id) } }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This removes the group for everyone in it.")
+        }
+    }
 
-                ScrollView {
-                    VStack(spacing: 24) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack(spacing: 6) {
-                                Text("Group Name")
-                                    .font(.caption.bold())
-                                    .foregroundColor(Color(hex: T.muted))
-                                Text("OPTIONAL")
-                                    .font(.caption2.bold())
-                                    .foregroundColor(Color(hex: T.muted).opacity(0.7))
-                            }
-                            .padding(.horizontal, 16)
+    // MARK: Card
 
-                            TextField(namePlaceholder, text: $name)
-                                .textFieldStyle(.plain)
-                                .foregroundColor(Color(hex: T.text))
-                                .padding(12)
-                                .glassSurface(in: RoundedRectangle(cornerRadius: T.cornerSm), rim: true)
-                                .padding(.horizontal, 16)
+    private var card: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Edit Group")
+                .font(TTypo.h3(20))
+                .foregroundStyle(Color(hex: T.ink))
 
-                            Text("Clear it to go back to naming the group after its members.")
-                                .font(TTypo.xs(11))
-                                .foregroundColor(Color(hex: T.muted))
-                                .padding(.horizontal, 16)
+            // See AddPeoplePopup — HugScroll, never ViewThatFits, because this
+            // card holds a text field.
+            HugScroll {
+                VStack(alignment: .leading, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Text("GROUP NAME")
+                                .font(TTypo.xsBold(10))
+                                .tracking(1)
+                                .foregroundStyle(Color(hex: T.muted))
+                            Text("OPTIONAL")
+                                .font(TTypo.xsBold(10))
+                                .tracking(1)
+                                .foregroundStyle(Color(hex: T.muted).opacity(0.7))
                         }
-                        .padding(.top, 12)
 
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Members")
-                                .font(.caption.bold())
-                                .foregroundColor(Color(hex: T.muted))
-                                .padding(.horizontal, 16)
+                        TextField(namePlaceholder, text: $name)
+                            .textFieldStyle(.plain)
+                            .font(TTypo.smBold(14))
+                            .foregroundStyle(Color(hex: T.ink))
+                            .padding(.horizontal, 16).padding(.vertical, 12)
+                            .background(Capsule(style: .continuous).fill(Color(hex: T.surface)))
+                            .overlay(Capsule(style: .continuous).strokeBorder(Color(hex: T.hair), lineWidth: 1))
 
-                            MemberPickerGrid(people: others, selectedIds: $selectedIds)
-                                .padding(.horizontal, 16)
-                        }
+                        Text("Clear it to go back to naming the group after its members.")
+                            .font(TTypo.xs(11))
+                            .foregroundStyle(Color(hex: T.muted))
+                    }
 
-                        Button {
-                            guard !selectedIds.isEmpty else { return }
-                            // The viewer stays a member whether or not they're in
-                            // selectedIds — they're never listed in the grid.
-                            var members = Array(selectedIds)
-                            if let me = appState.currentPersonId, !members.contains(me) {
-                                members.insert(me, at: 0)
-                            }
-                            dismiss()
-                            onSave(name.trimmingCharacters(in: .whitespaces), members)
-                        } label: {
-                            Text("Save Changes")
-                                .fontWeight(.semibold)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 14)
-                                .background(selectedIds.isEmpty ? Color(hex: T.border) : Color(hex: T.accent))
-                                .foregroundColor(T.onAccent)
-                                .cornerRadius(T.cornerSm)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(selectedIds.isEmpty)
-                        .padding(.horizontal, 16)
-
-                        // Leaving and deleting were the two gaps: renaming and
-                        // roster edits already lived above, but there was no way
-                        // to get OUT of a group or remove one entirely.
-                        VStack(spacing: 10) {
-                            Button {
-                                showLeaveConfirm = true
-                            } label: {
-                                Label("Leave Group", systemImage: "rectangle.portrait.and.arrow.right")
-                                    .font(TTypo.smBold(14))
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
-                                    .foregroundColor(Color(hex: T.amber))
-                            }
-                            .buttonStyle(.plain)
-
-                            if appState.canAdministerGroup(group) {
-                                Button {
-                                    showDeleteConfirm = true
-                                } label: {
-                                    Label("Delete Group", systemImage: "trash")
-                                        .font(TTypo.smBold(14))
-                                        .frame(maxWidth: .infinity)
-                                        .padding(.vertical, 12)
-                                        .foregroundColor(Color(hex: T.danger))
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.bottom, 24)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("MEMBERS")
+                            .font(TTypo.xsBold(10))
+                            .tracking(1)
+                            .foregroundStyle(Color(hex: T.muted))
+                        MemberPickerGrid(people: others, selectedIds: $selectedIds)
                     }
                 }
             }
-            .confirmationDialog("Leave this group?", isPresented: $showLeaveConfirm, titleVisibility: .visible) {
-                Button("Leave", role: .destructive) {
-                    guard let me = appState.currentPersonId else { return }
-                    dismiss()
-                    Task { await appState.removeGroupMember(groupId: group.id, personId: me) }
+
+            saveButton
+
+            // Leaving and deleting stay at the foot of the card. They're the two
+            // things you can't do anywhere else, so they travel with the roster
+            // rather than being dropped in the move off a full screen.
+            VStack(spacing: 2) {
+                Button { showLeaveConfirm = true } label: {
+                    Label("Leave Group", systemImage: "rectangle.portrait.and.arrow.right")
+                        .font(TTypo.smBold(14))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .foregroundStyle(Color(hex: T.amber))
                 }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("You'll stop receiving messages from this group.")
-            }
-            .confirmationDialog("Delete this group?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
-                Button("Delete", role: .destructive) {
-                    dismiss()
-                    Task { await appState.deleteGroup(id: group.id) }
-                }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("This removes the group for everyone in it.")
-            }
-            .navigationTitle("Edit Group")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundColor(Color(hex: T.accent))
+                .buttonStyle(.plain)
+
+                if appState.canAdministerGroup(group) {
+                    Button { showDeleteConfirm = true } label: {
+                        Label("Delete Group", systemImage: "trash")
+                            .font(TTypo.smBold(14))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .foregroundStyle(Color(hex: T.danger))
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         }
+        .padding(T.insetHero)
+        .padding(.top, 46)   // headroom for the cancel X
+        .frame(maxWidth: 380)
+        .glassPanel()
+        .overlay(alignment: .topLeading) { cancelX }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 40)
     }
+
+    private var saveButton: some View {
+        Button {
+            guard !selectedIds.isEmpty else { return }
+            // The viewer stays a member whether or not they're in selectedIds —
+            // they're never listed in the grid.
+            var members = Array(selectedIds)
+            if let me = appState.currentPersonId, !members.contains(me) {
+                members.insert(me, at: 0)
+            }
+            let trimmed = name.trimmingCharacters(in: .whitespaces)
+            close { onSave(trimmed, members) }
+        } label: {
+            let enabled = !selectedIds.isEmpty
+            let shape = RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous)
+            let label = Text("Save Changes")
+                .font(TTypo.smBold(15))
+                .foregroundStyle(enabled ? glassCTALabel() : T.onGradient)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+
+            Group {
+                if enabled {
+                    label.glassCTA(in: shape)
+                } else {
+                    label.background(shape.fill(Color(hex: T.muted).opacity(0.5)))
+                }
+            }
+            .shadow(color: Color(hex: T.ctaGlowColor).opacity(enabled ? T.ctaGlowOpacity : 0),
+                    radius: T.ctaGlowRadius, x: 0, y: T.ctaGlowY)
+            .opacity(enabled ? 1 : 0.7)
+        }
+        .buttonStyle(.plain)
+        .disabled(selectedIds.isEmpty)
+        .animation(.easeInOut(duration: 0.18), value: selectedIds.isEmpty)
+    }
+
+    private var cancelX: some View {
+        Button { close() } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Color(hex: T.ink))
+                .frame(width: 36, height: 36)
+                .glassEffect(.regular.interactive(), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .padding(18)
+    }
+
+    /// See AddPeoplePopup.close — same exit, same reason for the noAnimation.
+    private func close(then finish: @escaping () -> Void = {}) {
+        modalPopDismiss({ appear = $0 }) {
+            withTransaction(Transaction.noAnimation) { dismiss() }
+            finish()
+        }
+    }
+
+    private var observeTheme: Void { _ = theme.frostedGlass; _ = theme.accent }
 }
 
-struct AddPeopleSheet: View {
+struct AddPeoplePopup: View {
     @Environment(AppState.self) private var appState
+    /// Observed so the Add button's LABEL colour follows its paint when the
+    /// frosted-glass toggle flips — see NewMessageSheet's note on the same button.
+    @Environment(ThemeSettings.self) private var theme
     @Environment(\.dismiss) private var dismiss
     let excludedIds: Set<String>
     let onAdd: ([String]) -> Void
 
     @State private var selected: Set<String> = []
     @State private var search = ""
+    @State private var searchFocusedFlag = false
     @FocusState private var searchFocused: Bool
+    /// Drives the entrance spring — see `modalPopAnimation`.
+    @State private var appear = false
 
     private var candidates: [Person] {
         appState.people
@@ -2724,90 +2908,152 @@ struct AddPeopleSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                PageBackground()
+        observeTheme
+        return ZStack {
+            // Tap out to cancel: nothing has happened yet, the people are only
+            // added from the CTA. The thread behind is blurred by MainTabView via
+            // appNav.modalBlur — this cover is its own presentation and so can't
+            // blur the page itself.
+            ModalScrim { close() }
+            card.modalPop(appear)
+        }
+        .presentationBackground(.clear)   // let the conversation show through
+        .onAppear { withAnimation(modalPopAnimation) { appear = true } }
+    }
 
-                VStack(spacing: 0) {
-                    SearchBar(text: $search,
-                              placeholder: "Search workers…",
-                              focused: $searchFocused,
-                              onCancel: { search = "" })
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .padding(.bottom, 6)
+    // MARK: Card
 
-                    ScrollView {
-                        VStack(spacing: 10) {
-                            ForEach(candidates) { p in
-                                Button { toggle(p.id) } label: { row(p) }
-                                    .buttonStyle(.plain)
-                            }
-                            if candidates.isEmpty {
-                                Text(search.isEmpty ? "No one left to add." : "No matches.")
-                                    .font(TTypo.sm(13))
-                                    .foregroundStyle(Color(hex: T.muted))
-                                    .padding(.top, 40)
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 4)
-                        .padding(.bottom, 24)
+    private var card: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text("Add People")
+                .font(TTypo.h3(20))
+                .foregroundStyle(Color(hex: T.ink))
+
+            // Sized to its content, scrolling only once the roster can't fit, so
+            // the popup is exactly as tall as it needs to be.
+            //
+            // `HugScroll`, NOT `ViewThatFits`: this card holds a text field, and a
+            // ViewThatFits flips branches the moment the keyboard changes the
+            // offered height, which rebuilds the field and drops its focus. See
+            // "Popups that hold a text field" in Primitives.
+            HugScroll {
+                VStack(alignment: .leading, spacing: 12) {
+                    searchPill
+                    // The same 3-up grid New Message and Edit Group use, not the
+                    // full-width rows this was: rows were sized for a whole screen
+                    // and only three of them fit a popup.
+                    MemberPickerGrid(people: candidates, selectedIds: $selected)
+                    if candidates.isEmpty {
+                        Text(search.isEmpty ? "No one left to add." : "No matches.")
+                            .font(TTypo.sm(13))
+                            .foregroundStyle(Color(hex: T.muted))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 20)
                     }
-                    .scrollIndicators(.visible)
                 }
             }
-            .navigationTitle("Add People")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .foregroundColor(Color(hex: T.accent))
+
+            addButton
+        }
+        .padding(T.insetHero)
+        // Headroom for the cancel X — the same 46pt every other popup reserves, so
+        // the title clears a 36pt button inset 18pt from a 46pt corner.
+        .padding(.top, 46)
+        .frame(maxWidth: 380)
+        .glassPanel()
+        .overlay(alignment: .topLeading) { cancelX }
+        .padding(.horizontal, 24)
+        // Room top and bottom so a tall roster can't reach the screen edges; the
+        // HugScroll above starts scrolling before it gets there.
+        .padding(.vertical, 40)
+    }
+
+    private var searchPill: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color(hex: T.muted))
+            TextField("Search workers", text: $search)
+                .textFieldStyle(.plain)
+                .font(TTypo.sm(14))
+                .foregroundStyle(Color(hex: T.ink))
+                .focused($searchFocused)
+            if !search.isEmpty {
+                Button { search = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(Color(hex: T.muted))
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(selected.isEmpty ? "Add" : "Add (\(selected.count))") {
-                        onAdd(Array(selected))
-                        dismiss()
-                    }
-                    .fontWeight(.bold)
-                    .foregroundColor(selected.isEmpty ? Color(hex: T.muted) : Color(hex: T.accent))
-                    .disabled(selected.isEmpty)
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .background(Capsule(style: .continuous).fill(Color(hex: T.surface)))
+        .overlay(Capsule(style: .continuous).strokeBorder(Color(hex: T.hair), lineWidth: 1))
+    }
+
+    private var addButton: some View {
+        Button {
+            let ids = Array(selected)
+            close { onAdd(ids) }
+        } label: {
+            let enabled = !selected.isEmpty
+            let shape = RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous)
+            let label = HStack(spacing: 7) {
+                Image(systemName: "plus").font(.system(size: 15, weight: .bold))
+                Text(selected.isEmpty ? "Add" : "Add (\(selected.count))").font(TTypo.smBold(15))
+            }
+            .foregroundStyle(enabled ? glassCTALabel() : T.onGradient)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+
+            Group {
+                if enabled {
+                    label.glassCTA(in: shape)
+                } else {
+                    // Disabled = muted grey, not progressTrack: that chart token is
+                    // near-white on light presets, which leaves this invisible.
+                    label.background(shape.fill(Color(hex: T.muted).opacity(0.5)))
                 }
             }
+            .shadow(color: Color(hex: T.ctaGlowColor).opacity(enabled ? T.ctaGlowOpacity : 0),
+                    radius: T.ctaGlowRadius, x: 0, y: T.ctaGlowY)
+            .opacity(enabled ? 1 : 0.7)
+        }
+        .buttonStyle(.plain)
+        .disabled(selected.isEmpty)
+        .animation(.easeInOut(duration: 0.18), value: selected.isEmpty)
+    }
+
+    /// Cancel, anchored INSIDE the card's top-left (attached after the glass but
+    /// before the outer padding, so it sits on the card rather than floating out
+    /// in the backdrop).
+    private var cancelX: some View {
+        Button { close() } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(Color(hex: T.ink))
+                .frame(width: 36, height: 36)
+                .glassEffect(.regular.interactive(), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .padding(18)
+    }
+
+    /// The shared modal exit: shrink and fade, and only once that has actually
+    /// finished let the presenter tear the cover down. The teardown is wrapped in
+    /// `.noAnimation` for the same reason the presentation is — otherwise the
+    /// cover slides back DOWN over a card that has already faded itself out.
+    private func close(then finish: @escaping () -> Void = {}) {
+        modalPopDismiss({ appear = $0 }) {
+            withTransaction(Transaction.noAnimation) { dismiss() }
+            finish()
         }
     }
 
-    private func toggle(_ id: String) {
-        if selected.contains(id) { selected.remove(id) } else { selected.insert(id) }
-    }
-
-    private func row(_ p: Person) -> some View {
-        let isOn = selected.contains(p.id)
-        return HStack(spacing: 12) {
-            Circle()
-                .fill(Color(hex: p.color))
-                .frame(width: 40, height: 40)
-                .overlay(Text(String(p.name.prefix(1)).uppercased())
-                    .font(.subheadline.bold()).foregroundColor(Color(hex: p.color).readableText))
-            VStack(alignment: .leading, spacing: 2) {
-                Text(p.name).font(TTypo.smBold(15)).foregroundStyle(Color(hex: T.ink)).lineLimit(1)
-                if !p.role.isEmpty {
-                    Text(p.role).font(TTypo.xs(12)).foregroundStyle(Color(hex: T.muted)).lineLimit(1)
-                }
-            }
-            Spacer(minLength: 8)
-            Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
-                .font(.system(size: 22))
-                .foregroundStyle(isOn ? Color(hex: T.sky) : Color(hex: T.muted))
-        }
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.card)))
-        .overlay(RoundedRectangle(cornerRadius: T.cornerMd)
-            .stroke(isOn ? Color(hex: T.sky).opacity(0.5) : Color(hex: T.hair), lineWidth: 1))
-        .contentShape(Rectangle())
-    }
+    /// Touched in `body` so a live frosted-glass flip re-renders the Add button's
+    /// label colour. See the property.
+    private var observeTheme: Void { _ = theme.frostedGlass; _ = theme.accent }
 }
 
 // MARK: - New Group Sheet
@@ -2962,7 +3208,7 @@ struct NewDMSheet: View {
                                     .fill(Color(hex: person.color))
                                     .frame(width: 36, height: 36)
                                     .overlay(
-                                        Text(String(person.name.prefix(1)).uppercased())
+                                        Text(Initials.from(person))
                                             .font(.subheadline.bold())
                                             .foregroundColor(Color(hex: person.color).readableText)
                                     )

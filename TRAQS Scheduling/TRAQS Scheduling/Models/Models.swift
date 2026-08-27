@@ -9,6 +9,24 @@ extension KeyedDecodingContainer {
         return String(try decode(Int.self, forKey: key))
     }
 
+    /// Optional sibling of `decodeFlexID`: nil when the key is absent, null, or
+    /// holds neither a String nor an Int.
+    ///
+    /// Its absence is why every OPTIONAL id in this file was written as
+    /// `try? decodeIfPresent(String.self, …)`, which looks tolerant and is not:
+    /// a numeric id doesn't decode as a String, it THROWS, and the `try?` turns
+    /// that into a silent nil. The field then reads as "no such id" rather than
+    /// as the id it plainly is — see `Message.jobId`, where it cost the chat's
+    /// Approve/Deny buttons.
+    ///
+    /// Strictly more permissive than the strict decode it replaces: everything
+    /// that decoded before still decodes, plus Ints.
+    func decodeFlexIDIfPresent(forKey key: Key) -> String? {
+        if let s = try? decode(String.self, forKey: key) { return s }
+        if let i = try? decode(Int.self, forKey: key) { return String(i) }
+        return nil
+    }
+
     /// Decodes an array where each element may be String or Int, returning [String].
     func decodeFlexIDs(forKey key: Key) -> [String] {
         if let arr = try? decode([String].self, forKey: key) { return arr }
@@ -98,6 +116,17 @@ struct Operation: Codable, Identifiable, Equatable {
     var moveLog: [MoveLogEntry]?
     var pid: String?
     var pendingFinish: Bool?
+    /// Completion requests raised against THIS op.
+    ///
+    /// The web writes `finishRequest`/`finishRequests` onto the item that was
+    /// actually requested, at whatever depth it sits (`addFinishReq` in
+    /// TRAQS.jsx matches `item.id === itemId` recursively). Modelling them only
+    /// on `Job` meant every task-level request was invisible to iOS — the chat
+    /// card could not learn it was pending, so it offered no Approve/Deny and no
+    /// Undo — AND was silently STRIPPED whenever iOS saved the job, since
+    /// Codable's synthesised encode only writes what the struct models.
+    var finishRequest: FinishRequestStamp?
+    var finishRequests: [FinishRequestEntry]?
     /// Hours logged against this operation — written by the desktop's
     /// `jobClockOut` handler each time someone stops their timer on this op.
     var loggedHours: Double?
@@ -118,8 +147,10 @@ struct Operation: Codable, Identifiable, Equatable {
         deps   = (try? c.decode([String].self, forKey: .deps)) ?? []
         locked       = try? c.decodeIfPresent(Bool.self, forKey: .locked)
         moveLog      = try? c.decodeIfPresent([MoveLogEntry].self, forKey: .moveLog)
-        pid          = try? c.decodeIfPresent(String.self, forKey: .pid)
+        pid          = c.decodeFlexIDIfPresent(forKey: .pid)
         pendingFinish = try? c.decodeIfPresent(Bool.self, forKey: .pendingFinish)
+        finishRequest  = try? c.decodeIfPresent(FinishRequestStamp.self, forKey: .finishRequest)
+        finishRequests = try? c.decodeIfPresent([FinishRequestEntry].self, forKey: .finishRequests)
         loggedHours  = try? c.decodeIfPresent(Double.self, forKey: .loggedHours)
     }
 
@@ -157,10 +188,10 @@ struct PanelAttachment: Codable, Identifiable, Equatable {
         filename       = (try? c.decode(String.self, forKey: .filename)) ?? ""
         mimeType       = try? c.decodeIfPresent(String.self, forKey: .mimeType)
         size           = try? c.decodeIfPresent(Int.self, forKey: .size)
-        uploadedById   = try? c.decodeIfPresent(String.self, forKey: .uploadedById)
+        uploadedById   = c.decodeFlexIDIfPresent(forKey: .uploadedById)
         uploadedByName = try? c.decodeIfPresent(String.self, forKey: .uploadedByName)
         uploadedAt     = try? c.decodeIfPresent(String.self, forKey: .uploadedAt)
-        opId           = try? c.decodeIfPresent(String.self, forKey: .opId)
+        opId           = c.decodeFlexIDIfPresent(forKey: .opId)
     }
 }
 
@@ -182,6 +213,11 @@ struct Panel: Codable, Identifiable, Equatable {
     /// Photos / files attached to this panel (e.g. the clock-out photo of the
     /// finished panel). Mirrors the web app's `panel.attachments`.
     var attachments: [PanelAttachment] = []
+    /// Completion requests raised against THIS panel — see `Operation.finishRequests`
+    /// for why they have to be modelled here and not only on `Job`.
+    var pendingFinish: Bool?
+    var finishRequest: FinishRequestStamp?
+    var finishRequests: [FinishRequestEntry]?
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -200,6 +236,9 @@ struct Panel: Codable, Identifiable, Equatable {
         engineering = try? c.decodeIfPresent(Engineering.self, forKey: .engineering)
         subs        = (try? c.decode([Operation].self, forKey: .subs)) ?? []
         attachments = (try? c.decode([PanelAttachment].self, forKey: .attachments)) ?? []
+        pendingFinish  = try? c.decodeIfPresent(Bool.self, forKey: .pendingFinish)
+        finishRequest  = try? c.decodeIfPresent(FinishRequestStamp.self, forKey: .finishRequest)
+        finishRequests = try? c.decodeIfPresent([FinishRequestEntry].self, forKey: .finishRequests)
     }
 
     static func == (lhs: Panel, rhs: Panel) -> Bool { lhs.id == rhs.id }
@@ -306,10 +345,10 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
         notes     = (try? c.decode(String.self, forKey: .notes)) ?? ""
         deps      = (try? c.decode([String].self, forKey: .deps)) ?? []
         subs      = (try? c.decode([Panel].self, forKey: .subs)) ?? []
-        jobNumber = try? c.decodeIfPresent(String.self, forKey: .jobNumber)
+        jobNumber = c.decodeFlexIDIfPresent(forKey: .jobNumber)
         poNumber  = try? c.decodeIfPresent(String.self, forKey: .poNumber)
         dueDate   = try? c.decodeIfPresent(String.self, forKey: .dueDate)
-        clientId  = try? c.decodeIfPresent(String.self, forKey: .clientId)
+        clientId  = c.decodeFlexIDIfPresent(forKey: .clientId)
         moveLog   = try? c.decodeIfPresent([MoveLogEntry].self, forKey: .moveLog)
         jobType   = try? c.decodeIfPresent(String.self, forKey: .jobType)
         loggedHours = try? c.decodeIfPresent(Double.self, forKey: .loggedHours)
@@ -889,9 +928,20 @@ struct Message: Codable, Identifiable, Equatable {
         id             = try c.decode(String.self, forKey: .id)
         threadKey      = (try? c.decode(String.self, forKey: .threadKey)) ?? ""
         scope          = (try? c.decode(String.self, forKey: .scope)) ?? "job"
-        jobId          = try? c.decodeIfPresent(String.self, forKey: .jobId)
-        panelId        = try? c.decodeIfPresent(String.self, forKey: .panelId)
-        opId           = try? c.decodeIfPresent(String.self, forKey: .opId)
+        // Flex-decoded, and this is load-bearing. The web writes these
+        // straight off the job/panel/op (`jobId: parentJob.id` in TRAQS.jsx,
+        // `jobId, panelId, opId` in timeclock.js) WITHOUT the `String(…)` it
+        // applies to authorId, so a numeric job id arrives as a number. Decoded
+        // strictly, jobId came back nil, `jobs.first { $0.id == message.jobId }`
+        // never matched, and CompletionRequestBubble could not know the request
+        // was pending — so it rendered no Approve/Deny at all.
+        //
+        // panelId/opId matter for the same reason once level-by-level: they pick
+        // the SCOPE of the decision, so a numeric panelId silently downgraded a
+        // task-level approval into a job-level one.
+        jobId          = c.decodeFlexIDIfPresent(forKey: .jobId)
+        panelId        = c.decodeFlexIDIfPresent(forKey: .panelId)
+        opId           = c.decodeFlexIDIfPresent(forKey: .opId)
         text           = (try? c.decode(String.self, forKey: .text)) ?? ""
         authorId       = (try? c.decodeFlexID(forKey: .authorId)) ?? ""
         authorName     = (try? c.decode(String.self, forKey: .authorName)) ?? ""
@@ -900,13 +950,13 @@ struct Message: Codable, Identifiable, Equatable {
         attachments    = (try? c.decode([Attachment].self, forKey: .attachments)) ?? []
         timestamp      = (try? c.decode(String.self, forKey: .timestamp)) ?? ""
         type             = try? c.decodeIfPresent(String.self, forKey: .type)
-        timeOffRequestId = try? c.decodeIfPresent(String.self, forKey: .timeOffRequestId)
+        timeOffRequestId = c.decodeFlexIDIfPresent(forKey: .timeOffRequestId)
         toType           = try? c.decodeIfPresent(String.self, forKey: .toType)
         toStart          = try? c.decodeIfPresent(String.self, forKey: .toStart)
         toEnd            = try? c.decodeIfPresent(String.self, forKey: .toEnd)
         toNote           = try? c.decodeIfPresent(String.self, forKey: .toNote)
         toPersonName     = try? c.decodeIfPresent(String.self, forKey: .toPersonName)
-        finishRequestId  = try? c.decodeIfPresent(String.self, forKey: .finishRequestId)
+        finishRequestId  = c.decodeFlexIDIfPresent(forKey: .finishRequestId)
     }
 }
 

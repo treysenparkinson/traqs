@@ -26,6 +26,14 @@ struct FinishRequestRow: View {
                     .font(TTypo.smBold(15))
                     .foregroundStyle(Color(hex: T.ink))
                     .lineLimit(2)
+                if !item.contextLabel.isEmpty {
+                    // Which panel/op this was raised against. Job-level requests
+                    // have none, and this stays out of their way.
+                    Text(item.contextLabel)
+                        .font(TTypo.xs(12))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .lineLimit(1)
+                }
                 Text("\(item.request.byName) · \(relativeAt)")
                     .font(TTypo.xs(11))
                     .foregroundStyle(Color(hex: T.muted))
@@ -92,7 +100,9 @@ struct FinishRequestRow: View {
     private func approve() {
         busy = true
         Task {
-            await appState.approveJobCompletion(jobId: item.job.id, requestId: item.request.id)
+            await appState.approveJobCompletion(jobId: item.job.id,
+                                                panelId: item.panelId, opId: item.opId,
+                                                requestId: item.request.id)
             busy = false
         }
     }
@@ -104,7 +114,9 @@ struct FinishRequestRow: View {
             // declineReason field but the iOS method never sets it. The typed reason
             // is still required before the button enables, so the decline is a
             // deliberate act; wiring it through needs the method widened.
-            await appState.denyJobCompletion(jobId: item.job.id, requestId: item.request.id)
+            await appState.denyJobCompletion(jobId: item.job.id,
+                                             panelId: item.panelId, opId: item.opId,
+                                             requestId: item.request.id)
             declining = false
             reason = ""
             busy = false

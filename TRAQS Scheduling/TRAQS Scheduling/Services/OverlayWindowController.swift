@@ -119,7 +119,7 @@ final class OverlayWindowController {
     private func track() {
         withObservationTracking {
             _ = appState.activeMessageThread
-            _ = appState.attachmentViewerPresented
+            _ = appState.threadModalPresented
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.apply()
@@ -128,10 +128,12 @@ final class OverlayWindowController {
         }
     }
 
-    /// Show the header only when a thread is open AND no full-screen attachment
-    /// viewer is up (the viewer must own the whole screen, incl. its Done button).
+    /// Show the header only when a thread is open AND nothing is presented over
+    /// it. See `AppState.threadModalPresented` — this window outranks every
+    /// normal presentation, so a modal that doesn't set that flag gets the header
+    /// stranded on top of it.
     private var headerContext: ThreadContext? {
-        appState.attachmentViewerPresented ? nil : appState.activeMessageThread
+        appState.threadModalPresented ? nil : appState.activeMessageThread
     }
 
     /// Top safe-area inset from the MAIN (key) window — stable, not the overlay's.
