@@ -26,10 +26,7 @@ struct EditProfileView: View {
     private let palette = ["#7C3AED", "#4169E1", "#0EA5E9", "#14B8A6", "#10B981",
                            "#F59E0B", "#F97316", "#EF4444", "#EC4899", "#8B5CF6"]
 
-    private var initials: String {
-        let parts = name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
-        let j = parts.joined(); return j.isEmpty ? "?" : j
-    }
+    private var initials: String { Initials.from(name) }
 
     var body: some View {
         NavigationStack {

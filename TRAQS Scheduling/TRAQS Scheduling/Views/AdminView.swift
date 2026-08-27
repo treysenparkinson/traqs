@@ -393,12 +393,7 @@ private struct PersonAvatar: View {
     let person: Person
     var statusColor: Color = .clear
 
-    private var initials: String {
-        person.name.split(separator: " ")
-            .prefix(2)
-            .map { String($0.prefix(1)).uppercased() }
-            .joined()
-    }
+    private var initials: String { Initials.from(person) }
 
     var body: some View {
         Avatar(initials: initials,

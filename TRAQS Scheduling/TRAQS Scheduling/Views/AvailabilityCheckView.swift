@@ -192,9 +192,7 @@ private func prettyDate(_ ymd: String) -> String {
     return f.string(from: d)
 }
 
-private func avatarInitials(_ name: String) -> String {
-    name.split(separator: " ").prefix(2).compactMap { $0.first }.map(String.init).joined().uppercased()
-}
+private func avatarInitials(_ name: String) -> String { Initials.from(name) }
 
 private func rangeLabel(_ r: AvailabilityResult) -> String {
     guard let s = r.start, let e = r.doneBy else { return "" }
@@ -832,9 +830,7 @@ private struct FlowChips: View {
         }
     }
 
-    private func initials(_ name: String) -> String {
-        name.split(separator: " ").prefix(2).compactMap { $0.first }.map(String.init).joined().uppercased()
-    }
+    private func initials(_ name: String) -> String { Initials.from(name) }
 }
 
 /// Minimal wrapping HStack (chips flow onto new lines when they run out of width).

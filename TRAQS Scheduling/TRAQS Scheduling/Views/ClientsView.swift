@@ -117,7 +117,7 @@ struct ClientRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Avatar(initials: String(client.name.prefix(1)).uppercased(),
+            Avatar(initials: Initials.from(client.name),
                    size: 44,
                    gradient: true)
 
@@ -171,7 +171,7 @@ struct ClientDetailView: View {
                     // ── Header (hero) card ──
                     VStack(alignment: .leading, spacing: 14) {
                         HStack(spacing: 16) {
-                            Avatar(initials: String(client.name.prefix(1)).uppercased(),
+                            Avatar(initials: Initials.from(client.name),
                                    size: 64,
                                    gradient: true)
                             VStack(alignment: .leading, spacing: 4) {

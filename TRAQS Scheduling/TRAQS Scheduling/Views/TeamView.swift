@@ -229,10 +229,7 @@ struct PersonRow: View {
         return all.filter { $0.team.contains(person.id) && $0.status != .finished }.count
     }
 
-    private func initials(_ name: String) -> String {
-        let parts = name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
-        return parts.isEmpty ? "?" : parts.joined()
-    }
+    private func initials(_ name: String) -> String { Initials.from(name) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -385,10 +382,7 @@ struct PersonDetailView: View {
         .sorted { $0.op.start < $1.op.start }
     }
 
-    private func initials(_ name: String) -> String {
-        let parts = name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
-        return parts.isEmpty ? "?" : parts.joined()
-    }
+    private func initials(_ name: String) -> String { Initials.from(name) }
 
     var body: some View {
         ZStack {
