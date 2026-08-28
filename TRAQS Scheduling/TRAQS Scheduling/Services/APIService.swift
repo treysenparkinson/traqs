@@ -664,6 +664,113 @@ struct APIService {
         return try JSONDecoder().decode(OrgInfo.self, from: data)
     }
 
+    // MARK: - Kiosk time clock (UNAUTHENTICATED)
+    //
+    // The gate's clock kiosk punches before anybody has signed in: the PIN is the
+    // credential, not a bearer token. So these cannot go through the instance
+    // methods above — `request()` attaches an Authorization header and needs a
+    // configured APIService, and at gate time there is neither.
+    //
+    // Same endpoint and the same payloads as the authenticated versions; the only
+    // difference is what is (not) on the request.
+
+    /// One unauthenticated POST to `/timeclock`, carrying only the org header.
+    private static func kioskPost<T: Encodable>(orgCode: String, _ payload: T) async throws -> Data {
+        guard let url = URL(string: "\(AppConfig.netlifyBase)/timeclock") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(orgCode, forHTTPHeaderField: "X-Org-Code")
+        req.httpBody = try JSONEncoder().encode(payload)
+        let (data, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw APIError.httpError(http.statusCode)
+        }
+        return data
+    }
+
+    /// Resolve a PIN to a person. The kiosk calls this FIRST, before any action,
+    /// so a wrong PIN fails without having changed anything.
+    static func kioskIdentify(orgCode: String, pin: String) async throws -> TimeclockIdentifyResponse {
+        let data = try await kioskPost(orgCode: orgCode, TimeclockIdentifyPayload(pin: pin))
+        return try JSONDecoder().decode(TimeclockIdentifyResponse.self, from: data)
+    }
+
+    static func kioskClockIn(orgCode: String, personId: String, pin: String) async throws {
+        _ = try await kioskPost(orgCode: orgCode,
+                                TimeclockClockInPayload(personId: personId, pin: pin, jobRefs: []))
+    }
+
+    /// `clockOut`, `lunchStart`, `lunchEnd`, `breakStart`, `breakEnd` — one shape.
+    static func kioskAction(orgCode: String, action: String,
+                            personId: String, pin: String) async throws {
+        _ = try await kioskPost(orgCode: orgCode,
+                                TimeclockSimplePayload(action: action, personId: personId, pin: pin))
+    }
+
+    /// The roster, UNAUTHENTICATED — for the kiosk, which shows faces before
+    /// anybody has logged in.
+    ///
+    /// The backend already allows this: `netlify/functions/people.js:60` reads
+    /// `try { member = await requireOrgMember(event); } catch { /* unauthenticated
+    /// kiosk */ }` — the GET path deliberately tolerates a missing token.
+    ///
+    /// Separate from the instance method `fetchPeople()`, which is authenticated
+    /// and needs a configured `APIService`. At gate time there isn't one.
+    static func fetchRoster(orgCode: String) async throws -> [Person] {
+        guard let url = URL(string: "\(AppConfig.netlifyBase)/people") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.setValue(orgCode, forHTTPHeaderField: "X-Org-Code")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw APIError.httpError(http.statusCode)
+        }
+        return try JSONDecoder().decode([Person].self, from: data)
+    }
+
+    /// Provision a new organization. `POST /org`, unauthenticated — somebody
+    /// creating an org does not belong to one yet.
+    static func createOrg(code: String, name: String,
+                          domain: String, adminEmail: String) async throws {
+        guard let url = URL(string: "\(AppConfig.netlifyBase)/org") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(
+            ["code": code, "name": name, "domain": domain, "adminEmail": adminEmail])
+        let (_, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw APIError.httpError(http.statusCode)
+        }
+    }
+
+    /// The org's FULL config, authenticated. Adds what the public `/org` does not
+    /// return — chiefly the server-set `isAdmin`.
+    ///
+    /// The STATUS is as much the answer as the body: `/org-config` requires org
+    /// membership, so a 403 or 404 here IS the membership verdict. Feed it to
+    /// `MacGateResolver.membership(status:…)` rather than comparing emails
+    /// client-side; the server already knows.
+    static func orgConfig(token: String, orgCode: String) async throws -> OrgConfigResponse {
+        guard let url = URL(string: "\(AppConfig.netlifyBase)/org-config") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue(orgCode, forHTTPHeaderField: "X-Org-Code")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw APIError.httpError(http.statusCode)
+        }
+        return try JSONDecoder().decode(OrgConfigResponse.self, from: data)
+    }
+
     /// Resolve which orgs an authenticated user belongs to, by email. Used by
     /// the mobile app after Auth0 login to skip the manual org-code prompt.
     static func lookupOrgByEmail(email: String, token: String) async throws -> [OrgMatch] {
@@ -692,6 +799,19 @@ struct OrgInfo: Decodable {
     let name: String?
     let domain: String?
     let adminEmail: String?
+    let connection: String?
+}
+
+/// `/org-config`'s body. Distinct from `OrgInfo` (the public `/org`) because the
+/// endpoint is authenticated and answers a different question: not "what is this
+/// org" but "what is this org TO ME".
+struct OrgConfigResponse: Decodable {
+    /// Server-set. `nil` means NOT ANSWERED YET, which is not the same as false —
+    /// see `MacGateResolver.membership`, where the difference decides whether the
+    /// screen flashes "not in team" at an admin.
+    let isAdmin: Bool?
+    let name: String?
+    let domain: String?
     let connection: String?
 }
 

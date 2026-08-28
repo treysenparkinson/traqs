@@ -90,6 +90,14 @@ struct WebGlyph: View {
 // Keep new ones inside that range for the same reason.
 enum WebIcon {
 
+    /// The sidebar's log-out button (TRAQS.jsx:24996). A door with an arrow
+    /// leaving it — strokeWidth 2, like the nav glyphs.
+    static let logout = GlyphSpec(elements: [
+        .path("M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"),
+        .polyline([16, 17, 21, 12, 16, 7]),
+        .line(21, 12, 9, 12),
+    ])
+
     static let dashboard = GlyphSpec(elements: [
         .path("M3 9.3L12 3l9 6.3V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"),
         .polyline([9.2, 21, 9.2, 12.8, 14.8, 12.8, 14.8, 21]),

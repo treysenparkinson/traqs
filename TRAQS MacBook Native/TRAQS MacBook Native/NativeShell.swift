@@ -85,6 +85,8 @@ enum TSettings: String, CaseIterable, Identifiable {
 struct NativeShell: View {
     @Environment(\.tqTheme) private var theme
     @Environment(AppState.self) private var appState
+    /// For the sidebar's log-out button.
+    @Environment(AuthManager.self) private var auth
 
     // Computed, not stored, so the shell TRACKS AppState. The four values these
     // replace were hardcoded defaults — a real person's name and org compiled in
@@ -106,6 +108,8 @@ struct NativeShell: View {
     @State private var settingsSection: TSettings = .general
     @State private var orgExpanded = false
     @State private var hovered: String?
+    @State private var logoutHovering = false
+    @State private var confirmLogout = false
 
     /// The PAGE HEADER cluster's morph identity space — not the sidebar's, which
     /// has no glass and no travelling indicator (see `navRow`).
@@ -154,6 +158,66 @@ struct NativeShell: View {
         }
         .background(theme.bg)
         .preferredColorScheme(theme.isDark ? .dark : .light)
+        // The web confirms before logging out (TRAQS.jsx:28537) rather than doing
+        // it on the first click, and so does this.
+        .overlay { if confirmLogout { logoutConfirm } }
+    }
+
+    /// `confirmLogout`'s dialog (TRAQS.jsx:28537).
+    ///
+    /// Note the button order, which is copied and NOT a mistake: Cancel carries
+    /// the accent gradient and Log Out is flat red. The prominent button is the
+    /// one that keeps you where you are.
+    private var logoutConfirm: some View {
+        ZStack {
+            Color.black.opacity(0.7)
+                .ignoresSafeArea()
+                .onTapGesture { confirmLogout = false }
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Log Out?")
+                    .font(TFont.body(18, 700))
+                    .foregroundStyle(theme.text)
+                    .padding(.bottom, 8)
+                Text("You are signed in as \(personName). Are you sure you want to log out?")
+                    .font(TFont.body(14))
+                    .foregroundStyle(theme.textSec)
+                    .lineSpacing(14 * 0.6)          // lineHeight 1.6
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 24)
+                HStack(spacing: 10) {
+                    Spacer()
+                    Button { confirmLogout = false } label: {
+                        Text("Cancel")
+                            .font(TFont.body(13, 600))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 20).padding(.vertical, 9)
+                            .background(Capsule().fill(theme.accent))
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    Button {
+                        confirmLogout = false
+                        auth.logout()
+                    } label: {
+                        Text("Log Out")
+                            .font(TFont.body(13, 600))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 20).padding(.vertical, 9)
+                            .background(Capsule().fill(Color(hex: "#ef4444")))
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(28)
+            .frame(maxWidth: 360)
+            .background(theme.card)
+            .clipShape(RoundedRectangle(cornerRadius: TTheme.radius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: TTheme.radius, style: .continuous)
+                .stroke(theme.border, lineWidth: 1))
+            .shadow(color: .black.opacity(0.4), radius: 32, y: 24)
+            .padding(24)
+        }
     }
 
     // MARK: Page
@@ -313,17 +377,23 @@ struct NativeShell: View {
 
     private var profile: some View {
         HStack(spacing: 10) {
+            // `PersonAvatar` (TRAQS.jsx:2817): the PERSON's colour, not the theme
+            // accent, with their initials in white at size * 0.34 for two glyphs
+            // (0.42 for one) and weight 800. The web's note on the scale: "Two
+            // glyphs need to be set smaller than one or they crowd the circle."
             Circle()
-                .fill(theme.accent.opacity(0.22))
+                .fill(personFill)
                 .frame(width: 32, height: 32)
                 .overlay {
                     // Nothing before people load, rather than a placeholder that
                     // swaps a beat later. `initials("")` would be an empty circle
                     // with a stray subtitle under it.
                     if !personName.isEmpty {
-                        Text(initials(personName))
-                            .font(TFont.body(12, 700))
-                            .foregroundStyle(theme.accent)
+                        let text = initials(personName)
+                        Text(text)
+                            .font(TFont.body((32 * (text.count > 1 ? 0.34 : 0.42)).rounded(), 800))
+                            .tracking(text.count > 1 ? 32 * -0.03 : 0)
+                            .foregroundStyle(.white)
                     }
                 }
             if expanded && !personName.isEmpty {
@@ -339,10 +409,43 @@ struct NativeShell: View {
                 .fixedSize()
             }
             Spacer(minLength: 0)
+            // Log out (TRAQS.jsx:24996). Only reachable while the rail is open —
+            // the web sets `pointerEvents: sidebarExpanded ? "auto" : "none"` on
+            // this cell, so a collapsed rail cannot be logged out of by accident.
+            if expanded && !personName.isEmpty { logoutButton }
         }
         .padding(.horizontal, 16)
         .padding(.top, 4)
         .padding(.bottom, 12)
+    }
+
+    /// `PERSON_BLUE` when the person has no colour of their own.
+    private var personFill: Color {
+        let c = appState.currentPerson?.color ?? ""
+        return c.isEmpty ? Color(hex: "#4169e1") : Color(hex: c)
+    }
+
+    /// 30pt, outlined, red — and transparent until hovered, which is the whole of
+    /// its resting state on the web too. NOT glass: it is one of the elements the
+    /// web already opts out of its own button chrome, and a lit pill here would
+    /// pull the eye to the most destructive control in the sidebar.
+    private var logoutButton: some View {
+        Button { confirmLogout = true } label: {
+            WebGlyph(spec: WebIcon.logout, size: 14, color: Color(hex: "#ef4444"))
+                .frame(width: 30, height: 30)
+                .background(Circle().fill(logoutHovering
+                    ? Color(hex: "#ef4444").opacity(0.067)   // #ef444411
+                    : .clear))
+                .overlay(Circle().stroke(logoutHovering
+                    ? Color(hex: "#ef4444").opacity(0.33)    // #ef444455
+                    : Color(hex: T.border), lineWidth: 1))
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .help("Log out")
+        // transition: background 0.15s, border-color 0.15s
+        .animation(.easeInOut(duration: 0.15), value: logoutHovering)
+        .onHover { logoutHovering = $0 }
     }
 
     // MARK: One nav row

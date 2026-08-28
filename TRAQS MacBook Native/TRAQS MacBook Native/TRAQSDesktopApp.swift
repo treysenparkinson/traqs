@@ -60,7 +60,7 @@ struct TRAQSDesktopApp: App {
             // How the NATIVE half gets a session — the web half's Auth0 session
             // lives in the web view and the two never share one. See
             // AccountCommands; this is not the web app's auth gate.
-            AccountCommands(auth: auth, appState: appState)
+            AccountCommands(auth: auth)
         }
     }
 }
@@ -78,7 +78,26 @@ private struct RootView: View {
     /// See `ParityView` for why Split exists.
     @AppStorage("traqs.parityMode") private var mode: ParityMode = .web
 
+    /// The gate decides whether the app is reachable at all. `MacAuthGate` owns
+    /// the eight steps; this only asks whether it is finished.
+    @State private var gateOpen = false
+
     var body: some View {
+        Group {
+            if gateOpen {
+                parityContent
+            } else {
+                MacAuthGate { gateOpen = true }
+            }
+        }
+        // Signing out from the Account menu drops straight back to the gate,
+        // rather than leaving an empty shell behind.
+        .onChange(of: auth.isAuthenticated) { _, signedIn in
+            if !signedIn { gateOpen = false }
+        }
+    }
+
+    private var parityContent: some View {
         ParityView(mode: $mode) { webView }
             .toolbar {
                 ToolbarItem(placement: .principal) {

@@ -56,6 +56,29 @@ struct TTheme: Equatable {
     static let all: [TTheme] = [.midnight, .obsidian, .frost]
 }
 
+// MARK: The wordmark face
+//
+// Space Grotesk, which the web app's brand lockup is set in (App.jsx:50). ONLY
+// the lockup uses it — everything else in the app is DM Sans.
+//
+// The PostScript name is why this is a named constant rather than a literal at
+// the call site. Google Fonts publishes Space Grotesk only as a VARIABLE font,
+// `SpaceGrotesk[wght].ttf`, whose default instance is Light — so its named
+// instances register as:
+//
+//     SpaceGrotesk-Light           (wght 300, the default)
+//     SpaceGrotesk-Light_Regular
+//     SpaceGrotesk-Light_Medium
+//     SpaceGrotesk-Light_Bold      <- the 700 the lockup wants
+//
+// enumerated with CTFontManagerCopyAvailablePostScriptNames against the actual
+// file. So "SpaceGrotesk-Bold" does not exist, and asking for it would return
+// the SYSTEM FACE in silence — exactly the failure the foundation pass spent a
+// commit fixing for DM Sans. Hence it is in `assertFacesRegistered` below.
+enum TWordmark {
+    static let face = "SpaceGrotesk-Light_Bold"
+}
+
 // MARK: Type
 //
 // The web app styles type by NUMBER — `fontWeight: 700`, `fontSize: 13`. So does
@@ -92,9 +115,12 @@ enum TFont {
         // question, and PostScript names are exactly what `Font.custom` matches on.
         let names = CTFontManagerCopyAvailablePostScriptNames() as? [String] ?? []
         let available = Set(names)
-        let missing = TFontName.allCases.map(\.rawValue).filter { !available.contains($0) }
+        // The wordmark face too — it is the same class of silent failure, and its
+        // PostScript name is the unobvious one.
+        let wanted = TFontName.allCases.map(\.rawValue) + [TWordmark.face]
+        let missing = wanted.filter { !available.contains($0) }
         assert(missing.isEmpty, """
-            DM Sans faces are not registered: \(missing.joined(separator: ", ")).
+            Bundled faces are not registered: \(missing.joined(separator: ", ")).
             Check that Info.plist carries ATSApplicationFontsPath = "." and that the \
             Fonts directory is in the target's fileSystemSynchronizedGroups. Note \
             ATSApplicationFontsPath CANNOT be set via INFOPLIST_KEY_* — Xcode does \
