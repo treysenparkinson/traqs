@@ -664,6 +664,67 @@ struct APIService {
         return try JSONDecoder().decode(OrgInfo.self, from: data)
     }
 
+    /// The roster, UNAUTHENTICATED — for the kiosk, which shows faces before
+    /// anybody has logged in.
+    ///
+    /// The backend already allows this: `netlify/functions/people.js:60` reads
+    /// `try { member = await requireOrgMember(event); } catch { /* unauthenticated
+    /// kiosk */ }` — the GET path deliberately tolerates a missing token.
+    ///
+    /// Separate from the instance method `fetchPeople()`, which is authenticated
+    /// and needs a configured `APIService`. At gate time there isn't one.
+    static func fetchRoster(orgCode: String) async throws -> [Person] {
+        guard let url = URL(string: "\(AppConfig.netlifyBase)/people") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.setValue(orgCode, forHTTPHeaderField: "X-Org-Code")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw APIError.httpError(http.statusCode)
+        }
+        return try JSONDecoder().decode([Person].self, from: data)
+    }
+
+    /// Provision a new organization. `POST /org`, unauthenticated — somebody
+    /// creating an org does not belong to one yet.
+    static func createOrg(code: String, name: String,
+                          domain: String, adminEmail: String) async throws {
+        guard let url = URL(string: "\(AppConfig.netlifyBase)/org") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(
+            ["code": code, "name": name, "domain": domain, "adminEmail": adminEmail])
+        let (_, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw APIError.httpError(http.statusCode)
+        }
+    }
+
+    /// The org's FULL config, authenticated. Adds what the public `/org` does not
+    /// return — chiefly the server-set `isAdmin`.
+    ///
+    /// The STATUS is as much the answer as the body: `/org-config` requires org
+    /// membership, so a 403 or 404 here IS the membership verdict. Feed it to
+    /// `MacGateResolver.membership(status:…)` rather than comparing emails
+    /// client-side; the server already knows.
+    static func orgConfig(token: String, orgCode: String) async throws -> OrgConfigResponse {
+        guard let url = URL(string: "\(AppConfig.netlifyBase)/org-config") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue(orgCode, forHTTPHeaderField: "X-Org-Code")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw APIError.httpError(http.statusCode)
+        }
+        return try JSONDecoder().decode(OrgConfigResponse.self, from: data)
+    }
+
     /// Resolve which orgs an authenticated user belongs to, by email. Used by
     /// the mobile app after Auth0 login to skip the manual org-code prompt.
     static func lookupOrgByEmail(email: String, token: String) async throws -> [OrgMatch] {
@@ -692,6 +753,19 @@ struct OrgInfo: Decodable {
     let name: String?
     let domain: String?
     let adminEmail: String?
+    let connection: String?
+}
+
+/// `/org-config`'s body. Distinct from `OrgInfo` (the public `/org`) because the
+/// endpoint is authenticated and answers a different question: not "what is this
+/// org" but "what is this org TO ME".
+struct OrgConfigResponse: Decodable {
+    /// Server-set. `nil` means NOT ANSWERED YET, which is not the same as false —
+    /// see `MacGateResolver.membership`, where the difference decides whether the
+    /// screen flashes "not in team" at an admin.
+    let isAdmin: Bool?
+    let name: String?
+    let domain: String?
     let connection: String?
 }
 

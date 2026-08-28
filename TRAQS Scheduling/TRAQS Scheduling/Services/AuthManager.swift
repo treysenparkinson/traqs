@@ -36,7 +36,17 @@ class AuthManager: NSObject {
 
     // MARK: - PKCE Login
 
-    func login() async {
+    /// `loginHint` pre-fills the address on Auth0's form — the roster kiosk passes
+    /// the email of the face that was tapped, so nobody is asked to type what
+    /// they just selected.
+    ///
+    /// `connection` is the org's configured Auth0 connection, which is what turns
+    /// a generic prompt into "Sign in with Microsoft". The web reads it from the
+    /// org config and passes it on every login call (App.jsx:673, :1541, :1552).
+    ///
+    /// Both default to nil, so every existing zero-argument caller is unchanged —
+    /// and iOS could not pass the org's connection before this either.
+    func login(loginHint: String? = nil, connection: String? = nil) async {
         isLoading = true
         error = nil
         codeVerifier = generateCodeVerifier()
@@ -52,6 +62,15 @@ class AuthManager: NSObject {
             URLQueryItem(name: "scope", value: AppConfig.Auth0.scope),
             URLQueryItem(name: "audience", value: AppConfig.Auth0.audience)
         ]
+        // Appended rather than declared in the array above because both are
+        // OPTIONAL: a URLQueryItem with a nil value still emits a bare
+        // `?login_hint` with no `=`, which Auth0 rejects outright.
+        if let loginHint, !loginHint.isEmpty {
+            components.queryItems?.append(URLQueryItem(name: "login_hint", value: loginHint))
+        }
+        if let connection, !connection.isEmpty {
+            components.queryItems?.append(URLQueryItem(name: "connection", value: connection))
+        }
         guard let authURL = components.url else {
             error = "Failed to build auth URL"
             isLoading = false
