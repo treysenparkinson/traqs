@@ -16,10 +16,10 @@ web icons — and stopped there. What it did not build is anything a screen woul
 2. **Nothing reads `AppState`.** `NativeShell` takes `personName = "Treysen Parkinson"`,
    `orgName = "MATRIX SYSTEMS"`, `isAdmin = true`, `canSeeApprovals = true` as hardcoded
    defaults. The profile block, the org label, and the two gated nav rows are all fiction.
-3. **There is no sign-in.** The Mac target compiles the iOS app's `Models/` and
-   `Services/` but *not* `Views/`, so there is no `WelcomeView` to reuse. The web view
-   handles auth today by being a browser; the native UI has no gate at all and would come
-   up signed out with an empty `AppState`.
+3. **There is no way to sign the NATIVE half in.** The web view authenticates by being a
+   browser, but its Auth0 session lives in `WKWebView` localStorage — `AuthManager` uses
+   `ASWebAuthenticationSession` and the Keychain, so the two halves do not share a
+   session. `AuthManager.login()` exists and works on macOS, but nothing calls it.
 4. **There are no page-chrome conventions.** The first screen written would invent the
    page's padding, title size, and header row, and the second would invent them again
    slightly differently.
@@ -39,7 +39,8 @@ web icons — and stopped there. What it did not build is anything a screen woul
 
 ## Goals
 
-1. The native UI comes up signed in, showing the real person and the real org.
+1. The native UI shows the real person and the real org from whatever session the Keychain
+   holds, and there is a way to establish that session.
 2. One implementation of the page — padding, title, header row — with every number copied
    out of `TRAQS.jsx` rather than chosen.
 3. Theme and app data reach a screen without being threaded through it by hand.
@@ -53,6 +54,16 @@ web icons — and stopped there. What it did not build is anything a screen woul
 
 - **Any screen.** `NativeShell.page` still renders its placeholder when this lands. The
   Jobs port is the next pass and gets its own plan.
+- **The auth gate.** Its own pass, and the reason is size. This spec originally described
+  the gate as iOS `RootView`'s three states — but that is the *iOS* gate. The Netlify gate
+  is `src/App.jsx`, 1709 lines across **eight** steps (`org`, `team`, `login`,
+  `create-org`, `forgot-org`, `domain-error`, `not-in-team`, `wrong-user`), including a
+  460-line `TeamSelectStep` person picker, a `PinKeypad`, org creation, code recovery by
+  email, three rejection screens, and an animated lockup with a keyframed rise — plus
+  roster-membership and email-domain validation the iOS gate does not do. Porting it
+  faithfully is larger than everything else in PASS 0 combined, and porting the iOS
+  version instead would mean knowingly shipping a non-identical screen and then throwing
+  it away. It gets its own pass. See "Signing in during PASS 0" below.
 - **A component library.** Porting `Btn`/`Badge`/`Card`/`Modal`/`Field`/`Select` up front
   was considered and rejected: the web app's primitives are inline `style={{…}}` objects
   with no clean boundary to copy, so building them now means inventing ~15 component APIs
@@ -95,35 +106,32 @@ two things the app was quietly getting wrong — no DM Sans (problem 6) and no L
 (problem 7). Sections 5 and 6 are the result. Both are foundation by the same test as the
 rest: type and the glass mechanism cannot be retrofitted screen by screen.
 
+It also *shrank*: writing the implementation plan established that the Netlify auth gate
+is 1709 lines across eight steps rather than the three-state flow this spec first
+described, so the gate left PASS 0 for a pass of its own (see Non-goals) and a native
+sign-in menu command took its place.
+
 ## Design
 
-### 1. `MacWelcomeView` — the auth gate
+### 1. Signing in during PASS 0 — a menu command, not a gate
 
-`RootView` gains the iOS `RootView` state machine, in the same order. **Org first,
-sign-in second** — it ran the other way on iOS once, which let a person be signed in
-before the app knew which organization they were signing in to.
+The shell reads whatever session the Keychain already holds: `AuthManager.accessToken` and
+`AppState.orgCode` are both Keychain-backed and load at init
+(`AuthManager.swift:8`, `AppState.swift:206`). With a session present the shell shows the
+real person and org; with none it shows an empty `AppState`, which is correct rather than
+fake.
 
-```
-orgCode empty || !authenticated  →  MacWelcomeView
-lookupInFlight                   →  linking spinner
-matches.count > 1                →  org picker
-else                             →  ParityView
-```
+To establish one, the app gets a **native menu command** — `Account ▸ Sign In…` calling
+the `AuthManager.login()` that already works on macOS, and `Sign Out`, plus an org-code
+field in that same menu.
 
-Everything it needs already exists and is shared:
+This is deliberately **not** a stand-in for the web's gate, and it is not throwaway. A
+menu bar is something a Mac app has and a web page cannot, so it is not competing with the
+fidelity rule — there is nothing on the Netlify site for it to be identical to. It stays
+after the real gate lands, the way `Reload` does.
 
-- `AuthManager` — already has the macOS presentation anchor
-  (`Services/AuthManager.swift:282`, `NSApplication.shared.windows.first`).
-- `APIService.lookupOrgByEmail(email:token:)` — the email→org auto-link.
-- `appState.configure(auth:orgCode:)`, `appState.matchEmail`, `appState.loadAll()`.
-- `AppState.orgCode` is Keychain-backed (`Services/AppState.swift:206`).
-
-The returning-user fast path comes over too: when `orgCode` is already in the Keychain the
-app comes up immediately and re-verifies membership in the background. That is what stops
-a stale Keychain entry presenting as a blank profile with no jobs.
-
-`matches.isEmpty` → the "no org for this email" message. Network failure on the lookup is
-non-fatal: with an `orgCode` in hand the app keeps running.
+What it does NOT do: org creation, code recovery, the team/person picker, domain and
+roster validation. Those are the gate's job, in the gate's pass.
 
 ### 2. `ThemeEnvironment` — theme by environment, not by parameter
 
@@ -286,11 +294,11 @@ when a screen makes the answer obvious.
 
 | file | change |
 |---|---|
-| `MacWelcomeView.swift` | NEW — org code, Auth0 sign-in, org picker, linking spinner |
+| `AccountCommands.swift` | NEW — `Account ▸ Sign In… / Sign Out`, org-code field |
 | `TPage.swift` | NEW — page scroll + header chrome, copied numbers |
 | `ThemeEnvironment.swift` | NEW — `EnvironmentValues.tqTheme`, theme source + TODO |
 | `ParityView.swift` | NEW — Native / Split / Web |
-| `TRAQSDesktopApp.swift` | EDIT — auth gate in `RootView`; `ParityView` replaces the toggle |
+| `TRAQSDesktopApp.swift` | EDIT — `ParityView` replaces the toggle; account commands |
 | `NativeShell.swift` | EDIT — hardcoded parameters removed, `AppState` reads, theme from environment, pill morph on `glassEffectID` |
 | `Theme.swift` | EDIT — `TFont` resolves real DM Sans faces instead of synthesising weights |
 | `HeaderControls.swift` | NEW — the never-unmounting glass cluster host (data + concrete `switch`) |
@@ -305,8 +313,9 @@ pass adds no logic worth unit-testing — it is wiring plus layout constants —
 1. Mac target builds clean.
 2. iOS target still builds and its tests still pass (the shared files are untouched, but
    the guarantee is what matters).
-3. Signed out, the app presents `MacWelcomeView`; signing in reaches the shell with the
-   real name, org, and correctly gated Approvals/Admin rows.
+3. `Account ▸ Sign In…` completes, and the shell then shows the real name, the real org,
+   and correctly gated Approvals/Admin rows. Signed out it shows an empty shell, not
+   placeholder names.
 4. Split mode shows both halves at once.
 5. **Type check:** the debug font assertion passes, and split mode shows the same glyph
    shapes and weights on both halves. This is the check that would have caught the silent
@@ -321,5 +330,9 @@ functions with every dependency passed in, per the existing convention
 
 ## Next
 
-The Jobs screen (`renderTasks`, `TRAQS.jsx:11316`) — engineering queue plus jobs
-list/detail — taken all the way to done before any other screen starts.
+1. **The Jobs screen** (`renderTasks`, `TRAQS.jsx:11316`) — engineering queue plus jobs
+   list/detail — taken all the way to done before any other screen starts.
+2. **The auth gate** (`src/App.jsx`, all eight steps) — its own pass, before shipping.
+
+Order is deliberate: Jobs is what proves the foundation, and the gate is a self-contained
+port that does not block it.
