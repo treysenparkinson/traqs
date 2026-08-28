@@ -25,6 +25,10 @@ struct BrandStrip: View {
 
     @State private var notifOpen = false
 
+    /// This dropdown's OWN identity space. Never shared: two components in one
+    /// namespace matched-geometry against each other's shapes.
+    @Namespace private var notifGlass
+
     var body: some View {
         HStack(spacing: gap) {
             lockup
@@ -130,44 +134,169 @@ struct BrandStrip: View {
         }
     }
 
-    // MARK: Bell
+    // MARK: Bell and its dropdown
     //
-    // `Notification Bell` (TRAQS.jsx:24697). A LABELLED PILL, not a bare icon:
-    // padding 7/14, the traced legacy bell at 18pt, "Notifications" at 12pt/600
-    // with -0.045em tracking, and a red count badge pinned at -4/-4.
+    // `Notification Bell` (TRAQS.jsx:24697) — a labelled pill: padding 7/14, the
+    // traced legacy bell at 18pt, "Notifications" at 12pt/600 with -0.045em
+    // tracking, and a red count badge at -4/-4.
     //
-    // Open state tints it with the accent. Glass here too.
+    // THE DROPDOWN MORPHS OUT OF THE BUTTON. The web's is a separate fixed card
+    // at `right: 80, top: 60`; this instead grows the button's own glass into the
+    // panel, which is the Liquid Glass idiom and was asked for. So:
+    //
+    //   • one GlassEffectContainer holds the button and the panel;
+    //   • they share ONE glassEffectID, so the container interpolates the shape
+    //     from a capsule into a rounded rect rather than cross-fading two views;
+    //   • only ONE of them carries glass at a time — the button's is dropped
+    //     while the panel is open, since two live shapes on one id is ambiguous;
+    //   • the button KEEPS ITS SLOT throughout, so the strip never reflows as the
+    //     panel opens.
     private var notificationBell: some View {
-        Button { notifOpen.toggle() } label: {
-            HStack(spacing: 8) {
-                WebGlyph(spec: WebIcon.bell, size: 18,
-                         color: notifOpen ? theme.accent : theme.textSec)
-                Text("Notifications")
-                    .font(TFont.body(12, 600))
-                    .tracking(12 * -0.045)
-                    .foregroundStyle(notifOpen ? theme.accent : theme.textSec)
+        GlassEffectContainer(spacing: 14) {
+            Button {
+                withAnimation(.smooth(duration: 0.34)) { notifOpen.toggle() }
+            } label: {
+                bellFace
+                    .shellGlass(enabled: !notifOpen, in: Capsule())
+                    .glassEffectID("notif", in: notifGlass)
+                    .contentShape(Capsule())
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 7)
-            .shellGlass(tint: notifOpen ? theme.accent.opacity(0.15) : nil, in: Capsule())
+            .buttonStyle(.plain)
+            .help("Notifications for new messages & job updates")
+            // An OVERLAY, not a ZStack member. A ZStack takes its size from its
+            // largest child, so a 320pt panel in one would widen the button's slot
+            // and reflow the whole strip the moment it opened — `.offset` moves
+            // what is DRAWN, it does not take the panel back out of the layout.
+            // An overlay is sized inside the button's frame and is free to
+            // overflow it, so the strip never moves. It is still inside the
+            // GlassEffectContainer, which is what the morph needs.
             .overlay(alignment: .topTrailing) {
-                if unreadCount > 0 {
-                    Text(unreadCount > 9 ? "9+" : "\(unreadCount)")
-                        .font(TFont.body(9, 700))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 4)
-                        .frame(minWidth: 16, minHeight: 16)
-                        .background(Capsule().fill(Color.hex("#ef4444")))
-                        .offset(x: 4, y: -4)
+                if notifOpen {
+                    notifPanel
+                        .glassEffect(.regular.interactive(),
+                                     in: RoundedRectangle(cornerRadius: TTheme.radiusLg,
+                                                          style: .continuous))
+                        .glassEffectID("notif", in: notifGlass)
+                        .offset(y: 44)
                 }
             }
-            .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
-        .help("Notifications for new messages & job updates")
     }
 
-    /// The badge count. Messages are the one unread source the Mac app already
-    /// tracks; the web's panel also lists job events, which arrive with that pass.
+    private var bellFace: some View {
+        HStack(spacing: 8) {
+            WebGlyph(spec: WebIcon.bell, size: 18,
+                     color: notifOpen ? theme.accent : theme.textSec)
+            Text("Notifications")
+                .font(TFont.body(12, 600))
+                .tracking(12 * -0.045)
+                .foregroundStyle(notifOpen ? theme.accent : theme.textSec)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 7)
+        .overlay(alignment: .topTrailing) {
+            if unreadCount > 0 && !notifOpen {
+                Text(unreadCount > 9 ? "9+" : "\(unreadCount)")
+                    .font(TFont.body(9, 700))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 4)
+                    .frame(minWidth: 16, minHeight: 16)
+                    .background(Capsule().fill(Color.hex("#ef4444")))
+                    .offset(x: 4, y: -4)
+            }
+        }
+    }
+
+    /// `width: 320`, header hairline, then the rows.
+    private var notifPanel: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("NOTIFICATIONS")
+                    .font(TFont.body(11, 700))
+                    .tracking(11 * -0.045)
+                    .foregroundStyle(theme.textDim)
+                Spacer()
+                if unreadCount > 0 {
+                    Button {
+                        appState.markAllThreadsRead()
+                        withAnimation(.smooth(duration: 0.24)) { notifOpen = false }
+                    } label: {
+                        Text("Mark all read")
+                            .font(TFont.body(11))
+                            .foregroundStyle(theme.accent)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 14)
+            .padding(.bottom, 10)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(theme.border).frame(height: 1)
+            }
+
+            if rows.isEmpty {
+                Text("All caught up!")
+                    .font(TFont.body(13))
+                    .foregroundStyle(theme.textDim)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 28)
+                    .padding(.horizontal, 18)
+            } else {
+                ForEach(rows, id: \.id) { row in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(row.title)
+                            .font(TFont.body(13, 700))
+                            .foregroundStyle(theme.text)
+                            .lineLimit(1)
+                        Text(row.detail)
+                            .font(TFont.body(12))
+                            .foregroundStyle(theme.textSec)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .overlay(alignment: .bottom) {
+                        Rectangle().fill(theme.border).frame(height: 1)
+                    }
+                }
+            }
+        }
+        .frame(width: 320)
+        // Its own ground UNDER the glass. Glass alone refracts the content panel
+        // behind it, and 13pt rows over a moving job list are not readable —
+        // the web's panel is an opaque `T.card` for the same reason.
+        .background(theme.card.opacity(0.82),
+                    in: RoundedRectangle(cornerRadius: TTheme.radiusLg, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: TTheme.radiusLg, style: .continuous))
+    }
+
+    /// One panel row. Time-off requests first, then unread message senders —
+    /// the web's order.
+    private struct NotifRow: Identifiable {
+        let id: String
+        let title: String
+        let detail: String
+    }
+
+    private var rows: [NotifRow] {
+        var out: [NotifRow] = []
+        for r in appState.timeOffRequests where r.status == "pending" {
+            out.append(NotifRow(id: "to-" + r.id,
+                                title: "Time off request",
+                                detail: "\(r.personName) · \(r.type)"))
+        }
+        for s in appState.unreadSenders {
+            out.append(NotifRow(id: "msg-" + s.id,
+                                title: s.name,
+                                detail: s.count == 1 ? "1 new message"
+                                                     : "\(s.count) new messages"))
+        }
+        return out
+    }
+
+    /// The badge count. Messages are the unread source the Mac app already
+    /// tracks; pending time-off requests are listed but not counted, as on the web.
     private var unreadCount: Int { appState.totalUnreadMessages }
 }

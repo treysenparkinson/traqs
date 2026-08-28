@@ -49,9 +49,8 @@ enum JobHealth: String, Equatable {
         // before it is fine. No elapsed-time maths applies to work that has not
         // begun.
         if status == "Not Started" {
-            guard let start, let cmp = dayDiff(from: start, to: today) else { return .onTime }
-            _ = cmp
-            return isAfter(today, start) ? .critical : .onTime
+            guard let start, let elapsed = dayDiff(from: start, to: today) else { return .onTime }
+            return elapsed > 0 ? .critical : .onTime
         }
 
         // Undated work cannot be judged on time, so it is left alone rather than
@@ -96,10 +95,5 @@ enum JobHealth: String, Equatable {
     private static func dayDiff(from a: String, to b: String) -> Int? {
         guard let da = noon(a), let db = noon(b) else { return nil }
         return Int((db.timeIntervalSince(da) / 86_400).rounded())
-    }
-
-    private static func isAfter(_ a: String, _ b: String) -> Bool {
-        guard let d = dayDiff(from: b, to: a) else { return false }
-        return d > 0
     }
 }

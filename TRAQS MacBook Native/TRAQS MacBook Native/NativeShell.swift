@@ -158,6 +158,10 @@ struct NativeShell: View {
         // only, leaving the sidebar to start at the window's top edge.
         VStack(spacing: 0) {
             BrandStrip()
+                // ABOVE the row below it. The notification panel hangs out of the
+                // strip's bounds, and in a VStack a later sibling draws over an
+                // earlier one — without this the panel opens behind the content.
+                .zIndex(2)
             HStack(spacing: 0) {
                 sidebar
                 page
@@ -237,8 +241,9 @@ struct NativeShell: View {
 
     // MARK: Page
 
-    /// The content panel, and its CORNERS are copied: 22pt on all four
-    /// (TRAQS.jsx:25003). The panel is `T.bg` floating inside the
+    /// The content panel. Its corners come from the web's 22pt on all four
+    /// (TRAQS.jsx:25003), opened up to `radiusHero` on request. The panel is
+    /// `T.bg` floating inside the
     /// surface-coloured chrome — the strip above it and the rail beside it — so
     /// the radius is what separates the page from the chrome. Square, the two
     /// read as one flat slab.
@@ -255,7 +260,10 @@ struct NativeShell: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        // ROUNDER than the web's 22. A deliberate divergence, asked for — and
+        // `TTheme.radiusHero` rather than a loose number, so it stays on the
+        // app's own radius scale instead of becoming a one-off.
+        .clipShape(RoundedRectangle(cornerRadius: TTheme.radiusHero, style: .continuous))
     }
 
     // MARK: Sidebar
