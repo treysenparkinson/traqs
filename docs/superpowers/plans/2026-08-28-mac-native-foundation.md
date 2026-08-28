@@ -1256,11 +1256,14 @@ Expected: `** BUILD SUCCEEDED **`, no new warnings.
 
 ```bash
 cd "TRAQS MacBook Native" && \
-  grep -rn "Treysen Parkinson\|MATRIX SYSTEMS\|useNativeUI\|matchedGeometryEffect" "TRAQS MacBook Native/"; \
+  grep -rn "Treysen Parkinson\|MATRIX SYSTEMS\|useNativeUI" "TRAQS MacBook Native/"; \
+  grep -rn "matchedGeometryEffect" "TRAQS MacBook Native/" | grep -v "^\S*: *//"; \
   grep -rn "TFont.body(.*\.\(bold\|semibold\|medium\|regular\)" "TRAQS MacBook Native/"
 ```
 
 Expected: **no output at all.** Any hit is leftover from Tasks 2, 4, 7 or 8 — fix it before committing.
+
+The `matchedGeometryEffect` grep filters comment lines on purpose: Task 7 leaves one mention in a comment explaining why `glassEffectID` is used instead, and that line is meant to stay.
 
 - [ ] **Step 4: Walk the spec's Verification section**
 

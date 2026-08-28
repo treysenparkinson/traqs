@@ -8,8 +8,10 @@ import SwiftUI
 // the 0.28s cubic-bezier(0.22,1,0.36,1) the rail collapses on. A number in here
 // that wasn't copied is a bug.
 //
-// The ONE intended difference: buttons are real Liquid Glass, and the active
-// pill morphs from row to row as the screen changes.
+// The ONE intended difference from the web app: buttons are real Liquid Glass —
+// native `glassEffect`, not the CSS imitation the web view wears (MacNativeSkin,
+// which is injected into the WEB VIEW only and never touches a native view). The
+// active nav pill travels on `glassEffectID`, so the material moves with it.
 
 // MARK: Views
 
@@ -142,19 +144,26 @@ struct NativeShell: View {
     // MARK: Sidebar
 
     private var sidebar: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            hamburger
-            // The two nav layers swap instantly rather than cross-fading — the
-            // web app does the same, and a fade here reads as the sidebar
-            // reloading rather than changing mode.
-            Group {
-                if settingsMode { settingsNav } else { mainNav }
-            }
-            .padding(.horizontal, navPad)
+        // glassEffectID does nothing outside a container. `spacing: 0` because
+        // only ONE shape in here carries glass — the active pill — so there is
+        // nothing for a fuse distance to weld it to. (Precondition 4 becomes live
+        // in the page header, where several controls sit 14pt apart; see
+        // TGlassMetrics.)
+        GlassEffectContainer(spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                hamburger
+                // The two nav layers swap instantly rather than cross-fading — the
+                // web app does the same, and a fade here reads as the sidebar
+                // reloading rather than changing mode.
+                Group {
+                    if settingsMode { settingsNav } else { mainNav }
+                }
+                .padding(.horizontal, navPad)
 
-            Spacer(minLength: 0)
-            orgLabel
-            profile
+                Spacer(minLength: 0)
+                orgLabel
+                profile
+            }
         }
         .frame(width: railWidth, alignment: .leading)
         .background(theme.surface)
@@ -374,9 +383,15 @@ struct NativeShell: View {
                 if active {
                     // ONE shape, handed from row to row — the pill travels rather
                     // than being redrawn where you tapped.
-                    Capsule()
-                        .fill(theme.accent.opacity(0.18))
-                        .matchedGeometryEffect(id: "nav.active", in: navGlass)
+                    //
+                    // glassEffectID, not matchedGeometryEffect. Both move a shape,
+                    // but only this one carries the MATERIAL across: the glass
+                    // resamples what is behind it as it travels, instead of a flat
+                    // tint sliding over the rail. One morph mechanism in the app
+                    // rather than two.
+                    Color.clear
+                        .glassEffect(.regular.tint(theme.accent.opacity(0.18)), in: .capsule)
+                        .glassEffectID("nav.active", in: navGlass)
                 } else if let fill {
                     Capsule().fill(fill)
                 } else if hovered == key {
