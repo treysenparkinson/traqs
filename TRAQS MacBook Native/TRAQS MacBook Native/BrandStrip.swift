@@ -18,10 +18,31 @@ struct BrandStrip: View {
     @Environment(AppState.self) private var appState
 
     /// `padding: "18px 32px 18px 14px"`, `gap: 18`.
-    private let vPad: CGFloat = 18
+    ///
+    /// The 18 is SPLIT unevenly here, 10 above and 26 below, and the total is
+    /// unchanged so nothing downstream moves. The traffic lights sit at a fixed
+    /// height the window server chooses — roughly 14pt down, being 12pt buttons
+    /// centred in a 28pt title bar — and the web's even padding put the lockup's
+    /// centre at ~43, so the two read diagonally rather than as one row. Shifting
+    /// the strip's contents up closes most of that gap.
+    ///
+    /// This is a Mac-only concern: the web app has no traffic lights to line up
+    /// with, which is why it is the one number here not taken from TRAQS.jsx.
+    private let topPad: CGFloat = 10
+    private let bottomPad: CGFloat = 26
     private let leadPad: CGFloat = 14
     private let trailPad: CGFloat = 32
     private let gap: CGFloat = 18
+    /// `marginLeft: 45` on the lockup (TRAQS.jsx:24599).
+    private let lockupMarginLeft: CGFloat = 45
+
+    /// The window has no title bar, so its CLOSE/MINIMISE/ZOOM buttons sit in this
+    /// row. 78pt clears the rightmost one (centres at 20/40/60, radius ~6) with
+    /// breathing room. The web's own 14 + 45 already covers 59 of that, so this
+    /// only adds what is missing rather than stacking on top of it — the lockup
+    /// still lands where a number derived from the web app puts it, just measured
+    /// from the buttons instead of the window edge.
+    private let trafficLightInset: CGFloat = 78
 
     @State private var notifOpen = false
 
@@ -37,9 +58,9 @@ struct BrandStrip: View {
             saveStatus
             notificationBell
         }
-        .padding(.top, vPad)
-        .padding(.bottom, vPad)
-        .padding(.leading, leadPad)
+        .padding(.top, topPad)
+        .padding(.bottom, bottomPad)
+        .padding(.leading, max(leadPad, trafficLightInset - lockupMarginLeft))
         .padding(.trailing, trailPad)
         // `background: Tc.surfaceSolid` — the chrome theme's surface, which is
         // what makes the strip and the sidebar read as one piece of chrome
@@ -60,7 +81,7 @@ struct BrandStrip: View {
                    color: theme.text,
                    stroke: 0.6,
                    barsAccent: theme.accent)
-            .padding(.leading, 45)          // marginLeft: 45
+            .padding(.leading, lockupMarginLeft)
             // "Nudged down with a relative offset rather than margin so the brand
             // strip keeps its height — a margin would grow the bar by the same
             // 10px." Same reasoning applies to an offset here.

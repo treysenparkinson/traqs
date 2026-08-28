@@ -21,6 +21,9 @@ struct TRAQSDesktopApp: App {
     @State private var themeSettings = ThemeSettings()
     @State private var appNav = AppNav()
     @State private var store = SiteStore()
+    /// Native rebuild, deployed web app, or both side by side. UP HERE rather than
+    /// in RootView because it is driven from the View menu now — see below.
+    @AppStorage("traqs.parityMode") private var mode: ParityMode = .web
 
     init() {
         // Fails loudly at launch if DM Sans did not register — see
@@ -34,7 +37,7 @@ struct TRAQSDesktopApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView(store: store)
+            RootView(store: store, mode: $mode)
                 .environment(auth)
                 .environment(appState)
                 .environment(themeSettings)
@@ -48,12 +51,29 @@ struct TRAQSDesktopApp: App {
                 .frame(minWidth: 900, minHeight: 600)
         }
         .defaultSize(width: 1440, height: 900)
+        // NO TITLE BAR. The window's content runs to the top edge, so the traffic
+        // lights sit in the brand strip's own row instead of a separate bar above
+        // it — the strip is the app's only chrome. `BrandStrip.trafficLightInset`
+        // is what keeps the lockup clear of them.
+        //
+        // This is also why the parity picker had to leave the toolbar: a declared
+        // toolbar brings the bar back and puts the title area above the strip
+        // again. The web half still declares one, which is correct — its
+        // back/forward/reload belong to a browser, not to this app's chrome.
+        .windowStyle(.hiddenTitleBar)
         .windowToolbarStyle(.unified)
         .commands {
             // One window onto one org; a second is just a second session to
             // confuse yourself with.
             CommandGroup(replacing: .newItem) { }
             CommandGroup(after: .toolbar) {
+                // Was a ToolbarItem. Scaffolding either way — it goes when the
+                // last screen lands — but in the toolbar it cost the app its
+                // title bar merge, and a dev switch is not worth that.
+                Picker("Parity View", selection: $mode) {
+                    ForEach(ParityMode.allCases) { Text($0.label).tag($0) }
+                }
+                Divider()
                 Button("Reload") { store.reload() }
                     .keyboardShortcut("r", modifiers: .command)
             }
@@ -69,14 +89,11 @@ struct TRAQSDesktopApp: App {
 
 private struct RootView: View {
     @Bindable var store: SiteStore
+    @Binding var mode: ParityMode
     @Environment(AuthManager.self) private var auth
     @Environment(AppState.self) private var appState
     @Environment(ThemeSettings.self) private var themeSettings
     @State private var showingCustomURL = false
-    /// Native rebuild, deployed web app, or both side by side. Defaults to `.web`
-    /// until the screens are done, so the app stays usable throughout the port.
-    /// See `ParityView` for why Split exists.
-    @AppStorage("traqs.parityMode") private var mode: ParityMode = .web
 
     /// The gate decides whether the app is reachable at all. `MacAuthGate` owns
     /// the eight steps; this only asks whether it is finished.
@@ -99,15 +116,6 @@ private struct RootView: View {
 
     private var parityContent: some View {
         ParityView(mode: $mode) { webView }
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Picker("View", selection: $mode) {
-                        ForEach(ParityMode.allCases) { Text($0.label).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .help("Native rebuild, the deployed web app, or both side by side")
-                }
-            }
     }
 
     private var webView: some View {
