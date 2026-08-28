@@ -73,27 +73,22 @@ private struct RootView: View {
     @Environment(AppState.self) private var appState
     @Environment(ThemeSettings.self) private var themeSettings
     @State private var showingCustomURL = false
-    /// The native rebuild, shown instead of the web view. Off until the screens
-    /// are done, so the app stays usable throughout the port.
-    @AppStorage("traqs.useNativeUI") private var useNativeUI = false
+    /// Native rebuild, deployed web app, or both side by side. Defaults to `.web`
+    /// until the screens are done, so the app stays usable throughout the port.
+    /// See `ParityView` for why Split exists.
+    @AppStorage("traqs.parityMode") private var mode: ParityMode = .web
 
     var body: some View {
-        Group {
-            if useNativeUI {
-                NativeShell()
-            } else {
-                webView
-            }
-        }
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Toggle(isOn: $useNativeUI) {
-                    Label("Native UI", systemImage: "swift")
+        ParityView(mode: $mode) { webView }
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Picker("View", selection: $mode) {
+                        ForEach(ParityMode.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .help("Native rebuild, the deployed web app, or both side by side")
                 }
-                .toggleStyle(.button)
-                .help("Switch between the deployed web app and the native rebuild")
             }
-        }
     }
 
     private var webView: some View {
