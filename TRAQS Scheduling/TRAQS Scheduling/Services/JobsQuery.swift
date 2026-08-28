@@ -141,6 +141,52 @@ enum JobsQuery {
         return sorted(kept, by: sort, context: context)
     }
 
+    // MARK: Sections
+    //
+    // The grid is NOT one table. The default view is one card per PROJECT
+    // MANAGER (TRAQS.jsx:12269), each with its own column header — which is why
+    // every job in a fresh org appears under a section headed "Unassigned".
+
+    struct ManagerSection: Identifiable, Equatable {
+        /// `"__none__"` for the unassigned section, matching the web's own key, so
+        /// a collapse state stored against it survives a manager being assigned.
+        let id: String
+        /// nil = no project manager.
+        let managerID: String?
+        let jobs: [Job]
+
+        static let unassignedID = "__none__"
+        var isUnassigned: Bool { managerID == nil }
+    }
+
+    /// Sections in the order their managers FIRST APPEAR in `jobs` — not
+    /// alphabetical, and not with unassigned pinned anywhere. The list is already
+    /// sorted by whatever the user chose, so ordering sections by first
+    /// appearance keeps the sections in that same order.
+    static func managerSections(_ jobs: [Job]) -> [ManagerSection] {
+        var order: [String] = []
+        var buckets: [String: [Job]] = [:]
+        for job in jobs {
+            let key = job.projectManagerId.flatMap { $0.isEmpty ? nil : $0 }
+                ?? ManagerSection.unassignedID
+            if buckets[key] == nil { order.append(key) }
+            buckets[key, default: []].append(job)
+        }
+        return order.map { key in
+            ManagerSection(id: key,
+                           managerID: key == ManagerSection.unassignedID ? nil : key,
+                           jobs: buckets[key] ?? [])
+        }
+    }
+
+    /// `finishedTasks` (:10826), and it is deliberately built from the UNFILTERED
+    /// jobs — the page's status, period and job-number filters do not apply to it.
+    /// The web's own reading: the Finished section is an archive sitting under the
+    /// working list, not a view of it.
+    static func finishedRows(_ jobs: [Job], sort: JobsSort, context: Context) -> [Job] {
+        sorted(jobs.filter { $0.status == .finished }, by: sort, context: context)
+    }
+
     // MARK: Filtering
 
     static func matches(_ job: Job, filter: JobsFilter, context: Context) -> Bool {

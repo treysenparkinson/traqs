@@ -200,6 +200,12 @@ enum WebIcon {
     // A `<polygon>` becomes a path with an explicit `Z`. GlyphSpec has no polygon
     // case, and a polyline left open renders the filter funnel as a hook.
 
+    /// A section header's chevron — points DOWN when open, and the header
+    /// rotates it -90 when collapsed rather than swapping the glyph.
+    static let chevronDown = GlyphSpec(strokeWidth: 2.5, elements: [
+        .polyline([6, 9, 12, 15, 18, 9]),
+    ])
+
     /// The filter funnel, `stroke-width 2.5` (TRAQS.jsx:11425).
     static let filter = GlyphSpec(strokeWidth: 2.5, elements: [
         .path("M22 3L2 3L10 12.46L10 19L14 21L14 12.46Z"),

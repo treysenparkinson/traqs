@@ -28,6 +28,9 @@ struct JobsPage: View {
     @State private var sort = JobsSort()
     @State private var cellAlign: JobColumn.Align = .leading
     @State private var expanded: Set<String> = []
+    /// `pmSectionsCollapsed` — keyed by section id, so a collapse survives the
+    /// list being re-sorted or re-filtered under it.
+    @State private var collapsed: Set<String> = []
 
     // `jobSelectMode` / `selJobs`
     @State private var selectMode = false
@@ -46,14 +49,26 @@ struct JobsPage: View {
         // filter plus a sort over every job.
         let visible = JobsQuery.activeRows(appState.jobs, filter: filter,
                                            sort: sort, context: queryContext)
-        return TPage("Jobs", scrolls: false, right: { toolbar(visible) }) {
+        let finished = JobsQuery.finishedRows(appState.jobs, sort: sort, context: queryContext)
+        return TPage("Jobs", right: { toolbar(visible) }) {
             if appState.jobs.isEmpty {
                 emptyState
             } else {
-                JobsGrid(rows: JobRow.flatten(visible, expanded: expanded),
-                         columns: JobColumn.allCases,
-                         align: cellAlign, sort: $sort, expanded: $expanded,
-                         selectMode: selectMode, selected: $selected)
+                // `marginBottom: 20` between sections.
+                LazyVStack(alignment: .leading, spacing: 20) {
+                    ForEach(JobsQuery.managerSections(visible)) { section in
+                        JobsSection(sectionID: section.id, jobs: section.jobs,
+                                    columns: JobColumn.allCases, align: cellAlign,
+                                    sort: $sort, expanded: $expanded,
+                                    collapsed: $collapsed,
+                                    selectMode: selectMode, selected: $selected) {
+                            managerHeader(section)
+                        }
+                    }
+
+                    if !finished.isEmpty { finishedSection(finished) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -76,72 +91,136 @@ struct JobsPage: View {
             percentComplete: { [appState] job in appState.jobPct(job) })
     }
 
-    // MARK: The header bar
+    // MARK: Section headers
 
-    private func toolbar(_ visible: [Job]) -> some View {
-        GlassEffectContainer(spacing: 10) {
-            HStack(spacing: toolGap) {
-                selectCluster(visible)
-                JobsToolDivider().padding(.leading, 9)
-                tools
-                Spacer(minLength: 12)
-                actions
-            }
+    /// The manager's avatar and name, or just "Unassigned" — a job with no
+    /// project manager has no face to show.
+    @ViewBuilder
+    private func managerHeader(_ section: JobsQuery.ManagerSection) -> some View {
+        let manager = section.managerID.flatMap { id in
+            appState.people.first { $0.id == id }
+        }
+        if let manager {
+            JobsAvatar(person: manager, size: 22)
+            Text(manager.name)
+                .font(TFont.body(13, 700))
+                .foregroundStyle(theme.text)
+        } else {
+            Text("Unassigned")
+                .font(TFont.body(13, 700))
+                .foregroundStyle(theme.text)
         }
     }
+
+    /// Its own section under the working list, in green, with a green-ringed card.
+    /// Built from the UNFILTERED jobs — see `JobsQuery.finishedRows`.
+    private func finishedSection(_ finished: [Job]) -> some View {
+        JobsSection(sectionID: "__finished__", jobs: finished,
+                    columns: JobColumn.allCases, align: cellAlign,
+                    accent: Color.hex("#10b981"),
+                    sort: $sort, expanded: $expanded, collapsed: $collapsed,
+                    selectMode: false, selected: $selected) {
+            Text("\u{2713} Finished")
+                .font(TFont.body(13, 700))
+                .foregroundStyle(Color.hex("#10b981"))
+        }
+    }
+
+    // MARK: The header bar
+
+    /// THREE containers, never one, and never nested. The toggle brief's scope
+    /// rule: a cluster owns its own container, and nesting one inside another
+    /// leaves the inner shapes matched-geometrying against the outer's.
+    private func toolbar(_ visible: [Job]) -> some View {
+        HStack(spacing: toolGap) {
+            selectCluster(visible)
+            JobsToolDivider().padding(.leading, 9)
+            GlassEffectContainer(spacing: glassFuse) { tools }
+            Spacer(minLength: 12)
+            GlassEffectContainer(spacing: glassFuse) { actions }
+        }
+    }
+
+    /// `GlassEffectContainer(spacing:)` melts shapes closer together than this, so
+    /// it has to sit BELOW the resting gap or the cluster welds into one permanent
+    /// blob — the ordering `TGlassMetrics` documents.
+    ///
+    /// 4, not `TGlassMetrics.fuseDistance` (10). That 10 was chosen against iOS's
+    /// 14pt header gap; this toolbar's gap is the web's `gap: 6`, which 10 would
+    /// swallow whole. The filter, grouping and align buttons are three separate
+    /// circles on the site, so they must stay three shapes.
+    private let glassFuse: CGFloat = 4
 
     // MARK: Select / All / Delete
     //
-    // Three controls that reveal one another left to right: Select turns the mode
-    // on, All appears beside it, and the count with Delete slides out from behind
-    // All once something is picked. The web animates max-width from 0 so they
-    // grow out of the button before them; here they transition on the leading
-    // edge, which is the same read without animating a width.
+    // Three controls that reveal one another left to right, and each one MELTS
+    // OUT of the one before it rather than fading in beside it — see `JobsEmerge`
+    // and the toggle brief it implements.
+    //
+    // The cluster has its OWN GlassEffectContainer, per that brief's scope rules.
+    // `glassFuse` below the 6pt gap is what lets the emerging control read as part
+    // of its neighbour while it is still close, and as its own shape once settled.
 
     private func selectCluster(_ visible: [Job]) -> some View {
-        HStack(spacing: toolGap) {
-            JobsPillButton(label: selectMode ? "Done" : "Select",
-                           style: .filled,
-                           minWidth: 78,
-                           help: selectMode ? "Leave select mode" : "Select jobs") {
-                withAnimation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.26)) {
-                    selectMode.toggle()
-                    selected = []
-                }
-            }
-
-            if selectMode {
-                // `subtle-all-btn` — an OUTLINED accent button, one of the two
-                // places the web does not use its gradient fill.
-                JobsPillButton(label: selected.count == visible.count ? "None" : "All",
-                               style: .outlined(theme.accent),
-                               minWidth: 56,
-                               help: "Select all or none") {
-                    selected = selected.count == visible.count ? [] : Set(visible.map(\.id))
-                }
-                .transition(.move(edge: .leading).combined(with: .opacity))
-
-                if !selected.isEmpty {
-                    HStack(spacing: 8) {
-                        Text("\(selected.count) selected")
-                            .font(TFont.body(12, 700))
-                            .foregroundStyle(theme.accent)
-                            .fixedSize()
-                        // Disabled like the other unported actions rather than
-                        // opening a confirm that then refuses: deleting needs the
-                        // bulk endpoint and an undo entry, and half of that is
-                        // worse than none of it.
-                        JobsPillButton(label: "Delete",
-                                       style: .outlined(theme.danger),
-                                       minWidth: 78,
-                                       help: "Delete the selected jobs — not ported yet",
-                                       enabled: false) { }
+        GlassEffectContainer(spacing: glassFuse) {
+            HStack(spacing: toolGap) {
+                JobsPillButton(label: selectMode ? "Done" : "Select",
+                               style: .filled,
+                               minWidth: selectMinWidth,
+                               help: selectMode ? "Leave select mode" : "Select jobs") {
+                    // A BARE withAnimation. The keyframe tracks supply the real
+                    // timing, and a spring named here would fight them — the
+                    // brief's note on the toggle's own tap handler.
+                    withAnimation {
+                        selectMode.toggle()
+                        selected = []
                     }
-                    .transition(.move(edge: .leading).combined(with: .opacity))
+                }
+
+                if selectMode {
+                    // `subtle-all-btn` — OUTLINED accent, one of the two places
+                    // the web does not use its gradient fill.
+                    JobsEmerge(distance: selectMinWidth + toolGap) {
+                        JobsPillButton(label: selected.count == visible.count ? "None" : "All",
+                                       style: .outlined(theme.accent),
+                                       minWidth: allMinWidth,
+                                       help: "Select all or none") {
+                            withAnimation {
+                                selected = selected.count == visible.count
+                                    ? [] : Set(visible.map(\.id))
+                            }
+                        }
+                    }
+
+                    if !selected.isEmpty {
+                        JobsEmerge(distance: allMinWidth + toolGap) {
+                            HStack(spacing: 8) {
+                                Text("\(selected.count) selected")
+                                    .font(TFont.body(12, 700))
+                                    .foregroundStyle(theme.accent)
+                                    .fixedSize()
+                                // Disabled like the other unported actions rather
+                                // than opening a confirm that then refuses:
+                                // deleting needs the bulk endpoint and an undo
+                                // entry, and half of that is worse than none.
+                                JobsPillButton(label: "Delete",
+                                               style: .outlined(theme.danger),
+                                               minWidth: 78,
+                                               help: "Delete the selected jobs — not ported yet",
+                                               enabled: false) { }
+                            }
+                        }
+                    }
                 }
             }
         }
     }
+
+    /// `minWidth: 78` on Select, 56 on All. Pinned on the web so the label
+    /// swapping to "Done" cannot resize the button and shift the toolbar — and
+    /// here they are also the travel distances `JobsEmerge` needs.
+    private let selectMinWidth: CGFloat = 78
+    private let allMinWidth: CGFloat = 56
 
     // MARK: Filter / Grouping / Search / Align
 

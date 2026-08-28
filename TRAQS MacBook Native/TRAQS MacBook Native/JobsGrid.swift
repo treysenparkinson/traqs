@@ -35,46 +35,109 @@ enum JobsGridMetrics {
     static let rowHeight: CGFloat = 36
 }
 
-// MARK: The grid
+// MARK: A section
+//
+// One per project manager (TRAQS.jsx:12269). A clickable header — chevron,
+// avatar, name, count — over a card holding that manager's jobs.
+//
+// `marginBottom: 20` between sections; the header is `padding: "4px 2px 8px"`
+// with a `gap: 8`.
 
-struct JobsGrid: View {
+struct JobsSection<Header: View>: View {
     @Environment(\.tqTheme) private var theme
 
-    let rows: [JobRow]
+    let sectionID: String
+    let jobs: [Job]
     let columns: [JobColumn]
-    /// `cellAlign` — the cycling alignment toggle applies to every cell EXCEPT
-    /// the ones with a fixed layout of their own (name, priority, progress), the
-    /// same exceptions the web makes by overriding `justifyContent` per cell.
     let align: JobColumn.Align
+    /// The green ring and green count the Finished section uses. nil = accent.
+    var accent: Color? = nil
     @Binding var sort: JobsSort
     @Binding var expanded: Set<String>
+    @Binding var collapsed: Set<String>
     let selectMode: Bool
     @Binding var selected: Set<String>
+    /// Whatever sits between the chevron and the count — a name, an avatar and a
+    /// name, or "✓ Finished". Generic, never AnyView: a type erasure here is on
+    /// the path of every glass shape inside the card.
+    @ViewBuilder let header: () -> Header
 
-    private var totalWidth: CGFloat {
-        columns.reduce(0) { $0 + $1.defaultWidth } + JobColumn.addColumnWidth
-    }
+    private var isCollapsed: Bool { collapsed.contains(sectionID) }
+    private var tint: Color { accent ?? theme.accent }
 
     var body: some View {
-        ScrollView([.horizontal, .vertical]) {
-            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                Section {
-                    ForEach(rows) { row in
-                        JobsGridRow(row: row, columns: columns, align: align,
-                                    expanded: $expanded,
-                                    selectMode: selectMode, selected: $selected)
-                    }
-                } header: {
-                    header
+        VStack(alignment: .leading, spacing: 0) {
+            headerRow
+            if !isCollapsed { card }
+        }
+    }
+
+    private var headerRow: some View {
+        Button {
+            withAnimation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.18)) {
+                if isCollapsed { collapsed.remove(sectionID) } else { collapsed.insert(sectionID) }
+            }
+        } label: {
+            HStack(spacing: 8) {
+                WebGlyph(spec: WebIcon.chevronDown, size: 13, color: theme.textDim)
+                    .rotationEffect(.degrees(isCollapsed ? -90 : 0))
+                header()
+                Text("\(jobs.count)")
+                    .font(TFont.body(11, 700))
+                    .foregroundStyle(tint)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(tint.opacity(0.125)))   // "20"
+            }
+            .padding(.top, 4)
+            .padding(.horizontal, 2)
+            .padding(.bottom, 8)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// `FrostCard` (TRAQS.jsx:2437) — `radiusLg`, a 1px border, and a SOLID
+    /// `T.card` fill. Its own comment is worth keeping: the frost belongs to the
+    /// glass rule now, gated on the Customize toggle, "so off means genuinely
+    /// solid here."
+    private var card: some View {
+        // Horizontal scrolling is PER CARD, as on the web: FrostCard's inner
+        // `tq-card-scroll` is `overflow: auto` and the columns are fixed widths.
+        // The page does not scroll sideways — each section does.
+        ScrollView(.horizontal, showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                JobsColumnHeader(columns: columns, sort: $sort)
+                ForEach(JobRow.flatten(jobs, expanded: expanded)) { row in
+                    JobsGridRow(row: row, columns: columns, align: align,
+                                expanded: $expanded,
+                                selectMode: selectMode, selected: $selected)
                 }
             }
             .frame(width: totalWidth, alignment: .leading)
         }
+        .background(theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: TTheme.radiusLg, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: TTheme.radiusLg, style: .continuous)
+                .strokeBorder(accent.map { $0.opacity(0.2) } ?? theme.border, lineWidth: 1)
+        }
     }
 
-    // MARK: The sticky header
+    private var totalWidth: CGFloat {
+        columns.reduce(0) { $0 + $1.defaultWidth } + JobColumn.addColumnWidth
+    }
+}
 
-    private var header: some View {
+// MARK: The column header
+
+struct JobsColumnHeader: View {
+    @Environment(\.tqTheme) private var theme
+
+    let columns: [JobColumn]
+    @Binding var sort: JobsSort
+
+    var body: some View {
         HStack(spacing: 0) {
             ForEach(columns) { col in
                 Button { sort = sort.cycled(col) } label: {
@@ -85,21 +148,20 @@ struct JobsGrid: View {
                             .textCase(.uppercase)
                             .foregroundStyle(sorted(col) ? theme.accent : theme.textDim)
                             .lineLimit(1)
-                            .frame(maxWidth: .infinity,
-                                   alignment: col.align.frameAlignment)
+                            .frame(maxWidth: .infinity, alignment: col.align.frameAlignment)
 
-                        // `⇅` at 0.35 opacity until this is the sorted column.
-                        // It holds its space either way, so turning sorting on
-                        // does not nudge the label.
+                        // `⇅` at 0.35 opacity until this is the sorted column. It
+                        // holds its space either way, so turning sorting on does
+                        // not nudge the label.
                         Text(sortGlyph(col))
                             .font(TFont.body(9))
                             .foregroundStyle(sorted(col) ? theme.accent : theme.textDim)
                             .opacity(sorted(col) ? 1 : 0.35)
                     }
                     .padding(.horizontal, JobsGridMetrics.cellHPad)
-                    // `paddingLeft: 22` on the Name header, matching its cells,
-                    // so the column's label sits over its own text rather than
-                    // over the expand arrow.
+                    // `paddingLeft: 22` on the Name header, matching its cells, so
+                    // the label sits over its own text rather than over the
+                    // expand arrow.
                     .padding(.leading, col == .name
                              ? JobsGridMetrics.nameLeadTop - JobsGridMetrics.cellHPad : 0)
                     .padding(.vertical, JobsGridMetrics.headerVPad)
@@ -124,7 +186,6 @@ struct JobsGrid: View {
                 .frame(maxHeight: .infinity)
                 .help("Add column — not ported yet")
         }
-        .frame(width: totalWidth, alignment: .leading)
         .background(theme.surface)
         .overlay(alignment: .bottom) {
             Rectangle().fill(theme.border).frame(height: JobsGridMetrics.headerRule)
@@ -141,7 +202,7 @@ struct JobsGrid: View {
 
 // MARK: One row
 
-private struct JobsGridRow: View {
+struct JobsGridRow: View {
     @Environment(\.tqTheme) private var theme
 
     let row: JobRow

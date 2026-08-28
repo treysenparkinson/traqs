@@ -220,3 +220,90 @@ struct JobsToolDivider: View {
             .frame(width: 1, height: 20)
     }
 }
+
+// MARK: - A control that melts out of the one before it
+//
+// The Select cluster reveals All, and then a count with Delete, and each has to
+// come OUT of the control to its left rather than fade in beside it.
+//
+// Per `docs/LIQUID_GLASS_TOGGLE_LIFT_BRIEF.md` §1, which is the load-bearing part
+// and easy to get wrong: `withAnimation` interpolates between two ENDPOINT
+// states. A stretch that starts at rest, peaks, and returns to rest has
+// identical endpoints, so there is nothing to interpolate and SwiftUI correctly
+// renders no stretch at all — no spring, bounce, or duration can fix that. Motion
+// that passes THROUGH a value needs `keyframeAnimator`.
+//
+// So the entrance is keyframed, on four independent tracks (§2 — sharing one
+// timeline reads as a wobble, not a melt):
+//
+//   travel    the offset back to where the previous control sits, on a spring
+//   stretchX  peaks MID-travel, which is the liquid part
+//   stretchY  a smaller squash, peaking earlier
+//   elevation shadow, up and back down — "off the surface"
+//
+// Removal cannot be keyframed: the view is gone, so there is nothing left to
+// animate. That side is an ordinary leading-anchored scale, which reads as being
+// reabsorbed.
+//
+// The brief's scope rules hold. This has its OWN namespace and its own container,
+// shared with nothing — see `JobsSelectCluster`.
+
+private struct EmergeValues: Equatable {
+    /// Fraction of `distance` still to travel. 1 = sitting on the previous
+    /// control, 0 = at rest.
+    var travel: CGFloat = 1
+    var stretchX: CGFloat = 0.52
+    var stretchY: CGFloat = 0.86
+    var opacity: Double = 0
+    var elevation: CGFloat = 0
+}
+
+struct JobsEmerge<Content: View>: View {
+    /// How far left of its resting place it starts: the previous control's width
+    /// plus the cluster's resting gap, so it begins exactly on top of it. Those
+    /// widths are pinned (`minWidth: 78` on Select, 56 on All), which is what
+    /// makes this a known number rather than a measurement.
+    let distance: CGFloat
+    @ViewBuilder let content: () -> Content
+
+    /// Flipped once on appear. `keyframeAnimator` replays from `initialValue`
+    /// whenever the trigger changes, so a single flip is one entrance.
+    @State private var settled = false
+
+    var body: some View {
+        content()
+            .keyframeAnimator(initialValue: EmergeValues(), trigger: settled) { view, v in
+                view
+                    .scaleEffect(x: v.stretchX, y: v.stretchY, anchor: .leading)
+                    .offset(x: -distance * v.travel)
+                    .opacity(v.opacity)
+                    .shadow(color: .black.opacity(0.16 * v.elevation),
+                            radius: 9 * v.elevation, y: 3 * v.elevation)
+            } keyframes: { _ in
+                KeyframeTrack(\.travel) {
+                    SpringKeyframe(0, duration: 0.34, spring: .bouncy)
+                }
+                // Peaks past 1 while it is still moving, then settles. This is the
+                // track that would silently do nothing under `withAnimation`.
+                KeyframeTrack(\.stretchX) {
+                    CubicKeyframe(1.12, duration: 0.20)
+                    SpringKeyframe(1.0, duration: 0.18, spring: .bouncy)
+                }
+                KeyframeTrack(\.stretchY) {
+                    CubicKeyframe(1.05, duration: 0.16)
+                    SpringKeyframe(1.0, duration: 0.22, spring: .snappy)
+                }
+                KeyframeTrack(\.opacity) {
+                    LinearKeyframe(1.0, duration: 0.12)
+                }
+                KeyframeTrack(\.elevation) {
+                    SpringKeyframe(1.0, duration: 0.14, spring: .snappy)
+                    SpringKeyframe(0.0, duration: 0.24, spring: .bouncy)
+                }
+            }
+            .onAppear { settled = true }
+            .transition(.asymmetric(
+                insertion: .identity,     // the keyframes are the entrance
+                removal: .scale(scale: 0.4, anchor: .leading).combined(with: .opacity)))
+    }
+}

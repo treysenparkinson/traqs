@@ -395,3 +395,56 @@ struct JobRowFlattenTests {
         #expect(rows[1].finishedAndTotalOps == (1, 2))
     }
 }
+
+// The default Jobs view is one card per PROJECT MANAGER (TRAQS.jsx:12269), which
+// is why a fresh org's jobs all appear under "Unassigned".
+@Suite("Jobs manager sections")
+struct JobsManagerSectionTests {
+
+    private func job(_ id: String, pm: String? = nil, status: JobStatus = .inProgress) -> Job {
+        var o: [String: Any] = ["id": id, "title": id, "status": status.rawValue]
+        if let pm { o["projectManagerId"] = pm }
+        let data = try! JSONSerialization.data(withJSONObject: o)
+        return try! JSONDecoder().decode(Job.self, from: data)
+    }
+
+    @Test func jobsWithNoManagerLandInOneUnassignedSection() {
+        let sections = JobsQuery.managerSections([job("a"), job("b")])
+        #expect(sections.count == 1)
+        #expect(sections[0].isUnassigned)
+        #expect(sections[0].id == "__none__")
+        #expect(sections[0].jobs.map(\.id) == ["a", "b"])
+    }
+
+    // First appearance, not alphabetical: the list is already in the order the
+    // user sorted it, and re-ordering the sections would fight that.
+    @Test func sectionsFollowFirstAppearanceNotAlphabeticalOrder() {
+        let sections = JobsQuery.managerSections([
+            job("a", pm: "zoe"), job("b", pm: "adam"), job("c", pm: "zoe"),
+        ])
+        #expect(sections.map(\.id) == ["zoe", "adam"])
+        #expect(sections[0].jobs.map(\.id) == ["a", "c"])
+    }
+
+    @Test func anUnassignedSectionKeepsItsPlaceInThatOrder() {
+        let sections = JobsQuery.managerSections([job("a", pm: "zoe"), job("b")])
+        #expect(sections.map(\.id) == ["zoe", "__none__"])
+    }
+
+    // An empty-string manager id is no manager. Imported rows carry those, and
+    // treating one as a real id gives a section headed by nobody.
+    @Test func anEmptyManagerIDCountsAsUnassigned() {
+        let sections = JobsQuery.managerSections([job("a", pm: "")])
+        #expect(sections.count == 1)
+        #expect(sections[0].isUnassigned)
+    }
+
+    // The Finished section ignores the page's filters — it is built from the
+    // unfiltered jobs, an archive under the working list rather than a view of it.
+    @Test func finishedRowsAreIndependentOfTheFilters() {
+        let all = [job("a"), job("done", status: .finished), job("old", status: .finished)]
+        let rows = JobsQuery.finishedRows(all, sort: JobsSort(column: .name),
+                                          context: JobsQuery.Context(today: "2026-03-10"))
+        #expect(rows.map(\.id) == ["done", "old"])
+    }
+}
