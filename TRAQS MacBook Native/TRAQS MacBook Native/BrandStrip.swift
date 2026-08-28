@@ -17,19 +17,21 @@ struct BrandStrip: View {
     @Environment(\.tqTheme) private var theme
     @Environment(AppState.self) private var appState
 
-    /// `padding: "18px 32px 18px 14px"`, `gap: 18`.
+    /// `padding: "18px 32px 18px 14px"`, `gap: 18` — except above.
     ///
-    /// The 18 is SPLIT unevenly here, 10 above and 26 below, and the total is
-    /// unchanged so nothing downstream moves. The traffic lights sit at a fixed
-    /// height the window server chooses — roughly 14pt down, being 12pt buttons
-    /// centred in a 28pt title bar — and the web's even padding put the lockup's
-    /// centre at ~43, so the two read diagonally rather than as one row. Shifting
-    /// the strip's contents up closes most of that gap.
+    /// The top 18 is now 0. The lockup moves UP, and the sidebar and content
+    /// panel come up with it, because the strip's height is what holds them down.
+    /// Meeting the window's buttons is a two-sided move: they come down to the
+    /// lockup's centreline (`TrafficLightAligner`) and the lockup rises to meet
+    /// them, because a 40pt lockup's centre cannot reach 14pt from the top
+    /// without half of it hanging off the window — and the buttons cannot come
+    /// below `TrafficLightAligner.maxCenterY` without going dead to clicks. This
+    /// puts the lockup's centre at roughly that same 22.
     ///
-    /// This is a Mac-only concern: the web app has no traffic lights to line up
-    /// with, which is why it is the one number here not taken from TRAQS.jsx.
-    private let topPad: CGFloat = 10
-    private let bottomPad: CGFloat = 26
+    /// The only number in this file not taken from TRAQS.jsx, for the reason that
+    /// the web app has no traffic lights to line up with.
+    private let topPad: CGFloat = 0
+    private let bottomPad: CGFloat = 18
     private let leadPad: CGFloat = 14
     private let trailPad: CGFloat = 32
     private let gap: CGFloat = 18
@@ -45,6 +47,23 @@ struct BrandStrip: View {
     private let trafficLightInset: CGFloat = 78
 
     @State private var notifOpen = false
+
+    /// The lockup's centre, in points from the window's top edge — where the
+    /// window's buttons are then sent. MEASURED rather than computed: the lockup
+    /// is glyph outlines, so its height is whatever Space Grotesk's "traqs" comes
+    /// out as at 40pt, ascender to the q's descender. Guessing at that em value
+    /// is how the gate's bars ended up a fifth of a lockup too low.
+    ///
+    /// No feedback loop, unlike that measurement: this feeds the WINDOW's buttons,
+    /// never the strip's own layout. The starting value is only what the buttons
+    /// use for the frame before the first measurement lands.
+    @State private var lockupCenterY: CGFloat = 26
+
+    /// The strip's own space. Its top edge IS the window's top edge — the window
+    /// has no title bar and the strip is the first thing in the shell — so a
+    /// distance measured in here is a distance from the top of the window, which
+    /// is the frame the window's buttons are placed in.
+    private let stripSpace = "brandStrip"
 
     /// This dropdown's OWN identity space. Never shared: two components in one
     /// namespace matched-geometry against each other's shapes.
@@ -66,6 +85,12 @@ struct BrandStrip: View {
         // what makes the strip and the sidebar read as one piece of chrome
         // against the content panel's bg.
         .background(theme.surface)
+        .coordinateSpace(.named(stripSpace))
+        // Zero-sized, and it draws nothing. It is here to reach the NSWindow.
+        .overlay(alignment: .topLeading) {
+            TrafficLightAligner(centerY: lockupCenterY)
+                .frame(width: 0, height: 0)
+        }
     }
 
     // MARK: Logo
@@ -86,6 +111,17 @@ struct BrandStrip: View {
             // strip keeps its height — a margin would grow the bar by the same
             // 10px." Same reasoning applies to an offset here.
             .offset(y: 5)                   // top: 5
+            // AFTER the offset, so what is measured is where the lockup is drawn
+            // rather than where it was laid out. A background never changes the
+            // size of what it is behind, so this cannot disturb the strip.
+            .background {
+                GeometryReader { geo in
+                    Color.clear.onChange(of: geo.frame(in: .named(stripSpace)).midY,
+                                         initial: true) { _, y in
+                        lockupCenterY = y
+                    }
+                }
+            }
     }
 
     // MARK: Undo / Redo
