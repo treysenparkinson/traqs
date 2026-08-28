@@ -218,6 +218,9 @@ struct GateTeamStep: View {
                     VStack(spacing: 0) {
                         header
                         card
+                        // The mono strapline under the card (App.jsx:1153) — the
+                        // same treatment PAPER_FOOT gets on the org step.
+                        GateStrapline(text: "Org code: \(orgCode) · Secured by Auth0")
                     }
                     .frame(maxWidth: 1060)
                     .frame(maxWidth: .infinity, minHeight: page.size.height,
@@ -367,6 +370,7 @@ struct GateTeamStep: View {
     private var card: some View {
         VStack(alignment: .leading, spacing: 0) {
             if view == .login { rosterContent } else { clockContent }
+            poweredBy
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 32).padding(.horizontal, 40).padding(.bottom, 26)
@@ -378,6 +382,25 @@ struct GateTeamStep: View {
                 radius: 35, y: 30)
         .frame(maxWidth: cardMaxWidth)
         .animation(.timingCurve(0.22, 1, 0.36, 1, duration: 0.28), value: view)
+    }
+
+    /// The "Powered by" credit inside the card (App.jsx:1145).
+    ///
+    /// WORDMARK ONLY — `bars={false}`. The web's reason, and it is the whole point
+    /// of the parameter existing: "the bars are the mark, and repeating them in a
+    /// footer credit competes with the real lockup up top."
+    ///
+    /// Also a much lighter stroke than the hero lockup's 1.5 — at 17pt the same
+    /// thickening would close the counters up.
+    private var poweredBy: some View {
+        HStack(spacing: 8) {
+            Text("Powered by")
+                .font(TFont.body(13, 600))
+                .foregroundStyle(GatePalette.stone)
+            GateLockup(size: 17, color: GatePalette.stone, stroke: 0.3, bars: false)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 36)          // marginTop: 36
     }
 
     @ViewBuilder
