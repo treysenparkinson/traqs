@@ -664,6 +664,52 @@ struct APIService {
         return try JSONDecoder().decode(OrgInfo.self, from: data)
     }
 
+    // MARK: - Kiosk time clock (UNAUTHENTICATED)
+    //
+    // The gate's clock kiosk punches before anybody has signed in: the PIN is the
+    // credential, not a bearer token. So these cannot go through the instance
+    // methods above — `request()` attaches an Authorization header and needs a
+    // configured APIService, and at gate time there is neither.
+    //
+    // Same endpoint and the same payloads as the authenticated versions; the only
+    // difference is what is (not) on the request.
+
+    /// One unauthenticated POST to `/timeclock`, carrying only the org header.
+    private static func kioskPost<T: Encodable>(orgCode: String, _ payload: T) async throws -> Data {
+        guard let url = URL(string: "\(AppConfig.netlifyBase)/timeclock") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(orgCode, forHTTPHeaderField: "X-Org-Code")
+        req.httpBody = try JSONEncoder().encode(payload)
+        let (data, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw APIError.httpError(http.statusCode)
+        }
+        return data
+    }
+
+    /// Resolve a PIN to a person. The kiosk calls this FIRST, before any action,
+    /// so a wrong PIN fails without having changed anything.
+    static func kioskIdentify(orgCode: String, pin: String) async throws -> TimeclockIdentifyResponse {
+        let data = try await kioskPost(orgCode: orgCode, TimeclockIdentifyPayload(pin: pin))
+        return try JSONDecoder().decode(TimeclockIdentifyResponse.self, from: data)
+    }
+
+    static func kioskClockIn(orgCode: String, personId: String, pin: String) async throws {
+        _ = try await kioskPost(orgCode: orgCode,
+                                TimeclockClockInPayload(personId: personId, pin: pin, jobRefs: []))
+    }
+
+    /// `clockOut`, `lunchStart`, `lunchEnd`, `breakStart`, `breakEnd` — one shape.
+    static func kioskAction(orgCode: String, action: String,
+                            personId: String, pin: String) async throws {
+        _ = try await kioskPost(orgCode: orgCode,
+                                TimeclockSimplePayload(action: action, personId: personId, pin: pin))
+    }
+
     /// The roster, UNAUTHENTICATED — for the kiosk, which shows faces before
     /// anybody has logged in.
     ///
