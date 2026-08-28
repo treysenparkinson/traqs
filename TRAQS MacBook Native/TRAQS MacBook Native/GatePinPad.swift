@@ -433,6 +433,16 @@ struct GateClockConfirm: View {
 
     private var name: String { person.name.uppercased() }
 
+    /// When the running shift began, so "already clocked in" says something
+    /// actionable rather than only refusing.
+    private var shiftStartedLine: String {
+        guard let iso = person.activeClockIn?.clockIn,
+              let started = Date.fromFlexibleISO8601(iso) else { return "" }
+        let f = DateFormatter()
+        f.dateFormat = "h:mm a"
+        return "Since \(f.string(from: started))"
+    }
+
     var body: some View {
         GateGlassPanel {
             VStack(spacing: 0) {
@@ -457,6 +467,21 @@ struct GateClockConfirm: View {
                 onConfirm(.lunchEnd)
             }
             .padding(.top, 20)
+            backLink
+        } else if requested == .clockIn && person.activeClockIn != nil {
+            // Already on the clock. `identify` returns the active shift, so this
+            // is known BEFORE anything is asked — no reason to offer a Yes that
+            // the server will refuse as a 409 ("Already clocked in via kiosk").
+            //
+            // Ordered after the lunch branch on purpose: somebody on lunch also
+            // has an active shift, and "back from lunch" is the more useful
+            // answer for them.
+            ask("\(name) is already clocked in.")
+            Text(shiftStartedLine)
+                .font(TFont.body(12.5))
+                .foregroundStyle(GatePalette.strapline)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 6)
             backLink
         } else if requested == .clockOut {
             ask("\(name), what are you clocking out for?")
