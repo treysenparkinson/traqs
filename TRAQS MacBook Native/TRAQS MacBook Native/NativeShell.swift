@@ -122,6 +122,20 @@ struct NativeShell: View {
     /// The rail's own curve, from the web app's NAV_EASE.
     private let railEase = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.28)
     private var railWidth: CGFloat { expanded ? 220 : 64 }
+    /// The web's `NAV_W = SB_W - NAV_PAD * 2` — the nav button's width, and it is
+    /// EXPLICIT for two reasons that both show up only when collapsed.
+    ///
+    /// At 64pt rail this is exactly 40, which is the button height, so the
+    /// Capsule highlight becomes a true CIRCLE rather than staying a pill. And it
+    /// is what clips the label away: `maxWidth: .infinity` does not cap a row whose
+    /// label is `.fixedSize()`, so the row kept its label width, the label survived
+    /// into the collapsed rail as a couple of stray letters, and the highlight
+    /// stayed pill-shaped.
+    ///
+    /// Animates with the rail because `expanded` is written inside
+    /// `withAnimation(railEase)` — same curve, same duration, which is how the web
+    /// gets each label progressively clipped rather than cut dead on frame one.
+    private var navRowWidth: CGFloat { railWidth - navPad * 2 }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -376,8 +390,9 @@ struct NativeShell: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, (40 - iconSlot) / 2)
-            .frame(height: height)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // The web's `width: NAV_W` and `height: o.h || 40`, both explicit.
+            // See `navRowWidth` for why the width cannot be `maxWidth: .infinity`.
+            .frame(width: navRowWidth, height: height, alignment: .leading)
             // `overflow: hidden` on the web's nav button, and it is load-bearing:
             // the BUTTON is what clips the label, not the rail. Its width tracks
             // the rail (NAV_W = SB_W - NAV_PAD * 2, so 40pt collapsed), so the
