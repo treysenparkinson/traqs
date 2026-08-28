@@ -152,9 +152,16 @@ struct NativeShell: View {
     private var navRowWidth: CGFloat { railWidth - navPad * 2 }
 
     var body: some View {
-        HStack(spacing: 0) {
-            sidebar
-            page
+        // The brand strip spans the FULL WIDTH above the sidebar-and-content row,
+        // so it is a sibling of that row rather than something inside either half
+        // (TRAQS.jsx:24582). Getting that wrong would put the logo above the page
+        // only, leaving the sidebar to start at the window's top edge.
+        VStack(spacing: 0) {
+            BrandStrip()
+            HStack(spacing: 0) {
+                sidebar
+                page
+            }
         }
         .background(theme.bg)
         .preferredColorScheme(theme.isDark ? .dark : .light)

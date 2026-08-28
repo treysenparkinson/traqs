@@ -24,6 +24,9 @@ struct GateLockup: View {
     /// not scale with `size`. Copied as-is.
     var stroke: CGFloat = 1.5
     var bars: Bool = true
+    /// The single themed bar. Defaults to the mark's own sky, which is what the
+    /// gate wants; the shell passes its theme accent.
+    var barsAccent: Color = GatePalette.blue
 
     var body: some View {
         // `alignItems: "baseline"` — "the bars image aligns its BOTTOM to the text
@@ -62,7 +65,7 @@ struct GateLockup: View {
         HStack(alignment: .bottom, spacing: 0) {
             wordmark(metrics)
             if bars {
-                GateBarsMark()
+                TRAQSBars(accent: barsAccent)
                     .frame(height: size * 0.52)          // ".52em", the x-height
                     .padding(.leading, size * 0.07)      // "margin-left: .07em"
                     .padding(.bottom, metrics.descent)   // up onto the baseline
@@ -143,49 +146,51 @@ struct GateLockup: View {
 
 // MARK: - The bars mark
 //
-// Drawn, not embedded. The web uses `traqs-bars.png`; this draws the same four
-// bars so the lockup stays sharp at any size.
+// The web's asset, in its two layers (TRAQS.jsx:24610). NOT drawn.
 //
-// Every number below was MEASURED out of that PNG (1300×1058) rather than
-// guessed — bar bands at rows 0–187, 290–477, 580–767, 870–1057, all
-// left-aligned, and the colours sampled from the pixels:
+// It was drawn here, and the web has a post-mortem on exactly that. Its comment
+// above this element:
 //
-//   greys  #747270
-//   accent #38BDF8   <- exactly LOGIN_BLUE, which is what App.jsx:25 means by
-//                       "the sky baked into the bars asset, so login and app
-//                       agree"
+//   > Was an image wordmark plus four hand-drawn divs, which is why the two
+//   > screens didn't match — the drawn bars were thinner, tighter and used the
+//   > theme accent instead of the mark's own sky.
 //
-// The iOS app's `TRAQSBarsMark` has the same fractions to within 0.3%, which is
-// a useful cross-check, but it cannot be reused here: it reads `ThemeSettings`
-// and `T.muted` to track the app's theme, and the gate has no theme.
-struct GateBarsMark: View {
-    var grey: Color = .hex("#747270")
-    var accent: Color = GatePalette.blue
+// The drawn version here fit the asset to a mean 0.017/255, so its geometry was
+// right — but two implementations of one mark is the condition that produced the
+// mismatch, and the asset is the source of truth either way.
+//
+// TWO LAYERS, and the reason is that only ONE bar tracks the theme. The web:
+//
+//   > The art is grey #747070 bars plus a single #38BDF8 bar; a mask over the
+//   > whole PNG would flatten every bar to the accent. So the grey bars stay a
+//   > plain <img> with their baked colour, and only the accent bar is a mask box
+//   > painted in Tc.accent.
+//
+// So: the static PNG carries the greys as-is, and the accent PNG is used purely
+// as a mask over a fill. The two were split pixel-exact from the original (both
+// 1300×1058), so they recomposite seamlessly.
+struct TRAQSBars: View {
+    /// The one bar that takes a colour. The shell passes the theme accent; the
+    /// gate passes LOGIN_BLUE, since it has no theme.
+    var accent: Color
 
-    /// 1300 / 1058.
+    /// The PNG's own ratio, 1300/1058. The web sizes the box with
+    /// `calc(.52em * 1.2287)` because "auto" means nothing to a mask box, which
+    /// has no intrinsic size — the same reason this is stated rather than inferred.
     static let aspect: CGFloat = 1300.0 / 1058.0
-    /// Bar widths as a fraction of the mark's full width, top → bottom.
-    private let widths: [CGFloat] = [0.5523, 0.7892, 1.0, 0.4477]
-    /// The third bar is the full-width accent one.
-    private let accentIndex = 2
-    /// 188 / 1058 and 102 / 1058.
-    private let barHFraction: CGFloat = 0.1777
-    private let gapFraction: CGFloat = 0.0964
 
     var body: some View {
-        GeometryReader { geo in
-            let h = geo.size.height
-            let fullWidth = h * Self.aspect
-            let barH = h * barHFraction
-            let gap = h * gapFraction
-            VStack(alignment: .leading, spacing: gap) {
-                ForEach(widths.indices, id: \.self) { i in
-                    RoundedRectangle(cornerRadius: barH * 0.32, style: .continuous)
-                        .fill(i == accentIndex ? accent : grey)
-                        .frame(width: fullWidth * widths[i], height: barH)
-                }
-            }
-            .frame(width: fullWidth, height: h, alignment: .leading)
+        ZStack {
+            Image("TRAQSBarsStatic")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+            Rectangle()
+                .fill(accent)
+                .mask(
+                    Image("TRAQSBarsAccent")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                )
         }
         .aspectRatio(Self.aspect, contentMode: .fit)
     }
