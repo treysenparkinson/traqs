@@ -59,6 +59,50 @@ struct JobsCellContext: Equatable {
     var today: String = ""
 }
 
+// MARK: - Every rule in the grid, as one shape
+//
+// The column rules used to be an `.overlay` Rectangle on each cell and the row
+// rules an overlay on each row. At eleven columns that is TWELVE shape views per
+// row, and forty rows made it five hundred — every one its own layer for the
+// compositor to walk on every scrolled frame. That was the largest single cost in
+// this grid.
+//
+// The whole network is one Path instead. It can be, because both spacings are
+// CONSTANTS: columns are fixed widths and rows are a fixed height, so there is
+// nothing to measure and no reason for the lines to be children of the things
+// they sit between.
+struct JobsGridLines: Shape {
+    let columnWidths: [CGFloat]
+    let rowCount: Int
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+
+        // Column rules, including one after the last column and after the "+"
+        // cell — `borderRight` is on `hdrCell` and `cellBase` both, so the web
+        // has a rule at every column's right edge.
+        var x: CGFloat = 0
+        for width in columnWidths {
+            x += width
+            path.move(to: CGPoint(x: x, y: 0))
+            path.addLine(to: CGPoint(x: x, y: rect.height))
+        }
+        x += JobColumn.addColumnWidth
+        path.move(to: CGPoint(x: x, y: 0))
+        path.addLine(to: CGPoint(x: x, y: rect.height))
+
+        // Row rules. Below the header's own heavier rule, which is drawn
+        // separately because it is 1.5 rather than 1.
+        var y = JobsGridMetrics.headerHeight
+        for _ in 0..<rowCount {
+            y += JobsGridMetrics.rowHeight
+            path.move(to: CGPoint(x: 0, y: y))
+            path.addLine(to: CGPoint(x: x, y: y))
+        }
+        return path
+    }
+}
+
 // MARK: - What a cell can do
 //
 // Closures rather than a shared observable object, and the distinction matters
@@ -123,6 +167,36 @@ struct JobsSection<Header: View>: View {
         columns.reduce(0) { $0 + $1.defaultWidth } + JobColumn.addColumnWidth
     }
 
+    /// LAZY, and the fixed row height is what makes it work well: a LazyVStack
+    /// has to guess at the height of what it has not built, and 36pt every time
+    /// means it guesses right.
+    ///
+    /// It is lazy against the PAGE's vertical scroller, which is why the branch
+    /// above matters — a LazyVStack inside a horizontal ScrollView has no
+    /// vertical scroller to measure itself against and builds everything.
+    private var grid: some View {
+        let rows = JobRow.flatten(jobs, expanded: expanded)
+        return LazyVStack(alignment: .leading, spacing: 0) {
+            JobsColumnHeader(columns: columns, sort: $sort)
+            ForEach(rows) { row in
+                JobsGridRow(row: row, columns: columns, align: align,
+                            context: context, actions: actions, editing: $editing,
+                            expanded: $expanded,
+                            selectMode: selectMode, selected: $selected)
+            }
+        }
+        // The columns stop where they stop; the CARD runs full width, which is
+        // what `width: 100%` on FrostCard over a `minWidth: minW` inner div gives
+        // on the web.
+        .frame(width: totalWidth, alignment: .leading)
+        // ONE shape for every rule in the section — see JobsGridLines.
+        .overlay {
+            JobsGridLines(columnWidths: columns.map(\.defaultWidth), rowCount: rows.count)
+                .stroke(theme.border, lineWidth: JobsGridMetrics.rowRule)
+                .allowsHitTesting(false)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerRow
@@ -162,23 +236,17 @@ struct JobsSection<Header: View>: View {
     /// the card sits inside the collapse wrapper's `overflow: hidden`, which clips
     /// a shadow to a square box and leaves four corner wedges.
     private var card: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
-                JobsColumnHeader(columns: columns, sort: $sort)
-                ForEach(JobRow.flatten(jobs, expanded: expanded)) { row in
-                    JobsGridRow(row: row, columns: columns, align: align,
-                                context: context, actions: actions, editing: $editing,
-                                expanded: $expanded,
-                                selectMode: selectMode, selected: $selected)
-                }
+        // NO ScrollView when the columns already fit, which is the usual case. A
+        // scroller that cannot scroll is not free: it still installs a clip and a
+        // scroll target, and five of them on a page compete with the page's own
+        // for every trackpad gesture.
+        Group {
+            if available > 0 && available < totalWidth {
+                ScrollView(.horizontal, showsIndicators: false) { grid }
+            } else {
+                grid
             }
-            // The columns stop where they stop; the CARD runs full width, which
-            // is what `width: 100%` on FrostCard over a `minWidth: minW` inner div
-            // gives on the web. Fixing the width instead left the card itself
-            // short of the panel's right edge.
-            .frame(width: totalWidth, alignment: .leading)
         }
-        .scrollDisabled(available >= totalWidth)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { available = $0 }
         .background(theme.card)
         .clipShape(RoundedRectangle(cornerRadius: TTheme.radiusLg, style: .continuous))
@@ -229,9 +297,6 @@ struct JobsColumnHeader: View {
                            height: JobsGridMetrics.headerHeight,
                            alignment: .leading)
                     .background(sorted(col) ? theme.accent.opacity(0.07) : .clear)
-                    .overlay(alignment: .trailing) {
-                        Rectangle().fill(theme.border).frame(width: 1)
-                    }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -292,9 +357,6 @@ struct JobsGridRow: View {
                               height: JobsGridMetrics.rowHeight)
         }
         .background(background)
-        .overlay(alignment: .bottom) {
-            Rectangle().fill(theme.border).frame(height: JobsGridMetrics.rowRule)
-        }
         // `opacity: isFinished && level === 0 ? 0.6 : 1`.
         .opacity(row.level == 0 && row.status == .finished ? 0.6 : 1)
         .onHover { hovering = $0 }
@@ -368,14 +430,18 @@ private struct JobsGridCell: View {
             .frame(width: column.defaultWidth,
                    height: JobsGridMetrics.rowHeight,
                    alignment: cellAlignment)
-            // `overflow: hidden` on `cellBase` — every cell, as the web has it.
-            // A status pill wider than its column is cut at the column's edge
-            // rather than drawn over the next one, which is what the 132pt Status
-            // column relies on.
-            .clipped()
-            .overlay(alignment: .trailing) {
-                Rectangle().fill(theme.border).frame(width: 1)
-            }
+            // NO `.clipped()`. It was on all eleven cells, and a clip is a mask
+            // layer — four hundred of them across a page, purely so nothing
+            // overflows. Nothing does: every Text truncates, and the two pills
+            // that could grow past their column now cap their own width. A mask
+            // per cell to prevent overflow that cannot happen is the definition of
+            // paying for nothing.
+    }
+
+    /// The width a cell has for content, after its own padding. Used where
+    /// something has to be told not to outgrow its column.
+    private var contentWidth: CGFloat {
+        column.defaultWidth - JobsGridMetrics.cellHPad * 2
     }
 
     // MARK: Edit plumbing
@@ -432,7 +498,14 @@ private struct JobsGridCell: View {
             // Holds its space when there are no children — `visibility: hidden`,
             // not `display: none`, so every title in the column starts at the
             // same x whether the row expands or not.
-            WebGlyph(spec: WebIcon.rowCaret, size: 10, color: theme.textDim)
+            // A Shape, not a WebGlyph. Every other glyph in the app can be a
+            // Canvas because there are a handful on screen; this one is once per
+            // row, and a Canvas is a drawing surface the renderer re-enters each
+            // frame. Three points do not need one.
+            JobsRowCaret()
+                .stroke(theme.textDim,
+                        style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
+                .frame(width: 10, height: 10)
                 .rotationEffect(.degrees(expanded.contains(row.itemID) ? 90 : 0))
                 .opacity(row.hasChildren ? 1 : 0)
                 .allowsHitTesting(false)
@@ -556,16 +629,24 @@ private struct JobsGridCell: View {
         statusPill
             .contentShape(Capsule())
             .onTapGesture { statusOpen = true }
-            .popover(isPresented: $statusOpen, arrowEdge: .bottom) {
-                JobsStatusPopover(current: row.status) { picked in
-                    statusOpen = false
-                    guard picked != row.status else { return }
-                    // Finished never gets written straight in — it raises a
-                    // completion request with the admins.
-                    if JobsEdit.needsCompletionRequest(picked) {
-                        actions.requestCompletion(row)
-                    } else {
-                        actions.commit(row, .status(picked))
+            // The popover modifier is installed ONLY WHILE OPEN. Attached
+            // unconditionally it is a presentation anchor that exists on every
+            // cell of every row — four per row here, across status, start, end and
+            // due — and they cost their keep whether or not anything is showing.
+            .overlay {
+                if statusOpen {
+                    Color.clear.popover(isPresented: $statusOpen, arrowEdge: .bottom) {
+                        JobsStatusPopover(current: row.status) { picked in
+                            statusOpen = false
+                            guard picked != row.status else { return }
+                            // Finished never gets written straight in — it raises
+                            // a completion request with the admins.
+                            if JobsEdit.needsCompletionRequest(picked) {
+                                actions.requestCompletion(row)
+                            } else {
+                                actions.commit(row, .status(picked))
+                            }
+                        }
                     }
                 }
             }
@@ -589,6 +670,10 @@ private struct JobsGridCell: View {
         .foregroundStyle(color)
         .padding(.horizontal, 10)
         .padding(.vertical, 3)
+        // `maxWidth: "100%"` on the web's pill. This is what makes dropping the
+        // per-cell clip safe: the only thing in a cell that could grow past its
+        // column now refuses to.
+        .frame(maxWidth: contentWidth, alignment: .leading)
         .background(Capsule().fill(color.opacity(0.125)))                    // "20"
         .overlay(Capsule().strokeBorder(color.opacity(0.27), lineWidth: 1))  // "44"
     }
@@ -606,6 +691,7 @@ private struct JobsGridCell: View {
             .foregroundStyle(color)
             .padding(.horizontal, 10)
             .padding(.vertical, 3)
+            .frame(maxWidth: contentWidth)
             .background(Capsule().fill(color.opacity(0.10)))                 // "1a"
             .overlay(Capsule().strokeBorder(color.opacity(0.27), lineWidth: 1))
             .contentShape(Capsule())
@@ -629,10 +715,14 @@ private struct JobsGridCell: View {
             .frame(maxWidth: .infinity, alignment: cellAlignment.horizontalOnly)
             .contentShape(Rectangle())
             .onTapGesture { dateOpen = true }
-            .popover(isPresented: $dateOpen, arrowEdge: .bottom) {
-                JobsDatePopover(day: day) { picked in
-                    dateOpen = false
-                    actions.commit(row, field(picked))
+            .overlay {
+                if dateOpen {
+                    Color.clear.popover(isPresented: $dateOpen, arrowEdge: .bottom) {
+                        JobsDatePopover(day: day) { picked in
+                            dateOpen = false
+                            actions.commit(row, field(picked))
+                        }
+                    }
                 }
             }
     }
@@ -649,24 +739,26 @@ private struct JobsGridCell: View {
                 .lineLimit(1)
                 .contentShape(Rectangle())
                 .onTapGesture { dueOpen = true }
-                .popover(isPresented: $dueOpen, arrowEdge: .bottom) {
-                    JobsDatePopover(day: due, clearable: true) { picked in
-                        dueOpen = false
-                        actions.commit(row, .dueDate(picked.isEmpty ? nil : picked))
-                    }
-                }
+                .overlay { duePopover(due) }
         } else if row.level == 0 {
             dash(12, mono: true)
                 .contentShape(Rectangle())
                 .onTapGesture { dueOpen = true }
-                .popover(isPresented: $dueOpen, arrowEdge: .bottom) {
-                    JobsDatePopover(day: "", clearable: true) { picked in
-                        dueOpen = false
-                        actions.commit(row, .dueDate(picked.isEmpty ? nil : picked))
-                    }
-                }
+                .overlay { duePopover("") }
         } else {
             Color.clear
+        }
+    }
+
+    @ViewBuilder
+    private func duePopover(_ due: String) -> some View {
+        if dueOpen {
+            Color.clear.popover(isPresented: $dueOpen, arrowEdge: .bottom) {
+                JobsDatePopover(day: due, clearable: true) { picked in
+                    dueOpen = false
+                    actions.commit(row, .dueDate(picked.isEmpty ? nil : picked))
+                }
+            }
         }
     }
 
@@ -769,6 +861,18 @@ private struct JobsGridCell: View {
         Text("—")
             .font(mono ? TFont.mono(size) : TFont.body(size))
             .foregroundStyle(theme.textDim)
+    }
+}
+
+/// `polyline points="3,2 7,5 3,8"` in its own 10x10 box — the row's expand arrow.
+struct JobsRowCaret: Shape {
+    func path(in rect: CGRect) -> Path {
+        let s = min(rect.width, rect.height) / 10
+        var p = Path()
+        p.move(to: CGPoint(x: 3 * s, y: 2 * s))
+        p.addLine(to: CGPoint(x: 7 * s, y: 5 * s))
+        p.addLine(to: CGPoint(x: 3 * s, y: 8 * s))
+        return p
     }
 }
 

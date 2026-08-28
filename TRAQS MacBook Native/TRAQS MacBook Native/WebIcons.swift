@@ -247,13 +247,6 @@ enum WebIcon {
         .path("M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"),
     ])
 
-    /// The row's expand arrow. Its own 10x10 viewBox, as on the web — scaling the
-    /// 24-unit chevron down to 10pt thins its stroke past legibility.
-    static let rowCaret = GlyphSpec(
-        viewBox: CGRect(x: 0, y: 0, width: 10, height: 10),
-        strokeWidth: 1.8,
-        elements: [.polyline([3, 2, 7, 5, 3, 8])])
-
     /// The tick inside a checked selection dot, in its own 10x10 box.
     static let tick = GlyphSpec(
         viewBox: CGRect(x: 0, y: 0, width: 10, height: 10),
