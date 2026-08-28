@@ -8,8 +8,13 @@ import SwiftUI
 // the 0.28s cubic-bezier(0.22,1,0.36,1) the rail collapses on. A number in here
 // that wasn't copied is a bug.
 //
-// The ONE intended difference: buttons are real Liquid Glass, and the active
-// pill morphs from row to row as the screen changes.
+// The ONE intended difference from the web app: the buttons in a PAGE HEADER are
+// real Liquid Glass (native `glassEffect` — see GlassControls, not the CSS
+// imitation the web view wears in MacNativeSkin, which never touches a native
+// view).
+//
+// THE SIDEBAR IS NOT PART OF THAT. Its buttons are a straight copy of the web's:
+// a flat accent-at-18% fill on the active row, no glass, no travelling indicator.
 
 // MARK: Views
 
@@ -78,11 +83,20 @@ enum TSettings: String, CaseIterable, Identifiable {
 // MARK: - Shell
 
 struct NativeShell: View {
-    let theme: TTheme
-    var canSeeApprovals = true
-    var isAdmin = true
-    var personName = "Treysen Parkinson"
-    var orgName = "MATRIX SYSTEMS"
+    @Environment(\.tqTheme) private var theme
+    @Environment(AppState.self) private var appState
+
+    // Computed, not stored, so the shell TRACKS AppState. The four values these
+    // replace were hardcoded defaults — a real person's name and org compiled in
+    // and shown to whoever opened the app, with the Approvals and Admin rows
+    // permanently visible regardless of permission.
+    //
+    // Deliberately REMOVED as parameters rather than given defaults: a default is
+    // an invitation to pass fiction again.
+    private var personName: String { appState.currentPerson?.name ?? "" }
+    private var orgName: String { appState.orgName }
+    private var isAdmin: Bool { appState.isAdmin }
+    private var canSeeApprovals: Bool { appState.canViewApprovalQueue }
 
     @State private var view: TView = .tasks
     @State private var expanded = true
@@ -93,16 +107,45 @@ struct NativeShell: View {
     @State private var orgExpanded = false
     @State private var hovered: String?
 
-    /// The morph's identity space. Declared HERE so it outlives every screen
-    /// change — a namespace owned by a view that gets rebuilt gives the glass
-    /// nothing to interpolate between.
-    @Namespace private var navGlass
+    /// The PAGE HEADER cluster's morph identity space — not the sidebar's, which
+    /// has no glass and no travelling indicator (see `navRow`).
+    ///
+    /// Declared HERE, in the shell, and that placement is precondition 1: a
+    /// namespace owned by a view that gets rebuilt on a screen change gives the
+    /// glass nothing to interpolate between. Unused until a screen has header
+    /// controls — the Jobs pass is the first — and it has to already be in the
+    /// right place by then. See GlassControls.
+    @Namespace private var headerGlass
 
     private let navPad: CGFloat = 12
     private let iconSlot: CGFloat = 17
     /// The rail's own curve, from the web app's NAV_EASE.
     private let railEase = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.28)
+    /// Every COLOUR change on a nav button — hover in, hover out, and the active
+    /// row's fill and lettering. From `.tq-sidebar button` in TRAQS.jsx (:1110):
+    ///
+    ///     background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease
+    ///
+    /// `timingCurve(0.25, 0.1, 0.25, 1)` IS css `ease` — that keyword is defined as
+    /// exactly that cubic-bezier, so this is copied rather than approximated with
+    /// `.easeInOut`. Separate from `railEase` because the web states them
+    /// separately: geometry moves on one curve, colour on another.
+    private let navColorEase = Animation.timingCurve(0.25, 0.1, 0.25, 1, duration: 0.15)
     private var railWidth: CGFloat { expanded ? 220 : 64 }
+    /// The web's `NAV_W = SB_W - NAV_PAD * 2` — the nav button's width, and it is
+    /// EXPLICIT for two reasons that both show up only when collapsed.
+    ///
+    /// At 64pt rail this is exactly 40, which is the button height, so the
+    /// Capsule highlight becomes a true CIRCLE rather than staying a pill. And it
+    /// is what clips the label away: `maxWidth: .infinity` does not cap a row whose
+    /// label is `.fixedSize()`, so the row kept its label width, the label survived
+    /// into the collapsed rail as a couple of stray letters, and the highlight
+    /// stayed pill-shaped.
+    ///
+    /// Animates with the rail because `expanded` is written inside
+    /// `withAnimation(railEase)` — same curve, same duration, which is how the web
+    /// gets each label progressively clipped rather than cut dead on frame one.
+    private var navRowWidth: CGFloat { railWidth - navPad * 2 }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -118,9 +161,14 @@ struct NativeShell: View {
     private var page: some View {
         ZStack {
             theme.bg
-            Text(settingsMode ? settingsSection.label : view.label)
-                .font(TFont.body(28, .bold))
-                .foregroundStyle(theme.textDim)
+            // Still a placeholder — no screen is ported in this pass. It goes
+            // through TPage so the chrome is exercised, and visibly wrong if any
+            // copied number is wrong, before a real screen depends on it.
+            TPage(settingsMode ? settingsSection.label : view.label) {
+                Text("Not ported yet")
+                    .font(TFont.body(15))
+                    .foregroundStyle(theme.textDim)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -128,6 +176,8 @@ struct NativeShell: View {
     // MARK: Sidebar
 
     private var sidebar: some View {
+        // NO GlassEffectContainer. The sidebar is a straight copy of the web
+        // app's, and the web app's nav buttons are not glass — see `navRow`.
         VStack(alignment: .leading, spacing: 0) {
             hamburger
             // The two nav layers swap instantly rather than cross-fading — the
@@ -148,11 +198,18 @@ struct NativeShell: View {
     }
 
     private var hamburger: some View {
+        // NO LABEL. The web's toggle is an icon on its own — its button contains a
+        // single <span style={navIcon}> and nothing else (TRAQS.jsx:24835). The
+        // "Menu" text here was invented.
+        //
+        // What it does carry is a tooltip, which is the web's `title` attribute on
+        // the same element.
         navRow(glyph: .init(spec: GlyphSpec(strokeWidth: 2.5, elements: [
             .line(3, 6, 21, 6), .line(3, 12, 21, 12), .line(3, 18, 21, 18),
-        ])), label: "Menu", key: "toggle", active: false, tint: theme.textSec) {
+        ])), label: "", key: "toggle", active: false, tint: theme.textSec) {
             withAnimation(railEase) { expanded.toggle() }
         }
+        .help(expanded ? "Collapse sidebar" : "Expand sidebar")
         .padding(.horizontal, navPad)
         .padding(.top, 12)
         .padding(.bottom, 22)   // 12 padding + 10 margin, per the web
@@ -244,7 +301,7 @@ struct NativeShell: View {
 
     private var orgLabel: some View {
         Text(orgName)
-            .font(TFont.body(10, .bold))
+            .font(TFont.body(10, 700))
             .kerning(-0.45)
             .foregroundStyle(theme.textDim)
             .lineLimit(1)
@@ -260,14 +317,19 @@ struct NativeShell: View {
                 .fill(theme.accent.opacity(0.22))
                 .frame(width: 32, height: 32)
                 .overlay {
-                    Text(initials(personName))
-                        .font(TFont.body(12, .bold))
-                        .foregroundStyle(theme.accent)
+                    // Nothing before people load, rather than a placeholder that
+                    // swaps a beat later. `initials("")` would be an empty circle
+                    // with a stray subtitle under it.
+                    if !personName.isEmpty {
+                        Text(initials(personName))
+                            .font(TFont.body(12, 700))
+                            .foregroundStyle(theme.accent)
+                    }
                 }
-            if expanded {
+            if expanded && !personName.isEmpty {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(personName)
-                        .font(TFont.body(13, .semibold))
+                        .font(TFont.body(13, 600))
                         .foregroundStyle(theme.text)
                         .lineLimit(1)
                     Text(isAdmin ? "Admin" : "Crew")
@@ -331,11 +393,15 @@ struct NativeShell: View {
                 }
                 .frame(width: iconSlot, height: iconSlot)
 
-                Text(label)
-                    .font(TFont.body(fontSize, active ? .bold : .medium))
-                    .foregroundStyle(fg)
-                    .lineLimit(1)
-                    .fixedSize()
+                // Skipped entirely when empty — the hamburger has no label, and an
+                // empty Text still occupies the HStack's 12pt gap.
+                if !label.isEmpty {
+                    Text(label)
+                        .font(TFont.body(fontSize, active ? 700 : 500))
+                        .foregroundStyle(fg)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
                 if trailingChevron {
                     Spacer(minLength: 4)
                     WebGlyph(spec: WebIcon.chevronRight, size: 10, color: theme.textDim)
@@ -345,19 +411,37 @@ struct NativeShell: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, (40 - iconSlot) / 2)
-            .frame(height: height)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            // The web's `width: NAV_W` and `height: o.h || 40`, both explicit.
+            // See `navRowWidth` for why the width cannot be `maxWidth: .infinity`.
+            .frame(width: navRowWidth, height: height, alignment: .leading)
+            // `overflow: hidden` on the web's nav button, and it is load-bearing:
+            // the BUTTON is what clips the label, not the rail. Its width tracks
+            // the rail (NAV_W = SB_W - NAV_PAD * 2, so 40pt collapsed), so the
+            // label is progressively cut away as the rail narrows and is gone
+            // entirely at 64pt.
+            //
+            // Without this the label overflowed the row and was only cut at the
+            // rail's own edge, which left a couple of stray letters ("Da", "Sc")
+            // sitting in the collapsed rail beside each icon.
+            .clipped()
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .background {
             ZStack {
                 if active {
-                    // ONE shape, handed from row to row — the pill travels rather
-                    // than being redrawn where you tapped.
-                    Capsule()
-                        .fill(theme.accent.opacity(0.18))
-                        .matchedGeometryEffect(id: "nav.active", in: navGlass)
+                    // `background: active ? hexA(T.accent, 0.18)` — copied, and
+                    // NOT GLASS. The web app's own note on this button: "active =
+                    // brand-gradient fill; pill when expanded, circle when
+                    // collapsed; NO SEPARATE SLIDING INDICATOR."
+                    //
+                    // So there is no travelling pill either. A glassEffect pill was
+                    // tried here and was wrong twice: wrong material, and being a
+                    // background layer with a material in it, it painted over the
+                    // row's own icon and label — the active row rendered as an
+                    // empty capsule. Glass belongs on the page HEADER buttons; see
+                    // GlassControls.
+                    Capsule().fill(theme.accent.opacity(0.18))
                 } else if let fill {
                     Capsule().fill(fill)
                 } else if hovered == key {
@@ -370,11 +454,22 @@ struct NativeShell: View {
         }
         .clipShape(Capsule())
         .onHover { hovered = $0 ? key : (hovered == key ? nil : hovered) }
+        // Hover fades in and out rather than snapping — the web's
+        // `background-color 0.15s ease`. Keyed on THIS row's hover state, not the
+        // shared `hovered` string, so moving between rows doesn't re-animate every
+        // other row in the rail.
+        .animation(navColorEase, value: hovered == key)
+        // The active row's fill and lettering, on the same curve — the web's
+        // `color 0.15s ease` from the same rule.
+        .animation(navColorEase, value: active)
     }
 
     private func select(_ v: TView) {
-        // An ANIMATED transaction is what carries the pill to the new row.
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) { view = v }
+        // A colour change, on the web's colour curve — there is no travelling
+        // indicator to carry anywhere (see `navRow`), so the bouncy spring this
+        // used to run was animating nothing but the fill, overshooting a value
+        // the web crossfades in 0.15s.
+        withAnimation(navColorEase) { view = v }
     }
 
     private func initials(_ name: String) -> String {

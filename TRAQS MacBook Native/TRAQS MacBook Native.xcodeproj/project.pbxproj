@@ -30,6 +30,11 @@
 			path = "../TRAQS Scheduling/TRAQS Scheduling/Services";
 			sourceTree = "<group>";
 		};
+		TD0000000000000000000013 /* ../TRAQS Scheduling/TRAQS Scheduling/Fonts */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "../TRAQS Scheduling/TRAQS Scheduling/Fonts";
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -50,6 +55,7 @@
 				TD0000000000000000000010 /* TRAQS MacBook Native */,
 				TD0000000000000000000011 /* ../TRAQS Scheduling/TRAQS Scheduling/Models */,
 				TD0000000000000000000012 /* ../TRAQS Scheduling/TRAQS Scheduling/Services */,
+				TD0000000000000000000013 /* ../TRAQS Scheduling/TRAQS Scheduling/Fonts */,
 				TD0000000000000000000031 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -81,6 +87,7 @@
 				TD0000000000000000000010 /* TRAQS MacBook Native */,
 				TD0000000000000000000011 /* ../TRAQS Scheduling/TRAQS Scheduling/Models */,
 				TD0000000000000000000012 /* ../TRAQS Scheduling/TRAQS Scheduling/Services */,
+				TD0000000000000000000013 /* ../TRAQS Scheduling/TRAQS Scheduling/Fonts */,
 			);
 			name = "TRAQS MacBook Native";
 			packageProductDependencies = (
@@ -207,6 +214,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = TRAQS;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMainNibFile = "";
@@ -239,6 +247,7 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = TRAQS;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSMainNibFile = "";
