@@ -198,11 +198,18 @@ struct NativeShell: View {
     }
 
     private var hamburger: some View {
+        // NO LABEL. The web's toggle is an icon on its own — its button contains a
+        // single <span style={navIcon}> and nothing else (TRAQS.jsx:24835). The
+        // "Menu" text here was invented.
+        //
+        // What it does carry is a tooltip, which is the web's `title` attribute on
+        // the same element.
         navRow(glyph: .init(spec: GlyphSpec(strokeWidth: 2.5, elements: [
             .line(3, 6, 21, 6), .line(3, 12, 21, 12), .line(3, 18, 21, 18),
-        ])), label: "Menu", key: "toggle", active: false, tint: theme.textSec) {
+        ])), label: "", key: "toggle", active: false, tint: theme.textSec) {
             withAnimation(railEase) { expanded.toggle() }
         }
+        .help(expanded ? "Collapse sidebar" : "Expand sidebar")
         .padding(.horizontal, navPad)
         .padding(.top, 12)
         .padding(.bottom, 22)   // 12 padding + 10 margin, per the web
@@ -386,11 +393,15 @@ struct NativeShell: View {
                 }
                 .frame(width: iconSlot, height: iconSlot)
 
-                Text(label)
-                    .font(TFont.body(fontSize, active ? 700 : 500))
-                    .foregroundStyle(fg)
-                    .lineLimit(1)
-                    .fixedSize()
+                // Skipped entirely when empty — the hamburger has no label, and an
+                // empty Text still occupies the HStack's 12pt gap.
+                if !label.isEmpty {
+                    Text(label)
+                        .font(TFont.body(fontSize, active ? 700 : 500))
+                        .foregroundStyle(fg)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
                 if trailingChevron {
                     Spacer(minLength: 4)
                     WebGlyph(spec: WebIcon.chevronRight, size: 10, color: theme.textDim)
