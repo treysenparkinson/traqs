@@ -59,6 +59,28 @@ struct JobsCellContext: Equatable {
     var today: String = ""
 }
 
+// MARK: - What a cell can do
+//
+// Closures rather than a shared observable object, and the distinction matters
+// for the same reason `JobsCellContext` exists: a closure is only CALLED on
+// interaction, never during a body evaluation, so passing one down does not make
+// a cell an observer of anything it reaches.
+
+struct JobsCellActions {
+    /// Write one field. The row carries its own path — see `JobRow.editPath`.
+    var commit: (JobRow, JobsEdit.Field) -> Void = { _, _ in }
+    /// Choosing Finished. The web never writes that status directly; it raises a
+    /// completion request with the admins (:26530).
+    var requestCompletion: (JobRow) -> Void = { _ in }
+}
+
+/// Which single cell is in edit mode. `gridCell` on the web — one at a time, app
+/// wide, so clicking a second cell commits the first.
+struct JobsEditTarget: Equatable {
+    let rowID: String
+    let column: JobColumn
+}
+
 // MARK: - A section
 //
 // One per project manager (TRAQS.jsx:12269): a clickable header — chevron,
@@ -75,6 +97,8 @@ struct JobsSection<Header: View>: View {
     let columns: [JobColumn]
     let align: JobColumn.Align
     let context: JobsCellContext
+    let actions: JobsCellActions
+    @Binding var editing: JobsEditTarget?
     /// The green ring and green count the Finished section uses. nil = accent.
     var accent: Color? = nil
     @Binding var sort: JobsSort
@@ -143,7 +167,8 @@ struct JobsSection<Header: View>: View {
                 JobsColumnHeader(columns: columns, sort: $sort)
                 ForEach(JobRow.flatten(jobs, expanded: expanded)) { row in
                     JobsGridRow(row: row, columns: columns, align: align,
-                                context: context, expanded: $expanded,
+                                context: context, actions: actions, editing: $editing,
+                                expanded: $expanded,
                                 selectMode: selectMode, selected: $selected)
                 }
             }
@@ -246,6 +271,8 @@ struct JobsGridRow: View {
     let columns: [JobColumn]
     let align: JobColumn.Align
     let context: JobsCellContext
+    let actions: JobsCellActions
+    @Binding var editing: JobsEditTarget?
     @Binding var expanded: Set<String>
     let selectMode: Bool
     @Binding var selected: Set<String>
@@ -256,6 +283,7 @@ struct JobsGridRow: View {
         HStack(spacing: 0) {
             ForEach(columns) { col in
                 JobsGridCell(row: row, column: col, align: align, context: context,
+                             actions: actions, editing: $editing,
                              expanded: expanded, selected: selected,
                              selectMode: selectMode)
             }
@@ -283,6 +311,9 @@ struct JobsGridRow: View {
     }
 
     private func tap() {
+        // A commit in progress takes the click. Otherwise clicking away from a
+        // field you are editing also collapses the row under it.
+        if editing != nil { editing = nil; return }
         if selectMode && row.level == 0 {
             if selected.contains(row.itemID) { selected.remove(row.itemID) }
             else { selected.insert(row.itemID) }
@@ -316,11 +347,19 @@ private struct JobsGridCell: View {
     let column: JobColumn
     let align: JobColumn.Align
     let context: JobsCellContext
+    let actions: JobsCellActions
+    @Binding var editing: JobsEditTarget?
     /// Read-only copies. A cell never writes these, and taking them as values
     /// rather than Bindings keeps a row's cells from invalidating each other.
     let expanded: Set<String>
     let selected: Set<String>
     let selectMode: Bool
+
+    /// Per-cell, not page-level. A popover anchors to the view that presents it,
+    /// and only one cell can be clicked at a time anyway.
+    @State private var statusOpen = false
+    @State private var dateOpen = false
+    @State private var dueOpen = false
 
     var body: some View {
         content
@@ -337,6 +376,25 @@ private struct JobsGridCell: View {
             .overlay(alignment: .trailing) {
                 Rectangle().fill(theme.border).frame(width: 1)
             }
+    }
+
+    // MARK: Edit plumbing
+
+    private var isEditing: Bool {
+        editing == JobsEditTarget(rowID: row.id, column: column)
+    }
+
+    /// Enters edit mode only where the web allows it. `isEditable` holds the
+    /// per-level rules in one place — see JobsEdit.
+    private func beginEditing(_ field: JobsEdit.Field) {
+        guard JobsEdit.isEditable(field, atLevel: row.level) else { return }
+        editing = JobsEditTarget(rowID: row.id, column: column)
+    }
+
+    private func commit(_ field: JobsEdit.Field) {
+        editing = nil
+        guard JobsEdit.isEditable(field, atLevel: row.level) else { return }
+        actions.commit(row, field)
     }
 
     /// The cycling toggle moves the ordinary cells. Name, Priority and Progress
@@ -358,8 +416,8 @@ private struct JobsGridCell: View {
         case .client:   clientCell
         case .status:   statusCell
         case .pri:      priorityCell
-        case .start:    dateCell(row.start)
-        case .end:      dateCell(row.end)
+        case .start:    dateCell(row.start) { .start($0) }
+        case .end:      dateCell(row.end) { .end($0) }
         case .due:      dueCell
         case .hrs:      hoursCell
         case .progress: progressCell
@@ -397,13 +455,27 @@ private struct JobsGridCell: View {
                     .frame(width: 4, height: 4)
             }
 
-            Text(row.title)
-                .font(TFont.body(row.level == 0 ? 13 : 12,
-                                 row.level == 0 ? 700 : (row.level == 1 ? 600 : 500)))
-                .foregroundStyle(row.level == 2 ? theme.textSec : theme.text)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            if isEditing {
+                JobsInlineField(text: row.title,
+                                font: TFont.body(row.level == 0 ? 13 : 12,
+                                                 row.level == 0 ? 700 : (row.level == 1 ? 600 : 500)),
+                                accent: theme.accent, ink: theme.text) { value in
+                    commit(.title(value))
+                } cancel: { editing = nil }
+            } else {
+                Text(row.title)
+                    .font(TFont.body(row.level == 0 ? 13 : 12,
+                                     row.level == 0 ? 700 : (row.level == 1 ? 600 : 500)))
+                    .foregroundStyle(row.level == 2 ? theme.textSec : theme.text)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    // DOUBLE click, not single — a single click belongs to the
+                    // row, which expands it or picks it in select mode.
+                    .onTapGesture(count: 2) {
+                        if !selectMode { beginEditing(.title(row.title)) }
+                    }
+            }
         }
         // `paddingLeft: (level === 0 ? 22 : 20) + indent`, less the cell's own 10
         // which is already applied.
@@ -428,13 +500,20 @@ private struct JobsGridCell: View {
 
     @ViewBuilder
     private var jobNumCell: some View {
-        if let number = row.job?.jobNumber, !number.isEmpty {
+        if isEditing {
+            JobsInlineField(text: row.job?.jobNumber ?? "", font: TFont.mono(11, 600),
+                            accent: theme.accent, ink: theme.text) { value in
+                commit(.jobNumber(value))
+            } cancel: { editing = nil }
+        } else if let number = row.job?.jobNumber, !number.isEmpty {
             Text("#\(number)")
                 .font(TFont.mono(11, 600))
                 .foregroundStyle(theme.text)
                 .lineLimit(1)
+                .onTapGesture { beginEditing(.jobNumber(number)) }
         } else if row.level == 0 {
             dash(11, mono: true)
+                .onTapGesture { beginEditing(.jobNumber("")) }
         } else {
             // A panel has no number of its own and the web leaves the cell empty
             // — but EMPTY, not absent. See the note above `JobsGridCell`.
@@ -474,6 +553,25 @@ private struct JobsGridCell: View {
     // MARK: Status
 
     private var statusCell: some View {
+        statusPill
+            .contentShape(Capsule())
+            .onTapGesture { statusOpen = true }
+            .popover(isPresented: $statusOpen, arrowEdge: .bottom) {
+                JobsStatusPopover(current: row.status) { picked in
+                    statusOpen = false
+                    guard picked != row.status else { return }
+                    // Finished never gets written straight in — it raises a
+                    // completion request with the admins.
+                    if JobsEdit.needsCompletionRequest(picked) {
+                        actions.requestCompletion(row)
+                    } else {
+                        actions.commit(row, .status(picked))
+                    }
+                }
+            }
+    }
+
+    private var statusPill: some View {
         let color = Color.hex(row.status.hex)
         return HStack(spacing: 5) {
             // A fixed 12pt slot, so the emblems — which differ in width despite
@@ -499,6 +597,7 @@ private struct JobsGridCell: View {
 
     private var priorityCell: some View {
         let color = Color.hex(row.priority.hex)
+        let editable = JobsEdit.isEditable(.priority(row.priority), atLevel: row.level)
         return Text(row.priority.rawValue)
             .font(TFont.body(11, 700))
             .tracking(11 * -0.045)
@@ -509,15 +608,33 @@ private struct JobsGridCell: View {
             .padding(.vertical, 3)
             .background(Capsule().fill(color.opacity(0.10)))                 // "1a"
             .overlay(Capsule().strokeBorder(color.opacity(0.27), lineWidth: 1))
+            .contentShape(Capsule())
+            // `cyclePri` — a click steps to the next priority and wraps. No
+            // popover on the web; three values do not need a list.
+            .onTapGesture {
+                guard editable else { return }
+                actions.commit(row, .priority(JobsEdit.nextPriority(after: row.priority)))
+            }
     }
 
     // MARK: Dates
 
-    private func dateCell(_ day: String) -> some View {
+    /// Start and End. Both editable at every level.
+    private func dateCell(_ day: String, _ field: @escaping (String) -> JobsEdit.Field)
+        -> some View {
         Text(JobsDate.short(day))
             .font(TFont.mono(12))
             .foregroundStyle(theme.textSec)
             .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: cellAlignment.horizontalOnly)
+            .contentShape(Rectangle())
+            .onTapGesture { dateOpen = true }
+            .popover(isPresented: $dateOpen, arrowEdge: .bottom) {
+                JobsDatePopover(day: day) { picked in
+                    dateOpen = false
+                    actions.commit(row, field(picked))
+                }
+            }
     }
 
     @ViewBuilder
@@ -530,8 +647,24 @@ private struct JobsGridCell: View {
                 .foregroundStyle(overdue ? Color.hex("#ef4444")
                                  : (soon ? Color.hex("#f59e0b") : theme.textSec))
                 .lineLimit(1)
+                .contentShape(Rectangle())
+                .onTapGesture { dueOpen = true }
+                .popover(isPresented: $dueOpen, arrowEdge: .bottom) {
+                    JobsDatePopover(day: due, clearable: true) { picked in
+                        dueOpen = false
+                        actions.commit(row, .dueDate(picked.isEmpty ? nil : picked))
+                    }
+                }
         } else if row.level == 0 {
             dash(12, mono: true)
+                .contentShape(Rectangle())
+                .onTapGesture { dueOpen = true }
+                .popover(isPresented: $dueOpen, arrowEdge: .bottom) {
+                    JobsDatePopover(day: "", clearable: true) { picked in
+                        dueOpen = false
+                        actions.commit(row, .dueDate(picked.isEmpty ? nil : picked))
+                    }
+                }
         } else {
             Color.clear
         }
@@ -697,6 +830,13 @@ enum JobsDate {
             ? String(Int(rounded))
             : String(format: "%.1f", rounded)
     }
+
+    /// A `Date` for a `yyyy-MM-dd` day, at noon — so a picker cannot round it
+    /// into the previous day in a western timezone.
+    static func date(from day: String) -> Date? { parse(day) }
+
+    /// The inverse. Local, matching `todayKey`.
+    static func key(from date: Date) -> String { keyFormatter.string(from: date) }
 
     private static func parse(_ day: String) -> Date? {
         guard !day.isEmpty else { return nil }

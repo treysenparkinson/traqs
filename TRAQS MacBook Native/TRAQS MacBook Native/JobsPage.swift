@@ -37,6 +37,9 @@ struct JobsPage: View {
     @State private var selected: Set<String> = []
 
     @State private var filterOpen = false
+    /// The one cell in edit mode, app-wide — `gridCell` on the web.
+    @State private var editing: JobsEditTarget?
+    @State private var confirmingDelete = false
 
     /// `gap: 6` inside the tool cluster, `PAGE_ACTION_GAP = 10` between actions.
     private let toolGap: CGFloat = 6
@@ -61,7 +64,8 @@ struct JobsPage: View {
                     ForEach(JobsQuery.managerSections(visible)) { section in
                         JobsSection(sectionID: section.id, jobs: section.jobs,
                                     columns: JobColumn.allCases, align: cellAlign,
-                                    context: cells,
+                                    context: cells, actions: cellActions,
+                                    editing: $editing,
                                     sort: $sort, expanded: $expanded,
                                     collapsed: $collapsed,
                                     selectMode: selectMode, selected: $selected) {
@@ -74,6 +78,26 @@ struct JobsPage: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        .confirmationDialog(deletePrompt, isPresented: $confirmingDelete) {
+            Button("Delete \(selected.count) Job\(selected.count == 1 ? "" : "s")",
+                   role: .destructive) {
+                // One `updateJobs` for the whole set, not a `deleteJob` per id:
+                // that pushes ONE undo entry, so Cmd-Z brings the whole selection
+                // back rather than one job at a time.
+                let doomed = selected
+                appState.updateJobs(appState.jobs.filter { !doomed.contains($0.id) })
+                withAnimation { selected = []; selectMode = false }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This also deletes their panels and operations. Undo with \u{2318}Z.")
+        }
+    }
+
+    private var deletePrompt: String {
+        selected.count == 1
+            ? "Delete this job?"
+            : "Delete \(selected.count) jobs?"
     }
 
     // MARK: The list
@@ -92,6 +116,45 @@ struct JobsPage: View {
                 people.first { $0.id == id }?.name ?? ""
             },
             percentComplete: { [appState] job in appState.jobPct(job) })
+    }
+
+    // MARK: What the cells do
+    //
+    // `updTask(id, fields, pid)` — one write path. The row carries its own path
+    // within its job (`JobRow.editPath`), the edit is applied purely (`JobsEdit`),
+    // and `updateJob` handles the undo entry, the optimistic local write and the
+    // debounced save.
+
+    private var cellActions: JobsCellActions {
+        JobsCellActions(
+            commit: { [appState] row, field in
+                guard let job = appState.jobs.first(where: { $0.id == row.jobID }) else { return }
+                let updated = JobsEdit.apply(field, at: row.editPath, in: job)
+                // Nothing changed — a picker reopened and confirmed on the same
+                // day, or a field committed on blur without being touched. Saving
+                // it anyway would push a pointless undo entry onto the stack.
+                guard JobsEdit.differs(job, updated) else { return }
+                appState.updateJob(updated)
+            },
+            requestCompletion: { [appState] row in
+                Task {
+                    switch row {
+                    case .job(let job):
+                        await appState.requestJobCompletion(jobId: job.id)
+                    case .panel(let panel, let jobID, _):
+                        await appState.requestTaskCompletion(
+                            jobId: jobID, panelId: panel.id, opId: nil,
+                            panelTitle: panel.title, opTitle: nil)
+                    case .operation(let op, let jobID, let panelID, _):
+                        let panelTitle = appState.jobs
+                            .first { $0.id == jobID }?.subs
+                            .first { $0.id == panelID }?.title ?? ""
+                        await appState.requestTaskCompletion(
+                            jobId: jobID, panelId: panelID, opId: op.id,
+                            panelTitle: panelTitle, opTitle: op.title)
+                    }
+                }
+            })
     }
 
     /// Everything a cell needs, resolved ONCE. The dictionaries replace a
@@ -157,7 +220,8 @@ struct JobsPage: View {
                                  _ cells: JobsCellContext) -> some View {
         JobsSection(sectionID: "__finished__", jobs: finished,
                     columns: JobColumn.allCases, align: cellAlign,
-                    context: cells,
+                    context: cells, actions: cellActions,
+                    editing: $editing,
                     accent: Color.hex("#10b981"),
                     sort: $sort, expanded: $expanded, collapsed: $collapsed,
                     selectMode: false, selected: $selected) {
@@ -204,7 +268,7 @@ struct JobsPage: View {
 
     private func selectCluster(_ visible: [Job]) -> some View {
         GlassEffectContainer(spacing: glassFuse) {
-            HStack(spacing: toolGap) {
+            HStack(spacing: selectGap) {
                 JobsPillButton(label: selectMode ? "Done" : "Select",
                                style: .filled,
                                minWidth: selectMinWidth,
@@ -221,7 +285,12 @@ struct JobsPage: View {
                 if selectMode {
                     // `subtle-all-btn` — OUTLINED accent, one of the two places
                     // the web does not use its gradient fill.
-                    JobsEmerge(distance: selectMinWidth + toolGap) {
+                    //
+                    // A wider gap than the web's 6 before this one, asked for: at
+                    // 6 the filled Select pill and the outlined All pill read as a
+                    // single two-tone control. The emerge travel uses the same
+                    // number, so the melt still starts from under Select.
+                    JobsEmerge(distance: selectMinWidth + selectGap) {
                         JobsPillButton(label: selected.count == visible.count ? "None" : "All",
                                        style: .outlined(theme.accent),
                                        minWidth: allMinWidth,
@@ -234,7 +303,7 @@ struct JobsPage: View {
                     }
 
                     if !selected.isEmpty {
-                        JobsEmerge(distance: allMinWidth + toolGap) {
+                        JobsEmerge(distance: allMinWidth + selectGap) {
                             HStack(spacing: 8) {
                                 Text("\(selected.count) selected")
                                     .font(TFont.body(12, 700))
@@ -262,6 +331,8 @@ struct JobsPage: View {
     /// here they are also the travel distances `JobsEmerge` needs.
     private let selectMinWidth: CGFloat = 78
     private let allMinWidth: CGFloat = 56
+    /// Wider than the toolbar's 6, so Select and All do not read as one control.
+    private let selectGap: CGFloat = 12
 
     // MARK: Filter / Grouping / Search / Align
 
