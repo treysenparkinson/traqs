@@ -194,19 +194,7 @@ struct GateTeamStep: View {
     @State private var pinBusy = false
     @State private var identified: APIService.TimeclockIdentifyResponse?
 
-    /// `Identifiable` and `Hashable` because `GlassSegmentedToggle` keys its
-    /// matchedGeometryEffect off the option's identity — that is what lets the
-    /// thumb adopt each segment's real width.
-    enum KioskView: String, Hashable, Identifiable, CaseIterable {
-        case login, clock
-        var id: String { rawValue }
-        var label: String {
-            switch self {
-            case .login: return "Log In"
-            case .clock: return "Clock In"
-            }
-        }
-    }
+    enum KioskView { case login, clock }
 
     /// The card's width animates between the two views on the rail's own curve.
     /// The web's comment is worth keeping, because the number is not arbitrary:
@@ -437,20 +425,14 @@ struct GateTeamStep: View {
     }
 
     /// The lower-right toggle between the roster and the clock kiosk
-    /// (App.jsx:1159).
-    ///
-    /// `GlassSegmentedToggle` — the component from
-    /// `docs/LIQUID_GLASS_TOGGLE_LIFT_BRIEF.md`. The thumb lifts, travels and
-    /// drops; the brief explains why that cannot be a spring. Do not swap it for
-    /// one.
+    /// (App.jsx:1159) — the shared `GateGlassToggle`, whose thumb raises,
+    /// stretches toward its destination and settles. See it for the motion.
     private var viewToggle: some View {
-        GlassSegmentedToggle(options: KioskView.allCases,
-                             title: \.label,
-                             selection: $view,
-                             // The gate's own palette, not semantic colours —
-                             // see the note on those parameters.
-                             selectedColor: GatePalette.ink,
-                             unselectedColor: GatePalette.stone)
+        GateGlassToggle(first: "Log In", second: "Clock In",
+                        isSecond: Binding(get: { view == .clock },
+                                          set: { view = $0 ? .clock : .login }))
+            .shadow(color: Color(red: 16/255, green: 24/255, blue: 40/255, opacity: 0.14),
+                    radius: 12, y: 8)
             .padding(20)
     }
 
