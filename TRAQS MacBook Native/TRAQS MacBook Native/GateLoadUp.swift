@@ -10,24 +10,40 @@ import SwiftUI
 enum GateLoadUp {
 
     enum Timing {
-        /// LOGO_MS. "The logo runs 2.4s: ~960ms fading in at centre (40%), a
-        /// brief hold, then the travel up."
-        static let logoMS: Double = 2400
+        // The logo's arrival, as three named phases rather than percentages of a
+        // total — the phases are what the design is actually specified in, and
+        // percentages made every change here arithmetic.
+        //
+        /// Fading up at centre.
+        static let logoFadeMS: Double = 700
+        /// Then it just SITS there. Short on purpose: long enough to register as
+        /// an arrival, not long enough to feel like a splash screen.
+        static let logoHoldMS: Double = 500
+        /// Then the travel up — slow, fast, slow. See `logoTravelCurve`.
+        static let logoTravelMS: Double = 900
+        static var logoMS: Double { logoFadeMS + logoHoldMS + logoTravelMS }
+
+        /// The rest of the page starts HALFWAY THROUGH THE TRAVEL, so the copy is
+        /// already rising while the logo is still moving. Waiting for the logo to
+        /// land makes the two read as separate events; overlapping them reads as
+        /// one gesture.
+        static var contentStartMS: Double {
+            logoFadeMS + logoHoldMS + logoTravelMS / 2
+        }
+
+        // The staggered gaps AFTER that point are the web's own: blurb +150,
+        // card +480, strapline +1100.
+        static var titleAtMS: Double { contentStartMS }
+        static var blurbAtMS: Double { contentStartMS + 150 }
+        static var cardAtMS:  Double { contentStartMS + 480 }
+        static var footAtMS:  Double { contentStartMS + 1100 }
+
         /// COPY_MS — the greeting and instructions share this slower fade.
         static let copyMS: Double = 760
-        static let titleAtMS: Double = 2150    // TITLE_AT, "just before the logo lands"
-        static let blurbAtMS: Double = 2300    // BLURB_AT = TITLE_AT + 150
-        static let cardAtMS:  Double = 2630    // CARD_AT  = BLURB_AT + 330
-        static let footAtMS:  Double = 3250    // FOOT_AT  = CARD_AT + 620
         /// FADE's default duration.
         static let fadeMS: Double = 520
         /// tqFadeUp's travel — `translateY(7px)`.
         static let fadeUpDistance: CGFloat = 7
-
-        // tqLogoIn's keyframe stops, as fractions of logoMS: fade+scale to 40%,
-        // hold to 46%, then travel to 100%.
-        static let logoFadeEnd: Double = 0.40
-        static let logoHoldEnd: Double = 0.46
     }
 }
 
@@ -42,15 +58,19 @@ enum GateLoadUp {
 /// monitor." So the caller reads the lockup's resting position and hands in the
 /// exact offset to window centre.
 ///
-/// The two phases carry DIFFERENT curves, and that separation is the point. The
+/// The three phases carry DIFFERENT curves, and that separation is the point. The
 /// web's note: "The travel uses a per-keyframe timing function so the fade and
 /// the move can have different curves in ONE animation: the hold is linear, then
 /// the move runs easeInOutQuint — slow, fast, slow — rather than a single curve
 /// applied across both phases, which would have made the fade drift upward."
+///
+/// The rest of the page does not wait for the logo to land — it starts halfway
+/// through the travel. See `Timing.contentStartMS`.
 struct GateLogoIn: ViewModifier {
     let rise: CGFloat
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var run = false
+    @State private var faded = false
+    @State private var travelled = false
 
     func body(content: Content) -> some View {
         if reduceMotion {
@@ -58,42 +78,29 @@ struct GateLogoIn: ViewModifier {
             // full opacity, no transform.
             content
         } else {
-            let total = GateLoadUp.Timing.logoMS / 1000
-            let fade = total * GateLoadUp.Timing.logoFadeEnd
-            let hold = total * (GateLoadUp.Timing.logoHoldEnd - GateLoadUp.Timing.logoFadeEnd)
-            let travel = total * (1 - GateLoadUp.Timing.logoHoldEnd)
-
             content
-                .keyframeAnimator(initialValue: LogoPhase(y: rise), trigger: run) { view, p in
-                    view.opacity(p.opacity)
-                        .scaleEffect(p.scale)
-                        .offset(y: p.y)
-                } keyframes: { _ in
-                    // 0% → 40%: opacity 0→1 and scale .97→1 on
-                    // cubic-bezier(.33,0,.2,1), while y stays at `rise`.
-                    KeyframeTrack(\.opacity) {
-                        CubicKeyframe(1, duration: fade)
-                        LinearKeyframe(1, duration: hold + travel)
+                .opacity(faded ? 1 : 0)
+                .scaleEffect(faded ? 1 : 0.97)
+                .offset(y: travelled ? 0 : rise)
+                .task {
+                    // TWO staged animations rather than one keyframeAnimator, and
+                    // the reason is precision: SwiftUI's keyframe types interpolate
+                    // their own way and cannot be handed an arbitrary cubic-bezier.
+                    // These curves are the specification, not an approximation of
+                    // it, so each phase gets its own `timingCurve`.
+                    withAnimation(.timingCurve(0.33, 0, 0.2, 1,
+                                              duration: GateLoadUp.Timing.logoFadeMS / 1000)) {
+                        faded = true
                     }
-                    KeyframeTrack(\.scale) {
-                        CubicKeyframe(1, duration: fade)
-                        LinearKeyframe(1, duration: hold + travel)
-                    }
-                    // 46% → 100%: the travel to 0, on cubic-bezier(.83,0,.17,1).
-                    KeyframeTrack(\.y) {
-                        LinearKeyframe(rise, duration: fade + hold)
-                        CubicKeyframe(0, duration: travel)
+                    try? await Task.sleep(for: .milliseconds(
+                        Int(GateLoadUp.Timing.logoFadeMS + GateLoadUp.Timing.logoHoldMS)))
+                    // easeInOutQuint — slow, fast, slow.
+                    withAnimation(.timingCurve(0.83, 0, 0.17, 1,
+                                              duration: GateLoadUp.Timing.logoTravelMS / 1000)) {
+                        travelled = true
                     }
                 }
-                .onAppear { run = true }
         }
-    }
-
-    struct LogoPhase {
-        var opacity: Double = 0
-        /// tqLogoIn starts at `scale(.97)`.
-        var scale: CGFloat = 0.97
-        var y: CGFloat = 0
     }
 }
 

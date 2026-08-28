@@ -218,7 +218,10 @@ struct GateTeamStep: View {
                 .frame(maxWidth: .infinity)
             }
         }
-        .overlay(alignment: .bottomTrailing) { viewToggle }
+        // Centred at the bottom, not pinned to the right corner as on the web.
+        // It is the switch between the two things this screen IS, so it belongs
+        // on the screen's axis rather than tucked in a corner.
+        .overlay(alignment: .bottom) { viewToggle }
         .overlay { if requested != nil { padOverlay } }
         .task { await refresh() }
         // The 5s poll — see `poll()`.
@@ -423,9 +426,11 @@ struct GateTeamStep: View {
             toggleButton(.clock, "Clock In")
         }
         .padding(4)
-        .background(Capsule().fill(Color.white))
-        .overlay(Capsule().stroke(
-            Color(red: 16/255, green: 24/255, blue: 40/255, opacity: 0.1), lineWidth: 1))
+        // The whole track is glass, with the active segment as tinted glass
+        // inside it — the same nesting the iOS tab bar uses (a frosted bar
+        // carrying a tinted pill), which is what keeps the moving part readable
+        // against the track.
+        .gateGlass(Color.white.opacity(0.35))
         .shadow(color: Color(red: 16/255, green: 24/255, blue: 40/255, opacity: 0.14),
                 radius: 12, y: 8)
         .padding(20)
