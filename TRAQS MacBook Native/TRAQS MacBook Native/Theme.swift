@@ -99,6 +99,15 @@ enum TFont {
     }
 
     /// Sidebar and control labels — 13pt on the web, 500 idle / 700 active.
+    /// `T.mono`. On the web that token is `"'DM Sans', sans-serif"` — the SAME
+    /// family as the body font, not a monospaced face. What it actually buys is
+    /// aligned digit columns, so this is `body` with monospaced figures rather
+    /// than a different typeface. Using a real mono here would look nothing like
+    /// the site.
+    static func mono(_ size: CGFloat, _ webWeight: Int = 400) -> Font {
+        body(size, webWeight).monospacedDigit()
+    }
+
     static func nav(_ active: Bool) -> Font {
         body(13, active ? 700 : 500)
     }

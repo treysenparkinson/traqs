@@ -250,13 +250,18 @@ struct NativeShell: View {
     private var page: some View {
         ZStack {
             theme.bg
-            // Still a placeholder — no screen is ported in this pass. It goes
-            // through TPage so the chrome is exercised, and visibly wrong if any
-            // copied number is wrong, before a real screen depends on it.
-            TPage(settingsMode ? settingsSection.label : view.label) {
-                Text("Not ported yet")
-                    .font(TFont.body(15))
-                    .foregroundStyle(theme.textDim)
+            // One case per ported screen; everything else still goes through
+            // TPage with a placeholder, so the chrome is exercised — and visibly
+            // wrong if any copied number is wrong — before a real screen depends
+            // on it.
+            if !settingsMode, view == .tasks {
+                JobsPage()
+            } else {
+                TPage(settingsMode ? settingsSection.label : view.label) {
+                    Text("Not ported yet")
+                        .font(TFont.body(15))
+                        .foregroundStyle(theme.textDim)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -49,35 +49,55 @@ struct TPage<Right: View, Content: View>: View {
 
     private let title: String
     private let onBack: (() -> Void)?
+    private let scrolls: Bool
     private let right: () -> Right
     private let content: () -> Content
 
+    /// `scrolls: false` for a page whose CONTENT scrolls itself.
+    ///
+    /// Most pages on the web are wrapped in `frostScroll(...)` — one scroller
+    /// around the whole page — and those take the default. Jobs is not: it is
+    /// `<div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection:
+    /// "column" }}>{renderTasks()}</div>` (TRAQS.jsx:25055), because its grid
+    /// needs its own scroller for the sticky column header to stick to. Nesting
+    /// that inside this one would give the page two vertical scrollers.
     init(_ title: String,
          onBack: (() -> Void)? = nil,
+         scrolls: Bool = true,
          @ViewBuilder right: @escaping () -> Right,
          @ViewBuilder content: @escaping () -> Content) {
         self.title = title
         self.onBack = onBack
+        self.scrolls = scrolls
         self.right = right
         self.content = content
     }
 
     var body: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 0) {
-                header
-                content()
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.top, TPageMetrics.padTop)
-            .padding(.horizontal, TPageMetrics.padSide)
-            .padding(.bottom, TPageMetrics.padBottom)
+        Group {
+            if scrolls { ScrollView(.vertical) { stack } } else { stack }
         }
         // Never an opaque background. The content panel paints the theme's bg
         // behind every page, so a page that fills its own hides it — which on the
         // web is exactly what went wrong with the liquid and image backgrounds.
         .background(Color.clear)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var stack: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            header
+            // Fills the remaining height ONLY when the page owns its scrolling.
+            // Inside a ScrollView an infinite max height is a contradiction: the
+            // scroller offers unbounded space, so the content takes all of it and
+            // the page can never scroll.
+            content()
+                .frame(maxHeight: scrolls ? nil : .infinity)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, TPageMetrics.padTop)
+        .padding(.horizontal, TPageMetrics.padSide)
+        .padding(.bottom, TPageMetrics.padBottom)
     }
 
     private var header: some View {
@@ -109,8 +129,10 @@ extension TPage where Right == EmptyView {
     /// A page with no header controls.
     init(_ title: String,
          onBack: (() -> Void)? = nil,
+         scrolls: Bool = true,
          @ViewBuilder content: @escaping () -> Content) {
-        self.init(title, onBack: onBack, right: { EmptyView() }, content: content)
+        self.init(title, onBack: onBack, scrolls: scrolls,
+                  right: { EmptyView() }, content: content)
     }
 }
 

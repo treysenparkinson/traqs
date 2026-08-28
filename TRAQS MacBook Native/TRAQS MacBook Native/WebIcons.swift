@@ -195,6 +195,73 @@ enum WebIcon {
         .fill("M13 2L4 14h7l-1 8 9-12h-7l1-8z"),
     ])
 
+    // MARK: Jobs page
+    //
+    // A `<polygon>` becomes a path with an explicit `Z`. GlyphSpec has no polygon
+    // case, and a polyline left open renders the filter funnel as a hook.
+
+    /// The filter funnel, `stroke-width 2.5` (TRAQS.jsx:11425).
+    static let filter = GlyphSpec(strokeWidth: 2.5, elements: [
+        .path("M22 3L2 3L10 12.46L10 19L14 21L14 12.46Z"),
+    ])
+
+    static let search = GlyphSpec(strokeWidth: 2.5, elements: [
+        .circle(11, 11, 8),
+        .line(21, 21, 16.65, 16.65),
+    ])
+
+    /// Grouping — the layers stack (TRAQS.jsx GroupingSelect).
+    static let grouping = GlyphSpec(strokeWidth: 2.5, elements: [
+        .path("M12 2L2 7L12 12L22 7Z"),
+        .polyline([2, 17, 12, 22, 22, 17]),
+        .polyline([2, 12, 12, 17, 22, 12]),
+    ])
+
+    /// Cell alignment. Three glyphs, one per state of the cycling toggle: the
+    /// middle line is the one that moves.
+    static let alignLeft = GlyphSpec(strokeWidth: 2.5, elements: [
+        .line(3, 6, 21, 6), .line(3, 12, 15, 12), .line(3, 18, 18, 18),
+    ])
+    static let alignCenter = GlyphSpec(strokeWidth: 2.5, elements: [
+        .line(3, 6, 21, 6), .line(6, 12, 18, 12), .line(4, 18, 20, 18),
+    ])
+    static let alignRight = GlyphSpec(strokeWidth: 2.5, elements: [
+        .line(3, 6, 21, 6), .line(9, 12, 21, 12), .line(6, 18, 21, 18),
+    ])
+
+    /// Export — the download tray, `stroke-width 2.2`.
+    static let export = GlyphSpec(strokeWidth: 2.2, elements: [
+        .path("M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"),
+        .polyline([7, 10, 12, 15, 17, 10]),
+        .line(12, 15, 12, 3),
+    ])
+
+    /// The cloud that opens FAST TRAQS.
+    static let cloud = GlyphSpec(elements: [
+        .path("M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"),
+    ])
+
+    /// The row's expand arrow. Its own 10x10 viewBox, as on the web — scaling the
+    /// 24-unit chevron down to 10pt thins its stroke past legibility.
+    static let rowCaret = GlyphSpec(
+        viewBox: CGRect(x: 0, y: 0, width: 10, height: 10),
+        strokeWidth: 1.8,
+        elements: [.polyline([3, 2, 7, 5, 3, 8])])
+
+    /// The tick inside a checked selection dot, in its own 10x10 box.
+    static let tick = GlyphSpec(
+        viewBox: CGRect(x: 0, y: 0, width: 10, height: 10),
+        strokeWidth: 2,
+        elements: [.polyline([1.5, 5.5, 4, 8, 8.5, 2])])
+
+    /// The clipboard behind "No jobs yet", `stroke-width 1`.
+    static let emptyJobs = GlyphSpec(strokeWidth: 1, elements: [
+        .rect(x: 9, y: 2, w: 6, h: 4, r: 1),
+        .path("M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"),
+        .line(12, 11, 16, 11),
+        .line(12, 16, 16, 16),
+    ])
+
     static let chevronRight = GlyphSpec(strokeWidth: 2.5, elements: [
         .polyline([9, 18, 15, 12, 9, 6]),
     ])
