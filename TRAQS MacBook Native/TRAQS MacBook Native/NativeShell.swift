@@ -152,9 +152,28 @@ struct NativeShell: View {
     private var navRowWidth: CGFloat { railWidth - navPad * 2 }
 
     var body: some View {
-        HStack(spacing: 0) {
-            sidebar
-            page
+        // The brand strip spans the FULL WIDTH above the sidebar-and-content row,
+        // so it is a sibling of that row rather than something inside either half
+        // (TRAQS.jsx:24582). Getting that wrong would put the logo above the page
+        // only, leaving the sidebar to start at the window's top edge.
+        VStack(spacing: 0) {
+            BrandStrip()
+                // ABOVE the row below it. The notification panel hangs out of the
+                // strip's bounds, and in a VStack a later sibling draws over an
+                // earlier one — without this the panel opens behind the content.
+                .zIndex(2)
+            HStack(spacing: 0) {
+                sidebar
+                page
+            }
+            // SURFACE, not bg — `{/* Body — sidebar + content */}` carries
+            // `background: Tc.surfaceSolid` (TRAQS.jsx:24742).
+            //
+            // This is what makes the panel's 22pt corners visible at all. The
+            // panel is `bg`; painting `bg` behind it too means the corners cut
+            // away to the same colour and read as square. The chrome colour
+            // behind them is the whole point.
+            .background(theme.surface)
         }
         .background(theme.bg)
         .preferredColorScheme(theme.isDark ? .dark : .light)
@@ -222,6 +241,12 @@ struct NativeShell: View {
 
     // MARK: Page
 
+    /// The content panel. Its corners come from the web's 22pt on all four
+    /// (TRAQS.jsx:25003), opened up to `radiusHero` on request. The panel is
+    /// `T.bg` floating inside the
+    /// surface-coloured chrome — the strip above it and the rail beside it — so
+    /// the radius is what separates the page from the chrome. Square, the two
+    /// read as one flat slab.
     private var page: some View {
         ZStack {
             theme.bg
@@ -235,6 +260,10 @@ struct NativeShell: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // ROUNDER than the web's 22. A deliberate divergence, asked for — and
+        // `TTheme.radiusHero` rather than a loose number, so it stays on the
+        // app's own radius scale instead of becoming a one-off.
+        .clipShape(RoundedRectangle(cornerRadius: TTheme.radiusHero, style: .continuous))
     }
 
     // MARK: Sidebar
@@ -279,8 +308,14 @@ struct NativeShell: View {
         .padding(.bottom, 22)   // 12 padding + 10 margin, per the web
     }
 
+    /// `settingsNavLayer` — `gap: 8` (TRAQS.jsx:23494). NOT the nav container's
+    /// `gap: 2`: the buttons are children of the layer INSIDE that container, and
+    /// the 2 only separates the layer from its siblings. Reading the container's
+    /// gap and stopping there is what made this sidebar tighter than the web's.
+    private let navGap: CGFloat = 8
+
     private var mainNav: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: navGap) {
             ForEach(TView.primary) { v in
                 navRow(glyph: glyph(for: v), label: v.label, key: v.rawValue,
                        active: view == v) { select(v) }
@@ -301,7 +336,7 @@ struct NativeShell: View {
     }
 
     private var settingsNav: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: navGap) {
             navRow(glyph: .init(spec: WebIcon.back), label: "Back", key: "s.back",
                    active: false, tint: theme.textSec) {
                 withAnimation(.easeOut(duration: 0.12)) { settingsMode = false }

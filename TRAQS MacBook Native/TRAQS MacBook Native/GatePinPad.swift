@@ -180,9 +180,9 @@ struct GatePinPad: View {
                 .foregroundStyle(value.isEmpty ? GatePalette.stone : .white)
                 .frame(maxWidth: 288)
                 .padding(.vertical, 15)
-                .gateGlass(value.isEmpty
-                    ? Color(red: 16/255, green: 24/255, blue: 40/255, opacity: 0.12)
-                    : accent)
+                // `background: value ? accent : rgba(16,24,40,.12)` — coloured
+                // once there is a PIN to submit, near-transparent before.
+                .gateGlass(value.isEmpty ? nil : accent)
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -255,7 +255,10 @@ private struct GatePinKey<Label: View>: View {
                 // imitating with a per-key backdrop-filter. A Capsule on a square
                 // frame IS a circle, and using one primitive keeps the pad from
                 // handing the effect two unrelated shapes.
-                .gateGlass(Color.white.opacity(pressed ? 0.5 : 0.22), in: Capsule())
+                // Clear. The web gives a key `rgba(255,255,255,.6)`, which is a
+                // light fill rather than a colour — the material itself is what
+                // gives the key presence.
+                .gateGlass(in: Capsule())
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -545,8 +548,7 @@ struct GateClockConfirm: View {
                         .foregroundStyle(GatePalette.stone)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 13)
-                        .background(Capsule().fill(Color.white.opacity(0.6)))
-                        .overlay(Capsule().stroke(Color.white.opacity(0.8), lineWidth: 1))
+                        .gateGlass()
                         .contentShape(Capsule())
                 }
                 .buttonStyle(.plain)

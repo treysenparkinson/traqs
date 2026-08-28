@@ -149,3 +149,58 @@ extension Color {
         return Color(.sRGB, red: r, green: g, blue: b, opacity: a)
     }
 }
+
+// MARK: - Glass, on the app's buttons
+//
+// THE RULE, stated once so it is not re-decided per button: every control in the
+// app is Liquid Glass, EXCEPT
+//
+//   • sidebar nav rows — they are a straight copy of the web's rail, and the web's
+//     own note is that the active row is a flat accent fill with "no separate
+//     sliding indicator" (see `navRow`);
+//   • rows in a list or grid — a lit bevel per row reads as noise rather than as
+//     material, which is the same reason `frostedCard(rim:)` exists on iOS;
+//   • the sidebar's log-out button — one of the elements the web already opts out
+//     of its own button chrome, and glass would pull the eye to the most
+//     destructive control in the rail.
+//
+// Everything else — brand strip chrome, page-header actions, CTAs, toggles, the
+// kiosk keypad — takes glass.
+extension View {
+    /// Liquid Glass for a shell control.
+    ///
+    /// CLEAR BY DEFAULT. A tint is only correct where the web actually colours
+    /// the button — its gradient CTAs, the red destructive actions, the kiosk's
+    /// green/red clock pair, an active toggle segment. Most controls are
+    /// `background: "transparent"` there, and tinting those makes the chrome
+    /// louder than the original.
+    ///
+    /// `enabled: false` drops the glass entirely rather than dimming it: dim
+    /// glass still reads as pressable, no material reads as off.
+    func shellGlass<S: InsettableShape>(tint: Color? = nil, enabled: Bool = true,
+                                        in shape: S) -> some View {
+        modifier(ShellGlass(tint: tint, enabled: enabled, shape: shape))
+    }
+    /// Convenience for the common pill.
+    func shellGlass(tint: Color? = nil, enabled: Bool = true) -> some View {
+        shellGlass(tint: tint, enabled: enabled, in: Capsule())
+    }
+}
+
+struct ShellGlass<S: InsettableShape>: ViewModifier {
+    let tint: Color?
+    let enabled: Bool
+    let shape: S
+
+    func body(content: Content) -> some View {
+        if !enabled {
+            content
+        } else if let tint {
+            content.glassEffect(.regular.tint(tint).interactive(), in: shape)
+        } else {
+            // `.clear`, not `.regular` untinted — clear is the variant with no
+            // fill of its own, which is what a transparent web button should be.
+            content.glassEffect(.clear.interactive(), in: shape)
+        }
+    }
+}
