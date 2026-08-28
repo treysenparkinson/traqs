@@ -165,9 +165,9 @@ struct GatePinPad: View {
                 .foregroundStyle(value.isEmpty ? GatePalette.stone : .white)
                 .frame(maxWidth: 288)
                 .padding(.vertical, 15)
-                .background(Capsule().fill(value.isEmpty
-                    ? AnyShapeStyle(Color(red: 16/255, green: 24/255, blue: 40/255, opacity: 0.12))
-                    : AnyShapeStyle(accent)))
+                .gateGlass(value.isEmpty
+                    ? Color(red: 16/255, green: 24/255, blue: 40/255, opacity: 0.12)
+                    : accent)
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -227,13 +227,11 @@ private struct GatePinKey<Label: View>: View {
         Button(action: action) {
             label()
                 .frame(width: 88, height: 88)
-                .background {
-                    ZStack {
-                        Circle().fill(.ultraThinMaterial)
-                        Circle().fill(Color.white.opacity(pressed ? 0.88 : 0.6))
-                    }
-                }
-                .overlay(Circle().stroke(Color.white.opacity(0.8), lineWidth: 1))
+                // Each key its own piece of glass — which is what the web is
+                // imitating with a per-key backdrop-filter. A Capsule on a square
+                // frame IS a circle, and using one primitive keeps the pad from
+                // handing the effect two unrelated shapes.
+                .gateGlass(Color.white.opacity(pressed ? 0.5 : 0.22), in: Capsule())
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -348,9 +346,7 @@ struct GateClockActionButton: View {
             .frame(maxWidth: 260, minHeight: 112)
             .padding(.vertical, 22)
             .padding(.horizontal, 24)
-            .background(Capsule().fill(LinearGradient(
-                colors: colors.map { Color.hex($0) },
-                startPoint: .topLeading, endPoint: .bottomTrailing)))
+            .gateGlass(Color.hex(colors[0]))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)

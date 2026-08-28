@@ -27,22 +27,33 @@ struct GateLockup: View {
 
     var body: some View {
         // `alignItems: "baseline"` — "the bars image aligns its BOTTOM to the text
-        // baseline". The wordmark Canvas is trimmed to its ink, so its bottom edge
-        // IS the baseline (descenders aside, and "traqs" has none).
-        HStack(alignment: .bottom, spacing: 0) {
-            wordmark
+        // baseline".
+        //
+        // The Canvas is trimmed to the wordmark's INK, and its bottom edge is NOT
+        // the baseline: "traqs" contains a `q`, whose descender runs 16.8pt below
+        // the baseline at size 84 (measured — exactly 0.2em). Aligning the bars to
+        // the Canvas bottom therefore dropped them a FIFTH of the lockup's height
+        // too low, which is the misalignment against the "s" you could see.
+        //
+        // So the bars are lifted back up by the descent, which puts their bottom
+        // on the real baseline.
+        let metrics = Self.glyphPath("traqs", size: size, tracking: size * -0.05)
+        return HStack(alignment: .bottom, spacing: 0) {
+            wordmark(metrics)
             if bars {
                 GateBarsMark()
-                    .frame(height: size * 0.52)      // ".52em", the x-height
-                    .padding(.leading, size * 0.07)  // "margin-left: .07em"
-                    .offset(y: -size * 0.01)         // "translateY(.01em)" — CSS y
-                                                     // is down, so up here is -.
+                    .frame(height: size * 0.52)          // ".52em", the x-height
+                    .padding(.leading, size * 0.07)      // "margin-left: .07em"
+                    .padding(.bottom, metrics.descent)   // up onto the baseline
+                    .offset(y: size * 0.01)              // "translateY(.01em)" — CSS
+                                                         // +y is down, and so is
+                                                         // SwiftUI's, so this matches
             }
         }
     }
 
-    private var wordmark: some View {
-        let (path, sz) = Self.glyphPath("traqs", size: size, tracking: size * -0.05)
+    private func wordmark(_ m: Wordmark) -> some View {
+        let (path, sz) = (m.path, m.size)
         return Canvas { ctx, _ in
             // Offset by half the stroke so the stroke's outer edge lands inside
             // the frame instead of being clipped by the Canvas.
@@ -61,8 +72,18 @@ struct GateLockup: View {
     /// `tracking` goes in as `.kern` so CoreText applies it while laying the run
     /// out. Applied afterwards it would move the glyphs without changing the
     /// advances, which is a different thing and looks like it.
+    /// The wordmark's outlines plus the two measurements the lockup needs: how big
+    /// the ink is, and how far the `q` hangs below the baseline.
+    struct Wordmark {
+        let path: Path
+        let size: CGSize
+        /// Ink below the baseline, in points. The bars sit on the BASELINE, not on
+        /// the bottom of the ink, so this is what lifts them.
+        let descent: CGFloat
+    }
+
     static func glyphPath(_ s: String, size: CGFloat,
-                          tracking: CGFloat) -> (Path, CGSize) {
+                          tracking: CGFloat) -> Wordmark {
         let font = CTFontCreateWithName(TWordmark.face as CFString, size, nil)
         let attr = NSAttributedString(string: s, attributes: [
             .font: font,
@@ -89,9 +110,13 @@ struct GateLockup: View {
             }
         }
         let b = combined.boundingBox
-        guard !b.isNull, b.width > 0 else { return (Path(), .zero) }
+        guard !b.isNull, b.width > 0 else { return Wordmark(path: Path(), size: .zero, descent: 0) }
         let flip = CGAffineTransform(scaleX: 1, y: -1).translatedBy(x: -b.minX, y: -b.maxY)
-        return (Path(combined).applying(flip), CGSize(width: b.width, height: b.height))
+        // CoreText puts the baseline at y=0 and descenders below it, so a negative
+        // minY IS the descent.
+        return Wordmark(path: Path(combined).applying(flip),
+                        size: CGSize(width: b.width, height: b.height),
+                        descent: max(0, -b.minY))
     }
 }
 

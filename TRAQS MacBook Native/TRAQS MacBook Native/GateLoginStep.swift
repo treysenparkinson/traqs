@@ -150,9 +150,7 @@ private struct GateDangerButton: View {
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, GateMetrics.btnVPad)
-                .background(Capsule().fill(LinearGradient(
-                    colors: [.hex("#ef4444"), .hex("#dc2626")],
-                    startPoint: .topLeading, endPoint: .bottomTrailing)))
+                .gateGlass(GatePalette.dangerTint)
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)

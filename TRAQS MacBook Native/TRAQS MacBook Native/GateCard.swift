@@ -88,6 +88,34 @@ enum GateMetrics {
     static let btnGlowHoverY: CGFloat = 8
 }
 
+// MARK: - Glass, on the buttons
+//
+// The app's one sanctioned divergence from the web reaches the gate too: BUTTONS
+// and TOGGLES are real Liquid Glass, tinted to the colour the web fills them
+// with. Everything else here is copied flat.
+//
+// A tint is a single colour and the web's CTAs are gradients, so each button
+// tints with its gradient's START — the same call the iOS app's `glassCTA` makes,
+// and the reason its buttons read as the brand colour rather than as clear pills.
+extension View {
+    /// Native Liquid Glass, tinted and press-responsive.
+    func gateGlass<S: InsettableShape>(_ tint: Color, in shape: S) -> some View {
+        glassEffect(.regular.tint(tint).interactive(), in: shape)
+    }
+    /// The common case: a pill.
+    func gateGlass(_ tint: Color) -> some View {
+        gateGlass(tint, in: Capsule())
+    }
+}
+
+/// The colour each gradient button tints its glass with — its first stop.
+extension GatePalette {
+    static let bandTint   = Color.hex("#4169e1")   // CARD_HEADER / BTN gradient start
+    static let dangerTint = Color.hex("#ef4444")
+    static let goTint     = Color.hex("#10b981")
+    static let warnTint   = Color.hex("#f59e0b")
+}
+
 /// The full-window ground every step sits on. `PAGE` (:88).
 struct GatePage<Content: View>: View {
     @ViewBuilder let content: () -> Content
@@ -221,7 +249,7 @@ struct GatePrimaryButton: View {
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, GateMetrics.btnVPad)
-                .background(Capsule().fill(GatePalette.band))
+                .gateGlass(GatePalette.bandTint)
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -405,7 +433,10 @@ struct GatePaperButton: View {
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, GatePaperMetrics.btnVPad)
-                .background(Capsule().fill(GatePalette.ink))
+                // PAPER_BTN is solid INK on the web; as glass it tints with the
+                // same colour, so the paper language keeps its near-black button
+                // rather than borrowing the banded one's blue.
+                .gateGlass(GatePalette.ink)
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)

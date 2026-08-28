@@ -146,13 +146,19 @@ extension View {
 // space, works out how far below that the window's vertical centre is, and hands
 // that distance to `gateLogoIn`. That is what makes the fade happen dead centre
 // on any screen — the whole reason the web measures instead of using a `vh`.
+/// Hands its content the measured rise AND whether the measurement has happened
+/// yet. Both, because they are different questions: a rise of 0 is a perfectly
+/// valid measurement — it means the lockup already rests at window centre — and
+/// inferring "measured" from `rise > 0` leaves the logo hidden forever in exactly
+/// that case. That bug shipped once; hence the second value.
 struct GateRiseMeasured<Content: View>: View {
-    @ViewBuilder let content: (CGFloat) -> Content
+    @ViewBuilder let content: (CGFloat, Bool) -> Content
     @State private var rise: CGFloat = 0
+    @State private var measured = false
 
     var body: some View {
         GeometryReader { window in
-            content(rise)
+            content(rise, measured)
                 .background {
                     GeometryReader { me in
                         Color.clear
@@ -172,5 +178,8 @@ struct GateRiseMeasured<Content: View>: View {
         // Only when it actually moves — an unconditional write here re-renders
         // every frame the geometry reports, which fights the animation.
         if abs(next - rise) > 0.5 { rise = next }
+        // Set REGARDLESS of the value, and separately from it: the point is that a
+        // measurement happened, not that it was non-zero.
+        if !measured { measured = true }
     }
 }

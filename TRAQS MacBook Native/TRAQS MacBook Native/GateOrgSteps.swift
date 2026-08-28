@@ -67,12 +67,12 @@ struct GateOrgCodeStep: View {
 
     var body: some View {
         GatePage {
-            GateRiseMeasured { rise in
+            GateRiseMeasured { rise, measured in
                 VStack(spacing: 0) {
                     GateBrandHeader(greeting: "Welcome",
                                     hint: "Enter your organization code to get started.",
                                     rise: rise,
-                                    measured: rise > 0)
+                                    measured: measured)
 
                     GatePaperCard {
                         if let error {

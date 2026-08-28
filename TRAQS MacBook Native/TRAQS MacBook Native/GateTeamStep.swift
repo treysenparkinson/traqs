@@ -329,9 +329,7 @@ struct GateTeamStep: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 9)
-            .background(Capsule().fill(Color.white))
-            .overlay(Capsule().stroke(
-                Color(red: 16/255, green: 24/255, blue: 40/255, opacity: 0.1), lineWidth: 1))
+            .gateGlass(Color.white.opacity(0.5))
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
@@ -441,8 +439,9 @@ struct GateTeamStep: View {
                 .foregroundStyle(active ? .white : GatePalette.stone)
                 .padding(.horizontal, 18)
                 .padding(.vertical, 9)
-                .background(Capsule().fill(active ? AnyShapeStyle(GatePalette.blue)
-                                                  : AnyShapeStyle(Color.clear)))
+                // Glass only when active — an inactive segment is a label, not
+                // a button you are being offered.
+                .gateGlass(active ? GatePalette.blue : Color.clear)
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
