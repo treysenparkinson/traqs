@@ -78,6 +78,11 @@ struct GatePinPad: View {
     private let keySide: CGFloat = 88
     private let keyGap: CGFloat = 12
 
+    /// `.onKeyPress` only fires for a view in the focus chain, so the pad takes
+    /// focus when it appears. Without this the modifier compiles, reads correctly,
+    /// and silently never runs — which is what it was doing.
+    @FocusState private var padFocused: Bool
+
     var body: some View {
         GateGlassPanel {
             VStack(spacing: 0) {
@@ -93,7 +98,17 @@ struct GatePinPad: View {
         .overlay(alignment: .topTrailing) { closeButton }
         // The web binds the physical keyboard too — digits, Backspace, Enter,
         // Escape. A kiosk with a keyboard attached should not force mousing.
+        //
+        // `.focusable()` and the focus assignment are what make this work at all:
+        // onKeyPress is delivered to the FOCUSED view, so without them the
+        // handler never ran.
+        .focusable()
+        .focused($padFocused)
+        // No focus ring on the glass — the pad is the only thing on screen, so
+        // the ring says nothing and the material shows every outline.
+        .focusEffectDisabled()
         .onKeyPress { press in handleKey(press) }
+        .onAppear { padFocused = true }
     }
 
     /// One dot per digit — never the digits themselves.
@@ -192,8 +207,17 @@ struct GatePinPad: View {
         value += digit
     }
 
+    /// Digits, Backspace, Enter, Escape.
+    ///
+    /// The modifier guard is NOT `modifiers.isEmpty`, and that matters here more
+    /// than anywhere: `EventModifiers` includes `.numericPad`, which macOS reports
+    /// on every keypress from a numeric keypad — so `isEmpty` rejected exactly the
+    /// hardware a clock-in kiosk is most likely to have attached. Only genuine
+    /// chords are ignored.
     private func handleKey(_ press: KeyPress) -> KeyPress.Result {
-        guard !loading, press.modifiers.isEmpty else { return .ignored }
+        guard !loading else { return .ignored }
+        let chords: EventModifiers = [.command, .control, .option]
+        guard press.modifiers.isDisjoint(with: chords) else { return .ignored }
         if let ch = press.characters.first, ch.isNumber {
             self.press(String(ch))
             return .handled
@@ -359,40 +383,219 @@ struct GateClockActionButton: View {
     }
 }
 
-// MARK: - Clock Out's choice
+// MARK: - A choice row
 //
-// Clock Out is not one action. The web's note on why the success message tracks a
-// separate value: "For Clock Out the worker now picks between 'lunchStart' (going
-// to lunch) and 'clockOut' (end of day), so the meta we show on success depends
-// on what they chose, not on clockMode."
-struct GateClockOutChoice: View {
-    let onLunch: () -> Void
-    let onEndOfDay: () -> Void
-    let onCancel: () -> Void
+// The web's clock-out options (App.jsx:1268) — `padding: 15px 20px`, a 15pt
+// title over a 12pt subtitle, LEFT-aligned, stacked vertically with a 10pt gap.
+//
+// Deliberately much smaller than `GateClockActionButton`. Those two are the
+// screen's primary actions and are 112pt tall; these are follow-up options on a
+// panel that has already asked a question, and at that size they shouted.
+struct GateChoiceButton: View {
+    let title: String
+    let caption: String
+    /// Tints the glass. The web fills these with a gradient; this takes its first
+    /// stop, as every other button in the app does.
+    let tint: Color
+    var busy: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: { if !busy { action() } }) {
+            VStack(alignment: .leading, spacing: 3) {   // marginTop: 3
+                Text(title)
+                    .font(TFont.body(15, 800))
+                    .tracking(15 * 0.02)
+                Text(caption)
+                    .font(TFont.body(12))
+                    .opacity(0.92)
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 15)
+            .padding(.horizontal, 20)
+            .gateGlass(tint)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(busy)
+        .opacity(busy ? 0.7 : 1)
+    }
+}
+
+// MARK: - The confirmation
+//
+// `identify` resolves the PIN to a person, and then the kiosk ASKS before it
+// punches (App.jsx:1289). This step was missing: the pad went straight from a
+// correct PIN to a recorded clock-in, so nobody saw whose shift they were
+// starting and a shared keypad had no way to catch a mistyped-but-valid PIN.
+//
+// Three branches, all of them naming the person:
+//
+//   1. Clocking IN while already on lunch → offer "Back From Lunch" instead of
+//      starting a fresh shift, which the server would reject as a 409 anyway.
+//   2. Clocking OUT → lunch, or end of day. Clock Out is a question, not an
+//      action, which is why `performed` is tracked separately from `requested`.
+//   3. Otherwise → "Is NAME going IN?" with No and Yes.
+struct GateClockConfirm: View {
+    let person: APIService.TimeclockIdentifyResponse
+    let requested: GateClockAction
+    var error: String?
+    var busy: Bool
+    /// The action actually chosen — not necessarily the one requested.
+    let onConfirm: (GateClockAction) -> Void
+    let onBack: () -> Void
+    let onClose: () -> Void
+
+    /// Derived from the latest lunchStart/lunchEnd in the active shift, the same
+    /// way the roster derives presence.
+    private var onLunch: Bool {
+        guard let clockIn = person.activeClockIn else { return false }
+        return clockIn.events.last(where: { $0.type == "lunchStart" || $0.type == "lunchEnd" })?
+            .type == "lunchStart"
+    }
+
+    private var name: String { person.name.uppercased() }
+
+    /// When the running shift began, so "already clocked in" says something
+    /// actionable rather than only refusing.
+    private var shiftStartedLine: String {
+        guard let iso = person.activeClockIn?.clockIn,
+              let started = Date.fromFlexibleISO8601(iso) else { return "" }
+        let f = DateFormatter()
+        f.dateFormat = "h:mm a"
+        return "Since \(f.string(from: started))"
+    }
 
     var body: some View {
         GateGlassPanel {
-            VStack(spacing: 18) {
-                Text("Clocking out")
-                    .font(TFont.body(20, 700))
-                    .foregroundStyle(GatePalette.ink)
-                Text("Heading to lunch, or done for the day?")
-                    .font(TFont.body(13.5))
-                    .foregroundStyle(GatePalette.stone)
-                HStack(spacing: 16) {
-                    GateClockActionButton(title: "Lunch", caption: "Back later",
-                                          colors: ["#f59e0b", "#d97706"],
-                                          glow: (245, 158, 11), action: onLunch)
-                    GateClockActionButton(title: "End of day", caption: "Shift complete",
-                                          colors: ["#ef4444", "#dc2626"],
-                                          glow: (239, 68, 68), action: onEndOfDay)
-                }
-                Button("Cancel", action: onCancel)
-                    .buttonStyle(.plain)
-                    .font(TFont.body(13))
-                    .foregroundStyle(GatePalette.stone)
+            VStack(spacing: 0) {
+                if let error { GateGlassError(message: error).padding(.bottom, 4) }
+                content
             }
-            .padding(40)
+            .frame(maxWidth: 340)
+            .padding(.top, 46)
+            .padding(.horizontal, 30)
+            .padding(.bottom, 26)
         }
+        .overlay(alignment: .topTrailing) { closeButton }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if requested == .clockIn && onLunch {
+            ask("\(name) is currently on lunch.")
+            GateChoiceButton(title: "← Back From Lunch",
+                             caption: "Resume work for the day",
+                             tint: GatePalette.goTint, busy: busy) {
+                onConfirm(.lunchEnd)
+            }
+            .padding(.top, 20)
+            backLink
+        } else if requested == .clockIn && person.activeClockIn != nil {
+            // Already on the clock. `identify` returns the active shift, so this
+            // is known BEFORE anything is asked — no reason to offer a Yes that
+            // the server will refuse as a 409 ("Already clocked in via kiosk").
+            //
+            // Ordered after the lunch branch on purpose: somebody on lunch also
+            // has an active shift, and "back from lunch" is the more useful
+            // answer for them.
+            ask("\(name) is already clocked in.")
+            Text(shiftStartedLine)
+                .font(TFont.body(12.5))
+                .foregroundStyle(GatePalette.strapline)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 6)
+            backLink
+        } else if requested == .clockOut {
+            ask("\(name), what are you clocking out for?")
+            VStack(spacing: 10) {                       // gap: 10
+                GateChoiceButton(title: "Lunch",
+                                 caption: "Clock out — coming back later",
+                                 tint: GatePalette.warnTint, busy: busy) {
+                    onConfirm(.lunchStart)
+                }
+                GateChoiceButton(title: "End of Day",
+                                 caption: "Done for the day",
+                                 tint: GatePalette.dangerTint, busy: busy) {
+                    onConfirm(.clockOut)
+                }
+            }
+            .padding(.top, 22)
+            backLink
+        } else {
+            // "Is NAME going IN?" — the name is the point. Without it a shared
+            // keypad confirms nothing.
+            (Text("Is ")
+                + Text(name).font(TFont.body(18, 800)).foregroundColor(GatePalette.ink)
+                + Text(" going ")
+                + Text(requested.verb).font(TFont.body(18, 800))
+                    .foregroundColor(requested.verbColor)
+                + Text("?"))
+                .font(TFont.body(15))
+                .foregroundStyle(GatePalette.stone)
+                .multilineTextAlignment(.center)
+                .lineSpacing(15 * 0.6)                 // lineHeight 1.6
+                .frame(maxWidth: .infinity)
+
+            HStack(spacing: 10) {
+                Button(action: onBack) {
+                    Text("No")
+                        .font(TFont.body(15, 700))
+                        .foregroundStyle(GatePalette.stone)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 13)
+                        .background(Capsule().fill(Color.white.opacity(0.6)))
+                        .overlay(Capsule().stroke(Color.white.opacity(0.8), lineWidth: 1))
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+
+                Button(action: { onConfirm(requested) }) {
+                    Text(busy ? "Saving…" : "Yes")
+                        .font(TFont.body(15, 700))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 13)
+                        .gateGlass(requested.verbColor)
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .disabled(busy)
+                .opacity(busy ? 0.7 : 1)
+            }
+            .padding(.top, 22)
+        }
+    }
+
+    private func ask(_ text: String) -> some View {
+        Text(text)
+            .font(TFont.body(15))
+            .foregroundStyle(GatePalette.stone)
+            .multilineTextAlignment(.center)
+            .lineSpacing(15 * 0.6)
+            .frame(maxWidth: .infinity)
+    }
+
+    private var backLink: some View {
+        Button(action: onBack) {
+            Text("← Back")
+                .font(TFont.body(13, 600))
+                .foregroundStyle(GatePalette.stone)
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 16)
+    }
+
+    private var closeButton: some View {
+        Button(action: onClose) {
+            Image(systemName: "xmark")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(GatePalette.stone)
+                .frame(width: 36, height: 36)
+        }
+        .buttonStyle(.plain)
+        .padding(14)
     }
 }
