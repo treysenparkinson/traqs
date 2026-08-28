@@ -127,9 +127,14 @@ struct NativeShell: View {
     private var page: some View {
         ZStack {
             theme.bg
-            Text(settingsMode ? settingsSection.label : view.label)
-                .font(TFont.body(28, 700))
-                .foregroundStyle(theme.textDim)
+            // Still a placeholder — no screen is ported in this pass. It goes
+            // through TPage so the chrome is exercised, and visibly wrong if any
+            // copied number is wrong, before a real screen depends on it.
+            TPage(settingsMode ? settingsSection.label : view.label) {
+                Text("Not ported yet")
+                    .font(TFont.body(15))
+                    .foregroundStyle(theme.textDim)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
