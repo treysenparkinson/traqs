@@ -446,7 +446,11 @@ struct GateTeamStep: View {
     private var viewToggle: some View {
         GlassSegmentedToggle(options: KioskView.allCases,
                              title: \.label,
-                             selection: $view)
+                             selection: $view,
+                             // The gate's own palette, not semantic colours —
+                             // see the note on those parameters.
+                             selectedColor: GatePalette.ink,
+                             unselectedColor: GatePalette.stone)
             .padding(20)
     }
 

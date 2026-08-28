@@ -38,6 +38,19 @@ struct MacAuthGate: View {
 
     var body: some View {
         content
+            // PINNED LIGHT, and this is a correctness fix rather than a
+            // preference. The gate's palette is hardcoded and unconditionally
+            // light — paper, ink, stone — because it paints before a theme
+            // exists (App.jsx:24). But SEMANTIC colours (`.primary`,
+            // `.secondary`, and anything else that adapts) follow the SYSTEM
+            // appearance, so on a Mac in Dark Mode the gate drew a light card
+            // with white text on it. The toggle's selected label was the visible
+            // symptom; every semantic colour in the gate had the same fault.
+            //
+            // Pinning the scheme makes the adaptive colours agree with the fixed
+            // ones. `NativeShell` already does this for the app proper, from the
+            // theme; the gate has no theme, so it states the answer directly.
+            .preferredColorScheme(.light)
             .task { if !booted { booted = true; await boot() } }
             // Auth0 can return at any point; re-run the post-login checks whenever
             // it does.

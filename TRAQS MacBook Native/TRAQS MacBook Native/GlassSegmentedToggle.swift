@@ -51,6 +51,20 @@ struct GlassSegmentedToggle<T: Hashable & Identifiable>: View {
     let title: (T) -> String
     @Binding var selection: T
 
+    /// Label colours, EXPLICIT rather than semantic.
+    ///
+    /// §7 makes contrast the implementer's job: "Verify label contrast in both
+    /// selected and unselected states against content passing beneath the clear
+    /// glass." Semantic `.primary`/`.secondary` cannot satisfy that on their own,
+    /// because they follow the ambient appearance while a clear thumb over a
+    /// FIXED palette does not — which is exactly how the selected label ended up
+    /// white on a light thumb.
+    ///
+    /// Defaults are the brief's, so a caller in a normally-themed context gets
+    /// §4's behaviour unchanged.
+    var selectedColor: Color = .primary
+    var unselectedColor: Color = .secondary
+
     /// This component's own identity space — see the scope note above.
     @Namespace private var thumbSpace
 
@@ -165,7 +179,7 @@ struct GlassSegmentedToggle<T: Hashable & Identifiable>: View {
             ForEach(options) { option in
                 Text(title(option))
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(option == selection ? .primary : .secondary)
+                    .foregroundStyle(option == selection ? selectedColor : unselectedColor)
                     .padding(.vertical, 10)
                     .padding(.horizontal, 18)
                     // Invisible source rect the thumb matches to.
