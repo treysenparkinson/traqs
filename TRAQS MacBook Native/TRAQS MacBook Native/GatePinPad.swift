@@ -78,6 +78,11 @@ struct GatePinPad: View {
     private let keySide: CGFloat = 88
     private let keyGap: CGFloat = 12
 
+    /// `.onKeyPress` only fires for a view in the focus chain, so the pad takes
+    /// focus when it appears. Without this the modifier compiles, reads correctly,
+    /// and silently never runs — which is what it was doing.
+    @FocusState private var padFocused: Bool
+
     var body: some View {
         GateGlassPanel {
             VStack(spacing: 0) {
@@ -93,7 +98,17 @@ struct GatePinPad: View {
         .overlay(alignment: .topTrailing) { closeButton }
         // The web binds the physical keyboard too — digits, Backspace, Enter,
         // Escape. A kiosk with a keyboard attached should not force mousing.
+        //
+        // `.focusable()` and the focus assignment are what make this work at all:
+        // onKeyPress is delivered to the FOCUSED view, so without them the
+        // handler never ran.
+        .focusable()
+        .focused($padFocused)
+        // No focus ring on the glass — the pad is the only thing on screen, so
+        // the ring says nothing and the material shows every outline.
+        .focusEffectDisabled()
         .onKeyPress { press in handleKey(press) }
+        .onAppear { padFocused = true }
     }
 
     /// One dot per digit — never the digits themselves.
@@ -192,8 +207,17 @@ struct GatePinPad: View {
         value += digit
     }
 
+    /// Digits, Backspace, Enter, Escape.
+    ///
+    /// The modifier guard is NOT `modifiers.isEmpty`, and that matters here more
+    /// than anywhere: `EventModifiers` includes `.numericPad`, which macOS reports
+    /// on every keypress from a numeric keypad — so `isEmpty` rejected exactly the
+    /// hardware a clock-in kiosk is most likely to have attached. Only genuine
+    /// chords are ignored.
     private func handleKey(_ press: KeyPress) -> KeyPress.Result {
-        guard !loading, press.modifiers.isEmpty else { return .ignored }
+        guard !loading else { return .ignored }
+        let chords: EventModifiers = [.command, .control, .option]
+        guard press.modifiers.isDisjoint(with: chords) else { return .ignored }
         if let ch = press.characters.first, ch.isNumber {
             self.press(String(ch))
             return .handled
