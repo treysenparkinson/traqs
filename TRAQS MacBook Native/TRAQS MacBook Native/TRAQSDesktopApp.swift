@@ -57,6 +57,10 @@ struct TRAQSDesktopApp: App {
                 Button("Reload") { store.reload() }
                     .keyboardShortcut("r", modifiers: .command)
             }
+            // How the NATIVE half gets a session — the web half's Auth0 session
+            // lives in the web view and the two never share one. See
+            // AccountCommands; this is not the web app's auth gate.
+            AccountCommands(auth: auth, appState: appState)
         }
     }
 }
