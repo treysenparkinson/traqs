@@ -39,6 +39,9 @@ struct TRAQSDesktopApp: App {
                 .environment(appState)
                 .environment(themeSettings)
                 .environment(appNav)
+                // The web app's own palette, by environment rather than as a
+                // parameter on every screen — see ThemeEnvironment.
+                .environment(\.tqTheme, MacTheme.current(isLight: themeSettings.isLightTheme))
                 // App-wide tight letter spacing, matching iOS. Any Text that sets
                 // its own tracking overrides this — innermost wins.
                 .tracking(-0.5)
@@ -73,7 +76,7 @@ private struct RootView: View {
     var body: some View {
         Group {
             if useNativeUI {
-                NativeShell(theme: themeSettings.isLightTheme ? .frost : .midnight)
+                NativeShell()
             } else {
                 webView
             }

@@ -78,7 +78,7 @@ enum TSettings: String, CaseIterable, Identifiable {
 // MARK: - Shell
 
 struct NativeShell: View {
-    let theme: TTheme
+    @Environment(\.tqTheme) private var theme
     var canSeeApprovals = true
     var isAdmin = true
     var personName = "Treysen Parkinson"
