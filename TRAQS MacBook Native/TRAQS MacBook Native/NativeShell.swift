@@ -79,10 +79,19 @@ enum TSettings: String, CaseIterable, Identifiable {
 
 struct NativeShell: View {
     @Environment(\.tqTheme) private var theme
-    var canSeeApprovals = true
-    var isAdmin = true
-    var personName = "Treysen Parkinson"
-    var orgName = "MATRIX SYSTEMS"
+    @Environment(AppState.self) private var appState
+
+    // Computed, not stored, so the shell TRACKS AppState. The four values these
+    // replace were hardcoded defaults — a real person's name and org compiled in
+    // and shown to whoever opened the app, with the Approvals and Admin rows
+    // permanently visible regardless of permission.
+    //
+    // Deliberately REMOVED as parameters rather than given defaults: a default is
+    // an invitation to pass fiction again.
+    private var personName: String { appState.currentPerson?.name ?? "" }
+    private var orgName: String { appState.orgName }
+    private var isAdmin: Bool { appState.isAdmin }
+    private var canSeeApprovals: Bool { appState.canViewApprovalQueue }
 
     @State private var view: TView = .tasks
     @State private var expanded = true
@@ -260,11 +269,16 @@ struct NativeShell: View {
                 .fill(theme.accent.opacity(0.22))
                 .frame(width: 32, height: 32)
                 .overlay {
-                    Text(initials(personName))
-                        .font(TFont.body(12, 700))
-                        .foregroundStyle(theme.accent)
+                    // Nothing before people load, rather than a placeholder that
+                    // swaps a beat later. `initials("")` would be an empty circle
+                    // with a stray subtitle under it.
+                    if !personName.isEmpty {
+                        Text(initials(personName))
+                            .font(TFont.body(12, 700))
+                            .foregroundStyle(theme.accent)
+                    }
                 }
-            if expanded {
+            if expanded && !personName.isEmpty {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(personName)
                         .font(TFont.body(13, 600))
