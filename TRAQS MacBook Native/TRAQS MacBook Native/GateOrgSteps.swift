@@ -19,6 +19,8 @@ struct GateBrandHeader: View {
     var body: some View {
         VStack(spacing: 22) {                    // gap: 22
             GateLockup(size: 84)
+                // Measured HERE, on the lockup itself — see GateRiseMeasured.
+                .gateMeasuredLockup()
                 .gateLogoIn(rise: rise)
                 .opacity(measured ? 1 : 0)
 
@@ -108,7 +110,10 @@ struct GateOrgCodeStep: View {
                         .gateFadeUp(delayMS: GateLoadUp.Timing.footAtMS, durationMS: 620)
                 }
                 .frame(maxWidth: GatePaperMetrics.columnWidth)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // Centred on BOTH axes. `PAGE` is `align-items: center;
+                // justify-content: center`, so the column sits on the page's
+                // centre rather than at its top.
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
         }
         .onAppear { fieldFocused = true }        // autoFocus

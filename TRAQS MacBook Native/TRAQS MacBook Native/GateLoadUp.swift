@@ -146,47 +146,66 @@ extension View {
 
 // MARK: - Measuring the rise
 //
-// The load-up's one runtime measurement, kept here beside the animation that
-// needs it rather than re-derived per step.
+// The load-up's one runtime measurement.
 //
-// Wrap the lockup in this. It reads the lockup's RESTING position in window
-// space, works out how far below that the window's vertical centre is, and hands
-// that distance to `gateLogoIn`. That is what makes the fade happen dead centre
-// on any screen — the whole reason the web measures instead of using a `vh`.
+// It measures THE LOCKUP against the PAGE, and getting that wrong is what made
+// the logo appear near the top and never move: measuring the whole content column
+// instead gives a column that FILLS the page, so its centre is the page's centre,
+// the rise computes to ~0, and there is nothing to travel. The web attaches its
+// ref to the lockup's own `<span>` for exactly this reason.
+//
+// The lockup is several views down inside the content, so it reports its frame
+// UP via a preference rather than being handed a proxy down.
+
+/// The lockup's frame in global space, published by `gateMeasuredLockup()`.
+private struct GateLockupFrameKey: PreferenceKey {
+    static let defaultValue: CGRect? = nil
+    static func reduce(value: inout CGRect?, nextValue: () -> CGRect?) {
+        // First one wins — there is only ever one lockup on a gate screen.
+        value = value ?? nextValue()
+    }
+}
+
+extension View {
+    /// Mark THE LOCKUP with this. `GateRiseMeasured` reads it to work out how far
+    /// below its resting place the lockup should start.
+    func gateMeasuredLockup() -> some View {
+        background {
+            GeometryReader { g in
+                Color.clear.preference(key: GateLockupFrameKey.self,
+                                       value: g.frame(in: .global))
+            }
+        }
+    }
+}
+
 /// Hands its content the measured rise AND whether the measurement has happened
-/// yet. Both, because they are different questions: a rise of 0 is a perfectly
-/// valid measurement — it means the lockup already rests at window centre — and
-/// inferring "measured" from `rise > 0` leaves the logo hidden forever in exactly
-/// that case. That bug shipped once; hence the second value.
+/// yet. Both, because they answer different questions: a rise of 0 is a perfectly
+/// valid measurement — the lockup already rests at page centre — and inferring
+/// "measured" from `rise > 0` leaves the logo hidden forever in exactly that case.
 struct GateRiseMeasured<Content: View>: View {
     @ViewBuilder let content: (CGFloat, Bool) -> Content
     @State private var rise: CGFloat = 0
     @State private var measured = false
 
     var body: some View {
-        GeometryReader { window in
+        GeometryReader { page in
             content(rise, measured)
-                .background {
-                    GeometryReader { me in
-                        Color.clear
-                            .onAppear { measure(me, in: window) }
-                            .onChange(of: me.frame(in: .global)) { _, _ in
-                                measure(me, in: window)
-                            }
-                    }
+                .frame(width: page.size.width, height: page.size.height)
+                .onPreferenceChange(GateLockupFrameKey.self) { frame in
+                    guard let frame, frame.height > 0 else { return }
+                    // How far DOWN the lockup has to start so its fade happens on
+                    // the page's own centre line.
+                    let next = max(0, page.frame(in: .global).midY - frame.midY)
+                    // Only when it actually moves — an unconditional write
+                    // re-renders every frame the geometry reports, which fights
+                    // the animation it is feeding.
+                    if abs(next - rise) > 0.5 { rise = next }
+                    // Set regardless of the value, and separately from it: what
+                    // matters is that a measurement happened, not that it was
+                    // non-zero.
+                    if !measured { measured = true }
                 }
         }
-    }
-
-    private func measure(_ me: GeometryProxy, in window: GeometryProxy) {
-        let myCentre = me.frame(in: .global).midY
-        let windowCentre = window.frame(in: .global).midY
-        let next = max(0, windowCentre - myCentre)
-        // Only when it actually moves — an unconditional write here re-renders
-        // every frame the geometry reports, which fights the animation.
-        if abs(next - rise) > 0.5 { rise = next }
-        // Set REGARDLESS of the value, and separately from it: the point is that a
-        // measurement happened, not that it was non-zero.
-        if !measured { measured = true }
     }
 }

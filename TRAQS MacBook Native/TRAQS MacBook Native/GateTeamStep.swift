@@ -209,19 +209,24 @@ struct GateTeamStep: View {
 
     var body: some View {
         GatePage {
-            ScrollView {
-                VStack(spacing: 0) {
-                    header
-                    card
+            // `minHeight: page height` is what centres this: the content sits in a
+            // box at least as tall as the page, so a short roster is centred and a
+            // long one still scrolls. `PAGE` on the web is `align-items: center;
+            // justify-content: center`, and a bare ScrollView is top-aligned.
+            GeometryReader { page in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        header
+                        card
+                    }
+                    .frame(maxWidth: 1060)
+                    .frame(maxWidth: .infinity, minHeight: page.size.height,
+                           alignment: .center)
                 }
-                .frame(maxWidth: 1060)
-                .frame(maxWidth: .infinity)
             }
         }
-        // Centred at the bottom, not pinned to the right corner as on the web.
-        // It is the switch between the two things this screen IS, so it belongs
-        // on the screen's axis rather than tucked in a corner.
-        .overlay(alignment: .bottom) { viewToggle }
+        // Bottom-right, where the web pins it (`right: 20, bottom: 20`).
+        .overlay(alignment: .bottomTrailing) { viewToggle }
         .overlay { if requested != nil { padOverlay } }
         .task { await refresh() }
         // The 5s poll — see `poll()`.
@@ -293,6 +298,7 @@ struct GateTeamStep: View {
     private var header: some View {
         VStack(spacing: 22) {
             GateLockup(size: 84)
+                .gateMeasuredLockup()
             switchPill
             VStack(spacing: 0) {
                 Text(view == .clock ? "Clock In / Out" : "Who are you?")
@@ -419,40 +425,57 @@ struct GateTeamStep: View {
         }
     }
 
-    /// The lower-right toggle between the roster and the clock kiosk (App.jsx:1159).
+    /// The lower-right toggle between the roster and the clock kiosk
+    /// (App.jsx:1159).
+    ///
+    /// ONE control, not two buttons that happen to sit together: a glass track
+    /// with a single tinted thumb that SLIDES between the two labels. Both labels
+    /// stay legible the whole time, so it reads as a switch with a current
+    /// position rather than as a pair of competing calls to action — and the thumb
+    /// travelling is what tells you the two are alternatives.
     private var viewToggle: some View {
-        HStack(spacing: 4) {
-            toggleButton(.login, "Log In")
-            toggleButton(.clock, "Clock In")
+        let isClock = view == .clock
+        return Button {
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
+                view = isClock ? .login : .clock
+            }
+        } label: {
+            ZStack(alignment: isClock ? .trailing : .leading) {
+                // The thumb. Tinted glass inside the track's glass — the nesting
+                // the iOS tab bar uses, which is what keeps the moving part
+                // readable against what it moves over.
+                Capsule()
+                    .fill(Color.clear)
+                    .frame(width: Self.segmentWidth, height: Self.segmentHeight)
+                    .gateGlass(GatePalette.blue)
+
+                HStack(spacing: 0) {
+                    segmentLabel("Log In", active: !isClock)
+                    segmentLabel("Clock In", active: isClock)
+                }
+            }
+            .padding(4)
+            .gateGlass(Color.white.opacity(0.35))
+            .contentShape(Capsule())
         }
-        .padding(4)
-        // The whole track is glass, with the active segment as tinted glass
-        // inside it — the same nesting the iOS tab bar uses (a frosted bar
-        // carrying a tinted pill), which is what keeps the moving part readable
-        // against the track.
-        .gateGlass(Color.white.opacity(0.35))
+        .buttonStyle(.plain)
         .shadow(color: Color(red: 16/255, green: 24/255, blue: 40/255, opacity: 0.14),
                 radius: 12, y: 8)
         .padding(20)
+        .accessibilityLabel(isClock ? "Showing the clock kiosk. Switch to sign in."
+                                    : "Showing sign in. Switch to the clock kiosk.")
     }
 
-    private func toggleButton(_ target: KioskView, _ label: String) -> some View {
-        let active = view == target
-        return Button { view = target } label: {
-            Text(label)
-                .font(TFont.body(13, 700))
-                .foregroundStyle(active ? .white : GatePalette.stone)
-                .padding(.horizontal, 18)
-                .padding(.vertical, 9)
-                // Glass only when active — an inactive segment is a label, not
-                // a button you are being offered.
-                .gateGlass(active ? GatePalette.blue : Color.clear)
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .shadow(color: active ? GatePalette.blue.opacity(0.33) : .clear,
-                radius: active ? 7 : 0, y: active ? 4 : 0)
-        .animation(.easeInOut(duration: 0.18), value: active)
+    /// Fixed, and sized for the WIDER label, so the thumb is the same width in
+    /// both positions and the track never resizes as it slides.
+    private static let segmentWidth: CGFloat = 92
+    private static let segmentHeight: CGFloat = 34
+
+    private func segmentLabel(_ text: String, active: Bool) -> some View {
+        Text(text)
+            .font(TFont.body(13, 700))
+            .foregroundStyle(active ? .white : GatePalette.stone)
+            .frame(width: Self.segmentWidth, height: Self.segmentHeight)
     }
 
     // MARK: The clock flow
