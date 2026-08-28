@@ -149,3 +149,46 @@ extension Color {
         return Color(.sRGB, red: r, green: g, blue: b, opacity: a)
     }
 }
+
+// MARK: - Glass, on the app's buttons
+//
+// THE RULE, stated once so it is not re-decided per button: every control in the
+// app is Liquid Glass, EXCEPT
+//
+//   • sidebar nav rows — they are a straight copy of the web's rail, and the web's
+//     own note is that the active row is a flat accent fill with "no separate
+//     sliding indicator" (see `navRow`);
+//   • rows in a list or grid — a lit bevel per row reads as noise rather than as
+//     material, which is the same reason `frostedCard(rim:)` exists on iOS;
+//   • the sidebar's log-out button — one of the elements the web already opts out
+//     of its own button chrome, and glass would pull the eye to the most
+//     destructive control in the rail.
+//
+// Everything else — brand strip chrome, page-header actions, CTAs, toggles, the
+// kiosk keypad — takes glass.
+extension View {
+    /// Liquid Glass for a shell control, tinted and press-responsive.
+    ///
+    /// `tint: nil` means DISABLED: no glass at all, rather than dim glass. A dimmed
+    /// material still reads as pressable; no material reads as off.
+    func shellGlass<S: InsettableShape>(_ tint: Color?, in shape: S) -> some View {
+        modifier(ShellGlass(tint: tint, shape: shape))
+    }
+    /// Convenience for the common pill.
+    func shellGlass(_ tint: Color?) -> some View {
+        shellGlass(tint, in: Capsule())
+    }
+}
+
+struct ShellGlass<S: InsettableShape>: ViewModifier {
+    let tint: Color?
+    let shape: S
+
+    func body(content: Content) -> some View {
+        if let tint {
+            content.glassEffect(.regular.tint(tint).interactive(), in: shape)
+        } else {
+            content
+        }
+    }
+}

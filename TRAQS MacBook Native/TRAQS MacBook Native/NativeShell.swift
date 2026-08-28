@@ -229,6 +229,11 @@ struct NativeShell: View {
 
     // MARK: Page
 
+    /// The content panel, and its CORNERS are copied: 22pt on all four
+    /// (TRAQS.jsx:25003). The panel is `T.bg` floating inside the
+    /// surface-coloured chrome — the strip above it and the rail beside it — so
+    /// the radius is what separates the page from the chrome. Square, the two
+    /// read as one flat slab.
     private var page: some View {
         ZStack {
             theme.bg
@@ -242,6 +247,7 @@ struct NativeShell: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     // MARK: Sidebar

@@ -90,6 +90,13 @@ struct WebGlyph: View {
 // Keep new ones inside that range for the same reason.
 enum WebIcon {
 
+    /// The brand strip's notification bell (TRAQS.jsx:24697). strokeWidth 2,
+    /// round caps — the legacy bell, not an SF Symbol lookalike.
+    static let bell = GlyphSpec(elements: [
+        .path("M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"),
+        .path("M13.73 21a2 2 0 0 1-3.46 0"),
+    ])
+
     /// The sidebar's log-out button (TRAQS.jsx:24996). A door with an arrow
     /// leaving it — strokeWidth 2, like the nav glyphs.
     static let logout = GlyphSpec(elements: [

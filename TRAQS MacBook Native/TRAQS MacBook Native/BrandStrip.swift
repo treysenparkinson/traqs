@@ -23,6 +23,8 @@ struct BrandStrip: View {
     private let trailPad: CGFloat = 32
     private let gap: CGFloat = 18
 
+    @State private var notifOpen = false
+
     var body: some View {
         HStack(spacing: gap) {
             lockup
@@ -78,13 +80,18 @@ struct BrandStrip: View {
         .offset(y: 8)                       // marginTop: 8
     }
 
+    /// A chrome control. GLASS, like every button in the app that is not a
+    /// sidebar row or a list row — see `ShellGlass`.
+    ///
+    /// Disabled drops the glass entirely rather than dimming it. A dimmed piece of
+    /// glass still reads as pressable; no material reads as off, which is the same
+    /// call the iOS app made for its disabled controls.
     private func chromeButton(_ glyph: String, enabled: Bool, help: String) -> some View {
         Text(glyph)
             .font(.system(size: 14))
             .foregroundStyle(theme.textSec)
             .frame(width: 28, height: 28)
-            .background(Capsule().fill(enabled ? theme.hover : .clear))
-            .overlay(Capsule().stroke(enabled ? theme.border : .clear, lineWidth: 1))
+            .shellGlass(enabled ? theme.hover : nil, in: Capsule())
             .opacity(enabled ? 1 : 0.3)
             .help(help)
     }
@@ -124,12 +131,43 @@ struct BrandStrip: View {
     }
 
     // MARK: Bell
-
+    //
+    // `Notification Bell` (TRAQS.jsx:24697). A LABELLED PILL, not a bare icon:
+    // padding 7/14, the traced legacy bell at 18pt, "Notifications" at 12pt/600
+    // with -0.045em tracking, and a red count badge pinned at -4/-4.
+    //
+    // Open state tints it with the accent. Glass here too.
     private var notificationBell: some View {
-        Text("🔔")
-            .font(.system(size: 13))
-            .frame(width: 28, height: 28)
-            .background(Capsule().fill(theme.hover))
-            .help("Get notifications for new messages & job updates")
+        Button { notifOpen.toggle() } label: {
+            HStack(spacing: 8) {
+                WebGlyph(spec: WebIcon.bell, size: 18,
+                         color: notifOpen ? theme.accent : theme.textSec)
+                Text("Notifications")
+                    .font(TFont.body(12, 600))
+                    .tracking(12 * -0.045)
+                    .foregroundStyle(notifOpen ? theme.accent : theme.textSec)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 7)
+            .shellGlass(notifOpen ? theme.accent.opacity(0.15) : theme.hover, in: Capsule())
+            .overlay(alignment: .topTrailing) {
+                if unreadCount > 0 {
+                    Text(unreadCount > 9 ? "9+" : "\(unreadCount)")
+                        .font(TFont.body(9, 700))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 4)
+                        .frame(minWidth: 16, minHeight: 16)
+                        .background(Capsule().fill(Color.hex("#ef4444")))
+                        .offset(x: 4, y: -4)
+                }
+            }
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help("Notifications for new messages & job updates")
     }
+
+    /// The badge count. Messages are the one unread source the Mac app already
+    /// tracks; the web's panel also lists job events, which arrive with that pass.
+    private var unreadCount: Int { appState.totalUnreadMessages }
 }
