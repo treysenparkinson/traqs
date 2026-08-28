@@ -140,67 +140,87 @@ struct BrandStrip: View {
     // traced legacy bell at 18pt, "Notifications" at 12pt/600 with -0.045em
     // tracking, and a red count badge at -4/-4.
     //
-    // THE DROPDOWN MORPHS OUT OF THE BUTTON. The web's is a separate fixed card
-    // at `right: 80, top: 60`; this instead grows the button's own glass into the
-    // panel, which is the Liquid Glass idiom and was asked for. So:
+    // THE BUTTON BECOMES THE PANEL. This is the same mechanism as
+    // `DecisionActions` and `PanelPhotoSheet.attachmentArea`, which demonstrably
+    // morph on device, and its rules are not guessable — they are copied:
     //
-    //   • one GlassEffectContainer holds the button and the panel;
-    //   • they share ONE glassEffectID, so the container interpolates the shape
-    //     from a capsule into a rounded rect rather than cross-fading two views;
-    //   • only ONE of them carries glass at a time — the button's is dropped
-    //     while the panel is open, since two live shapes on one id is ambiguous;
-    //   • the button KEEPS ITS SLOT throughout, so the strip never reflows as the
-    //     panel opens.
+    //   * Each state gets its OWN glassEffectID. NOT a shared one. The container
+    //     splits and merges by proximity; distinct ids are what let one shape
+    //     become another rather than one shape chasing another.
+    //   * Both states sit in a ZStack, so they occupy the same place. "Shapes
+    //     that are already on top of each other have nowhere to jump from."
+    //   * if/else, so the closed state is REMOVED. Leaving the button on screen
+    //     at opacity 0 (or worse, visible and tinted) gives you a button beside
+    //     a panel instead of a button that turned into one.
+    //   * An explicit `withAnimation`, or both states simply pop.
+    //
+    // The whole thing hangs off a HIDDEN copy of the button, which is what holds
+    // the slot in the strip. A ZStack sizes to its largest child, so the panel in
+    // one would widen the button's slot and reflow the strip the moment it
+    // opened; in an overlay it is free to overflow the ghost that reserved the
+    // space. That ghost's size cannot depend on the panel, so there is no
+    // measurement feedback loop.
     private var notificationBell: some View {
-        GlassEffectContainer(spacing: 14) {
-            Button {
-                withAnimation(.smooth(duration: 0.34)) { notifOpen.toggle() }
-            } label: {
-                bellFace
-                    .shellGlass(enabled: !notifOpen, in: Capsule())
-                    .glassEffectID("notif", in: notifGlass)
-                    .contentShape(Capsule())
-            }
-            .buttonStyle(.plain)
-            .help("Notifications for new messages & job updates")
-            // An OVERLAY, not a ZStack member. A ZStack takes its size from its
-            // largest child, so a 320pt panel in one would widen the button's slot
-            // and reflow the whole strip the moment it opened — `.offset` moves
-            // what is DRAWN, it does not take the panel back out of the layout.
-            // An overlay is sized inside the button's frame and is free to
-            // overflow it, so the strip never moves. It is still inside the
-            // GlassEffectContainer, which is what the morph needs.
+        bellFace
+            .hidden()
+            // Click-away, on its OWN layer under the glass. Inside the container
+            // a 4000pt rectangle would drag the container's geometry out with it;
+            // the container measures its children to decide what is near what.
             .overlay(alignment: .topTrailing) {
                 if notifOpen {
-                    notifPanel
-                        // TINTED GLASS, not glass over an opaque card. The tint is
-                        // part of the material, so it morphs WITH the shape; a
-                        // `.background` inside the morphing view is a separate
-                        // opaque slab that pops in at full size and hides the very
-                        // morph it sits in. That is what was killing this.
-                        .glassEffect(.regular.tint(theme.card.opacity(0.55)),
-                                     in: RoundedRectangle(cornerRadius: TTheme.radiusLg,
-                                                          style: .continuous))
-                        .glassEffectID("notif", in: notifGlass)
-                        .offset(y: 44)
+                    Rectangle()
+                        .fill(.clear)
+                        .frame(width: 4000, height: 4000)
+                        .contentShape(Rectangle())
+                        .onTapGesture { setOpen(false) }
                 }
             }
-        }
+            .overlay(alignment: .topTrailing) {
+                GlassEffectContainer(spacing: 18) {
+                    ZStack(alignment: .topTrailing) {
+                        if notifOpen {
+                            notifPanel
+                                // ORDER: appearance, then the effect, then the id
+                                // — and all three on ONE view. Glass applied
+                                // inside a Button's label with the id on the
+                                // Button puts them on different views, and the
+                                // container then has no shape under that id.
+                                .glassEffect(.regular.tint(theme.card.opacity(0.55)),
+                                             in: RoundedRectangle(cornerRadius: TTheme.radiusLg,
+                                                                  style: .continuous))
+                                .glassEffectID("notif.panel", in: notifGlass)
+                        } else {
+                            Button { setOpen(true) } label: {
+                                bellFace.contentShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                            .shellGlass(in: Capsule())
+                            .glassEffectID("notif.bell", in: notifGlass)
+                            .help("Notifications for new messages & job updates")
+                        }
+                    }
+                }
+            }
     }
 
+    private func setOpen(_ open: Bool) {
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.74)) { notifOpen = open }
+    }
+
+    /// The button's face. NEVER accent-tinted — there is no "open" version of it,
+    /// because when the panel is open the button does not exist.
     private var bellFace: some View {
         HStack(spacing: 8) {
-            WebGlyph(spec: WebIcon.bell, size: 18,
-                     color: notifOpen ? theme.accent : theme.textSec)
+            WebGlyph(spec: WebIcon.bell, size: 18, color: theme.textSec)
             Text("Notifications")
                 .font(TFont.body(12, 600))
                 .tracking(12 * -0.045)
-                .foregroundStyle(notifOpen ? theme.accent : theme.textSec)
+                .foregroundStyle(theme.textSec)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 7)
         .overlay(alignment: .topTrailing) {
-            if unreadCount > 0 && !notifOpen {
+            if unreadCount > 0 {
                 Text(unreadCount > 9 ? "9+" : "\(unreadCount)")
                     .font(TFont.body(9, 700))
                     .foregroundStyle(.white)
@@ -216,13 +236,13 @@ struct BrandStrip: View {
     //
     // Two shapes, because the empty case is not a list with nothing in it. With
     // notifications it is the web's card (TRAQS.jsx:24699): a "NOTIFICATIONS"
-    // header over rows. With none it is a small square panel with "All caught up!"
-    // in the MIDDLE of it — a 320x50 strip of glass with one line of grey text
-    // pinned left reads as a broken list rather than a cleared one.
+    // header over rows. With none it is a small panel with "All caught up!" in the
+    // MIDDLE of it — a 320pt strip of glass with one line of grey text pinned left
+    // reads as a broken list rather than a cleared one.
     //
     // The CONTENT fades in behind the shape, not with it. A menu expands and then
-    // fills; content arriving at the same instant as the shape means there is
-    // nothing to watch morph.
+    // fills; content arriving on the same frame as the shape leaves nothing to
+    // watch morph.
     @ViewBuilder
     private var notifPanel: some View {
         if rows.isEmpty { emptyPanel } else { listPanel }
@@ -247,7 +267,7 @@ struct BrandStrip: View {
                 Spacer()
                 Button {
                     appState.markAllThreadsRead()
-                    withAnimation(.smooth(duration: 0.28)) { notifOpen = false }
+                    setOpen(false)
                 } label: {
                     Text("Mark all read")
                         .font(TFont.body(11))
