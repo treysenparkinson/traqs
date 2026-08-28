@@ -462,28 +462,22 @@ struct GateErrorBox: View {
 
 // MARK: - The glass toggle
 //
-// A two-position switch whose thumb is real Liquid Glass: it RAISES, stretches
-// along its travel, slides to the other side and settles.
+// A two-position switch with a Liquid Glass thumb that slides between the labels.
 //
-// The motion is lifted from the iOS app's tab bar (`TRAQSTabBar`, MainTabView),
-// which is the version that shipped and was verified on device — so this is a
-// copy of a known-good animation rather than a fresh attempt at one. Its note on
-// why it is shaped this way:
+// NO BOUNCE, and that is a deliberate choice rather than an untuned default. An
+// earlier version carried the iOS tab bar's squash-and-stretch — the thumb
+// elongating along its travel, thinning, lifting and springing back. That reads
+// well on a tab bar you hit constantly; on a small corner switch it was fussy.
 //
-//   > Squash and stretch. The pill elongates along its travel and thins slightly
-//   > as it goes, then springs back — so it reads as one piece of liquid being
-//   > flung to the tab you pressed rather than a rectangle being repositioned.
-//   >
-//   > Anchored to the TRAILING side of the motion, so the leading edge runs ahead
-//   > toward the target while the back end catches up. Centre-anchored, it just
-//   > grows evenly and reads as a pulse.
+// So the motion is now one thing: a straight slide. `.smooth` is a spring with
+// its bounce set to zero, which is why it is used here rather than
+// `.easeInOut` — an ease curve on a control like this reads as non-native
+// immediately, while a critically-damped spring still feels like the system's.
 //
-// The one addition is the lift: the thumb rises a couple of points as it goes and
-// drops back on landing, which is the "raises and then moves over" part.
-//
-// The TRACK is `.ultraThinMaterial` plus a tint, not `glassEffect` — again
-// copying the tab bar, whose bar is a material and whose highlighter is the
-// glass. Nesting one glassEffect inside another muddies both.
+// If the lift-and-travel behaviour is ever wanted back, it is specified in
+// docs/LIQUID_GLASS_TOGGLE_LIFT_BRIEF.md — and note its §1: a lift CANNOT be a
+// spring, because a value that starts and ends at rest has nothing for a spring
+// to interpolate. It needs keyframes. Do not attempt it by tuning this animation.
 struct GateGlassToggle: View {
     /// The two labels, left to right.
     let first: String
@@ -497,16 +491,8 @@ struct GateGlassToggle: View {
     var segmentWidth: CGFloat = 92
     var segmentHeight: CGFloat = 34
 
-    /// Bumped on each change — the squash-and-stretch trigger. Deliberately not
-    /// `isSecond` itself: a keyframe animator wants an event, and this reads as
-    /// one regardless of which way the switch went.
-    @State private var hopTick = 0
-    /// Which way it is travelling: +1 right, -1 left. Anchors the stretch so the
-    /// thumb reaches TOWARD its destination.
-    @State private var travelDir: CGFloat = 1
-
     var body: some View {
-        Button(action: flip) {
+        Button { isSecond.toggle() } label: {
             ZStack(alignment: .leading) {
                 thumb
                 HStack(spacing: 0) {
@@ -533,36 +519,13 @@ struct GateGlassToggle: View {
     private var thumb: some View {
         Color.clear
             .frame(width: segmentWidth, height: segmentHeight)
-            // Real Liquid Glass, tinted — the same treatment the tab bar's
+            // Real Liquid Glass, tinted — the same treatment the iOS tab bar's
             // highlighter gets.
             .glassEffect(.regular.tint(tint).interactive(), in: .capsule)
-            .keyframeAnimator(initialValue: ToggleHop(), trigger: hopTick) { view, hop in
-                view.scaleEffect(x: hop.x, y: hop.y,
-                                 anchor: travelDir >= 0 ? .leading : .trailing)
-                    .offset(y: hop.lift)
-            } keyframes: { _ in
-                // The raise: up a couple of points, then dropped back by the same
-                // spring that settles the stretch, so lift and travel land together.
-                KeyframeTrack(\.lift) {
-                    CubicKeyframe(-3, duration: 0.12)
-                    SpringKeyframe(0, duration: 0.34,
-                                   spring: .init(response: 0.28, dampingRatio: 0.58))
-                }
-                KeyframeTrack(\.x) {
-                    CubicKeyframe(1.22, duration: 0.13)
-                    SpringKeyframe(1.0, duration: 0.34,
-                                   spring: .init(response: 0.28, dampingRatio: 0.52))
-                }
-                KeyframeTrack(\.y) {
-                    CubicKeyframe(0.90, duration: 0.13)
-                    SpringKeyframe(1.0, duration: 0.34,
-                                   spring: .init(response: 0.28, dampingRatio: 0.52))
-                }
-            }
             .offset(x: isSecond ? segmentWidth : 0)
-            // The slide itself, on the tab bar's own spring. Underdamped, because
-            // the light bounce on arrival is what sells it as liquid.
-            .animation(.spring(response: 0.30, dampingFraction: 0.62), value: isSecond)
+            // A plain slide. `.smooth` is a zero-bounce spring: no overshoot, and
+            // still native in a way an ease curve is not.
+            .animation(.smooth(duration: 0.28), value: isSecond)
     }
 
     private func label(_ text: String, active: Bool) -> some View {
@@ -574,19 +537,4 @@ struct GateGlassToggle: View {
             // does not arrive at a label that has already changed.
             .animation(.easeInOut(duration: 0.2), value: active)
     }
-
-    private func flip() {
-        travelDir = isSecond ? -1 : 1
-        hopTick += 1
-        isSecond.toggle()
-    }
-}
-
-/// The thumb's squash, stretch and lift, as one animatable value. Separate
-/// tracks so `x` can lead while `y` thins and the whole thing rises — scaling
-/// both together would just zoom it.
-private struct ToggleHop {
-    var x: CGFloat = 1
-    var y: CGFloat = 1
-    var lift: CGFloat = 0
 }
