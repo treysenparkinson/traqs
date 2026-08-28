@@ -271,3 +271,160 @@ struct GateSpinner: View {
         }
     }
 }
+
+// MARK: - The PAPER language (the login redesign)
+//
+// A SECOND card language, and both are live. `LogoHeader`'s own note (App.jsx:327):
+//
+//   > `outside` renders the redesign's arrangement — lockup and greeting sit on
+//   > the page above the card, not inside a coloured header band. The banded form
+//   > is kept for the other auth steps, which still use CARD.
+//
+// So: the org-code step uses THIS — lockup and greeting on the paper ground, a
+// warm off-white card below, a near-black pill button, mono uppercase labels.
+// Login and the three rejection screens use the banded `GateCard` above. Do not
+// unify them; the web has not.
+
+enum GatePaperMetrics {
+    /// This step is wider than the banded card's 420 (`maxWidth: 460` at :447).
+    static let columnWidth: CGFloat = 460
+    // PAPER_CARD (:210)
+    static let cardRadius: CGFloat = 28
+    static let cardPad = EdgeInsets(top: 30, leading: 32, bottom: 26, trailing: 32)
+    /// `0 30px 70px rgba(16,24,40,.10)` — CSS blur is twice SwiftUI's.
+    static let cardShadowRadius: CGFloat = 35
+    static let cardShadowY: CGFloat = 30
+    // PAPER_INPUT (:219)
+    static let inputVPad: CGFloat = 13
+    static let inputHPad: CGFloat = 15
+    static let inputRadius: CGFloat = 14
+    static let inputFontSize: CGFloat = 15
+    // PAPER_LABEL (:232)
+    static let labelSize: CGFloat = 10
+    static let labelTracking: CGFloat = 10 * 0.16
+    static let labelBottomGap: CGFloat = 8
+    // PAPER_BTN (:242)
+    static let btnVPad: CGFloat = 13
+    static let btnFontSize: CGFloat = 15
+    static let btnTracking: CGFloat = 15 * -0.01
+    // The error box at :460
+    static let errorRadius: CGFloat = 12
+    static let errorPad = EdgeInsets(top: 10, leading: 14, bottom: 10, trailing: 14)
+}
+
+extension GatePalette {
+    /// PAPER_CARD's border — `rgba(16,24,40,.07)`.
+    static let paperCardBorder = Color(red: 16/255, green: 24/255, blue: 40/255, opacity: 0.07)
+    /// PAPER_INPUT's resting border — `rgba(16,24,40,.12)`. Goes LOGIN_BLUE on focus.
+    static let paperInputBorder = Color(red: 16/255, green: 24/255, blue: 40/255, opacity: 0.12)
+    // The error box (:460): rgba(239,68,68,.08) on rgba(239,68,68,.28), text #B42318.
+    static let errorFill   = Color(red: 239/255, green: 68/255, blue: 68/255, opacity: 0.08)
+    static let errorBorder = Color(red: 239/255, green: 68/255, blue: 68/255, opacity: 0.28)
+    static let errorText   = Color.hex("#B42318")
+}
+
+/// `PAPER_CARD` (:210). Warm off-white, softer and rounder than the banded card,
+/// and with no header band — the lockup sits above it on the page instead.
+struct GatePaperCard<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: GatePaperMetrics.cardRadius, style: .continuous)
+        return VStack(alignment: .leading, spacing: 0) { content() }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(GatePaperMetrics.cardPad)
+            .background(GatePalette.cardBg)
+            .clipShape(shape)
+            .overlay(shape.stroke(GatePalette.paperCardBorder, lineWidth: 1))
+            .shadow(color: Color(red: 16/255, green: 24/255, blue: 40/255, opacity: 0.10),
+                    radius: GatePaperMetrics.cardShadowRadius, y: GatePaperMetrics.cardShadowY)
+    }
+}
+
+/// `PAPER_LABEL` (:232) — mono, tiny, wide-tracked, uppercase, stone.
+///
+/// SF Mono again for the reason `GateStrapline` gives: PAPER_LABEL asks for
+/// JetBrains Mono, index.html never loads it, so the web falls back to
+/// ui-monospace and SF Mono is the match.
+struct GatePaperLabel: View {
+    let text: String
+    var body: some View {
+        Text(text.uppercased())
+            .font(.system(size: GatePaperMetrics.labelSize, design: .monospaced))
+            .tracking(GatePaperMetrics.labelTracking)
+            .foregroundStyle(GatePalette.stone)
+            .padding(.bottom, GatePaperMetrics.labelBottomGap)
+    }
+}
+
+/// `PAPER_INPUT` (:219). The border goes LOGIN_BLUE while focused — the web does
+/// this with onFocus/onBlur handlers rather than a CSS rule.
+struct GatePaperInput: View {
+    let placeholder: String
+    @Binding var text: String
+    var uppercase: Bool = false
+    var maxLength: Int? = nil
+    var onSubmit: (() -> Void)? = nil
+
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: GatePaperMetrics.inputRadius, style: .continuous)
+        return TextField(placeholder, text: $text)
+            .textFieldStyle(.plain)
+            .focused($focused)
+            .font(TFont.body(GatePaperMetrics.inputFontSize))
+            .foregroundStyle(GatePalette.ink)
+            .padding(.vertical, GatePaperMetrics.inputVPad)
+            .padding(.horizontal, GatePaperMetrics.inputHPad)
+            .background(shape.fill(Color.white))
+            .overlay(shape.stroke(focused ? GatePalette.blue : GatePalette.paperInputBorder,
+                                  lineWidth: 1))
+            .onSubmit { onSubmit?() }
+            .onChange(of: text) { _, new in
+                var v = new
+                if uppercase { v = v.uppercased() }
+                if let maxLength, v.count > maxLength { v = String(v.prefix(maxLength)) }
+                if v != new { text = v }
+            }
+    }
+}
+
+/// `PAPER_BTN` (:242). Solid INK, not the gradient — that is what separates this
+/// language from the banded one.
+struct GatePaperButton: View {
+    let title: String
+    var loading: Bool = false
+    var loadingLabel: String? = nil
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: { if !loading { action() } }) {
+            Text(loading ? (loadingLabel ?? "Loading…") : title)
+                .font(TFont.body(GatePaperMetrics.btnFontSize, 700))
+                .tracking(GatePaperMetrics.btnTracking)
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, GatePaperMetrics.btnVPad)
+                .background(Capsule().fill(GatePalette.ink))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(loading)
+        .opacity(loading ? 0.6 : 1)     // the org step's own disabled opacity
+    }
+}
+
+/// The inline error box (:460).
+struct GateErrorBox: View {
+    let message: String
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: GatePaperMetrics.errorRadius, style: .continuous)
+        return Text(message)
+            .font(TFont.body(13))
+            .foregroundStyle(GatePalette.errorText)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(GatePaperMetrics.errorPad)
+            .background(shape.fill(GatePalette.errorFill))
+            .overlay(shape.stroke(GatePalette.errorBorder, lineWidth: 1))
+    }
+}
