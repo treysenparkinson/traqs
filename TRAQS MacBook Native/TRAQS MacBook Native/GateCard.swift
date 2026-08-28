@@ -459,3 +459,134 @@ struct GateErrorBox: View {
             .overlay(shape.stroke(GatePalette.errorBorder, lineWidth: 1))
     }
 }
+
+// MARK: - The glass toggle
+//
+// A two-position switch whose thumb is real Liquid Glass: it RAISES, stretches
+// along its travel, slides to the other side and settles.
+//
+// The motion is lifted from the iOS app's tab bar (`TRAQSTabBar`, MainTabView),
+// which is the version that shipped and was verified on device — so this is a
+// copy of a known-good animation rather than a fresh attempt at one. Its note on
+// why it is shaped this way:
+//
+//   > Squash and stretch. The pill elongates along its travel and thins slightly
+//   > as it goes, then springs back — so it reads as one piece of liquid being
+//   > flung to the tab you pressed rather than a rectangle being repositioned.
+//   >
+//   > Anchored to the TRAILING side of the motion, so the leading edge runs ahead
+//   > toward the target while the back end catches up. Centre-anchored, it just
+//   > grows evenly and reads as a pulse.
+//
+// The one addition is the lift: the thumb rises a couple of points as it goes and
+// drops back on landing, which is the "raises and then moves over" part.
+//
+// The TRACK is `.ultraThinMaterial` plus a tint, not `glassEffect` — again
+// copying the tab bar, whose bar is a material and whose highlighter is the
+// glass. Nesting one glassEffect inside another muddies both.
+struct GateGlassToggle: View {
+    /// The two labels, left to right.
+    let first: String
+    let second: String
+    /// False = first selected, true = second.
+    @Binding var isSecond: Bool
+    var tint: Color = GatePalette.blue
+
+    /// Fixed, and sized for the WIDER label, so the thumb is one width in both
+    /// positions and the track cannot resize as it slides.
+    var segmentWidth: CGFloat = 92
+    var segmentHeight: CGFloat = 34
+
+    /// Bumped on each change — the squash-and-stretch trigger. Deliberately not
+    /// `isSecond` itself: a keyframe animator wants an event, and this reads as
+    /// one regardless of which way the switch went.
+    @State private var hopTick = 0
+    /// Which way it is travelling: +1 right, -1 left. Anchors the stretch so the
+    /// thumb reaches TOWARD its destination.
+    @State private var travelDir: CGFloat = 1
+
+    var body: some View {
+        Button(action: flip) {
+            ZStack(alignment: .leading) {
+                thumb
+                HStack(spacing: 0) {
+                    label(first, active: !isSecond)
+                    label(second, active: isSecond)
+                }
+            }
+            .padding(4)
+            .background {
+                let shape = Capsule()
+                ZStack {
+                    shape.fill(.ultraThinMaterial)
+                    shape.fill(Color.white.opacity(0.28))
+                }
+            }
+            .clipShape(Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isSecond ? "Showing \(second). Switch to \(first)."
+                                     : "Showing \(first). Switch to \(second).")
+    }
+
+    private var thumb: some View {
+        Color.clear
+            .frame(width: segmentWidth, height: segmentHeight)
+            // Real Liquid Glass, tinted — the same treatment the tab bar's
+            // highlighter gets.
+            .glassEffect(.regular.tint(tint).interactive(), in: .capsule)
+            .keyframeAnimator(initialValue: ToggleHop(), trigger: hopTick) { view, hop in
+                view.scaleEffect(x: hop.x, y: hop.y,
+                                 anchor: travelDir >= 0 ? .leading : .trailing)
+                    .offset(y: hop.lift)
+            } keyframes: { _ in
+                // The raise: up a couple of points, then dropped back by the same
+                // spring that settles the stretch, so lift and travel land together.
+                KeyframeTrack(\.lift) {
+                    CubicKeyframe(-3, duration: 0.12)
+                    SpringKeyframe(0, duration: 0.34,
+                                   spring: .init(response: 0.28, dampingRatio: 0.58))
+                }
+                KeyframeTrack(\.x) {
+                    CubicKeyframe(1.22, duration: 0.13)
+                    SpringKeyframe(1.0, duration: 0.34,
+                                   spring: .init(response: 0.28, dampingRatio: 0.52))
+                }
+                KeyframeTrack(\.y) {
+                    CubicKeyframe(0.90, duration: 0.13)
+                    SpringKeyframe(1.0, duration: 0.34,
+                                   spring: .init(response: 0.28, dampingRatio: 0.52))
+                }
+            }
+            .offset(x: isSecond ? segmentWidth : 0)
+            // The slide itself, on the tab bar's own spring. Underdamped, because
+            // the light bounce on arrival is what sells it as liquid.
+            .animation(.spring(response: 0.30, dampingFraction: 0.62), value: isSecond)
+    }
+
+    private func label(_ text: String, active: Bool) -> some View {
+        Text(text)
+            .font(TFont.body(13, 700))
+            .foregroundStyle(active ? .white : GatePalette.stone)
+            .frame(width: segmentWidth, height: segmentHeight)
+            // The label colours cross-fade rather than switching, so the thumb
+            // does not arrive at a label that has already changed.
+            .animation(.easeInOut(duration: 0.2), value: active)
+    }
+
+    private func flip() {
+        travelDir = isSecond ? -1 : 1
+        hopTick += 1
+        isSecond.toggle()
+    }
+}
+
+/// The thumb's squash, stretch and lift, as one animatable value. Separate
+/// tracks so `x` can lead while `y` thins and the whole thing rises — scaling
+/// both together would just zoom it.
+private struct ToggleHop {
+    var x: CGFloat = 1
+    var y: CGFloat = 1
+    var lift: CGFloat = 0
+}

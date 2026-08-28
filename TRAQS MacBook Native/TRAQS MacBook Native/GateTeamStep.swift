@@ -425,56 +425,15 @@ struct GateTeamStep: View {
     }
 
     /// The lower-right toggle between the roster and the clock kiosk
-    /// (App.jsx:1159).
-    ///
-    /// ONE control, not two buttons that happen to sit together: a glass track
-    /// with a single tinted thumb that SLIDES between the two labels. Both labels
-    /// stay legible the whole time, so it reads as a switch with a current
-    /// position rather than as a pair of competing calls to action — and the thumb
-    /// travelling is what tells you the two are alternatives.
+    /// (App.jsx:1159) — the shared `GateGlassToggle`, whose thumb raises,
+    /// stretches toward its destination and settles. See it for the motion.
     private var viewToggle: some View {
-        let isClock = view == .clock
-        return Button {
-            withAnimation(.spring(response: 0.32, dampingFraction: 0.82)) {
-                view = isClock ? .login : .clock
-            }
-        } label: {
-            ZStack(alignment: isClock ? .trailing : .leading) {
-                // The thumb. Tinted glass inside the track's glass — the nesting
-                // the iOS tab bar uses, which is what keeps the moving part
-                // readable against what it moves over.
-                Capsule()
-                    .fill(Color.clear)
-                    .frame(width: Self.segmentWidth, height: Self.segmentHeight)
-                    .gateGlass(GatePalette.blue)
-
-                HStack(spacing: 0) {
-                    segmentLabel("Log In", active: !isClock)
-                    segmentLabel("Clock In", active: isClock)
-                }
-            }
-            .padding(4)
-            .gateGlass(Color.white.opacity(0.35))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .shadow(color: Color(red: 16/255, green: 24/255, blue: 40/255, opacity: 0.14),
-                radius: 12, y: 8)
-        .padding(20)
-        .accessibilityLabel(isClock ? "Showing the clock kiosk. Switch to sign in."
-                                    : "Showing sign in. Switch to the clock kiosk.")
-    }
-
-    /// Fixed, and sized for the WIDER label, so the thumb is the same width in
-    /// both positions and the track never resizes as it slides.
-    private static let segmentWidth: CGFloat = 92
-    private static let segmentHeight: CGFloat = 34
-
-    private func segmentLabel(_ text: String, active: Bool) -> some View {
-        Text(text)
-            .font(TFont.body(13, 700))
-            .foregroundStyle(active ? .white : GatePalette.stone)
-            .frame(width: Self.segmentWidth, height: Self.segmentHeight)
+        GateGlassToggle(first: "Log In", second: "Clock In",
+                        isSecond: Binding(get: { view == .clock },
+                                          set: { view = $0 ? .clock : .login }))
+            .shadow(color: Color(red: 16/255, green: 24/255, blue: 40/255, opacity: 0.14),
+                    radius: 12, y: 8)
+            .padding(20)
     }
 
     // MARK: The clock flow
