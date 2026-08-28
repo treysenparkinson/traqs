@@ -8,10 +8,13 @@ import SwiftUI
 // the 0.28s cubic-bezier(0.22,1,0.36,1) the rail collapses on. A number in here
 // that wasn't copied is a bug.
 //
-// The ONE intended difference from the web app: buttons are real Liquid Glass —
-// native `glassEffect`, not the CSS imitation the web view wears (MacNativeSkin,
-// which is injected into the WEB VIEW only and never touches a native view). The
-// active nav pill travels on `glassEffectID`, so the material moves with it.
+// The ONE intended difference from the web app: the buttons in a PAGE HEADER are
+// real Liquid Glass (native `glassEffect` — see GlassControls, not the CSS
+// imitation the web view wears in MacNativeSkin, which never touches a native
+// view).
+//
+// THE SIDEBAR IS NOT PART OF THAT. Its buttons are a straight copy of the web's:
+// a flat accent-at-18% fill on the active row, no glass, no travelling indicator.
 
 // MARK: Views
 
@@ -104,10 +107,15 @@ struct NativeShell: View {
     @State private var orgExpanded = false
     @State private var hovered: String?
 
-    /// The morph's identity space. Declared HERE so it outlives every screen
-    /// change — a namespace owned by a view that gets rebuilt gives the glass
-    /// nothing to interpolate between.
-    @Namespace private var navGlass
+    /// The PAGE HEADER cluster's morph identity space — not the sidebar's, which
+    /// has no glass and no travelling indicator (see `navRow`).
+    ///
+    /// Declared HERE, in the shell, and that placement is precondition 1: a
+    /// namespace owned by a view that gets rebuilt on a screen change gives the
+    /// glass nothing to interpolate between. Unused until a screen has header
+    /// controls — the Jobs pass is the first — and it has to already be in the
+    /// right place by then. See GlassControls.
+    @Namespace private var headerGlass
 
     private let navPad: CGFloat = 12
     private let iconSlot: CGFloat = 17
@@ -144,26 +152,21 @@ struct NativeShell: View {
     // MARK: Sidebar
 
     private var sidebar: some View {
-        // glassEffectID does nothing outside a container. `spacing: 0` because
-        // only ONE shape in here carries glass — the active pill — so there is
-        // nothing for a fuse distance to weld it to. (Precondition 4 becomes live
-        // in the page header, where several controls sit 14pt apart; see
-        // TGlassMetrics.)
-        GlassEffectContainer(spacing: 0) {
-            VStack(alignment: .leading, spacing: 0) {
-                hamburger
-                // The two nav layers swap instantly rather than cross-fading — the
-                // web app does the same, and a fade here reads as the sidebar
-                // reloading rather than changing mode.
-                Group {
-                    if settingsMode { settingsNav } else { mainNav }
-                }
-                .padding(.horizontal, navPad)
-
-                Spacer(minLength: 0)
-                orgLabel
-                profile
+        // NO GlassEffectContainer. The sidebar is a straight copy of the web
+        // app's, and the web app's nav buttons are not glass — see `navRow`.
+        VStack(alignment: .leading, spacing: 0) {
+            hamburger
+            // The two nav layers swap instantly rather than cross-fading — the
+            // web app does the same, and a fade here reads as the sidebar
+            // reloading rather than changing mode.
+            Group {
+                if settingsMode { settingsNav } else { mainNav }
             }
+            .padding(.horizontal, navPad)
+
+            Spacer(minLength: 0)
+            orgLabel
+            profile
         }
         .frame(width: railWidth, alignment: .leading)
         .background(theme.surface)
@@ -375,23 +378,34 @@ struct NativeShell: View {
             .padding(.horizontal, (40 - iconSlot) / 2)
             .frame(height: height)
             .frame(maxWidth: .infinity, alignment: .leading)
+            // `overflow: hidden` on the web's nav button, and it is load-bearing:
+            // the BUTTON is what clips the label, not the rail. Its width tracks
+            // the rail (NAV_W = SB_W - NAV_PAD * 2, so 40pt collapsed), so the
+            // label is progressively cut away as the rail narrows and is gone
+            // entirely at 64pt.
+            //
+            // Without this the label overflowed the row and was only cut at the
+            // rail's own edge, which left a couple of stray letters ("Da", "Sc")
+            // sitting in the collapsed rail beside each icon.
+            .clipped()
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .background {
             ZStack {
                 if active {
-                    // ONE shape, handed from row to row — the pill travels rather
-                    // than being redrawn where you tapped.
+                    // `background: active ? hexA(T.accent, 0.18)` — copied, and
+                    // NOT GLASS. The web app's own note on this button: "active =
+                    // brand-gradient fill; pill when expanded, circle when
+                    // collapsed; NO SEPARATE SLIDING INDICATOR."
                     //
-                    // glassEffectID, not matchedGeometryEffect. Both move a shape,
-                    // but only this one carries the MATERIAL across: the glass
-                    // resamples what is behind it as it travels, instead of a flat
-                    // tint sliding over the rail. One morph mechanism in the app
-                    // rather than two.
-                    Color.clear
-                        .glassEffect(.regular.tint(theme.accent.opacity(0.18)), in: .capsule)
-                        .glassEffectID("nav.active", in: navGlass)
+                    // So there is no travelling pill either. A glassEffect pill was
+                    // tried here and was wrong twice: wrong material, and being a
+                    // background layer with a material in it, it painted over the
+                    // row's own icon and label — the active row rendered as an
+                    // empty capsule. Glass belongs on the page HEADER buttons; see
+                    // GlassControls.
+                    Capsule().fill(theme.accent.opacity(0.18))
                 } else if let fill {
                     Capsule().fill(fill)
                 } else if hovered == key {
