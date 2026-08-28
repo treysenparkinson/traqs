@@ -173,7 +173,12 @@ struct BrandStrip: View {
             .overlay(alignment: .topTrailing) {
                 if notifOpen {
                     notifPanel
-                        .glassEffect(.regular.interactive(),
+                        // TINTED GLASS, not glass over an opaque card. The tint is
+                        // part of the material, so it morphs WITH the shape; a
+                        // `.background` inside the morphing view is a separate
+                        // opaque slab that pops in at full size and hides the very
+                        // morph it sits in. That is what was killing this.
+                        .glassEffect(.regular.tint(theme.card.opacity(0.55)),
                                      in: RoundedRectangle(cornerRadius: TTheme.radiusLg,
                                                           style: .continuous))
                         .glassEffectID("notif", in: notifGlass)
@@ -207,8 +212,32 @@ struct BrandStrip: View {
         }
     }
 
-    /// `width: 320`, header hairline, then the rows.
+    // MARK: The panel
+    //
+    // Two shapes, because the empty case is not a list with nothing in it. With
+    // notifications it is the web's card (TRAQS.jsx:24699): a "NOTIFICATIONS"
+    // header over rows. With none it is a small square panel with "All caught up!"
+    // in the MIDDLE of it — a 320x50 strip of glass with one line of grey text
+    // pinned left reads as a broken list rather than a cleared one.
+    //
+    // The CONTENT fades in behind the shape, not with it. A menu expands and then
+    // fills; content arriving at the same instant as the shape means there is
+    // nothing to watch morph.
+    @ViewBuilder
     private var notifPanel: some View {
+        if rows.isEmpty { emptyPanel } else { listPanel }
+    }
+
+    private var emptyPanel: some View {
+        Text("All caught up!")
+            .font(TFont.body(13))
+            .foregroundStyle(theme.textDim)
+            .frame(width: 190, height: 90)          // centred in both axes
+            .contentFade
+    }
+
+    /// `width: 320`, header hairline, then the rows.
+    private var listPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text("NOTIFICATIONS")
@@ -216,17 +245,16 @@ struct BrandStrip: View {
                     .tracking(11 * -0.045)
                     .foregroundStyle(theme.textDim)
                 Spacer()
-                if unreadCount > 0 {
-                    Button {
-                        appState.markAllThreadsRead()
-                        withAnimation(.smooth(duration: 0.24)) { notifOpen = false }
-                    } label: {
-                        Text("Mark all read")
-                            .font(TFont.body(11))
-                            .foregroundStyle(theme.accent)
-                    }
-                    .buttonStyle(.plain)
+                Button {
+                    appState.markAllThreadsRead()
+                    withAnimation(.smooth(duration: 0.28)) { notifOpen = false }
+                } label: {
+                    Text("Mark all read")
+                        .font(TFont.body(11))
+                        .foregroundStyle(theme.accent)
                 }
+                .buttonStyle(.plain)
+                .opacity(unreadCount > 0 ? 1 : 0)
             }
             .padding(.horizontal, 18)
             .padding(.top, 14)
@@ -235,41 +263,31 @@ struct BrandStrip: View {
                 Rectangle().fill(theme.border).frame(height: 1)
             }
 
-            if rows.isEmpty {
-                Text("All caught up!")
-                    .font(TFont.body(13))
-                    .foregroundStyle(theme.textDim)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 28)
-                    .padding(.horizontal, 18)
-            } else {
-                ForEach(rows, id: \.id) { row in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(row.title)
-                            .font(TFont.body(13, 700))
-                            .foregroundStyle(theme.text)
-                            .lineLimit(1)
-                        Text(row.detail)
-                            .font(TFont.body(12))
-                            .foregroundStyle(theme.textSec)
-                            .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .overlay(alignment: .bottom) {
+            ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(row.title)
+                        .font(TFont.body(13, 700))
+                        .foregroundStyle(theme.text)
+                        .lineLimit(1)
+                    Text(row.detail)
+                        .font(TFont.body(12))
+                        .foregroundStyle(theme.textSec)
+                        .lineLimit(1)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .overlay(alignment: .bottom) {
+                    // No hairline under the LAST row — it would draw across the
+                    // panel's bottom edge with nothing beneath it to divide.
+                    if i < rows.count - 1 {
                         Rectangle().fill(theme.border).frame(height: 1)
                     }
                 }
             }
         }
         .frame(width: 320)
-        // Its own ground UNDER the glass. Glass alone refracts the content panel
-        // behind it, and 13pt rows over a moving job list are not readable —
-        // the web's panel is an opaque `T.card` for the same reason.
-        .background(theme.card.opacity(0.82),
-                    in: RoundedRectangle(cornerRadius: TTheme.radiusLg, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: TTheme.radiusLg, style: .continuous))
+        .contentFade
     }
 
     /// One panel row. Time-off requests first, then unread message senders —
@@ -299,4 +317,13 @@ struct BrandStrip: View {
     /// The badge count. Messages are the unread source the Mac app already
     /// tracks; pending time-off requests are listed but not counted, as on the web.
     private var unreadCount: Int { appState.totalUnreadMessages }
+}
+
+// The panel's CONTENT, arriving just behind its shape. A menu expands and then
+// fills; 120ms is the gap that makes the shape's morph readable as a morph
+// instead of a slab appearing.
+private extension View {
+    var contentFade: some View {
+        transition(.opacity.animation(.easeOut(duration: 0.16).delay(0.12)))
+    }
 }
