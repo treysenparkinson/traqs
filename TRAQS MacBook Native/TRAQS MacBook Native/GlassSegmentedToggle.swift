@@ -78,33 +78,42 @@ struct GlassSegmentedToggle<T: Hashable & Identifiable>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        // The container lets the thumb's glass deform against its surroundings.
-        GlassEffectContainer(spacing: 12) {
-            // THE LABELS DEFINE THE SIZE, and the thumb goes in a `.background`
-            // rather than as a ZStack sibling. This is a correction to the
-            // brief's §4 sketch, and it is not cosmetic.
-            //
-            // `Capsule().fill(.clear)` is a GREEDY shape: offered a size, it
-            // takes all of it. As a ZStack sibling it therefore won the size
-            // negotiation, the stack expanded to fill the window, and the
-            // GlassEffectContainer went with it. Two visible consequences: the
-            // track — `.black.opacity(0.06)` in a capsule — became a
-            // page-sized grey stadium, and a corner `.overlay(alignment:)` had
-            // nothing left to push against, so the control drifted to the middle
-            // of the screen.
-            //
-            // `.background` content is sized to its HOST, so the thumb can no
-            // longer drive layout. matchedGeometryEffect still resizes it to the
-            // selected segment, which is the behaviour §3 wants. It also keeps
-            // the thumb behind the labels, which §8 requires anyway.
-            labels
-                .background { thumb }
-                .padding(4)
-                .background(.black.opacity(0.06), in: .capsule)
-        }
-        // Ideal size, not offered size — belt and braces against the same class
-        // of expansion from anything else in the chain.
-        .fixedSize()
+        // THE LABEL ROW IS BUILT TWICE, and the duplication is the fix for a real
+        // rendering fault rather than an accident.
+        //
+        // `GlassEffectContainer` hoists its glass into a separate compositing
+        // layer, so declaration order INSIDE it does not settle z-order: the clear
+        // thumb rendered above the selected label and refracted it, which looked
+        // like a blurred label with a ghost of itself underneath. The unselected
+        // label, outside the thumb, stayed crisp — which is what identified it.
+        //
+        // So the visible labels live OUTSIDE the container, in an `.overlay`,
+        // where nothing can composite over them. An invisible copy stays inside
+        // to do the two jobs the visible one cannot do from out there:
+        //
+        //   1. define the control's SIZE (the thumb cannot — see the greedy-shape
+        //      note on `.background` below), and
+        //   2. carry the matchedGeometryEffect SOURCES the thumb matches to, which
+        //      is what lets it adopt each segment's real width.
+        //
+        // The two copies are the same view built from the same data, so they
+        // cannot drift.
+        labelRow(sources: true)
+            .hidden()
+            // The container in a `.background`, whose content is sized to its
+            // HOST. `Capsule().fill(.clear)` is a GREEDY shape — offered a size it
+            // takes all of it — so given the chance it expands the control to fill
+            // the window. It had that chance once: the track became a page-sized
+            // grey stadium and a corner alignment had nothing to push against.
+            .background {
+                GlassEffectContainer(spacing: 12) { thumb }
+            }
+            .overlay { labelRow(sources: false) }
+            .padding(4)
+            .background(.black.opacity(0.06), in: .capsule)
+            // Ideal size, not offered size — belt and braces against the same
+            // class of expansion from anything else in the chain.
+            .fixedSize()
     }
 
     // MARK: Indicator
@@ -174,7 +183,13 @@ struct GlassSegmentedToggle<T: Hashable & Identifiable>: View {
 
     // MARK: Labels
 
-    private var labels: some View {
+    /// The segment row.
+    ///
+    /// `sources: true` is the invisible copy inside the glass container: it sets
+    /// the control's size and publishes the matchedGeometryEffect sources.
+    /// `sources: false` is the visible copy in the overlay, which takes the taps.
+    /// Publishing sources from both would give the thumb two candidates per id.
+    private func labelRow(sources: Bool) -> some View {
         HStack(spacing: 0) {
             ForEach(options) { option in
                 Text(title(option))
@@ -182,10 +197,13 @@ struct GlassSegmentedToggle<T: Hashable & Identifiable>: View {
                     .foregroundStyle(option == selection ? selectedColor : unselectedColor)
                     .padding(.vertical, 10)
                     .padding(.horizontal, 18)
-                    // Invisible source rect the thumb matches to.
                     .background {
-                        Color.clear
-                            .matchedGeometryEffect(id: option, in: thumbSpace, isSource: true)
+                        if sources {
+                            // Invisible source rect the thumb matches to.
+                            Color.clear
+                                .matchedGeometryEffect(id: option, in: thumbSpace,
+                                                       isSource: true)
+                        }
                     }
                     .contentShape(.capsule)
                     .onTapGesture {
