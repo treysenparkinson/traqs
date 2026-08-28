@@ -211,12 +211,31 @@ In `PBXNativeTarget` (`TD0000000000000000000040`) `fileSystemSynchronizedGroups`
 				TD0000000000000000000013 /* ../TRAQS Scheduling/TRAQS Scheduling/Fonts */,
 ```
 
-- [ ] **Step 2: Declare the fonts (build setting, both configurations)**
+- [ ] **Step 2: Declare the fonts (a real Info.plist — NOT a build setting)**
 
-The Mac target has `GENERATE_INFOPLIST_FILE = YES` and therefore no plist to edit, so the declaration is a build setting. macOS uses `ATSApplicationFontsPath` where iOS uses `UIAppFonts`; `.` means the bundle's resource root. Add to **both** the Debug and Release `XCBuildConfiguration` blocks for the target, beside the existing `INFOPLIST_KEY_*` entries:
+macOS uses `ATSApplicationFontsPath` where iOS uses `UIAppFonts`; `.` means the bundle's resource root.
+
+**`INFOPLIST_KEY_ATSApplicationFontsPath` does not work.** Xcode maps only a known allowlist of `INFOPLIST_KEY_*` settings into the generated plist, and that key is not on it — the build succeeds, the setting is silently dropped, and the key never reaches the bundle. (Verified during execution: `plutil -p` on the built plist showed nothing.) It needs a real plist.
+
+`GENERATE_INFOPLIST_FILE` stays `YES`: with `INFOPLIST_FILE` also set, Xcode **merges** the keys it generates into the file rather than replacing it, so the file only carries what generation cannot.
+
+Create `Info.plist` at the **project root**, beside the `.xcodeproj` — *not* inside the `TRAQS MacBook Native/` source directory, which is a synchronized group and would also copy it into the bundle as a resource (Xcode warns about exactly that):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>ATSApplicationFontsPath</key>
+	<string>.</string>
+</dict>
+</plist>
+```
+
+Then add to **both** the Debug and Release `XCBuildConfiguration` blocks:
 
 ```
-				INFOPLIST_KEY_ATSApplicationFontsPath = .;
+				INFOPLIST_FILE = Info.plist;
 ```
 
 - [ ] **Step 3: Verify the faces are actually in the built bundle**
@@ -226,10 +245,13 @@ Run from `TRAQS MacBook Native/`:
 ```bash
 xcodebuild -project "TRAQS MacBook Native.xcodeproj" -scheme "TRAQS MacBook Native" \
   -configuration Debug build 2>&1 | grep -E "error:|BUILD"
-find ~/Library/Developer/Xcode/DerivedData -path "*TRAQS MacBook Native.app/Contents/Resources/DMSans-*" 2>/dev/null | head
+find ~/Library/Developer/Xcode/DerivedData -path "*TRAQS MacBook Native.app/Contents/Resources/DMSans-*" 2>/dev/null | wc -l
+plutil -p ~/Library/Developer/Xcode/DerivedData/TRAQS_MacBook_Native-*/Build/Products/Debug/"TRAQS MacBook Native.app"/Contents/Info.plist | grep -iE "fonts|CFBundleName"
 ```
 
-Expected: `** BUILD SUCCEEDED **`, and five `DMSans-*.ttf` paths listed. **If the find prints nothing, stop** — the rest of this task cannot work, and the failure is in Step 1.
+Expected: `** BUILD SUCCEEDED **` with no Copy-Bundle-Resources warning, `5` fonts, and the plist showing **both** `ATSApplicationFontsPath => "."` and `CFBundleName` — the second proves the generated keys merged rather than replaced the file.
+
+**Both checks are load-bearing and each catches a different silent failure.** No fonts in Resources means Step 1's synchronized group did not take. Fonts present but no `ATSApplicationFontsPath` means they shipped undeclared, so nothing registers them — the original bug wearing a disguise. **If either fails, stop.**
 
 - [ ] **Step 4: Rewrite `TFont` to resolve real faces**
 
@@ -264,11 +286,16 @@ enum TFont {
     /// look finished while rendering in the wrong typeface, so the check is an
     /// assertion at launch rather than something to notice by eye.
     static func assertFacesRegistered() {
-        let available = Set(NSFontManager.shared.availableFonts)
+        // CoreText, NOT `NSFontManager.shared` — touching the shared font manager
+        // from `App.init()` spins up AppKit's font panel machinery and logs
+        // "A shared NSFontManager instance already exists". PostScript names are
+        // exactly what `Font.custom` matches on.
+        let names = CTFontManagerCopyAvailablePostScriptNames() as? [String] ?? []
+        let available = Set(names)
         let missing = TFontName.allCases.map(\.rawValue).filter { !available.contains($0) }
         assert(missing.isEmpty, """
             DM Sans faces are not registered: \(missing.joined(separator: ", ")).
-            Check INFOPLIST_KEY_ATSApplicationFontsPath = . and that the Fonts \
+            Check that Info.plist carries ATSApplicationFontsPath = "." and the Fonts \
             directory is in the target's fileSystemSynchronizedGroups.
             """)
     }
@@ -276,7 +303,7 @@ enum TFont {
 }
 ```
 
-Add `import AppKit` at the top of `Theme.swift` if it is not already there (`NSFontManager`).
+Add `import CoreText` at the top of `Theme.swift`.
 
 - [ ] **Step 5: Call the assertion once at launch**
 

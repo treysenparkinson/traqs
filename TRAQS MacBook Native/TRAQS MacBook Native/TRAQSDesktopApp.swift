@@ -22,6 +22,16 @@ struct TRAQSDesktopApp: App {
     @State private var appNav = AppNav()
     @State private var store = SiteStore()
 
+    init() {
+        // Fails loudly at launch if DM Sans did not register — see
+        // `TFont.assertFacesRegistered`. The app shipped without the faces for its
+        // whole life and nothing said so, because a missing font resolves to the
+        // system face in silence.
+        #if DEBUG
+        TFont.assertFacesRegistered()
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView(store: store)

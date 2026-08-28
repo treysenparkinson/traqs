@@ -1,4 +1,5 @@
 import SwiftUI
+import CoreText   // the debug face check below
 
 // MARK: - The web app's theme, ported verbatim
 //
@@ -57,17 +58,50 @@ struct TTheme: Equatable {
 
 // MARK: Type
 //
-// The web app sets `font: 'DM Sans'`. The iOS app ships DM Sans in its bundle;
-// this one falls back to the system face until the same files are added here, so
-// weights and sizes stay right even before the font lands.
+// The web app styles type by NUMBER — `fontWeight: 700`, `fontSize: 13`. So does
+// this API: callers pass the web's number and get the DM Sans face that number
+// resolves to, via the shared `TFontName.face(forWebWeight:)`. That is what keeps
+// "copy the number out of TRAQS.jsx" true for type the way it is for layout.
+//
+// It used to be `.custom("DMSans-Regular", size:).weight(weight)` — asking SwiftUI
+// to synthesise a bold from the Regular face, against a bundle that shipped no DM
+// Sans at all. Two bugs in one line: the family silently resolved to the system
+// face, and the weight was faked. DM Sans ships real Medium, SemiBold, Bold and
+// ExtraBold cuts, and a synthesised weight is a different shape — next to the web
+// app in split mode the difference is plain.
 enum TFont {
-    static func body(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
-        .custom("DMSans-Regular", size: size).weight(weight)
+    /// `size` and `webWeight` are the web app's own numbers, copied.
+    static func body(_ size: CGFloat, _ webWeight: Int = 400) -> Font {
+        .custom(TFontName.face(forWebWeight: webWeight).rawValue, size: size)
     }
-    /// Sidebar and control labels — 13pt on the web.
+
+    /// Sidebar and control labels — 13pt on the web, 500 idle / 700 active.
     static func nav(_ active: Bool) -> Font {
-        .custom("DMSans-Regular", size: 13).weight(active ? .bold : .medium)
+        body(13, active ? 700 : 500)
     }
+
+    #if DEBUG
+    /// A missing font is SILENT: `Font.custom` with a name it cannot find returns
+    /// the system face and reports nothing. That is exactly how this app came to
+    /// look finished while rendering in the wrong typeface for its whole life, so
+    /// the check is an assertion at launch rather than something to notice by eye.
+    static func assertFacesRegistered() {
+        // CoreText, not `NSFontManager.shared` — touching the shared font manager
+        // this early spins up AppKit's font panel machinery and logs "A shared
+        // NSFontManager instance already exists". CoreText just answers the
+        // question, and PostScript names are exactly what `Font.custom` matches on.
+        let names = CTFontManagerCopyAvailablePostScriptNames() as? [String] ?? []
+        let available = Set(names)
+        let missing = TFontName.allCases.map(\.rawValue).filter { !available.contains($0) }
+        assert(missing.isEmpty, """
+            DM Sans faces are not registered: \(missing.joined(separator: ", ")).
+            Check that Info.plist carries ATSApplicationFontsPath = "." and that the \
+            Fonts directory is in the target's fileSystemSynchronizedGroups. Note \
+            ATSApplicationFontsPath CANNOT be set via INFOPLIST_KEY_* — Xcode does \
+            not map that key — which is why this target has a real Info.plist.
+            """)
+    }
+    #endif
 }
 
 extension Color {

@@ -119,7 +119,7 @@ struct NativeShell: View {
         ZStack {
             theme.bg
             Text(settingsMode ? settingsSection.label : view.label)
-                .font(TFont.body(28, .bold))
+                .font(TFont.body(28, 700))
                 .foregroundStyle(theme.textDim)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -244,7 +244,7 @@ struct NativeShell: View {
 
     private var orgLabel: some View {
         Text(orgName)
-            .font(TFont.body(10, .bold))
+            .font(TFont.body(10, 700))
             .kerning(-0.45)
             .foregroundStyle(theme.textDim)
             .lineLimit(1)
@@ -261,13 +261,13 @@ struct NativeShell: View {
                 .frame(width: 32, height: 32)
                 .overlay {
                     Text(initials(personName))
-                        .font(TFont.body(12, .bold))
+                        .font(TFont.body(12, 700))
                         .foregroundStyle(theme.accent)
                 }
             if expanded {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(personName)
-                        .font(TFont.body(13, .semibold))
+                        .font(TFont.body(13, 600))
                         .foregroundStyle(theme.text)
                         .lineLimit(1)
                     Text(isAdmin ? "Admin" : "Crew")
@@ -332,7 +332,7 @@ struct NativeShell: View {
                 .frame(width: iconSlot, height: iconSlot)
 
                 Text(label)
-                    .font(TFont.body(fontSize, active ? .bold : .medium))
+                    .font(TFont.body(fontSize, active ? 700 : 500))
                     .foregroundStyle(fg)
                     .lineLimit(1)
                     .fixedSize()
