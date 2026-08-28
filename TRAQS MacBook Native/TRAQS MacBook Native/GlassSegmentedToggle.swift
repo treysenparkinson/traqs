@@ -66,13 +66,31 @@ struct GlassSegmentedToggle<T: Hashable & Identifiable>: View {
     var body: some View {
         // The container lets the thumb's glass deform against its surroundings.
         GlassEffectContainer(spacing: 12) {
-            ZStack(alignment: .leading) {
-                thumb
-                labels
-            }
-            .padding(4)
-            .background(.black.opacity(0.06), in: .capsule)
+            // THE LABELS DEFINE THE SIZE, and the thumb goes in a `.background`
+            // rather than as a ZStack sibling. This is a correction to the
+            // brief's §4 sketch, and it is not cosmetic.
+            //
+            // `Capsule().fill(.clear)` is a GREEDY shape: offered a size, it
+            // takes all of it. As a ZStack sibling it therefore won the size
+            // negotiation, the stack expanded to fill the window, and the
+            // GlassEffectContainer went with it. Two visible consequences: the
+            // track — `.black.opacity(0.06)` in a capsule — became a
+            // page-sized grey stadium, and a corner `.overlay(alignment:)` had
+            // nothing left to push against, so the control drifted to the middle
+            // of the screen.
+            //
+            // `.background` content is sized to its HOST, so the thumb can no
+            // longer drive layout. matchedGeometryEffect still resizes it to the
+            // selected segment, which is the behaviour §3 wants. It also keeps
+            // the thumb behind the labels, which §8 requires anyway.
+            labels
+                .background { thumb }
+                .padding(4)
+                .background(.black.opacity(0.06), in: .capsule)
         }
+        // Ideal size, not offered size — belt and braces against the same class
+        // of expansion from anything else in the chain.
+        .fixedSize()
     }
 
     // MARK: Indicator
