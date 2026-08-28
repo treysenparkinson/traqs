@@ -38,7 +38,28 @@ struct GateLockup: View {
         // So the bars are lifted back up by the descent, which puts their bottom
         // on the real baseline.
         let metrics = Self.glyphPath("traqs", size: size, tracking: size * -0.05)
-        return HStack(alignment: .bottom, spacing: 0) {
+        return lockup(metrics)
+            // THE LOCKUP EXPOSES ITS REAL TEXT BASELINE.
+            //
+            // Without this it has none, so an HStack beside a Text had nothing to
+            // align to and fell back to centring the two FRAMES — and the frames
+            // are not comparable: the Canvas is trimmed to the wordmark's ink and
+            // includes the `q`'s descender, while a Text's frame is its line box.
+            // Centring those put "traqs" visibly low against "Powered by".
+            //
+            // The baseline sits `descent` up from the ink's bottom, plus the half
+            // stroke the Canvas is inset by. Now `HStack(alignment:
+            // .lastTextBaseline)` lines the lockup up with any text next to it.
+            .alignmentGuide(.lastTextBaseline) { d in
+                d.height - metrics.descent - stroke / 2
+            }
+            .alignmentGuide(.firstTextBaseline) { d in
+                d.height - metrics.descent - stroke / 2
+            }
+    }
+
+    private func lockup(_ metrics: Wordmark) -> some View {
+        HStack(alignment: .bottom, spacing: 0) {
             wordmark(metrics)
             if bars {
                 GateBarsMark()

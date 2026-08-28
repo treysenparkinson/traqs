@@ -393,7 +393,10 @@ struct GateTeamStep: View {
     /// Also a much lighter stroke than the hero lockup's 1.5 — at 17pt the same
     /// thickening would close the counters up.
     private var poweredBy: some View {
-        HStack(spacing: 8) {
+        // BASELINE-aligned, not centred. The two have different box shapes — a
+        // line box against trimmed ink — so centring them does not line the
+        // letters up. `GateLockup` publishes its text baseline for this.
+        HStack(alignment: .lastTextBaseline, spacing: 8) {
             Text("Powered by")
                 .font(TFont.body(13, 600))
                 .foregroundStyle(GatePalette.stone)
