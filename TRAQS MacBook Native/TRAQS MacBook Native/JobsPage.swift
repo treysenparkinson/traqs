@@ -50,6 +50,8 @@ struct JobsPage: View {
         let visible = JobsQuery.activeRows(appState.jobs, filter: filter,
                                            sort: sort, context: queryContext)
         let finished = JobsQuery.finishedRows(appState.jobs, sort: sort, context: queryContext)
+        // Built once here, so no cell has to read AppState — see JobsCellContext.
+        let cells = cellContext(visible + finished)
         return TPage("Jobs", right: { toolbar(visible) }) {
             if appState.jobs.isEmpty {
                 emptyState
@@ -59,6 +61,7 @@ struct JobsPage: View {
                     ForEach(JobsQuery.managerSections(visible)) { section in
                         JobsSection(sectionID: section.id, jobs: section.jobs,
                                     columns: JobColumn.allCases, align: cellAlign,
+                                    context: cells,
                                     sort: $sort, expanded: $expanded,
                                     collapsed: $collapsed,
                                     selectMode: selectMode, selected: $selected) {
@@ -66,7 +69,7 @@ struct JobsPage: View {
                         }
                     }
 
-                    if !finished.isEmpty { finishedSection(finished) }
+                    if !finished.isEmpty { finishedSection(finished, cells) }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -89,6 +92,42 @@ struct JobsPage: View {
                 people.first { $0.id == id }?.name ?? ""
             },
             percentComplete: { [appState] job in appState.jobPct(job) })
+    }
+
+    /// Everything a cell needs, resolved ONCE. The dictionaries replace a
+    /// `first(where:)` per cell per render, and — the reason this exists — they
+    /// keep AppState out of the cells entirely: a cell that reads it becomes an
+    /// observer of it, and a few hundred observers on one object means any change
+    /// anywhere invalidates the whole grid.
+    private func cellContext(_ jobs: [Job]) -> JobsCellContext {
+        var context = JobsCellContext(today: JobsDate.todayKey)
+        for client in appState.clients { context.clientsByID[client.id] = client }
+        for person in appState.people { context.peopleByID[person.id] = person }
+
+        // Only what is on screen. A collapsed job's panels and operations are not
+        // drawn, so their percentages are not worth walking for.
+        for job in jobs {
+            context.percentByID[job.id] = appState.jobPct(job)
+            guard expanded.contains(job.id) else { continue }
+            for panel in job.subs {
+                context.percentByID[panel.id] = appState.panelPct(panel)
+                guard expanded.contains(panel.id) else { continue }
+                for op in panel.subs {
+                    context.percentByID[op.id] = operationPercent(op)
+                }
+            }
+        }
+        return context
+    }
+
+    /// AppState exposes no `opPct` — `panelPct` sums the hours pair directly. This
+    /// is that same ratio for one operation, with Finished pinned to 100 as every
+    /// other level does.
+    private func operationPercent(_ op: Operation) -> Int {
+        if op.status == .finished { return 100 }
+        let estimated = JobsQuery.estimatedHours(of: op)
+        guard estimated > 0 else { return 0 }
+        return Int(((op.loggedHours ?? 0) / estimated * 100).rounded())
     }
 
     // MARK: Section headers
@@ -114,9 +153,11 @@ struct JobsPage: View {
 
     /// Its own section under the working list, in green, with a green-ringed card.
     /// Built from the UNFILTERED jobs — see `JobsQuery.finishedRows`.
-    private func finishedSection(_ finished: [Job]) -> some View {
+    private func finishedSection(_ finished: [Job],
+                                 _ cells: JobsCellContext) -> some View {
         JobsSection(sectionID: "__finished__", jobs: finished,
                     columns: JobColumn.allCases, align: cellAlign,
+                    context: cells,
                     accent: Color.hex("#10b981"),
                     sort: $sort, expanded: $expanded, collapsed: $collapsed,
                     selectMode: false, selected: $selected) {

@@ -2,11 +2,12 @@ import SwiftUI
 
 // MARK: - The Jobs list grid
 //
-// The web's "list" sub-view (TRAQS.jsx:11730-12340). A fixed-width column grid
-// with a sticky header, three levels of row, and the cell renderers at :11802.
+// The web's "list" sub-view (TRAQS.jsx:11730-12340). Fixed-width columns, a
+// column header per section, three levels of row, and the cell renderers at
+// :11802.
 //
-// Every number here is lifted, not chosen. `JobsGridMetrics` names them once so a
-// cell cannot invent its own padding.
+// Every number is lifted, not chosen. `JobsGridMetrics` names them once so a cell
+// cannot invent its own padding.
 
 enum JobsGridMetrics {
     /// `cellBase` — `padding: "7px 10px"`, `fontSize: 13`.
@@ -19,7 +20,7 @@ enum JobsGridMetrics {
     static let headerVPad: CGFloat = 8
     static var headerTracking: CGFloat { headerFont * -0.045 }
 
-    /// The header's own bottom rule is heavier than a row's.
+    /// The header's bottom rule is heavier than a row's.
     static let headerRule: CGFloat = 1.5
     static let rowRule: CGFloat = 1
 
@@ -29,15 +30,38 @@ enum JobsGridMetrics {
     static let nameLeadTop: CGFloat = 22
     static let nameLeadNested: CGFloat = 20
 
-    /// A row's height is set by its content on the web. Pinned here because the
-    /// grid is a stack of fixed-width columns rather than a real table, and rows
-    /// that each size themselves make the column rules jitter between them.
+    /// Rows self-size on the web. Pinned here because the grid is a stack of
+    /// fixed-width columns rather than a real table, and rows that each size
+    /// themselves make the column rules jitter between them.
     static let rowHeight: CGFloat = 36
+    static let headerHeight: CGFloat = 31
 }
 
-// MARK: A section
+// MARK: - What a cell needs that a row cannot carry
 //
-// One per project manager (TRAQS.jsx:12269). A clickable header — chevron,
+// Built ONCE per render in JobsPage and passed down as a plain value.
+//
+// This exists for speed, and the problem it fixes is not obvious: a cell that
+// reads `@Environment(AppState.self)` registers an observation dependency on
+// AppState for ITSELF. With eleven cells a row that is a few hundred observers on
+// one object, and any change to any part of AppState invalidates every one of
+// them. Dictionaries and an Int instead, so a cell's body touches nothing
+// observable and SwiftUI can skip the whole row when nothing it uses changed.
+struct JobsCellContext: Equatable {
+    var clientsByID: [String: Client] = [:]
+    var peopleByID: [String: Person] = [:]
+    /// Progress per row, keyed by `JobRow.itemID`. Precomputed because the real
+    /// figure reads logged hours and live job clocks off AppState, which is
+    /// exactly what a cell must not do.
+    var percentByID: [String: Int] = [:]
+    /// `TD`, resolved once — so every Due cell in a render agrees on what "today"
+    /// is even if the render straddles midnight.
+    var today: String = ""
+}
+
+// MARK: - A section
+//
+// One per project manager (TRAQS.jsx:12269): a clickable header — chevron,
 // avatar, name, count — over a card holding that manager's jobs.
 //
 // `marginBottom: 20` between sections; the header is `padding: "4px 2px 8px"`
@@ -50,6 +74,7 @@ struct JobsSection<Header: View>: View {
     let jobs: [Job]
     let columns: [JobColumn]
     let align: JobColumn.Align
+    let context: JobsCellContext
     /// The green ring and green count the Finished section uses. nil = accent.
     var accent: Color? = nil
     @Binding var sort: JobsSort
@@ -58,12 +83,21 @@ struct JobsSection<Header: View>: View {
     let selectMode: Bool
     @Binding var selected: Set<String>
     /// Whatever sits between the chevron and the count — a name, an avatar and a
-    /// name, or "✓ Finished". Generic, never AnyView: a type erasure here is on
+    /// name, or "✓ Finished". Generic, never AnyView: a type erasure here sits on
     /// the path of every glass shape inside the card.
     @ViewBuilder let header: () -> Header
 
+    /// The card's own width, so its horizontal scroller can be switched OFF when
+    /// the columns already fit. A nested scroller that cannot scroll still fights
+    /// the page's for every trackpad gesture, which is most of what makes a grid
+    /// feel glitchy.
+    @State private var available: CGFloat = 0
+
     private var isCollapsed: Bool { collapsed.contains(sectionID) }
     private var tint: Color { accent ?? theme.accent }
+    private var totalWidth: CGFloat {
+        columns.reduce(0) { $0 + $1.defaultWidth } + JobColumn.addColumnWidth
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -100,22 +134,27 @@ struct JobsSection<Header: View>: View {
     /// `FrostCard` (TRAQS.jsx:2437) — `radiusLg`, a 1px border, and a SOLID
     /// `T.card` fill. Its own comment is worth keeping: the frost belongs to the
     /// glass rule now, gated on the Customize toggle, "so off means genuinely
-    /// solid here."
+    /// solid here." And NO shadow, which is a hard constraint rather than taste —
+    /// the card sits inside the collapse wrapper's `overflow: hidden`, which clips
+    /// a shadow to a square box and leaves four corner wedges.
     private var card: some View {
-        // Horizontal scrolling is PER CARD, as on the web: FrostCard's inner
-        // `tq-card-scroll` is `overflow: auto` and the columns are fixed widths.
-        // The page does not scroll sideways — each section does.
         ScrollView(.horizontal, showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
                 JobsColumnHeader(columns: columns, sort: $sort)
                 ForEach(JobRow.flatten(jobs, expanded: expanded)) { row in
                     JobsGridRow(row: row, columns: columns, align: align,
-                                expanded: $expanded,
+                                context: context, expanded: $expanded,
                                 selectMode: selectMode, selected: $selected)
                 }
             }
+            // The columns stop where they stop; the CARD runs full width, which
+            // is what `width: 100%` on FrostCard over a `minWidth: minW` inner div
+            // gives on the web. Fixing the width instead left the card itself
+            // short of the panel's right edge.
             .frame(width: totalWidth, alignment: .leading)
         }
+        .scrollDisabled(available >= totalWidth)
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { available = $0 }
         .background(theme.card)
         .clipShape(RoundedRectangle(cornerRadius: TTheme.radiusLg, style: .continuous))
         .overlay {
@@ -123,13 +162,9 @@ struct JobsSection<Header: View>: View {
                 .strokeBorder(accent.map { $0.opacity(0.2) } ?? theme.border, lineWidth: 1)
         }
     }
-
-    private var totalWidth: CGFloat {
-        columns.reduce(0) { $0 + $1.defaultWidth } + JobColumn.addColumnWidth
-    }
 }
 
-// MARK: The column header
+// MARK: - The column header
 
 struct JobsColumnHeader: View {
     @Environment(\.tqTheme) private var theme
@@ -164,8 +199,10 @@ struct JobsColumnHeader: View {
                     // expand arrow.
                     .padding(.leading, col == .name
                              ? JobsGridMetrics.nameLeadTop - JobsGridMetrics.cellHPad : 0)
-                    .padding(.vertical, JobsGridMetrics.headerVPad)
-                    .frame(width: col.defaultWidth, alignment: .leading)
+                    // FIXED, both axes. Never a flexible frame — see JobsGridCell.
+                    .frame(width: col.defaultWidth,
+                           height: JobsGridMetrics.headerHeight,
+                           alignment: .leading)
                     .background(sorted(col) ? theme.accent.opacity(0.07) : .clear)
                     .overlay(alignment: .trailing) {
                         Rectangle().fill(theme.border).frame(width: 1)
@@ -182,8 +219,8 @@ struct JobsColumnHeader: View {
             Text("+")
                 .font(TFont.body(18, 400))
                 .foregroundStyle(theme.textDim.opacity(0.5))
-                .frame(width: JobColumn.addColumnWidth)
-                .frame(maxHeight: .infinity)
+                .frame(width: JobColumn.addColumnWidth,
+                       height: JobsGridMetrics.headerHeight)
                 .help("Add column — not ported yet")
         }
         .background(theme.surface)
@@ -200,7 +237,7 @@ struct JobsColumnHeader: View {
     }
 }
 
-// MARK: One row
+// MARK: - One row
 
 struct JobsGridRow: View {
     @Environment(\.tqTheme) private var theme
@@ -208,6 +245,7 @@ struct JobsGridRow: View {
     let row: JobRow
     let columns: [JobColumn]
     let align: JobColumn.Align
+    let context: JobsCellContext
     @Binding var expanded: Set<String>
     let selectMode: Bool
     @Binding var selected: Set<String>
@@ -217,16 +255,13 @@ struct JobsGridRow: View {
     var body: some View {
         HStack(spacing: 0) {
             ForEach(columns) { col in
-                JobsGridCell(row: row, column: col, align: align,
-                             expanded: $expanded,
-                             selectMode: selectMode, selected: $selected)
-                    .frame(width: col.defaultWidth)
-                    .frame(height: JobsGridMetrics.rowHeight)
-                    .overlay(alignment: .trailing) {
-                        Rectangle().fill(theme.border).frame(width: 1)
-                    }
+                JobsGridCell(row: row, column: col, align: align, context: context,
+                             expanded: expanded, selected: selected,
+                             selectMode: selectMode)
             }
-            Color.clear.frame(width: JobColumn.addColumnWidth)
+            // Matches the header's trailing "+" cell so both rows end together.
+            Color.clear.frame(width: JobColumn.addColumnWidth,
+                              height: JobsGridMetrics.rowHeight)
         }
         .background(background)
         .overlay(alignment: .bottom) {
@@ -261,28 +296,47 @@ struct JobsGridRow: View {
     }
 }
 
-// MARK: One cell
+// MARK: - One cell
+//
+// THE CELL OWNS ITS WIDTH, and it is a FIXED frame. This is the fix for columns
+// that drifted out of line on nested rows: a `#`, Client or Due cell has nothing
+// to show below level 0, that produced an `EmptyView`, and an EmptyView takes no
+// space no matter what flexible frame is wrapped around it — so every column
+// after it slid left by that column's width, on that row only.
+//
+// Two rules follow, and both matter:
+//   * the frame is `width:`/`height:`, never `maxWidth:`, so it cannot depend on
+//     content at all;
+//   * a blank cell renders `Color.clear`, never nothing.
 
 private struct JobsGridCell: View {
     @Environment(\.tqTheme) private var theme
-    @Environment(AppState.self) private var appState
 
     let row: JobRow
     let column: JobColumn
     let align: JobColumn.Align
-    @Binding var expanded: Set<String>
+    let context: JobsCellContext
+    /// Read-only copies. A cell never writes these, and taking them as values
+    /// rather than Bindings keeps a row's cells from invalidating each other.
+    let expanded: Set<String>
+    let selected: Set<String>
     let selectMode: Bool
-    @Binding var selected: Set<String>
 
     var body: some View {
         content
             .padding(.horizontal, JobsGridMetrics.cellHPad)
             .padding(.vertical, JobsGridMetrics.cellVPad)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: cellAlignment)
-            // `overflow: hidden` on `cellBase`. A status pill wider than its
-            // column is cut at the column's edge rather than drawn across the
-            // next one — which is what the 132pt Status column relies on.
+            .frame(width: column.defaultWidth,
+                   height: JobsGridMetrics.rowHeight,
+                   alignment: cellAlignment)
+            // `overflow: hidden` on `cellBase` — every cell, as the web has it.
+            // A status pill wider than its column is cut at the column's edge
+            // rather than drawn over the next one, which is what the 132pt Status
+            // column relies on.
             .clipped()
+            .overlay(alignment: .trailing) {
+                Rectangle().fill(theme.border).frame(width: 1)
+            }
     }
 
     /// The cycling toggle moves the ordinary cells. Name, Priority and Progress
@@ -330,8 +384,8 @@ private struct JobsGridCell: View {
             } else if row.level == 0 {
                 // `⠿` at 0.22 — the drag handle. Row reordering is not ported, so
                 // this is the affordance without the behaviour; drawn anyway
-                // because its 13pt of width is what keeps titles aligned with
-                // the select mode that replaces it.
+                // because its width is what keeps titles aligned with the select
+                // mode that replaces it.
                 Text("\u{283F}")
                     .font(.system(size: 13))
                     .foregroundStyle(theme.textDim.opacity(0.22))
@@ -351,8 +405,8 @@ private struct JobsGridCell: View {
                 .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
-        // `paddingLeft: (level === 0 ? 22 : 20) + indent`, minus the cell's own
-        // 10 which is already applied.
+        // `paddingLeft: (level === 0 ? 22 : 20) + indent`, less the cell's own 10
+        // which is already applied.
         .padding(.leading, (row.level == 0 ? JobsGridMetrics.nameLeadTop
                                            : JobsGridMetrics.nameLeadNested)
                  + CGFloat(row.level) * JobsGridMetrics.indentPerLevel
@@ -366,9 +420,7 @@ private struct JobsGridCell: View {
             .background(Circle().fill(on ? theme.accent : .clear))
             .frame(width: 15, height: 15)
             .overlay {
-                if on {
-                    WebGlyph(spec: WebIcon.tick, size: 7, color: .white)
-                }
+                if on { WebGlyph(spec: WebIcon.tick, size: 7, color: .white) }
             }
     }
 
@@ -380,11 +432,14 @@ private struct JobsGridCell: View {
             Text("#\(number)")
                 .font(TFont.mono(11, 600))
                 .foregroundStyle(theme.text)
+                .lineLimit(1)
         } else if row.level == 0 {
             dash(11, mono: true)
+        } else {
+            // A panel has no number of its own and the web leaves the cell empty
+            // — but EMPTY, not absent. See the note above `JobsGridCell`.
+            Color.clear
         }
-        // Blank below level 0: a panel has no number of its own, and the web
-        // leaves the cell empty rather than repeating the job's.
     }
 
     // MARK: Client
@@ -392,7 +447,7 @@ private struct JobsGridCell: View {
     @ViewBuilder
     private var clientCell: some View {
         if row.level == 0 {
-            if let client = clientOf(row) {
+            if let id = row.job?.clientId, let client = context.clientsByID[id] {
                 HStack(spacing: 5) {
                     Circle().fill(Color.hex(client.color)).frame(width: 6, height: 6)
                     Text(client.name)
@@ -405,18 +460,15 @@ private struct JobsGridCell: View {
                 dash(12)
             }
         } else if row.level == 1 {
-            // A panel's client cell carries its op COUNT instead. Not an
-            // oversight in the web — the column is wide and a panel has no
-            // client, so it is reused.
+            // A panel's client cell carries its op COUNT instead. Not an oversight
+            // in the web — the column is wide, a panel has no client, so it is
+            // reused.
             Text("\(row.childCount) op\(row.childCount == 1 ? "" : "s")")
                 .font(TFont.body(11))
                 .foregroundStyle(theme.textDim)
+        } else {
+            Color.clear
         }
-    }
-
-    private func clientOf(_ row: JobRow) -> Client? {
-        guard let id = row.job?.clientId else { return nil }
-        return appState.clients.first { $0.id == id }
     }
 
     // MARK: Status
@@ -439,7 +491,7 @@ private struct JobsGridCell: View {
         .foregroundStyle(color)
         .padding(.horizontal, 10)
         .padding(.vertical, 3)
-        .background(Capsule().fill(color.opacity(0.125)))       // "20" = 12.5%
+        .background(Capsule().fill(color.opacity(0.125)))                    // "20"
         .overlay(Capsule().strokeBorder(color.opacity(0.27), lineWidth: 1))  // "44"
     }
 
@@ -451,33 +503,37 @@ private struct JobsGridCell: View {
             .font(TFont.body(11, 700))
             .tracking(11 * -0.045)
             .textCase(.uppercase)
+            .lineLimit(1)
             .foregroundStyle(color)
             .padding(.horizontal, 10)
             .padding(.vertical, 3)
-            .background(Capsule().fill(color.opacity(0.10)))     // "1a"
+            .background(Capsule().fill(color.opacity(0.10)))                 // "1a"
             .overlay(Capsule().strokeBorder(color.opacity(0.27), lineWidth: 1))
     }
 
     // MARK: Dates
 
-    @ViewBuilder
     private func dateCell(_ day: String) -> some View {
         Text(JobsDate.short(day))
             .font(TFont.mono(12))
             .foregroundStyle(theme.textSec)
+            .lineLimit(1)
     }
 
     @ViewBuilder
     private var dueCell: some View {
         if row.level == 0, let due = row.job?.dueDate, !due.isEmpty {
-            let overdue = due < JobsDate.todayKey
-            let soon = !overdue && due <= JobsDate.adding(days: 3, to: JobsDate.todayKey)
+            let overdue = due < context.today
+            let soon = !overdue && due <= JobsDate.adding(days: 3, to: context.today)
             Text(JobsDate.short(due) + (overdue ? " !" : ""))
                 .font(TFont.mono(12, overdue ? 700 : 400))
                 .foregroundStyle(overdue ? Color.hex("#ef4444")
                                  : (soon ? Color.hex("#f59e0b") : theme.textSec))
+                .lineLimit(1)
         } else if row.level == 0 {
             dash(12, mono: true)
+        } else {
+            Color.clear
         }
     }
 
@@ -491,11 +547,13 @@ private struct JobsGridCell: View {
                 Text(JobsDate.hours(hours) + "h")
                     .font(TFont.mono(12, row.level == 1 ? 700 : 400))
                     .foregroundStyle(row.level == 1 ? theme.text : theme.textSec)
+                    .lineLimit(1)
                 // A panel also prints how many ops those hours are spread over.
                 if row.level == 1 && row.childCount > 0 {
-                    Text("/ \(row.childCount) op\(row.childCount == 1 ? "" : "s")")
+                    Text("/ \(row.childCount)")
                         .font(TFont.mono(10))
                         .foregroundStyle(theme.textDim)
+                        .lineLimit(1)
                 }
             }
         } else {
@@ -506,49 +564,38 @@ private struct JobsGridCell: View {
     // MARK: Progress
 
     private var progressCell: some View {
-        let pct = percent
+        let pct = context.percentByID[row.itemID] ?? 0
         let color = Color.hex(ProgressRamp.hex(pct, belowForty: "#94a3b8"))
         let counts = row.finishedAndTotalOps
+        // The bar's width is COMPUTED, not measured. A GeometryReader here is one
+        // per row, and a reader is a layout container that re-proposes to its
+        // child — the single biggest cost in a grid this shape. The column's width
+        // is a constant and the padding is a constant, so there is nothing to
+        // measure.
+        let barWidth = column.defaultWidth - JobsGridMetrics.cellHPad * 2
         return VStack(alignment: .leading, spacing: 3) {
-            HStack {
+            HStack(spacing: 4) {
                 Text("\(pct)%")
                     .font(TFont.body(10, 700))
                     .foregroundStyle(color)
-                Spacer(minLength: 4)
+                Spacer(minLength: 0)
                 if counts.total > 0 {
                     Text(row.level == 0
                          ? "\(counts.finished)/\(counts.total) ops"
                          : "\(counts.finished)/\(counts.total)")
                         .font(TFont.body(9))
                         .foregroundStyle(theme.textDim)
+                        .lineLimit(1)
                 }
             }
-            // The track is `T.border` and the fill stops at 100 — "bars stop at
-            // full; the number carries the overrun".
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(theme.border)
-                    Capsule().fill(color)
-                        .frame(width: geo.size.width * ProgressRamp.barFraction(pct))
-                }
+            // Track is `T.border`; the fill stops at 100 — "bars stop at full; the
+            // number carries the overrun."
+            ZStack(alignment: .leading) {
+                Capsule().fill(theme.border)
+                Capsule().fill(color)
+                    .frame(width: barWidth * ProgressRamp.barFraction(pct))
             }
-            .frame(height: 4)
-        }
-        // `padding: "6px 10px"` — a point tighter than a normal cell, because
-        // this one stacks two things.
-        .padding(.vertical, -1)
-    }
-
-    private var percent: Int {
-        switch row {
-        case .job(let j):             return appState.jobPct(j)
-        case .panel(let p, _, _):     return appState.panelPct(p)
-        case .operation(let o, _, _, _):
-            // No opPct on AppState; the pair it exposes is what panelPct sums.
-            let est = JobsQuery.estimatedHours(of: o)
-            guard est > 0 else { return 0 }
-            if o.status == .finished { return 100 }
-            return Int(((o.loggedHours ?? 0) / est * 100).rounded())
+            .frame(width: barWidth, height: 4)
         }
     }
 
@@ -557,13 +604,10 @@ private struct JobsGridCell: View {
     @ViewBuilder
     private var teamCell: some View {
         if row.level == 0 {
-            let members = row.team.compactMap { id in
-                appState.people.first { $0.id == id }
-            }
+            let members = row.team.compactMap { context.peopleByID[$0] }
             HStack(spacing: 4) {
                 ForEach(members.prefix(4), id: \.id) { person in
-                    JobsAvatar(person: person, size: 22)
-                        .help(person.name)
+                    JobsAvatar(person: person, size: 22).help(person.name)
                 }
                 if members.count > 4 {
                     Text("+\(members.count - 4)")
@@ -571,8 +615,7 @@ private struct JobsGridCell: View {
                         .foregroundStyle(theme.textDim)
                 }
             }
-        } else if let assignee = row.team.first,
-                  let person = appState.people.first(where: { $0.id == assignee }) {
+        } else if let assignee = row.team.first, let person = context.peopleByID[assignee] {
             HStack(spacing: 5) {
                 JobsAvatar(person: person, size: 18)
                 Text(person.name.split(separator: " ").first.map(String.init) ?? person.name)
@@ -600,11 +643,10 @@ private struct JobsGridCell: View {
 //
 // Initials on the person's own colour, exactly as the sidebar's profile avatar
 // does — see NativeShell. No photo lookup: the sidebar does not do one either,
-// and half the column loading images while the other half shows initials looks
-// worse than a consistent set of marks.
+// and half a column loading images while the rest shows initials looks worse than
+// a consistent set of marks.
 
 struct JobsAvatar: View {
-    @Environment(\.tqTheme) private var theme
     let person: Person
     let size: CGFloat
 
@@ -624,6 +666,12 @@ struct JobsAvatar: View {
 
 enum JobsDate {
 
+    /// `TD` — today as a LOCAL `yyyy-MM-dd`. The web's `toDS` reads
+    /// `getFullYear/getMonth/getDate`, so "overdue" turns over at the user's
+    /// midnight rather than London's. `AppState.ymd` pins GMT for server date keys
+    /// and is the wrong helper for this.
+    static var todayKey: String { keyFormatter.string(from: Date()) }
+
     /// `safeDate` — `toLocaleDateString("en-US", { month: "short", day: "numeric" })`,
     /// so "Mar 10". An unparseable day gives the em dash the web gives, rather
     /// than today's date or a crash.
@@ -631,12 +679,6 @@ enum JobsDate {
         guard let date = parse(day) else { return "—" }
         return shortFormatter.string(from: date)
     }
-
-    /// `TD` — today as a local `yyyy-MM-dd`. LOCAL, not GMT: the web's `toDS`
-    /// reads `getFullYear/getMonth/getDate`, so "overdue" turns over at the
-    /// user's midnight rather than London's. `AppState.ymd` pins GMT for server
-    /// date keys and is the wrong helper for this.
-    static var todayKey: String { keyFormatter.string(from: Date()) }
 
     /// `addD` — parsed at NOON, as every date helper in this app is, so a DST
     /// transition cannot shift the answer by a day.
