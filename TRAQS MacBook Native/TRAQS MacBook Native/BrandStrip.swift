@@ -91,7 +91,7 @@ struct BrandStrip: View {
             .font(.system(size: 14))
             .foregroundStyle(theme.textSec)
             .frame(width: 28, height: 28)
-            .shellGlass(enabled ? theme.hover : nil, in: Capsule())
+            .shellGlass(enabled: enabled, in: Capsule())
             .opacity(enabled ? 1 : 0.3)
             .help(help)
     }
@@ -149,7 +149,7 @@ struct BrandStrip: View {
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 7)
-            .shellGlass(notifOpen ? theme.accent.opacity(0.15) : theme.hover, in: Capsule())
+            .shellGlass(tint: notifOpen ? theme.accent.opacity(0.15) : nil, in: Capsule())
             .overlay(alignment: .topTrailing) {
                 if unreadCount > 0 {
                     Text(unreadCount > 9 ? "9+" : "\(unreadCount)")

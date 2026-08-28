@@ -162,6 +162,14 @@ struct NativeShell: View {
                 sidebar
                 page
             }
+            // SURFACE, not bg — `{/* Body — sidebar + content */}` carries
+            // `background: Tc.surfaceSolid` (TRAQS.jsx:24742).
+            //
+            // This is what makes the panel's 22pt corners visible at all. The
+            // panel is `bg`; painting `bg` behind it too means the corners cut
+            // away to the same colour and read as square. The chrome colour
+            // behind them is the whole point.
+            .background(theme.surface)
         }
         .background(theme.bg)
         .preferredColorScheme(theme.isDark ? .dark : .light)

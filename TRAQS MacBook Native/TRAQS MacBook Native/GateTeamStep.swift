@@ -359,7 +359,8 @@ struct GateTeamStep: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 9)
-            .gateGlass(Color.white.opacity(0.5))
+            // `background: "#fff"` on the web — white, not coloured.
+            .gateGlass()
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)

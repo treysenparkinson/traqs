@@ -167,28 +167,40 @@ extension Color {
 // Everything else — brand strip chrome, page-header actions, CTAs, toggles, the
 // kiosk keypad — takes glass.
 extension View {
-    /// Liquid Glass for a shell control, tinted and press-responsive.
+    /// Liquid Glass for a shell control.
     ///
-    /// `tint: nil` means DISABLED: no glass at all, rather than dim glass. A dimmed
-    /// material still reads as pressable; no material reads as off.
-    func shellGlass<S: InsettableShape>(_ tint: Color?, in shape: S) -> some View {
-        modifier(ShellGlass(tint: tint, shape: shape))
+    /// CLEAR BY DEFAULT. A tint is only correct where the web actually colours
+    /// the button — its gradient CTAs, the red destructive actions, the kiosk's
+    /// green/red clock pair, an active toggle segment. Most controls are
+    /// `background: "transparent"` there, and tinting those makes the chrome
+    /// louder than the original.
+    ///
+    /// `enabled: false` drops the glass entirely rather than dimming it: dim
+    /// glass still reads as pressable, no material reads as off.
+    func shellGlass<S: InsettableShape>(tint: Color? = nil, enabled: Bool = true,
+                                        in shape: S) -> some View {
+        modifier(ShellGlass(tint: tint, enabled: enabled, shape: shape))
     }
     /// Convenience for the common pill.
-    func shellGlass(_ tint: Color?) -> some View {
-        shellGlass(tint, in: Capsule())
+    func shellGlass(tint: Color? = nil, enabled: Bool = true) -> some View {
+        shellGlass(tint: tint, enabled: enabled, in: Capsule())
     }
 }
 
 struct ShellGlass<S: InsettableShape>: ViewModifier {
     let tint: Color?
+    let enabled: Bool
     let shape: S
 
     func body(content: Content) -> some View {
-        if let tint {
+        if !enabled {
+            content
+        } else if let tint {
             content.glassEffect(.regular.tint(tint).interactive(), in: shape)
         } else {
-            content
+            // `.clear`, not `.regular` untinted — clear is the variant with no
+            // fill of its own, which is what a transparent web button should be.
+            content.glassEffect(.clear.interactive(), in: shape)
         }
     }
 }

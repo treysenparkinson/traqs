@@ -98,12 +98,25 @@ enum GateMetrics {
 // tints with its gradient's START — the same call the iOS app's `glassCTA` makes,
 // and the reason its buttons read as the brand colour rather than as clear pills.
 extension View {
-    /// Native Liquid Glass, tinted and press-responsive.
-    func gateGlass<S: InsettableShape>(_ tint: Color, in shape: S) -> some View {
-        glassEffect(.regular.tint(tint).interactive(), in: shape)
+    /// Native Liquid Glass, press-responsive, and CLEAR unless a tint is given.
+    ///
+    /// A tint is only correct where the web actually colours the button. Its CTAs
+    /// carry a gradient, its destructive actions are red, the kiosk's clock pair
+    /// is green and red — those get tints. Everything else there is
+    /// `background: "transparent"` or plain white, and tinting those makes the
+    /// screen louder than the original.
+    func gateGlass<S: InsettableShape>(_ tint: Color? = nil, in shape: S) -> some View {
+        Group {
+            if let tint {
+                glassEffect(.regular.tint(tint).interactive(), in: shape)
+            } else {
+                // `.clear`, the variant with no fill of its own.
+                glassEffect(.clear.interactive(), in: shape)
+            }
+        }
     }
     /// The common case: a pill.
-    func gateGlass(_ tint: Color) -> some View {
+    func gateGlass(_ tint: Color? = nil) -> some View {
         gateGlass(tint, in: Capsule())
     }
 }
