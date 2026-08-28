@@ -5,87 +5,107 @@ import AppKit
 //
 // macOS places close / minimise / zoom about 14pt from the window's top, being
 // 12pt buttons centred in a 28pt title bar. With `.hiddenTitleBar` the brand
-// strip occupies that space, and 14pt is well above the lockup's centre — so the
-// buttons and the logo read as a diagonal rather than as one row.
+// strip occupies that space, and 14pt is above the lockup's centre, so the two
+// read as a diagonal rather than as one row.
 //
 // Nothing in SwiftUI reaches them: they belong to the NSWindow, not to the view
-// hierarchy, and they are drawn by the window server. So this is AppKit, and it
-// IS a hack — AppKit lays these buttons out itself, and holding them somewhere
-// else means giving them constraints of our own and stopping the title bar from
-// clipping what then hangs below it. Two consequences worth knowing:
+// hierarchy. So this is AppKit, and the mechanism matters — the first attempt at
+// this constrained the buttons directly and did nothing at all, because:
 //
-//   * Constraints, not frames. A frame set here is wiped by the next layout
-//     pass — on resize, on losing focus, on entering full screen. Constraints
-//     survive those.
-//   * Full screen is left alone. The buttons move into the menu-bar overlay
-//     there and are no longer ours to place.
+//   * `NSThemeFrame` lays these buttons out ITSELF, setting their frames on every
+//     pass. Constraints of ours are re-applied and then overwritten, and frames
+//     of ours are overwritten outright.
+//   * Moving a button below its superview's 28pt bounds also kills its clicks.
+//     `NSView.hitTest` returns nil for a point outside the receiver's own bounds,
+//     so the overhanging part goes dead even with clipping turned off.
+//
+// So this does not touch the buttons. It grows the TITLE BAR CONTAINER that holds
+// them and lets AppKit re-centre its contents inside the taller region — the
+// buttons come down because their frame of reference did, which is why AppKit's
+// own layout pass cooperates instead of undoing it. It also means the region the
+// buttons sit in is genuinely that tall, so they keep taking clicks.
 struct TrafficLightAligner: NSViewRepresentable {
 
-    /// Points from the window's top edge to the buttons' centres. CLAMPED to
-    /// `maxCenterY` — see there.
+    /// Points from the window's top edge to the buttons' centres. The container
+    /// is grown to twice this, since AppKit centres its contents in it.
     var centerY: CGFloat
-
-    /// How far down these can usefully go: a 12pt button centred at 22 spans
-    /// 16–28 and stays inside the 28pt title bar.
-    ///
-    /// Past that they still DRAW, since the bar is told not to clip, but they
-    /// stop taking clicks: `NSView.hitTest` returns nil for a point outside the
-    /// receiver's own bounds, so the part hanging below is dead. A close button
-    /// that looks fine and does nothing is a worse bug than a few points of
-    /// misalignment, so the lockup covers the remaining distance by rising
-    /// instead — see `BrandStrip.topPad`.
-    static let maxCenterY: CGFloat = 22
-
-    /// macOS's own horizontal placement — first centre 20pt in, 20pt apart. Kept
-    /// as defaults because only the vertical is wrong for us, and a window's
-    /// buttons sitting anywhere but their usual left inset looks broken.
-    var leading: CGFloat = 20
-    var spacing: CGFloat = 20
-
-    final class Coordinator {
-        /// Ours, so a re-run replaces them instead of stacking a second set on
-        /// top and leaving the solver to pick a winner.
-        var constraints: [NSLayoutConstraint] = []
-    }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    /// Zero-sized and invisible. This exists only to get a handle on the window.
-    func makeNSView(context: Context) -> NSView { NSView(frame: .zero) }
+    func makeNSView(context: Context) -> NSView {
+        let probe = WindowProbe()
+        probe.onWindow = { [coordinator = context.coordinator] window in
+            coordinator.attach(to: window)
+        }
+        return probe
+    }
 
     func updateNSView(_ view: NSView, context: Context) {
-        // `view.window` is nil until the view is in a hierarchy, and the buttons
-        // are positioned after that, so this waits for the current pass to end.
-        DispatchQueue.main.async { [coordinator = context.coordinator] in
-            align(view.window, coordinator)
+        context.coordinator.centerY = centerY
+        context.coordinator.apply()
+    }
+
+    /// Reports the window as soon as there IS one. The first version polled once
+    /// on a `DispatchQueue.main.async` and gave up silently if `view.window` was
+    /// still nil — which, for a view SwiftUI has only just created, it usually is.
+    private final class WindowProbe: NSView {
+        var onWindow: ((NSWindow) -> Void)?
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let window { onWindow?(window) }
         }
     }
 
-    private func align(_ window: NSWindow?, _ coordinator: Coordinator) {
-        guard let window, !window.styleMask.contains(.fullScreen) else { return }
+    final class Coordinator {
+        var centerY: CGFloat = 22
+        private weak var window: NSWindow?
+        private var observers: [NSObjectProtocol] = []
 
-        let kinds: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
-        let buttons = kinds.compactMap { window.standardWindowButton($0) }
-        // All three or none. Placing two of them and leaving the third where
-        // AppKit put it is worse than not touching any.
-        guard buttons.count == kinds.count, let bar = buttons[0].superview else { return }
+        func attach(to window: NSWindow) {
+            guard self.window !== window else { return }
+            self.window = window
+            observers.forEach { NotificationCenter.default.removeObserver($0) }
+            observers = []
 
-        // The title bar is 28pt tall and the buttons now hang past its bottom
-        // edge. NSView does not clip by default, but the title bar is a view we
-        // do not own, so this says so rather than relying on it.
-        bar.clipsToBounds = false
-
-        NSLayoutConstraint.deactivate(coordinator.constraints)
-
-        var made: [NSLayoutConstraint] = []
-        for (i, button) in buttons.enumerated() {
-            button.translatesAutoresizingMaskIntoConstraints = false
-            made.append(button.centerYAnchor.constraint(equalTo: bar.topAnchor,
-                                                        constant: min(centerY, Self.maxCenterY)))
-            made.append(button.centerXAnchor.constraint(equalTo: bar.leadingAnchor,
-                                                        constant: leading + spacing * CGFloat(i)))
+            // The container's frame is in its superview's coordinates, measured
+            // from the BOTTOM, so a resize invalidates it. Full-screen transitions
+            // hand the buttons to the menu-bar overlay and back again.
+            for name: Notification.Name in [NSWindow.didResizeNotification,
+                                            NSWindow.didExitFullScreenNotification,
+                                            NSWindow.didBecomeKeyNotification] {
+                let token = NotificationCenter.default.addObserver(
+                    forName: name, object: window, queue: .main
+                ) { [weak self] _ in self?.apply() }
+                observers.append(token)
+            }
+            apply()
         }
-        NSLayoutConstraint.activate(made)
-        coordinator.constraints = made
+
+        func apply() {
+            guard let window, !window.styleMask.contains(.fullScreen),
+                  let bar = window.standardWindowButton(.closeButton)?.superview,
+                  let container = bar.superview,
+                  let frameView = container.superview else { return }
+
+            // Never SHORTER than the title bar macOS asked for — that would
+            // squeeze the buttons rather than move them.
+            let height = max(centerY * 2, bar.frame.height)
+
+            var f = container.frame
+            guard abs(f.height - height) > 0.5 else { return }
+            f.size.height = height
+            f.origin.y = frameView.bounds.height - height   // not flipped: y from the bottom
+            container.frame = f
+
+            // AppKit centres the bar in the container on its own pass, but that
+            // pass may not come before the next draw, and a half-frame of the
+            // buttons in the old place reads as a jump.
+            bar.frame = NSRect(x: 0,
+                               y: (height - bar.frame.height) / 2,
+                               width: container.bounds.width,
+                               height: bar.frame.height)
+        }
+
+        deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }
     }
 }
