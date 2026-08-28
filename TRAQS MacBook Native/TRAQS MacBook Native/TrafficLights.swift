@@ -30,6 +30,11 @@ struct TrafficLightAligner: NSViewRepresentable {
     /// is grown to twice this, since AppKit centres its contents in it.
     var centerY: CGFloat
 
+    /// How much of the row the title bar view is allowed to keep. The rightmost
+    /// button's centre is 60 with a ~6pt radius, so 100 clears the cluster with
+    /// air and leaves the rest of the strip to the app.
+    static let clusterWidth: CGFloat = 100
+
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeNSView(context: Context) -> NSView {
@@ -97,13 +102,24 @@ struct TrafficLightAligner: NSViewRepresentable {
             f.origin.y = frameView.bounds.height - height   // not flipped: y from the bottom
             container.frame = f
 
-            // AppKit centres the bar in the container on its own pass, but that
-            // pass may not come before the next draw, and a half-frame of the
-            // buttons in the old place reads as a jump.
+            // Centred in the container, and NARROWED to the button cluster.
+            //
+            // Two reasons. AppKit does centre it on its own pass, but that pass
+            // may not come before the next draw, and half a frame of buttons in
+            // the old place reads as a jump. And the width matters more: this view
+            // takes mouse events across its whole span — that is where a title bar
+            // picks up window drags — so at full width it would sit over the
+            // Notifications bell and the undo/redo pair and swallow their clicks.
+            // Cut to the cluster, it covers only the buttons' own corner.
             bar.frame = NSRect(x: 0,
                                y: (height - bar.frame.height) / 2,
-                               width: container.bounds.width,
+                               width: Self.clusterWidth,
                                height: bar.frame.height)
+
+            // Dragging the window by its title bar is most of what that swallowed
+            // area was for, so hand the job to the background instead. Without
+            // this, narrowing the bar leaves the strip un-draggable.
+            window.isMovableByWindowBackground = true
         }
 
         deinit { observers.forEach { NotificationCenter.default.removeObserver($0) } }

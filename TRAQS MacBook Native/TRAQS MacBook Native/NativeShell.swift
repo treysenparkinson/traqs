@@ -308,8 +308,14 @@ struct NativeShell: View {
         .padding(.bottom, 22)   // 12 padding + 10 margin, per the web
     }
 
+    /// `settingsNavLayer` — `gap: 8` (TRAQS.jsx:23494). NOT the nav container's
+    /// `gap: 2`: the buttons are children of the layer INSIDE that container, and
+    /// the 2 only separates the layer from its siblings. Reading the container's
+    /// gap and stopping there is what made this sidebar tighter than the web's.
+    private let navGap: CGFloat = 8
+
     private var mainNav: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: navGap) {
             ForEach(TView.primary) { v in
                 navRow(glyph: glyph(for: v), label: v.label, key: v.rawValue,
                        active: view == v) { select(v) }
@@ -330,7 +336,7 @@ struct NativeShell: View {
     }
 
     private var settingsNav: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: navGap) {
             navRow(glyph: .init(spec: WebIcon.back), label: "Back", key: "s.back",
                    active: false, tint: theme.textSec) {
                 withAnimation(.easeOut(duration: 0.12)) { settingsMode = false }

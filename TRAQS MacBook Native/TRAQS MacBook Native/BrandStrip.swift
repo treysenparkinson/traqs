@@ -17,21 +17,13 @@ struct BrandStrip: View {
     @Environment(\.tqTheme) private var theme
     @Environment(AppState.self) private var appState
 
-    /// `padding: "18px 32px 18px 14px"`, `gap: 18` — except above.
+    /// `padding: "18px 32px 18px 14px"`, `gap: 18`. All four as the web has them —
+    /// the lockup sits where TRAQS.jsx puts it.
     ///
-    /// The top 18 is now 0. The lockup moves UP, and the sidebar and content
-    /// panel come up with it, because the strip's height is what holds them down.
-    /// Meeting the window's buttons is a two-sided move: they come down to the
-    /// lockup's centreline (`TrafficLightAligner`) and the lockup rises to meet
-    /// them, because a 40pt lockup's centre cannot reach 14pt from the top
-    /// without half of it hanging off the window. Meeting in the middle also
-    /// keeps the grown title bar region small: it ends up about 47pt tall rather
-    /// than the ~83 the web's own padding would have demanded, and everything
-    /// inside that region belongs to the window rather than to this strip.
-    ///
-    /// The only number in this file not taken from TRAQS.jsx, for the reason that
-    /// the web app has no traffic lights to line up with.
-    private let topPad: CGFloat = 0
+    /// Meeting the window's buttons is therefore entirely THEIR move now:
+    /// `TrafficLightAligner` brings them down to the lockup's measured centre,
+    /// rather than the lockup rising part of the way to them.
+    private let topPad: CGFloat = 18
     private let bottomPad: CGFloat = 18
     private let leadPad: CGFloat = 14
     private let trailPad: CGFloat = 32
