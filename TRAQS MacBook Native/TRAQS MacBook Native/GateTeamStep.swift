@@ -298,7 +298,6 @@ struct GateTeamStep: View {
     private var header: some View {
         VStack(spacing: 22) {
             GateLockup(size: 84)
-                .gateMeasuredLockup()
             switchPill
             VStack(spacing: 0) {
                 Text(view == .clock ? "Clock In / Out" : "Who are you?")
