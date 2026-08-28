@@ -96,11 +96,16 @@ struct TrafficLightAligner: NSViewRepresentable {
             // squeeze the buttons rather than move them.
             let height = max(centerY * 2, bar.frame.height)
 
-            var f = container.frame
-            guard abs(f.height - height) > 0.5 else { return }
-            f.size.height = height
-            f.origin.y = frameView.bounds.height - height   // not flipped: y from the bottom
-            container.frame = f
+            // Only the container's own frame is skipped when it is already right.
+            // The two writes below must still run: a resize leaves the height
+            // correct while AppKit has widened the bar back to full span, and
+            // returning early here left it that way.
+            if abs(container.frame.height - height) > 0.5 {
+                var f = container.frame
+                f.size.height = height
+                f.origin.y = frameView.bounds.height - height  // not flipped: y from the bottom
+                container.frame = f
+            }
 
             // Centred in the container, and NARROWED to the button cluster.
             //
@@ -113,7 +118,7 @@ struct TrafficLightAligner: NSViewRepresentable {
             // Cut to the cluster, it covers only the buttons' own corner.
             bar.frame = NSRect(x: 0,
                                y: (height - bar.frame.height) / 2,
-                               width: Self.clusterWidth,
+                               width: TrafficLightAligner.clusterWidth,
                                height: bar.frame.height)
 
             // Dragging the window by its title bar is most of what that swallowed
