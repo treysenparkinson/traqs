@@ -37,13 +37,24 @@ final class AppNav {
     /// blur has to be driven from out here. See the note above `ModalScrim`.
     var modalBlur: Bool = false
 
-    /// Set while an IN-HIERARCHY modal (the lunch/break shout) is up. Such a
-    /// modal lives inside the page, so it blurs its own content with
-    /// `.modalPageBlur` and can't use `modalBlur` — that would blur the modal
-    /// along with everything else. The nav bar is the one thing it can't reach
-    /// from in there, since the bar is its sibling out in MainTabView, so this
-    /// blurs just the bar to match.
-    var blurTabBar: Bool = false
+    /// Set while an IN-HIERARCHY modal (the lunch/break shout, the PIN pads, the
+    /// availability check) is up. Such a modal lives inside the page, so it
+    /// blurs its own content with `.modalPageBlur` and can't use `modalBlur` —
+    /// that would blur the modal along with everything else. What it CAN'T reach
+    /// from in there is the app chrome: the glass header and the nav pill are
+    /// both siblings of the page out in MainTabView. This blurs those to match.
+    ///
+    /// Every page that applies `.modalPageBlur` for an in-hierarchy popup must
+    /// drive this from the SAME condition, or the logo and the header buttons
+    /// stay sharp over a blurred page.
+    var blurChrome: Bool = false
+
+    /// The chrome — glass header + nav pill — is blurred by EITHER kind of
+    /// modal: a `.fullScreenCover` (which drives `modalBlur`) or an in-hierarchy
+    /// popup (`blurChrome`). One flag so the chrome is blurred exactly once; the
+    /// header sits outside the page's blur layer precisely so it can't be
+    /// blurred twice. See `ShellBlur` in MainTabView.
+    var chromeBlurred: Bool { modalBlur || blurChrome }
 
     /// Break banner shown on the Jobs page — set by TaskCardV1's break button,
     /// consumed by JobsHubView which hosts the same frosted-glass popup as the

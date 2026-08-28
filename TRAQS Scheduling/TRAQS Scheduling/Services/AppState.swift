@@ -2285,13 +2285,42 @@ class AppState {
         clockChangeAt = Date()
     }
 
-    func jobClockIn(jobId: String, panelId: String? = nil, opId: String? = nil,
-                    jobTitle: String? = nil, panelTitle: String? = nil, opTitle: String? = nil) async {
-        guard let api, let personId = currentPersonId else { return }
+    /// One in-flight job clock-in: who, what, and the clock the optimistic write
+    /// replaced. Produced by `beginJobClockIn` (synchronous) and consumed by
+    /// `completeJobClockIn` (the network half) — see `beginJobClockIn` for why
+    /// the two are separate.
+    struct JobClockAttempt {
+        let personId: String
+        let jobId: String
+        let panelId: String?
+        let opId: String?
+        let jobTitle: String?
+        let panelTitle: String?
+        let opTitle: String?
+        /// What to put back if the request fails.
+        let previousClock: ActiveJobClock?
+    }
+
+    /// The SYNCHRONOUS half of a job clock-in: the permission check plus the
+    /// optimistic write, both on the caller's own frame. Returns the attempt to
+    /// hand to `completeJobClockIn`, or nil when there's nothing to send (the
+    /// error, if any, is already set).
+    ///
+    /// Split out of `jobClockIn` for latency. `Task { await jobClockIn(…) }`
+    /// costs a main-actor hop before the optimistic write lands, so the In
+    /// Progress section arrived a frame AFTER the tap rather than on it — and
+    /// that frame sat on top of the popup teardown the tap had already paid for.
+    /// Called straight from the button, the section is on screen before the
+    /// request has been built. Mirrors `markJobClockedOutLocally`, which exists
+    /// for exactly the same reason on the STOP side.
+    func beginJobClockIn(jobId: String, panelId: String? = nil, opId: String? = nil,
+                         jobTitle: String? = nil, panelTitle: String? = nil,
+                         opTitle: String? = nil) -> JobClockAttempt? {
+        guard api != nil, let personId = currentPersonId else { return nil }
         // You can only work on a job while clocked in (server enforces this too).
         guard canWorkOnJobs else {
             clockError = "You must clock in before working on a job."
-            return
+            return nil
         }
 
         // Optimistically set the active job clock BEFORE the network round-trip
@@ -2306,9 +2335,34 @@ class AppState {
         )
         setLocalJobClock(personId: personId, optimistic)
 
+        return JobClockAttempt(personId: personId, jobId: jobId, panelId: panelId, opId: opId,
+                               jobTitle: jobTitle, panelTitle: panelTitle, opTitle: opTitle,
+                               previousClock: previousClock)
+    }
+
+    /// Kept as the one-call form for callers that don't need the write to land on
+    /// their own frame. The two halves below are the same code path.
+    func jobClockIn(jobId: String, panelId: String? = nil, opId: String? = nil,
+                    jobTitle: String? = nil, panelTitle: String? = nil, opTitle: String? = nil) async {
+        guard let attempt = beginJobClockIn(jobId: jobId, panelId: panelId, opId: opId,
+                                            jobTitle: jobTitle, panelTitle: panelTitle,
+                                            opTitle: opTitle) else { return }
+        await completeJobClockIn(attempt)
+    }
+
+    /// The NETWORK half — see `beginJobClockIn`. The optimistic clock is already
+    /// on screen by the time this runs; this either reconciles it with the server
+    /// or puts back `attempt.previousClock`.
+    func completeJobClockIn(_ attempt: JobClockAttempt) async {
+        guard let api else { return }
+        let personId = attempt.personId
+        let previousClock = attempt.previousClock
+
         do {
-            try await api.jobClockIn(personId: personId, jobId: jobId, panelId: panelId, opId: opId,
-                                     jobTitle: jobTitle, panelTitle: panelTitle, opTitle: opTitle)
+            try await api.jobClockIn(personId: personId, jobId: attempt.jobId,
+                                     panelId: attempt.panelId, opId: attempt.opId,
+                                     jobTitle: attempt.jobTitle, panelTitle: attempt.panelTitle,
+                                     opTitle: attempt.opTitle)
 
             // Refresh jobs (op status → "In Progress" lands here) and
             // pick up the server's canonical clockIn timestamp via the

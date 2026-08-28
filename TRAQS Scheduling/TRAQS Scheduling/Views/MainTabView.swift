@@ -39,33 +39,45 @@ struct MainTabView: View {
             // scoped to it. Held inline here, a tab change invalidated
             // MainTabView's whole body — which recomputed the unread badge and
             // rebuilt the modifier chain around all five tabs on every tap.
-            // Page + nav bar, grouped so a modal can blur BOTH as one layer.
-            // A .fullScreenCover (e.g. the end-job photo prompt) is its own
-            // presentation and so can't blur the page from the inside — it sets
-            // appNav.modalBlur and this does it out here instead. The cover
-            // itself is unaffected by this blur and stays sharp.
+            //
+            // THREE blur layers, and which layer a thing sits in is what decides
+            // whether it blurs behind a modal:
+            //
+            //   • the PAGE     — blurred by `modalBlur` (a .fullScreenCover is its
+            //                    own presentation and can't blur the page from
+            //                    the inside, so it sets the flag and we do it
+            //                    out here; the cover itself stays sharp).
+            //   • the HEADER   — blurred by `chromeBlurred`, i.e. EITHER kind of
+            //                    modal.
+            //   • the NAV PILL — same.
+            //
+            // The header's `.overlay` is attached AFTER the page's `.shellBlur`
+            // on purpose: an overlay is drawn on top of the already-blurred
+            // result, so the header is outside the page's blur layer and carries
+            // exactly one blur of its own. Attached before it, the header
+            // inherited the page's blur and an in-hierarchy popup — which can't
+            // set `modalBlur` without blurring itself — left the TRAQS wordmark
+            // and every header button perfectly sharp over a blurred page.
             Group {
                 TabHost()
+                    .shellBlur(\.modalBlur)
                     // THE header. One instance, above the TabView, alive for the
                     // life of the app — pages render content only. The namespace
                     // is handed down from here.
                     .overlay(alignment: .top) {
                         HeaderHost(namespace: headerNamespace)
+                            .shellBlur(\.chromeBlurred)
                     }
 
-                // TRAQS frosted floating pill (icon-only).
+                // TRAQS floating pill (icon-only).
                 if !appNav.hideTabBar {
                     TRAQSTabBar()
                         .padding(.bottom, 1)
                         .offset(y: 5)    // sits just off the bottom edge
                         .transition(.move(edge: .bottom).combined(with: .opacity))
-                        // An in-page modal blurs the page from inside TabHost,
-                        // which can't reach the bar out here — so it blurs the
-                        // bar through this instead, and the two match.
-                        .shellBlur(\.blurTabBar)
+                        .shellBlur(\.chromeBlurred)
                 }
             }
-            .shellBlur(\.modalBlur)
 
             // Global blocking-action loading overlay (clock in/out). Above all.
             if let label = appState.clockActionLabel {
@@ -111,7 +123,8 @@ struct MainTabView: View {
 }
 
 /// Blurs its content while one of AppNav's blur flags is up, reading that flag
-/// ITSELF rather than letting the shell read it.
+/// ITSELF rather than letting the shell read it. A `KeyPath`, so it takes a
+/// computed flag (`chromeBlurred`) as readily as a stored one.
 ///
 /// The read HAS to live in a modifier. MainTabView read `appNav.modalBlur`
 /// inline, so opening any modal re-ran the shell's whole body — rebuilding the
@@ -237,7 +250,13 @@ private struct HeaderHost: View {
                                content: .deleteCount(appNav.chatSelectedKeys.count),
                                tint: .red.opacity(appNav.chatSelectedKeys.isEmpty ? 0.4 : 1.0),
                                action: .tap({ appNav.showDeleteThreads = true })),
-                    HeaderPill(slot: .selectDone, content: .text("Done"), action: .tap({
+                    // `.prominent` — a union of one, and past `mergeDistance`
+                    // from the cluster, so Done keeps its own capsule instead of
+                    // fusing with the trash beside it. Fused, the pair took the
+                    // trash's red tint across both halves and read as one red
+                    // pill: "Done" looked like part of the delete button.
+                    HeaderPill(slot: .selectDone, content: .text("Done"),
+                               style: .prominent, action: .tap({
                         withAnimation(.easeInOut(duration: 0.2)) {
                             appNav.chatSelectMode = false
                             appNav.chatSelectedKeys = []
@@ -309,11 +328,11 @@ private struct TabHost: View {
     }
 }
 
-// MARK: - TRAQS frosted floating tab bar
-// Icon-only pill with the app's frosted-glass language: an ultra-thin frost, a
-// brand-surface tint, a top highlight stroke, an ambient float shadow, and a
-// soft accent glow bleeding out behind it. Order: Jobs · Time Clock · Home ·
-// Messages · Stats.
+// MARK: - TRAQS floating tab bar
+// Icon-only pill in the app's frosted-glass language: an ultra-thin frost under
+// a preset-driven tint, an ambient float shadow, and a soft accent glow bleeding
+// out behind it. Flattens to an opaque pill with the Customize toggle. Order:
+// Jobs · Time Clock · Home · Messages · Stats.
 
 /// Display order of the bar (independent of TTab's raw values):
 /// Jobs · Time Clock · Home · Messages · Stats.
@@ -489,17 +508,25 @@ struct TRAQSTabBar: View {
         }
         .padding(.horizontal, hPad)
         .padding(.vertical, vPad)   // shrinks as the highlighter grows → pill height locked
-        // Frosted-glass fill (translucent blur + subtle surface tint), edged
-        // with the app-wide glass rim.
+        // The bar's paint, and it FOLLOWS THE FROSTED-GLASS TOGGLE — glass on,
+        // a real blur under `T.navTint`; glass off, a flat opaque `T.navSolid`
+        // with the plain hairline. This reverses an earlier call that kept the
+        // bar frosted unconditionally on the grounds that the page showing
+        // through it is what says it floats: with the toggle off it was the last
+        // glassy thing on screen, so "flat" only ever looked half-applied.
         // (Measured on device: replacing this whole stack with a plain opaque
         // fill did NOT reduce the per-tap stall, so the blur is not the cost.)
-        // ALWAYS frosted — deliberately NOT `glassFill()`, which would let the
-        // Customize toggle turn the bar into an opaque slab. The bar floats over
-        // every page in the app, and the page showing through it is what says so;
-        // an opaque one reads as a chunk cut out of the screen.
         //
-        // Same recipe glassFill paints in its glass branch (blur + a
-        // `glassSurfaceTint` of surface), just without the branch.
+        // Deliberately NOT `glassFill()`: that paints `glassSurfaceTint` of
+        // `T.surface`, which sat too close to the page for five small glyphs to
+        // hold their own. The bar has its own preset-driven tint — lighter than
+        // the page on White, darker on Charcoal. See the `T.nav*` block.
+        //
+        // NO RIM while the glass is on. The lit bevel is for surfaces you look
+        // AT; on permanent chrome it read as a bright wire tracing the pill, and
+        // the ambient shadow below already separates the bar from the page. The
+        // flat branch keeps a hairline because an opaque slab with no edge has
+        // nothing to end it.
         //
         // The edge is painted HERE, in the background, not as an `.overlay`.
         // This part is load-bearing and must not change: an overlay is drawn
@@ -508,23 +535,15 @@ struct TRAQSTabBar: View {
         // border cut straight across it and the pill looked like it was
         // travelling INSIDE the bar's wall. Behind the content, the pill rides
         // over it and reads as an object sitting on the bar.
-        //
-        // The GLASS RIM, not the flat hairline. This reverses an earlier call
-        // here — the argument for flat was that a lit bevel says "look at this
-        // object", which is right for a card and wrong for permanent chrome. In
-        // practice the bar is the only always-frosted surface in the app wearing
-        // a plain `T.border` stroke, and next to the PIN pad and the popups it
-        // read as unfinished rather than as restrained.
-        //
-        // `always: true` for the same reason the fill is unconditional: the bar
-        // stays frosted whatever the Customize toggle says, so its edge has to
-        // stay lit to match. Flattening only the rim would leave a hairline
-        // tracing a piece of glass.
         .background {
             ZStack {
-                shape.fill(.ultraThinMaterial)
-                shape.fill(Color(hex: T.surface).opacity(glassSurfaceTint))
-                shape.specularRim(always: true)
+                if T.glassEnabled {
+                    shape.fill(.ultraThinMaterial)
+                    shape.fill(Color(hex: T.navTint).opacity(T.navTintOpacity))
+                } else {
+                    shape.fill(Color(hex: T.navSolid))
+                    shape.flatHairline()
+                }
             }
         }
         .compositingGroup()

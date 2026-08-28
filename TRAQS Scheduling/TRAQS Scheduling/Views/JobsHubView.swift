@@ -20,8 +20,10 @@ struct JobsHubView: View {
     ///
     /// Drives a `.fullScreenCover`, NOT an in-hierarchy overlay. The shell's
     /// glass header and the floating nav pill are drawn by MainTabView on top of
-    /// every page, so a popup living inside this page renders UNDER both and
-    /// can't blur them either. A cover is its own presentation, above the lot.
+    /// every page, so a popup living inside this page renders UNDER both. A
+    /// cover is its own presentation, above the lot. (An in-hierarchy popup can
+    /// still BLUR the chrome — see `appNav.blurChrome` — but it cannot get on
+    /// top of it, and this one is full-height.)
     @State private var detailTarget: JobDetailTarget?
     /// Shared with the job cards (via the environment). The zoom morph belonged
     /// to the pushed detail screen; the cards still publish their source ids, so
@@ -133,6 +135,16 @@ struct JobsHubView: View {
                     }
                 }
                 .modalPageBlur(appNav.jobsBreakBanner != nil || showAvailability)
+                // Blur the CHROME from the same condition. `.modalPageBlur`
+                // above reaches only this page's content; the glass header is a
+                // sibling of the page out in MainTabView, so without this the
+                // TRAQS wordmark and the header buttons stayed sharp over a
+                // blurred page. (The break banner sets `blurChrome` at its own
+                // call site too — this covers the availability popup and acts as
+                // the failsafe for both.)
+                .onChange(of: appNav.jobsBreakBanner != nil || showAvailability) { _, up in
+                    appNav.blurChrome = up
+                }
                 // Slide the bottom nav pill out while the availability popup is
                 // up, and back in when it closes — MainTabView owns the spring
                 // (see its `.animation(value: appNav.hideTabBar)`), so this is a
@@ -146,7 +158,10 @@ struct JobsHubView: View {
                 }
                 // Failsafe: leaving the page with the popup somehow still up
                 // would otherwise strand the bar off-screen for every tab.
-                .onDisappear { appNav.hideTabBar = false }
+                .onDisappear {
+                    appNav.hideTabBar = false
+                    appNav.blurChrome = false
+                }
 
                 // Break started / ended banner — same frosted-glass popup as the
                 // time clock page, and the same entrance as every other modal.
@@ -154,7 +169,7 @@ struct JobsHubView: View {
                     ClockActionBanner(kind: kind) {
                         withTransaction(.noAnimation) {
                             appNav.jobsBreakBanner = nil
-                            appNav.blurTabBar = false
+                            appNav.blurChrome = false
                         }
                     }
                     .id(kind)

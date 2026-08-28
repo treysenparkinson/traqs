@@ -255,13 +255,18 @@ struct TimeClockView: View {
         .onChange(of: banner)          { _, _ in syncTabBar() }
         .onDisappear {
             appNav.hideTabBar = false
-            appNav.blurTabBar = false
+            appNav.blurChrome = false
         }
     }
 
     private func syncTabBar() {
         appNav.hideTabBar = showPinPrompt || showClockOutPin
-        appNav.blurTabBar = banner != nil
+        // The SAME condition as `.modalPageBlur` above, deliberately — the glass
+        // header has to blur with the page it sits over, and the PIN pads used to
+        // be missing from this line, which left the TRAQS wordmark and the Time
+        // Off button sharp over a blurred page. (The nav pill slides away for the
+        // pads rather than blurring, which is `hideTabBar`'s job above.)
+        appNav.blurChrome = showPinPrompt || showClockOutPin || banner != nil
     }
 
     /// Show the big confirmation. Replaces whatever is on screen so a fast
@@ -760,10 +765,11 @@ private struct ClockPinOverlay: View {
             }
 
             .padding(30)
-            // Real frosted glass — the same material the break/lunch banner and
-            // the end-job photo prompt use. It is NOT .frostedCard(), which
-            // despite the name is an opaque surface fill with no blur, and left
-            // the PIN pad reading as a flat panel next to those popups.
+            // The same material the break/lunch banner and the end-job photo
+            // prompt use, and it FOLLOWS THE FROSTED-GLASS TOGGLE the same way.
+            // It is NOT .frostedCard(), which despite the name is an opaque
+            // surface fill with no blur, and left the PIN pad reading as a flat
+            // panel next to those popups even with the glass on.
             //
             // The shared modal recipe (see GlassPanel), rebuilt here for
             // one reason: this pad sits a touch more transparent than the rest.
@@ -774,8 +780,12 @@ private struct ClockPinOverlay: View {
             .background {
                 let shape = RoundedRectangle(cornerRadius: padRadius, style: .continuous)
                 ZStack {
-                    shape.fill(.ultraThinMaterial)
-                    shape.fill(Color(hex: T.surface).opacity(padSurfaceTint))
+                    if T.glassEnabled {
+                        shape.fill(.ultraThinMaterial)
+                        shape.fill(Color(hex: T.surface).opacity(padSurfaceTint))
+                    } else {
+                        shape.fill(Color(hex: T.surface))
+                    }
                 }
             }
             // The app-wide glass edge (see `specularRim` in Primitives). This
@@ -785,11 +795,10 @@ private struct ClockPinOverlay: View {
             // The edge ONLY. There was also a radial sheen washing in from the
             // top-left corner — that read as white paint across the face of the
             // glass rather than as light, and is gone for good.
-            // `always` because the pad is a prompting popup: it stays frosted
-            // whatever the Customize toggle says, so its edge must stay lit to
-            // match. Everything else in the app flattens with the switch.
-            .glassRim(RoundedRectangle(cornerRadius: padRadius, style: .continuous),
-                      always: true)
+            // Collapses to the flat hairline with the Customize toggle, in step
+            // with the fill above — the pad follows the switch like every other
+            // popup (see `GlassPanel`).
+            .glassRim(RoundedRectangle(cornerRadius: padRadius, style: .continuous))
             // Modals float, so they carry their own lift — same as GlassPanel.
             .shadow(color: .black.opacity(0.22), radius: 24, x: 0, y: 10)
             // Accent bloom — a halo in the org's colour on top of the neutral

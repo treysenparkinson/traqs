@@ -163,9 +163,33 @@ enum T {
     // this flips still have to observe `theme.frostedGlass`; see FrostedCard,
     // SBox and GlassSurface.
     //
-    // Surfaces only: cards, page boxes, message bubbles, list rows, and the rim
-    // on them. Controls, the nav bar and the prompting popups stay glass.
+    // Reaches the app's own SURFACES *and* its chrome: cards, page boxes,
+    // message bubbles, list rows, the rim on them, the floating nav pill and the
+    // prompting popups. BUTTONS are the one exception — every `.glassEffect`
+    // control (header pills, keypad keys, glass CTAs) stays native Liquid Glass,
+    // because a flat app with native glass buttons is a coherent look and a flat
+    // app whose buttons went flat too just looks unfinished.
     static var glassEnabled: Bool = true
+
+    // ── Nav bar paint (the floating tab pill) ──────────────────────────────
+    //
+    // The pill gets its OWN tint rather than sharing `glassSurfaceTint` over
+    // `T.surface`, because it is the one surface that has to hold five small
+    // glyphs legible against whatever page is drifting underneath it. Each
+    // preset pushes the bar AWAY from its page — near-solid white on White,
+    // near-black on Charcoal — so the icons read at full contrast either way.
+    // At `glassSurfaceTint` (0.22 of `T.surface`) the bar sat close enough to
+    // the page for the unselected glyphs to wash out.
+    //
+    // Preset-driven (see `ThemeSettings.applyNavToT`) for the same reason
+    // `progressTrack` and the rim are: one set of numbers cannot serve a
+    // near-white page and a near-black one.
+    /// Laid over the blur while frosted glass is ON.
+    static var navTint = "#FFFFFF"
+    /// How much of `navTint` (see above). THE transparency dial for the bar.
+    static var navTintOpacity: Double = 0.55
+    /// The flat opaque fill used while frosted glass is OFF.
+    static var navSolid = "#FFFFFF"
 
     // ── Progress track + presence dots ──
     // `var`, not `let`: the track is preset-driven (see BgPreset.track and

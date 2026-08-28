@@ -75,27 +75,29 @@ final class ThemeSettings {
     /// `T.surface` — and collapses the specular rim on them to a flat hairline.
     /// (`glassFill`, `GlassSurface`, `specularRim`.)
     ///
-    /// It does NOT reach three things, each for its own reason:
+    /// It ALSO flattens the app's chrome and its modals — the floating nav pill
+    /// (`TRAQSTabBar`), every prompting popup (`GlassPanel`: the PIN pad, the
+    /// break/lunch banner, the end-job photo prompt, the start-job, availability
+    /// and time-off confirms). Off means flat, everywhere TRAQS paints.
     ///
-    ///  • CONTROLS. Header buttons, menu buttons, the keypad keys and every
-    ///    glass CTA are Apple's material, not ours. A flat app with native glass
+    /// It does NOT reach two things, each for its own reason:
+    ///
+    ///  • BUTTONS. Header pills, menu buttons, the keypad keys and every glass
+    ///    CTA are Apple's material, not ours. A flat app with native glass
     ///    controls is a coherent look; one whose buttons went flat too just
     ///    looks unfinished. (`GlassControl`, `GlassCircleButton`, `GlassCTA`.)
     ///
-    ///  • THE NAV BAR. It floats over every page, and the page showing through
-    ///    it is what says so. Opaque, it reads as a chunk cut out of the screen.
-    ///
-    ///  • THE PROMPTING POPUPS — the PIN pad, the break/lunch banner, the
-    ///    end-job photo prompt, the start-job and time-off confirms. There the
-    ///    glass is what signals the thing is floating OVER the page rather than
-    ///    being part of it, so it's carrying meaning rather than decoration.
-    ///    Those pass `always: true` to the rim and never call `glassFill()`.
-    ///    See `GlassPanel`.
+    ///  • THE TWO MASKED PLATES — the Messages thread header
+    ///    (`OverlayWindowController`) and the composer bar under it. Both are a
+    ///    blur MASKED to fade out along one edge, and an opaque fill under that
+    ///    mask is a solid slab dissolving into nothing, which reads as a
+    ///    rendering fault rather than as a design.
     ///
     /// It governed page CONTENT only at first, which left the rim on everything —
     /// a lit bevel being the most obviously glassy thing left once the blur is
-    /// gone — and then briefly reached everything, which took the native glass
-    /// off the controls too. This is the line that landed.
+    /// gone. Then it briefly reached the native controls too, which looked
+    /// unfinished. This is the line that landed: everything TRAQS draws, nothing
+    /// Apple draws.
     ///
     /// Mirrored into T.glassEnabled because the glass helpers include a Shape
     /// extension, which has no view context and so can't read @Environment.
@@ -239,6 +241,26 @@ final class ThemeSettings {
         T.text = p.text; T.muted = p.muted
         T.progressTrack = p.track
         applyRimToT(isLight: p.isLight)
+        applyNavToT(isLight: p.isLight)
+    }
+
+    /// The floating nav pill's paint, tuned per preset — see the `T.nav*` block.
+    ///
+    /// The bar pushes AWAY from the page it floats over, which is the whole
+    /// point: on White it goes near-solid white so the dark glyphs bite, on
+    /// Charcoal it drops well BELOW the surface colour so the light glyphs do.
+    /// Sharing `glassSurfaceTint` over `T.surface` put it too close to the page
+    /// in both directions and the unselected icons washed out.
+    private func applyNavToT(isLight: Bool) {
+        if isLight {
+            T.navTint        = "#FFFFFF"
+            T.navTintOpacity = 0.55
+            T.navSolid       = "#FFFFFF"
+        } else {
+            T.navTint        = "#101010"
+            T.navTintOpacity = 0.45
+            T.navSolid       = "#171717"
+        }
     }
 
     /// The glass edge, tuned per preset family — see the `T.rim*` block.

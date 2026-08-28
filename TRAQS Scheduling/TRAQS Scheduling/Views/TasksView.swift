@@ -116,6 +116,16 @@ struct TasksView: View {
                   // Group outside the `if` would reserve the gap even with no
                   // in-progress work at all.
                   .padding(.bottom, 14)
+                  // The WHOLE section fades in when it first appears — header,
+                  // card and all — rather than snapping into existence the
+                  // instant a job starts. Its own curve, faster than the 0.42s
+                  // reorder below: this is an arrival, not a reshuffle, and the
+                  // list closing up underneath it is what wants the slower ease.
+                  //
+                  // Only the section's own insertion. The `.transition(.identity)`
+                  // on the working-task stack above still governs a card landing
+                  // in a section that was ALREADY there — see the note on it.
+                  .transition(.opacity.animation(.easeOut(duration: 0.22)))
                 }
 
                 // Cross-faded content per segment (range chosen via the title FAB).
@@ -1421,7 +1431,9 @@ struct TaskCardV1: View {
                             deptColor: dept.color,
                             customer: clientName) { start in
                 // Dismiss with animations off again so the cover doesn't slide
-                // back down; the overlay has already sprung itself out.
+                // back down. On CANCEL the overlay has already sprung itself
+                // out; on START it hands off immediately and this IS its exit —
+                // see `StartJobOverlay.close(start:)` for why.
                 withTransaction(Transaction.noAnimation) { showLogConfirm = false }
                 appNav.modalBlur = false
                 guard start else { return }
@@ -1431,14 +1443,24 @@ struct TaskCardV1: View {
                 // it repeatedly — which is how they triggered the 409 "already
                 // clocked in" race.
                 isStarting = true
-                Task {
-                    await appState.jobClockIn(
+                // Two-phase, and the split is the point: `beginJobClockIn` is
+                // SYNCHRONOUS, so the optimistic job clock — which is what the In
+                // Progress section keys off — lands on THIS frame, the same one
+                // the popup left on. Wrapping the whole thing in `Task` instead
+                // cost a main-actor hop before anything moved. The network half
+                // only reconciles afterwards.
+                guard let attempt = appState.beginJobClockIn(
                         jobId: task.job.id,
                         panelId: task.panel.id,
                         opId: task.op?.id,
                         jobTitle: task.job.title,
                         panelTitle: task.panel.title,
-                        opTitle: task.op?.title)
+                        opTitle: task.op?.title) else {
+                    isStarting = false   // refused (not clocked in) — error is set
+                    return
+                }
+                Task {
+                    await appState.completeJobClockIn(attempt)
                     isStarting = false
                 }
             }
@@ -1571,7 +1593,7 @@ struct TaskCardV1: View {
                             // from the end-job attachment prompt below.
                             withTransaction(.noAnimation) {
                                 appNav.jobsBreakBanner = starting ? .breakStarted : .breakEnded
-                                appNav.blurTabBar = true
+                                appNav.blurChrome = true
                             }
                         }
                     }
@@ -1986,9 +2008,26 @@ private struct StartJobOverlay: View {
         .padding(.horizontal, 32)
     }
 
-    /// Animates out first, THEN lets the card remove us — the shared modal exit.
+    /// CANCEL animates out first, then lets the card remove us — the shared
+    /// modal exit. START does NOT: it hands off on the same frame it was tapped.
+    ///
+    /// Two reasons, and the second is the load-bearing one:
+    ///
+    ///  1. LATENCY. The shared exit costs `modalPopExitNanos` (180ms) before the
+    ///     caller even hears about the tap, and the clock-in — and with it the In
+    ///     Progress section appearing — could not begin until after that. Start
+    ///     now reads as instant; the section fades in where this panel was.
+    ///
+    ///  2. The clock-in lands OPTIMISTICALLY (see `AppState.jobClockIn`), which
+    ///     moves this task out of Today and into the In Progress hero slot — a
+    ///     different ForEach, so the presenting card is torn down and takes this
+    ///     cover with it. Animating out across that teardown means the system
+    ///     dismissing a presentation mid-flight, which brings back the very
+    ///     slide-down every modal here goes out of its way to avoid. Handing off
+    ///     first lets the caller tear the cover down deliberately, unanimated.
     private func close(start: Bool) {
-        modalPopDismiss({ appear = $0 }) { onClose(start) }
+        guard !start else { onClose(true); return }
+        modalPopDismiss({ appear = $0 }) { onClose(false) }
     }
 
     @ViewBuilder

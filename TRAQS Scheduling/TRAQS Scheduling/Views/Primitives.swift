@@ -285,15 +285,16 @@ private struct ZoomSource: ViewModifier {
 /// naming a type argument.
 // ── Glass controls, and their flat counterparts ────────────────────────────
 //
-// The Customize "frosted glass" switch means NO GLASS ANYWHERE. It used to
-// govern page content only — cards, list boxes, message bubbles, thread rows —
-// leaving the nav bar, the header buttons and every `.glassEffect` control
-// frosted, so turning it off produced a half-flat app rather than a flat one.
-// These two modifiers are the choke points for everything that isn't a card.
+// The Customize "frosted glass" switch means NO GLASS ANYWHERE TRAQS PAINTS. It
+// used to govern page content only — cards, list boxes, message bubbles, thread
+// rows — leaving the nav bar and every popup frosted, so turning it off produced
+// a half-flat app rather than a flat one. Those now follow it too (`GlassPanel`,
+// `TRAQSTabBar`). What does NOT follow it is the native `.glassEffect` control,
+// below.
 //
-// The prompting popups are the deliberate exception and do NOT go through
-// these: a modal that floats over a blurred page is the one place the glass is
-// carrying meaning rather than decoration. See `GlassPanel`.
+// BUTTONS are the deliberate exception and stay native Liquid Glass whatever
+// the switch says — see `GlassControl` below. Everything else TRAQS paints,
+// popups included, flattens. See `GlassPanel`.
 
 /// A native Liquid Glass control.
 ///
@@ -1496,30 +1497,37 @@ struct GlassPanel: ViewModifier {
     func body(content: Content) -> some View {
         // Touch the theme so a live Customize change re-tints the surface (the
         // T.* tokens it reads aren't observable on their own) — same reason
-        // FrostedCard does this.
-        _ = theme.bgPresetId; _ = theme.accent
+        // FrostedCard does this. `frostedGlass` included: the branch below reads
+        // `T.glassEnabled`, a plain global SwiftUI cannot see as a dependency.
+        _ = theme.bgPresetId; _ = theme.accent; _ = theme.frostedGlass
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         return content
-            // ALWAYS frosted — deliberately NOT `glassFill()`, so the Customize
-            // toggle can't turn modals solid. Along with the nav bar, popups are
-            // exempt: the glass is what tells you a modal is floating over the page
-            // rather than being part of it. The toggle governs page CONTENT —
-            // cards, list boxes, message bubbles, thread rows.
+            // FOLLOWS THE TOGGLE. Popups used to be exempt on the grounds that
+            // the glass is what tells you a modal is floating over the page
+            // rather than being part of it — but with the switch off they were
+            // the most obviously glassy thing left, and "flat" read as
+            // half-applied. What says "floating" in the flat branch is the same
+            // thing that says it for a system alert: the page behind is blurred
+            // (`modalPageBlur`) and the panel carries a shadow the page cannot.
+            //
+            // Deliberately NOT `glassFill()`: that paints `glassSurfaceTint`,
+            // where a modal wants `modalSurfaceTint` (see both).
             .background {
                 ZStack {
-                    shape.fill(.ultraThinMaterial)
-                    shape.fill(Color(hex: T.surface).opacity(modalSurfaceTint))
+                    if T.glassEnabled {
+                        shape.fill(.ultraThinMaterial)
+                        shape.fill(Color(hex: T.surface).opacity(modalSurfaceTint))
+                    } else {
+                        shape.fill(Color(hex: T.surface))
+                    }
                 }
             }
-            // The app-wide glass edge. Applied before the group below so it is
-            // inside the shadow's compositing group rather than casting one of
-            // its own.
-            //
-            // `always` for the same reason the fill above is unconditional: a
-            // popup stays frosted whatever the Customize toggle says, so its
-            // edge has to stay lit to match.
-            .overlay(shape.specularRim(always: true))
-            // Modals float over content, so they need their own lift. Cards
+            // The app-wide glass edge, which collapses to the flat hairline with
+            // the toggle. Applied before the group below so it is inside the
+            // shadow's compositing group rather than casting one of its own.
+            .overlay(shape.specularRim())
+            // Modals float over content, so they need their own lift — and in
+            // the flat branch it is doing most of the separating. Cards
             // deliberately skip this — see FrostedCard.
             .compositingGroup()
             .shadow(color: .black.opacity(0.22), radius: 24, x: 0, y: 10)

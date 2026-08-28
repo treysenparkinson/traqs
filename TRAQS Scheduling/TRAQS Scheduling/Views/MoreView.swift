@@ -42,19 +42,16 @@ struct MoreView: View {
                 // HeaderControlsHost (registered at the bottom of this view) so
                 // their glass can morph across a tab switch.
                 // No header here — the shell owns the one persistent
-                // GlassHeader (§2). The spacer reserves its height; the selected
-                // worker's name still rides on that row.
+                // GlassHeader (§2). The spacer reserves its height.
+                //
+                // The selected worker's name used to ride ON this row, centred
+                // between the wordmark and the header buttons. There is no room
+                // for it there: the wordmark starts at 16pt and the person/week
+                // cluster plus the solo Admin button eat the right half, so
+                // anything but a very short first name ran under the buttons and
+                // was clipped. It's a subtitle under the page title now — see
+                // `statsTitle`.
                 Color.clear.frame(height: GlassHeader.height)
-                .overlay(alignment: .center) {
-                    if let name = selectedWorkerName {
-                        Text("\(name)'s Analytics")
-                            .font(TTypo.smBold(15))
-                            .foregroundStyle(Color(hex: T.ink))
-                            .lineLimit(1)
-                            .padding(.horizontal, 60)   // keep clear of the edge buttons
-                            .allowsHitTesting(false)
-                    }
-                }
 
                 ScrollView {
                     VStack(spacing: 0) {
@@ -197,21 +194,39 @@ struct MoreView: View {
     // MARK: Title (Analytics + selected week in accent)
 
     private var statsTitle: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Text("Analytics")
-                .font(.custom(TFontName.extrabold.rawValue, size: 56))
-                .tracking(-4)
-                .foregroundStyle(Color(hex: T.ink))
-                // "Analytics" is nearly twice the width of the old "Stats" and
-                // shares this row with the week range, so it shrinks to fit on
-                // narrower phones rather than truncating or pushing the week off.
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-            Spacer(minLength: 8)
-            Text(weekLabel)
-                .font(TTypo.smBold(15))
-                .foregroundStyle(Color(hex: T.accent))
-                .tnum()
+        // ONE leading-aligned column, and that is what puts the subtitle's first
+        // letter under the title's "A": both rows are laid out from the same
+        // edge, and the 16pt gutter is paid once by the VStack rather than by
+        // each row. Don't pad the rows individually — that's how the two drift.
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .center, spacing: 10) {
+                Text("Analytics")
+                    .font(.custom(TFontName.extrabold.rawValue, size: 56))
+                    .tracking(-4)
+                    .foregroundStyle(Color(hex: T.ink))
+                    // "Analytics" is nearly twice the width of the old "Stats" and
+                    // shares this row with the week range, so it shrinks to fit on
+                    // narrower phones rather than truncating or pushing the week off.
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Spacer(minLength: 8)
+                Text(weekLabel)
+                    .font(TTypo.smBold(15))
+                    .foregroundStyle(Color(hex: T.accent))
+                    .tnum()
+            }
+
+            // Whose numbers these are — only when an admin has picked someone
+            // other than "Everyone". Muted and small: it qualifies the title, it
+            // isn't a second title. Down here it has the full page width, where
+            // on the header row it was clipped by the buttons.
+            if let name = selectedWorkerName {
+                Text("\(name)'s Analytics")
+                    .font(TTypo.smBold(13))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
         }
         .padding(.horizontal, 16)
     }
