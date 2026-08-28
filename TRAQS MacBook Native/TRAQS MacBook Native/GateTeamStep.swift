@@ -235,18 +235,24 @@ struct GateTeamStep: View {
 
     /// The pad, over a dimmed page. One sheet of glass for the whole flow — see
     /// `GateGlassPanel`.
+    ///
+    /// Three steps in order: PIN, then a CONFIRMATION naming the person, then the
+    /// result. The confirmation is not optional politeness — on a shared keypad it
+    /// is the only thing standing between a mistyped-but-valid PIN and somebody
+    /// else's shift being started.
     @ViewBuilder
     private var padOverlay: some View {
         ZStack {
             Color.black.opacity(0.10).ignoresSafeArea()
                 .onTapGesture { if !pinBusy { closePad() } }
+
             if let done = performed {
                 GateGlassPanel {
                     VStack(spacing: 8) {
                         Text(done.verb)
                             .font(TFont.body(34, 800))
                             .foregroundStyle(done.verbColor)
-                        Text(done.successMessage)
+                        Text("✓ \(done.successMessage)")
                             .font(TFont.body(14.5, 700))
                             .foregroundStyle(Color.hex("#047857"))
                     }
@@ -258,11 +264,14 @@ struct GateTeamStep: View {
                     try? await Task.sleep(for: .seconds(2.2))
                     closePad()
                 }
-            } else if identified != nil, requested == .clockOut {
-                GateClockOutChoice(
-                    onLunch: { runChoice(.lunchStart) },
-                    onEndOfDay: { runChoice(.clockOut) },
-                    onCancel: closePad)
+            } else if let who = identified, let requested {
+                GateClockConfirm(person: who,
+                                 requested: requested,
+                                 error: pinError,
+                                 busy: pinBusy,
+                                 onConfirm: { action in run(action, personId: who.personId) },
+                                 onBack: backToPin,
+                                 onClose: closePad)
             } else {
                 GatePinPad(value: $pin,
                            accent: requested?.verbColor ?? GatePalette.blue,
@@ -274,14 +283,24 @@ struct GateTeamStep: View {
         }
     }
 
-    private func runChoice(_ action: GateClockAction) {
-        guard let who = identified else { return }
+    /// Back to the keypad from the confirmation, clearing what was typed.
+    private func backToPin() {
+        identified = nil
+        pin = ""
+        pinError = nil
+    }
+
+    private func run(_ action: GateClockAction, personId: String) {
         pinBusy = true
+        pinError = nil
         Task {
-            do { try await perform(action, personId: who.personId) }
+            do { try await perform(action, personId: personId) }
             catch {
                 pinBusy = false
-                pinError = "That didn't go through. Try again."
+                // The SERVER's wording — see APIService.KioskError. A generic
+                // message here is what hid "Salaried employees don't clock in"
+                // and "Too many failed attempts" behind "that didn't go through".
+                pinError = error.localizedDescription
             }
         }
     }
@@ -441,24 +460,27 @@ struct GateTeamStep: View {
     /// Two calls, in this order, exactly as the web does it: `identify` resolves
     /// the PIN to a person, THEN the action goes out. A wrong PIN comes back an
     /// error and the pad stays open for a retry rather than closing.
+    /// Two calls, in this order, exactly as the web does it: `identify` resolves
+    /// the PIN to a person, and NOTHING is recorded yet. The action only goes out
+    /// once the confirmation is answered.
+    ///
+    /// A wrong PIN comes back an error and the pad stays open to retry.
     private func submitPin() {
-        guard let requested, !pin.isEmpty else { return }
+        guard requested != nil, !pin.isEmpty else { return }
         pinBusy = true
         pinError = nil
         Task {
             do {
-                let who = try await APIService.kioskIdentify(orgCode: orgCode, pin: pin)
-                identified = who
-                // Clock Out is a CHOICE, so it stops here and asks. Everything
-                // else goes straight through.
-                if requested == .clockOut {
-                    pinBusy = false
-                    return
-                }
-                try await perform(requested, personId: who.personId)
+                identified = try await APIService.kioskIdentify(orgCode: orgCode, pin: pin)
+                pinBusy = false
             } catch {
                 pinBusy = false
-                pinError = "That PIN didn't match. Try again."
+                // The SERVER's own message. `/timeclock` distinguishes a wrong PIN
+                // (401) from rate limiting (429, after five bad attempts from one
+                // IP in fifteen minutes), and collapsing both into "that PIN
+                // didn't match" leaves someone retyping a correct PIN that is
+                // being refused for a completely different reason.
+                pinError = error.localizedDescription
             }
         }
     }
@@ -473,7 +495,8 @@ struct GateTeamStep: View {
                                              personId: personId, pin: pin)
         }
         pinBusy = false
-        // What HAPPENED, not what was asked for — see `performed`.
+        // What HAPPENED, not what was asked for — Clock Out becomes a lunch or an
+        // end of day, and the success line has to follow the choice.
         performed = action
         // The pills should change the moment somebody punches.
         await refresh()

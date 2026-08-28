@@ -674,6 +674,27 @@ struct APIService {
     // Same endpoint and the same payloads as the authenticated versions; the only
     // difference is what is (not) on the request.
 
+    /// A kiosk call's failure, carrying THE SERVER'S OWN MESSAGE.
+    ///
+    /// `APIError.httpError` keeps only the status code, and for the kiosk that
+    /// throws away the entire explanation. `/timeclock` answers with specific,
+    /// user-facing reasons — "Too many failed attempts. Try again later."
+    /// (429, after 5 bad PINs from one IP in 15 minutes), "Salaried employees
+    /// don't clock in" (403), "Already clocked in via kiosk. Clock out first."
+    /// (409), "Invalid PIN" (401) — and a kiosk that renders all four as "that
+    /// PIN didn't match" leaves someone poking at a keypad that will never work.
+    /// `/timeclock`'s error body. A type rather than a local struct because a
+    /// generic function cannot nest one.
+    private struct KioskFailure: Decodable { let error: String? }
+
+    struct KioskError: LocalizedError {
+        let status: Int
+        let serverMessage: String?
+        var errorDescription: String? {
+            serverMessage ?? "Something went wrong (\(status)). Try again."
+        }
+    }
+
     /// One unauthenticated POST to `/timeclock`, carrying only the org header.
     private static func kioskPost<T: Encodable>(orgCode: String, _ payload: T) async throws -> Data {
         guard let url = URL(string: "\(AppConfig.netlifyBase)/timeclock") else {
@@ -686,7 +707,9 @@ struct APIService {
         req.httpBody = try JSONEncoder().encode(payload)
         let (data, response) = try await URLSession.shared.data(for: req)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            throw APIError.httpError(http.statusCode)
+            // Surface the server's own wording — see KioskError.
+            let message = (try? JSONDecoder().decode(KioskFailure.self, from: data))?.error
+            throw KioskError(status: http.statusCode, serverMessage: message)
         }
         return data
     }
