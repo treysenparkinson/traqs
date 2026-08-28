@@ -121,6 +121,16 @@ struct NativeShell: View {
     private let iconSlot: CGFloat = 17
     /// The rail's own curve, from the web app's NAV_EASE.
     private let railEase = Animation.timingCurve(0.22, 1, 0.36, 1, duration: 0.28)
+    /// Every COLOUR change on a nav button — hover in, hover out, and the active
+    /// row's fill and lettering. From `.tq-sidebar button` in TRAQS.jsx (:1110):
+    ///
+    ///     background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease
+    ///
+    /// `timingCurve(0.25, 0.1, 0.25, 1)` IS css `ease` — that keyword is defined as
+    /// exactly that cubic-bezier, so this is copied rather than approximated with
+    /// `.easeInOut`. Separate from `railEase` because the web states them
+    /// separately: geometry moves on one curve, colour on another.
+    private let navColorEase = Animation.timingCurve(0.25, 0.1, 0.25, 1, duration: 0.15)
     private var railWidth: CGFloat { expanded ? 220 : 64 }
     /// The web's `NAV_W = SB_W - NAV_PAD * 2` — the nav button's width, and it is
     /// EXPLICIT for two reasons that both show up only when collapsed.
@@ -433,11 +443,22 @@ struct NativeShell: View {
         }
         .clipShape(Capsule())
         .onHover { hovered = $0 ? key : (hovered == key ? nil : hovered) }
+        // Hover fades in and out rather than snapping — the web's
+        // `background-color 0.15s ease`. Keyed on THIS row's hover state, not the
+        // shared `hovered` string, so moving between rows doesn't re-animate every
+        // other row in the rail.
+        .animation(navColorEase, value: hovered == key)
+        // The active row's fill and lettering, on the same curve — the web's
+        // `color 0.15s ease` from the same rule.
+        .animation(navColorEase, value: active)
     }
 
     private func select(_ v: TView) {
-        // An ANIMATED transaction is what carries the pill to the new row.
-        withAnimation(.spring(response: 0.34, dampingFraction: 0.78)) { view = v }
+        // A colour change, on the web's colour curve — there is no travelling
+        // indicator to carry anywhere (see `navRow`), so the bouncy spring this
+        // used to run was animating nothing but the fill, overshooting a value
+        // the web crossfades in 0.15s.
+        withAnimation(navColorEase) { view = v }
     }
 
     private func initials(_ name: String) -> String {

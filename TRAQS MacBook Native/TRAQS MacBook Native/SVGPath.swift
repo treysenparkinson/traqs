@@ -138,15 +138,28 @@ enum SVGPath {
 
         // CoreGraphics has no elliptical-arc primitive: draw it on a unit circle
         // and let the transform carry the radii and rotation.
-        var t = CGAffineTransform(translationX: cx, y: cy)
+        //
+        // The arc MUST go onto the current subpath, via `addArc`'s own transform
+        // parameter. Building it in a separate `Path` and appending that with
+        // `addPath` looks equivalent and is not: `addArc` on an EMPTY path begins
+        // with an implicit `move(to:)`, so each appended arc started a NEW
+        // subpath. A later `z` then closed only the last of them.
+        //
+        // On the dashboard house — `M3 9.3L12 3l9 6.3V19a2 2 0 0 1-2 2H5a2 2 0 0
+        // 1-2-2z` — that meant the closing left wall was never drawn, and the
+        // close instead cut a short diagonal from (3,19) back to the final arc's
+        // own start at (5,21). The icon rendered as a house with no left side.
+        //
+        // Only closed paths that contain arcs show the fault, which is why one
+        // glyph out of the set looked wrong and the rest looked fine.
+        let t = CGAffineTransform(translationX: cx, y: cy)
             .rotated(by: phi)
             .scaledBy(x: rx, y: ry)
-        var arc = Path()
-        arc.addArc(center: .zero, radius: 1,
-                   startAngle: .radians(startAngle),
-                   endAngle: .radians(startAngle + delta),
-                   clockwise: delta < 0)
-        p.addPath(arc.applying(t))
+        p.addArc(center: .zero, radius: 1,
+                 startAngle: .radians(startAngle),
+                 endAngle: .radians(startAngle + delta),
+                 clockwise: delta < 0,
+                 transform: t)
     }
 
     // MARK: Tokenizer
