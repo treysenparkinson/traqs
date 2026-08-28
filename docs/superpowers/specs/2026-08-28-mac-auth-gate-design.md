@@ -45,7 +45,8 @@ Three things block a port beyond the views themselves:
 
 ## Goals
 
-1. All eight steps, faithful in behaviour and in visuals.
+1. Every step a user can actually REACH, faithful in behaviour and in visuals —
+   which is six of the eight; see the non-goal on `create-org`/`forgot-org`.
 2. The kiosk works: roster sign-in and PIN clock actions, both.
 3. The four step-resolution rules are pure, testable logic rather than effects
    tangled into a view.
@@ -58,6 +59,13 @@ Three things block a port beyond the views themselves:
 - **Any screen.** `NativeShell.page` still renders its placeholder. Jobs is the
   next pass.
 - **A theme picker.** Still the loose end PASS 0 named.
+- **`create-org` and `forgot-org` VIEWS.** Discovered during implementation: both
+  steps are routed by the web gate but **nothing in the UI reaches either**. The
+  org step's card ends with the text "New organizations coming soon"
+  (`App.jsx:485`) — no create button, no forgot link — so both components are dead
+  code on the deployed site. `GateStep` keeps the cases so the router stays
+  complete; no views are built, because none can render. Revisit if the web
+  re-enables the entry points.
 - **Kiosk parity beyond the gate.** The clock kiosk exists only inside `team`, as
   on the web. It is not a second time-clock UI for the signed-in app.
 
