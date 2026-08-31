@@ -17,12 +17,22 @@
 //   signOffs       — sign-off steps, held by anyone with canSignOff/isEngineer
 //   engineering    — designed / verified / sent to Perforex ticks
 // They are classified separately and checked against approve/engineer rights.
+//
+// A fourth, apprLog, is the append-only approval trail the Jobs grid's Activity
+// cell reads. It is a SIDE EFFECT of one of the actions above, never a user edit:
+// signing an engineering step writes engineering AND apprLog in the same POST. If
+// apprLog fell through to the generic branch it would add editJobs and 403 every
+// approver who does not also edit jobs — the exact breakage this block exists to
+// prevent. So it marks the write as changed and demands nothing on its own; the
+// field that actually moved carries the permission, and the authoritative approval
+// state stays in signOffs / engineering / apprChain rather than in the log.
 
 const SCHEDULE_FIELDS = new Set(["start", "end", "startHour", "endHour", "hpd"]);
 const TEAM_FIELD = "team";
 const APPROVAL_FIELD = "signOffs";
 const ENGINEERING_FIELD = "engineering";
 const REQUEST_FIELD = "finishRequests";
+const LOG_FIELD = "apprLog";
 
 // Server-owned bookkeeping. The server stamps these itself, so a client echoing
 // a stale or fresh value must not read as an edit.
@@ -97,6 +107,11 @@ export function classifyTaskChanges(nextTasks, prevTasks) {
       }
       if (key === ENGINEERING_FIELD) {
         if (!eq(a[key], b[key])) { changed = true; needsEngineer = true; }
+        continue;
+      }
+      if (key === LOG_FIELD) {
+        // Bookkeeping only — see the apprLog note at the top of this file.
+        if (!eq(a[key], b[key])) changed = true;
         continue;
       }
       if (key === REQUEST_FIELD) {

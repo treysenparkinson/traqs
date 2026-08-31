@@ -10,7 +10,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
-import { breakHoursByDay, producedHoursByScope } from "./statsMath.js";
+import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
@@ -94,7 +94,24 @@ const FIELD_COL_CATALOG = [
   { fieldKey: "hpd",           label: "Hrs/Day",     type: "number", defaultWidth: 80,  description: "Hours per day capacity" },
   { fieldKey: "notes",         label: "Notes",       type: "text",   defaultWidth: 180, description: "Free-form job notes" },
   { fieldKey: "color",         label: "Color",       type: "text",   defaultWidth: 70,  description: "Job color tag" },
+  // Computed and read-only: the most recent signed approval step on the row (who signed,
+  // which step, when). No stored job field sits behind this fieldKey.
+  { fieldKey: "apprActivity",  label: "Activity",    type: "activity", defaultWidth: 210, description: "Latest approval step signed" },
 ];
+// panel.apprLog action → what the Activity cell prints. Kept separate from the stored
+// action key so the wording can change without rewriting history in tasks.json.
+const APPR_VERB = {
+  set:      "Set to",
+  cleared:  "Approval cleared",
+  signed:   "Signed",
+  reverted: "Reverted",
+  steps:    "Steps changed",
+  removed:  "Approval removed",
+};
+const APPR_VERB_COLOR = (verb, T) =>
+  verb === APPR_VERB.signed   ? "#10b981" :
+  verb === APPR_VERB.reverted ? "#f59e0b" :
+  T.text;
 const STD_COL_DEFS = [
   { id: "name",     label: "Name",     align: "left",   i: 0 },
   { id: "jobNum",   label: "#",        align: "left",   i: 1 },
@@ -107,6 +124,7 @@ const STD_COL_DEFS = [
   { id: "hrs",      label: "Hrs",      align: "right",  i: 8 },
   { id: "progress", label: "Progress", align: "left",   i: 9 },
   { id: "team",     label: "Team",     align: "left",   i: 10 },
+  { id: "appr",     label: "Approval", align: "left",   i: 11 },
 ];
 // Std columns offered in the Jobs "Grouping" dropdown (Columns section). Excludes
 // name (one section per job), progress/team (don't bucket well), and client (the
@@ -652,15 +670,34 @@ const fm = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month:
 const fmtDate = dateStr => { if (!dateStr) return "—"; return new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); };
 const uid = () => "t" + Math.random().toString(36).substr(2, 8);
 
-// Health: compare progress vs timeline
-const getHealth = (t) => {
+// Health: compare progress vs timeline.
+//
+// `pctDoneOverride` is REAL progress (logged ÷ estimated — the same number the progress
+// bar shows), as a 0..1 fraction. Prefer the component-scope healthOf, which supplies it.
+// Without it this falls back to a guess keyed off the status LABEL, which is all module
+// scope can see: every "In Progress" item counts as exactly 50% done whether 5% or 95% of
+// its hours are logged.
+//
+// The "Not Started" short-circuits only fire when nothing has actually been logged. A
+// stored status is only as fresh as the last person to edit it, and work clocked into a
+// panel never touches it: a panel with 34.87h against it, 26% done and comfortably on
+// schedule, read `critical` purely because the label still said Not Started.
+const getHealth = (t, pctDoneOverride = null) => {
   if (t.status === "Finished") return "done";
-  if (t.status === "Not Started" && TD > t.start) return "critical";
-  if (t.status === "Not Started") return "ontime";
+  const measured = pctDoneOverride == null ? null : Math.max(0, pctDoneOverride);
+  // Any logged time means work has started, whatever the label says. loggedHours is the
+  // only evidence visible from module scope; it undercounts (the counter drifts below the
+  // session rows) but a non-zero value is still proof of work.
+  const started = measured != null ? measured > 0 : (t.loggedHours || 0) > 0;
+  if (t.status === "Not Started" && !started) return TD > t.start ? "critical" : "ontime";
   const total = diffD(t.start, t.end) + 1;
   const elapsed = diffD(t.start, TD) + 1;
   const pctTime = Math.min(elapsed / Math.max(total, 1), 1);
-  const pctDone = t.status === "Finished" ? 1 : t.status === "In Progress" ? 0.5 : t.status === "Pending" ? 0.15 : t.status === "On Hold" ? 0.25 : 0;
+  const pctDone = measured != null ? measured
+    : t.status === "In Progress" ? 0.5
+    : t.status === "Pending" ? 0.15
+    : t.status === "On Hold" ? 0.25
+    : 0;
   if (t.status === "On Hold" && pctTime > 0.5) return "critical";
   if (pctTime > pctDone + 0.35) return "critical";
   if (pctTime > pctDone + 0.15) return "behind";
@@ -1871,6 +1908,22 @@ select:not(:disabled):active {
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
+/* ...EXCEPT while the list is actually scrolled.
+
+   The band was only ever objectionable AT REST, and at rest there is nothing to hide:
+   the first row sits below the labels. All three attempts above paint unconditionally,
+   which is why each one traded a band for legibility. Gating on scroll position drops
+   the trade entirely — no fill until a row would pass under the labels, fill the moment
+   one does.
+   --tq-sticky-fill is set inline by the scroll container so the fill tracks the live
+   theme; it falls back to an opaque-enough neutral if a caller forgets. Two classes
+   beat the one-class rule above on specificity, so this needs no !important of its own
+   beyond overriding the base's. */
+.tq-sticky-lift .tq-sticky-head {
+  background: var(--tq-sticky-fill, rgba(255,255,255,0.94)) !important;
+  -webkit-backdrop-filter: blur(10px) saturate(140%) !important;
+  backdrop-filter: blur(10px) saturate(140%) !important;
+}
 /* Opt-in edge kill. Nothing applies it right now — the list cards took it for a
    while and were then put back on the standard border for consistency — but it is
    kept because the reasoning is not obvious and is easy to get wrong: it must set
@@ -3020,6 +3073,22 @@ function MobileNav({ tabs, activeId, onChange }) {
     </div>
   );
 }
+// Scroll container that adds .tq-sticky-lift once scrolled, so a sticky header inside it
+// paints a fill only while it actually has rows to hide (see the .tq-sticky-head notes).
+//
+// Module scope on purpose. Declared inside a render function it would be a NEW component
+// type on every render, so React would remount the subtree and throw away the user's
+// scroll position — here that is every 5s, when the stats clock ticks.
+const ScrollBox = ({ style, fill, children }) => {
+  const [lifted, setLifted] = useState(false);
+  return (
+    <div
+      className={lifted ? "tq-sticky-lift" : undefined}
+      onScroll={e => { const next = e.currentTarget.scrollTop > 0; setLifted(prev => (prev === next ? prev : next)); }}
+      style={{ ...style, "--tq-sticky-fill": fill }}
+    >{children}</div>
+  );
+};
 const HealthIcon = ({ t, size = 14 }) => { const h = getHealth(t); const c = elColorT(HEALTH_DOT[h]); return <span title={h === "ontime" ? "On time" : h === "behind" ? "Slightly behind" : h === "critical" ? "Behind schedule" : "Done"} style={{ width: size, height: size, borderRadius: "50%", background: c, flexShrink: 0, display: "inline-block", boxShadow: "0 0 " + (size) + "px " + c + "55" }} />; };
 function SearchSelect({ label, value, onChange, options, placeholder = "Search...", compact = false, emptyLabel = "No client selected", noneLabel = "None", portal = false, multi = false, values = [], onChangeMulti }) {
   const [open, setOpen] = useState(false);
@@ -3244,72 +3313,6 @@ function AssigneeDrop({ value, onChange, people }) {
       </div>,
       document.body
     )}
-  </div>;
-}
-// TRAQS-styled Department/Type picker for approvals: pick an existing template, pick "Custom",
-// or create a new template inline (onCreate saves the approval's current steps as that type).
-function ApprovalTypeDrop({ templateId, templates, onPick, onCreate, portal = false }) {
-  const [open, setOpen] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const [name, setName] = useState("");
-  const ref = useRef(null);
-  // See SimpleDrop: portalling lifts the menu out of a clipping ancestor, at the
-  // cost of hand-positioning it and exempting it from the outside-click check.
-  const menuRef = useRef(null);
-  const [anchor, setAnchor] = useState(null);
-  useEffect(() => {
-    if (!open) return;
-    const h = e => { if (ref.current && !ref.current.contains(e.target) && !menuRef.current?.contains(e.target)) { setOpen(false); setAdding(false); setName(""); } };
-    const close = () => setOpen(false);
-    const onScroll = e => { if (menuRef.current?.contains(e.target)) return; setOpen(false); };
-    document.addEventListener("mousedown", h);
-    if (portal) { window.addEventListener("resize", close); window.addEventListener("scroll", onScroll, true); }
-    return () => { document.removeEventListener("mousedown", h); window.removeEventListener("resize", close); window.removeEventListener("scroll", onScroll, true); };
-  }, [open, portal]);
-  const toggle = () => {
-    if (open) { setOpen(false); setAdding(false); setName(""); return; }
-    if (portal) {
-      const r = ref.current?.getBoundingClientRect();
-      if (r) {
-        const wantH = Math.min(280, (templates.length + 2) * 38 + 8);
-        const below = window.innerHeight - r.bottom - 12;
-        const up = below < wantH && r.top - 12 > below;
-        setAnchor({ left: r.left, width: r.width, top: up ? Math.max(8, r.top - 4 - wantH) : r.bottom + 4, maxHeight: up ? Math.min(280, r.top - 12) : Math.min(280, below) });
-      }
-    }
-    setOpen(true);
-  };
-  const current = templates.find(t => t.id === templateId);
-  const commit = () => { const n = name.trim(); if (!n) return; onCreate(n); setAdding(false); setName(""); setOpen(false); };
-  const rowBase = { display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", fontFamily: T.font, transition: "background-color 0.15s ease" };
-  // The TRAQS one-by-one cascade: each row drops in 38ms behind the one above.
-  const rowAnim = (ri) => ({ animation: `toolDrop 0.14s ${Math.min(ri, 14) * 38}ms both ease-out` });
-  const wrapMenu = (node) => (portal ? createPortal(node, document.body) : node);
-  return <div ref={ref} style={{ position: "relative" }}>
-    <div className="tq-drop" onClick={toggle} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "9px 14px", borderRadius: T.radiusPill, border: `1px solid ${open ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, cursor: "pointer", userSelect: "none" }}>
-      <span style={{ fontSize: 14, color: current ? T.bgText : hexA(T.bgText, 0.55), flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{current ? current.name : "Custom (no type)"}</span>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "none" }}><polyline points="6 9 12 15 18 9"/></svg>
-    </div>
-    {open && (portal && !anchor ? null : wrapMenu(<div ref={menuRef} className="anim-drop" style={{ ...(portal ? { position: "fixed", left: anchor.left, top: anchor.top, width: anchor.width, zIndex: 10060, maxHeight: anchor.maxHeight } : { position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, maxHeight: 280 }), background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out", overflowY: "auto", fontFamily: T.font }}>
-      {templates.map((t, ri) => { const isOn = t.id === templateId; return <div key={t.id} onClick={() => { onPick(t.id); setOpen(false); }} style={{ ...rowBase, ...rowAnim(ri), background: isOn ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
-        <div style={{ width: 8, height: 8, borderRadius: 8, background: isOn ? T.accent : T.border, flexShrink: 0 }} />
-        <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text }}>{t.name}</span>
-      </div>; })}
-      <div onClick={() => { onPick(""); setOpen(false); }} style={{ ...rowBase, ...rowAnim(templates.length), background: !templateId ? T.accent + "10" : "transparent" }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = !templateId ? T.accent + "10" : "transparent"}>
-        <div style={{ width: 8, height: 8, borderRadius: 8, background: !templateId ? T.accent : T.border, flexShrink: 0 }} />
-        <span style={{ fontSize: 13, color: T.textSec }}>Custom (no type)</span>
-      </div>
-      <div style={{ borderTop: `1px solid ${T.border}`, marginTop: 4, paddingTop: 4 }}>
-        {!adding
-          ? <div onClick={() => setAdding(true)} style={{ ...rowBase, ...rowAnim(templates.length + 1), color: T.accent, fontWeight: 700, fontSize: 13 }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>New type…
-            </div>
-          : <div style={{ display: "flex", gap: 6, padding: "8px 12px" }} onClick={e => e.stopPropagation()}>
-              <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setAdding(false); setName(""); } }} placeholder="Type name" style={{ flex: 1, minWidth: 0, padding: "6px 9px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, fontFamily: T.font, outline: "none" }} />
-              <button onClick={commit} style={{ padding: "0 12px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Add</button>
-            </div>}
-      </div>
-    </div>))}
   </div>;
 }
 // Minimal TRAQS-styled single-select. options: [{ value, label, color? }]. No built-in margin.
@@ -4812,7 +4815,7 @@ Extraction rules:
       const n = new Set(prev); n.add(id); return n;
     });
   }, []);
-  const [colWidths, setColWidths] = useState([26, 200, 80, 120, 132, 80, 100, 100, 100, 70, 130, 140, 36]);
+  const [colWidths, setColWidths] = useState([26, 200, 80, 120, 132, 80, 100, 100, 100, 70, 130, 140, 200, 36]);
   const [engColWidths, setEngColWidths] = useState([26, 200, 80, 120, 110, 80, 100, 100, 100, 340]);
   const [toolbarExpanded, setToolbarExpanded] = useState(false);
   const [cellAlign, setCellAlign] = useState("left");
@@ -4902,7 +4905,7 @@ Extraction rules:
   // with a default width, trim removed ones — so the grid never desyncs from the headers/cells.
   useEffect(() => {
     const n = customCols.length;
-    setColWidths(prev => { const cur = prev.slice(12, prev.length - 1); if (cur.length === n) return prev; return [...prev.slice(0, 12), ...Array.from({ length: n }, (_, i) => cur[i] ?? 120), prev[prev.length - 1]]; });
+    setColWidths(prev => { const cur = prev.slice(13, prev.length - 1); if (cur.length === n) return prev; return [...prev.slice(0, 13), ...Array.from({ length: n }, (_, i) => cur[i] ?? 120), prev[prev.length - 1]]; });
     setEngColWidths(prev => { const cur = prev.slice(9, prev.length - 1); if (cur.length === n) return prev; return [...prev.slice(0, 9), ...Array.from({ length: n }, (_, i) => cur[i] ?? 120), prev[prev.length - 1]]; });
   }, [customCols.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const parseWorkHour = t => { const [h, m] = (t || "08:00").split(":").map(Number); return h + m / 60; };
@@ -4976,11 +4979,8 @@ Extraction rules:
   const [signOffSettingsOpen, setSignOffSettingsOpen] = useState(false);
   const [pmSectionsCollapsed, setPmSectionsCollapsed] = useState({});
   const [signOffTemplateEditing, setSignOffTemplateEditing] = useState(null); // { id?, name, steps: string[] }
-  // ── Standalone approvals (live in orgSettings.approvals; independent of jobs) ──
-  const [approvalGroupBy, setApprovalGroupBy] = useState("type"); // type | client | dept | status
-  const [approvalGroupOpen, setApprovalGroupOpen] = useState(false);
-  const [approvalSearch, setApprovalSearch] = useState("");
-  const [approvalModal, setApprovalModal] = useState(null); // { id?, title, clientId, templateId, dept, steps:[{label,done?,byName?,at?}], dueDate }
+  // ── Approval chain editor, opened from the Approval cell on the jobs grid ──
+  const [approvalModal, setApprovalModal] = useState(null); // { target:{kind:"chain",jobId,panelId}, title, steps:[{label,done?,byName?,at?,assigneeId?}] }
   const [approvalCtx, setApprovalCtx] = useState(null); // { x, y, id } right-click menu for a standalone approval
   // Time-off request approval inbox (admin-only). Pending requests come from iOS
   // (or anyone via the API); approving writes the entry into person.timeOff so the
@@ -5019,7 +5019,18 @@ Extraction rules:
   const [editingColHeader, setEditingColHeader] = useState(null); // colId being renamed (eng columns)
   const [renameCol, setRenameCol] = useState(null); // { colId, isCustom, value, x, y } — small draggable rename popover
   const [colOrder, setColOrder] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("tq_col_order") || "null") || STD_COL_DEFS.map(c => c.id); }
+    // A saved order predates any std column added later (it is a plain id list written
+    // before that column existed), so back-fill every missing id in STD_COL_DEFS order.
+    // Without this a newly shipped default column is invisible to every existing user.
+    const backfill = (saved) => {
+      const known = STD_COL_DEFS.map(c => c.id);
+      const kept = saved.filter(id => known.includes(id));
+      return [...kept, ...known.filter(id => !kept.includes(id))];
+    };
+    try {
+      const saved = JSON.parse(localStorage.getItem("tq_col_order") || "null");
+      return Array.isArray(saved) && saved.length ? backfill(saved) : STD_COL_DEFS.map(c => c.id);
+    }
     catch { return STD_COL_DEFS.map(c => c.id); }
   });
   useEffect(() => { localStorage.setItem("tq_col_order", JSON.stringify(colOrder)); }, [colOrder]);
@@ -5232,8 +5243,13 @@ Extraction rules:
     const byOp = new Map();
     for (const p of people) {
       const jc = p.activeJobClock;
-      if (!jc?.clockIn || jc.opId == null) continue;
-      const k = String(jc.opId);
+      if (!jc?.clockIn) continue;
+      // Key by the DEEPEST element the clock names. A worker clocked into a panel that
+      // has no ops carries panelId with opId null, so keying on opId alone dropped the
+      // clock entirely: live hours never accrued and progress sat at 0 while they worked.
+      const target = jc.opId ?? jc.panelId ?? jc.jobId;
+      if (target == null) continue;
+      const k = String(target);
       if (!byOp.has(k)) byOp.set(k, []);
       byOp.get(k).push(jc);
     }
@@ -5306,7 +5322,10 @@ Extraction rules:
   const _panelPct = (panel) => {
     if (panel.status === "Finished") return 100;
     const ops = panel.subs || [];
-    if (!ops.length) return 0;
+    // No ops: the panel itself is the work item time is logged against, so measure it
+    // the same way an op is measured. Returning 0 reported no progress for a panel
+    // somebody was actively clocked into.
+    if (!ops.length) return _opPct(panel);
     let logged = 0, est = 0;
     for (const op of ops) { const h = _opHoursPair(op); logged += h.logged; est += h.est; }
     if (est === 0) return 0;
@@ -5314,13 +5333,28 @@ Extraction rules:
   };
   const _jobPct = (job) => {
     if (job.status === "Finished") return 100;
-    const ops = (job.subs || []).flatMap(p => p.subs || []);
-    if (!ops.length) return 0;
+    // Leaves, per panel: a panel with ops contributes its ops, a panel WITHOUT ops is
+    // itself the leaf (see _panelPct). Flattening to ops alone reported 0% for a job whose
+    // panels carry the hours directly, and silently ignored such panels in a mixed job.
+    const leaves = (job.subs || []).flatMap(pn => ((pn.subs || []).length ? pn.subs : [pn]));
+    if (!leaves.length) return 0;
     let logged = 0, est = 0;
-    for (const op of ops) { const h = _opHoursPair(op); logged += h.logged; est += h.est; }
+    for (const it of leaves) { const h = _opHoursPair(it); logged += h.logged; est += h.est; }
     if (est === 0) return 0;
     return Math.round(logged / est * 100);
   };
+  // Progress of an item at whatever level it sits, picked from its own shape: a job (its
+  // panels have ops), a panel (has ops), or a leaf (neither).
+  const _pctForItem = (t) => {
+    const kids = t.subs || [];
+    if (kids.some(k => (k.subs || []).length)) return _jobPct(t);
+    if (kids.length) return _panelPct(t);
+    return _opPct(t);
+  };
+  // Health measured against real logged hours rather than the status label. Use this
+  // everywhere inside the component; bare getHealth is for module scope, which cannot
+  // reach the session rows or the live clocks.
+  const healthOf = (t) => getHealth(t, _pctForItem(t) / 100);
   // ─── Freeform export designer: shared block renderer + page/layout builders ──
   const EXPORT_PAGE = (orientation) => orientation === "landscape" ? { w: 1056, h: 816 } : { w: 816, h: 1056 };
   const escHtml = s => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -5837,7 +5871,13 @@ Extraction rules:
     // credit was lost to a concurrent tasks.json save read "Not Started" while its
     // own bar greyed in with hours against it.
     if ((op.loggedHours || 0) > 0 || producedFor(op) > 0) {
-      const isActivelyClocked = people.some(p => p.activeJobClock?.opId === op.id);
+      // sameId, and the deepest id the clock names: ids are mixed string/number, and a
+      // panel-level clock carries no opId.
+      const isActivelyClocked = people.some(p => {
+        const jc = p.activeJobClock;
+        if (!jc?.clockIn) return false;
+        return sameId(jc.opId ?? jc.panelId ?? jc.jobId, op.id);
+      });
       return isActivelyClocked ? "In Progress" : "Paused";
     }
     return op.status;
@@ -5848,7 +5888,10 @@ Extraction rules:
   // on-hold > pending > any-other-started > not-started.
   const getPanelDisplayStatus = (panel) => {
     const ops = panel.subs || [];
-    if (!ops.length) return panel.status || "Not Started";
+    // No ops: read the panel's own logged time exactly as an op's is read. Falling
+    // through to the stored status reported "Not Started" for a panel with hours
+    // against it and someone clocked in right now.
+    if (!ops.length) return getOpDisplayStatus(panel);
     const ds = ops.map(getOpDisplayStatus);
     if (ds.every(s => s === "Finished")) return "Finished";
     if (ds.some(s => s === "In Progress")) return "In Progress";
@@ -5882,7 +5925,7 @@ Extraction rules:
     const idx = customCols.findIndex(c => c.id === colId);
     if (idx < 0) return;
     setCustomCols(prev => prev.filter(c => c.id !== colId));
-    setColWidths(prev => { const n = [...prev]; n.splice(12 + idx, 1); return n; });
+    setColWidths(prev => { const n = [...prev]; n.splice(13 + idx, 1); return n; });
     setEngColWidths(prev => { const n = [...prev]; n.splice(9 + idx, 1); return n; });
   };
   const updateCustomCol = (colId, patch) => setCustomCols(prev => prev.map(c => c.id === colId ? { ...c, ...patch } : c));
@@ -6358,6 +6401,14 @@ Extraction rules:
 
   // Load orgSettings from server on mount — server is source of truth
   const skipNextOrgSave = useRef(false);
+  // True from the moment a local orgSettings change starts saving until the server
+  // confirms it. applySlice("settings") rehydrates from the IndexedDB cache, which
+  // by definition predates an unsaved local change; without this the stale copy is
+  // spread back over the new value AND sets skipNextOrgSave, so the save that would
+  // have persisted it is suppressed too — a newly added custom column silently
+  // reverts and never reaches S3. Tasks/people/clients are protected by busy();
+  // settings had no equivalent because it is not save-tracked.
+  const orgSettingsDirty = useRef(false);
   useEffect(() => {
     if (!orgCode) return;
     fetchOrgSettings(getToken, orgCode)
@@ -6973,9 +7024,10 @@ Extraction rules:
     if (isFirstOrgSave.current) { isFirstOrgSave.current = false; return; }
     if (skipNextOrgSave.current) { skipNextOrgSave.current = false; return; }
     if (!orgCode) return;
+    orgSettingsDirty.current = true;
     saveOrgSettings(orgSettings, getTokenRef.current, orgCode)
-      .then(() => toast("Organization settings saved", { generic: true }))
-      .catch(e => console.warn("saveOrgSettings failed:", e));
+      .then(() => { orgSettingsDirty.current = false; toast("Organization settings saved", { generic: true }); })
+      .catch(e => { orgSettingsDirty.current = false; console.warn("saveOrgSettings failed:", e); });
   }, [orgSettings]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Per-account settings sync (appearance + personal view prefs) ────────────
@@ -7110,6 +7162,9 @@ Extraction rules:
         } else if (entity === "productionhours") {
           setProductionHours((await readSlice("productionhours")) || []);
         } else if (entity === "settings") {
+          // A local change is still in flight — the cached copy is older than what
+          // is in memory, so applying it would revert the user's edit.
+          if (orgSettingsDirty.current) return;
           const s = await readSlice("settings");
           if (s && typeof s === "object") { skipNextOrgSave.current = true; setOrgSettings(prev => ({ ...prev, ...s })); }
         }
@@ -7558,6 +7613,27 @@ Extraction rules:
   //
   // Same arithmetic, same operands, same legacy fallback as before — this is a reorganisation
   // of when the walk happens, not a change to what it computes.
+  // Work days an interval actually covers. This is the divisor that turns an item's TOTAL
+  // estimate (`hpd`, despite the name — opHrs(op) IS op.hpd) into a per-day rate. Shared,
+  // because every place that spreads an estimate over a span has to divide by the same
+  // thing or the numbers disagree.
+  const spanWorkDays = useCallback((start, end) => {
+    if (!start || !end) return 1;
+    const wd = orgSettings.workDays || DEFAULT_WORK_DAYS;
+    const hol = orgSettings.holidays || [];
+    let n = 0, d = start, guard = 0;
+    while (d <= end && guard++ < 4000) {
+      if (isWorkDay(d, wd) && !hol.includes(d)) n++;
+      d = addD(d, 1);
+    }
+    return Math.max(1, n);
+  }, [orgSettings.workDays, orgSettings.holidays]);
+  // Per-day hours one person carries for an item: the item's total estimate, split across
+  // its team, spread over the work days it covers.
+  const perDayShare = useCallback((item) => {
+    const total = (item?.hpd || 0) / Math.max(1, (item?.team || []).length);
+    return total / spanWorkDays(item?.start, item?.end);
+  }, [spanWorkDays]);
   const bookedIntervals = useMemo(() => {
     const byPerson = new Map();                       // idKey → [{ start, end, h }]
     const add = (team, start, end, hpd) => {
@@ -7566,6 +7642,16 @@ Extraction rules:
       // .includes() matched an op once however many times a person appeared on it.
       if (!start || !end) return;
       const share = (hpd || 0) / Math.max(1, (team || []).length);
+      // `hpd` on a job/panel/op is that item's TOTAL estimate — opHrs(op) IS op.hpd —
+      // NOT a daily rate, despite the name; the org-level hpd is the daily one. bookedHrs
+      // adds a span's `h` on EVERY day the span covers, so storing the total re-booked
+      // the whole estimate once per day: a 75h op across 10 work days reported 750h, and
+      // one person's Planned Hours came to 2569h in a 12-work-day pay period.
+      //
+      // Spreading the estimate across the work days it covers makes the units right:
+      // bookedHrs(pid, date) is hours booked on that date, summing a window gives the
+      // estimate landing in that window, and summing the whole span gives the estimate.
+      const perDay = share / Math.max(1, spanWorkDays(start, end));
       const seen = new Set();
       (team || []).forEach(pid => {
         const k = idKey(pid);
@@ -7573,7 +7659,7 @@ Extraction rules:
         seen.add(k);
         let arr = byPerson.get(k);
         if (!arr) { arr = []; byPerson.set(k, arr); }
-        arr.push({ start, end, h: share });
+        arr.push({ start, end, h: perDay });
       });
     };
     tasks.forEach(t => {
@@ -7585,7 +7671,7 @@ Extraction rules:
       }
     });
     return byPerson;
-  }, [tasks]);
+  }, [tasks, spanWorkDays]);
   const bookedHrs = useCallback((pid, date) => {
     if (isOff(pid, date)) return 0;
     const spans = bookedIntervals.get(idKey(pid));
@@ -9408,7 +9494,38 @@ ${jobsCtx || "No jobs found."}`;
   const canApprove = loggedInUser && (loggedInUser.userRole === "admin" || loggedInUser.canSignOff === true || loggedInUser.isEngineer === true);
   // Approval Queue page visibility: tighter than canApprove — only admins or users with the
   // Permissions → Sign-off access toggle on. Engineers without sign-off don't see the page.
-  const canSeeApprovalQueue = loggedInUser && (loggedInUser.userRole === "admin" || loggedInUser.canSignOff === true);
+  // ── Approval activity trail (panel.apprLog) ───────────────────────────────────
+  //
+  // Append-only: every approval mutation records who did what, and when. The Activity
+  // cell reads the last entry.
+  //
+  // This cannot be derived from the step records. A signature lives ON the step, so
+  // reverting one erases it — a derived "latest" would silently fall back to an OLDER
+  // signature and read as though nothing happened. Editing the step list has no step
+  // record at all. Only an explicit log can say "reverted Approve" or "steps changed".
+  //
+  // Capped so tasks.json cannot grow without bound; the trail is a recent-activity
+  // feed, not an audit archive.
+  const APPR_LOG_CAP = 20;
+  // Append one entry to a node's trail and return the new (capped) array.
+  const apprLogAppend = (node, action, stepLabel) => [
+    ...(Array.isArray(node?.apprLog) ? node.apprLog : []),
+    { action, step: stepLabel || "", by: loggedInUser?.id ?? null, byName: loggedInUser?.name || "", at: new Date().toISOString() },
+  ].slice(-APPR_LOG_CAP);
+  const withApprLog = (panel, action, stepLabel) => ({
+    ...panel,
+    apprLog: apprLogAppend(panel, action, stepLabel),
+  });
+  // Newest entry on one node's own trail, or null if it has none.
+  const newestApprLog = (node) => {
+    const log = Array.isArray(node?.apprLog) ? node.apprLog : [];
+    if (!log.length) return null;
+    return log.reduce((best, e) => {
+      const t = new Date(e?.at || 0).getTime();
+      return Number.isFinite(t) && t > new Date(best?.at || 0).getTime() ? e : best;
+    }, log[0]);
+  };
+
   const signOffEngineering = (jobId, panelId, step) => {
     if (!canApprove) return;
     const record = { by: loggedInUser.id, byName: loggedInUser.name, at: new Date().toISOString() };
@@ -9417,10 +9534,10 @@ ${jobsCtx || "No jobs found."}`;
         job.id !== jobId ? job : {
           ...job,
           subs: (job.subs || []).map(panel =>
-            panel.id !== panelId ? panel : {
+            panel.id !== panelId ? panel : withApprLog({
               ...panel,
               engineering: { designed: null, verified: null, sentToPerforex: null, ...(panel.engineering || {}), [step]: record }
-            }
+            }, "signed", approvalSteps.find(s => s.key === step)?.label || step)
           )
         }
       );
@@ -9450,10 +9567,10 @@ ${jobsCtx || "No jobs found."}`;
       job.id !== jobId ? job : {
         ...job,
         subs: (job.subs || []).map(panel =>
-          panel.id !== panelId ? panel : {
+          panel.id !== panelId ? panel : withApprLog({
             ...panel,
             engineering: { ...(panel.engineering || {}), ...Object.fromEntries(toRevert.map(s => [s, null])) }
-          }
+          }, "reverted", approvalSteps.find(s => s.key === step)?.label || step)
         )
       }
     ));
@@ -9465,39 +9582,17 @@ ${jobsCtx || "No jobs found."}`;
   ];
   const approverLabel = orgSettings.approverLabel || "Approver";
   const queueLabel = orgSettings.approvalQueueLabel || "Approval Queue";
-  // ── Standalone approval CRUD (persisted in orgSettings.approvals) ──
-  const upsertApproval = (appr) => setOrgSettings(s => {
-    const list = s.approvals || [];
-    return { ...s, approvals: list.some(a => a.id === appr.id) ? list.map(a => a.id === appr.id ? { ...a, ...appr } : a) : [...list, appr] };
-  });
-  const deleteApproval = (id) => setOrgSettings(s => ({ ...s, approvals: (s.approvals || []).filter(a => a.id !== id) }));
-  const signApprovalStep = (id, idx) => {
-    // Allowed when you can approve, OR this step is assigned to you (an explicit assignee can sign
-    // their own step even without general approval rights).
-    const step = (orgSettings.approvals || []).find(a => a.id === id)?.steps?.[idx];
-    const mine = !!(step?.assigneeId && String(step.assigneeId) === String(loggedInUser?.id));
-    if (!canApprove && !mine) return;
-    setOrgSettings(s => ({ ...s, approvals: (s.approvals || []).map(a => a.id !== id ? a : { ...a, steps: (a.steps || []).map((st, i) => i !== idx ? st : { ...st, done: true, by: loggedInUser?.id || null, byName: loggedInUser?.name || "Admin", at: new Date().toISOString() }) }) }));
-  };
-  const revertApprovalStep = (id, idx) => setOrgSettings(s => ({ ...s, approvals: (s.approvals || []).map(a => a.id !== id ? a : { ...a, steps: (a.steps || []).map((st, i) => i !== idx ? st : { ...st, done: false, by: null, byName: "", at: null }) }) }));
-  // Open the create/edit approval modal. Picking a template seeds dept + steps (still editable).
-  const openApprovalModal = (existing) => {
-    if (existing) setApprovalModal({ id: existing.id, title: existing.title || "", clientId: existing.clientId || "", templateId: existing.templateId || "", dept: existing.dept || "", steps: (existing.steps || []).map(s => ({ ...s })), dueDate: existing.dueDate || "" });
-    else { const t0 = signOffTemplates[0]; setApprovalModal({ title: "", clientId: "", templateId: t0?.id || "", dept: t0?.name || queueLabel, steps: (t0?.steps || []).map(l => ({ label: l, done: false })), dueDate: "" }); }
-  };
   // ── Per-panel editable approval chain (panel.apprChain) — lets ANY job-derived approval
   //    (including fast-traqs engineering ones) have custom, add/remove-able steps. ──
-  const setPanelChain = (jobId, panelId, steps) => setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : { ...p, apprChain: steps }) }));
-  const removePanelChain = (jobId, panelId) => setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => { if (p.id !== panelId) return p; const { apprChain, ...rest } = p; return rest; }) }));
-  const signChainStep = (jobId, panelId, idx) => { const step = tasks.find(j => j.id === jobId)?.subs?.find(p => p.id === panelId)?.apprChain?.[idx]; const mine = !!(step?.assigneeId && String(step.assigneeId) === String(loggedInUser?.id)); if (!canApprove && !mine) return; setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : { ...p, apprChain: (p.apprChain || []).map((st, i) => i !== idx ? st : { ...st, done: true, by: loggedInUser?.id || null, byName: loggedInUser?.name || "Admin", at: new Date().toISOString() }) }) })); };
-  const revertChainStep = (jobId, panelId, idx) => { if (!canApprove) return; setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : { ...p, apprChain: (p.apprChain || []).map((st, i) => i !== idx ? st : { ...st, done: false, by: null, byName: "", at: null }) }) })); };
+  const setPanelChain = (jobId, panelId, steps) => setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : withApprLog({ ...p, apprChain: steps }, "steps", `to ${steps.length} step${steps.length === 1 ? "" : "s"}`)) }));
+  const removePanelChain = (jobId, panelId) => setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => { if (p.id !== panelId) return p; const { apprChain, ...rest } = p; return withApprLog(rest, "removed", ""); }) }));
+  const signChainStep = (jobId, panelId, idx) => { const step = tasks.find(j => j.id === jobId)?.subs?.find(p => p.id === panelId)?.apprChain?.[idx]; const mine = !!(step?.assigneeId && String(step.assigneeId) === String(loggedInUser?.id)); if (!canApprove && !mine) return; setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : withApprLog({ ...p, apprChain: (p.apprChain || []).map((st, i) => i !== idx ? st : { ...st, done: true, by: loggedInUser?.id || null, byName: loggedInUser?.name || "Admin", at: new Date().toISOString() }) }, "signed", step?.label || "")) })); };
+  const revertChainStep = (jobId, panelId, idx) => { if (!canApprove) return; const rLabel = tasks.find(j => sameId(j.id, jobId))?.subs?.find(p => sameId(p.id, panelId))?.apprChain?.[idx]?.label || ""; setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : withApprLog({ ...p, apprChain: (p.apprChain || []).map((st, i) => i !== idx ? st : { ...st, done: false, by: null, byName: "", at: null }) }, "reverted", rLabel)) })); };
   // Open the modal to edit a job panel's approval steps (chain mode). Seeds from an existing
   // chain, or from the row's current steps (engineering/template) preserving done-state.
   const editPanelApproval = (jobId, panelId, headerTitle, seedSteps) => setApprovalModal({ target: { kind: "chain", jobId, panelId }, title: headerTitle || "Approval", steps: (seedSteps || []).map(s => ({ ...s })), clientId: "", templateId: "", dept: "", dueDate: "" });
   // ── Approval comments. Standalone → approval.comments; job rows → panel.apprComments[key]. ──
   const _newComment = (text) => ({ text: text.trim(), by: loggedInUser?.id || null, byName: loggedInUser?.name || "Admin", at: new Date().toISOString() });
-  const addApprovalComment = (id, text) => { if (!text.trim()) return; setOrgSettings(s => ({ ...s, approvals: (s.approvals || []).map(a => a.id !== id ? a : { ...a, comments: [...(a.comments || []), _newComment(text)] }) })); };
-  const delApprovalComment = (id, idx) => setOrgSettings(s => ({ ...s, approvals: (s.approvals || []).map(a => a.id !== id ? a : { ...a, comments: (a.comments || []).filter((_, i) => i !== idx) }) }));
   const addPanelComment = (jobId, panelId, key, text) => { if (!text.trim()) return; setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : { ...p, apprComments: { ...(p.apprComments || {}), [key]: [...((p.apprComments || {})[key] || []), _newComment(text)] } }) })); };
   const delPanelComment = (jobId, panelId, key, idx) => setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : { ...p, apprComments: { ...(p.apprComments || {}), [key]: ((p.apprComments || {})[key] || []).filter((_, i) => i !== idx) } }) }));
   const isEngComplete = (panel) => {
@@ -9509,17 +9604,18 @@ ${jobsCtx || "No jobs found."}`;
   const signOffStep = (jobId, panelId, templateId, stepIdx) => {
     if (!canApprove) return;
     const record = { by: loggedInUser.id, byName: loggedInUser.name, at: new Date().toISOString() };
+    const sLabel = signOffTemplates.find(t => sameId(t.id, templateId))?.steps?.[stepIdx] || "";
     setTasks(prev => prev.map(job =>
       job.id !== jobId ? job : {
         ...job,
         subs: (job.subs || []).map(panel =>
-          panel.id !== panelId ? panel : {
+          panel.id !== panelId ? panel : withApprLog({
             ...panel,
             signOffs: {
               ...(panel.signOffs || {}),
               [templateId]: { ...((panel.signOffs || {})[templateId] || {}), [String(stepIdx)]: record },
             },
-          }
+          }, "signed", sLabel)
         ),
       }
     ));
@@ -9530,7 +9626,7 @@ ${jobsCtx || "No jobs found."}`;
       job.id !== jobId ? job : {
         ...job,
         subs: (job.subs || []).map(panel =>
-          panel.id !== panelId ? panel : {
+          panel.id !== panelId ? panel : withApprLog({
             ...panel,
             signOffs: {
               ...(panel.signOffs || {}),
@@ -9539,7 +9635,7 @@ ${jobsCtx || "No jobs found."}`;
                   .map(([k, v]) => [k, Number(k) >= stepIdx ? null : v])
               ),
             },
-          }
+          }, "reverted", signOffTemplates.find(t => sameId(t.id, templateId))?.steps?.[stepIdx] || "")
         ),
       }
     ));
@@ -10843,6 +10939,148 @@ ${jobsCtx || "No jobs found."}`;
 
   // Sign-Off Template queues (new system)
   const signOffTemplates = orgSettings.signOffTemplates || [];
+
+  // ── Row approval state (drives the Approval + Activity jobs-grid cells) ────────
+  //
+  // Replaces the old Approval Queue page: the same four approval shapes the queue
+  // used to flatten into rows are now read per grid row instead.
+  //
+  // A panel carries at most one active shape, in this precedence:
+  //   1. panel.apprChain[]              — a custom per-panel chain, supersedes the rest
+  //   2. panel.signOffs[templateId]     — one chain per enabled sign-off template
+  //   3. panel.engineering.{...}        — the default chain, seeded on panel creation,
+  //                                      which is why the cell populates on its own
+  // A job (level 0) has no approval of its own, so it rolls its panels up. Ops
+  // (level 2) have none at all and render empty.
+  //
+  // Shape: { kind, steps: [{ label, rec: {byName, at} | null, assigneeId }],
+  //          done, total, latest: {byName, label, at} | null, sign(idx), panelCount }
+  const apprStateFor = (item, level, jobId, panelId) => {
+    const latestOf = (steps) => {
+      let best = null, bestAt = 0;
+      steps.forEach(st => {
+        if (!st.rec || !st.rec.at) return;
+        const t = new Date(st.rec.at).getTime();
+        if (Number.isFinite(t) && t > bestAt) { bestAt = t; best = { byName: st.rec.byName || "", label: st.label, at: st.rec.at }; }
+      });
+      return best;
+    };
+    // The single chain a panel is actually running.
+    const forPanel = (job, panel) => {
+      if (!panel) return null;
+      if (Array.isArray(panel.apprChain)) {
+        const steps = panel.apprChain.map((st, i) => ({ label: st.label, rec: st.done ? { byName: st.byName, at: st.at } : null, assigneeId: st.assigneeId || null }));
+        return { kind: "chain", steps, sign: (i) => signChainStep(job.id, panel.id, i) };
+      }
+      const tmpl = signOffTemplates.find(t => (panel.signOffs || {})[t.id] !== undefined && (panel.signOffs || {})[t.id] !== null);
+      if (tmpl) {
+        const so = (panel.signOffs || {})[tmpl.id] || {};
+        const steps = (tmpl.steps || []).map((label, i) => ({ label, rec: so[String(i)] || null, assigneeId: null }));
+        return { kind: "signoff", steps, sign: (i) => signOffStep(job.id, panel.id, tmpl.id, i) };
+      }
+      if (panel.engineering !== undefined) {
+        const e = panel.engineering || {};
+        const steps = approvalSteps.map(st => ({ label: st.label, rec: e[st.key] || null, assigneeId: null, _key: st.key }));
+        return { kind: "engineering", steps, sign: (i) => signOffEngineering(job.id, panel.id, approvalSteps[i].key) };
+      }
+      return null;
+    };
+    const logOf = newestApprLog;
+    const finish = (base, panelCount, panel) => {
+      if (!base) return null;
+      const done = base.steps.filter(st => st.rec).length;
+      return { ...base, done, total: base.steps.length, latest: latestOf(base.steps), log: logOf(panel), panelCount };
+    };
+
+    if (level === 1) {
+      const job = (jobId != null ? tasks.find(j => sameId(j.id, jobId)) : null)
+           || tasks.find(j => (j.subs || []).some(pn => sameId(pn.id, item.id)));
+      return finish(forPanel(job, item), 1, item);
+    }
+    if (level === 0) {
+      // Job rollup: sum every panel's chain, and report the newest signature across them.
+      const panels = (item.subs || []).map(pn => forPanel(item, pn)).filter(Boolean);
+      if (!panels.length) return null;
+      let done = 0, total = 0, latest = null, latestAt = 0, log = null, logAt = 0;
+      panels.forEach(st => {
+        done += st.steps.filter(x => x.rec).length;
+        total += st.steps.length;
+        const l = latestOf(st.steps);
+        if (l) { const t = new Date(l.at).getTime(); if (t > latestAt) { latestAt = t; latest = l; } }
+      });
+      (item.subs || []).forEach(pn => {
+        const e = logOf(pn);
+        if (!e) return;
+        const t = new Date(e.at || 0).getTime();
+        if (Number.isFinite(t) && t > logAt) { logAt = t; log = e; }
+      });
+      return { kind: "rollup", steps: [], done, total, latest, log, panelCount: panels.length, sign: null };
+    }
+    return null;
+  };
+  // ── What the Activity cell prints for one row ─────────────────────────────────
+  //
+  // Three sources, newest wins:
+  //   1. the row's OWN apprLog — an Approval-dropdown change, or a chain action
+  //      recorded on that panel
+  //   2. for a job row, the newest entry across its panels, so a collapsed job
+  //      still reports what happened underneath it
+  //   3. a legacy fallback: the newest signature still sitting on the steps, for
+  //      panels signed before the log existed
+  const apprActivityFor = (item, level, jobId, panelId) => {
+    const at = e => new Date(e?.at || 0).getTime();
+    let best = newestApprLog(item);
+    if (level === 0) {
+      for (const pn of (item.subs || [])) {
+        const e = newestApprLog(pn);
+        if (e && (!best || at(e) > at(best))) best = e;
+      }
+    }
+    if (best) {
+      return { verb: APPR_VERB[best.action] || best.action || "Changed", step: best.step || "", byName: best.byName || "", at: best.at };
+    }
+    const st = apprStateFor(item, level, jobId, panelId);
+    const fb = st && st.latest;
+    return fb ? { verb: APPR_VERB.signed, step: fb.label || "", byName: fb.byName || "", at: fb.at } : null;
+  };
+  // Cell keys of custom columns acting as the approval dropdown. Matched by label
+  // so the COL_TEMPLATES "Approval" column (and any column renamed to Approval)
+  // is picked up without needing its own fieldKey.
+  const apprSelectKeys = useMemo(
+    () => new Set(
+      (customCols || [])
+        .filter(c => (c.label || "").trim().toLowerCase() === "approval")
+        .map(c => c.fieldKey || ("_cc_" + c.id))
+    ),
+    [customCols]
+  );
+  // Find a job / panel / op by id anywhere in the tree.
+  const findTaskNode = (id) => {
+    for (const j of tasks) {
+      if (sameId(j.id, id)) return j;
+      for (const pn of (j.subs || [])) {
+        if (sameId(pn.id, id)) return pn;
+        const op = (pn.subs || []).find(o => sameId(o.id, id));
+        if (op) return op;
+      }
+    }
+    return null;
+  };
+  // Apply a grid cell edit. When the edited column is the Approval dropdown this also
+  // appends to the row's activity trail, which is what the Activity column reports.
+  // Every cell-commit path routes through here — the inline editor AND the select
+  // popover, which used to call updTask directly and so recorded nothing.
+  const commitCellEdit = (id, key, val, pid) => {
+    const patch = { [key]: val };
+    if (apprSelectKeys.has(key)) {
+      // "—" is the dropdown's own empty option, so choosing it reads as a clear
+      // rather than as setting the value to a dash.
+      const v = String(val ?? "").trim();
+      const isClear = !v || v === "—";
+      patch.apprLog = apprLogAppend(findTaskNode(id), isClear ? "cleared" : "set", isClear ? "" : v);
+    }
+    updTask(id, patch, pid || null);
+  };
   const signOffQueueByTemplate = signOffTemplates.map(tmpl => {
     const pending = [], finished = [];
     tasks.forEach(job => {
@@ -11104,214 +11342,6 @@ ${jobsCtx || "No jobs found."}`;
     </div>;
   };
 
-  // Standalone Approval Queue page — list-view-style grid: jobs at level 0, drop down
-  // (gridRowIn/gridRowOut animations) to panel-workflow rows where each approval step
-  // renders inline. Reuses the existing expandedJobs/closingJobs + toggleJobExpand so the
-  // collapse animation matches the Jobs grid exactly.
-  const renderApprovalQueue = () => {
-    const userDept = (loggedInUser?.department || "").toLowerCase();
-    const visibleFor = (deptName) => isAdmin || userDept === (deptName || "").toLowerCase();
-    const fmtWhen = (at) => { if (!at) return ""; const d = new Date(at); return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " · " + d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }); };
-    // Build a flat list of approval rows: standalone approvals + one row per job panel-workflow.
-    const entries = [];
-    (orgSettings.approvals || []).forEach(a => {
-      const tmpl = signOffTemplates.find(t => t.id === a.templateId);
-      const deptLabel = a.dept || tmpl?.name || queueLabel;
-      if (!visibleFor(deptLabel)) return;
-      const steps = (a.steps || []).map((st, i) => ({ key: i, label: st.label, rec: st.done ? { byName: st.byName, at: st.at } : null, assigneeId: st.assigneeId || null }));
-      const doneCount = steps.filter(s => s.rec).length;
-      let lastAt = 0, lastBy = "", lastLabel = "";
-      steps.forEach(s => { if (s.rec) { const at = new Date(s.rec.at).getTime(); if (at > lastAt) { lastAt = at; lastBy = s.rec.byName || ""; lastLabel = s.label; } } });
-      entries.push({ id: "appr:" + a.id, kind: "standalone", priority: a.priority || "Medium", approvalId: a.id, title: a.title || "Untitled approval", subtitle: a.dueDate ? ("Due " + fm(a.dueDate)) : "", jobNumber: null, clientId: a.clientId || null, deptLabel, typeKey: "__standalone__", typeLabel: "Standalone Approvals", steps, doneCount, totalCount: steps.length, activeStepIdx: steps.findIndex(s => !s.rec), isDone: steps.length > 0 && doneCount === steps.length, lastAt, lastBy, lastLabel, editable: true });
-    });
-    tasks.forEach(job => (job.subs || []).forEach(panel => {
-      signOffTemplates.forEach(t => {
-        const so = (panel.signOffs || {})[t.id];
-        if (so === undefined || so === null) return;
-        if (!visibleFor(t.name)) return;
-        const steps = t.steps.map((label, i) => ({ key: i, label, rec: so[String(i)] }));
-        const doneCount = steps.filter(s => s.rec).length;
-        let lastAt = 0, lastBy = "", lastLabel = "";
-        steps.forEach(s => { if (s.rec) { const at = new Date(s.rec.at).getTime(); if (at > lastAt) { lastAt = at; lastBy = s.rec.byName || ""; lastLabel = s.label; } } });
-        entries.push({ id: panel.id + ":so:" + t.id, kind: "signoff", priority: job.pri || "Medium", job, panel, template: t, title: job.title, subtitle: panel.title, jobNumber: job.jobNumber || null, clientId: job.clientId || null, deptLabel: t.name, typeKey: t.id, typeLabel: t.name, steps, doneCount, totalCount: steps.length, activeStepIdx: steps.findIndex(s => !s.rec), isDone: steps.length > 0 && doneCount === steps.length, lastAt, lastBy, lastLabel, editable: false });
-      });
-      // A custom per-panel chain supersedes the engineering workflow and is fully editable.
-      if (Array.isArray(panel.apprChain) && visibleFor(queueLabel)) {
-        const steps = panel.apprChain.map((st, i) => ({ key: i, label: st.label, rec: st.done ? { byName: st.byName, at: st.at } : null, assigneeId: st.assigneeId || null }));
-        const doneCount = steps.filter(s => s.rec).length;
-        let lastAt = 0, lastBy = "", lastLabel = "";
-        steps.forEach(s => { if (s.rec) { const at = new Date(s.rec.at).getTime(); if (at > lastAt) { lastAt = at; lastBy = s.rec.byName || ""; lastLabel = s.label; } } });
-        entries.push({ id: panel.id + ":chain", kind: "chain", priority: job.pri || "Medium", job, panel, title: job.title, subtitle: panel.title, jobNumber: job.jobNumber || null, clientId: job.clientId || null, deptLabel: queueLabel, typeKey: "__eng__", typeLabel: queueLabel, steps, doneCount, totalCount: steps.length, activeStepIdx: steps.findIndex(s => !s.rec), isDone: steps.length > 0 && doneCount === steps.length, lastAt, lastBy, lastLabel, editable: true });
-      } else if (panel.engineering !== undefined && visibleFor(queueLabel)) {
-        const e = panel.engineering || {};
-        const steps = approvalSteps.map(s => ({ key: s.key, label: s.label, rec: e[s.key] }));
-        const doneCount = steps.filter(s => s.rec).length;
-        let lastAt = 0, lastBy = "", lastLabel = "";
-        steps.forEach(s => { if (s.rec) { const at = new Date(s.rec.at).getTime(); if (at > lastAt) { lastAt = at; lastBy = s.rec.byName || ""; lastLabel = s.label; } } });
-        entries.push({ id: panel.id + ":eng", kind: "eng", priority: job.pri || "Medium", job, panel, title: job.title, subtitle: panel.title, jobNumber: job.jobNumber || null, clientId: job.clientId || null, deptLabel: queueLabel, typeKey: "__eng__", typeLabel: queueLabel, steps, doneCount, totalCount: steps.length, activeStepIdx: steps.findIndex(s => !s.rec), isDone: doneCount === steps.length, lastAt, lastBy, lastLabel, editable: false });
-      }
-    }));
-    // Search filter — title, panel/subtitle, job number, client, department, priority.
-    const _q = approvalSearch.trim().toLowerCase();
-    const fEntries = !_q ? entries : entries.filter(e => {
-      const cName = e.clientId ? (clients.find(c => c.id === e.clientId)?.name || "") : "";
-      return [e.title, e.subtitle, e.jobNumber, e.deptLabel, e.priority, cName].filter(Boolean).join(" ").toLowerCase().includes(_q);
-    });
-    // Group entries by the selected dimension.
-    const grpDef = {
-      type: e => ({ key: e.typeKey, label: e.typeLabel }),
-      client: e => { const c = e.clientId ? clients.find(x => x.id === e.clientId) : null; return { key: e.clientId || "__none__", label: c ? c.name : "No client", color: c?.color }; },
-      dept: e => ({ key: e.deptLabel || "—", label: e.deptLabel || "—" }),
-      status: e => e.isDone ? { key: "done", label: "Approved" } : { key: "pending", label: "Pending" },
-    };
-    const gd = grpDef[approvalGroupBy] || grpDef.type;
-    const buckets = new Map();
-    fEntries.forEach(e => { const { key, label, color } = gd(e); if (!buckets.has(key)) buckets.set(key, { key, label, color, items: [] }); buckets.get(key).items.push(e); });
-    const sections = [...buckets.values()];
-    sections.forEach(sec => sec.items.sort((a, b) => (a.isDone !== b.isDone) ? (a.isDone ? 1 : -1) : (b.lastAt - a.lastAt)));
-    if (approvalGroupBy === "status") sections.sort((a, b) => a.key === "pending" ? -1 : 1);
-    else sections.sort((a, b) => String(a.label).localeCompare(String(b.label)));
-    const empty = fEntries.length === 0;
-    const noMatches = empty && !!_q && entries.length > 0;
-    const COLS = "minmax(190px,1.4fr) 120px 120px 104px minmax(220px,1.8fr) 150px minmax(210px,1.7fr)";
-    const cellBase = { padding: "9px 12px", fontSize: 13, color: T.text, fontFamily: T.font, borderRight: `1.25px solid ${T.border}`, display: "flex", alignItems: "center", minWidth: 0, overflow: "hidden" };
-    const hdrCell = { ...cellBase, fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", padding: "10px 12px", background: T.surface };
-    const groupOpts = [["type", "Type"], ["client", "Client"], ["dept", "Department"], ["status", "Status"]];
-    const signStep = (e, sIdx) => { if (e.kind === "standalone") signApprovalStep(e.approvalId, sIdx); else if (e.kind === "chain") signChainStep(e.job.id, e.panel.id, sIdx); else if (e.kind === "signoff") signOffStep(e.job.id, e.panel.id, e.template.id, sIdx); else signOffEngineering(e.job.id, e.panel.id, e.steps[sIdx].key); };
-    const revertStepFor = (e, sIdx) => { if (e.kind === "standalone") revertApprovalStep(e.approvalId, sIdx); else if (e.kind === "chain") revertChainStep(e.job.id, e.panel.id, sIdx); else if (e.kind === "signoff") revertStep(e.job.id, e.panel.id, e.template.id, sIdx); else revertEngineering(e.job.id, e.panel.id, e.steps[sIdx].key); };
-    // Cycle an approval's priority to the next custom option. Standalone approvals carry their own
-    // priority; job-derived rows reflect (and set) the parent job's priority.
-    const cycleApprovalPri = (e) => {
-      const opts = PRIORITIES.length ? PRIORITIES : ["Medium"];
-      const next = opts[(opts.indexOf(e.priority || "Medium") + 1) % opts.length];
-      if (e.kind === "standalone") setOrgSettings(s => ({ ...s, approvals: (s.approvals || []).map(a => a.id === e.approvalId ? { ...a, priority: next } : a) }));
-      else if (e.job) updTask(e.job.id, { pri: next });
-    };
-    // Right-click the Priority header/cell → the shared priority-options editor (same as the jobs
-    // page). approvalMode hides the jobs-grid-only items (rename/add/delete column).
-    const openPriEditor = (ev) => { ev.preventDefault(); ev.stopPropagation(); setColCtxMenu({ x: ev.clientX, y: ev.clientY, colId: "pri", isCustom: false, approvalMode: true }); };
-    return <div style={{ display: "flex", flexDirection: "column", gap: 4, paddingTop: 6 }}>
-      <div className="tq-pagehdr" style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16, minHeight: 50, flexWrap: "wrap" }}>
-        <h1 style={pageTitle()}>{queueLabel}</h1>
-        {fEntries.length > 0 && <span style={{ fontSize: 13, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 16, padding: "3px 12px", flexShrink: 0 }}>{fEntries.length}</span>}
-        <div style={{ position: "relative", flex: 1, maxWidth: 320, minWidth: 160 }}>
-          <svg style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input value={approvalSearch} onChange={e => setApprovalSearch(e.target.value)} placeholder="Search approvals…" style={{ width: "100%", padding: "8px 28px 8px 30px", borderRadius: T.radiusPill, border: `1px solid ${approvalSearch ? T.accent + "88" : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
-          {approvalSearch && <button onClick={() => setApprovalSearch("")} title="Clear" style={{ position: "absolute", right: 6, top: "50%", transform: "translateY(-50%)", width: 18, height: 18, borderRadius: "50%", border: "none", background: "transparent", color: T.text, fontSize: 12, lineHeight: 1, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>×</button>}
-        </div>
-        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-          <div style={{ position: "relative" }}>
-            <button onClick={ev => { ev.stopPropagation(); setApprovalGroupOpen(o => !o); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
-              Group: {(groupOpts.find(g => g[0] === approvalGroupBy) || groupOpts[0])[1]}
-            </button>
-            {approvalGroupOpen && <><div onClick={() => setApprovalGroupOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} /><div className="anim-drop" style={{ position: "absolute", top: "calc(100% + 4px)", right: 0, zIndex: 41, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, boxShadow: "0 12px 32px rgba(0,0,0,0.4)", overflow: "hidden", minWidth: 150 }}>
-              {groupOpts.map(([k, lbl]) => <button key={k} onClick={() => { setApprovalGroupBy(k); setApprovalGroupOpen(false); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 14px", background: approvalGroupBy === k ? T.accent + "12" : "transparent", border: "none", color: approvalGroupBy === k ? T.accent : T.text, fontSize: 13, fontWeight: approvalGroupBy === k ? 700 : 500, cursor: "pointer", fontFamily: T.font }} onMouseEnter={ev => { if (approvalGroupBy !== k) ev.currentTarget.style.background = T.hover; }} onMouseLeave={ev => { if (approvalGroupBy !== k) ev.currentTarget.style.background = "transparent"; }}>{lbl}</button>)}
-            </div></>}
-          </div>
-          <button onClick={() => openApprovalModal(null)} style={{ padding: "7px 14px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 6px ${T.accent}44` }}>+ New Approval</button>
-        </div>
-      </div>
-      {/* Time-off requests are delivered via chat (Messages) with in-bubble
-          Approve/Deny — no longer surfaced in the approval queue. */}
-      {empty && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "70px 24px", textAlign: "center", gap: 12 }}>
-        <div style={{ opacity: 0.35 }}><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg></div>
-        <h3 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: T.text }}>{noMatches ? "No approvals match your search" : "Nothing waiting for approval"}</h3>
-        <p style={{ margin: "2px auto 0", fontSize: 14, color: T.textSec, maxWidth: 360, lineHeight: 1.65 }}>{noMatches ? "Try a different search term, or clear the search to see everything." : "Create a standalone approval with “+ New Approval”, or pending job sign-offs will show up here automatically."}</p>
-      </div>}
-      {!empty && <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-        {sections.map(section => (
-          <div key={section.key}>
-            {String(section.label) !== String(queueLabel) && <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-              {section.color && <div style={{ width: 12, height: 12, borderRadius: 8, background: section.color, flexShrink: 0 }} />}
-              <h3 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: T.text, letterSpacing: "-0.045em" }}>{section.label}</h3>
-              <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "18", borderRadius: 16, padding: "2px 10px" }}>{section.items.length}</span>
-            </div>}
-            <div className="tq-frost" style={{ borderRadius: T.radius, border: `1.25px solid ${T.border}`, background: T.card, overflowX: "auto" }}>
-              <div style={{ minWidth: 1234 }}>
-                <div style={{ display: "grid", gridTemplateColumns: COLS, borderBottom: `1.875px solid ${T.border}`, background: T.surface }}>
-                  <div style={hdrCell}>Approval</div>
-                  <div style={hdrCell}>Client</div>
-                  <div style={hdrCell}>Department</div>
-                  <div style={{ ...hdrCell, cursor: "context-menu" }} onContextMenu={openPriEditor} title="Right-click to edit priority options">Priority</div>
-                  <div style={hdrCell}>Progress</div>
-                  <div style={hdrCell}>Last Activity</div>
-                  <div style={{ ...hdrCell, borderRight: "none" }}>Comments</div>
-                </div>
-                {section.items.map(e => {
-                  const bar = e.isDone ? "#10b981" : T.accent;
-                  const pct = e.totalCount > 0 ? Math.round((e.doneCount / e.totalCount) * 100) : 0;
-                  const client = e.clientId ? clients.find(c => c.id === e.clientId) : null;
-                  const comments = e.kind === "standalone" ? ((orgSettings.approvals || []).find(a => a.id === e.approvalId)?.comments || []) : ((e.panel.apprComments || {})[e.typeKey] || []);
-                  const addComment = txt => e.kind === "standalone" ? addApprovalComment(e.approvalId, txt) : addPanelComment(e.job.id, e.panel.id, e.typeKey, txt);
-                  const delComment = idx => e.kind === "standalone" ? delApprovalComment(e.approvalId, idx) : delPanelComment(e.job.id, e.panel.id, e.typeKey, idx);
-                  const mkCtx = ev => {
-                    ev.preventDefault();
-                    if (e.kind === "standalone") setApprovalCtx({ x: ev.clientX, y: ev.clientY, kind: "standalone", approvalId: e.approvalId });
-                    else if (e.kind === "signoff") setApprovalCtx({ x: ev.clientX, y: ev.clientY, kind: "signoff", templateId: e.template.id, templateName: e.template.name });
-                    else setApprovalCtx({ x: ev.clientX, y: ev.clientY, kind: "panel", jobId: e.job.id, panelId: e.panel.id, headerTitle: `${e.title} · ${e.subtitle}`, hasChain: e.kind === "chain", seed: e.steps.map(s => ({ label: s.label, done: !!s.rec, by: s.rec?.by || null, byName: s.rec?.byName || "", at: s.rec?.at || null, assigneeId: s.assigneeId || null })) });
-                  };
-                  return <div key={e.id} onContextMenu={mkCtx}
-                    style={{ display: "grid", gridTemplateColumns: COLS, borderBottom: `1.25px solid ${T.border}`, transition: "background 0.15s", cursor: "context-menu" }}
-                    onMouseEnter={ev => ev.currentTarget.style.background = T.hover} onMouseLeave={ev => ev.currentTarget.style.background = "transparent"}>
-                    <div style={{ ...cellBase, gap: 4, position: "relative", flexDirection: "column", alignItems: "flex-start", justifyContent: "center" }}>
-                      <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: bar }} />
-                      <div style={{ display: "flex", alignItems: "center", gap: 7, maxWidth: "100%" }}>
-                        {e.kind === "standalone" && <span style={{ fontSize: 9, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 8, padding: "1px 5px", flexShrink: 0, textTransform: "uppercase", letterSpacing: "-0.045em" }}>New</span>}
-                        <span style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.title}</span>
-                        {e.isDone && <span style={{ fontSize: 10, fontWeight: 700, color: "#10b981", background: "#10b98118", borderRadius: 12, padding: "1px 7px", flexShrink: 0 }}>✓ Done</span>}
-                      </div>
-                      {(e.subtitle || e.jobNumber) && <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{e.jobNumber ? <span style={{ color: T.accent, fontWeight: 700, fontFamily: T.mono }}>#{e.jobNumber}</span> : null}{e.jobNumber && e.subtitle ? " · " : ""}{e.subtitle}</div>}
-                    </div>
-                    <div style={cellBase}>{client ? <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: elColor(client.color), fontWeight: 600, overflow: "hidden" }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: elColor(client.color), flexShrink: 0 }} /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{client.name}</span></span> : <span style={{ fontSize: 12, color: T.textDim }}>—</span>}</div>
-                    <div style={cellBase}><span style={{ fontSize: 11, fontWeight: 700, color: T.textSec, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "2px 8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.deptLabel}</span></div>
-                    <div style={{ ...cellBase, justifyContent: "center", cursor: "pointer" }} title="Click to change · right-click to edit options" onClick={ev => { ev.stopPropagation(); cycleApprovalPri(e); }} onContextMenu={openPriEditor}>
-                      {(() => { const pc = priColorOf(e.priority || "Medium"); return <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 12, background: pc + "1a", border: `1px solid ${pc}44`, fontSize: 11, fontWeight: 700, color: pc, userSelect: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.priority || "Medium"}</span>; })()}
-                    </div>
-                    <div style={cellBase}>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6, width: "100%" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div style={{ flex: 1, height: 6, borderRadius: 8, background: T.border, overflow: "hidden", minWidth: 40 }}><div style={{ height: "100%", width: pct + "%", background: bar, borderRadius: 8, transition: "width 0.3s" }} /></div>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: bar, fontFamily: T.mono, flexShrink: 0 }}>{e.doneCount}/{e.totalCount}</span>
-                        </div>
-                        <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                          {e.steps.map((s, sIdx) => {
-                            const assignee = s.assigneeId ? people.find(p => p.id === s.assigneeId) : null;
-                            const tag = assignee ? ` · ${assignee.name.split(" ")[0]}` : "";
-                            if (s.rec) return <Tip key={sIdx} label={`${s.rec.byName || ""}${s.rec.at ? " · " + new Date(s.rec.at).toLocaleDateString() : ""} — click to undo`}><button onClick={() => revertStepFor(e, sIdx)} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: T.radiusPill, background: "#10b98112", border: "1px solid #10b98140", fontSize: 11, fontWeight: 700, color: "#10b981", cursor: "pointer", fontFamily: T.font }}>✓ {s.label}</button></Tip>;
-                            const isActive = !e.isDone && sIdx === e.activeStepIdx;
-                            // Who may complete this step: if it has an assignee, only that person (admins may override);
-                            // if unassigned, anyone with approval ability. Otherwise the step is shown locked/greyed.
-                            const canDoThis = s.assigneeId ? (String(loggedInUser?.id) === String(s.assigneeId) || isAdmin) : canApprove;
-                            if (isActive && canDoThis) return <button key={sIdx} onClick={() => signStep(e, sIdx)} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 12px", borderRadius: T.radiusPill, background: brandGrad(T.accent), color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 6px ${T.accent}55` }}>→ {s.label}{tag}</button>;
-                            if (isActive) return <Tip key={sIdx} label={s.assigneeId ? `Assigned to ${assignee?.name || "someone else"} — only they can complete this step` : "You don't have approval access for this step"}><span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 11px", borderRadius: 16, background: T.surface, border: `1px solid ${T.border}`, fontSize: 11, fontWeight: 700, color: T.textDim, opacity: 0.85, cursor: "not-allowed" }}><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>{s.label}{tag}</span></Tip>;
-                            return <span key={sIdx} style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", borderRadius: 16, border: `1px dashed ${T.border}`, fontSize: 11, fontWeight: 500, color: T.textDim, opacity: 0.7 }}>○ {s.label}{tag}</span>;
-                          })}
-                          {e.steps.length === 0 && <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic" }}>No steps{e.editable ? " — right-click to add" : ""}</span>}
-                        </div>
-                      </div>
-                    </div>
-                    <div style={{ ...cellBase, flexDirection: "column", alignItems: "flex-start", justifyContent: "center", gap: 2 }}>
-                      {e.lastAt > 0 ? <><span style={{ fontSize: 11, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "100%" }}>{e.lastBy || "—"}{e.lastLabel && <span style={{ fontWeight: 400, color: T.textDim }}> · {e.lastLabel}</span>}</span><span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono }}>{fmtWhen(e.lastAt)}</span></> : <span style={{ color: T.textDim, fontSize: 12 }}>—</span>}
-                    </div>
-                    <div style={{ ...cellBase, borderRight: "none", flexDirection: "column", alignItems: "stretch", justifyContent: "center", gap: 5, padding: "8px 12px" }}>
-                      {comments.length > 0 && <div style={{ display: "flex", flexDirection: "column", gap: 3, maxHeight: 70, overflowY: "auto" }}>
-                        {comments.map((c, ci) => { const mine = c.by && loggedInUser && c.by === loggedInUser.id; const canDel = mine || isAdmin; return <div key={ci} style={{ display: "flex", alignItems: "flex-start", gap: 4, fontSize: 11, lineHeight: 1.35 }}>
-                          <span style={{ flex: 1, minWidth: 0 }}><span style={{ fontWeight: 700, color: T.accent }}>{c.byName}:</span> <span style={{ color: T.textSec }}>{c.text}</span></span>
-                          {canDel && <button onClick={() => delComment(ci)} title="Delete comment" style={{ flexShrink: 0, width: 14, height: 14, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, fontSize: 12, lineHeight: 1, cursor: "pointer", padding: 0 }}>×</button>}
-                        </div>; })}
-                      </div>}
-                      <ApprovalCommentInput onAdd={addComment} />
-                    </div>
-                  </div>;
-                })}
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>}
-    </div>;
-  };
 
   const renderTasks = () => {
     const sel = selTask ? (filtered.find(t => t.id === selTask) || tasks.find(t => t.id === selTask)) : null;
@@ -11556,7 +11586,7 @@ ${jobsCtx || "No jobs found."}`;
             {activeTasks.map(t => {
               const isSel = selTask === t.id;
               const client = t.clientId ? clients.find(c => c.id === t.clientId) : null;
-              const health = getHealth(t);
+              const health = healthOf(t);
               const healthColor = HEALTH_DOT[health];
               return <div key={t.id} onClick={() => { if (jobSelectMode) { setSelJobs(prev => { const n = new Set(prev); n.has(t.id) ? n.delete(t.id) : n.add(t.id); return n; }); } else { setSelTask(isSel ? null : t.id); } }}
                 style={{ background: isSel ? T.accent + "18" : T.card, borderRadius: T.radiusSm, border: `1.5px solid ${jobSelectMode && selJobs.has(t.id) ? T.accent + "99" : isSel ? T.accent + "66" : T.border}`, padding: "10px 12px", cursor: "pointer", transition: "all 0.15s ease", boxShadow: isSel ? `0 0 16px ${T.accent}15` : "none" }}
@@ -11649,9 +11679,9 @@ ${jobsCtx || "No jobs found."}`;
                     return <div key={col.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <span style={{ fontSize: 12, color: T.textDim, fontWeight: 600, minWidth: 90, flexShrink: 0 }}>{col.label}</span>
                       {col.type === "select" && (col.options || []).length > 0
-                        ? <div style={{ flex: 1 }}><SimpleDrop pill portal key={fresh.id + key} value={val} placeholder="—" options={[{ value: "", label: "—" }, ...(col.options || []).map(o => { const n = optName(o); return { value: n === "—" ? "" : n, label: n }; }).filter(o => o.value !== "")]} onChange={v => updTask(fresh.id, { [key]: v })} /></div>
+                        ? <div style={{ flex: 1 }}><SimpleDrop pill portal key={fresh.id + key} value={val} placeholder="—" options={[{ value: "", label: "—" }, ...(col.options || []).map(o => { const n = optName(o); return { value: n === "—" ? "" : n, label: n }; }).filter(o => o.value !== "")]} onChange={v => commitCellEdit(fresh.id, key, v)} /></div>
                         : col.type === "date"
-                        ? <DateField square compact value={val || ""} placeholder="—" style={{ flex: 1 }} onChange={v => updTask(fresh.id, { [key]: v })} />
+                        ? <DateField square compact value={val || ""} placeholder="—" style={{ flex: 1 }} onChange={v => commitCellEdit(fresh.id, key, v)} />
                         : <input className="tq-sq" key={fresh.id + key} type={col.type === "number" ? "number" : "text"} defaultValue={val} placeholder="—" style={{ flex: 1, padding: "5px 8px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: col.type === "number" ? T.mono : T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => { e.target.style.borderColor = T.border; updTask(fresh.id, { [key]: e.target.value }); }} />}
                     </div>;
                   })}
@@ -11729,7 +11759,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* ── List View (Grid) ── */}
       {taskSubView === "list" && (() => {
         const orderedStdCols = colOrder.map(id => STD_COL_DEFS.find(c => c.id === id)).filter(Boolean);
-        const customWidths = colWidths.slice(12, colWidths.length - 1);
+        const customWidths = colWidths.slice(13, colWidths.length - 1);
         const COL = [...orderedStdCols.map(c => colWidths[1 + c.i] + "px"), ...customWidths.map(w => w + "px"), "36px"].join(" ");
         const cellAlignJc = cellAlign === "right" ? "flex-end" : cellAlign === "center" ? "center" : "flex-start";
         const cellBase = { padding: "7px 10px", fontSize: 13, color: T.text, fontFamily: T.font, borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: cellAlignJc, minWidth: 0, overflow: "hidden" };
@@ -11784,7 +11814,7 @@ ${jobsCtx || "No jobs found."}`;
         const cycleStatusSub = (item, pid) => { const i = STATUSES.indexOf(item.status || "Not Started"); const next = STATUSES[(i + 1) % STATUSES.length]; if (next === "Finished") { setFinishApproval({ id: item.id, pid: pid || null, title: item.title, jobNumber: null }); } else { updTask(item.id, { status: next }, pid); } };
         const isEdit = (id, col) => gridCell?.id === id && gridCell?.col === col;
         const startEdit = (e, id, col) => { e.stopPropagation(); setGridCell({ id, col }); };
-        const commitEdit = (id, col, val, pid) => { updTask(id, { [col]: val }, pid || null); setGridCell(null); };
+        const commitEdit = (id, col, val, pid) => { commitCellEdit(id, col, val, pid); setGridCell(null); };
 
         // op.hpd is the TOTAL productive hours for the op (same interpretation the schedule renderer
         // and saveTask use). Display it directly — no multiplication by days, which was the legacy
@@ -11804,7 +11834,7 @@ ${jobsCtx || "No jobs found."}`;
           const assignee = level > 0 ? (item.team || [])[0] : null;
           const assigneePerson = assignee ? people.find(p => p.id === assignee) : null;
           const teamMembers = level === 0 ? (item.team || []).map(id => people.find(p => p.id === id)).filter(Boolean) : [];
-          const health = getHealth(item);
+          const health = healthOf(item);
           const healthColor = HEALTH_DOT[health];
           const dispStatus = level === 2 ? getOpDisplayStatus(item) : level === 1 ? getPanelDisplayStatus(item) : (item.status || "Not Started");
           const staColor = staColorOf(dispStatus);
@@ -11939,6 +11969,68 @@ ${jobsCtx || "No jobs found."}`;
                 {level > 0 && !assigneePerson && <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic" }}>—</span>}
               </div>
             );
+            case "appr": {
+              const st = apprStateFor(item, level, jobId, panelId);
+              if (!st) return <div style={{ ...cellBase }} />;
+              // Job row: a compact rollup across the job's panels, not clickable —
+              // signing happens on the panel row that owns the step.
+              if (st.kind === "rollup") {
+                const allDone = st.total > 0 && st.done === st.total;
+                return (
+                  <div style={{ ...cellBase, gap: 6, overflow: "hidden" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: allDone ? "#10b981" : T.textDim, fontFamily: T.mono, flexShrink: 0 }}>{st.done}/{st.total}</span>
+                    <span style={{ fontSize: 10, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {allDone ? "approved" : `across ${st.panelCount} panel${st.panelCount === 1 ? "" : "s"}`}
+                    </span>
+                  </div>
+                );
+              }
+              // Panel row: one chip per step. The first unsigned step is the active one and
+              // is the only one an approver can click.
+              const firstOpen = st.steps.findIndex(x => !x.rec);
+              const openApprCtx = (ev) => {
+                if (!isAdmin) return;
+                ev.preventDefault(); ev.stopPropagation();
+                setApprovalCtx({
+                  x: ev.clientX, y: ev.clientY, kind: "panel",
+                  jobId, panelId: item.id,
+                  headerTitle: item.title || "Approval",
+                  hasChain: st.kind === "chain",
+                  seed: st.steps.map(x => ({ label: x.label, done: !!x.rec, by: x.rec?.by || null, byName: x.rec?.byName || "", at: x.rec?.at || null, assigneeId: x.assigneeId || null })),
+                });
+              };
+              return (
+                <div onContextMenu={openApprCtx} style={{ ...cellBase, gap: 4, overflow: "hidden", flexWrap: "nowrap" }}>
+                  {st.steps.map((step, i) => {
+                    const signed = !!step.rec;
+                    const isActive = !signed && i === firstOpen;
+                    const mineToSign = !step.assigneeId || sameId(step.assigneeId, loggedInUser?.id);
+                    const clickable = isActive && canApprove && mineToSign;
+                    const title = signed
+                      ? `${step.label} — ${step.rec.byName || "signed"}${step.rec.at ? " · " + new Date(step.rec.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}`
+                      : isActive
+                        ? (clickable ? `Sign ${step.label}` : step.assigneeId ? `${step.label} — assigned to someone else` : `${step.label} — you don't have approval access`)
+                        : step.label;
+                    return (
+                      <span key={i} title={title}
+                        onClick={clickable ? (e) => { e.stopPropagation(); st.sign(i); } : undefined}
+                        style={{
+                          display: "inline-flex", alignItems: "center", gap: 3, flexShrink: 0,
+                          padding: "2px 7px", borderRadius: T.radiusPill, fontSize: 10, fontWeight: 700,
+                          fontFamily: T.font, whiteSpace: "nowrap",
+                          cursor: clickable ? "pointer" : "default",
+                          background: signed ? "#10b98122" : isActive ? T.accent + "1a" : T.surface,
+                          border: `1px solid ${signed ? "#10b98155" : isActive ? T.accent + "55" : T.border}`,
+                          color: signed ? "#10b981" : isActive ? T.accent : T.textDim,
+                          opacity: signed || isActive ? 1 : 0.55,
+                        }}>
+                        {signed ? "✓" : isActive ? "●" : "○"} {step.label}
+                      </span>
+                    );
+                  })}
+                </div>
+              );
+            }
             default: return <div style={{ ...cellBase }} />;
           }
         };
@@ -12016,6 +12108,28 @@ ${jobsCtx || "No jobs found."}`;
                 const rawVal = col.fieldKey ? (item[col.fieldKey] ?? "") : (item["_cc_" + col.id] || "");
                 const val = String(rawVal);
                 const ccCond = getCellCondStyle(key);
+                // Activity: computed and read-only — the newest signature on this row's
+                // approval chain (who, which step, when). No stored field backs it, so it
+                // never routes through commitEdit.
+                if (col.fieldKey === "apprActivity") {
+                  const act = apprActivityFor(item, level, jobId, panelId);
+                  return (
+                    <div key={col.id} style={{ ...cellBase, ...ccCond }}>
+                      {!act
+                        ? <span style={{ fontSize: 11, color: T.textDim, opacity: 0.5 }}>—</span>
+                        : <span style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}
+                            title={`${act.verb}${act.step ? " " + act.step : ""}${act.byName ? " by " + act.byName : ""}${act.at ? " on " + new Date(act.at).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : ""}`}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: APPR_VERB_COLOR(act.verb, T), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {act.verb}{act.step ? " " + act.step : ""}
+                            </span>
+                            <span style={{ fontSize: 10, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {act.byName || "—"}{act.at ? " · " : ""}
+                              <span style={{ fontFamily: T.mono }}>{act.at ? new Date(act.at).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : ""}</span>
+                            </span>
+                          </span>}
+                    </div>
+                  );
+                }
                 if (col.fieldKey === "color") return (
                   <div key={col.id} style={{ ...cellBase, justifyContent: "center", ...ccCond }}>
                     {level === 1 && <div style={{ width: 18, height: 18, borderRadius: 12, background: elColor(item.color || "#94a3b8"), border: `2px solid ${item.color ? elColor(item.color) + "55" : T.border}`, boxShadow: item.color ? `0 0 6px ${elColor(item.color)}44` : "none" }} />}
@@ -12092,7 +12206,7 @@ ${jobsCtx || "No jobs found."}`;
                   );
                 })}
                 {customCols.map((c, i) => {
-                  const widthIdx = 12 + i;
+                  const widthIdx = 13 + i;
                   const isDragOverCustom = colDropIdx === (orderedStdCols.length + i) && colDragRef.current !== c.id;
                   return (
                     <div key={c.id}
@@ -12832,7 +12946,7 @@ ${jobsCtx || "No jobs found."}`;
       .reduce((s, e) => s + (e.hours || 0), 0);
     const activeJobs = tasks.filter(t => t.status !== "Finished");
     const avgPct = activeJobs.length ? Math.round(activeJobs.reduce((s, j) => s + _jobPct(j), 0) / activeJobs.length) : 0;
-    const onTimePct = activeJobs.length ? Math.round(activeJobs.filter(j => getHealth(j) === "ontime").length / activeJobs.length * 100) : 0;
+    const onTimePct = activeJobs.length ? Math.round(activeJobs.filter(j => healthOf(j) === "ontime").length / activeJobs.length * 100) : 0;
     const dueSoon = activeJobs
       .filter(j => j.end && j.end >= TD && j.end <= addD(TD, 7))
       .sort((a, b) => String(a.end).localeCompare(String(b.end)));
@@ -13318,7 +13432,7 @@ ${jobsCtx || "No jobs found."}`;
                 dueSoon.length ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {dueSoon.slice(0, 5).map(j => {
-                      const h = getHealth(j);
+                      const h = healthOf(j);
                       return (
                         <div key={j.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                           <span style={{ width: 8, height: 8, borderRadius: 8, background: elColorT(HEALTH_DOT[h]) || T.accent, flexShrink: 0 }} />
@@ -15895,138 +16009,6 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         );
       })()}
-      {/* ── Daily Schedule Status ── */}
-      {people.length > 0 && (() => {
-        const getStatusBars = (pid) => {
-          const todayBars = [], futureBars = [];
-          tasks.forEach(job => {
-            if ((job.jobType || "panel") === "panel") {
-              (job.subs || []).forEach(panel => {
-                (panel.subs || []).forEach(op => {
-                  if (!onTeam(op.team, pid)) return;
-                  if (op.status === "Finished") return;
-                  if (!op.start || !op.end) return;
-                  const tc = panel.color || "#94a3b8";
-                  const bar = { id: op.id, start: op.start, end: op.end, color: tc, task: { ...op, color: tc, jobTitle: job.title, panelTitle: panel.title, level: 2 } };
-                  if (op.start <= TD && op.end >= TD) todayBars.push(bar);
-                  else if (op.start > TD) futureBars.push(bar);
-                });
-                if ((panel.subs || []).length === 0 && onTeam(panel.team, pid) && panel.start && panel.end && panel.status !== "Finished") {
-                  const tc = panel.color || "#94a3b8";
-                  const bar = { id: panel.id, start: panel.start, end: panel.end, color: tc, task: { ...panel, color: tc, jobTitle: job.title, panelTitle: null, level: 1 } };
-                  if (panel.start <= TD && panel.end >= TD) todayBars.push(bar);
-                  else if (panel.start > TD) futureBars.push(bar);
-                }
-              });
-            } else {
-              (job.subs || []).forEach(sub => {
-                if (!onTeam(sub.team, pid)) return;
-                if (sub.status === "Finished") return;
-                if (!sub.start || !sub.end) return;
-                const tc = sub.color || "#94a3b8";
-                const bar = { id: sub.id, start: sub.start, end: sub.end, color: tc, task: { ...sub, color: tc, jobTitle: job.title, panelTitle: null, level: 1 } };
-                if (sub.start <= TD && sub.end >= TD) todayBars.push(bar);
-                else if (sub.start > TD) futureBars.push(bar);
-              });
-            }
-          });
-          futureBars.sort((a, b) => a.start.localeCompare(b.start));
-          return { todayBars, nextBar: futureBars[0] || null };
-        };
-        const workersToday = people
-          .map(p => { const { todayBars, nextBar } = getStatusBars(p.id); return todayBars.length > 0 ? { person: p, todayBars, nextBar } : null; })
-          .filter(Boolean);
-        if (workersToday.length === 0) return null;
-        const highlightJob = (id, start, end) => {
-          if (!id) return;
-          if (start) {
-            const nDays = diffD(tStart, tEnd) + 1;
-            const barLen = end ? diffD(start, end) + 1 : 1;
-            const barMid = addD(start, Math.floor(barLen / 2));
-            const newStart = addD(barMid, -Math.floor(nDays / 2));
-            setTStart(newStart);
-            setTEnd(addD(newStart, nDays - 1));
-          }
-          setScheduleHighlightId(null);
-          setTimeout(() => {
-            setScheduleHighlightId(id);
-            setTimeout(() => setScheduleHighlightId(null), 4000);
-          }, 30);
-        };
-        const fmRange = (s, e) => {
-          const sd = new Date(s + "T12:00:00"), ed = new Date(e + "T12:00:00");
-          if (s === e) return sd.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-          return `${sd.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${ed.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
-        };
-        return (
-          <div style={{ padding: "28px 20px 18px" }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, letterSpacing: "-0.045em", textTransform: "uppercase", marginBottom: 12 }}>Schedule Status</div>
-            <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 4 }}>
-              {workersToday.map(({ person, todayBars, nextBar }) => {
-                const isActive = !!person.activeJobClock;
-                const onBreak = !!person.activeBreak;
-                const todayBar = todayBars[0];
-                const totalHours = todayBar.task?.hpd || productiveHoursPerDay;
-                const jcLive = person.activeJobClock;
-                const liveElapsed = (jcLive?.clockIn && jcLive?.opId === todayBar.task?.id)
-                  ? Math.max(0, (Date.now() - new Date(jcLive.clockIn).getTime()) / 3600000 - (jcLive.totalPausedMs || 0) / 3600000)
-                  : 0;
-                // Same max() as _opHoursPair and deriveWorkedState — the counter alone drifts
-                // below the session rows, so this card under-reported the very hours the worker
-                // is standing there logging.
-                const loggedHours = Math.max(todayBar.task?.loggedHours || 0, producedFor(todayBar.task)) + liveElapsed;
-                const progressPct = Math.min(100, totalHours > 0 ? (loggedHours / totalHours) * 100 : 0);
-                return (
-                  <div key={person.id} className="tq-frost" style={{ minWidth: 230, maxWidth: 230, flexShrink: 0, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radius, padding: "14px 14px 12px", display: "flex", flexDirection: "column", gap: 10, fontFamily: T.font }}>
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                      <PersonAvatar person={person} size={34} />
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.name}</div>
-                        <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.department || ""}</div>
-                      </div>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: onBreak ? "#f59e0b" : isActive ? "#10b981" : T.textDim, flexShrink: 0, paddingTop: 2, letterSpacing: "-0.045em" }}>{onBreak ? "On break" : isActive ? "Active" : "Not Active"}</div>
-                    </div>
-                    <div
-                      onClick={() => highlightJob(todayBar.id, todayBar.start, todayBar.end)}
-                      onMouseEnter={e => e.currentTarget.style.borderColor = todayBar.color + "99"}
-                      onMouseLeave={e => e.currentTarget.style.borderColor = T.border}
-                      style={{ cursor: "pointer", padding: "10px 10px 8px", borderRadius: T.radiusSm, background: T.surface, border: `1px solid ${T.border}`, transition: "border-color 0.15s" }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-                        <div style={{ width: 8, height: 8, borderRadius: "50%", background: todayBar.color, flexShrink: 0 }} />
-                        <div style={{ fontSize: 12, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{todayBar.task?.jobTitle || "—"}</div>
-                      </div>
-                      <div style={{ fontSize: 11, color: T.textDim, marginBottom: 6, paddingLeft: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minHeight: 16 }}>
-                        {todayBar.task?.panelTitle ? `${todayBar.task.panelTitle}${todayBar.task?.title ? " · " + todayBar.task.title : ""}` : (todayBar.task?.title || "")}
-                      </div>
-                      <div style={{ height: 3, borderRadius: 8, background: T.border, overflow: "hidden", marginBottom: 4 }}>
-                        <div style={{ height: "100%", width: `${progressPct}%`, background: todayBar.color || T.accent, borderRadius: 8 }} />
-                      </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: T.textDim }}>
-                        <span>{loggedHours.toFixed(1)}h logged</span>
-                        <span>{totalHours.toFixed(1)}h sched</span>
-                      </div>
-                    </div>
-                    {nextBar && (
-                      <div
-                        onClick={() => highlightJob(nextBar.id, nextBar.start, nextBar.end)}
-                        onMouseEnter={e => e.currentTarget.style.borderColor = nextBar.color + "99"}
-                        onMouseLeave={e => e.currentTarget.style.borderColor = T.border}
-                        style={{ cursor: "pointer", padding: "8px 10px", borderRadius: T.radiusSm, background: T.surface, border: `1px solid ${T.border}`, transition: "border-color 0.15s" }}
-                      >
-                        <div style={{ fontSize: 9, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 3 }}>Next Task</div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nextBar.task?.jobTitle || "—"}</div>
-                        {nextBar.task?.panelTitle && <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nextBar.task.panelTitle}</div>}
-                        <div style={{ fontSize: 10, color: T.textDim, marginTop: 2, fontFamily: T.mono }}>{fmRange(nextBar.start, nextBar.end)}</div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        );
-      })()}
     {teamDragInfo && teamDragInfo.taskTitle && (() => {
       let label = teamDragInfo.taskTitle;
       if (tMode === "month" && teamDragInfo.dropHour != null) {
@@ -16107,7 +16089,7 @@ ${jobsCtx || "No jobs found."}`;
     const hoursLogged = Math.round(periodEntries.reduce((s, e) => s + (e.hours || 0), 0) * 10) / 10;
     const activeJobs = tasks.filter(t => t.status !== "Finished" && t.start <= periodEnd && t.end >= periodStart);
     const avgPct = activeJobs.length ? Math.round(activeJobs.reduce((s, j) => s + _jobPct(j), 0) / activeJobs.length) : 0;
-    const onTimeCount = activeJobs.filter(j => getHealth(j) === "ontime").length;
+    const onTimeCount = activeJobs.filter(j => healthOf(j) === "ontime").length;
     const onTimePct = activeJobs.length ? Math.round((onTimeCount / activeJobs.length) * 100) : 0;
 
     // â”€â”€ Per-person pay-period hours â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -16288,81 +16270,11 @@ ${jobsCtx || "No jobs found."}`;
       return out;
     };
     const renderEfficiency = (personId) => {
-      // DERIVE the day rather than trusting the stored `date`, and derive it the
-      // same way for both datasets. This function buckets pay rows and production
-      // rows into the same columns, but the two files stamp `date` differently:
-      // production rows are now stamped in shop-local time, while payhours `date`
-      // is still a UTC slice (moving it would move punches between pay periods —
-      // a payroll decision, not a display one). Reading each row's own field would
-      // put a late shift's pay in one column and its production in the next.
-      const dayOf = e => (e.clockIn ? localDay(e.clockIn, statsTimeZone) : e.date || null);
-      const payOk = e => !e.eventType && e.clockIn && e.clockOut && (personId == null || String(e.personId) === String(personId));
-      const prodOk = s => (personId == null || String(s.personId) === String(personId));
-      // Live accrual from OPEN clocks — grows the graph while someone is clocked
-      // in. Pay = gross elapsed of an open pay shift; prod = elapsed of an open
-      // job clock (minus paused). Attributed to the clock's start day so it lands
-      // in the right bucket (same day-keying as completed records).
-      const liveAdds = [];
-      people.forEach(p => {
-        if (personId != null && String(p.id) !== String(personId)) return;
-        const ac = p.activeClockIn;
-        if (ac?.clockIn) {
-          const s = new Date(ac.clockIn).getTime();
-          if (s) {
-            // Net lunch/break out of the LIVE pay accrual, exactly as the server's
-            // pausedMsFromEvents does when the punch is finalised. Counting them
-            // gross here made the ratio punish a break twice over: production
-            // stops during lunch, so pay must stop too or efficiency sags by the
-            // whole lunch every day until the shift closes.
-            let ms = statsNow - s;
-            let lunchOpen = null, breakOpen = null;
-            [...(ac.events || [])]
-              .map(ev => ({ type: ev.type, t: new Date(ev.ts || ev.at).getTime() }))
-              .filter(ev => ev.t)
-              .sort((a, b) => a.t - b.t)
-              .forEach(ev => {
-                if (ev.type === "lunchStart") lunchOpen = ev.t;
-                else if (ev.type === "lunchEnd" && lunchOpen != null) { ms -= Math.max(0, ev.t - lunchOpen); lunchOpen = null; }
-              });
-            if (lunchOpen != null) ms -= Math.max(0, statsNow - lunchOpen);   // still on lunch
-            // Break time is deliberately NOT computed here. It came from
-            // `ac.events`, which only the admin-correction path (adminBreakStart/
-            // End) ever writes — so a worker's own break was missed, while an
-            // admin-entered one was counted twice: once here and again from the
-            // payhours rows below. breakHoursByDay now owns break time outright,
-            // open ranges included.
-            liveAdds.push({ day: localDay(ac.clockIn, statsTimeZone), pay: Math.max(0, ms / 3600000), prod: 0 });
-          }
-        }
-        const jc = p.activeJobClock;
-        if (jc?.clockIn) {
-          const s = new Date(jc.clockIn).getTime();
-          if (s) {
-            let ms = statsNow - s - (jc.totalPausedMs || 0);
-            if (jc.pausedAt) ms -= (statsNow - new Date(jc.pausedAt).getTime());
-            liveAdds.push({ day: localDay(jc.clockIn, statsTimeZone), pay: 0, prod: Math.max(0, ms / 3600000) });
-          }
-        }
-      });
-      // Paid break time per DAY, paired from the breakStart/breakEnd rows —
-      // actual records only, never an assumed 30min. Pairing happens PER PERSON
-      // (see statsMath.js): on the team view these rows cover the whole shop,
-      // and one shared cursor lost most of the break time whenever two people
-      // were on break at once. Mirrors StatsMath.breakHoursByDay on iOS so both
-      // platforms report the same number.
-      // `statsNow` closes a break that is still running, so an open break leaves
-      // the denominator immediately rather than only once the worker ends it.
-      const breakByDay = breakHoursByDay(timeclock, personId, statsTimeZone, statsNow);
-      const rows = efficiencyBuckets().map(b => {
-        const set = new Set(b.days);
-        let pay = timeclock.filter(e => payOk(e) && set.has(dayOf(e))).reduce((a, e) => a + (e.hours || 0), 0);
-        let prod = productionHours.filter(s => prodOk(s) && set.has(dayOf(s))).reduce((a, s) => a + (s.hours || 0), 0);
-        const brk = b.days.reduce((a, d) => a + (breakByDay[d] || 0), 0);
-        liveAdds.forEach(a => { if (set.has(a.day)) { pay += a.pay; prod += a.prod; } });
-        // Working time = paid time minus the breaks they were required to take.
-        // Clamped: malformed data can record more break than pay.
-        return { label: b.label, pay, prod, brk, working: Math.max(0, pay - brk) };
-      });
+      // Pay / production / break by day and the working-time clamp all live in
+      // statsMath.js so the Performance box on the Employees page reports the same
+      // numbers as this card. Buckets just sum the days they cover.
+      const dayMaps = payProdByDay({ timeclock, productionHours, people, personId, timeZone: statsTimeZone, now: statsNow });
+      const rows = efficiencyBuckets().map(b => ({ label: b.label, ...totalsForDays(dayMaps, b.days) }));
       const totalPay = rows.reduce((a, r) => a + r.pay, 0);
       const totalProd = rows.reduce((a, r) => a + r.prod, 0);
       const totalBreak = rows.reduce((a, r) => a + r.brk, 0);
@@ -16429,7 +16341,9 @@ ${jobsCtx || "No jobs found."}`;
     // `mine` toggles the "My …" labels for the self view vs. neutral labels when
     // an admin is looking at someone else.
     const personalStats = (personId, header, mine) => {
-      const myOps = allOps.filter(op => (op.team || []).includes(personId));
+      // onTeam/sameId, not .includes(): raw includes() misses every op whose team
+      // stores ids as strings when personId is a number (or the reverse).
+      const myOps = allOps.filter(op => onTeam(op.team, personId));
       const myDone = myOps.filter(op => op.status === "Finished").length;
       const myActive = myOps.filter(op => op.status === "In Progress").length;
       const myTotal = myOps.length;
@@ -17025,12 +16939,41 @@ ${jobsCtx || "No jobs found."}`;
     const workDaysIn = periodDays.filter(d => orgSettings.workDays.includes(new Date(d + "T12:00:00").getDay()));
 
     // Every operation this person is on, flattened with its job/panel context.
+    // Every piece of work assigned to this person, flattened with its job/panel context.
+    //
+    // Mirrors the Schedule page's three assignment paths (renderTeam builds its bars the
+    // same three ways). This used to look ONLY at ops inside panel-type jobs, so anyone
+    // assigned at PANEL level, or on a non-panel job's subtasks, had work all over the
+    // schedule and an empty Schedule box here — and their Tasks Completed / On Time /
+    // Behind tiles counted none of it.
+    //
+    // Membership goes through onTeam (sameId) rather than .map(String).includes(): person
+    // ids are mixed string/number across web and iOS, and the old form also coerced a null
+    // team entry to the string "null", which matches a null id.
+    //
+    // No status filter here — doneOps below needs the Finished ones. Consumers that draw
+    // the timeline exclude them, exactly as the Schedule page does.
     const myOps = [];
-    tasks.forEach(j => (j.subs || []).forEach(pn => (pn.subs || []).forEach((op, oi) => {
-      if ((op.team || []).map(String).includes(String(P.id))) {
-        myOps.push({ op, panel: pn, job: j, stepIdx: oi + 1, stepTotal: (pn.subs || []).length });
+    tasks.forEach(j => {
+      if ((j.jobType || "panel") === "panel") {
+        (j.subs || []).forEach(pn => {
+          const ops = pn.subs || [];
+          ops.forEach((op, oi) => {
+            if (onTeam(op.team, P.id)) myOps.push({ op, panel: pn, job: j, stepIdx: oi + 1, stepTotal: ops.length });
+          });
+          // Panel-level assignment: on the panel's team but not on any of its ops —
+          // covers panels with no ops and panels whose ops belong to other people.
+          if (onTeam(pn.team, P.id) && !ops.some(op => onTeam(op.team, P.id))) {
+            myOps.push({ op: pn, panel: pn, job: j, stepIdx: null, stepTotal: null });
+          }
+        });
+      } else {
+        // General task: flat subtasks assigned directly to people, no panel layer.
+        (j.subs || []).forEach(sub => {
+          if (onTeam(sub.team, P.id)) myOps.push({ op: sub, panel: sub, job: j, stepIdx: null, stepTotal: null });
+        });
       }
-    })));
+    });
 
     // ── Performance ──────────────────────────────────────────────────────────
     const planned = workDaysIn.reduce((s, d) => s + bookedHrs(P.id, d), 0);
@@ -17039,18 +16982,33 @@ ${jobsCtx || "No jobs found."}`;
     const liveCs = effectiveClockState(P);
     const openDay = P.activeClockIn?.clockIn?.slice(0, 10);
     if (liveCs.isClocked && openDay && openDay >= pStart && openDay <= pEnd) actual += liveCs.runningMs / 3600000;
-    const efficiency = planned > 0 ? Math.round((actual / planned) * 100) : null;
+    // Efficiency and utilisation both come from the SAME day maps the Analytics
+    // Efficiency card uses (statsMath.payProdByDay), over this period's days.
+    //
+    // Efficiency was `actual / planned` — pay hours against SCHEDULED hours. That is
+    // schedule adherence, not efficiency: a worker who showed up for every booked
+    // hour scored 100% while producing nothing, and the number disagreed with the
+    // Analytics card by construction. Efficiency is production ÷ working time.
+    const perfMaps = payProdByDay({ timeclock, productionHours, people, personId: P.id, timeZone: statsTimeZone, now: statsNow });
+    const perf = totalsForDays(perfMaps, periodDays);
+    const efficiency = efficiencyPct(perf);
     const dailyCap = P.cap || orgSettings.hpd || 8;
     // Overtime is per-day beyond the person's own daily cap — the pay-period cap
     // is a payroll concept and would double-count across a month/year window.
     const byDay = {}; payRows.forEach(e => { byDay[e.date] = (byDay[e.date] || 0) + (e.hours || 0); });
     const overtime = Object.values(byDay).reduce((s, h) => s + Math.max(0, h - dailyCap), 0);
     const capacity = workDaysIn.length * dailyCap;
-    const utilization = capacity > 0 ? Math.round((planned / capacity) * 100) : null;
+    // Utilisation was `planned / capacity` — booked hours against available hours,
+    // which is a planning ratio and ran past 100% the moment someone was
+    // overbooked (a 60h week against a 40h capacity read 150%). It now measures
+    // how much of their available capacity was actually WORKED, from the same
+    // working-time figure as efficiency, and is capped: overtime is reported by the
+    // Overtime tile rather than by pushing this past full.
+    const utilization = capacity > 0 ? Math.min(100, Math.round((perf.working / capacity) * 100)) : null;
     const doneOps = myOps.filter(m => m.op.status === "Finished" && m.op.end >= pStart && m.op.end <= pEnd);
     const dueOps = myOps.filter(m => m.op.end >= pStart && m.op.end <= pEnd);
-    const onTime = dueOps.length ? Math.round((dueOps.filter(m => ["ontime", "done"].includes(getHealth(m.op))).length / dueOps.length) * 100) : null;
-    const behindCount = dueOps.filter(m => ["critical", "behind"].includes(getHealth(m.op))).length;
+    const onTime = dueOps.length ? Math.round((dueOps.filter(m => ["ontime", "done"].includes(healthOf(m.op))).length / dueOps.length) * 100) : null;
+    const behindCount = dueOps.filter(m => ["critical", "behind"].includes(healthOf(m.op))).length;
     const avgPerTask = doneOps.length ? actual / doneOps.length : null;
 
     const tile = (value, label, accent, hint) => (
@@ -17073,9 +17031,19 @@ ${jobsCtx || "No jobs found."}`;
     // A block's clock-time length: its share of the op's daily hours, scaled from
     // productive hours into wall-clock hours (same conversion the Gantt uses).
     const blocksFor = (ds) => myOps
-      .filter(m => m.op.start <= ds && m.op.end >= ds)
+      .filter(m => m.op.status !== "Finished")
+      .filter(m => {
+        // Undated work is real and loggable but cannot be placed on the timeline. The
+        // Schedule page pins it to today rather than letting it vanish, so match that
+        // instead of dropping it (a null start fails every string compare below).
+        if (!m.op.start || !m.op.end) return ds === TD;
+        return m.op.start <= ds && m.op.end >= ds;
+      })
       .map(m => {
-        const share = (m.op.hpd || 0) / Math.max(1, (m.op.team || []).length);
+        // Was (hpd / team) — the item's WHOLE estimate treated as one day's work, so a
+        // 140h panel reported 140h on every day it spanned, blew past the daily cap and
+        // painted ordinary assigned work as overtime.
+        const share = perDayShare(m.op);
         const clockH = productiveHoursPerDay > 0 ? (share / productiveHoursPerDay) * totalWorkH : 0;
         const sH = m.op.startHour ?? workStartH;
         return { ...m, sH, eH: Math.min(workEndH, sH + clockH), share };
@@ -17086,7 +17054,10 @@ ${jobsCtx || "No jobs found."}`;
 
     // ── Current work ─────────────────────────────────────────────────────────
     const jc = P.activeJobClock?.clockIn ? P.activeJobClock : null;
-    const jcMatch = jc ? myOps.find(m => String(m.op.id) === String(jc.opId)) : null;
+    // The clock names an op when the panel has ops, and the PANEL itself when it has
+    // none, so resolve against the deepest id present rather than opId alone.
+    const jcTargetId = jc ? (jc.opId ?? jc.panelId ?? jc.jobId) : null;
+    const jcMatch = jc ? myOps.find(m => sameId(m.op.id, jcTargetId)) : null;
     let cw = null;
     if (jc) {
       const pair = jcMatch ? _opHoursPair(jcMatch.op) : null;
@@ -17095,20 +17066,20 @@ ${jobsCtx || "No jobs found."}`;
       cw = {
         job: jc.jobTitle || jcMatch?.job?.title || "—",
         task: jc.opTitle || jcMatch?.op?.title || "—",
-        step: jcMatch ? `${jcMatch.stepIdx} of ${jcMatch.stepTotal}` : "—",
+        step: jcMatch && jcMatch.stepTotal ? `${jcMatch.stepIdx} of ${jcMatch.stepTotal}` : "—",
         started: hhmm(jc.clockIn),
         elapsed: `${h1(elapsedH)} hrs`,
         remaining: remaining == null ? "—" : `${h1(remaining)} hrs`,
         completion: remaining == null ? "—" : hhmm(new Date(Date.now() + remaining * 3600000).toISOString()),
         pct: jcMatch ? _opPct(jcMatch.op) : 0,
-        health: jcMatch ? getHealth(jcMatch.op) : "ontime",
+        health: jcMatch ? healthOf(jcMatch.op) : "ontime",
         paused: !!jc.pausedAt,
       };
     }
 
     // ── Assigned queue / time history / attendance ───────────────────────────
     const queue = myOps
-      .filter(m => m.op.status !== "Finished" && !(jc && String(m.op.id) === String(jc.opId)))
+      .filter(m => m.op.status !== "Finished" && !(jc && sameId(m.op.id, jcTargetId)))
       // No cap — the card scrolls, so truncating would just hide real backlog.
       .sort((a, b) => String(a.op.end).localeCompare(String(b.op.end)));
     // Time history runs on the PAY PERIOD, independent of the Performance card's
@@ -17188,9 +17159,10 @@ ${jobsCtx || "No jobs found."}`;
     // opaque white band across the top of every otherwise-translucent card. The
     // tq-sticky-head class swaps that for the card's own glass fill plus a blur, so
     // rows smear out of legibility underneath instead of being covered by a slab.
-    const th = { textAlign: "left", fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", padding: "6px 10px 8px", whiteSpace: "nowrap", position: "sticky", top: 0, background: T.card, zIndex: 1 };
+    const th = { textAlign: "left", fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", padding: "6px 10px 8px", whiteSpace: "nowrap", position: "sticky", top: 0, zIndex: 2 };
     // Lists are capped and scroll rather than growing the card without limit.
     const scrollBox = { overflowX: "auto", overflowY: "auto", maxHeight: 300 };
+
     const td = { fontSize: 12, color: T.text, padding: "9px 10px", borderTop: `1px solid ${T.border}55`, whiteSpace: "nowrap" };
     const periodBtn = (id, label) => (
       <button key={id} onClick={() => setEmpPeriod(id)} style={{ padding: "5px 12px", borderRadius: T.radiusPill, border: `1px solid ${empPeriod === id ? "transparent" : T.border}`, background: empPeriod === id ? brandGrad(T.accent) : T.surface, color: empPeriod === id ? T.accentText : T.textSec, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>{label}</button>
@@ -17282,7 +17254,6 @@ ${jobsCtx || "No jobs found."}`;
                 {weekDays.map(ds => {
                   const off = isOff(P.id, ds);
                   const blocks = off ? [] : blocksFor(ds);
-                  const dayH = blocks.reduce((s, b) => s + b.share, 0);
                   const isToday = ds === TD;
                   return <div key={ds} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
                     <div style={{ height: 22, flexShrink: 0, textAlign: "center", fontSize: 11, fontWeight: isToday ? 800 : 600, color: isToday ? T.accent : T.textSec, whiteSpace: "nowrap" }}>
@@ -17294,16 +17265,20 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(135deg, ${hexA("#8b5cf6", 0.22)}, ${hexA("#8b5cf6", 0.22)} 5px, transparent 5px, transparent 10px)` }} />
                         <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#8b5cf6" }}>PTO</div>
                       </>}
-                      {blocks.map((b, bi) => {
+                      {(() => { let _cum = 0; return blocks.map((b, bi) => {
                         const top = ((b.sH - workStartH) / totalWorkH) * 100;
                         const hgt = ((b.eH - b.sH) / totalWorkH) * 100;
-                        const over = dayH > dailyCap;
+                        // Overtime is the part of the day PAST the cap. A whole-day flag
+                        // was a whole-day flag applied to every block, so a single hour
+                        // over repainted work that sits entirely within capacity.
+                        const before = _cum; _cum += b.share;
+                        const over = before >= dailyCap;
                         const col = over ? "#f59e0b" : elColor(b.job.color || T.accent);
                         return <div key={b.op.id + "_" + bi} title={`${b.job.title} · ${b.op.title} · ${h1(b.share)}h`} style={{ position: "absolute", left: 3, right: 3, top: `${top}%`, height: `calc(${hgt}% - 2px)`, minHeight: 16, background: hexA(col, 0.16), borderLeft: `2.5px solid ${col}`, borderRadius: 8, padding: "3px 5px", overflow: "hidden" }}>
                           <div style={{ fontSize: 9.5, fontWeight: 800, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.job.title}</div>
                           <div style={{ fontSize: 9, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{b.op.title}</div>
                         </div>;
-                      })}
+                      }); })()}
                       {!off && !blocks.length && <div style={{ position: "absolute", inset: 6, border: `1px dashed ${T.border}`, borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 9.5, color: T.textDim }}>Available</div>}
                     </div>
                   </div>;
@@ -17355,14 +17330,14 @@ ${jobsCtx || "No jobs found."}`;
         <div className="tq-frost" style={card()}>
           <h3 style={{ ...cardTitle, marginBottom: 12 }}>Assigned Queue <span style={{ fontWeight: 600, color: T.textDim }}>(Backlog)</span></h3>
           {!queue.length ? nothing("No open work assigned.") : (
-            <div style={scrollBox}>
+            <ScrollBox style={scrollBox} fill={hexA(T.card, 0.94)}>
               <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 460 }}>
                 <thead><tr>{["Priority", "Job", "Task", "Due Date", "Est. Hours", "Status"].map(h => <th key={h} className="tq-sticky-head" style={th}>{h}</th>)}</tr></thead>
                 <tbody>
                   {queue.map((m, i) => {
                     const pri = m.job.pri || m.op.pri || "—";
                     const pc = /high|urgent/i.test(pri) ? "#ef4444" : /med/i.test(pri) ? "#f59e0b" : T.textDim;
-                    const hl = getHealth(m.op);
+                    const hl = healthOf(m.op);
                     const sc = hl === "critical" ? "#ef4444" : hl === "behind" ? "#f59e0b" : T.textDim;
                     return <tr key={m.op.id + i}>
                       <td style={td}>{statusChip(pri, pc)}</td>
@@ -17370,12 +17345,14 @@ ${jobsCtx || "No jobs found."}`;
                       <td style={td}>{m.op.title}</td>
                       <td style={td}>{fmtDate(m.op.end)}</td>
                       <td style={{ ...td, fontFamily: T.mono }}>{h1((m.op.hpd || 0) / Math.max(1, (m.op.team || []).length))}</td>
-                      <td style={td}>{statusChip(m.op.status || "Not Started", sc)}</td>
+                      {/* Derived, not stored: the stored status stays "Not Started" until
+                          someone edits it, so work already clocked into read as untouched. */}
+                      <td style={td}>{statusChip((m.stepTotal != null ? getOpDisplayStatus(m.op) : getPanelDisplayStatus(m.op)) || "Not Started", sc)}</td>
                     </tr>;
                   })}
                 </tbody>
               </table>
-            </div>
+            </ScrollBox>
           )}
         </div>
 
@@ -17383,7 +17360,7 @@ ${jobsCtx || "No jobs found."}`;
           <h3 style={{ ...cardTitle, marginBottom: 2 }}>Time History <span style={{ fontWeight: 600, color: T.textDim }}>(Pay Period)</span></h3>
           <div style={{ ...dim, marginBottom: 12 }}>{fm(histPP.start)} – {fm(histPP.end)}</div>
           {!history.length ? nothing("No punches recorded this pay period.") : (
-            <div style={scrollBox}>
+            <ScrollBox style={scrollBox} fill={hexA(T.card, 0.94)}>
               <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 460 }}>
                 <thead><tr>{["Date", "Job", "Task", "In", "Out", "Hours"].map(h => <th key={h} className="tq-sticky-head" style={th}>{h}</th>)}</tr></thead>
                 <tbody>
@@ -17401,7 +17378,7 @@ ${jobsCtx || "No jobs found."}`;
                   </tr>)}
                 </tbody>
               </table>
-            </div>
+            </ScrollBox>
           )}
         </div>
       </div>
@@ -22993,7 +22970,7 @@ ${jobsCtx || "No jobs found."}`;
       const dPct = _jobPct(dJob);
       const dDoneOps = dOps.filter(op => op.status === "Finished").length;
       const dTeamIds = [...new Set(dOps.flatMap(op => op.team || []))];
-      const dHealth = getHealth(dJob);
+      const dHealth = healthOf(dJob);
       const dHealthColor = HEALTH_DOT[dHealth];
       const dIsDone = dHealth === "done" || fresh.status === "Finished";
       const dHealthLabel = dHealth === "ontime" ? "On Time" : dHealth === "behind" ? "Behind" : dHealth === "critical" ? "Late" : "Done";
@@ -23160,9 +23137,9 @@ ${jobsCtx || "No jobs found."}`;
                 return <div key={col.id} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                   <span style={{ fontSize: 10, color: T.textDim, fontWeight: 700, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{col.label}</span>
                   {col.type === "select" && (col.options || []).length > 0
-                    ? <SimpleDrop pill portal key={fresh.id + key} value={val} placeholder="—" options={[{ value: "", label: "—" }, ...(col.options || []).map(o => { const n = optName(o); return { value: n === "—" ? "" : n, label: n }; }).filter(o => o.value !== "")]} onChange={v => updTask(fresh.id, { [key]: v })} />
+                    ? <SimpleDrop pill portal key={fresh.id + key} value={val} placeholder="—" options={[{ value: "", label: "—" }, ...(col.options || []).map(o => { const n = optName(o); return { value: n === "—" ? "" : n, label: n }; }).filter(o => o.value !== "")]} onChange={v => commitCellEdit(fresh.id, key, v)} />
                     : col.type === "date"
-                    ? <DateField compact value={val || ""} placeholder="—" onChange={v => updTask(fresh.id, { [key]: v })} />
+                    ? <DateField compact value={val || ""} placeholder="—" onChange={v => commitCellEdit(fresh.id, key, v)} />
                     // No tq-sq here. That class is the opt-out from the app-wide pill
                     // rule and exists for inline GRID-CELL editors, where a pill reads as
                     // a floating chip in a table. This is the detail side panel, not a
@@ -24857,22 +24834,6 @@ ${jobsCtx || "No jobs found."}`;
             </button>
           );
         })}
-        {/* Approval Queue — standalone page (admins or users with sign-off access) */}
-        {canSeeApprovalQueue && (() => {
-          const active = view === "approvals";
-          return (
-            <button ref={el => { navBtnRefs.current["approvals"] = el; }} onClick={() => switchView("approvals")}
-              onMouseEnter={e => { if (!active) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show("Approval Queue", e.clientX, e.clientY); }}
-              onMouseLeave={e => { if (!active) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
-              onMouseDown={() => tipCtx.hide()}
-              style={navBtn(active)}>
-              <span style={navIcon}>
-                <svg width={NAV_ICON} height={NAV_ICON} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-              </span>
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>Approval Queue</span>
-            </button>
-          );
-        })()}
         {/* Admin — live worker-status board (admins only) */}
         {isAdmin && (() => {
           const active = view === "admin";
@@ -25006,7 +24967,7 @@ ${jobsCtx || "No jobs found."}`;
           at the panel's rounded clip edge and darkens the corners. */}
       {T.bgMode === "liquid" && <LiquidBackground color={T.liquidColor} companion={T.liquidCompanion} base={T.bg} radius={isMobile ? 0 : 22} />}
       {/* Sharp background-image layer for views that DON'T provide their own pinned background.
-          Every card/grid view (jobs, schedule, clients, analytics, approvals, admin, timestamp)
+          Every card/grid view (jobs, schedule, clients, analytics, admin, timestamp)
           renders its own pinned bg inside its scroller (so backdrop-filter can sample it); only
           Messages still relies on this panel-level layer. */}
       {/* Darkened/muted (not blurred) so message text stays legible over the image. */}
@@ -25052,7 +25013,7 @@ ${jobsCtx || "No jobs found."}`;
                   ? <div ref={setPagePortalHost} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }} />
                   : renderModal()}
               </div>}
-              {showApp && <div style={showModalPage ? { ...layer(false), ...hidden } : layer(false)}><AnimatedView viewKey={view} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{view === "schedule" && frostScroll(renderTeam())}{view === "tasks" && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{renderTasks()}</div>}{view === "approvals" && canSeeApprovalQueue && frostScroll(renderApprovalQueue())}{view === "admin" && isAdmin && frostScroll(renderAdmin())}{view === "timestamp" && frostScroll(renderTimeStamp())}{view === "analytics" && frostScroll(renderAnalytics())}{view === "clients" && frostScroll(renderClients())}{view === "messages" && renderMessages()}{view === "dashboard" && renderDashboard()}{view === "employees" && frostScroll(renderEmployees())}</AnimatedView></div>}
+              {showApp && <div style={showModalPage ? { ...layer(false), ...hidden } : layer(false)}><AnimatedView viewKey={view} style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{view === "schedule" && frostScroll(renderTeam())}{view === "tasks" && <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>{renderTasks()}</div>}{view === "admin" && isAdmin && frostScroll(renderAdmin())}{view === "timestamp" && frostScroll(renderTimeStamp())}{view === "analytics" && frostScroll(renderAnalytics())}{view === "clients" && frostScroll(renderClients())}{view === "messages" && renderMessages()}{view === "dashboard" && renderDashboard()}{view === "employees" && frostScroll(renderEmployees())}</AnimatedView></div>}
               {showSettings && <div style={showModalPage ? { ...layer(true), ...hidden } : layer(true)}>{renderSettingsPage()}</div>}
               {/* Popup modals mount LAST and paint over the app, which stays
                   visible and interactive-blocked behind the scrim. */}
@@ -26272,7 +26233,7 @@ ${jobsCtx || "No jobs found."}`;
                   // Standard col: insert at start (left) or end (right) of customCols
                   if (side === "left") {
                     setCustomCols(prev => [newCol, ...prev]);
-                    setColWidths(prev => { const n = [...prev]; n.splice(12, 0, w); return n; });
+                    setColWidths(prev => { const n = [...prev]; n.splice(13, 0, w); return n; });
                     setEngColWidths(prev => { const n = [...prev]; n.splice(9, 0, w); return n; });
                   } else {
                     setCustomCols(prev => [...prev, newCol]);
@@ -26283,7 +26244,7 @@ ${jobsCtx || "No jobs found."}`;
                   const idx = customCols.findIndex(c => c.id === colCtxMenu.colId);
                   const ins = side === "left" ? Math.max(0, idx) : idx + 1;
                   setCustomCols(prev => { const n = [...prev]; n.splice(ins, 0, newCol); return n; });
-                  setColWidths(prev => { const n = [...prev]; n.splice(12 + ins, 0, w); return n; });
+                  setColWidths(prev => { const n = [...prev]; n.splice(13 + ins, 0, w); return n; });
                   setEngColWidths(prev => { const n = [...prev]; n.splice(9 + ins, 0, w); return n; });
                 }
                 setEditingColHeader(newId);
@@ -26379,7 +26340,7 @@ ${jobsCtx || "No jobs found."}`;
           const oc = optColor(o) || (optVal ? (staColorOf(optVal) || T.accent) : T.textDim);
           const ic = optIcon(o);
           return (
-            <div key={n} onClick={() => { updTask(ccSelectPopover.itemId, { [ccSelectPopover.key]: optVal }, ccSelectPopover.pid || null); setCcSelectPopover(null); }}
+            <div key={n} onClick={() => { commitCellEdit(ccSelectPopover.itemId, ccSelectPopover.key, optVal, ccSelectPopover.pid); setCcSelectPopover(null); }}
               style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: "pointer", userSelect: "none", animation: `${ccSelectPopover.up ? "toolDropUp" : "toolDrop"} 0.14s ${(ccSelectPopover.up ? ccSelectPopover.options.length - 1 - oi : oi) * 38}ms both ease-out`, background: isCurrent ? oc + "12" : "transparent" }}
               onMouseEnter={e => { if (!isCurrent) e.currentTarget.style.background = oc + "18"; }}
               onMouseLeave={e => { e.currentTarget.style.background = isCurrent ? oc + "12" : "transparent"; }}>
@@ -26987,17 +26948,10 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
     </div>}</FadeOnClose>
-    {/* Approval row — right-click menu. Standalone → edit/delete the approval; sign-off → edit that template's steps. */}
+    {/* Approval cell — right-click menu. Panel → edit/remove its step chain; sign-off → edit that template's steps. */}
     {approvalCtx && <><div onMouseDown={() => setApprovalCtx(null)} style={{ position: "fixed", inset: 0, zIndex: 10040 }} />
       <div className="anim-ctx" style={{ position: "fixed", left: Math.min(approvalCtx.x, window.innerWidth - 200), top: Math.min(approvalCtx.y, window.innerHeight - 110), zIndex: 10041, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", minWidth: 190, overflow: "hidden", fontFamily: T.font }}>
-        {approvalCtx.kind === "standalone" ? <>
-          <button onClick={() => { const a = (orgSettings.approvals || []).find(x => x.id === approvalCtx.approvalId); if (a) openApprovalModal(a); setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit / Add Steps
-          </button>
-          <button onClick={() => { deleteApproval(approvalCtx.approvalId); setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", borderTop: `1px solid ${T.border}`, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.danger, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "12"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>Delete Approval
-          </button>
-        </> : approvalCtx.kind === "signoff" ? <button onClick={() => { const t = signOffTemplates.find(x => x.id === approvalCtx.templateId); if (t) { setSignOffTemplateEditing({ id: t.id, name: t.name, steps: [...(t.steps || [])] }); setSignOffSettingsOpen(true); } setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+        {approvalCtx.kind === "signoff" ? <button onClick={() => { const t = signOffTemplates.find(x => x.id === approvalCtx.templateId); if (t) { setSignOffTemplateEditing({ id: t.id, name: t.name, steps: [...(t.steps || [])] }); setSignOffSettingsOpen(true); } setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit “{approvalCtx.templateName}” Steps
         </button> : <>
           <button onClick={() => { editPanelApproval(approvalCtx.jobId, approvalCtx.panelId, approvalCtx.headerTitle, approvalCtx.seed); setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
@@ -27011,61 +26965,23 @@ ${jobsCtx || "No jobs found."}`;
     {/* Standalone approval — create / edit modal */}
     <FadeOnClose open={!!approvalModal} duration={200}>{approvalModal && (() => {
       const m = approvalModal;
-      const setM = upd => setApprovalModal(p => ({ ...p, ...(typeof upd === "function" ? upd(p) : upd) }));
-      const pickTemplate = tid => setApprovalModal(p => {
-        const t = signOffTemplates.find(x => x.id === tid);
-        if (!t) return { ...p, templateId: "" };
-        const prev = p.steps || [];
-        const steps = (t.steps || []).map(label => prev.find(s => s.label === label) || { label, done: false });
-        return { ...p, templateId: tid, dept: t.name, steps };
-      });
       const setStep = (i, label) => setApprovalModal(p => ({ ...p, steps: p.steps.map((s, j) => j === i ? { ...s, label } : s) }));
       const setStepAssignee = (i, personId) => setApprovalModal(p => ({ ...p, steps: p.steps.map((s, j) => j === i ? { ...s, assigneeId: personId || null } : s) }));
       const addStep = () => setApprovalModal(p => ({ ...p, steps: [...(p.steps || []), { label: "", done: false, assigneeId: null }] }));
       const delStep = i => setApprovalModal(p => ({ ...p, steps: p.steps.filter((_, j) => j !== i) }));
-      const isChain = m.target?.kind === "chain";
-      const valid = isChain || (m.title || "").trim().length > 0;
+      const valid = (m.steps || []).length > 0;
       const save = () => {
         if (!valid) return;
         const steps = (m.steps || []).filter(s => (s.label || "").trim()).map(s => ({ ...s, label: s.label.trim() }));
-        if (isChain) { setPanelChain(m.target.jobId, m.target.panelId, steps); setApprovalModal(null); return; }
-        const base = { id: m.id || uid(), title: m.title.trim(), clientId: m.clientId || null, templateId: m.templateId || null, dept: m.dept || (signOffTemplates.find(t => t.id === m.templateId)?.name) || queueLabel, steps, dueDate: m.dueDate || null };
-        if (!m.id) { base.createdAt = new Date().toISOString(); base.createdBy = loggedInUser?.name || "Admin"; }
-        upsertApproval(base);
+        setPanelChain(m.target.jobId, m.target.panelId, steps);
         setApprovalModal(null);
       };
       const fld = { width: "100%", boxSizing: "border-box", padding: "9px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 14, fontFamily: T.font, outline: "none" };
       const lbl = { display: "block", fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 6 };
       return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10035, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: T.font }} onClick={() => setApprovalModal(null)}>
         <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ width: "min(520px, 96vw)", maxHeight: "90vh", overflowY: "auto", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusHero, boxShadow: "0 24px 70px rgba(0,0,0,0.55)", padding: 26 }}>
-          <h3 style={{ margin: "0 0 18px", color: T.text, fontSize: 20, fontWeight: 800 }}>{isChain ? "Edit Approval Steps" : m.id ? "Edit Approval" : "New Approval"}</h3>
-          {isChain
-            ? <div style={{ marginBottom: 16, fontSize: 13, color: T.textSec, fontWeight: 600 }}>{m.title}</div>
-            : <>
-              <div style={{ marginBottom: 14 }}>
-                <label style={lbl}>Title</label>
-                <input autoFocus value={m.title} onChange={e => setM({ title: e.target.value })} placeholder="e.g. CSA Panel Review" style={fld} />
-              </div>
-              <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
-                <div style={{ flex: 1, minWidth: 180 }}>
-                  <label style={lbl}>Department / Type</label>
-                  <ApprovalTypeDrop portal templateId={m.templateId || ""} templates={signOffTemplates}
-                    onPick={tid => tid ? pickTemplate(tid) : setM({ templateId: "", dept: queueLabel })}
-                    onCreate={name => { const id = uid(); const stepLabels = (m.steps || []).map(s => s.label).filter(Boolean); setOrgSettings(s => ({ ...s, signOffTemplates: [...(s.signOffTemplates || []), { id, name, steps: stepLabels }] })); setApprovalModal(p => ({ ...p, templateId: id, dept: name })); }} />
-                </div>
-                <div style={{ flex: 1, minWidth: 180 }}>
-                  <label style={lbl}>Client</label>
-                  <SimpleDrop pill portal value={m.clientId || ""} placeholder="No client"
-                    options={[{ value: "", label: "No client" }, ...clients.slice().sort((a, b) => a.name.localeCompare(b.name)).map(c => ({ value: c.id, label: c.name, color: elColor(c.color) }))]}
-                    onChange={v => setM({ clientId: v })} />
-                </div>
-              </div>
-              <div style={{ marginBottom: 16 }}>
-                <label style={lbl}>Due date (optional)</label>
-                {/* Portalled: the modal body scrolls, which clipped the month grid. */}
-                <TraqsDatePicker portal compact value={m.dueDate || ""} onChange={v => setM({ dueDate: v })} placeholder="No due date" />
-              </div>
-            </>}
+          <h3 style={{ margin: "0 0 18px", color: T.text, fontSize: 20, fontWeight: 800 }}>Edit Approval Steps</h3>
+          <div style={{ marginBottom: 16, fontSize: 13, color: T.textSec, fontWeight: 600 }}>{m.title}</div>
           <div style={{ marginBottom: 18 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
               <label style={{ ...lbl, marginBottom: 0 }}>Steps</label>
@@ -27081,12 +26997,12 @@ ${jobsCtx || "No jobs found."}`;
               {(m.steps || []).length === 0 && <div style={{ fontSize: 12, color: T.textDim, fontStyle: "italic", padding: "6px 2px" }}>No steps yet — add the approval steps above.</div>}
             </div>
           </div>
-          {!valid && <div style={{ marginBottom: 12, fontSize: 12, color: T.danger, fontWeight: 500 }}>A title is required.</div>}
+          {!valid && <div style={{ marginBottom: 12, fontSize: 12, color: T.danger, fontWeight: 500 }}>Add at least one approval step.</div>}
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-            <div>{m.id && <Btn variant="danger" onClick={() => { deleteApproval(m.id); setApprovalModal(null); }}>Delete</Btn>}</div>
+            <div />
             <div style={{ display: "flex", gap: 10 }}>
               <Btn variant="ghost" onClick={() => setApprovalModal(null)}>Cancel</Btn>
-              <Btn onClick={save} disabled={!valid}>{m.id ? "Save" : "Create"}</Btn>
+              <Btn onClick={save} disabled={!valid}>Save</Btn>
             </div>
           </div>
         </div>
