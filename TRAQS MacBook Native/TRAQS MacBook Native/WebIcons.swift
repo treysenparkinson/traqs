@@ -264,6 +264,131 @@ enum WebIcon {
     static let chevronRight = GlyphSpec(strokeWidth: 2.5, elements: [
         .polyline([9, 18, 15, 12, 9, 6]),
     ])
+
+    // MARK: The row context menu (TRAQS.jsx:27939)
+    //
+    // All at strokeWidth 2, drawn at 14 in the menu rows and 13 in the header's
+    // icon buttons — the sizes the web uses in each place.
+
+    /// "View Details".
+    static let eye = GlyphSpec(elements: [
+        .path("M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"),
+        .circle(12, 12, 3),
+    ])
+
+    /// "Take me to schedule" — a calendar with the day marked.
+    static let calendarPin = GlyphSpec(elements: [
+        .rect(x: 3, y: 4, w: 18, h: 18, r: 2),
+        .line(16, 2, 16, 6),
+        .line(8, 2, 8, 6),
+        .line(3, 10, 21, 10),
+        .circle(12, 15, 2),
+    ])
+
+    /// "Reschedule" — the same calendar with a row of days instead of a pin.
+    /// The web draws those three as one path of degenerate segments
+    /// (`M8 14h.01…`), which a round cap renders as dots; kept verbatim.
+    static let calendarDays = GlyphSpec(elements: [
+        .rect(x: 3, y: 4, w: 18, h: 18, r: 2),
+        .line(16, 2, 16, 6),
+        .line(8, 2, 8, 6),
+        .line(3, 10, 21, 10),
+        .path("M8 14h.01M12 14h.01M16 14h.01"),
+    ])
+
+    /// "Split Job" — the share glyph, two nodes and a fork.
+    static let split = GlyphSpec(elements: [
+        .circle(6, 6, 3),
+        .circle(6, 18, 3),
+        .line(20, 4, 8.12, 15.88),
+        .line(14.47, 14.48, 20, 20),
+        .line(8.12, 8.12, 12, 12),
+    ])
+
+    /// "Set Worked Hours".
+    static let clock = GlyphSpec(elements: [
+        .circle(12, 12, 9),
+        .polyline([12, 7, 12, 12, 15.5, 13.5]),
+    ])
+
+    /// "Request Completion" — a flag, not a tick: it ASKS, it does not finish.
+    static let flag = GlyphSpec(elements: [
+        .path("M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"),
+        .line(4, 22, 4, 15),
+    ])
+
+    /// "Delete" on a ROW. The column menu's is a different drawing — see
+    /// `trashColumn`, which is not an oversight but two glyphs in the source.
+    static let trash = GlyphSpec(elements: [
+        .polyline([3, 6, 5, 6, 21, 6]),
+        .path("M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"),
+    ])
+
+    /// The header's Edit button, and "Edit Options" in the column menu.
+    static let pencil = GlyphSpec(elements: [
+        .path("M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"),
+        .path("M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"),
+    ])
+
+    // MARK: The dependency-mode toggle
+    //
+    // ONE control cycling three states, and the glyph IS the state — free is a
+    // struck-through padlock, unlocked is an open shackle, locked is a closed
+    // one. Also used as the "Add/Edit Dependencies" row icon, which the web draws
+    // with the `unlocked` variant.
+
+    static let lockFree = GlyphSpec(elements: [
+        .rect(x: 3, y: 11, w: 18, h: 11, r: 2),
+        .path("M7 11V7a5 5 0 0 1 10 0v4"),
+        .line(3, 21, 21, 3),
+    ])
+
+    static let lockClosed = GlyphSpec(elements: [
+        .rect(x: 3, y: 11, w: 18, h: 11, r: 2),
+        .path("M7 11V7a5 5 0 0 1 10 0v4"),
+    ])
+
+    static let lockOpen = GlyphSpec(elements: [
+        .rect(x: 3, y: 11, w: 18, h: 11, r: 2),
+        .path("M7 11V7a5 5 0 0 1 9.9-1"),
+    ])
+
+    /// The linked-rings glyph the dependency modal uses for "Unlocked".
+    static let chain = GlyphSpec(strokeWidth: 2.5, elements: [
+        .path("M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"),
+        .path("M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"),
+    ])
+
+    // MARK: The column header context menu (TRAQS.jsx:26149)
+    //
+    // strokeWidth 2.5 throughout — heavier than the row menu's, and drawn at 12
+    // rather than 14.
+
+    /// "Edit Options".
+    static let listLines = GlyphSpec(strokeWidth: 2.5, elements: [
+        .line(8, 6, 21, 6),
+        .line(8, 12, 21, 12),
+        .line(8, 18, 21, 18),
+        // Degenerate segments again — the bullets down the left edge.
+        .line(3, 6, 3.01, 6),
+        .line(3, 12, 3.01, 12),
+        .line(3, 18, 3.01, 18),
+    ])
+
+    /// "Add Column Left" / "Add Column Right", and the grid's own "+" cell.
+    static let plus = GlyphSpec(strokeWidth: 2.5, elements: [
+        .line(12, 5, 12, 19),
+        .line(5, 12, 19, 12),
+    ])
+
+    /// "Delete Column" — a lidded bin with two ribs, not the row menu's trash.
+    static let trashColumn = GlyphSpec(strokeWidth: 2.5, elements: [
+        .polyline([3, 6, 5, 6, 21, 6]),
+        .path("M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"),
+        .path("M10 11v6"),
+        .path("M14 11v6"),
+        .path("M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"),
+    ])
 }
 
 // MARK: - The date tile

@@ -52,47 +52,189 @@ struct JobsInlineField: View {
     }
 }
 
-// MARK: The status list
+// MARK: - The option list every picker opens
 //
-// `setStatusPopover` (TRAQS.jsx:11875) — every status as its own pill, the current
-// one ringed. Finished is offered like any other; what happens when it is chosen
-// is the caller's business, and it raises a completion request rather than writing
-// the status (see JobsEdit.needsCompletionRequest).
+// `statusPopover` (TRAQS.jsx:26307) and `ccSelectPopover` (:26333) are the same
+// control over different lists, so they are one component here.
+//
+// Exactly what the web draws, and it is NOT a stack of chips — that is what this
+// replaced. It is a plain list on a card:
+//
+//   card   `T.card`, 1px `T.border`, `radiusSm`, `padding: 4px 0`, min-width 168,
+//          shadow `0 8px 28px rgba(0,0,0,0.35)`, entering with `menuIn` 0.15s
+//   row    `padding: 8px 14px`, `gap: 8`, a 13pt icon in the option's colour, a
+//          13pt label, and a tick on the current one
+//   state  current row sits on `colour + "12"`; hover is `colour + "18"`
+//
+// Two motions, and they are different in kind:
+//
+//   ENTER  each row plays `toolDrop` — 7pt up, fading in, 0.14s — staggered 38ms
+//          apart, REVERSED when the menu opened upward so the deal always travels
+//          away from the pointer. Same rule as the context menus; `TQMenuCascade`
+//          already implements it.
+//   PICK   the chosen row FLASHES (`optFlash`: a tint that rises and falls while
+//          the row scales 1 → 1.025 → 0.99 → 1) and the commit waits 150ms for it.
+//          A pass-through animation, so it is keyframed — `withAnimation` would
+//          interpolate straight from rest to rest and show nothing.
 
-struct JobsStatusPopover: View {
+struct JobsOptionRow: Identifiable, Equatable {
+    /// The value committed when this row is picked. Empty clears.
+    let value: String
+    let label: String
+    let icon: String?
+    let color: Color
+    /// Drawn, and refused, with a reason on hover. Finished is this for a
+    /// non-approver: the web makes them go through Request Completion instead.
+    var enabled: Bool = true
+    var help: String? = nil
+
+    var id: String { value.isEmpty ? "__none__" : value }
+
+    static func == (a: JobsOptionRow, b: JobsOptionRow) -> Bool {
+        a.value == b.value && a.label == b.label && a.icon == b.icon
+            && a.enabled == b.enabled
+    }
+}
+
+struct JobsOptionList: View {
     @Environment(\.tqTheme) private var theme
-    let current: JobStatus
-    let pick: (JobStatus) -> Void
+
+    let options: [JobsOptionRow]
+    /// The value currently on the cell. Matched by `value`, so "" is "none".
+    let current: String
+    /// True when the menu opened ABOVE its anchor — reverses the row cascade.
+    var up: Bool = false
+    let pick: (String) -> Void
+
+    /// Which row is mid-flash. `dropFlashKey` on the web.
+    ///
+    /// Never cleared, deliberately: picking closes the popover, so the row goes
+    /// away rather than needing to be put back. Clearing it would flip the
+    /// keyframe trigger a SECOND time and replay the flash on the way out.
+    @State private var flashing: String?
+    @State private var hovering: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(JobStatus.allCases, id: \.self) { status in
-                Button { pick(status) } label: {
-                    let color = Color.hex(status.hex)
-                    HStack(spacing: 7) {
-                        Text(status.emblem)
-                            .font(TFont.body(12))
-                            .frame(width: 14)
-                        Text(status.rawValue)
-                            .font(TFont.body(12, status == current ? 700 : 500))
-                        Spacer(minLength: 8)
-                        if status == current {
-                            WebGlyph(spec: WebIcon.tick, size: 9, color: color)
-                        }
-                    }
-                    .foregroundStyle(color)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .frame(width: 190, alignment: .leading)
-                    .background(Capsule().fill(color.opacity(status == current ? 0.14 : 0.06)))
-                    .overlay(Capsule().strokeBorder(
-                        color.opacity(status == current ? 0.4 : 0.15), lineWidth: 1))
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
+                row(option, at: index)
             }
         }
-        .padding(10)
+        // `padding: "4px 0"` — vertical only, so a row's tint runs the full width.
+        .padding(.vertical, 4)
+        .frame(minWidth: 168, alignment: .leading)
+        .background(theme.card)
+        .clipShape(RoundedRectangle(cornerRadius: TTheme.radiusSm, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: TTheme.radiusSm, style: .continuous)
+                .strokeBorder(theme.border, lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.35), radius: 14, y: 8)
+    }
+
+    private func row(_ option: JobsOptionRow, at index: Int) -> some View {
+        let isCurrent = option.value == current
+        let isFlashing = flashing == option.id
+
+        return HStack(spacing: 8) {
+            Text(option.icon ?? "")
+                .font(TFont.body(13))
+                .foregroundStyle(option.color)
+                .frame(width: 13, alignment: .center)
+
+            Text(option.label)
+                .font(TFont.body(13, isCurrent ? 600 : 400))
+                .foregroundStyle(isCurrent ? option.color : theme.text)
+                .lineLimit(1)
+
+            Spacer(minLength: 8)
+
+            if isCurrent {
+                WebGlyph(spec: WebIcon.tick, size: 12, color: option.color)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(wash(option, isCurrent: isCurrent, flashing: isFlashing))
+        .opacity(option.enabled ? 1 : 0.45)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 ? option.id : (hovering == option.id ? nil : hovering) }
+        .onTapGesture {
+            guard option.enabled, !isCurrent, flashing == nil else { return }
+            flash(option)
+        }
+        .help(option.help ?? "")
+        // The entrance, shared with the context menus.
+        .modifier(TQMenuCascade(index: index, total: options.count, up: up))
+        // The flash. Scale passes THROUGH 1.025 and 0.99 and returns to 1, so it
+        // has to be keyframed — see the note at the top of this section.
+        //
+        // The track is UNCONDITIONAL. Wrapping it in `if isFlashing` is what the
+        // obvious version does and the type checker cannot even diagnose it
+        // ("failed to produce diagnostic for expression"): `KeyframesBuilder` has
+        // no empty branch to build, so the else side has no type. The trigger is
+        // what decides whether anything plays — a keyframeAnimator sits at its
+        // initial value until the trigger CHANGES, so a row that is not flashing
+        // holds at scale 1 and costs nothing.
+        .keyframeAnimator(initialValue: CGFloat(1), trigger: isFlashing) { view, scale in
+            view.scaleEffect(scale)
+        } keyframes: { _ in
+            KeyframeTrack {
+                CubicKeyframe(1.025, duration: 0.06)
+                CubicKeyframe(0.99, duration: 0.045)
+                CubicKeyframe(1.0, duration: 0.045)
+            }
+        }
+    }
+
+    /// `optFlash` tints toward the option's colour and back; otherwise the
+    /// current row sits on `+"12"` and a hovered one on `+"18"`.
+    private func wash(_ option: JobsOptionRow, isCurrent: Bool, flashing: Bool) -> Color {
+        if flashing { return option.color.opacity(0.19) }          // `a30` at peak
+        if isCurrent { return option.color.opacity(0.07) }          // `+"12"`
+        if hovering == option.id, option.enabled { return option.color.opacity(0.09) } // `+"18"`
+        return .clear
+    }
+
+    /// Flash first, commit after. The 150ms is the web's own `setTimeout` — it is
+    /// what makes a pick feel acknowledged rather than instantaneous-and-gone.
+    private func flash(_ option: JobsOptionRow) {
+        flashing = option.id
+        Task {
+            try? await Task.sleep(for: .milliseconds(150))
+            // `flashing` is NOT reset — see the note on it.
+            pick(option.value)
+        }
+    }
+}
+
+// MARK: The status list
+
+extension JobsOptionList {
+    /// Every status, in the web's order.
+    ///
+    /// Finished is offered like any other and what happens when it is chosen is
+    /// the caller's business — it raises a completion request rather than writing
+    /// the status (`JobsEdit.needsCompletionRequest`).
+    @MainActor static func statusOptions() -> [JobsOptionRow] {
+        JobStatus.allCases.map {
+            JobsOptionRow(value: $0.rawValue, label: $0.rawValue,
+                          icon: $0.emblem, color: Color.hex($0.hex))
+        }
+    }
+
+    /// A custom select column's list. The blank sentinel becomes the CLEAR row.
+    @MainActor
+    static func selectOptions(_ options: [JobsSelectOption],
+                              accent: Color, dim: Color) -> [JobsOptionRow] {
+        options.map { option in
+            option.isBlank
+                ? JobsOptionRow(value: "", label: "None", icon: "\u{2014}", color: dim)
+                : JobsOptionRow(value: option.name, label: option.name,
+                                icon: option.icon ?? "\u{25CB}",
+                                color: option.color.map { Color.hex($0) } ?? accent)
+        }
     }
 }
 

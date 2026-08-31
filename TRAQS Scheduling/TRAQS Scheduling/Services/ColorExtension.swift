@@ -68,19 +68,53 @@ extension Color {
                        startPoint: .top, endPoint: .bottom)
     }
 
+    /// A CSS hex string — `#rgb`, `#rrggbb` or `#rrggbbaa` — as a colour.
+    ///
+    /// Hand-parsed over the UTF-8 bytes, which is not premature: this is on the
+    /// hot path of every grid the app draws. The obvious implementation is
+    ///
+    ///     let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+    ///     Scanner(string: hex).scanHexInt64(&int)
+    ///
+    /// and it allocates an inverted `CharacterSet`, a trimmed `String` and a
+    /// `Scanner` object EVERY CALL. The Jobs grid asks for a couple of colours per
+    /// cell and has eleven columns, so a few hundred rows is several thousand
+    /// Scanners per redraw — enough of the cost of expanding a job row to be
+    /// worth removing outright rather than caching around.
+    ///
+    /// Anything unparseable is opaque black, as it was before: several call sites
+    /// lean on that (`Color.personFill` guards an empty string precisely because
+    /// this falls through to black).
     init(hex: String) {
-        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-        var int: UInt64 = 0
-        Scanner(string: hex).scanHexInt64(&int)
+        var digits: UInt64 = 0
+        var count = 0
+
+        // Skips '#' and any other punctuation without allocating, which is what
+        // the trim was for.
+        for byte in hex.utf8 {
+            let nibble: UInt64
+            switch byte {
+            case 0x30...0x39: nibble = UInt64(byte - 0x30)         // 0-9
+            case 0x61...0x66: nibble = UInt64(byte - 0x61) + 10    // a-f
+            case 0x41...0x46: nibble = UInt64(byte - 0x41) + 10    // A-F
+            default: continue
+            }
+            // More digits than any form we accept — bail to the black fallback
+            // rather than silently reading the last eight.
+            if count == 8 { count = 9; break }
+            digits = digits << 4 | nibble
+            count += 1
+        }
+
         let a, r, g, b: UInt64
-        switch hex.count {
+        switch count {
         case 3:
-            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+            (a, r, g, b) = (255, (digits >> 8) * 17, (digits >> 4 & 0xF) * 17, (digits & 0xF) * 17)
         case 6:
-            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+            (a, r, g, b) = (255, digits >> 16, digits >> 8 & 0xFF, digits & 0xFF)
         case 8:
             // Web/CSS 8-digit hex is #RRGGBBAA (alpha LAST), not #AARRGGBB.
-            (r, g, b, a) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+            (r, g, b, a) = (digits >> 24, digits >> 16 & 0xFF, digits >> 8 & 0xFF, digits & 0xFF)
         default:
             (a, r, g, b) = (255, 0, 0, 0)
         }

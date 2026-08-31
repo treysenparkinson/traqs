@@ -12,13 +12,27 @@ import SwiftUI
 // initialiser at :4501 and a reset at :3937, and both write "list". Cards and
 // Gantt are dead branches, so nothing here switches on a sub-view.
 //
-// NOT ported in this pass, and each is its own piece of work rather than a
-// detail: column reorder / resize / rename, the "+" column picker and custom
-// columns, conditional formatting, inline cell editing, grouping, the export
-// modal, row drag-reordering, the engineering and sign-off queues that sit above
-// the grid, and the separate Finished section. The buttons those live behind are
-// drawn — the toolbar is what the page looks like — and disabled with a tooltip
-// saying so, rather than left live and silently doing nothing.
+// STILL NOT PORTED, each its own piece of work rather than a detail: conditional
+// formatting, grouping, row drag-reordering, the Approval column's chain, the
+// engineering and sign-off queues above the grid, and the wizard's SCHEDULING
+// step (the availability check, the AI suggestion and the packer). The controls
+// those live behind are drawn — the toolbar is what the page looks like — and
+// disabled with a tooltip saying so, rather than left live and silently doing
+// nothing. The same convention applies to the right-click menus' rows.
+//
+// Two things here are HALF wired, and both say so where they are:
+//
+//   * Adding a custom column writes `AppState.orgSettings` but NOT the server,
+//     because nothing in this app posts org settings yet. The column works until
+//     the next settings fetch and then vanishes. `OrgSettings` already carries
+//     its passthrough, so adding that write cannot destroy `conditions` and the
+//     rest when it lands.
+//   * New Job creates a job through the web's own "Save for Later" path —
+//     complete, and unscheduled. Scheduling it is the step that is missing, and
+//     TRAQS Cloud is where such a job then waits.
+//
+// A full map of what is left, with the web's line numbers, is in
+// docs/MAC-JOBS-PARITY.md.
 
 struct JobsPage: View {
     @Environment(\.tqTheme) private var theme
@@ -41,20 +55,103 @@ struct JobsPage: View {
     @State private var editing: JobsEditTarget?
     @State private var confirmingDelete = false
 
+    /// The open right-click menu, and the one row it was opened on. `ctxMenu`.
+    @State private var rowMenu: JobsRowMenuTarget?
+    /// A single row queued for deletion — the web's `confirmDelete`, which is a
+    /// different thing from the toolbar's bulk `bulkDeleteConfirm`.
+    @State private var confirmingRowDelete: JobRow?
+    /// Column order, widths and renames (per device) recombined with the org's
+    /// custom columns. See `JobsColumnStore` for why those two halves are stored
+    /// apart.
+    @State private var columnStore = JobsColumnStore()
+    /// Which pointer-anchored column popover is open, if any. One at a time —
+    /// the web's `colCtxMenu` / `renameCol` / `colPickerOpen` are three separate
+    /// states there, and being able to open two at once is not a feature.
+    @State private var columnPopover: JobsColumnPopover?
+
+    /// Which modal is up, and whether it is arriving or leaving.
+    ///
+    /// A presenter rather than a bare optional, because a modal has to OUTLIVE
+    /// its dismissal long enough to play an exit — see `TQModalPresenter`.
+    @State private var modals = TQModalPresenter<JobsSheet>()
+
+    /// The page's own size, which is the "viewport" every menu is placed
+    /// against. Not the screen: the page sits inside the shell's rounded panel,
+    /// and a menu that flips against the screen's bottom edge would still run off
+    /// the panel's.
+    /// Set from the GeometryReader in `body`, which is the only measurement here
+    /// that reports the window's width rather than the grid's. See the note
+    /// there.
+    @State private var pageSize: CGSize = .zero
+
+    /// Where the shell should navigate when a menu asks. Supplied by NativeShell,
+    /// which owns `view` — a closure rather than a shared nav object, so the page
+    /// gains no new observation dependency.
+    var goTo: (TView) -> Void = { _ in }
+
+    /// The coordinate space every pointer-anchored menu on this page is placed
+    /// in. Named on the page's OUTERMOST view, above TPage's scroller, so a menu
+    /// stays where it opened if the list scrolls under it — the web's
+    /// `position: fixed`.
+    static let menuSpace = "jobsPage"
+
+    /// True while a modal is up and NOT yet leaving.
+    private var modalUp: Bool { modals.sheet != nil && !modals.phase.isLeaving }
+
     /// `gap: 6` inside the tool cluster, `PAGE_ACTION_GAP = 10` between actions.
     private let toolGap: CGFloat = 6
     private let actionGap: CGFloat = 10
 
     var body: some View {
+        // A GeometryReader, and it is load-bearing rather than decorative.
+        //
+        // Everything downstream needs to know how wide the page ACTUALLY is, so
+        // the grid can decide whether its columns overflow. Three different ways
+        // of measuring that were wrong, all for the same reason: a view whose
+        // subtree contains the 1288pt grid reports 1288, not the window's width.
+        // `.frame(maxWidth: .infinity)` GROWS to a wider child rather than
+        // clamping it, and a `ScrollView(.vertical)` does the same horizontally —
+        // measured, not assumed:
+        //
+        //     maxWidth:.infinity around 1288pt content, proposed 1100  -> 1288
+        //     ScrollView(.vertical) with 1288pt content, window 1164   -> 1352
+        //     GeometryReader,                            window 1164   -> 1164
+        //
+        // Only a GeometryReader reports the PROPOSAL, because it never sizes to
+        // its content. That is the whole reason it is here.
+        GeometryReader { geo in
+            page(geo.size)
+        }
+    }
+
+    private func page(_ size: CGSize) -> some View {
         // Filtered and sorted ONCE per render, then handed down. As a computed
         // property it was re-run by every reader — the toolbar alone asks three
         // times, for the row count and the All/None set — and each read is a
         // filter plus a sort over every job.
-        let visible = JobsQuery.activeRows(appState.jobs, filter: filter,
-                                           sort: sort, context: queryContext)
-        let finished = JobsQuery.finishedRows(appState.jobs, sort: sort, context: queryContext)
+        //
         // Built once here, so no cell has to read AppState — see JobsCellContext.
-        let cells = cellContext(visible + finished)
+        //
+        // Over `appState.jobs`, NOT over the filtered lists: the percentages do
+        // not depend on the filter, so building them from `visible + finished`
+        // meant every keystroke in the search box rebuilt them — and cost an
+        // array concatenation of the whole list to do it.
+        //
+        // FIRST, because the query needs it too: sorting by Progress compares
+        // percentages, and reaching back to `appState.jobPct` for each comparison
+        // is the same walk again, O(n log n) times over.
+        // The width a section actually has: the page, less TPage's own side
+        // padding. Taken from the reader's size rather than from `pageSize`,
+        // which lands a frame later — and a frame of the grid laid out at the
+        // wrong width is a visible jump.
+        let contentWidth = max(0, size.width - TPageMetrics.padSide * 2)
+        let cells = cellContext(appState.jobs)
+        let query = queryContext(cells)
+        let layout = columnStore.layout(customColumns: appState.orgSettings.customCols)
+        let columns = layout.columns
+        let visible = JobsQuery.activeRows(appState.jobs, filter: filter,
+                                           sort: sort, context: query)
+        let finished = JobsQuery.finishedRows(appState.jobs, sort: sort, context: query)
         return TPage("Jobs", right: { toolbar(visible) }) {
             if appState.jobs.isEmpty {
                 emptyState
@@ -63,17 +160,22 @@ struct JobsPage: View {
                 LazyVStack(alignment: .leading, spacing: 20) {
                     ForEach(JobsQuery.managerSections(visible)) { section in
                         JobsSection(sectionID: section.id, jobs: section.jobs,
-                                    columns: JobColumn.allCases, align: cellAlign,
+                                    columns: columns, align: cellAlign,
+                                    availableWidth: contentWidth,
                                     context: cells, actions: cellActions,
                                     editing: $editing,
                                     sort: $sort, expanded: $expanded,
                                     collapsed: $collapsed,
-                                    selectMode: selectMode, selected: $selected) {
+                                    selectMode: selectMode, selected: $selected,
+                                    secondaryClick: openRowMenu,
+                                    columnActions: columnActions(layout)) {
                             managerHeader(section)
                         }
                     }
 
-                    if !finished.isEmpty { finishedSection(finished, cells) }
+                    if !finished.isEmpty {
+                        finishedSection(finished, cells, columns, layout, contentWidth)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -92,6 +194,348 @@ struct JobsPage: View {
         } message: {
             Text("This also deletes their panels and operations. Undo with \u{2318}Z.")
         }
+        // The menu layer, and the space it is measured in. Both on the OUTERMOST
+        // view: inside TPage the content sits in a scroller, and a menu placed
+        // there would slide away under the pointer.
+        .coordinateSpace(.named(Self.menuSpace))
+        // Written from the reader rather than measured here. `.task(id:)` so it
+        // lands once per size change instead of on every body pass.
+        .task(id: size) { pageSize = size }
+        .overlay { menuLayer }
+        .overlay { columnLayer(layout) }
+        // THE PAGE ITSELF BLURS behind a modal, rather than relying on the
+        // scrim's material to do it. A `Material` samples what is behind it, and
+        // what is behind this one is a page inside a clipped, rounded panel —
+        // the sampling was not producing a visible blur. Blurring the content
+        // directly cannot fail to show, and it is what the web does too
+        // (`modalBlur`, which blurs the page rather than only frosting the
+        // overlay).
+        //
+        // BEFORE the sheet layer, so the modal itself stays sharp; after the
+        // menu layers, so an open context menu blurs with the page.
+        .blur(radius: modalUp ? 9 : 0)
+        // Delayed on the way OUT only, so the blur lifts after the card has
+        // gone — the same asymmetry the scrim uses. See `TQModalTiming`.
+        .animation(modals.phase.isLeaving
+                   ? .easeOut(duration: TQModalTiming.scrim)
+                        .delay(TQModalTiming.scrimExitDelay)
+                   : .easeOut(duration: TQModalTiming.scrim),
+                   value: modalUp)
+        .overlay { sheetLayer(cells, visible: visible, finished: finished) }
+        .confirmationDialog(rowDeletePrompt, isPresented: rowDeleteBinding) {
+            Button("Delete", role: .destructive) {
+                if let row = confirmingRowDelete { deleteRow(row) }
+                confirmingRowDelete = nil
+            }
+            Button("Cancel", role: .cancel) { confirmingRowDelete = nil }
+        } message: {
+            Text(rowDeleteDetail)
+        }
+    }
+
+    // MARK: - The modals
+
+    enum JobsSheet: Equatable { case export, cloud, newJob }
+
+    @ViewBuilder
+    private func sheetLayer(_ cells: JobsCellContext,
+                            visible: [Job], finished: [Job]) -> some View {
+        switch modals.sheet {
+        case .export:
+            // Active AND finished, which is what `allJobs` is on the web — the
+            // Finished section is excluded from the grid's working list but an
+            // export of "the jobs" that silently omitted every closed one would
+            // be wrong in a way nobody would notice until it mattered.
+            JobsExportSheet(jobs: visible + finished,
+                            clients: cells.clientsByID,
+                            progress: cells.percent,
+                            phase: modals.phase,
+                            dismiss: { modals.close() })
+
+        case .cloud:
+            JobsCloudSheet(jobs: appState.jobs,
+                           clients: cells.clientsByID,
+                           phase: modals.phase,
+                           dismiss: { modals.close() })
+
+        case .newJob:
+            JobsNewJobSheet(people: appState.people,
+                            clients: appState.clients,
+                            customColumns: appState.orgSettings.customCols,
+                            create: { job in
+                                // `sendNotification: true` — the web's `saveTask`
+                                // fires the "new job" heads-up to the admins, and
+                                // only on creation.
+                                appState.updateJob(job, sendNotification: true,
+                                                   clientName: job.clientId.flatMap { id in
+                                                       appState.clients.first { $0.id == id }?.name
+                                                   })
+                            },
+                            phase: modals.phase,
+                            dismiss: { modals.close() })
+
+        case nil:
+            EmptyView()
+        }
+    }
+
+    // MARK: - Columns
+
+    /// Which column popover is open, where, and about which column.
+    ///
+    /// One value rather than three booleans: the menu, the rename field and the
+    /// add-column picker are mutually exclusive, and three flags is three ways to
+    /// have two of them open at once.
+    enum JobsColumnPopover: Equatable {
+        case menu(JobsGridColumn, CGPoint)
+        case rename(JobsGridColumn, CGPoint)
+        case add(CGPoint)
+
+        var point: CGPoint {
+            switch self {
+            case .menu(_, let p), .rename(_, let p), .add(let p): return p
+            }
+        }
+
+        var width: CGFloat {
+            switch self {
+            case .menu:   return TQMenuMetrics.columnMenuWidth
+            case .rename: return 220
+            case .add:    return 280
+            }
+        }
+    }
+
+    private func columnActions(_ layout: JobsColumnLayout) -> JobsColumnActions {
+        JobsColumnActions(
+            move: { id, to in write(layout.moving(id, to: to)) },
+            // Live: written into the store's in-memory copy so the drag is
+            // visible, but not to disk until it ends. A drag is a hundred
+            // changes and UserDefaults should see one.
+            resize: { id, width in columnStore.previewWidth(id, width) },
+            endResize: { columnStore.commitWidths() },
+            openMenu: { column, point in columnPopover = .menu(column, point) },
+            // A double-click on the header goes straight to rename, and the
+            // header cannot know where to anchor it — the point comes from the
+            // header cell's own frame, resolved here as the pointer's last
+            // position is not available to a tap-count gesture.
+            rename: { column, point in
+                columnPopover = .rename(column, point == .zero
+                                        ? CGPoint(x: 40, y: 120) : point)
+            },
+            addColumn: { point in columnPopover = .add(point) })
+    }
+
+    private func columnMenuActions(_ layout: JobsColumnLayout) -> JobsColumnMenuActions {
+        JobsColumnMenuActions(
+            rename: { column in
+                columnPopover = .rename(column, columnPopover?.point ?? .zero)
+            },
+            insert: { newColumn, anchor, side in
+                columnPopover = nil
+                write(layout.inserting(newColumn, beside: anchor.id, side: side))
+            },
+            toggleGroupable: { column in write(layout.togglingGroupable(column.id)) },
+            delete: { column in
+                columnPopover = nil
+                write(layout.removing(column.id))
+            },
+            setOptions: { custom, options in
+                write(layout.updatingCustom(custom.id) { $0.options = options })
+            })
+    }
+
+    /// Persist a new layout — the per-device half to `UserDefaults`, the custom
+    /// columns to ORG SETTINGS, because a column somebody adds is a column the
+    /// whole org gets. See `JobsColumnStore`.
+    private func write(_ layout: JobsColumnLayout) {
+        columnStore.save(layout)
+        guard layout.custom != appState.orgSettings.customCols else { return }
+        var settings = appState.orgSettings
+        settings.customCols = layout.custom
+        appState.orgSettings = settings
+        // NOT SAVED to the server yet: nothing in this app writes org settings,
+        // and `APIService` has no endpoint wired for it. So a custom column
+        // survives until the next settings fetch and then disappears. Adding the
+        // write is its own piece of work — the passthrough on OrgSettings is
+        // already in place so that it will not destroy `conditions`,
+        // `statusOpts` and the rest when it lands.
+    }
+
+    @ViewBuilder
+    private func columnLayer(_ layout: JobsColumnLayout) -> some View {
+        if let popover = columnPopover {
+            TQMenuPresenter(point: popover.point, viewport: pageSize,
+                            width: popover.width,
+                            dismiss: { columnPopover = nil }) { placement in
+                switch popover {
+                case .menu(let column, _):
+                    JobsColumnMenu(column: column,
+                                   isGroupable: layout.isGroupable(column.id),
+                                   placement: placement,
+                                   actions: columnMenuActions(layout),
+                                   dismiss: { columnPopover = nil })
+                case .rename(let column, _):
+                    TQMenuCard(up: placement.up, width: popover.width) {
+                        JobsRenamePopover(
+                            column: column,
+                            defaultLabel: defaultLabel(of: column),
+                            commit: { name in
+                                columnPopover = nil
+                                write(layout.renaming(column.id, to: name,
+                                                      defaultLabel: defaultLabel(of: column)))
+                            },
+                            cancel: { columnPopover = nil })
+                    }
+                case .add:
+                    TQMenuCard(up: placement.up, width: popover.width) {
+                        JobsColumnPicker(layout: layout,
+                                         add: { write(layout.inserting($0)) },
+                                         dismiss: { columnPopover = nil })
+                    }
+                }
+            }
+        }
+    }
+
+    /// The label a column has with no rename applied — what clearing the rename
+    /// field restores.
+    private func defaultLabel(of column: JobsGridColumn) -> String {
+        switch column.kind {
+        case .standard(let c): return c.label
+        case .custom(let c):   return c.label
+        }
+    }
+
+    // MARK: - The right-click menu
+
+    @ViewBuilder
+    private var menuLayer: some View {
+        if let target = rowMenu {
+            TQMenuPresenter(point: target.point, viewport: pageSize,
+                            width: TQMenuMetrics.rowMenuWidth,
+                            dismiss: { rowMenu = nil }) { placement in
+                JobsRowMenu(target: target, placement: placement,
+                            actions: rowMenuActions,
+                            dismiss: { rowMenu = nil })
+            }
+        }
+    }
+
+    /// Resolve the right-click into everything the menu needs, ONCE.
+    ///
+    /// The row is a snapshot taken when the grid last drew, so the ancestry and
+    /// the child count are re-read from `appState.jobs` here rather than taken
+    /// from it — the web does the same, and its comment says why: "Live children
+    /// count — read from tasks state, not from the spread item (which may not
+    /// have subs populated)."
+    private func openRowMenu(_ row: JobRow, at point: CGPoint) {
+        // A menu opening over a half-typed cell would strand the edit.
+        editing = nil
+
+        let job = appState.jobs.first { $0.id == row.jobID }
+        var target = JobsRowMenuTarget(
+            point: point, row: row,
+            jobID: row.jobID, jobTitle: job?.title ?? row.title,
+            panelID: nil, panelTitle: nil,
+            childCount: 0, siblingOpCount: 0, depsMode: .free)
+
+        switch row {
+        case .job:
+            target.childCount = job?.subs.count ?? 0
+
+        case .panel(let panel, _, _):
+            let live = job?.subs.first { $0.id == panel.id }
+            target.panelID = panel.id
+            target.panelTitle = live?.title ?? panel.title
+            target.childCount = live?.subs.count ?? 0
+
+        case .operation(_, _, let panelID, _):
+            let panel = job?.subs.first { $0.id == panelID }
+            target.panelID = panelID
+            target.panelTitle = panel?.title
+            // Operations never have children, so Request Completion is always
+            // offered on one.
+            target.childCount = 0
+            target.siblingOpCount = panel?.subs.count ?? 0
+            // An explicit closure, not `flatMap(JobsEdit.dependencyMode)`. `map`'s
+            // closure parameter is nonisolated, and handing it a reference to a
+            // main-actor-isolated function is the same complaint
+            // `map(Color.hex)` drew — the target defaults every declaration to
+            // MainActor (`SWIFT_DEFAULT_ACTOR_ISOLATION`).
+            target.depsMode = JobsDepsMode(panel.flatMap { JobsEdit.dependencyMode(of: $0) })
+        }
+
+        rowMenu = target
+    }
+
+    private var rowMenuActions: JobsRowMenuActions {
+        JobsRowMenuActions(
+            requestCompletion: { row in cellActions.requestCompletion(row) },
+            // Never deletes on the click. The web routes every delete through a
+            // confirmation, and this one can take a whole job with its panels.
+            delete: { row in confirmingRowDelete = row },
+            cycleDependencyMode: { target in cycleDependencyMode(target) },
+            openChat: { _ in goTo(.messages) },
+            goToSchedule: { _ in
+                // The job to highlight is not carried yet — the Schedule page is
+                // not ported, so there is nothing to highlight it on. Navigating
+                // is the honest half of this, and the half that works.
+                goTo(.schedule)
+            })
+    }
+
+    /// Writes the mode AND the operations' `deps` together — see
+    /// `JobsEdit.settingDependencyMode` for why they cannot be written apart.
+    private func cycleDependencyMode(_ target: JobsRowMenuTarget) {
+        guard let panelID = target.panelID,
+              let job = appState.jobs.first(where: { $0.id == target.jobID })
+        else { return }
+        let next = target.depsMode.next
+        let updated = JobsEdit.settingDependencyMode(
+            next == .free ? nil : next.rawValue, panelID: panelID, in: job)
+        guard JobsEdit.differs(job, updated) else { return }
+        appState.updateJob(updated)
+        // The menu stays open — this is a toggle you cycle — so its own copy of
+        // the mode has to move with it.
+        rowMenu?.depsMode = next
+    }
+
+    // MARK: Deleting one row
+
+    private var rowDeleteBinding: Binding<Bool> {
+        Binding(get: { confirmingRowDelete != nil },
+                set: { if !$0 { confirmingRowDelete = nil } })
+    }
+
+    private var rowDeletePrompt: String {
+        guard let row = confirmingRowDelete else { return "Delete?" }
+        switch row.level {
+        case 0:  return "Delete \u{201C}\(row.title)\u{201D}?"
+        case 1:  return "Delete panel \u{201C}\(row.title)\u{201D}?"
+        default: return "Delete operation \u{201C}\(row.title)\u{201D}?"
+        }
+    }
+
+    private var rowDeleteDetail: String {
+        guard let row = confirmingRowDelete else { return "" }
+        let children = row.childCount
+        let noun = row.level == 0 ? "panel" : "operation"
+        let sweeps = children > 0
+            ? " This also deletes its \(children) \(noun)\(children == 1 ? "" : "s")."
+            : ""
+        return "Permanently removes this item.\(sweeps) Undo with \u{2318}Z."
+    }
+
+    /// One `updateJob`/`updateJobs`, so the whole delete is ONE undo entry.
+    private func deleteRow(_ row: JobRow) {
+        guard let job = appState.jobs.first(where: { $0.id == row.jobID }) else { return }
+        if let trimmed = JobsEdit.removing(row.editPath, from: job) {
+            guard JobsEdit.differs(job, trimmed) else { return }
+            appState.updateJob(trimmed)
+        } else {
+            appState.updateJobs(appState.jobs.filter { $0.id != job.id })
+        }
     }
 
     private var deletePrompt: String {
@@ -102,20 +546,22 @@ struct JobsPage: View {
 
     // MARK: The list
 
-    /// Everything the query needs that is not on a Job. `percentComplete` goes
-    /// through AppState because the real figure reads logged hours and live job
-    /// clocks, which is not something to reproduce in a pure rule.
-    private var queryContext: JobsQuery.Context {
+    /// Everything the query needs that is not on a Job.
+    ///
+    /// Every lookup comes out of the cell context, which has already indexed the
+    /// roster, the client list and the percentages. That is not just tidiness:
+    /// these closures are called from inside a SORT COMPARATOR and from the
+    /// search's per-field walk, so a `first(where:)` in any of them turns an
+    /// O(n log n) sort into O(n log n × roster).
+    private func queryContext(_ cells: JobsCellContext) -> JobsQuery.Context {
         JobsQuery.Context(
-            today: JobsDate.todayKey,
-            clientName: { [clients = appState.clients] id in
+            today: cells.today,
+            clientName: { id in
                 guard let id else { return "" }
-                return clients.first { $0.id == id }?.name ?? ""
+                return cells.clientsByID[id]?.name ?? ""
             },
-            personName: { [people = appState.people] id in
-                people.first { $0.id == id }?.name ?? ""
-            },
-            percentComplete: { [appState] job in appState.jobPct(job) })
+            personName: { cells.peopleByID[$0]?.name ?? "" },
+            percentComplete: { cells.percent[$0.id] })
     }
 
     // MARK: What the cells do
@@ -133,6 +579,13 @@ struct JobsPage: View {
                 // Nothing changed — a picker reopened and confirmed on the same
                 // day, or a field committed on blur without being touched. Saving
                 // it anyway would push a pointless undo entry onto the stack.
+                guard JobsEdit.differs(job, updated) else { return }
+                appState.updateJob(updated)
+            },
+            commitCustom: { [appState] row, column, value in
+                guard let job = appState.jobs.first(where: { $0.id == row.jobID }) else { return }
+                let updated = JobsCustomValue.apply(column, value,
+                                                    at: row.editPath, in: job)
                 guard JobsEdit.differs(job, updated) else { return }
                 appState.updateJob(updated)
             },
@@ -167,30 +620,22 @@ struct JobsPage: View {
         for client in appState.clients { context.clientsByID[client.id] = client }
         for person in appState.people { context.peopleByID[person.id] = person }
 
-        // Only what is on screen. A collapsed job's panels and operations are not
-        // drawn, so their percentages are not worth walking for.
-        for job in jobs {
-            context.percentByID[job.id] = appState.jobPct(job)
-            guard expanded.contains(job.id) else { continue }
-            for panel in job.subs {
-                context.percentByID[panel.id] = appState.panelPct(panel)
-                guard expanded.contains(panel.id) else { continue }
-                for op in panel.subs {
-                    context.percentByID[op.id] = operationPercent(op)
-                }
-            }
-        }
+        // EVERY level, expanded or not, in one walk — see `JobsProgress` and
+        // `jobsProgressIndex`.
+        //
+        // This used to fill in only what was on screen, descending into a job
+        // just far enough to cover its open branches. That reads as the frugal
+        // version and was the reason expanding a row took about a second: the
+        // walk itself ran three times over the same operations (once through
+        // `jobPct`, again through `panelPct`, again per operation), each hours
+        // pair scanned the whole roster for a running clock, and — worst of it —
+        // the result CHANGED SHAPE on every expand, so a context that every cell
+        // on the page holds became unequal and invalidated all of them.
+        //
+        // Walking everything costs one pass over the operations and makes the
+        // context identical before and after a toggle.
+        context.percent = appState.jobsProgressIndex(for: jobs)
         return context
-    }
-
-    /// AppState exposes no `opPct` — `panelPct` sums the hours pair directly. This
-    /// is that same ratio for one operation, with Finished pinned to 100 as every
-    /// other level does.
-    private func operationPercent(_ op: Operation) -> Int {
-        if op.status == .finished { return 100 }
-        let estimated = JobsQuery.estimatedHours(of: op)
-        guard estimated > 0 else { return 0 }
-        return Int(((op.loggedHours ?? 0) / estimated * 100).rounded())
     }
 
     // MARK: Section headers
@@ -217,14 +662,20 @@ struct JobsPage: View {
     /// Its own section under the working list, in green, with a green-ringed card.
     /// Built from the UNFILTERED jobs — see `JobsQuery.finishedRows`.
     private func finishedSection(_ finished: [Job],
-                                 _ cells: JobsCellContext) -> some View {
+                                 _ cells: JobsCellContext,
+                                 _ columns: [JobsGridColumn],
+                                 _ layout: JobsColumnLayout,
+                                 _ contentWidth: CGFloat) -> some View {
         JobsSection(sectionID: "__finished__", jobs: finished,
-                    columns: JobColumn.allCases, align: cellAlign,
+                    columns: columns, align: cellAlign,
+                    availableWidth: contentWidth,
                     context: cells, actions: cellActions,
                     editing: $editing,
                     accent: Color.hex("#10b981"),
                     sort: $sort, expanded: $expanded, collapsed: $collapsed,
-                    selectMode: false, selected: $selected) {
+                    selectMode: false, selected: $selected,
+                    secondaryClick: openRowMenu,
+                    columnActions: columnActions(layout)) {
             Text("\u{2713} Finished")
                 .font(TFont.body(13, 700))
                 .foregroundStyle(Color.hex("#10b981"))
@@ -396,19 +847,22 @@ struct JobsPage: View {
         HStack(spacing: actionGap) {
             JobsPillButton(label: "Export", glyph: WebIcon.export, glyphSize: 14,
                            style: .filled,
-                           help: "Export jobs to PDF, CSV or Word — not ported yet",
-                           enabled: false) { }
+                           help: "Export jobs to CSV or Word") {
+                modals.present(.export)
+            }
 
             JobsToolDivider().padding(.horizontal, 3)
 
             JobsIconButton(glyph: WebIcon.cloud, glyphSize: 16,
                            style: .filled,
-                           help: "FAST TRAQS import — not ported yet",
-                           enabled: false) { }
+                           help: "TRAQS Cloud — jobs waiting to be scheduled") {
+                modals.present(.cloud)
+            }
 
             JobsPillButton(label: "+ New Job", style: .filled,
-                           help: "Create a job — not ported yet",
-                           enabled: false) { }
+                           help: "Create a job") {
+                modals.present(.newJob)
+            }
         }
     }
 

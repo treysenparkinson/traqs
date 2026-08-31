@@ -53,7 +53,13 @@ struct JobsCellContext: Equatable {
     /// Progress per row, keyed by `JobRow.itemID`. Precomputed because the real
     /// figure reads logged hours and live job clocks off AppState, which is
     /// exactly what a cell must not do.
-    var percentByID: [String: Int] = [:]
+    ///
+    /// Covers EVERY level, expanded or not — see `JobsProgress`. It used to be
+    /// filled in only for what was on screen, which sounds cheaper and was the
+    /// bug: it made the context change shape every time a row was expanded, so
+    /// expanding one job invalidated every cell on the page and re-ran the walk
+    /// for all of them.
+    var percent = JobsProgress.Index()
     /// `TD`, resolved once — so every Due cell in a render agrees on what "today"
     /// is even if the render straddles midnight.
     var today: String = ""
@@ -113,6 +119,10 @@ struct JobsGridLines: Shape {
 struct JobsCellActions {
     /// Write one field. The row carries its own path — see `JobRow.editPath`.
     var commit: (JobRow, JobsEdit.Field) -> Void = { _, _ in }
+    /// Write a CUSTOM column's value. Separate from `commit` because there is no
+    /// `JobsEdit.Field` for it: a linked column writes the job field it names, an
+    /// invented one writes `_cc_<id>` into `extras`, and `nil` clears it.
+    var commitCustom: (JobRow, JobsCustomColumn, JSONValue?) -> Void = { _, _, _ in }
     /// Choosing Finished. The web never writes that status directly; it raises a
     /// completion request with the admins (:26530).
     var requestCompletion: (JobRow) -> Void = { _ in }
@@ -122,7 +132,10 @@ struct JobsCellActions {
 /// wide, so clicking a second cell commits the first.
 struct JobsEditTarget: Equatable {
     let rowID: String
-    let column: JobColumn
+    /// `JobsGridColumn.id` — a standard column's raw value, or `_cc_<id>`. A
+    /// string rather than `JobColumn` because a custom column can be edited too
+    /// and has no case to name.
+    let columnID: String
 }
 
 // MARK: - A section
@@ -138,8 +151,25 @@ struct JobsSection<Header: View>: View {
 
     let sectionID: String
     let jobs: [Job]
-    let columns: [JobColumn]
+    /// Resolved from the LAYOUT — order, widths and renames already applied.
+    /// See `JobsColumnLayout`.
+    let columns: [JobsGridColumn]
     let align: JobColumn.Align
+    /// How much room the section actually HAS, handed down from the page.
+    ///
+    /// It cannot be measured here, and that is worth stating because two
+    /// attempts at measuring it both silently failed. Every view in this
+    /// section's subtree — the card, the Group, even a `.frame(maxWidth:
+    /// .infinity)` wrapper — ends up as wide as the grid, because a frame with
+    /// an infinite maximum GROWS TO ITS CHILD when the child is wider than the
+    /// proposal; it does not clamp to it. So a reader anywhere in here reports
+    /// `totalWidth`, `available < totalWidth` is never true, and the scroller is
+    /// never installed — the columns past the edge just get clipped by the
+    /// card's own shape with no way to reach them.
+    ///
+    /// The page's own width is imposed by the window rather than by content, so
+    /// that is the only honest place to measure it. See `JobsPage.pageSize`.
+    let availableWidth: CGFloat
     let context: JobsCellContext
     let actions: JobsCellActions
     @Binding var editing: JobsEditTarget?
@@ -150,21 +180,22 @@ struct JobsSection<Header: View>: View {
     @Binding var collapsed: Set<String>
     let selectMode: Bool
     @Binding var selected: Set<String>
+    /// A right-click on a row, with the point in the page's coordinate space.
+    /// Passed straight through — the section has no opinion about the menu.
+    var secondaryClick: (JobRow, CGPoint) -> Void = { _, _ in }
+    /// What the column header can do — sort, resize, reorder, and open its own
+    /// menu. Passed through untouched; the section has no opinion about columns
+    /// either.
+    var columnActions = JobsColumnActions()
     /// Whatever sits between the chevron and the count — a name, an avatar and a
     /// name, or "✓ Finished". Generic, never AnyView: a type erasure here sits on
     /// the path of every glass shape inside the card.
     @ViewBuilder let header: () -> Header
 
-    /// The card's own width, so its horizontal scroller can be switched OFF when
-    /// the columns already fit. A nested scroller that cannot scroll still fights
-    /// the page's for every trackpad gesture, which is most of what makes a grid
-    /// feel glitchy.
-    @State private var available: CGFloat = 0
-
     private var isCollapsed: Bool { collapsed.contains(sectionID) }
     private var tint: Color { accent ?? theme.accent }
     private var totalWidth: CGFloat {
-        columns.reduce(0) { $0 + $1.defaultWidth } + JobColumn.addColumnWidth
+        columns.reduce(0) { $0 + $1.width } + JobColumn.addColumnWidth
     }
 
     /// LAZY, and the fixed row height is what makes it work well: a LazyVStack
@@ -177,7 +208,7 @@ struct JobsSection<Header: View>: View {
     private var grid: some View {
         let rows = JobRow.flatten(jobs, expanded: expanded)
         return LazyVStack(alignment: .leading, spacing: 0) {
-            JobsColumnHeader(columns: columns, sort: $sort)
+            JobsColumnHeader(columns: columns, sort: $sort, actions: columnActions)
             ForEach(rows) { row in
                 JobsGridRow(row: row, columns: columns, align: align,
                             context: context, actions: actions, editing: $editing,
@@ -185,13 +216,36 @@ struct JobsSection<Header: View>: View {
                             selectMode: selectMode, selected: $selected)
             }
         }
+        // ONE right-click catcher for the whole section, not one per row and one
+        // per header cell.
+        //
+        // The catcher is an AppKit view, and the first version of this put one on
+        // every row AND every header cell — eleven columns and a few hundred rows
+        // is a few thousand NSViews whose only job is to notice a click that
+        // almost never comes. That is the same kind of per-cell cost the grid
+        // lines were collapsed into one Path to avoid.
+        //
+        // It can be one because the geometry is FIXED: a 31pt header, then rows
+        // of exactly 36, and columns of known widths. So which row and which
+        // column a point landed on is arithmetic, not a search.
+        .overlay { hitCatcher(rows) }
         // The columns stop where they stop; the CARD runs full width, which is
         // what `width: 100%` on FrostCard over a `minWidth: minW` inner div gives
         // on the web.
-        .frame(width: totalWidth, alignment: .leading)
+        //
+        // The HEIGHT is stated too, and that is not cosmetic. Once the columns
+        // overflow, this stack sits inside a horizontal ScrollView, which offers
+        // it an unbounded height — so it would otherwise have to build and
+        // measure every row just to report how tall it is. Rows are a fixed 36
+        // and the header a fixed 31 (the same constants `JobsGridLines` relies
+        // on), so the answer is arithmetic and nothing has to be measured.
+        .frame(width: totalWidth,
+               height: JobsGridMetrics.headerHeight
+                     + CGFloat(rows.count) * JobsGridMetrics.rowHeight,
+               alignment: .topLeading)
         // ONE shape for every rule in the section — see JobsGridLines.
         .overlay {
-            JobsGridLines(columnWidths: columns.map(\.defaultWidth), rowCount: rows.count)
+            JobsGridLines(columnWidths: columns.map(\.width), rowCount: rows.count)
                 .stroke(theme.border, lineWidth: JobsGridMetrics.rowRule)
                 .allowsHitTesting(false)
         }
@@ -202,6 +256,44 @@ struct JobsSection<Header: View>: View {
             headerRow
             if !isCollapsed { card }
         }
+    }
+
+    // MARK: Right-clicks, resolved by arithmetic
+
+    /// Where the grid sits in the page's coordinate space, so a local hit can be
+    /// reported as a page point for the menu to be placed at.
+    @State private var gridOrigin: CGPoint = .zero
+
+    private func hitCatcher(_ rows: [JobRow]) -> some View {
+        TQRightClickCatcher { local in
+            let page = CGPoint(x: gridOrigin.x + local.x, y: gridOrigin.y + local.y)
+
+            if local.y < JobsGridMetrics.headerHeight {
+                guard let column = column(atX: local.x) else { return }
+                columnActions.openMenu(column, page)
+                return
+            }
+
+            let index = Int((local.y - JobsGridMetrics.headerHeight)
+                            / JobsGridMetrics.rowHeight)
+            guard rows.indices.contains(index) else { return }
+            secondaryClick(rows[index], page)
+        }
+        .onGeometryChange(for: CGPoint.self) {
+            $0.frame(in: .named(JobsPage.menuSpace)).origin
+        } action: { gridOrigin = $0 }
+    }
+
+    /// Walks the widths rather than dividing: columns are not a uniform width.
+    /// A point past the last column is over the "+" cell, which is its own
+    /// control and not a column, so this returns nil there.
+    private func column(atX x: CGFloat) -> JobsGridColumn? {
+        var edge: CGFloat = 0
+        for column in columns {
+            edge += column.width
+            if x < edge { return column }
+        }
+        return nil
     }
 
     private var headerRow: some View {
@@ -236,18 +328,40 @@ struct JobsSection<Header: View>: View {
     /// the card sits inside the collapse wrapper's `overflow: hidden`, which clips
     /// a shadow to a square box and leaves four corner wedges.
     private var card: some View {
-        // NO ScrollView when the columns already fit, which is the usual case. A
-        // scroller that cannot scroll is not free: it still installs a clip and a
-        // scroll target, and five of them on a page compete with the page's own
-        // for every trackpad gesture.
+        // NO ScrollView when the columns already fit. A scroller that cannot
+        // scroll is not free: it installs a clip and a scroll target, and five of
+        // them on a page compete with the page's own for every trackpad gesture.
+        //
+        // MEASURE THE CONTAINER, NOT THE CONTENT — and that distinction is the
+        // whole bug this had. `.onGeometryChange` used to sit directly on the
+        // Group, which sizes to `grid`, which is pinned to `totalWidth`. So
+        // `available` was ALWAYS exactly `totalWidth`, `available < totalWidth`
+        // was never true, the scroller was never installed, and the columns past
+        // the window edge were simply clipped away by the card's own shape with
+        // no way to reach them.
+        //
+        // `.frame(maxWidth: .infinity)` first makes the container take the width
+        // it is offered; the reader below then measures THAT.
         Group {
-            if available > 0 && available < totalWidth {
-                ScrollView(.horizontal, showsIndicators: false) { grid }
+            if availableWidth > 0 && availableWidth < totalWidth - 0.5 {
+                ScrollView(.horizontal) { grid }
+                    // On the trackpad this scrolls with a two-finger swipe; the
+                    // bar appears while it does.
+                    .scrollIndicators(.automatic)
             } else {
                 grid
             }
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { available = $0 }
+        // Pinned to what the page said there is — NOT to `min(available,
+        // totalWidth)`. Two things depend on it being the full width:
+        //
+        //   * the ScrollView needs a width SMALLER than its content, or it sizes
+        //     to that content and never has anything to scroll;
+        //   * the CARD runs full width even when the columns do not fill it,
+        //     which is the web's `width: 100%` on FrostCard over a `minWidth`
+        //     inner div. Sizing to the columns would leave a ragged right edge
+        //     that moves as columns are added.
+        .frame(width: availableWidth > 0 ? availableWidth : nil, alignment: .leading)
         .background(theme.card)
         .clipShape(RoundedRectangle(cornerRadius: TTheme.radiusLg, style: .continuous))
         .overlay {
@@ -257,61 +371,59 @@ struct JobsSection<Header: View>: View {
     }
 }
 
+// MARK: - What a column header can do
+//
+// Closures again, for the reason `JobsCellActions` gives: a header that reached
+// for the store would observe it, and there is one header per SECTION — so five
+// sections is five observers of the column layout, all invalidating together.
+
+struct JobsColumnActions {
+    /// A drag finished. `to` is an index into the full drawn list.
+    var move: (_ id: String, _ to: Int) -> Void = { _, _ in }
+    /// Live, on every pointer move — not persisted until `endResize`.
+    var resize: (_ id: String, _ width: CGFloat) -> Void = { _, _ in }
+    var endResize: () -> Void = { }
+    /// Right-click, and double-click (which goes straight to rename).
+    var openMenu: (_ column: JobsGridColumn, _ point: CGPoint) -> Void = { _, _ in }
+    var rename: (_ column: JobsGridColumn, _ point: CGPoint) -> Void = { _, _ in }
+    /// The trailing "+" cell.
+    var addColumn: (_ point: CGPoint) -> Void = { _ in }
+}
+
 // MARK: - The column header
+//
+// `ColHeaders` (TRAQS.jsx:12190). Every header cell carries five interactions at
+// once and they have to stay out of each other's way:
+//
+//   click        → sort, cycling asc → desc → off
+//   drag         → reorder, but only WITHIN the standard or custom run
+//   right-click  → the column menu
+//   double-click → rename
+//   the grip     → resize
+//
+// The web separates sort from drag by DISTANCE: `startColDrag` tracks the
+// pointer, and a release that never moved 4px is treated as a click and sorts
+// instead (:11800). Same rule here — `DragGesture(minimumDistance: 4)` never
+// begins for a click, so the two cannot both fire.
 
 struct JobsColumnHeader: View {
     @Environment(\.tqTheme) private var theme
 
-    let columns: [JobColumn]
+    let columns: [JobsGridColumn]
     @Binding var sort: JobsSort
+    var actions = JobsColumnActions()
+
+    /// Which column is under the pointer mid-drag, as an index into `columns`.
+    /// `colDropIdx` on the web — it draws an accent rule at the insertion point.
+    @State private var dropIndex: Int?
+    @State private var draggingID: String?
 
     var body: some View {
         HStack(spacing: 0) {
-            ForEach(columns) { col in
-                Button { sort = sort.cycled(col) } label: {
-                    HStack(spacing: 4) {
-                        Text(col.label)
-                            .font(TFont.body(JobsGridMetrics.headerFont, 700))
-                            .tracking(JobsGridMetrics.headerTracking)
-                            .textCase(.uppercase)
-                            .foregroundStyle(sorted(col) ? theme.accent : theme.textDim)
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity, alignment: col.align.frameAlignment)
-
-                        // `⇅` at 0.35 opacity until this is the sorted column. It
-                        // holds its space either way, so turning sorting on does
-                        // not nudge the label.
-                        Text(sortGlyph(col))
-                            .font(TFont.body(9))
-                            .foregroundStyle(sorted(col) ? theme.accent : theme.textDim)
-                            .opacity(sorted(col) ? 1 : 0.35)
-                    }
-                    .padding(.horizontal, JobsGridMetrics.cellHPad)
-                    // `paddingLeft: 22` on the Name header, matching its cells, so
-                    // the label sits over its own text rather than over the
-                    // expand arrow.
-                    .padding(.leading, col == .name
-                             ? JobsGridMetrics.nameLeadTop - JobsGridMetrics.cellHPad : 0)
-                    // FIXED, both axes. Never a flexible frame — see JobsGridCell.
-                    .frame(width: col.defaultWidth,
-                           height: JobsGridMetrics.headerHeight,
-                           alignment: .leading)
-                    .background(sorted(col) ? theme.accent.opacity(0.07) : .clear)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help("Sort by \(col.label)")
+            ForEach(Array(columns.enumerated()), id: \.element.id) { index, col in
+                cell(col, at: index)
             }
-
-            // The trailing "+" cell. Present so the header's width matches the
-            // rows' and the last column's rule lands where it does on the web;
-            // the column picker behind it is not ported.
-            Text("+")
-                .font(TFont.body(18, 400))
-                .foregroundStyle(theme.textDim.opacity(0.5))
-                .frame(width: JobColumn.addColumnWidth,
-                       height: JobsGridMetrics.headerHeight)
-                .help("Add column — not ported yet")
+            addCell
         }
         .background(theme.surface)
         .overlay(alignment: .bottom) {
@@ -319,11 +431,189 @@ struct JobsColumnHeader: View {
         }
     }
 
-    private func sorted(_ col: JobColumn) -> Bool { sort.column == col }
+    // MARK: One header cell
 
-    private func sortGlyph(_ col: JobColumn) -> String {
-        guard sorted(col) else { return "\u{21C5}" }        // ⇅
+    private func cell(_ col: JobsGridColumn, at index: Int) -> some View {
+        HStack(spacing: 4) {
+            Text(col.label)
+                .font(TFont.body(JobsGridMetrics.headerFont, 700))
+                .tracking(JobsGridMetrics.headerTracking)
+                .textCase(.uppercase)
+                .foregroundStyle(isSorted(col) ? theme.accent : theme.textDim)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: col.align.frameAlignment)
+
+            // `⇅` at 0.35 opacity until this is the sorted column. It holds its
+            // space either way, so turning sorting on does not nudge the label.
+            Text(sortGlyph(col))
+                .font(TFont.body(9))
+                .foregroundStyle(isSorted(col) ? theme.accent : theme.textDim)
+                .opacity(isSorted(col) ? 1 : 0.35)
+        }
+        .padding(.horizontal, JobsGridMetrics.cellHPad)
+        // `paddingLeft: 22` on the Name header, matching its cells, so the label
+        // sits over its own text rather than over the expand arrow.
+        .padding(.leading, col.standard == .name
+                 ? JobsGridMetrics.nameLeadTop - JobsGridMetrics.cellHPad : 0)
+        // FIXED, both axes. Never a flexible frame — see JobsGridCell.
+        .frame(width: col.width, height: JobsGridMetrics.headerHeight,
+               alignment: .leading)
+        .background(isSorted(col) ? theme.accent.opacity(0.07) : .clear)
+        // The column being dragged fades; the one it would land before gets an
+        // accent rule down its leading edge.
+        .opacity(draggingID == col.id ? 0.4 : 1)
+        .overlay(alignment: .leading) {
+            if dropIndex == index, draggingID != col.id {
+                Rectangle().fill(theme.accent).frame(width: 2)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture(count: 2) { actions.rename(col, .zero) }
+        .onTapGesture { sort = sort.cycled(col) }
+        .gesture(dragGesture(col, at: index))
+        // Right-click is caught by the section, not here — see
+        // `JobsSection.hitCatcher`.
+        .overlay(alignment: .trailing) { grip(col) }
+        .help(helpText(col))
+    }
+
+    /// `minimumDistance: 4` — the same 4px threshold `startColDrag` uses to tell
+    /// a reorder from a click. Below it the gesture never begins, so the tap
+    /// gesture above keeps the event and sorts.
+    private func dragGesture(_ col: JobsGridColumn, at index: Int) -> some Gesture {
+        DragGesture(minimumDistance: 4, coordinateSpace: .named(JobsPage.menuSpace))
+            .onChanged { value in
+                draggingID = col.id
+                dropIndex = slot(for: value.translation.width, from: index, of: col)
+            }
+            .onEnded { value in
+                let target = slot(for: value.translation.width, from: index, of: col)
+                draggingID = nil
+                dropIndex = nil
+                if target != index { actions.move(col.id, target) }
+            }
+    }
+
+    /// Where the dragged column would land, walked out from where it started.
+    ///
+    /// Columns are not a uniform width, so this cannot be `translation / width`.
+    /// It steps neighbour by neighbour, crossing one when the pointer has passed
+    /// that neighbour's MIDPOINT — which is the same rule the web's loop applies
+    /// with `me.clientX < r.left + r.width / 2`.
+    ///
+    /// Clamped to the dragged column's own RUN. A standard column dragged past
+    /// the last one stops there rather than landing among the custom columns,
+    /// where it would silently not move.
+    private func slot(for dx: CGFloat, from index: Int, of col: JobsGridColumn) -> Int {
+        let run = runBounds(for: col)
+        var target = index
+        var travelled: CGFloat = 0
+
+        if dx > 0 {
+            var next = index + 1
+            while next < run.upperBound {
+                travelled += columns[next].width
+                if dx < travelled - columns[next].width / 2 { break }
+                target = next
+                next += 1
+            }
+        } else if dx < 0 {
+            var next = index - 1
+            while next >= run.lowerBound {
+                travelled -= columns[next].width
+                if dx > travelled + columns[next].width / 2 { break }
+                target = next
+                next -= 1
+            }
+        }
+        return target
+    }
+
+    /// The half of the list this column may move within: the standard run, or
+    /// the custom run after it.
+    private func runBounds(for col: JobsGridColumn) -> Range<Int> {
+        let firstCustom = columns.firstIndex { $0.isCustom } ?? columns.count
+        return col.isCustom ? firstCustom..<columns.count : 0..<firstCustom
+    }
+
+    // MARK: The resize grip
+    //
+    // A 6pt strip on the column's trailing edge. `.onHover` swaps the cursor,
+    // because a grip you cannot see has to announce itself somehow.
+
+    private func grip(_ col: JobsGridColumn) -> some View {
+        Rectangle()
+            .fill(Color.clear)
+            .frame(width: 6)
+            .contentShape(Rectangle())
+            // SwiftUI's own cursor, not `NSCursor.push()`/`pop()`.
+            //
+            // Driving the AppKit cursor stack from `.onHover` mutates AppKit
+            // state from inside a SwiftUI update, which is what produces
+            // "Invalid attempt to open a new transaction during CA commit …
+            // NSCGSTransactionCreatedDuringCommitError" in the console. It also
+            // leaks: a pointer that leaves during a drag never balances its push,
+            // and the resize cursor sticks.
+            .pointerStyle(.columnResize)
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { actions.resize(col.id, col.width + $0.translation.width) }
+                    .onEnded { _ in actions.endResize() }
+            )
+    }
+
+    // MARK: The "+" cell
+
+    private var addCell: some View {
+        Button { } label: {
+            WebGlyph(spec: WebIcon.plus, size: 12, color: theme.textDim)
+                .frame(width: JobColumn.addColumnWidth,
+                       height: JobsGridMetrics.headerHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // The point comes from the button's own frame rather than from a click
+        // location: this picker hangs UNDER the "+" like a dropdown, where the
+        // row menu follows the pointer.
+        .overlay {
+            GeometryReader { geo in
+                let frame = geo.frame(in: .named(JobsPage.menuSpace))
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        actions.addColumn(CGPoint(x: frame.minX, y: frame.maxY))
+                    }
+            }
+        }
+        .help("Add column")
+    }
+
+    // MARK: -
+
+    private func isSorted(_ col: JobsGridColumn) -> Bool {
+        guard let standard = col.standard else { return false }
+        return sort.column == standard
+    }
+
+    private func sortGlyph(_ col: JobsGridColumn) -> String {
+        guard isSorted(col) else { return "\u{21C5}" }      // ⇅
         return sort.ascending ? "\u{25B2}" : "\u{25BC}"     // ▲ ▼
+    }
+
+    private func helpText(_ col: JobsGridColumn) -> String {
+        col.standard == nil
+            ? "\(col.label) — drag to reorder, right-click for options"
+            : "Sort by \(col.label) — drag to reorder, right-click for options"
+    }
+}
+
+extension JobsSort {
+    /// Sorting is only defined for the standard columns; a custom column has no
+    /// comparator, so clicking its header does nothing rather than clearing the
+    /// sort somebody set.
+    func cycled(_ column: JobsGridColumn) -> JobsSort {
+        guard let standard = column.standard else { return self }
+        return cycled(standard)
     }
 }
 
@@ -333,7 +623,7 @@ struct JobsGridRow: View {
     @Environment(\.tqTheme) private var theme
 
     let row: JobRow
-    let columns: [JobColumn]
+    let columns: [JobsGridColumn]
     let align: JobColumn.Align
     let context: JobsCellContext
     let actions: JobsCellActions
@@ -347,10 +637,23 @@ struct JobsGridRow: View {
     var body: some View {
         HStack(spacing: 0) {
             ForEach(columns) { col in
-                JobsGridCell(row: row, column: col, align: align, context: context,
-                             actions: actions, editing: $editing,
-                             expanded: expanded, selected: selected,
-                             selectMode: selectMode)
+                // Two cell families, dispatched here rather than inside one
+                // giant cell: a standard column is a known field with its own
+                // renderer, a custom one is a value looked up by key. Merging
+                // them would put a `switch` over six value TYPES inside a
+                // `switch` over eleven COLUMNS.
+                switch col.kind {
+                case .standard(let standard):
+                    JobsGridCell(row: row, column: standard, width: col.width,
+                                 align: align, context: context,
+                                 actions: actions, editing: $editing,
+                                 expanded: expanded, selected: selected,
+                                 selectMode: selectMode)
+                case .custom(let custom):
+                    JobsCustomCell(row: row, column: custom, width: col.width,
+                                   align: col.align, context: context,
+                                   actions: actions, editing: $editing)
+                }
             }
             // Matches the header's trailing "+" cell so both rows end together.
             Color.clear.frame(width: JobColumn.addColumnWidth,
@@ -360,7 +663,12 @@ struct JobsGridRow: View {
         // `opacity: isFinished && level === 0 ? 0.6 : 1`.
         .opacity(row.level == 0 && row.status == .finished ? 0.6 : 1)
         .onHover { hovering = $0 }
+        // Before the gesture, so the whole row strip is hittable — including any
+        // gap past the last column. Without it a click there hits nothing.
+        .contentShape(Rectangle())
         .onTapGesture { tap() }
+        // No right-click handling here — the SECTION catches those for every row
+        // at once. See `JobsSection.hitCatcher`.
     }
 
     /// `T.accent + "0d"` on hover — 5%, deliberately faint: rows are frosted over
@@ -407,6 +715,9 @@ private struct JobsGridCell: View {
 
     let row: JobRow
     let column: JobColumn
+    /// From the LAYOUT, not from `column.defaultWidth` — the column may have
+    /// been resized. See `JobsColumnLayout`.
+    let width: CGFloat
     let align: JobColumn.Align
     let context: JobsCellContext
     let actions: JobsCellActions
@@ -427,9 +738,23 @@ private struct JobsGridCell: View {
         content
             .padding(.horizontal, JobsGridMetrics.cellHPad)
             .padding(.vertical, JobsGridMetrics.cellVPad)
-            .frame(width: column.defaultWidth,
+            .frame(width: width,
                    height: JobsGridMetrics.rowHeight,
                    alignment: cellAlignment)
+            // THE WHOLE CELL IS THE TARGET, padding included.
+            //
+            // The web puts every cell's `onClick` on the cell DIV, so clicking
+            // anywhere in the box opens the picker — not just on the pill or the
+            // text. Hanging the gesture off the content instead left most of each
+            // cell dead, and a click there fell through to the row and expanded it
+            // rather than doing what the cell said it would.
+            //
+            // A cell with no action of its own gets the shape but no gesture, so
+            // its clicks DO fall through to the row — which is also what the web
+            // does, and is what makes clicking a job's Client or Hours cell expand
+            // it.
+            .contentShape(Rectangle())
+            .modifier(JobsCellTap(action: wholeCellTap))
             // NO `.clipped()`. It was on all eleven cells, and a clip is a mask
             // layer — four hundred of them across a page, purely so nothing
             // overflows. Nothing does: every Text truncates, and the two pills
@@ -441,26 +766,56 @@ private struct JobsGridCell: View {
     /// The width a cell has for content, after its own padding. Used where
     /// something has to be told not to outgrow its column.
     private var contentWidth: CGFloat {
-        column.defaultWidth - JobsGridMetrics.cellHPad * 2
+        width - JobsGridMetrics.cellHPad * 2
     }
 
     // MARK: Edit plumbing
 
     private var isEditing: Bool {
-        editing == JobsEditTarget(rowID: row.id, column: column)
+        editing == JobsEditTarget(rowID: row.id, columnID: column.rawValue)
     }
 
     /// Enters edit mode only where the web allows it. `isEditable` holds the
     /// per-level rules in one place — see JobsEdit.
     private func beginEditing(_ field: JobsEdit.Field) {
         guard JobsEdit.isEditable(field, atLevel: row.level) else { return }
-        editing = JobsEditTarget(rowID: row.id, column: column)
+        editing = JobsEditTarget(rowID: row.id, columnID: column.rawValue)
     }
 
     private func commit(_ field: JobsEdit.Field) {
         editing = nil
         guard JobsEdit.isEditable(field, atLevel: row.level) else { return }
         actions.commit(row, field)
+    }
+
+    /// What clicking anywhere in this cell does, or nil to let the click reach
+    /// the row. One place, so a cell's hit area and its behaviour cannot drift
+    /// apart the way they had.
+    ///
+    /// Name is nil on purpose: a SINGLE click on a name belongs to the row (it
+    /// expands), and only a double click starts editing the title — which the
+    /// title text handles itself.
+    private var wholeCellTap: (() -> Void)? {
+        switch column {
+        case .status:
+            return { statusOpen = true }
+        case .pri:
+            // Level 0 only — `if (level === 0) cyclePri(item)`. Below that the
+            // click belongs to the row.
+            guard JobsEdit.isEditable(.priority(row.priority), atLevel: row.level)
+            else { return nil }
+            return { actions.commit(row, .priority(JobsEdit.nextPriority(after: row.priority))) }
+        case .jobNum:
+            guard row.level == 0 else { return nil }
+            return { beginEditing(.jobNumber(row.job?.jobNumber ?? "")) }
+        case .start, .end:
+            return { dateOpen = true }
+        case .due:
+            guard row.level == 0 else { return nil }
+            return { dueOpen = true }
+        case .name, .client, .hrs, .progress, .team:
+            return nil
+        }
     }
 
     /// The cycling toggle moves the ordinary cells. Name, Priority and Progress
@@ -583,10 +938,8 @@ private struct JobsGridCell: View {
                 .font(TFont.mono(11, 600))
                 .foregroundStyle(theme.text)
                 .lineLimit(1)
-                .onTapGesture { beginEditing(.jobNumber(number)) }
         } else if row.level == 0 {
             dash(11, mono: true)
-                .onTapGesture { beginEditing(.jobNumber("")) }
         } else {
             // A panel has no number of its own and the web leaves the cell empty
             // — but EMPTY, not absent. See the note above `JobsGridCell`.
@@ -627,8 +980,6 @@ private struct JobsGridCell: View {
 
     private var statusCell: some View {
         statusPill
-            .contentShape(Capsule())
-            .onTapGesture { statusOpen = true }
             // The popover modifier is installed ONLY WHILE OPEN. Attached
             // unconditionally it is a presentation anchor that exists on every
             // cell of every row — four per row here, across status, start, end and
@@ -636,15 +987,17 @@ private struct JobsGridCell: View {
             .overlay {
                 if statusOpen {
                     Color.clear.popover(isPresented: $statusOpen, arrowEdge: .bottom) {
-                        JobsStatusPopover(current: row.status) { picked in
+                        JobsOptionList(options: JobsOptionList.statusOptions(),
+                                       current: row.status.rawValue) { picked in
                             statusOpen = false
-                            guard picked != row.status else { return }
+                            guard let status = JobStatus(rawValue: picked),
+                                  status != row.status else { return }
                             // Finished never gets written straight in — it raises
                             // a completion request with the admins.
-                            if JobsEdit.needsCompletionRequest(picked) {
+                            if JobsEdit.needsCompletionRequest(status) {
                                 actions.requestCompletion(row)
                             } else {
-                                actions.commit(row, .status(picked))
+                                actions.commit(row, .status(status))
                             }
                         }
                     }
@@ -694,13 +1047,9 @@ private struct JobsGridCell: View {
             .frame(maxWidth: contentWidth)
             .background(Capsule().fill(color.opacity(0.10)))                 // "1a"
             .overlay(Capsule().strokeBorder(color.opacity(0.27), lineWidth: 1))
-            .contentShape(Capsule())
             // `cyclePri` — a click steps to the next priority and wraps. No
-            // popover on the web; three values do not need a list.
-            .onTapGesture {
-                guard editable else { return }
-                actions.commit(row, .priority(JobsEdit.nextPriority(after: row.priority)))
-            }
+            // popover on the web; three values do not need a list. The click is
+            // taken by the whole cell — see `wholeCellTap`.
     }
 
     // MARK: Dates
@@ -713,8 +1062,6 @@ private struct JobsGridCell: View {
             .foregroundStyle(theme.textSec)
             .lineLimit(1)
             .frame(maxWidth: .infinity, alignment: cellAlignment.horizontalOnly)
-            .contentShape(Rectangle())
-            .onTapGesture { dateOpen = true }
             .overlay {
                 if dateOpen {
                     Color.clear.popover(isPresented: $dateOpen, arrowEdge: .bottom) {
@@ -737,13 +1084,9 @@ private struct JobsGridCell: View {
                 .foregroundStyle(overdue ? Color.hex("#ef4444")
                                  : (soon ? Color.hex("#f59e0b") : theme.textSec))
                 .lineLimit(1)
-                .contentShape(Rectangle())
-                .onTapGesture { dueOpen = true }
                 .overlay { duePopover(due) }
         } else if row.level == 0 {
             dash(12, mono: true)
-                .contentShape(Rectangle())
-                .onTapGesture { dueOpen = true }
                 .overlay { duePopover("") }
         } else {
             Color.clear
@@ -789,15 +1132,18 @@ private struct JobsGridCell: View {
     // MARK: Progress
 
     private var progressCell: some View {
-        let pct = context.percentByID[row.itemID] ?? 0
+        let pct = context.percent[row.itemID]
         let color = Color.hex(ProgressRamp.hex(pct, belowForty: "#94a3b8"))
         let counts = row.finishedAndTotalOps
         // The bar's width is COMPUTED, not measured. A GeometryReader here is one
         // per row, and a reader is a layout container that re-proposes to its
         // child — the single biggest cost in a grid this shape. The column's width
-        // is a constant and the padding is a constant, so there is nothing to
-        // measure.
-        let barWidth = column.defaultWidth - JobsGridMetrics.cellHPad * 2
+        // is known and the padding is a constant, so there is nothing to measure.
+        //
+        // `contentWidth`, not `column.defaultWidth`: the Progress column can be
+        // resized, and reading the default would leave the bar the original width
+        // inside a narrower cell.
+        let barWidth = contentWidth
         return VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 4) {
                 Text("\(pct)%")
@@ -975,6 +1321,27 @@ extension JobColumn.Align {
         case .leading:  return .leading
         case .center:   return .center
         case .trailing: return .trailing
+        }
+    }
+}
+
+// MARK: - An optional tap
+//
+// `.onTapGesture` cannot be applied conditionally inside a view builder without
+// changing the view's type, and a cell whose type depends on whether it happens
+// to be interactive re-creates itself whenever that changes. A modifier that
+// takes an optional closure keeps one type for every cell.
+struct JobsCellTap: ViewModifier {
+    let action: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        // `allowsHitTesting` is NOT the lever here: the cell must stay hittable
+        // either way, so that a cell with no action of its own still gives the
+        // ROW something to receive the click on.
+        if let action {
+            content.onTapGesture(perform: action)
+        } else {
+            content
         }
     }
 }

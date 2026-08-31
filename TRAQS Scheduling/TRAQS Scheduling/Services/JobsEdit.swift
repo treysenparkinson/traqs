@@ -150,6 +150,77 @@ enum JobsEdit {
     static func needsCompletionRequest(_ status: JobStatus) -> Bool {
         status == .finished
     }
+
+    // MARK: Removing
+
+    /// The job with the node at `path` taken out.
+    ///
+    /// `nil` means "the job itself" — the caller removes it from the array, since
+    /// a Job cannot delete itself. Everything else comes back as a job with one
+    /// panel or one operation fewer.
+    ///
+    /// A path that no longer resolves returns the job UNCHANGED rather than
+    /// throwing. An inbound sync between the right-click and the confirmation can
+    /// remove the node already, and deleting nothing is the correct outcome
+    /// there; a throw would be a dialog about a row that is already gone.
+    static func removing(_ path: JobsEditPath, from job: Job) -> Job? {
+        switch path {
+        case .job:
+            return nil
+        case .panel(let panelID):
+            var job = job
+            job.subs.removeAll { $0.id == panelID }
+            return job
+        case .operation(let panelID, let opID):
+            var job = job
+            guard let i = job.subs.firstIndex(where: { $0.id == panelID }) else { return job }
+            job.subs[i].subs.removeAll { $0.id == opID }
+            return job
+        }
+    }
+
+    // MARK: Dependency mode
+
+    /// The three states a panel's operations can be linked in, and what each one
+    /// writes. Ported from the toggle at TRAQS.jsx:28016 — the important part is
+    /// that the MODE and the per-operation `deps` are written TOGETHER, because
+    /// the web reads both and they disagree if only one is set.
+    ///
+    ///   * `free`     — the mode is cleared and every op's `deps` is emptied.
+    ///   * `unlocked` — every op depends on all its siblings. The web writes the
+    ///                  full sibling list on each op, not a chain.
+    ///   * `locked`   — the mode is set and `deps` is left exactly as it is.
+    ///
+    /// `depsMode` is not a modelled field; it rides on `Panel.extras`. See
+    /// `JSONExtras` — before that existed, this write was destroyed on save.
+    static func settingDependencyMode(_ mode: String?, panelID: String,
+                                      in job: Job) -> Job {
+        var job = job
+        guard let i = job.subs.firstIndex(where: { $0.id == panelID }) else { return job }
+
+        switch mode {
+        case "unlocked":
+            let all = job.subs[i].subs.map(\.id)
+            job.subs[i].extras.set("depsMode", .string("unlocked"))
+            for k in job.subs[i].subs.indices {
+                let me = job.subs[i].subs[k].id
+                job.subs[i].subs[k].deps = all.filter { $0 != me }
+            }
+        case "locked":
+            job.subs[i].extras.set("depsMode", .string("locked"))
+        default:
+            // Removing the key, not writing null — the web tests it with a bare
+            // truthiness check and `undefined` is what it writes to clear it.
+            job.subs[i].extras.set("depsMode", nil)
+            for k in job.subs[i].subs.indices { job.subs[i].subs[k].deps = [] }
+        }
+        return job
+    }
+
+    /// The mode a panel is currently in.
+    static func dependencyMode(of panel: Panel) -> String? {
+        panel.extras.string("depsMode")
+    }
 }
 
 // MARK: - Where a row sits in its job

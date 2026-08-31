@@ -255,7 +255,7 @@ struct NativeShell: View {
             // wrong if any copied number is wrong — before a real screen depends
             // on it.
             if !settingsMode, view == .tasks {
-                JobsPage()
+                JobsPage(goTo: { view = $0 })
             } else {
                 TPage(settingsMode ? settingsSection.label : view.label) {
                     Text("Not ported yet")
