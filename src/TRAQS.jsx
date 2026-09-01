@@ -1210,15 +1210,16 @@ select:not(.tq-sq) { padding-left: 14px; padding-right: 12px; }
 .sched-person:hover .sched-person-glow { opacity: 1; }
 /* Toolbar search pills (Schedule + Jobs). They're <div> wrappers, not <button>,
    so the universal button lift/glow above never reached them and they sat flat
-   next to the buttons they share a toolbar with. Same values as that rule so
-   they lift identically. The transition itself lives inline alongside the
+   so the universal button rule above never reached them and they sat flat next to
+   the buttons they share a toolbar with. They now match the FIELD family rather
+   than the buttons: a search pill is somewhere you type, so it gets the same
+   hairline hover as every other input instead of a 1.5px lift and a 22px halo.
    width/border-color ones — an inline transition would otherwise win outright
    and drop these properties. */
 @media (hover: hover) {
   .tq-searchbar:hover {
-    transform: translateY(-1.5px);
-    box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16));
-    filter: brightness(1.06);
+    box-shadow: 0 1px 3px var(--tq-glow-ring, rgba(0,0,0,0.09));
+    filter: brightness(1.015);
   }
 }
 /* Navigation sidebar opts out of the lift/glow — it keeps the simple background
@@ -1704,24 +1705,26 @@ button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([di
 .anim-ctx-up button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active > span > svg {
   transform: none;
 }
-/* Text fields, textareas and selects answer the pointer the same way buttons do —
-   and at the gentle scale, because a field is nearly always wide. Their existing
-   rule lifted and glowed on the same overshoot curve; this swaps the translate for a
-   scale and drops the glow, matching everything else.
+/* THIS is the rule that wins for text fields, textareas and selects: it is declared
+   after the base one near the top of the sheet at equal specificity, so it takes it
+   on source order (the old comment here said exactly that). Worth knowing, because
+   calming the earlier rule alone changes nothing on screen -- the swell lived here.
 
-   Their selector is copied verbatim from that rule rather than rewritten, so the
-   long list of input types it deliberately skips — checkbox, radio, range, colour,
-   file, button, submit, .tq-bare — cannot drift out of step. Declared after it, at
-   equal specificity, so it wins on order.
+   It used to set scale(1.02) with box-shadow:none and filter:none, so it also
+   cancelled the base rule to leave motion as the only hover signal. Now it carries
+   the same hairline shadow as the rest of the field family and no transform.
+
+   Their selector is copied verbatim from the base rule rather than rewritten, so the
+   long list of input types it deliberately skips -- checkbox, radio, range, colour,
+   file, button, submit, .tq-bare -- cannot drift out of step.
 
    Under Frosted Glass they take the control edge too. */
 @media (hover: hover) {
   input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover,
   textarea:not(:disabled):not([readonly]):not(.tq-bare):hover,
   select:not(:disabled):hover {
-    transform: scale(1.02);
-    box-shadow: none;
-    filter: none;
+    box-shadow: 0 1px 3px var(--tq-glow-ring, rgba(0,0,0,0.09));
+    filter: brightness(1.015);
   }
 }
 input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):active,
@@ -1742,24 +1745,23 @@ select:not(:disabled):active {
     box-shadow: var(--tq-control-edge);
   }
 }
-/* Fields inside a dialog get a THIRD, quieter tier: 1.008 / 0.994.
-
-   The gentle 1.02 that suits a 220px search bar still travels 10px on a 500px field
-   and 13px on a 640px one — and the New Job and Edit Job forms are full of exactly
-   those. The number worth matching is the one that already reads right: a Jobs-header
-   pill at 1.06 moves 4.7px. 1.008 puts a 500px field at 4.0px and a 640px one at
-   5.1px, so a long field travels about as far as a small button rather than scaling
-   like it.
+/* Fields inside a dialog no longer scale on hover, and neither does anything else
+   in the field family. The tier system here used to read 1.06 / 1.02 / 1.008 and the
+   sizing table below it made the case well: a 640px field at 1.02 travels 12.8px,
+   which is why a dialog got its own quieter number.
 
        width   1.06     1.02     1.008
         220px  13.2px    4.4px    1.8px
         500px  30.0px   10.0px    4.0px
         640px  38.4px   12.8px    5.1px
 
-   Chosen for the widest case, which is why even the narrow fields in a dialog take it
-   — one tier per context beats a tier per element, and a dialog is where the wide
-   ones live. Named after the modal, so the same field outside one keeps the gentle
-   scale. Icon counter-scale is the reciprocal of THESE values. */
+   The table is kept because it is the reasoning, not the rule: it shows that ANY
+   scale on a wide field moves its edges further than the same scale on a button,
+   so picking a smaller number per context was treating the symptom. A form full of
+   fields that each swell as the cursor crosses them reads as the page twitching.
+   Hover is now a hairline shadow everywhere in this family; focus keeps the accent
+   halo, so the strong signal belongs to the field you are actually in. The icon
+   counter-scale rules that paired with each tier are gone with the scales. */
 @media (hover: hover) {
 .anim-modal-box input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover,
 .anim-modal-box textarea:not(:disabled):not([readonly]):not(.tq-bare):hover,
@@ -1769,25 +1771,8 @@ select:not(:disabled):active {
 .anim-modal-overlay textarea:not(:disabled):not([readonly]):not(.tq-bare):hover,
 .anim-modal-overlay select:not(:disabled):hover,
 .anim-modal-overlay .tq-drop:hover {
-    transform: scale(1.008) !important;
-  }
-.anim-modal-box input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover > svg,
-.anim-modal-box input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover > span > svg,
-.anim-modal-box textarea:not(:disabled):not([readonly]):not(.tq-bare):hover > svg,
-.anim-modal-box textarea:not(:disabled):not([readonly]):not(.tq-bare):hover > span > svg,
-.anim-modal-box select:not(:disabled):hover > svg,
-.anim-modal-box select:not(:disabled):hover > span > svg,
-.anim-modal-box .tq-drop:hover > svg,
-.anim-modal-box .tq-drop:hover > span > svg,
-.anim-modal-overlay input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover > svg,
-.anim-modal-overlay input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover > span > svg,
-.anim-modal-overlay textarea:not(:disabled):not([readonly]):not(.tq-bare):hover > svg,
-.anim-modal-overlay textarea:not(:disabled):not([readonly]):not(.tq-bare):hover > span > svg,
-.anim-modal-overlay select:not(:disabled):hover > svg,
-.anim-modal-overlay select:not(:disabled):hover > span > svg,
-.anim-modal-overlay .tq-drop:hover > svg,
-.anim-modal-overlay .tq-drop:hover > span > svg {
-    transform: scale(0.9921);
+    box-shadow: 0 1px 3px var(--tq-glow-ring, rgba(0,0,0,0.09)) !important;
+    filter: brightness(1.015);
   }
 }
 .anim-modal-box input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):active,
@@ -1833,12 +1818,13 @@ select:not(:disabled):active {
   transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 @media (hover: hover) {
+  /* This is the rule that actually applied. There were TWO .tq-searchbar:hover
+     blocks; the earlier one (see the toolbar-pill comment above) lost to this one
+     on source order, so calming that one alone changed nothing. Both are quiet now.
+     The icon counter-scale went with the scale it was cancelling. */
   .tq-searchbar:hover {
-    transform: scale(1.02);
-  }
-  .tq-searchbar:hover > svg,
-  .tq-searchbar:hover > span > svg {
-    transform: scale(0.9804);
+    box-shadow: 0 1px 3px var(--tq-glow-ring, rgba(0,0,0,0.09));
+    filter: brightness(1.015);
   }
 }
 .tq-searchbar:active {
@@ -2153,27 +2139,20 @@ input[type="range"].tq-pill-range::-moz-range-thumb {
   /* !important, and matching the button curve exactly. Without it the trigger's
      own inline transition wins (inline beats stylesheet) and the glow snaps in
      with no animation at all — which is what made it read as "not TRAQS". */
-  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
+  transition: transform 0.15s ease,
               box-shadow 0.2s ease, filter 0.2s ease,
               background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
 }
-/* Swell and squeeze, matching the buttons, and at the GENTLE scale: a dropdown
-   trigger is a field, and fields are wide. 1.06 on something spanning half a form
-   lunges — the same trap the search bar and the My Clock buttons hit. Its icon
-   counter-scales by the reciprocal so the chevron neither thickens nor drifts.
-
-   The glow goes. It was the softer --tq-glow-ring rather than the button's --tq-glow
-   precisely because a trigger is mostly empty space and a hard shadow under it read
-   wrong; with the swell doing the work there is nothing left for it to soften. */
+/* No swell. A dropdown trigger is a field, and it now hovers like the rest of the
+   field family: a hairline shadow, no motion. It used to scale 1.02 with its icon
+   counter-scaling by the reciprocal to keep the chevron from thickening -- that
+   whole apparatus existed to make the swell tolerable on wide triggers, and it goes
+   with the swell. The press (:active) keeps its squeeze and its counter-scale: a
+   press is a deliberate act and momentary, which is the opposite of hover. */
 @media (hover: hover) {
   .tq-drop:hover {
-    transform: scale(1.02);
-    box-shadow: none;
-    filter: none;
-  }
-  .tq-drop:hover > svg,
-  .tq-drop:hover > span > svg {
-    transform: scale(0.9804);
+    box-shadow: 0 1px 3px var(--tq-glow-ring, rgba(0,0,0,0.09));
+    filter: brightness(1.015);
   }
 }
 .tq-drop:active {
