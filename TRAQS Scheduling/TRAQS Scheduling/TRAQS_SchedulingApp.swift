@@ -25,6 +25,20 @@ struct TRAQS_SchedulingApp: App {
         // views), that delay was making taps on the floating nav pill feel slightly
         // late. Deliver touches immediately; scrolling still starts on an actual drag.
         UIScrollView.appearance().delaysContentTouches = false
+
+        // The system segmented control (SwiftUI's `.segmented` picker style, and
+        // so `GlassSegmented`) is UIKit underneath, and a UIKit control takes its
+        // font from the appearance proxy — `.font` on the SwiftUI view does not
+        // reach it. Set here, once: a proxy write is global state, and doing it
+        // from a View would re-run on every render for no gain.
+        //
+        // Only the FONT is overridden. Colours are left to the system so the
+        // Liquid Glass thumb keeps its own contrast handling in both schemes.
+        if let medium = UIFont(name: TFontName.medium.rawValue, size: 13),
+           let bold   = UIFont(name: TFontName.bold.rawValue,   size: 13) {
+            UISegmentedControl.appearance().setTitleTextAttributes([.font: medium], for: .normal)
+            UISegmentedControl.appearance().setTitleTextAttributes([.font: bold],   for: .selected)
+        }
         #endif
         OneSignal.initialize("41fd1ecb-1bcb-432f-8e0b-2192801d96f4", withLaunchOptions: nil)
         OneSignal.Notifications.requestPermission({ _ in

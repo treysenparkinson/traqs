@@ -792,6 +792,43 @@ struct Segmented<Value: Hashable>: View {
     }
 }
 
+// ── GlassSegmented: the SYSTEM segmented control ────────────────────────────
+//
+// A thin wrapper over `Picker` + `.pickerStyle(.segmented)` — which on iOS 26
+// IS the Liquid Glass segmented control, with the lift-travel-plant motion the
+// system owns: press and the thumb rises off the trough, it stretches toward
+// the segment you chose, and it settles back down.
+//
+// This was hand-built first, and the hand-built version is why it is not any
+// more. A custom thumb can be moved and it can be made of glass, but the motion
+// is the thing being asked for and that motion is not a spring on an offset —
+// it is a lift out of the plane, a liquid stretch, and a settle, tied to the
+// touch's own phases. Reproducing it convincingly means reproducing the whole
+// control; at that point the system's is better and free. (The custom version
+// also fought its own material: labels sharing a `GlassEffectContainer` with the
+// thumb are refracted BY it, however they are stacked, so the selected label
+// came out smeared.)
+//
+// The call-site API is unchanged, so `Segmented`'s shape still applies:
+// options + labels + a binding. Type comes from `UISegmentedControl.appearance()`
+// (set once in TRAQS_SchedulingApp) — a UIKit control takes its font through the
+// proxy, not through SwiftUI's `.font`.
+struct GlassSegmented<Value: Hashable>: View {
+    let options: [Value]
+    let labels: [Value: String]
+    @Binding var selection: Value
+
+    var body: some View {
+        Picker("", selection: $selection) {
+            ForEach(options, id: \.self) { o in
+                Text(labels[o] ?? "").tag(o)
+            }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+    }
+}
+
 // ── Sparkline: simple line+area chart for the Stats hero ───────────────────
 
 struct Sparkline: View {
