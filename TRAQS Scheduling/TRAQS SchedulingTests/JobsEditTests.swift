@@ -119,7 +119,7 @@ struct JobsEditTests {
     // MARK: Where a row sits
 
     @Test func aRowKnowsItsJobAndItsPathWithinIt() {
-        let rows = JobRow.flatten([tree], expanded: ["j1", "p1"])
+        let rows = JobGridRow.flatten([tree], expanded: ["j1", "p1"])
         #expect(rows.map(\.jobID) == ["j1", "j1", "j1", "j1", "j1"])
         #expect(rows[0].editPath == .job)
         #expect(rows[1].editPath == .panel("p1"))

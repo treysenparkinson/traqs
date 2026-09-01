@@ -58,7 +58,7 @@ enum JobsDepsMode: String {
 /// A resolved right-click. Everything the menu needs, worked out at click time.
 struct JobsRowMenuTarget: Equatable {
     var point: CGPoint
-    var row: JobRow
+    var row: JobGridRow
 
     /// The owning job, whatever level was clicked. The header shows the JOB's
     /// title even on an operation row — the op's own title goes in the subtitle,
@@ -88,10 +88,10 @@ struct JobsRowMenuTarget: Equatable {
 /// What the menu can do. Closures for the same reason `JobsCellActions` uses
 /// them — the menu never becomes an observer of anything.
 struct JobsRowMenuActions {
-    var requestCompletion: (JobRow) -> Void = { _ in }
-    var delete: (JobRow) -> Void = { _ in }
+    var requestCompletion: (JobGridRow) -> Void = { _ in }
+    var delete: (JobGridRow) -> Void = { _ in }
     var cycleDependencyMode: (JobsRowMenuTarget) -> Void = { _ in }
-    var openChat: (JobRow) -> Void = { _ in }
+    var openChat: (JobGridRow) -> Void = { _ in }
     var goToSchedule: (String) -> Void = { _ in }
 }
 

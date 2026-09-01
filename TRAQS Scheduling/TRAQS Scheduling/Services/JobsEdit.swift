@@ -125,8 +125,18 @@ enum JobsEdit {
     /// committed on blur without being touched, would otherwise push a pointless
     /// entry onto the undo stack and make Cmd-Z do nothing visible.
     static func differs(_ a: Job, _ b: Job) -> Bool {
-        guard let ea = try? JSONEncoder().encode(a),
-              let eb = try? JSONEncoder().encode(b) else { return true }
+        // `.sortedKeys` is load-bearing, not tidiness. Job's hand-written
+        // `encode(to:)` writes the `JSONExtras` passthrough — a Dictionary —
+        // and Swift's Dictionary iteration order depends on a per-PROCESS hash
+        // seed. Without a stable key order, two structurally identical jobs
+        // encode to different bytes at random, so `differs` returned true for a
+        // no-op edit roughly half the time: exactly the spurious undo entry
+        // this function exists to prevent, and the reason JobsEditDiffTests
+        // passed or failed depending on the run.
+        let enc = JSONEncoder()
+        enc.outputFormatting = .sortedKeys
+        guard let ea = try? enc.encode(a),
+              let eb = try? enc.encode(b) else { return true }
         return ea != eb
     }
 
@@ -225,7 +235,7 @@ enum JobsEdit {
 
 // MARK: - Where a row sits in its job
 
-extension JobRow {
+extension JobGridRow {
 
     /// The id of the JOB this row belongs to — the record that actually gets
     /// saved, whichever level the row is.

@@ -321,29 +321,29 @@ struct JobRowFlattenTests {
     }
 
     @Test func collapsedShowsOnlyTheJob() {
-        let rows = JobRow.flatten([jobWithTwoPanels], expanded: [])
+        let rows = JobGridRow.flatten([jobWithTwoPanels], expanded: [])
         #expect(rows.map(\.itemID) == ["j1"])
     }
 
     @Test func expandingTheJobShowsItsPanelsButNotItsOperations() {
-        let rows = JobRow.flatten([jobWithTwoPanels], expanded: ["j1"])
+        let rows = JobGridRow.flatten([jobWithTwoPanels], expanded: ["j1"])
         #expect(rows.map(\.itemID) == ["j1", "p1", "p2"])
     }
 
     @Test func expandingAPanelShowsItsOperations() {
-        let rows = JobRow.flatten([jobWithTwoPanels], expanded: ["j1", "p1"])
+        let rows = JobGridRow.flatten([jobWithTwoPanels], expanded: ["j1", "p1"])
         #expect(rows.map(\.itemID) == ["j1", "p1", "o1", "o2", "p2"])
     }
 
     // A panel marked expanded inside a COLLAPSED job must produce nothing. The
     // panel is not on screen, so neither are its operations.
     @Test func anExpandedPanelUnderACollapsedJobProducesNothing() {
-        let rows = JobRow.flatten([jobWithTwoPanels], expanded: ["p1"])
+        let rows = JobGridRow.flatten([jobWithTwoPanels], expanded: ["p1"])
         #expect(rows.map(\.itemID) == ["j1"])
     }
 
     @Test func levelsAreAssignedByDepth() {
-        let rows = JobRow.flatten([jobWithTwoPanels], expanded: ["j1", "p1"])
+        let rows = JobGridRow.flatten([jobWithTwoPanels], expanded: ["j1", "p1"])
         #expect(rows.map(\.level) == [0, 1, 2, 2, 1])
     }
 
@@ -355,7 +355,7 @@ struct JobRowFlattenTests {
             "id": "same", "title": "Job",
             "subs": [["id": "same", "title": "Panel", "subs": []]],
         ])
-        let rows = JobRow.flatten([clash], expanded: ["same"])
+        let rows = JobGridRow.flatten([clash], expanded: ["same"])
         #expect(rows.map(\.id) == ["same", "same/same"])
         #expect(Set(rows.map(\.id)).count == rows.count)
         #expect(rows.map(\.itemID) == ["same", "same"])
@@ -364,19 +364,19 @@ struct JobRowFlattenTests {
     // A panel's assignee is tinted with the JOB's colour, not its own, at every
     // level — so the colour has to travel down with the row.
     @Test func theJobsColourTravelsDownToEveryLevel() {
-        let rows = JobRow.flatten([jobWithTwoPanels], expanded: ["j1", "p1"])
+        let rows = JobGridRow.flatten([jobWithTwoPanels], expanded: ["j1", "p1"])
         #expect(rows.allSatisfy { $0.jobColor == "#ff0000" })
     }
 
     @Test func hoursAreReportedAtEachRowsOwnLevel() {
-        let rows = JobRow.flatten([jobWithTwoPanels], expanded: ["j1", "p1"])
+        let rows = JobGridRow.flatten([jobWithTwoPanels], expanded: ["j1", "p1"])
         #expect(rows[0].estimatedHours == 7)    // the job: 6 + 1
         #expect(rows[1].estimatedHours == 6)    // panel 1: 4 + 2
         #expect(rows[2].estimatedHours == 4)    // op 1
     }
 
     @Test func onlyAJobRowExposesAJob() {
-        let rows = JobRow.flatten([jobWithTwoPanels], expanded: ["j1"])
+        let rows = JobGridRow.flatten([jobWithTwoPanels], expanded: ["j1"])
         #expect(rows[0].job != nil)
         #expect(rows[1].job == nil)
     }
@@ -390,7 +390,7 @@ struct JobRowFlattenTests {
                 ]],
             ],
         ])
-        let rows = JobRow.flatten([mixed], expanded: ["j"])
+        let rows = JobGridRow.flatten([mixed], expanded: ["j"])
         #expect(rows[0].finishedAndTotalOps == (1, 2))
         #expect(rows[1].finishedAndTotalOps == (1, 2))
     }

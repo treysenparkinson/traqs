@@ -23,7 +23,7 @@ import SwiftUI
 struct JobsCustomCell: View {
     @Environment(\.tqTheme) private var theme
 
-    let row: JobRow
+    let row: JobGridRow
     let column: JobsCustomColumn
     let width: CGFloat
     let align: JobColumn.Align
@@ -268,7 +268,7 @@ enum JobsCustomValue {
     /// Read for a row. Panels and operations have none of the linked JOB fields,
     /// so a linked column is blank below level 0 — which is what the web shows,
     /// since `item[col.fieldKey]` is simply undefined there.
-    static func read(_ column: JobsCustomColumn, from row: JobRow) -> JSONValue? {
+    static func read(_ column: JobsCustomColumn, from row: JobGridRow) -> JSONValue? {
         guard let field = column.fieldKey else {
             return extras(of: row)[storageKey(column)]
         }
@@ -297,7 +297,7 @@ enum JobsCustomValue {
         }
     }
 
-    private static func extras(of row: JobRow) -> JSONExtras {
+    private static func extras(of row: JobGridRow) -> JSONExtras {
         switch row {
         case .job(let j):                return j.extras
         case .panel(let p, _, _):        return p.extras

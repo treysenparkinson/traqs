@@ -50,7 +50,7 @@ enum JobsGridMetrics {
 struct JobsCellContext: Equatable {
     var clientsByID: [String: Client] = [:]
     var peopleByID: [String: Person] = [:]
-    /// Progress per row, keyed by `JobRow.itemID`. Precomputed because the real
+    /// Progress per row, keyed by `JobGridRow.itemID`. Precomputed because the real
     /// figure reads logged hours and live job clocks off AppState, which is
     /// exactly what a cell must not do.
     ///
@@ -117,15 +117,15 @@ struct JobsGridLines: Shape {
 // a cell an observer of anything it reaches.
 
 struct JobsCellActions {
-    /// Write one field. The row carries its own path — see `JobRow.editPath`.
-    var commit: (JobRow, JobsEdit.Field) -> Void = { _, _ in }
+    /// Write one field. The row carries its own path — see `JobGridRow.editPath`.
+    var commit: (JobGridRow, JobsEdit.Field) -> Void = { _, _ in }
     /// Write a CUSTOM column's value. Separate from `commit` because there is no
     /// `JobsEdit.Field` for it: a linked column writes the job field it names, an
     /// invented one writes `_cc_<id>` into `extras`, and `nil` clears it.
-    var commitCustom: (JobRow, JobsCustomColumn, JSONValue?) -> Void = { _, _, _ in }
+    var commitCustom: (JobGridRow, JobsCustomColumn, JSONValue?) -> Void = { _, _, _ in }
     /// Choosing Finished. The web never writes that status directly; it raises a
     /// completion request with the admins (:26530).
-    var requestCompletion: (JobRow) -> Void = { _ in }
+    var requestCompletion: (JobGridRow) -> Void = { _ in }
 }
 
 /// Which single cell is in edit mode. `gridCell` on the web — one at a time, app
@@ -182,7 +182,7 @@ struct JobsSection<Header: View>: View {
     @Binding var selected: Set<String>
     /// A right-click on a row, with the point in the page's coordinate space.
     /// Passed straight through — the section has no opinion about the menu.
-    var secondaryClick: (JobRow, CGPoint) -> Void = { _, _ in }
+    var secondaryClick: (JobGridRow, CGPoint) -> Void = { _, _ in }
     /// What the column header can do — sort, resize, reorder, and open its own
     /// menu. Passed through untouched; the section has no opinion about columns
     /// either.
@@ -206,7 +206,7 @@ struct JobsSection<Header: View>: View {
     /// above matters — a LazyVStack inside a horizontal ScrollView has no
     /// vertical scroller to measure itself against and builds everything.
     private var grid: some View {
-        let rows = JobRow.flatten(jobs, expanded: expanded)
+        let rows = JobGridRow.flatten(jobs, expanded: expanded)
         return LazyVStack(alignment: .leading, spacing: 0) {
             JobsColumnHeader(columns: columns, sort: $sort, actions: columnActions)
             ForEach(rows) { row in
@@ -264,7 +264,7 @@ struct JobsSection<Header: View>: View {
     /// reported as a page point for the menu to be placed at.
     @State private var gridOrigin: CGPoint = .zero
 
-    private func hitCatcher(_ rows: [JobRow]) -> some View {
+    private func hitCatcher(_ rows: [JobGridRow]) -> some View {
         TQRightClickCatcher { local in
             let page = CGPoint(x: gridOrigin.x + local.x, y: gridOrigin.y + local.y)
 
@@ -622,7 +622,7 @@ extension JobsSort {
 struct JobsGridRow: View {
     @Environment(\.tqTheme) private var theme
 
-    let row: JobRow
+    let row: JobGridRow
     let columns: [JobsGridColumn]
     let align: JobColumn.Align
     let context: JobsCellContext
@@ -713,7 +713,7 @@ struct JobsGridRow: View {
 private struct JobsGridCell: View {
     @Environment(\.tqTheme) private var theme
 
-    let row: JobRow
+    let row: JobGridRow
     let column: JobColumn
     /// From the LAYOUT, not from `column.defaultWidth` — the column may have
     /// been resized. See `JobsColumnLayout`.

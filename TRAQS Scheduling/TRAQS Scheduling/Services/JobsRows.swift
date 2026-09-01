@@ -10,8 +10,16 @@ import Foundation
 // That turns out to be the better shape anyway: every "what does this column show
 // at level 2" answer lives on the row rather than being re-derived inside each
 // cell, which is where the web's version repeats itself.
+//
+// NAMED `JobGridRow`, not `JobRow`. This file lives in the iOS target's
+// directory (a PBXFileSystemSynchronizedRootGroup, so everything under it
+// compiles into the iOS module) even though the grid it serves is the macOS
+// app's — and iOS already has a `JobRow`: the compact list row View in
+// TasksView.swift. Two `JobRow`s in one module is "invalid redeclaration", and
+// it broke the whole iOS target. The View kept the plain name; this is the
+// GRID's row, and saying so is the more accurate name anyway.
 
-enum JobRow: Identifiable, Equatable {
+enum JobGridRow: Identifiable, Equatable {
     case job(Job)
     /// `jobColor` travels down because the web colours a panel's and an op's
     /// assignee with the JOB's colour, not their own.
@@ -142,7 +150,7 @@ enum JobRow: Identifiable, Equatable {
     }
 }
 
-extension JobRow {
+extension JobGridRow {
 
     /// The grid's rows, in draw order, with only the expanded branches walked.
     ///
@@ -150,8 +158,8 @@ extension JobRow {
     /// panels both, keyed by `itemID` as the web's `expandedJobs` is. A collapsed
     /// job's panels are not produced at all rather than produced and hidden, so
     /// nothing pays to lay out a thousand invisible operations.
-    static func flatten(_ jobs: [Job], expanded: Set<String>) -> [JobRow] {
-        var out: [JobRow] = []
+    static func flatten(_ jobs: [Job], expanded: Set<String>) -> [JobGridRow] {
+        var out: [JobGridRow] = []
         out.reserveCapacity(jobs.count)
         for job in jobs {
             out.append(.job(job))

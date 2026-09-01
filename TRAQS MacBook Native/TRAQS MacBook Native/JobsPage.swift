@@ -59,7 +59,7 @@ struct JobsPage: View {
     @State private var rowMenu: JobsRowMenuTarget?
     /// A single row queued for deletion — the web's `confirmDelete`, which is a
     /// different thing from the toolbar's bulk `bulkDeleteConfirm`.
-    @State private var confirmingRowDelete: JobRow?
+    @State private var confirmingRowDelete: JobGridRow?
     /// Column order, widths and renames (per device) recombined with the org's
     /// custom columns. See `JobsColumnStore` for why those two halves are stored
     /// apart.
@@ -429,7 +429,7 @@ struct JobsPage: View {
     /// from it — the web does the same, and its comment says why: "Live children
     /// count — read from tasks state, not from the spread item (which may not
     /// have subs populated)."
-    private func openRowMenu(_ row: JobRow, at point: CGPoint) {
+    private func openRowMenu(_ row: JobGridRow, at point: CGPoint) {
         // A menu opening over a half-typed cell would strand the edit.
         editing = nil
 
@@ -528,7 +528,7 @@ struct JobsPage: View {
     }
 
     /// One `updateJob`/`updateJobs`, so the whole delete is ONE undo entry.
-    private func deleteRow(_ row: JobRow) {
+    private func deleteRow(_ row: JobGridRow) {
         guard let job = appState.jobs.first(where: { $0.id == row.jobID }) else { return }
         if let trimmed = JobsEdit.removing(row.editPath, from: job) {
             guard JobsEdit.differs(job, trimmed) else { return }
@@ -567,7 +567,7 @@ struct JobsPage: View {
     // MARK: What the cells do
     //
     // `updTask(id, fields, pid)` — one write path. The row carries its own path
-    // within its job (`JobRow.editPath`), the edit is applied purely (`JobsEdit`),
+    // within its job (`JobGridRow.editPath`), the edit is applied purely (`JobsEdit`),
     // and `updateJob` handles the undo entry, the optimistic local write and the
     // debounced save.
 
