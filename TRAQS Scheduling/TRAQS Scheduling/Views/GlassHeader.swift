@@ -244,13 +244,30 @@ struct GlassHeader: View {
             } label: { face(pill) }
             .buttonStyle(.plain)
         case .week:
+            // Weeks or pay periods, following the Analytics page's own toggle —
+            // a list of weeks is no use while every number on the page is
+            // measured over a fortnight. Both write the same
+            // `statsWeekAnchor`; the page resolves it through whichever window
+            // the toggle selects (see MoreView.statsInterval).
             Menu {
-                ForEach(StatsWeeks.recent, id: \.self) { start in
-                    Button { appNav.statsWeekAnchor = start } label: {
-                        if StatsWeeks.same(start, appNav.statsWeekAnchor) {
-                            Label(StatsWeeks.label(start), systemImage: "checkmark")
-                        } else {
-                            Text(StatsWeeks.label(start))
+                if appNav.statsRange == .payPeriod {
+                    ForEach(StatsPayPeriods.recent(appState), id: \.start) { p in
+                        Button { appNav.statsWeekAnchor = p.start } label: {
+                            if StatsPayPeriods.isSelected(p.start, anchor: appNav.statsWeekAnchor, appState) {
+                                Label(StatsPayPeriods.label(p, appState), systemImage: "checkmark")
+                            } else {
+                                Text(StatsPayPeriods.label(p, appState))
+                            }
+                        }
+                    }
+                } else {
+                    ForEach(StatsWeeks.recent, id: \.self) { start in
+                        Button { appNav.statsWeekAnchor = start } label: {
+                            if StatsWeeks.same(start, appNav.statsWeekAnchor) {
+                                Label(StatsWeeks.label(start), systemImage: "checkmark")
+                            } else {
+                                Text(StatsWeeks.label(start))
+                            }
                         }
                     }
                 }
@@ -368,6 +385,53 @@ struct GlassHeader: View {
 //
 // Free functions rather than page members: the week menu is drawn by the shell's
 // header, which has no access to a page's private helpers.
+/// The last N pay periods, for the header's calendar menu in Pay Period mode.
+///
+/// Walked BACKWARDS through `payPeriodWindow` rather than by subtracting a fixed
+/// number of days: an org can be weekly, biweekly, semi-monthly, or on explicit
+/// pay DATES (the 5th and the 20th, say), and only the last of those has periods
+/// of equal length. Probing the day before each period's start asks the same
+/// function the rest of the app uses, so this list can never disagree with the
+/// window the page actually measures.
+enum StatsPayPeriods {
+    struct Period: Hashable {
+        let start: Date
+        let end: Date      // inclusive last day, as payPeriodWindow reports it
+    }
+
+    static func recent(_ appState: AppState, count: Int = 8) -> [Period] {
+        let cal = Calendar.current
+        var out: [Period] = []
+        var probe = Date()
+        for _ in 0..<count {
+            let w = appState.payPeriodWindow(now: probe)
+            let p = Period(start: cal.startOfDay(for: w.start), end: cal.startOfDay(for: w.end))
+            // A misconfigured window that doesn't move would otherwise repeat
+            // the same period `count` times.
+            if out.last?.start == p.start { break }
+            out.append(p)
+            guard let before = cal.date(byAdding: .day, value: -1, to: p.start) else { break }
+            probe = before
+        }
+        return out
+    }
+
+    static func label(_ p: Period, _ appState: AppState) -> String {
+        let f = DateFormatter.display("MMM d")
+        let range = "\(f.string(from: p.start)) – \(f.string(from: p.end))"
+        let current = appState.payPeriodWindow(now: Date()).start
+        return Calendar.current.isDate(current, inSameDayAs: p.start)
+            ? "This period · \(range)"
+            : range
+    }
+
+    /// Which row is checked: the anchor is any day inside a period, so resolve
+    /// it to that period's start before comparing.
+    static func isSelected(_ start: Date, anchor: Date, _ appState: AppState) -> Bool {
+        Calendar.current.isDate(appState.payPeriodWindow(now: anchor).start, inSameDayAs: start)
+    }
+}
+
 enum StatsWeeks {
     /// Start-of-week (Monday) dates for the last 8 weeks, this week first.
     static var recent: [Date] {

@@ -97,6 +97,55 @@ enum StatsMath {
         return DateInterval(start: start, end: end)
     }
 
+    // MARK: - Analytics window (week / pay period)
+
+    /// A pay period as a HALF-OPEN interval.
+    ///
+    /// `AppState.payPeriodWindow` reports its `end` as the last DAY of the
+    /// period; `weekInterval` reports the first instant AFTER the window, and
+    /// every date comparison on the Analytics page is written `d >= start &&
+    /// d < end`. Feeding the first convention to code expecting the second
+    /// silently drops the period's final day — payday itself — from every
+    /// number on the page. One conversion, here, tested.
+    static func payPeriodInterval(start: Date, endInclusive: Date, calendar: Calendar) -> DateInterval {
+        let s = calendar.startOfDay(for: start)
+        let e = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: endInclusive))
+            ?? endInclusive
+        return DateInterval(start: s, end: max(e, s))
+    }
+
+    /// How many of an org's WORK days a window contains.
+    ///
+    /// Utilization divides assigned hours by capacity, and capacity was a
+    /// hardcoded single week (`hpd × workDays.count`). Measured over a two-week
+    /// pay period that denominator is half what it should be, so the whole team
+    /// would have read about double their real utilization. Counting the
+    /// window's own work days gives the same answer as before for a full week.
+    ///
+    /// `workDays` uses the JS convention the org settings store: Sun=0…Sat=6.
+    static func workDayCount(in interval: DateInterval, workDays: Set<Int>, calendar: Calendar) -> Int {
+        guard interval.end > interval.start else { return 0 }
+        var count = 0
+        var d = calendar.startOfDay(for: interval.start)
+        while d < interval.end {
+            if workDays.contains(calendar.component(.weekday, from: d) - 1) { count += 1 }
+            guard let next = calendar.date(byAdding: .day, value: 1, to: d) else { break }
+            d = next
+        }
+        return count
+    }
+
+    /// Split a day series into chart rows, wrapping onto a second row past
+    /// `maxPerRow` with the LARGER half first on an odd count.
+    ///
+    /// Generic over the element so it can be tested without building EffDays.
+    static func chartRows<T>(_ items: [T], maxPerRow: Int) -> [[T]] {
+        guard maxPerRow > 0 else { return [items] }
+        guard items.count > maxPerRow else { return [items] }
+        let first = Int((Double(items.count) / 2).rounded(.up))
+        return [Array(items.prefix(first)), Array(items.dropFirst(first))]
+    }
+
     // MARK: - Production hours rolled up by scope
 
     /// Job-clock hours totalled per op, per panel and per job.

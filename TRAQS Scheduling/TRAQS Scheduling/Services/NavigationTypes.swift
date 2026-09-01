@@ -12,6 +12,19 @@ import Foundation
 // still declared beside the view that draws it, as an extension — see
 // MainTabView, ClockActionBanner and TasksView.
 
+/// The window the Analytics page measures over.
+///
+/// Lives here, not beside MoreView, for the reason at the top of this file: the
+/// page's own toggle sets it, but the HEADER's calendar menu — drawn by
+/// GlassHeader, outside the page — has to READ it to know whether to offer
+/// weeks or pay periods. Anything two views share is state-layer state.
+enum StatsRange: String, CaseIterable, Hashable {
+    case week
+    case payPeriod
+
+    var label: String { self == .week ? "Week" : "Pay Period" }
+}
+
 /// The iOS tab bar's five tabs. Stored on `AppNav.selected`, which push deep
 /// links write to, so it is navigation state rather than a view detail.
 enum TTab: Int, CaseIterable, Hashable {

@@ -104,6 +104,10 @@ final class AppNav {
     // Analytics
     var statsWorkerId: String? = nil
     var statsWeekAnchor: Date = Date()
+    /// Week vs pay period. Here rather than in MoreView because the header's
+    /// calendar menu lists weeks or pay periods depending on it, and that menu
+    /// is drawn by HeaderControlsHost, outside the page.
+    var statsRange: StatsRange = .week
 
     // MARK: - Push deep links
     //
