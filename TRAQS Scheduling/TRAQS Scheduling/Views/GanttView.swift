@@ -817,8 +817,21 @@ private struct DayTimeline: View {
     }
 }
 
+/// The org's SCHEDULED lunch window — a plan, drawn at the same hour every day
+/// whether or not anybody punched.
+///
+/// Filled now rather than hollow, in the same yellow the punched bands use, so
+/// the lane reads as one system instead of an empty dashed box beside a solid
+/// one. The two stay distinguishable by WEIGHT, not hue: this is a wash at a
+/// fraction of `ClockSpanBand`'s opacity with a dashed edge, so a pale
+/// dashed block is time set aside and a saturated solid one is time actually
+/// taken. On a day where the two agree they sit on top of each other and read
+/// as a single, slightly deeper block — which is the correct reading.
 private struct LunchGhostBlock: View {
     let height: CGFloat
+
+    private var tint: Color { Color(hex: T.yellow) }
+
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "fork.knife")
@@ -832,11 +845,14 @@ private struct LunchGhostBlock: View {
         }
         .frame(height: height, alignment: .center)
         .padding(.horizontal, 12)
-        .background(RoundedRectangle(cornerRadius: T.cornerBlock, style: .continuous).fill(.clear))
+        .background(
+            RoundedRectangle(cornerRadius: T.cornerBlock, style: .continuous)
+                .fill(tint.opacity(0.13))
+        )
         .overlay(
             RoundedRectangle(cornerRadius: T.cornerBlock, style: .continuous)
                 .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                .foregroundStyle(Color(hex: T.hair))
+                .foregroundStyle(tint.opacity(0.55))
         )
     }
 }
