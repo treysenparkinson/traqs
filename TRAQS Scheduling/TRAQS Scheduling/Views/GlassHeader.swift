@@ -15,7 +15,7 @@ import SwiftUI
 /// both pages keeps its glass shape and swaps the glyph inside it; a slot on
 /// only one side materializes or dissolves.
 enum HeaderSlot: String, Hashable {
-    case viewMode, search, approvals, availability   // Jobs
+    case viewMode, search, availability              // Jobs
     case profile                                     // Home
     case worker, week, admin                         // Analytics
     case timeOff                                     // Time clock

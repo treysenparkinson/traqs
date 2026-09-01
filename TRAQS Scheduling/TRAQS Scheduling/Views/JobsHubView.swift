@@ -33,9 +33,6 @@ struct JobsHubView: View {
     /// HeaderControlsHost, above the TabView, and a host can't reach a page's
     /// private @State. See HeaderControls.swift. The page reads and writes them
     /// exactly as it did its own @State.
-    private var showApprovals: Bool {
-        get { appNav.showApprovalQueue } nonmutating set { appNav.showApprovalQueue = newValue }
-    }
     private var showAvailability: Bool {
         get { appNav.showAvailability } nonmutating set { appNav.showAvailability = newValue }
     }
@@ -116,7 +113,6 @@ struct JobsHubView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
                 }
-                .fullScreenCover(isPresented: Bindable(appNav).showApprovalQueue) { ApprovalQueueView(isPresented: Bindable(appNav).showApprovalQueue) }
                 // Read-only job details, over everything — see `detailTarget`.
                 // NO `.navigationTransition(.zoom(...))`. A zoom presentation
                 // shrinks the PRESENTER to fly the card up, which pulled the
@@ -278,31 +274,13 @@ struct JobsHubView: View {
         }
     }
 
-    /// Resolve a pending Jobs-tab deep link:
-    /// - `.job` → open that job's detail popup.
-    /// - `.approvals` → open the Approval Queue for approvers; otherwise fall back
-    ///   to the job detail (so a non-approver who taps a step/ready push still
-    ///   lands somewhere useful).
-    /// Leaves a `.job`/fallback link pending (to retry) when the job isn't loaded
-    /// yet; the `.approvals`→queue path needs no job lookup so it resolves at once.
+    /// Resolve a pending Jobs-tab deep link: `.job` opens that job's detail
+    /// popup. Left PENDING when the job isn't loaded yet, so the `jobs.count`
+    /// watcher can retry once a cold-start load brings it in.
     private func consumeJobDeepLink() {
-        switch appNav.pendingDeepLink {
-        case let .job(number):
-            guard let job = appState.jobs.first(where: { $0.jobNumber == number }) else { return }
-            openDetail(job)
-            appNav.pendingDeepLink = nil
-        case let .approvals(number):
-            if appState.canViewApprovalQueue {
-                showApprovals = true
-                appNav.pendingDeepLink = nil
-            } else {
-                // Not an approver → behave like a job deep link.
-                guard let job = appState.jobs.first(where: { $0.jobNumber == number }) else { return }
-                openDetail(job)
-                appNav.pendingDeepLink = nil
-            }
-        default:
-            return
-        }
+        guard case let .job(number) = appNav.pendingDeepLink else { return }
+        guard let job = appState.jobs.first(where: { $0.jobNumber == number }) else { return }
+        openDetail(job)
+        appNav.pendingDeepLink = nil
     }
 }

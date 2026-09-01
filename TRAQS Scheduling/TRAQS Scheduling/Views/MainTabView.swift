@@ -200,12 +200,6 @@ private struct HeaderHost: View {
                                }
                            }))
             ]
-            if appState.canViewApprovalQueue {
-                pills.append(HeaderPill(
-                    slot: .approvals,
-                    content: .badgedIcon(.select, showsBadge: appState.pendingApprovalCount > 0),
-                    action: .tap({ appNav.showApprovalQueue = true })))
-            }
             if appState.currentPerson?.isAdmin == true {
                 // Alone, not in the cluster: it asks about PEOPLE, where the
                 // other three act on the jobs list.

@@ -4,7 +4,7 @@ import SwiftUI
 //
 // A job's details open as a read-only popup now (JobDetailPopup), so nothing
 // navigates here any more: the `navigationDestination(for: Job.self)` that fed
-// it is gone from both JobsHubView and ApprovalQueueView.
+// it is gone from JobsHubView (and from the Approval Queue, now removed).
 //
 // Kept rather than deleted, on purpose. This file holds the ONLY iOS
 // implementation of several things the popup deliberately dropped — Edit

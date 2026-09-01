@@ -1088,11 +1088,13 @@ class AppState {
 
     // MARK: - Approval queue
 
-    /// Who may open the Approval Queue — mirrors desktop's
-    /// `canSeeApprovalQueue = admin || canSignOff`.
-    /// Now includes engineers: the queue's original content IS the engineering
-    /// sign-off chain, so an engineer with neither admin nor canSignOff could
-    /// not open the one screen built for them.
+    /// Who may approve work — mirrors desktop's
+    /// `canSeeApprovalQueue = admin || canSignOff`. Includes engineers: the
+    /// approval content IS the engineering sign-off chain.
+    ///
+    /// iOS no longer has an Approval Queue screen; this survives because the
+    /// macOS shell still gates on it (NativeShell.canSeeApprovals). Keep the
+    /// name — it is the same permission the desktop asks about.
     var canViewApprovalQueue: Bool {
         guard let p = currentPerson else { return false }
         return p.isAdmin || p.canSignOff == true || p.isEngineer == true
