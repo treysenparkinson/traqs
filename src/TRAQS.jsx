@@ -1079,29 +1079,44 @@ button:not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
   transform: translateY(0) scale(0.97) !important;
   transition-duration: 0.07s !important;
 }
-/* Every text-entry control carries the same soft accent halo the dropdowns and
-   calendar days do: hover lifts it, focus holds the glow and rings the border in
-   the accent. Element selectors (not a class) so this reaches all ~170 inputs and
-   textareas without touching a call site — including any added later.
+/* Every text-entry control reads the same on hover: a hairline shadow, no motion.
+   Focus is where the accent halo and border live, so the loud state belongs to the
+   one field you are in rather than to whichever field the cursor happens to cross.
+   Element selectors (not a class) so this reaches all ~170 inputs and textareas
+   without touching a call site — including any added later.
 
-   Excluded on purpose, because a lift reads as a glitch rather than an affordance:
-   checkbox/radio (they sit inline with label text), range (the slider pill has its
-   own thumb treatment), color and file (OS-drawn widgets), and type=button, which
-   is already covered by the button rules above. Disabled fields get nothing. */
+   Excluded on purpose: checkbox/radio (they sit inline with label text), range (the
+   slider pill has its own thumb treatment), color and file (OS-drawn widgets), and
+   type=button, which is already covered by the button rules above. Disabled fields
+   get nothing.
+
+   NOTE: the universal button rule above still lifts 1.5px on a spring and throws
+   the 22px halo. It is deliberately left alone — this change was scoped to inputs. */
 input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare),
 textarea:not(:disabled):not([readonly]):not(.tq-bare),
 select:not(:disabled) {
-  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
-              box-shadow 0.2s ease, filter 0.2s ease,
+  /* Plain ease, not cubic-bezier(0.34, 1.56, 0.64, 1). That 1.56 overshoots past
+     its target and settles back, which is what made every field bounce under the
+     cursor. The transform property stays in the list only so an inline transform
+     elsewhere still eases (this rule's !important would otherwise replace its
+     transition outright) -- hover no longer sets one. */
+  transition: transform 0.15s ease,
+              box-shadow 0.15s ease, filter 0.15s ease,
               border-color 0.15s ease, background-color 0.15s ease !important;
 }
 @media (hover: hover) {
   input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover,
   textarea:not(:disabled):not([readonly]):not(.tq-bare):hover,
   select:not(:disabled):hover {
-    transform: translateY(-1.5px);
-    box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16));
-    filter: brightness(1.04);
+    /* Minimal: no lift and no wide halo. A field that jumps 1.5px and throws a
+       22px accent glow is announcing itself louder than the thing you are trying
+       to read; with a form full of them the whole page twitches as the cursor
+       crosses it. What is left is a hairline shadow and a barely-there
+       brightening — enough to confirm the field is live, nothing more. Focus
+       still gets the full halo and accent border, so the strong signal is
+       reserved for the field you are actually in. */
+    box-shadow: 0 1px 3px var(--tq-glow-ring, rgba(0,0,0,0.09));
+    filter: brightness(1.015);
   }
 }
 /* Grid cells that act as dropdowns (the styled pickers in the jobs table) get the
@@ -8583,8 +8598,23 @@ Extraction rules:
     setEditJobModal(prev => (prev ? null : prev));
   }, [view]);
   const _loadEditDraft = (t) => {
-    // Locate the freshest copy of the job from tasks so we always edit the latest data
-    const live = tasks.find(x => x.id === t.id) || t;
+    // Resolve to the JOB that owns `t`, via the same helper openDetail uses.
+    //
+    // This was `tasks.find(x => x.id === t.id) || t`, which only ever matches a
+    // TOP-LEVEL job, and silently fell back to the passed-in object otherwise.
+    // Two ways that broke the save, both ending in a "Job saved" toast and no
+    // change on disk:
+    //   • A panel or op reached here (the context menu's `openEdit(it, it.pid)`
+    //     fallbacks, and openDetail's Edit passing a sub-item). `live` became
+    //     the panel/op, so saveEditJob called updTask(<panel id>, …, null) —
+    //     the level-0 branch, which walks only top-level jobs, matched nothing
+    //     and returned the tree untouched.
+    //   • `===` on ids. Job ids are mixed string/number across web and iOS, so
+    //     even a real job missed the lookup on a type mismatch and fell through
+    //     to the stale spread the context menu captured.
+    // jobOfItem fixes both: it compares ids as strings and walks panels and ops
+    // up to their owning job, which is what this page can actually edit.
+    const live = jobOfItem(t);
     setEditJobModal({
       id: live.id,
       title: live.title || "",
@@ -23107,7 +23137,7 @@ ${jobsCtx || "No jobs found."}`;
             : <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 18 }}>
                 <HealthIcon t={fresh} size={22} style={{ flexShrink: 0, marginTop: 2 }} />
                 <h3 style={{ margin: 0, color: T.text, fontSize: 22, fontWeight: 700, lineHeight: 1.2, flex: 1, minWidth: 0 }}>{fresh.title}</h3>
-                {dCanEdit && <Btn size="sm" onClick={() => { openEdit(fresh, fresh.isSub ? fresh.pid : null); closeModal(); }}>Edit</Btn>}
+                {dCanEdit && <Btn size="sm" onClick={() => { openEdit(fresh); closeModal(); }}>Edit</Btn>}
               </div>}
           {dPanels.length > 0
             ? <div>
@@ -28065,7 +28095,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 11, color: T.textDim }}>{fm(it.start)} → {fm(it.end)}{it.hpd > 0 ? ` · ${it.hpd}h/day` : ""}</div>
             </div>
             <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
-              {can("editJobs") && <Tip label="Edit"><button onClick={() => { setCtxMenu(null); if (isOp) { let parentJob = null; for (const job of tasks) { for (const panel of (job.subs||[])) { if ((panel.subs||[]).find(o => o.id === it.id)) { parentJob = job; break; } } if (parentJob) break; } if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else if (isPanel) { const parentJob = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else { openEdit(it, null); } }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></Tip>}
+              {can("editJobs") && <Tip label="Edit"><button onClick={() => { setCtxMenu(null); openEdit(it); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></Tip>}
               <Tip label="Open Chat"><button onClick={() => { openChat(it); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0.9 0.9 22.2 22.2" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5c0 4.29-4.04 7.76-9 7.76-1.08 0-2.12-.17-3.08-.47L4.2 20.8l1.2-3.46C3.9 15.8 3 13.8 3 11.5 3 7.3 7 3.8 12 3.8s9 3.47 9 7.7z"/></svg></button></Tip>
               {can("editJobs") && <Tip label="Send Reminder"><button onClick={() => { setReminderModal({ item: it }); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button></Tip>}
               {showDepToggle && <button
