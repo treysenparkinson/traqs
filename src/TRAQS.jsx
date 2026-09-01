@@ -4514,7 +4514,31 @@ Extraction rules:
   const latestTasksRef = useRef(tasks);
   const latestPeopleRef = useRef(people);
   const protectedJobIds = useRef(new Set());
-  const pollUpdateRef = useRef(false);
+  // "Was this state change a user edit, or data we just pulled from the server?"
+  //
+  // This was ONE boolean (pollUpdateRef) set immediately before each setter and
+  // reset inside the updater on a no-op. It could not work: the poll calls
+  // setTasks/setPeople/setClients back-to-back, React batches all three into a
+  // SINGLE commit, and the save-trigger effect runs once — so one flag had to
+  // answer for three setters, and the LAST one to run decided its value.
+  //
+  // What that produced in production: `people` genuinely changes every cycle
+  // (live clock fields), so setPeople raised the flag correctly — and then
+  // setClients, a no-op on data that had not changed since August, reset it to
+  // false. The effect read false, called the poll's own update a user edit, and
+  // autosaved the server's data straight back. tasks.json was rewritten every
+  // 30.0s with byte-identical content (4,000+ stored versions in six days, no
+  // job content change across the last ~500 writes) and each cycle's write
+  // clobbered whatever the user had edited locally but not yet saved.
+  //
+  // Identity is the reliable signal instead. Each poll/cache write records the
+  // exact array object it installed; the effect compares by reference, per
+  // slice. A slice whose new value is the object a poll installed is a poll
+  // update; anything else is a user edit. No ordering assumptions, no flag to
+  // leak, and a commit carrying BOTH a poll update and a user edit is correctly
+  // treated as a user edit.
+  const pollAppliedRef = useRef({ tasks: null, people: null, clients: null });
+  const seenSliceRef = useRef({ tasks: null, people: null, clients: null });
   const saveStatusRef = useRef("saved");
 
   // Keep ref in sync for save functions
@@ -6712,7 +6736,7 @@ Extraction rules:
 
   // Approve / deny / cancel a time-off request. Approve & cancel mutate
   // person.timeOff on the server, so we pull fresh people afterward (guarding
-  // pollUpdateRef like the poll does) — the schedule + export then reflect it
+  // the poll-applied value like the poll does) — the schedule + export then reflect it
   // without the admin's stale local people state clobbering it on next save.
   const decideTimeOff = async (id, action, reason = "") => {
     // "cancel" is a worker withdrawing their OWN request, not an approval, so
@@ -6724,15 +6748,15 @@ Extraction rules:
       toast(action === "approve" ? "Time off approved" : action === "deny" ? "Time off denied" : "Request cancelled");
       try { const r = await fetchTimeOffRequests(getToken, orgCode); setTimeOffRequests(r.requests || []); } catch {}
       // Always pull fresh people after approve/cancel so the PTO bar appears on
-      // the schedule immediately. pollUpdateRef prevents the setter from being
-      // mistaken for a user edit (which would trigger autosave).
+      // the schedule immediately. Recording the installed array in pollAppliedRef
+      // keeps the setter from being mistaken for a user edit (which would autosave).
       if (action === "approve" || action === "cancel") {
         try {
           const np = await fetchPeople(getToken, orgCode);
-          pollUpdateRef.current = true;
           setPeople(prev => {
             const norm = normalizePeople(np);
-            if (JSON.stringify(prev) === JSON.stringify(norm)) { pollUpdateRef.current = false; return prev; }
+            if (JSON.stringify(prev) === JSON.stringify(norm)) return prev;
+            pollAppliedRef.current.people = norm;
             return norm;
           });
         } catch {}
@@ -6813,33 +6837,40 @@ Extraction rules:
         console.warn("[poll] aborting state update — user edited during refetch");
         return;
       }
-      // CRITICAL: pollUpdateRef must be reset to false whenever setTasks
-      // returns prev (no-op), otherwise the ref leaks: it stays true forever
-      // until the NEXT state change, which the unsaved effect then mistakes
-      // for a poll update and skips the save — silently dropping a user edit.
-      // Was the root cause of "jobs disappearing after reschedule": save
-      // never fired, then the next poll wrote stale S3 over the user's edit.
-      pollUpdateRef.current = true;
+        // Compare NORMALIZED against NORMALIZED. This compared `prev` (which is
+        // normalized) against the RAW server array. That happens to match on
+        // data which has already round-tripped through a save — normalizeTasks
+        // is key-order preserving, so once every job carries a color and every
+        // op a requiredDepartment, normalized and raw stringify identically —
+        // which is why this was not the trigger for the write loop. But it is
+        // still the wrong comparison: the first time normalization actually adds
+        // a field (a job written by an older client, an op with no
+        // requiredDepartment, a colorless job) the guard silently stops firing
+        // and the poll replaces the whole tree on every cycle, overwriting any
+        // local edit that has not been saved yet. Normalize once, then compare.
         setTasks(prev => {
-          if (JSON.stringify(prev) === JSON.stringify(newTasks)) { pollUpdateRef.current = false; return prev; }
+          const norm = normalizeTasks(newTasks);
+          if (JSON.stringify(prev) === JSON.stringify(norm)) return prev;
           const _findId = (id, list) => list.some(t => t.id === id || (t.subs || []).some(s => s.id === id || (s.subs || []).some(o => o.id === id)));
           const missingProtected = [...protectedJobIds.current].some(id => !_findId(id, newTasks));
-          if (missingProtected) { pollUpdateRef.current = false; return prev; }
+          if (missingProtected) return prev;
           // Diagnostic: when poll replaces state, log a fingerprint of what's coming in
           // vs what's going out so we can spot a poll-clobber of an unsaved edit.
           const _prevFp = prev.slice(0, 3).map(t => `${t.id}/${t.start}->${t.end}`).join(" | ");
-          const _newFp = newTasks.slice(0, 3).map(t => `${t.id}/${t.start}->${t.end}`).join(" | ");
+          const _newFp = norm.slice(0, 3).map(t => `${t.id}/${t.start}->${t.end}`).join(" | ");
           console.warn(`[poll] state REPLACED. prev: ${_prevFp}  new: ${_newFp}`);
-          return normalizeTasks(newTasks);
+          pollAppliedRef.current.tasks = norm;
+          return norm;
         });
-        pollUpdateRef.current = true;
         setPeople(prev => {
-          if (JSON.stringify(prev) === JSON.stringify(newPeople)) { pollUpdateRef.current = false; return prev; }
-          return normalizePeople(newPeople);
+          const norm = normalizePeople(newPeople);
+          if (JSON.stringify(prev) === JSON.stringify(norm)) return prev;
+          pollAppliedRef.current.people = norm;
+          return norm;
         });
-        pollUpdateRef.current = true;
         setClients(prev => {
-          if (JSON.stringify(prev) === JSON.stringify(newClients)) { pollUpdateRef.current = false; return prev; }
+          if (JSON.stringify(prev) === JSON.stringify(newClients)) return prev;
+          pollAppliedRef.current.clients = newClients;
           return newClients;
         });
         // Same reconciliation as the initial load: the poll just proved what the
@@ -6944,6 +6975,12 @@ Extraction rules:
   // Auto-save system
   // Step 3: wrap getToken in a ref so doSave never needs getToken as a dependency
   const getTokenRef = useRef(getToken);
+  // Same reason getToken is behind a ref: doSave is useCallback(…, []) with the
+  // exhaustive-deps rule disabled, so every value it closes over is frozen at
+  // first render. orgCode was being read straight from props, which meant the
+  // POSTs carried whatever orgCode existed when the component first mounted.
+  const orgCodeRef = useRef(orgCode);
+  useEffect(() => { orgCodeRef.current = orgCode; }, [orgCode]);
   useEffect(() => { getTokenRef.current = getToken; }, [getToken]);
 
   const doSave = useCallback(async () => {
@@ -6978,9 +7015,9 @@ Extraction rules:
         sum + (j.subs || []).reduce((s, p) => s + (p.subs || []).filter(o => (o.moveLog || []).length > 0).length, 0), 0);
       console.log(`[doSave] POST ${dedupedTasks.length} tasks, ${_moveLogCount} ops w/ moveLog. Sample: ${_fingerprint}`);
       const results = await Promise.allSettled([
-        saveTasks(dedupedTasks, getTokenRef.current, orgCode),
-        savePeople(people, getTokenRef.current, orgCode),
-        saveClients(clients, getTokenRef.current, orgCode),
+        saveTasks(dedupedTasks, getTokenRef.current, orgCodeRef.current),
+        savePeople(people, getTokenRef.current, orgCodeRef.current),
+        saveClients(clients, getTokenRef.current, orgCodeRef.current),
       ]);
       const failures = results
         .map((r, i) => r.status === "rejected" ? { endpoint: ["saveTasks","savePeople","saveClients"][i], error: r.reason } : null)
@@ -7087,8 +7124,8 @@ Extraction rules:
   // `${entity}-changed` on syncBus; here we pull the fresh slice back into React
   // state. For the SAVE-TRACKED slices (tasks/people/clients) we replicate the
   // 30s poll's guard contract exactly: bail while the user has unsaved edits;
-  // set pollUpdateRef before the setter (resetting it on a no-op to avoid the
-  // documented ref-leak) so the change isn't mistaken for a user edit; reject a
+  // record the installed array in pollAppliedRef so the change is not mistaken for
+  // a user edit (see that ref comment for why one flag could not work); reject a
   // tasks update that would drop an optimistically-created protected job; and
   // merge preserving the current array order so identical data is a true no-op.
   // messages/groups/timeclock/settings are not save-tracked, so they apply directly.
@@ -7115,24 +7152,22 @@ Extraction rules:
         if (entity === "tasks") {
           const fresh = normalizeTasks((await readSlice("tasks")) || []);
           if (busy()) return;
-          pollUpdateRef.current = true;
           setTasks(prev => {
             const merged = mergeInOrder(prev, fresh);
-            if (JSON.stringify(prev) === JSON.stringify(merged)) { pollUpdateRef.current = false; return prev; }
+            if (JSON.stringify(prev) === JSON.stringify(merged)) return prev;
             const findId = (id, list) => list.some(t => t.id === id || (t.subs || []).some(s => s.id === id || (s.subs || []).some(o => o.id === id)));
-            if ([...protectedJobIds.current].some(id => !findId(id, merged))) { pollUpdateRef.current = false; return prev; }
+            if ([...protectedJobIds.current].some(id => !findId(id, merged))) return prev;
+            pollAppliedRef.current.tasks = merged;
             return merged;
           });
         } else if (entity === "people") {
           const fresh = normalizePeople((await readSlice("people")) || []);
           if (busy()) return;
-          pollUpdateRef.current = true;
-          setPeople(prev => { const merged = mergeInOrder(prev, fresh); if (JSON.stringify(prev) === JSON.stringify(merged)) { pollUpdateRef.current = false; return prev; } return merged; });
+          setPeople(prev => { const merged = mergeInOrder(prev, fresh); if (JSON.stringify(prev) === JSON.stringify(merged)) return prev; pollAppliedRef.current.people = merged; return merged; });
         } else if (entity === "clients") {
           const fresh = (await readSlice("clients")) || [];
           if (busy()) return;
-          pollUpdateRef.current = true;
-          setClients(prev => { const merged = mergeInOrder(prev, fresh); if (JSON.stringify(prev) === JSON.stringify(merged)) { pollUpdateRef.current = false; return prev; } return merged; });
+          setClients(prev => { const merged = mergeInOrder(prev, fresh); if (JSON.stringify(prev) === JSON.stringify(merged)) return prev; pollAppliedRef.current.clients = merged; return merged; });
         } else if (entity === "messages") {
           const freshMsgs = (await readSlice("messages")) || [];
           setMessages(freshMsgs);
@@ -7217,13 +7252,34 @@ Extraction rules:
     // the server load both mutate [tasks,people,clients] before dataLoadedRef
     // flips true, and neither is a user edit. (doSave also guards on
     // dataLoadedRef, but bailing here keeps saveStatus from flickering "unsaved".)
+    // seenSliceRef must track the latest values even on the paths that bail,
+    // or the next run compares against a stale baseline and reports a change
+    // that already happened.
+    const seen = seenSliceRef.current;
+    const applied = pollAppliedRef.current;
+    // A slice counts as a user edit when it changed since the last run AND the
+    // value it changed TO is not the object a poll/cache write installed.
+    const userEdited =
+      (tasks    !== seen.tasks    && tasks    !== applied.tasks)   ||
+      (people   !== seen.people   && people   !== applied.people)  ||
+      (clients  !== seen.clients  && clients  !== applied.clients);
+    seenSliceRef.current = { tasks, people, clients };
+
     if (!dataLoadedRef.current) return;
     if (isInitialSave.current) { isInitialSave.current = false; return; }
-    if (pollUpdateRef.current) { pollUpdateRef.current = false; return; }
+    if (!userEdited) return;
     setSaveStatus("unsaved");
     clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => { doSaveRef.current(); }, 1000);
-    return () => clearTimeout(saveTimerRef.current);
+    // NO cleanup that clears saveTimerRef. React runs the previous run's cleanup
+    // before every re-run, so `return () => clearTimeout(...)` meant any
+    // unrelated re-render inside the 1s debounce cancelled a pending user save —
+    // and the early-return paths above never re-armed it, so the edit was
+    // dropped with no error and the status pill still read "Saved". The
+    // clearTimeout above is what debounces; a cleanup adds nothing but the bug.
+    // On unmount the timer is deliberately left to fire: doSave reads refs, so
+    // it still writes, and losing the user's last edit is worse than a stray
+    // setState on an unmounted tree (a no-op in React 18).
   }, [tasks, people, clients]); // Step 1: doSave removed — only real data changes trigger unsaved
 
   // ── Auto-end stranded job clocks ──────────────────────────────────────────
