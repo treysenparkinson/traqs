@@ -55,15 +55,43 @@ export async function handler(event) {
     }
   }
 
-  // POST { threadKey, at? } — advance the viewer's read cursor for a thread.
-  // Monotonic: a cursor never moves backwards. `at` defaults to now.
+  // POST — advance the viewer's read cursor(s). Monotonic: a cursor never moves
+  // backwards. Two accepted shapes:
+  //
+  //   { threadKey, at? }                       one thread ("I'm reading this")
+  //   { entries: [{ threadKey, at }, ...] }    many at once ("Mark all read")
+  //
+  // The batch form exists because this handler is a read-modify-WRITE of one
+  // S3 object. "Mark all read" over N threads as N parallel single POSTs is a
+  // lost-update race: each request reads the same `reads.json` and the last
+  // write wins, so most of the cursors silently never persist — which is a
+  // worse failure than not sending them at all, because the UI shows read.
+  // One request, one write.
+  //
+  // `at` defaults to now. Threads the viewer can't see are SKIPPED rather than
+  // failing the batch — one stale threadKey from a client's cache must not
+  // throw away every other cursor in the request.
   if (event.httpMethod === "POST") {
     if (!viewerId) return json(200, { ok: true });   // nothing to record
     let body;
     try { body = JSON.parse(event.body); } catch { return err(400, "Invalid JSON body"); }
-    const threadKey = String(body?.threadKey || "");
-    if (!threadKey) return err(400, "threadKey required");
-    const at = (typeof body?.at === "string" && body.at) ? body.at : new Date().toISOString();
+
+    const nowISO = new Date().toISOString();
+    const batch = Array.isArray(body?.entries);
+    const requested = batch
+      ? body.entries
+          .map(e => ({
+            threadKey: String(e?.threadKey || ""),
+            at: (typeof e?.at === "string" && e.at) ? e.at : nowISO,
+          }))
+          .filter(e => e.threadKey)
+      : [{
+          threadKey: String(body?.threadKey || ""),
+          at: (typeof body?.at === "string" && body.at) ? body.at : nowISO,
+        }];
+
+    if (!batch && !requested[0].threadKey) return err(400, "threadKey required");
+    if (requested.length === 0) return json(200, { ok: true, advanced: [] });
 
     try {
       const [reads, jobs, groups] = await Promise.all([
@@ -71,21 +99,36 @@ export async function handler(event) {
         readJson(orgKey(event, "tasks.json")).then(v => filterLive(v ?? [])),
         readJson(orgKey(event, "groups.json")).then(v => filterLive(v ?? [])),
       ]);
-      if (!canViewThread(threadKey, viewerId, jobs, groups)) {
+
+      // The single-thread form keeps its hard 403 — a client posting to a thread
+      // it can't see is a bug worth surfacing. The batch form skips instead.
+      if (!batch && !canViewThread(requested[0].threadKey, viewerId, jobs, groups)) {
         return err(403, "Not a participant in this thread");
       }
-      const cursors = reads[threadKey] || {};
-      const prev = cursors[viewerId];
-      // Only persist + signal when the cursor actually advances, so a device
-      // that re-marks the same newest message every few seconds doesn't churn
-      // S3 or spam the realtime channel.
-      if (!prev || at > prev) {
-        cursors[viewerId] = at;
-        reads[threadKey] = cursors;
-        await writeJson(readsKey, reads);
-        await publishChange(orgCodeFromHeader(event), "reads", { ids: [threadKey] });
+
+      const advanced = [];
+      for (const { threadKey, at } of requested) {
+        if (!canViewThread(threadKey, viewerId, jobs, groups)) continue;
+        const cursors = reads[threadKey] || {};
+        const prev = cursors[viewerId];
+        // Only persist + signal when the cursor actually advances, so a device
+        // that re-marks the same newest message every few seconds doesn't churn
+        // S3 or spam the realtime channel.
+        if (!prev || at > prev) {
+          cursors[viewerId] = at;
+          reads[threadKey] = cursors;
+          advanced.push(threadKey);
+        }
       }
-      return json(200, { ok: true, at: reads[threadKey]?.[viewerId] || at });
+
+      if (advanced.length) {
+        await writeJson(readsKey, reads);
+        await publishChange(orgCodeFromHeader(event), "reads", { ids: advanced });
+      }
+
+      if (batch) return json(200, { ok: true, advanced });
+      const one = requested[0];
+      return json(200, { ok: true, at: reads[one.threadKey]?.[viewerId] || one.at });
     } catch (e) {
       console.error("message-reads POST error:", e);
       return err(500, "Failed to save read receipt");

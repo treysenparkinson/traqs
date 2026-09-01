@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import TRAQS_BARS_STATIC from "./traqs-bars-static.png";
 import TRAQS_BARS_ACCENT from "./traqs-bars-accent.png";
@@ -6655,6 +6655,22 @@ Extraction rules:
     return () => { cancelled = true; clearInterval(id); syncBus.removeEventListener("sync-health", onHealth); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgCode]);
+  // One cold-start read-receipt pull, deliberately AFTER the initial request
+  // burst (receipts are otherwise kept off cold start to spare the Auth0
+  // /userinfo rate limit — see the Messages-view effect below). Without it a
+  // fresh session paints its unread badge from localStorage alone, so a thread
+  // already read on another device keeps counting here until either the Ably
+  // "reads" channel happens to fire or the user opens Messages. Same gap iOS
+  // had, and the same fix.
+  useEffect(() => {
+    if (!orgCode || !loggedInUser?.id) return;
+    const t = setTimeout(() => {
+      fetchReads(getToken, orgCode).then(setReadReceipts).catch(() => {});
+    }, 4000);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orgCode, loggedInUser?.id]);
+
   useEffect(() => {
     if (view !== "messages" || !orgCode) return;
     // Read receipts load only once you're in Messages — kept OFF the cold-start
@@ -9098,14 +9114,26 @@ ${jobsCtx || "No jobs found."}`;
     for (const m of messages) {
       if (!newest[m.threadKey] || m.timestamp > newest[m.threadKey]) newest[m.threadKey] = m.timestamp;
     }
-    setLastRead(prev => {
-      const next = { ...prev };
-      for (const [tk, at] of Object.entries(newest)) {
-        if (at > (next[tk] || "")) next[tk] = at;
-      }
-      localStorage.setItem("tq_last_read", JSON.stringify(next));
-      return next;
-    });
+    // Which cursors actually MOVE, resolved out here rather than inside the
+    // state updater: an updater has to stay pure (React may run it twice), and
+    // this same list is what goes to the server.
+    const advanced = Object.entries(newest).filter(([tk, at]) => at > (lastRead[tk] || ""));
+    if (!advanced.length) return;
+
+    const next = { ...lastRead };
+    for (const [tk, at] of advanced) next[tk] = at;
+    setLastRead(next);
+    localStorage.setItem("tq_last_read", JSON.stringify(next));
+
+    // ...AND persist them. This is the whole of "I read everything on the
+    // desktop and my phone still says unread": Mark all read only ever wrote
+    // localStorage, so nothing about it left this browser and no other device
+    // could ever adopt it. Per-thread markThreadRead has always posted; this
+    // was the one read path that didn't. One batched request, because the
+    // endpoint rewrites a single object and parallel single POSTs lose
+    // cursors.
+    markThreadsReadServer(advanced.map(([threadKey, at]) => ({ threadKey, at })), getToken, orgCode)
+      .catch(() => {});
   }
 
   // Stamps the thread's NEWEST MESSAGE timestamp, not `new Date()`. Unread is

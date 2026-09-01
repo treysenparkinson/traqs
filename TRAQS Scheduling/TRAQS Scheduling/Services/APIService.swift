@@ -260,6 +260,23 @@ struct APIService {
         _ = try await perform(req)
     }
 
+    struct ReadReceipt: Sendable {
+        let threadKey: String
+        let at: String
+    }
+
+    /// Advance MANY read cursors in one request — the "mark everything read"
+    /// path. Not a loop over `postReadReceipt`: the endpoint is a
+    /// read-modify-write of one S3 object, so N concurrent single POSTs lose
+    /// every cursor but the last one to land.
+    func postReadReceipts(_ entries: [ReadReceipt]) async throws {
+        guard !entries.isEmpty else { return }
+        let payload = entries.map { ["threadKey": $0.threadKey, "at": $0.at] }
+        let body = try JSONSerialization.data(withJSONObject: ["entries": payload], options: [])
+        let req = try await request("message-reads", method: "POST", body: body)
+        _ = try await perform(req)
+    }
+
     // MARK: - Groups
 
     func fetchGroups() async throws -> [ChatGroup] {

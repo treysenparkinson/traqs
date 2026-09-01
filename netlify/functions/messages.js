@@ -133,6 +133,79 @@ function recipientsForThread(threadKey, jobs, groups) {
   return Array.from(ids);
 }
 
+// Human name for a thread, used as the push HEADING on everything that is not
+// a DM.
+//
+// Every thread type used to push with `heading: authorName`, so a group
+// message was indistinguishable from a direct message on the lock screen —
+// "Trey" with no hint of which conversation it belonged to. Groups, job,
+// panel and op threads now lead with the CONVERSATION and put the author in
+// front of the text ("Shop Floor" / "Trey: heading out"), which is the
+// convention every other group messenger uses. DMs are left alone: there the
+// author IS the thread.
+//
+// Returns null when the thread has no name worth showing (an unknown id, a
+// deleted group) — the caller then falls back to the old author heading rather
+// than pushing something like "group:".
+function threadDisplayName(threadKey, jobs, groups) {
+  if (!threadKey) return null;
+
+  const clean = v => {
+    const s = (v == null ? "" : String(v)).trim();
+    return s || null;
+  };
+
+  if (threadKey.startsWith("group:")) {
+    const ref = threadKey.slice(6);
+    const g = (groups || []).find(g => String(g.name) === ref || String(g.id) === ref);
+    // The key often IS the group name, so fall back to the ref itself when the
+    // group record has been renamed or removed.
+    return clean(g?.name) || clean(ref);
+  }
+
+  // job / panel / op all resolve through the owning job, so the heading always
+  // carries enough to locate the conversation: "#1042 · Wire" beats "Wire".
+  const jobLabel = j => {
+    const num = clean(j?.jobNumber);
+    const title = clean(j?.title);
+    if (num && title) return `#${num} ${title}`;
+    return num ? `#${num}` : title;
+  };
+
+  if (threadKey.startsWith("job:")) {
+    const j = (jobs || []).find(j => String(j.id) === threadKey.slice(4));
+    return j ? jobLabel(j) : null;
+  }
+
+  if (threadKey.startsWith("panel:")) {
+    const panelId = threadKey.slice(6);
+    for (const j of (jobs || [])) {
+      const p = (j.subs || []).find(p => String(p.id) === panelId);
+      if (p) {
+        const parts = [jobLabel(j), clean(p.title)].filter(Boolean);
+        return parts.length ? parts.join(" · ") : null;
+      }
+    }
+    return null;
+  }
+
+  if (threadKey.startsWith("op:")) {
+    const opId = threadKey.slice(3);
+    for (const j of (jobs || [])) {
+      for (const p of (j.subs || [])) {
+        const o = (p.subs || []).find(o => String(o.id) === opId);
+        if (o) {
+          const parts = [jobLabel(j), clean(o.title) || clean(p.title)].filter(Boolean);
+          return parts.length ? parts.join(" · ") : null;
+        }
+      }
+    }
+    return null;
+  }
+
+  return null;   // dm: — the author is the thread
+}
+
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
@@ -240,11 +313,22 @@ export async function handler(event) {
       const targetIds = recipientsForThread(threadKey, jobs, groups)
         .filter(id => id !== String(authorId));
 
+      // Notification wording. On a group / job / panel / op thread the heading
+      // is the CONVERSATION and the author is prefixed to the body, so the
+      // lock screen answers "who texted, and where" — the two of them used to
+      // be indistinguishable from a DM. On a DM the author IS the thread, so
+      // nothing changes there.
+      const who = authorName || "New message";
+      const said = text?.trim() || "Sent an attachment";
+      const threadName = threadDisplayName(threadKey, jobs, groups);
+      const pushHeading = threadName || who;
+      const pushBody = threadName ? `${authorName || "Someone"}: ${said}` : said;
+
       // Web push → desktop browsers (works whether or not a tab is open).
       // Awaited so it completes before the serverless function freezes on return.
       await sendWebPush(orgCodeFromHeader(event), targetIds, {
-        title: authorName || "New message",
-        body: text?.trim() || "Sent an attachment",
+        title: pushHeading,
+        body: pushBody,
         data: { kind: "message", threadKey, scope },
       }).catch(() => {});
 
@@ -257,8 +341,8 @@ export async function handler(event) {
       const orgCode = orgCodeFromHeader(event);
       const senderId = String(authorId);
       await sendVisiblePush(orgCode, people, targetIds, {
-        heading: authorName || "New message",
-        content: text?.trim() || "Sent an attachment",
+        heading: pushHeading,
+        content: pushBody,
         data: { threadKey, scope },
         label: "message",
       });

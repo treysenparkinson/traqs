@@ -409,6 +409,10 @@ class AppState {
     /// reconcile even when Ably is degraded or was suspended in the background.
     func foregroundSync() {
         onRealtimeChange()
+        // Reads are their own object, not part of the delta sync — a thread read
+        // on another device while this one was backgrounded is only visible
+        // once we pull the cursor map.
+        Task { @MainActor in await refreshReadReceipts() }
     }
 
     /// Awaitable background delta-sync for silent ("content-available") pushes.
@@ -724,6 +728,14 @@ class AppState {
         // Warm the Stats datasets in the background (concurrently) so the Stats
         // tab is already populated by the time it's opened — no on-open wait.
         warmStatsData()
+
+        // Adopt read cursors set on OTHER devices. This used to happen only
+        // from the Ably "reads" signal and from inside an open thread, so a
+        // cold launch (or any stretch where realtime was degraded) painted the
+        // unread badge from this device's local cursor alone — messages already
+        // read on the desktop kept counting here until Messages was opened.
+        // Cheap: a small map, one request.
+        Task { @MainActor in await refreshReadReceipts() }
     }
 
     // MARK: - Jobs
@@ -946,15 +958,45 @@ class AppState {
         return threadReadAt[threadKey] ?? at
     }
 
+    /// Mark every thread read — locally AND on the server.
+    ///
+    /// The server half is the point. Read state is only "read once, read
+    /// everywhere" if every path that clears it publishes its cursor; a
+    /// local-only mark-all leaves the other devices counting the same messages
+    /// forever, with no way to ever catch up (the web's Mark all read had
+    /// exactly this bug). Sent as ONE batched request because the endpoint
+    /// rewrites a single object — parallel single posts lose cursors.
     func markAllThreadsRead() {
         // Per-thread newest timestamp rather than one device-now stamp for all —
         // same clock-mismatch reasoning as markThreadRead.
         var map = threadReadAt
+        var advanced: [APIService.ReadReceipt] = []
         for k in Set(messages.map { $0.threadKey }) {
             let at = newestTimestamp(in: k) ?? Date.nowISO()
-            if isoGreater(at, than: map[k] ?? "") { map[k] = at }
+            if isoGreater(at, than: map[k] ?? "") {
+                map[k] = at
+                advanced.append(APIService.ReadReceipt(threadKey: k, at: at))
+            }
         }
+        guard !advanced.isEmpty else { return }
         threadReadAt = map
+
+        // Mirror into the local receipt map so the sender-side "Read" state and
+        // the inbox agree before the round trip lands.
+        if let myId = currentPersonId {
+            var receipts = readReceipts
+            for e in advanced {
+                var cursors = receipts[e.threadKey] ?? [:]
+                cursors[myId] = e.at
+                receipts[e.threadKey] = cursors
+            }
+            withoutAnimation { readReceipts = receipts }
+        }
+        let payload = advanced
+        Task { @MainActor in
+            guard let api = self.api else { return }
+            try? await api.postReadReceipts(payload)
+        }
     }
 
     /// Total unread text messages across every thread I'm in — any message newer

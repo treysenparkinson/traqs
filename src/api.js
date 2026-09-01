@@ -266,6 +266,25 @@ export async function markThreadReadServer(threadKey, at, getToken, orgCode) {
   return res.json();
 }
 
+// Advance MANY read cursors in one request — the "Mark all read" path.
+//
+// Deliberately not a loop of `markThreadReadServer`: the endpoint is a
+// read-modify-write of a single S3 object, so N parallel single POSTs lose all
+// but the last one's cursor. `entries` is [{ threadKey, at }, ...]; the server
+// applies them monotonically in one write and skips any thread the caller can
+// no longer see.
+export async function markThreadsReadServer(entries, getToken, orgCode) {
+  if (!entries?.length) return { ok: true, advanced: [] };
+  const headers = await authHeaders(getToken, orgCode);
+  const res = await fetch(`${BASE}/message-reads`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ entries }),
+  });
+  if (!res.ok) throw new Error(`markThreadsReadServer failed: ${res.status}`);
+  return res.json();
+}
+
 // ─── Groups ───────────────────────────────────────────────────────────────────
 export async function fetchGroups(getToken, orgCode) {
   const res = await fetch(`${BASE}/groups`, { headers: await authReadHeaders(getToken, orgCode) });
