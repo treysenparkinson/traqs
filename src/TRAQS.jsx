@@ -1068,17 +1068,6 @@ button:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
               box-shadow 0.2s ease, filter 0.2s ease,
               background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
 }
-@media (hover: hover) {
-  button:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
-    /* Same halo as .tq-drop and the input rule below. Buttons used to carry a
-       tighter, harder shadow (0 4px 16px of --tq-glow at 40% accent), so a
-       button and the dropdown beside it glowed differently. One value now, so
-       every interactive control reads as the same family. */
-    transform: translateY(-1.5px) !important;
-    box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16)) !important;
-    filter: brightness(1.05);
-  }
-}
 button:not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
   transform: translateY(0) scale(0.97) !important;
   transition-duration: 0.07s !important;
@@ -1108,21 +1097,6 @@ select:not(:disabled) {
               box-shadow 0.15s ease, filter 0.15s ease,
               border-color 0.15s ease, background-color 0.15s ease !important;
 }
-@media (hover: hover) {
-  input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover,
-  textarea:not(:disabled):not([readonly]):not(.tq-bare):hover,
-  select:not(:disabled):hover {
-    /* Minimal: no lift and no wide halo. A field that jumps 1.5px and throws a
-       22px accent glow is announcing itself louder than the thing you are trying
-       to read; with a form full of them the whole page twitches as the cursor
-       crosses it. What is left is a hairline shadow and a barely-there
-       brightening — enough to confirm the field is live, nothing more. Focus
-       still gets the full halo and accent border, so the strong signal is
-       reserved for the field you are actually in. */
-    box-shadow: 0 1px 3px var(--tq-glow-ring, rgba(0,0,0,0.09));
-    filter: brightness(1.015);
-  }
-}
 /* Grid cells that act as dropdowns (the styled pickers in the jobs table) get the
    same halo but NOT the lift: a table cell that rises breaks alignment with the
    rest of its row. Same treatment, minus the transform. */
@@ -1140,12 +1114,6 @@ select:not(:disabled) {
    soft glow bleeding out of one cell into its neighbours is the same problem the ring
    was — a table reads as a grid, and anything that spills across a cell boundary
    fights that. Brightness alone marks the hover: it stays inside the cell. */
-@media (hover: hover) {
-  .tq-cell-drop:hover {
-    box-shadow: none;
-    filter: brightness(1.04);
-  }
-}
 /* Focus holds the halo but NOT the lift — a field that stays raised while you
    type reads as stuck, and the caret shifting mid-edit is worse than no motion. */
 input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):focus,
@@ -1220,12 +1188,6 @@ select:not(.tq-sq) { padding-left: 14px; padding-right: 12px; }
    hairline hover as every other input instead of a 1.5px lift and a 22px halo.
    width/border-color ones — an inline transition would otherwise win outright
    and drop these properties. */
-@media (hover: hover) {
-  .tq-searchbar:hover {
-    box-shadow: 0 1px 3px var(--tq-glow-ring, rgba(0,0,0,0.09));
-    filter: brightness(1.015);
-  }
-}
 /* Navigation sidebar opts out of the lift/glow — it keeps the simple background
    fade (set inline per nav button). Higher specificity than the rule above so it
    wins even against !important. */
@@ -1263,11 +1225,8 @@ button.tq-noanim:not(:disabled):not([disabled]):not([aria-disabled="true"]):acti
    button + class + three :not()s + :hover is (0,5,1), which clears both the
    app-wide button:...:hover (0,4,1) and .dash-btn:...:hover (0,5,0) without
    needing to name .dash-btn — so it keeps working if that class ever moves. */
-.traqs-glass button.tq-softglow:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
-  box-shadow: var(--tq-control-edge), 0 2px 7px var(--tq-glow-ring-soft, rgba(0,0,0,0.12)) !important;
-}
 .traqs-glass button.tq-softglow:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
-  box-shadow: var(--tq-control-edge), 0 1px 4px var(--tq-glow-ring-soft, rgba(0,0,0,0.12)) !important;
+  box-shadow: 0 1px 4px var(--tq-glow-ring-soft, rgba(0,0,0,0.12)) !important;
 }
 /* Glass off, and the contained glow goes with everything else — these three
    buttons return to the shared dash-btn hover, which is what "as it was before"
@@ -1416,7 +1375,13 @@ button.tq-x:active {
 
    Every selector here hangs off .traqs-glass. With Frosted Glass off not one of
    them matches, and every control is exactly what it was. */
-.traqs-glass button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day),
+/* Buttons deliberately have NO glass edge. The ring reads as a border, and a
+   screen of buttons each wearing one looked like a form of outlined boxes rather
+   than a set of things to press -- the fill and the label are enough to say
+   "button". Everything that is a FIELD keeps its edge: inputs, .tq-drop triggers
+   (including the button-based ones like the date picker), the search bar, and
+   every card and popup surface. A field is a place to put something and wants a
+   defined boundary; a button is not. */
 .traqs-glass .tq-searchbar {
   box-shadow: var(--tq-control-edge) !important;
   /* The outline removal lives in its own rule below — it needs a narrower selector
@@ -1457,14 +1422,6 @@ button.tq-x:active {
    (0,5,1) clears the app-wide hover (0,4,1) and .dash-btn's (0,5,0). The two classes
    that want something different — .tq-softglow and  — are scoped with
    .traqs-glass themselves, which puts them at (0,6,1) and keeps them ahead of this. */
-@media (hover: hover) {
-  .traqs-glass button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):hover {
-    box-shadow: var(--tq-control-edge), 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16)) !important;
-  }
-}
-.traqs-glass button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):active {
-  box-shadow: var(--tq-control-edge) !important;
-}
 /* The one width exception, and it earns it. A button that fills its container has no
    fixed size to tune against: the My Clock buttons run the full width of their card at
    ~218px, so the global 1.02 moves them 4.4px where it moves the + New Job button
@@ -1478,18 +1435,6 @@ button.tq-x:active {
    .tq-wide is the marker for anything else that fills its container — add the class
    rather than another rule. (0,8,0), clear of the global (0,7,1). .tq-softglow sits at
    (0,9,1) but only declares box-shadow, so the My Clock glow survives this untouched. */
-@media (hover: hover) {
-  .dash-btn:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
-  .tq-wide:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
-    transform: scale(1.008) !important;
-  }
-  .dash-btn:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > svg,
-  .dash-btn:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > span > svg,
-  .tq-wide:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > svg,
-  .tq-wide:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > span > svg {
-    transform: scale(0.9921);
-  }
-}
 .dash-btn:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active,
 .tq-wide:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
   transform: scale(0.995) !important;
@@ -1517,15 +1462,6 @@ button.tq-x:active {
    the helper uses the same number.
 
    (0,9,0), clear of the global (0,7,1) and of the full-width exception at (0,8,0). */
-@media (hover: hover) {
-  .tq-pagehdr button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
-    transform: scale(1.03) !important;
-  }
-  .tq-pagehdr button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > svg,
-  .tq-pagehdr button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > span > svg {
-    transform: scale(0.9709);
-  }
-}
 .tq-pagehdr button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
   transform: scale(0.985) !important;
 }
@@ -1629,23 +1565,6 @@ button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day) > svg,
 button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day) > span > svg {
   transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-@media (hover: hover) {
-  button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
-    transform: scale(1.02) !important;
-    box-shadow: none !important;
-    filter: none !important;
-    will-change: transform;
-  }
-  /* Counter-scaled by the reciprocal so the glyph renders at its authored size all
-     the way through. Scaling an SVG is a redraw, not a resize: a 2.5px stroke gets
-     thicker with the box, which reads as the icon thickening and shifting rather
-     than the button growing. This pins its SIZE, not its position — the box scales
-     about its centre, so an off-centre glyph still drifts a pixel or two. */
-  button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > svg,
-  button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > span > svg {
-    transform: scale(0.9804);
-  }
-}
 button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
   transform: scale(0.99) !important;
   box-shadow: inset 0 0 0 9999px rgba(255, 255, 255, 0.14) !important;
@@ -1723,14 +1642,6 @@ button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([di
    file, button, submit, .tq-bare -- cannot drift out of step.
 
    Under Frosted Glass they take the control edge too. */
-@media (hover: hover) {
-  input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover,
-  textarea:not(:disabled):not([readonly]):not(.tq-bare):hover,
-  select:not(:disabled):hover {
-    box-shadow: 0 1px 3px var(--tq-glow-ring, rgba(0,0,0,0.09));
-    filter: brightness(1.015);
-  }
-}
 input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):active,
 textarea:not(:disabled):not([readonly]):not(.tq-bare):active,
 select:not(:disabled):active {
@@ -1766,19 +1677,6 @@ select:not(:disabled):active {
    Hover is now a hairline shadow everywhere in this family; focus keeps the accent
    halo, so the strong signal belongs to the field you are actually in. The icon
    counter-scale rules that paired with each tier are gone with the scales. */
-@media (hover: hover) {
-.anim-modal-box input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover,
-.anim-modal-box textarea:not(:disabled):not([readonly]):not(.tq-bare):hover,
-.anim-modal-box select:not(:disabled):hover,
-.anim-modal-box .tq-drop:hover,
-.anim-modal-overlay input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover,
-.anim-modal-overlay textarea:not(:disabled):not([readonly]):not(.tq-bare):hover,
-.anim-modal-overlay select:not(:disabled):hover,
-.anim-modal-overlay .tq-drop:hover {
-    box-shadow: 0 1px 3px var(--tq-glow-ring, rgba(0,0,0,0.09)) !important;
-    filter: brightness(1.015);
-  }
-}
 .anim-modal-box input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):active,
 .anim-modal-box textarea:not(:disabled):not([readonly]):not(.tq-bare):active,
 .anim-modal-box select:not(:disabled):active,
@@ -1821,16 +1719,6 @@ select:not(:disabled):active {
 .tq-searchbar > span > svg {
   transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-@media (hover: hover) {
-  /* This is the rule that actually applied. There were TWO .tq-searchbar:hover
-     blocks; the earlier one (see the toolbar-pill comment above) lost to this one
-     on source order, so calming that one alone changed nothing. Both are quiet now.
-     The icon counter-scale went with the scale it was cancelling. */
-  .tq-searchbar:hover {
-    box-shadow: 0 1px 3px var(--tq-glow-ring, rgba(0,0,0,0.09));
-    filter: brightness(1.015);
-  }
-}
 .tq-searchbar:active {
   transform: scale(0.985);
 }
@@ -1845,13 +1733,9 @@ select:not(:disabled):active {
    covers the border and the button loses its edge at the moment you press it. Glass
    off and none of this matches, leaving the behaviour above intact and every border
    where it was. */
-@media (hover: hover) {
-  .traqs-glass button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
-    box-shadow: var(--tq-control-edge) !important;
-  }
-}
+/* The press flash stays -- it is feedback, not a border. Only the edge comes off. */
 .traqs-glass button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
-  box-shadow: var(--tq-control-edge), inset 0 0 0 9999px rgba(255, 255, 255, 0.14) !important;
+  box-shadow: inset 0 0 0 9999px rgba(255, 255, 255, 0.14) !important;
 }
 /* Reading surfaces — the job/client list cards (FrostCard), and both export
    windows including the layout designer's toolbar and side rail. They read as too
@@ -2153,12 +2037,6 @@ input[type="range"].tq-pill-range::-moz-range-thumb {
    whole apparatus existed to make the swell tolerable on wide triggers, and it goes
    with the swell. The press (:active) keeps its squeeze and its counter-scale: a
    press is a deliberate act and momentary, which is the opposite of hover. */
-@media (hover: hover) {
-  .tq-drop:hover {
-    box-shadow: 0 1px 3px var(--tq-glow-ring, rgba(0,0,0,0.09));
-    filter: brightness(1.015);
-  }
-}
 /* Some .tq-drop triggers are <button> and some are <div>, and only the divs were
    actually calm. The app-wide button hover sets transform and box-shadow with
    !important, so on a <button class="tq-drop"> it beat the rule above and those
@@ -2177,11 +2055,6 @@ button.tq-drop:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
               background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
 }
 @media (hover: hover) {
-  button.tq-drop:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
-    transform: none !important;
-    box-shadow: 0 1px 3px var(--tq-glow-ring, rgba(0,0,0,0.09)) !important;
-    filter: brightness(1.015) !important;
-  }
   /* Under Frosted Glass a div .tq-drop shows the control edge on hover instead of
      the hairline shadow (.traqs-glass .tq-drop:hover, further down). Mirrored here
      at (0,6,1) so the button ones match rather than losing the edge. */
@@ -3290,7 +3163,7 @@ function CustomDrop({ value, onChange, options, placeholder = "Select…", compa
       <span style={{ fontSize: compact ? 12 : 14, fontWeight: compact ? 600 : 400, color: value ? T.text : T.textDim, fontFamily: T.font, flex: 1, lineHeight: compact ? "16px" : "normal" }}>{value || placeholder}</span>
       <svg width={compact ? 10 : 12} height={compact ? 10 : 12} viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
     </div>
-    <FadeOnClose open={open}><div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out" }}>
+    <FadeOnClose open={open}><div className="anim-drop" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out" }}>
       {options.map((r, ri) => {
         const isOn = value === r;
         return <div key={r} onClick={() => { onChange(r); setOpen(false); }}
@@ -3344,7 +3217,7 @@ function AssigneeDrop({ value, onChange, people }) {
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
     </div>
     {open && anchor && createPortal(
-      <div ref={menuRef} style={{ position: "fixed", left: anchor.left, top: anchor.top, width: anchor.width, zIndex: 10060, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.4)", padding: "4px 0", maxHeight: anchor.maxHeight, overflowY: "auto", animation: "menuIn 0.15s ease-out", fontFamily: T.font }}>
+      <div ref={menuRef} className="tq-lglass" style={{ position: "fixed", left: anchor.left, top: anchor.top, width: anchor.width, zIndex: 10060, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.4)", padding: "4px 0", maxHeight: anchor.maxHeight, overflowY: "auto", animation: "menuIn 0.15s ease-out", fontFamily: T.font }}>
         {opts.map((p, ri) => { const isOn = (value || "") === p.id; return <div key={p.id || "__any__"} onClick={() => { onChange(p.id); setOpen(false); }}
           style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 9, padding: "10px 14px", cursor: "pointer", animation: `toolDrop 0.14s ${Math.min(ri, 14) * 28}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }}
           onMouseEnter={e => e.currentTarget.style.background = T.hover}
@@ -3808,17 +3681,42 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     // Order is the other half of it. box-shadow paints FIRST-listed on top, so the
     // lips come first and the uniform ring last — the ring fills the corners behind
     // them, and the lit top and bottom still read over it.
+    // The white lips came down from 0.95/0.80 on light and 0.70/0.50 on dark,
+    // which drew a bright chalk line around every control -- with a page full of
+    // pills and cards the whole screen read as outlined rather than as glass
+    // catching light. A lip is meant to suggest a lit top edge, not to be the
+    // border. Set on screen rather than by ratio: halving them first went too
+    // far and lost the glass, so these sit between the two. The ring underneath
+    // goes the other way -- a little darker -- so the edge still separates the
+    // control from its background now that the white is doing less of that work.
+    //
+    // One helper, and the two vars below feed all 16 places that draw a glass
+    // edge, so these four numbers are the app-wide dial. Tune here, nowhere else.
     const _edge = side => [
-      `inset 0 1px 0 rgba(255,255,255,${lightSurface ? 0.95 : 0.70})`,
-      `inset 0 -1px 0 rgba(255,255,255,${lightSurface ? 0.80 : 0.50})`,
+      `inset 0 1px 0 rgba(255,255,255,${lightSurface ? 0.70 : 0.50})`,
+      `inset 0 -1px 0 rgba(255,255,255,${lightSurface ? 0.55 : 0.37})`,
       `inset 0 0 0 1px ${side}`,
     ].join(", ");
     // A surface's band is a COLOUR — it has to be darker than a near-white card, and
     // no single black alpha manages that across both families. A control's is an
     // ALPHA, because the same grey would come out lighter than a saturated fill,
     // which is the opposite of a groove.
-    document.documentElement.style.setProperty("--tq-surface-edge", _edge(lightSurface ? "#CFD4DC" : "#151515"));
-    document.documentElement.style.setProperty("--tq-control-edge", _edge(lightSurface ? "rgba(0,0,0,0.24)" : "rgba(0,0,0,0.34)"));
+    // DARK mode rings are GREY, not black. #101013 and a 0.42 black alpha drew a
+    // hard black line down the sides of every glass surface -- on a dark page that
+    // reads as a gap punched through the panel rather than as an edge catching
+    // light, and it fought the white lips above and below it. Grey sits between
+    // the two: still a defined side, no longer a black seam.
+    //
+    // Solid greys rather than a white alpha on purpose. These surfaces are
+    // translucent, so an alpha edge takes its value from whatever is behind the
+    // panel and drifts as the page scrolls under it; a solid grey is the same
+    // grey everywhere. The control ring is the lighter of the two so a control
+    // still reads as sitting slightly proud of the surface it is on.
+    //
+    // LIGHT mode is unchanged -- there the ring is doing the opposite job
+    // (a groove darker than a near-white card) and a black-ish value is right.
+    document.documentElement.style.setProperty("--tq-surface-edge", _edge(lightSurface ? "#C2C8D1" : "#3A3A42"));
+    document.documentElement.style.setProperty("--tq-control-edge", _edge(lightSurface ? "rgba(0,0,0,0.30)" : "#474751"));
     // Separate fill for the list cards (.tq-lglass-card) — currently a little
     // CLEARER than the shared one, not denser. It started out the other way round on
     // the theory that a page-filling table of small text needs more frost than a
@@ -22117,7 +22015,7 @@ ${jobsCtx || "No jobs found."}`;
                 : `${team[0].name.split(" ")[0]} +${team.length - 1}`;
               const tone = assigned ? elColor(team[0].color || T.accent) : T.textDim;
               return (
-                <button className="tq-noanim" title={assigned ? `Assigned to ${team.map(q => q.name).join(", ")}` : "Assign someone"}
+                <button title={assigned ? `Assigned to ${team.map(q => q.name).join(", ")}` : "Assign someone"}
                   disabled={!canEditJ}
                   onClick={e => {
                     e.stopPropagation();
@@ -22136,7 +22034,7 @@ ${jobsCtx || "No jobs found."}`;
             {/* Status stays, but only where it says something a glance cannot:
                 an assigned row that is not simply "not started". */}
             {chip && chip.k !== "ns" && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 8px", flexShrink: 0, background: c.bg, color: c.fg }}>{chip.label}</span>}
-            {canEditJ && <button className="tq-noanim" title="Delete item" onClick={() => delTask(n.id, panelId)}
+            {canEditJ && <button title="Delete item" onClick={() => delTask(n.id, panelId)}
               style={{ width: 20, height: 20, padding: 0, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", flexShrink: 0, borderRadius: T.radiusPill, display: "grid", placeItems: "center" }}>
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
             </button>}
@@ -23948,7 +23846,7 @@ ${jobsCtx || "No jobs found."}`;
               where the panel is going. Sits above the section list rather than
               beside a section title so it reads as acting on the whole column. */}
           {!isMobile && <div style={{ display: "flex", justifyContent: "flex-end", flexShrink: 0, paddingTop: asPage ? 0 : 8 }}>
-            <button className="tq-noanim" onClick={() => setDetailSideOpen(false)} title="Collapse information"
+            <button onClick={() => setDetailSideOpen(false)} title="Collapse information"
               style={{ width: 26, height: 26, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, cursor: "pointer", display: "grid", placeItems: "center" }}
               onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
               onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; }}>
@@ -27147,7 +27045,7 @@ ${jobsCtx || "No jobs found."}`;
     {/* ── Status Popover ── */}
     <FadeOnClose open={!!statusPopover}>{statusPopover && <div>
       <div style={{ position: "fixed", inset: 0, zIndex: 10012 }} onClick={() => setStatusPopover(null)} />
-      <div style={{ position: "fixed", left: statusPopover.x, top: statusPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 168, maxHeight: statusPopover.maxHeight, overflowY: statusPopover.maxHeight ? "auto" : "visible", fontFamily: T.font, animation: `${statusPopover.up ? "menuInUp" : "menuIn"} 0.15s ease-out` }}>
+      <div className="tq-lglass" style={{ position: "fixed", left: statusPopover.x, top: statusPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 168, maxHeight: statusPopover.maxHeight, overflowY: statusPopover.maxHeight ? "auto" : "visible", fontFamily: T.font, animation: `${statusPopover.up ? "menuInUp" : "menuIn"} 0.15s ease-out` }}>
         {STATUSES.map((s, si) => {
           const sc = staColorOf(s);
           const isCurrent = s === statusPopover.current;
@@ -27295,7 +27193,7 @@ ${jobsCtx || "No jobs found."}`;
     })()}</FadeOnClose>
     <FadeOnClose open={!!ccSelectPopover}>{ccSelectPopover && <div>
       <div style={{ position: "fixed", inset: 0, zIndex: 10012 }} onClick={() => setCcSelectPopover(null)} />
-      <div style={{ position: "fixed", left: ccSelectPopover.x, top: ccSelectPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 168, maxHeight: ccSelectPopover.maxHeight || 320, overflowY: "auto", fontFamily: T.font, animation: `${ccSelectPopover.up ? "menuInUp" : "menuIn"} 0.15s ease-out` }}>
+      <div className="tq-lglass" style={{ position: "fixed", left: ccSelectPopover.x, top: ccSelectPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 168, maxHeight: ccSelectPopover.maxHeight || 320, overflowY: "auto", fontFamily: T.font, animation: `${ccSelectPopover.up ? "menuInUp" : "menuIn"} 0.15s ease-out` }}>
         {ccSelectPopover.options.map((o, oi) => {
           const n = optName(o);
           const optVal = n === "—" ? "" : n;
@@ -30214,7 +30112,7 @@ ${jobsCtx || "No jobs found."}`;
                     {(() => {
                       const selPm = people.find(p => sameId(p.id, ej.projectManagerId));
                       return (
-                        <button onClick={e => { e.stopPropagation(); const opening = deptDropId !== "editJobPM"; setDeptDropId(opening ? "editJobPM" : null); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: T.radiusPill, border: `1px solid ${selPm ? T.accent + "55" : T.glassBorder}`, background: selPm ? T.accent + "10" : T.glass, cursor: "pointer", boxSizing: "border-box", transition: "all 0.15s", fontFamily: T.font }}>
+                        <button className="tq-drop" onClick={e => { e.stopPropagation(); const opening = deptDropId !== "editJobPM"; setDeptDropId(opening ? "editJobPM" : null); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: T.radiusPill, border: `1px solid ${selPm ? T.accent + "55" : T.glassBorder}`, background: selPm ? T.accent + "10" : T.glass, cursor: "pointer", boxSizing: "border-box", transition: "all 0.15s", fontFamily: T.font }}>
                           {selPm
                             ? <><PersonAvatar person={selPm} size={22} /><span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: T.accent, textAlign: "left" }}>{selPm.name}</span></>
                             : <span style={{ flex: 1, fontSize: 14, color: T.textDim, textAlign: "left" }}>— No PM —</span>}
@@ -30222,7 +30120,14 @@ ${jobsCtx || "No jobs found."}`;
                         </button>
                       );
                     })()}
-                    <FadeOnClose open={deptDropId === "editJobPM"}>{deptDropId === "editJobPM" && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 2200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "8px 0", animation: "menuIn 0.15s ease-out", maxHeight: 260, overflowY: "auto" }}>
+                    {/* onMouseDown must stop too, not just onClick. A document-level
+                        mousedown listener closes this family of dropdowns, and stopping
+                        only click was too late: mousedown cleared deptDropId, the inner
+                        `deptDropId === "editJobPM" &&` guard unmounted the list before
+                        mouseup, and the row's onClick never ran -- so picking a PM
+                        appeared to do nothing. Every other dropdown on this pattern
+                        (department, sign-off, deps, colour) already had it; this one did not. */}
+                    <FadeOnClose open={deptDropId === "editJobPM"}>{deptDropId === "editJobPM" && <div className="anim-drop" onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 2200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "8px 0", animation: "menuIn 0.15s ease-out", maxHeight: 260, overflowY: "auto" }}>
                       <div onClick={() => { setEj({ projectManagerId: null }); setDeptDropId(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", animation: `toolDrop 0.14s 0ms both ease-out` }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                         <div style={{ width: 22, height: 22, borderRadius: 12, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />
                         <span style={{ fontSize: 13, color: T.textDim }}>— No PM —</span>
