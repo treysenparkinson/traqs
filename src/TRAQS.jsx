@@ -4488,6 +4488,43 @@ Extraction rules:
   // Throttles wheel/trackpad paging so one flick advances a single stat rather
   // than tearing through the whole set.
   const dashStatWheelRef = useRef(0);
+  // ── Personal, per-machine view state ────────────────────────────────────
+  // Which departments you collapsed on the Schedule, which filters you left on,
+  // how you sorted, which sections are open. These are PREFERENCES, not org
+  // data, so they live in localStorage beside the theme -- deliberately NOT in
+  // userSettings, which is server-side and would follow you onto every other
+  // machine. A layout you set on your desk should not rearrange someone else's
+  // screen, or your own on a different computer.
+  //
+  // Keyed per org so switching orgs does not inherit the last one's filters.
+  // orgCode is fixed for a session (changing it means re-logging in), so the key
+  // never moves under a mounted hook.
+  //
+  // Every read is failure-tolerant. A private window, cleared site data, a
+  // value written by an older build, or a quota error must fall back to the
+  // default -- a remembered filter is a nicety and must never be able to stop
+  // the app mounting.
+  const uiKey = useCallback((name) => `tq_ui_${orgCode || "none"}_${name}`, [orgCode]);
+  const usePersistedUI = (name, fallback, opts) => {
+    const revive = opts && opts.revive, freeze = opts && opts.freeze;
+    const [v, setV] = useState(() => {
+      try {
+        const raw = localStorage.getItem(`tq_ui_${orgCode || "none"}_${name}`);
+        if (raw == null) return fallback;
+        const parsed = JSON.parse(raw);
+        return revive ? revive(parsed) : parsed;
+      } catch { return fallback; }
+    });
+    useEffect(() => {
+      try { localStorage.setItem(uiKey(name), JSON.stringify(freeze ? freeze(v) : v)); }
+      catch { /* private mode or quota -- the preference is optional, the app is not */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [name, v, uiKey]);
+    return [v, setV];
+  };
+  // A Set does not survive JSON, so these two translate it at the boundary.
+  const UI_SET = { revive: a => new Set(Array.isArray(a) ? a : []), freeze: x => [...x] };
+
   // Button mode starts OPEN. Read straight from localStorage rather than letting
   // the sync effect below do it, so a button-mode reload paints expanded instead
   // of flashing the collapsed rail and animating open on the first frame.
@@ -4657,23 +4694,23 @@ Extraction rules:
   };
   const deleteTemplate = (tid) => { persistTemplates(templates.filter(t => t.id !== tid)); };
 
-  const [fStat, setFStat] = useState([]);      // multi-select statuses; empty = All
-  const [fPers, setFPers] = useState([]);      // multi-select person IDs (strings); empty = All
+  const [fStat, setFStat] = usePersistedUI("fStat", []);      // multi-select statuses; empty = All
+  const [fPers, setFPers] = usePersistedUI("fPers", []);      // multi-select person IDs (strings); empty = All
   // Jobs List-view grouping. Array of tokens { type: 'person'|'client'|'column', id }.
   // When non-empty, the jobs list renders one section per token (a column token
   // expands to one section per distinct value). Multi-select; duplicates allowed.
-  const [grouping, setGrouping] = useState([]);
+  const [grouping, setGrouping] = usePersistedUI("grouping", []);
   const toggleGrouping = (tok) => setGrouping(prev => {
     const i = prev.findIndex(g => g.type === tok.type && g.id === tok.id);
     return i >= 0 ? prev.filter((_, j) => j !== i) : [...prev, tok];
   });
-  const [fJobNum, setFJobNum] = useState("");
-  const [fRole, setFRole] = useState([]);  // multi-select assigned-person roles; empty = All
-  const [fHpd, setFHpd] = useState("All");    // filter by hours-per-day
-  const [fOverloaded, setFOverloaded] = useState(false); // show only tasks with overbooked team
+  const [fJobNum, setFJobNum] = usePersistedUI("fJobNum", "");
+  const [fRole, setFRole] = usePersistedUI("fRole", []);  // multi-select assigned-person roles; empty = All
+  const [fHpd, setFHpd] = usePersistedUI("fHpd", "All");    // filter by hours-per-day
+  const [fOverloaded, setFOverloaded] = usePersistedUI("fOverloaded", false); // show only tasks with overbooked team
   const [fTimePeriod, setFTimePeriod] = useState(['current', 'future', 'finished']); // time-based visibility
-  const [jobSort, setJobSort] = useState("date"); // "date" | "project" | "client"
-  const [colSort, setColSort] = useState({ id: null, dir: "asc" }); // column header sort
+  const [jobSort, setJobSort] = usePersistedUI("jobSort", "date"); // "date" | "project" | "client"
+  const [colSort, setColSort] = usePersistedUI("colSort", { id: null, dir: "asc" }); // column header sort
   const [filterOpen, setFilterOpen] = useState(false);
   const filterRef = useRef(null);
   // Schedule page has its OWN filter state — keeps Schedule filtering independent
@@ -4826,7 +4863,7 @@ Extraction rules:
   const [gStart, setGStart] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth(), 1)); });
   const [gEnd, setGEnd] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth() + 1, 0)); });
   const [gMode, setGMode] = useState("month"); // day, week, month
-  const [gSort, setGSort] = useState("date"); // date, project, client
+  const [gSort, setGSort] = usePersistedUI("gSort", "date"); // date, project, client
   const [exp, setExp] = useState({});
   const [ctxMenu, setCtxMenu] = useState(null);
   const [depsModal, setDepsModal] = useState(null); // { item, panelSubs, panelId, jobId, panelTitle }
@@ -4847,10 +4884,10 @@ Extraction rules:
   }, [confirmDeleteClient]);
   const [selTask, setSelTask] = useState(null);
   const [gridCell, setGridCell] = useState(null); // { id, col }
-  const [expandedJobs, setExpandedJobs] = useState(new Set());
+  const [expandedJobs, setExpandedJobs] = usePersistedUI("expandedJobs", new Set(), UI_SET);
   // In Grouping mode rows default to expanded — these sets track per-person collapse state.
   // Keys are `<personId>:<itemId>` so two people sharing a panel/job don't collapse together.
-  const [groupCollapsed, setGroupCollapsed] = useState(new Set());
+  const [groupCollapsed, setGroupCollapsed] = usePersistedUI("groupCollapsed", new Set(), UI_SET);
   const [groupClosing, setGroupClosing]   = useState(new Set());
   const toggleGroupCollapse = (key) => {
     setGroupCollapsed(prev => {
@@ -5043,7 +5080,7 @@ Extraction rules:
   const [splitRatio, setSplitRatio] = useState(55);
   const [splitGanttExpanded, setSplitGanttExpanded] = useState(new Set());
   const [signOffSettingsOpen, setSignOffSettingsOpen] = useState(false);
-  const [pmSectionsCollapsed, setPmSectionsCollapsed] = useState({});
+  const [pmSectionsCollapsed, setPmSectionsCollapsed] = usePersistedUI("pmSectionsCollapsed", {});
   const [signOffTemplateEditing, setSignOffTemplateEditing] = useState(null); // { id?, name, steps: string[] }
   // ── Approval chain editor, opened from the Approval cell on the jobs grid ──
   const [approvalModal, setApprovalModal] = useState(null); // { target:{kind:"chain",jobId,panelId}, title, steps:[{label,done?,byName?,at?,assigneeId?}] }
@@ -6167,7 +6204,7 @@ Extraction rules:
   const [pickerExpandedPanels, setPickerExpandedPanels] = useState(new Set());
   const [tsAdminTab, setTsAdminTab] = useState("live");
   // Admin live-status page state (mirrors the iOS/Android AdminScreen)
-  const [adminFilter, setAdminFilter] = useState("live"); // "live" | "dept" | "today"
+  const [adminFilter, setAdminFilter] = usePersistedUI("adminFilter", "live"); // "live" | "dept" | "today"
   const [adminNow, setAdminNow] = useState(Date.now());
   useEffect(() => {
     if (view !== "admin") return;
@@ -6634,7 +6671,7 @@ Extraction rules:
   // Project Plan board (Job Details centre panel): which view, the bar being
   // dragged right now (committed on pointerup, so state stays clean mid-drag),
   // and which item name is being renamed inline.
-  const [planView, setPlanView] = useState("gantt");
+  const [planView, setPlanView] = usePersistedUI("planView", "gantt");
   const [planDrag, setPlanDrag] = useState(null);   // { id, days }
   const [planEdit, setPlanEdit] = useState(null);   // { id, pid }
   // ── Job details side panel width ─────────────────────────────────────────
@@ -7432,9 +7469,9 @@ Extraction rules:
   };
 
   const [clientModal, setClientModal] = useState(null);
-  const [fClient, setFClient] = useState([]);  // multi-select client IDs; empty = All
+  const [fClient, setFClient] = usePersistedUI("fClient", []);  // multi-select client IDs; empty = All
   // Custom-column filters — maps "_cc_<id>" → array of selected options (select cols) or substring string (text/number/date cols)
-  const [fCustom, setFCustom] = useState({});
+  const [fCustom, setFCustom] = usePersistedUI("fCustom", {});
   const [taskFilterOpen, setTaskFilterOpen] = useState(false);
   const [selClient, setSelClient] = useState(null);
   const [clientSearch, setClientSearch] = useState("");
@@ -12991,7 +13028,8 @@ ${jobsCtx || "No jobs found."}`;
       setTimeout(() => setScheduleHighlightId(null), 4000);
     }, 80);
   };
-  const [tCollapsed, setTCollapsed] = useState({});
+  // The Schedule's department groups -- the collapse the report specifically named.
+  const [tCollapsed, setTCollapsed] = usePersistedUI("tCollapsed", {});
   const teamRef = useRef(null);
   const teamContainerRef = useRef(null);
   const contentPanelRef = useRef(null);
