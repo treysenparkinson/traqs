@@ -21818,7 +21818,13 @@ ${jobsCtx || "No jobs found."}`;
   };
   const planChipFor = (n, status) => {
     if (status === "Finished") return { k: "done", label: "DONE" };
-    if (!(n.team || []).length) return { k: "ns", label: "UNASSIGNED" };
+    // Unassigned gets NO pill. A status on work nobody owns is noise -- "NOT
+    // STARTED" is the only thing it could ever say -- and on a job that is
+    // mostly unassigned the column turned into a wall of identical grey pills.
+    // The dimmed bar is what marks it now, which is why `dim` below no longer
+    // reads the chip to decide. A FINISHED unassigned task still says DONE:
+    // that is real information, and the check above it runs first.
+    if (!(n.team || []).length) return null;
     if (!n.start || !n.end) return { k: "pend", label: "NO DATES" };
     if (status === "In Progress") return { k: "inp", label: "IN PROGRESS" };
     if (status === "On Hold") return { k: "blk", label: "ON HOLD" };
@@ -21896,9 +21902,26 @@ ${jobsCtx || "No jobs found."}`;
       const preds = (n.deps || [])
         .map(id => itemById.get(String(id)))
         .filter(p => p && p.node.id !== n.id && barGeo(p.node) && p.node.end <= n.start);
-      if (!preds.length) continue;
-      const binding = preds.reduce((a, b) => (b.node.end > a.node.end ? b : a));
-      conns.push({ key: `${binding.node.id}->${n.id}`, from: binding, to: r });
+      let from = preds.length
+        ? preds.reduce((a, b) => (b.node.end > a.node.end ? b : a))
+        : null;
+      // Sequence fallback. Requiring an explicit `deps` record meant the lines
+      // appeared on exactly two panels in the whole org -- 8 of 280 ops carry
+      // deps, so an ordinary job showed a clean staircase of bars and nothing
+      // joining them. The order of items within a phase IS the running order
+      // (it is what the scheduler chains unassigned work along), so the
+      // preceding item in the same phase is the predecessor unless a `deps`
+      // record says otherwise. Explicit data still wins where it exists.
+      if (!from) {
+        const mine = itemRows.filter(x => x.panelId === r.panelId);
+        const at = mine.indexOf(r);
+        const prev = at > 0 ? mine[at - 1] : null;
+        // Same finishes-by-start test as above, so genuinely concurrent items
+        // get no line rather than a finish-to-start arrow that lies about them.
+        if (prev && barGeo(prev.node) && prev.node.end && prev.node.end <= n.start) from = prev;
+      }
+      if (!from) continue;
+      conns.push({ key: `${from.node.id}->${n.id}`, from, to: r });
     }
 
     // An elbow as absolutely-positioned divs rather than SVG. x is a percentage
@@ -21922,7 +21945,15 @@ ${jobsCtx || "No jobs found."}`;
       if (b.l >= a.r - gap * 3) {
         // Out along the predecessor's row, down just short of the successor,
         // then right into its left edge so the arrowhead reads as entering it.
-        const xm = Math.max(0, b.l - gap);
+        //
+        // The stub only exists when there is room for it. Back-to-back items
+        // put the predecessor's right edge exactly on the successor's left
+        // (Netlify ends Aug 4, iOS App starts Aug 5 -- one day apart, so
+        // pctOf(end)+dayPct === pctOf(start)), and subtracting a gap there sent
+        // the line backwards and then forwards again in a visible zigzag. With
+        // no room the elbow collapses to a single vertical drop at the shared
+        // edge, which is what a finish-to-start link should look like.
+        const xm = (b.l - a.r) > gap ? b.l - gap : b.l;
         hseg(a.r, xm, ay); vseg(xm, ay, by); hseg(xm, b.l, by);
       } else {
         // Genuinely concurrent: the successor starts well before its
@@ -21999,8 +22030,12 @@ ${jobsCtx || "No jobs found."}`;
       const n = r.node, panelId = r.panelId;
       const status = getOpDisplayStatus(n);
       const chip = planChipFor(n, status);
-      const c = PLAN_CHIP[chip.k];
-      const dim = chip.k === "ns" || chip.k === "pend";
+      const c = chip ? PLAN_CHIP[chip.k] : null;
+      // Computed independently of the chip, because an unassigned row now has no
+      // chip to read and the dimming is the ONLY thing left telling you it is
+      // unassigned. The chip clause preserves the previous behaviour for
+      // assigned rows (Pending and unknown statuses dimmed too).
+      const dim = !(n.team || []).length || !(n.start && n.end) || (chip && (chip.k === "ns" || chip.k === "pend"));
       const g = barGeo(n);
       const isMile = !!g && n.start === n.end;
       const pct = _opPct(n);
@@ -22009,8 +22044,11 @@ ${jobsCtx || "No jobs found."}`;
       const depCount = (n.deps || []).length;
       return (
         <div key={n.id} style={{ display: "grid", gridTemplateColumns: isGantt ? "280px 1fr" : "1fr", alignItems: "center", borderBottom: `1px solid ${T.border}`, height: r.h, boxSizing: "border-box" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 14px", borderRight: isGantt ? `1px solid ${T.border}` : "none", minWidth: 0, height: "100%", boxSizing: "border-box" }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: col, flexShrink: 0 }} />
+          <span style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 14px 0 31px", borderRight: isGantt ? `1px solid ${T.border}` : "none", minWidth: 0, height: "100%", boxSizing: "border-box" }}>
+            {/* No colour dot on a task row -- the phase above it carries the
+                colour for the whole group, and repeating it on every child made
+                the Item column a column of dots. The 31px left padding above is
+                14 + the dot's 8 + its 9px flex gap, so the label does not shift. */}
             {editing
               ? <input className="tq-sq tq-bare" autoFocus defaultValue={n.title}
                   onBlur={e => { commitCellEdit(n.id, "title", e.target.value, panelId); setPlanEdit(null); }}
@@ -22022,7 +22060,7 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ fontSize: 9.5, fontWeight: 700, color: T.accent, flexShrink: 0, fontFamily: T.mono }}>⋯{depCount}</span>
             </Tip>}
             {!isGantt && g && <span style={{ fontSize: 11.5, color: T.textDim, fontFamily: T.mono, flexShrink: 0 }}>{fm(n.start)} – {fm(n.end)}</span>}
-            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 8px", flexShrink: 0, background: c.bg, color: c.fg }}>{chip.label}</span>
+            {chip && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 8px", flexShrink: 0, background: c.bg, color: c.fg }}>{chip.label}</span>}
             {canEditJ && <button className="tq-noanim" title="Delete item" onClick={() => delTask(n.id, panelId)}
               style={{ width: 20, height: 20, padding: 0, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", flexShrink: 0, borderRadius: T.radiusPill, display: "grid", placeItems: "center" }}>
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
@@ -22049,6 +22087,15 @@ ${jobsCtx || "No jobs found."}`;
       const pn = r.node;
       const tint = elColor(pn.color || "#9A99A0");
       const ppct = Math.round(_panelPct(pn));
+      // Progress is only shown for a phase that has somebody on it. Percent
+      // comes from logged-vs-estimated hours, and nobody logs against work with
+      // no assignee -- so on an unassigned phase it can only ever read 0%, which
+      // is a number that looks like information and is not. Six phases all
+      // reading 0% said nothing except that the column existed. Any assigned op
+      // counts, not just a team on the panel itself: that is where the hours
+      // actually land.
+      const phaseHasAssignee = (pn.team || []).length > 0
+        || (pn.subs || []).some(o => o && (o.team || []).length > 0);
       const g = barGeo(pn);
       return (
         <div key={"ph-" + pn.id} style={{ display: "grid", gridTemplateColumns: isGantt ? "280px 1fr" : "1fr", alignItems: "center", background: T.surface, borderBottom: `1px solid ${T.border}`, height: r.h, boxSizing: "border-box" }}>
@@ -22056,7 +22103,7 @@ ${jobsCtx || "No jobs found."}`;
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: tint, flexShrink: 0 }} />
             <b style={{ fontSize: 12.5, letterSpacing: "-0.045em", color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pn.title}</b>
             <span style={{ flex: 1 }} />
-            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 8px", flexShrink: 0, background: ppct > 0 ? PLAN_CHIP.inp.bg : PLAN_CHIP.ns.bg, color: ppct > 0 ? PLAN_CHIP.inp.fg : PLAN_CHIP.ns.fg }}>{ppct}%</span>
+            {phaseHasAssignee && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 8px", flexShrink: 0, background: ppct > 0 ? PLAN_CHIP.inp.bg : PLAN_CHIP.ns.bg, color: ppct > 0 ? PLAN_CHIP.inp.fg : PLAN_CHIP.ns.fg }}>{ppct}%</span>}
           </span>
           {isGantt && <span style={{ position: "relative", height: "100%" }}>
             {/* Dragging the phase brings its tasks. pid for a PANEL is the job's
@@ -30030,6 +30077,28 @@ ${jobsCtx || "No jobs found."}`;
                             <input value={op.title} onChange={e => updOp(pi, oi, { title: e.target.value })} placeholder="Op name" style={{ flex: 1, padding: "4px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontWeight: 600, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
                             <div style={{ minWidth: 140, flexShrink: 0 }}>
                               <CustomDrop value={op.requiredDepartment || ""} onChange={v => updOp(pi, oi, { requiredDepartment: v })} options={orgSettings.roles || []} placeholder="— Dept —" compact />
+                            </div>
+                            {/* Assignees. There was no way to put a person on an op from anywhere in
+                                the app except the auto-scheduler and dragging a bar on the Schedule --
+                                the Jobs grid's Team column is avatars with no editor, and this page had
+                                no picker at all. Writes into the draft's subs, which saveEditJob already
+                                persists wholesale, so it needs no new save path. Multi-select: an op can
+                                be shared, which is what pickTeam's "all" mode produces. */}
+                            <div style={{ minWidth: 150, flexShrink: 0 }}>
+                              {/* SearchSelect, not CustomDrop: CustomDrop takes no `multi`
+                                  prop, so it would have silently ignored it, single-selected,
+                                  and then failed to label an array value. An op can be shared
+                                  by several people -- pickTeam's "all" mode produces exactly
+                                  that -- so the control has to be multi.
+                                  Ids are normalised to strings on the way in AND out: team
+                                  entries are mixed string/number in the data (9 numeric ones),
+                                  and SearchSelect matches with .includes, which is strict. */}
+                              <SearchSelect
+                                multi
+                                values={(op.team || []).map(String)}
+                                onChangeMulti={vals => updOp(pi, oi, { team: (vals || []).map(String) })}
+                                options={people.filter(pp => pp && !pp.deletedAt).map(pp => ({ value: String(pp.id), label: pp.name }))}
+                                placeholder="Search people…" emptyLabel="Unassigned" compact />
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
                               <input type="number" min="0" step="0.5" value={op.hpd ?? ""} onChange={e => updOp(pi, oi, { hpd: e.target.value === "" ? null : parseFloat(e.target.value) })} placeholder="hrs" title="Hours per day" style={{ width: 56, padding: "4px 6px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontWeight: 600, fontFamily: T.font, outline: "none", boxSizing: "border-box", textAlign: "right", MozAppearance: "textfield" }} />
