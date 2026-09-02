@@ -6667,13 +6667,27 @@ Extraction rules:
   const [panelPhotoUploading, setPanelPhotoUploading] = useState(false);
   const [attachmentsModal, setAttachmentsModal] = useState(null); // jobId
   const [attView, setAttView] = useState("large"); // "large" | "list" — View Details attachments layout
-  const [detailSecClosed, setDetailSecClosed] = useState({ notes: true, att: true, analytics: true }); // View Details right-sidebar sections collapsed by key (Information open by default)
+  // Which Job Details sections are collapsed, by key. Information, Panels and
+  // Project Plan open by default; Notes/Attachments/Analytics closed. Persisted
+  // per machine like the other view preferences -- a section you rolled up
+  // should stay rolled up on the next open, not just the next render.
+  const [detailSecClosed, setDetailSecClosed] = usePersistedUI("detailSecClosed", { notes: true, att: true, analytics: true });
+  // The right-hand information column. Open by default; collapses to a tab on
+  // the right edge that pokes out and reopens it.
+  const [detailSideOpen, setDetailSideOpen] = usePersistedUI("detailSideOpen", true);
   // Project Plan board (Job Details centre panel): which view, the bar being
   // dragged right now (committed on pointerup, so state stays clean mid-drag),
   // and which item name is being renamed inline.
   const [planView, setPlanView] = usePersistedUI("planView", "gantt");
   const [planDrag, setPlanDrag] = useState(null);   // { id, days }
   const [planEdit, setPlanEdit] = useState(null);   // { id, pid }
+  // Assign-people picker opened from a Project Plan row: { id, pid, title, team, x, y, up }
+  const [planAssign, setPlanAssign] = useState(null);
+  // Search text and which department accordions are open inside that picker.
+  // Component-level rather than local because the popover is inline JSX, not a
+  // component of its own, so it cannot hold hooks. Both reset on open.
+  const [planAssignQ, setPlanAssignQ] = useState("");
+  const [planAssignSec, setPlanAssignSec] = useState({});
   // ── Job details side panel width ─────────────────────────────────────────
   // Drag its left edge to resize. Persisted, because a width you picked for how you
   // read job data should not reset every reload. Clamped so it can't be dragged shut
@@ -7842,6 +7856,36 @@ Extraction rules:
     for (const sp of spans) if (date >= sp.start && date <= sp.end) h += sp.h;
     return h;
   }, [bookedIntervals, isOff]);
+
+  // Can this person take work spanning [start,end]? Used to strike out people in
+  // the Project Plan's assign picker who cannot actually do the task on its dates.
+  //
+  // Only WORK days count. Counting the calendar would mark anyone busy across a
+  // weekend, and a Sat-Sun span would come back "fully booked" with nothing
+  // booked at all. Holidays come out too, from the same org settings the
+  // schedulers read.
+  //
+  // "Too busy" means EVERY work day in the window is already gone -- off, or
+  // booked to capacity. A partly-full window is not a blocker: that is ordinary,
+  // and refusing it would rule out most of the roster most of the time. The
+  // partial case is reported separately so the row can say so without being
+  // disabled.
+  const planAvailability = useCallback((pid, start, end) => {
+    if (!start || !end || pid == null) return { ok: true };
+    const wd = orgSettings.workDays, hol = orgSettings.holidays || [];
+    let days = 0, off = 0, full = 0;
+    for (let d = start; d <= end; d = addD(d, 1)) {
+      if (!isWorkDay(d, wd) || hol.includes(d)) continue;
+      days++;
+      if (isOff(pid, d)) { off++; continue; }
+      if (bookedHrs(pid, d) >= productiveHoursPerDay) full++;
+    }
+    if (days === 0) return { ok: true };                  // nothing but weekend/holiday
+    if (off === days) return { ok: false, why: "Time off" };
+    if (off + full === days) return { ok: false, why: off ? "Off / booked up" : "Booked up" };
+    if (off + full > 0) return { ok: true, why: `${off + full} of ${days} days full` };
+    return { ok: true };
+  }, [orgSettings.workDays, orgSettings.holidays, isOff, bookedHrs, productiveHoursPerDay]);
 
   // Returns "primary" | "secondary" | false — secondary means the person can cover
   // the job as a backup (their secondaryDepartment matches) but should sort below primary.
@@ -21842,6 +21886,7 @@ ${jobsCtx || "No jobs found."}`;
     const allOps = panels.flatMap(pn => (pn.subs || []).filter(o => o && !o.deletedAt));
     const unscheduled = allOps.filter(o => !o.start || !o.end || !(o.team || []).length).length;
     const isGantt = planView === "gantt";
+    const planOpen = !detailSecClosed.plan;
     const canMove = can("moveJobs");
     const canEditJ = can("editJobs");
 
@@ -22060,7 +22105,37 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ fontSize: 9.5, fontWeight: 700, color: T.accent, flexShrink: 0, fontFamily: T.mono }}>⋯{depCount}</span>
             </Tip>}
             {!isGantt && g && <span style={{ fontSize: 11.5, color: T.textDim, fontFamily: T.mono, flexShrink: 0 }}>{fm(n.start)} – {fm(n.end)}</span>}
-            {chip && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 8px", flexShrink: 0, background: c.bg, color: c.fg }}>{chip.label}</span>}
+            {/* Assign control, in the slot the status pill used to occupy. Grey
+                "+ Assign" with nobody on it, accent-tinted with the assignee's
+                name once there is. This is the row-level way to put a person on
+                work -- the Edit page's picker is the other. */}
+            {(() => {
+              const team = (n.team || []).map(pp => people.find(q => sameId(q.id, pp))).filter(Boolean);
+              const assigned = team.length > 0;
+              const label = !assigned ? "+ Assign"
+                : team.length === 1 ? team[0].name.split(" ")[0]
+                : `${team[0].name.split(" ")[0]} +${team.length - 1}`;
+              const tone = assigned ? elColor(team[0].color || T.accent) : T.textDim;
+              return (
+                <button className="tq-noanim" title={assigned ? `Assigned to ${team.map(q => q.name).join(", ")}` : "Assign someone"}
+                  disabled={!canEditJ}
+                  onClick={e => {
+                    e.stopPropagation();
+                    const r = e.currentTarget.getBoundingClientRect();
+                    const pl = placePopover(r, Math.min(people.length + 1, 9));
+                    setPlanAssignQ(""); setPlanAssignSec({}); setPlanAssign({ id: n.id, pid: panelId, title: n.title, start: n.start || null, end: n.end || null, x: pl.x, y: pl.y, up: pl.up, maxHeight: pl.maxHeight });
+                  }}
+                  style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 9px", flexShrink: 0,
+                    border: `1px solid ${assigned ? tone + "55" : T.border}`,
+                    background: assigned ? tone + "1f" : "transparent",
+                    color: tone, cursor: canEditJ ? "pointer" : "default", fontFamily: T.font, maxWidth: 118, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {label}
+                </button>
+              );
+            })()}
+            {/* Status stays, but only where it says something a glance cannot:
+                an assigned row that is not simply "not started". */}
+            {chip && chip.k !== "ns" && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 8px", flexShrink: 0, background: c.bg, color: c.fg }}>{chip.label}</span>}
             {canEditJ && <button className="tq-noanim" title="Delete item" onClick={() => delTask(n.id, panelId)}
               style={{ width: 20, height: 20, padding: 0, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", flexShrink: 0, borderRadius: T.radiusPill, display: "grid", placeItems: "center" }}>
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
@@ -22121,12 +22196,17 @@ ${jobsCtx || "No jobs found."}`;
     return (
       <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", marginBottom: 26 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", borderBottom: `1px solid ${T.border}`, flexWrap: "wrap" }}>
-          <span>
+          <span onClick={() => setDetailSecClosed(pv => ({ ...pv, plan: !pv.plan }))}
+            style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
+            <svg style={{ color: T.textDim, transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)", transform: planOpen ? "rotate(0deg)" : "rotate(-90deg)", flexShrink: 0 }}
+              width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
             <b style={{ fontSize: 14.5, letterSpacing: "-0.045em", color: T.text }}>Project Plan</b>
             <small style={{ fontSize: 12, color: T.textDim, fontWeight: 500 }}>
+              {/* Counts of unscheduled items and links are gone from here. The
+                  footer already states the unscheduled count in a sentence that
+                  says what it MEANS ("not on the Schedule"), and a raw link count
+                  describes the drawing rather than the work. */}
               {` · ${panels.length} phase${panels.length === 1 ? "" : "s"} · ${allOps.length} item${allOps.length === 1 ? "" : "s"}`}
-              {unscheduled > 0 ? ` · ${unscheduled} unscheduled` : ""}
-              {conns.length > 0 ? ` · ${conns.length} link${conns.length === 1 ? "" : "s"}` : ""}
               {isGantt ? ` · ${fm(win.start)} → ${fm(win.end)}` : ""}
             </small>
           </span>
@@ -22149,6 +22229,8 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
 
+        <div style={{ display: "grid", gridTemplateRows: planOpen ? "1fr" : "0fr", transition: "grid-template-rows 0.26s cubic-bezier(0.4,0,0.2,1)", pointerEvents: planOpen ? "auto" : "none" }}>
+        <div style={{ overflow: "hidden", minHeight: 0 }}>
         {panels.length === 0
           ? <div style={{ padding: "28px 18px", textAlign: "center", fontSize: 13, color: T.textDim }}>
               No phases yet.{canEditJ ? " Add a panel from Edit and its operations appear here." : ""}
@@ -22194,6 +22276,8 @@ ${jobsCtx || "No jobs found."}`;
             : "Every item is assigned and dated"}</span>
           <span style={{ flex: 1 }} />
           {canMove && isGantt && <span>Drag a task to reschedule it · drag a phase to move it with its tasks{canEditJ ? " · double-click a name to rename" : ""}</span>}
+        </div>
+        </div>
         </div>
       </div>
     );
@@ -23691,6 +23775,30 @@ ${jobsCtx || "No jobs found."}`;
       // Collapsible right-sidebar section with the TRAQS expand/collapse animation. Large header,
       // chevron that rotates, body that grid-rows-animates open/closed. `extra` renders inline on
       // the right of the header (e.g. the attachments view toggle).
+      // Main-column collapsible. Same grid-rows 0fr<->1fr animation as `sec`
+      // below, but sized for the centre column rather than the sidebar: a
+      // smaller header, no 34px section gap, and the chevron sits inline with
+      // the title so the row reads as one control.
+      const mainSec = (key, title, meta, body) => {
+        const open = !detailSecClosed[key];
+        return <div style={{ marginBottom: 18 }}>
+          <div onClick={() => setDetailSecClosed(pv => ({ ...pv, [key]: !pv[key] }))}
+            style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none", padding: "2px 0 10px" }}>
+            <svg style={{ color: T.textDim, transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)", transform: open ? "rotate(0deg)" : "rotate(-90deg)", flexShrink: 0 }}
+              width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+            <span style={{ fontSize: 15, fontWeight: 600, color: T.text, letterSpacing: "-0.01em" }}>{title}</span>
+            {meta ? <span style={{ fontSize: 12, color: T.textDim, fontWeight: 500 }}>{meta}</span> : null}
+          </div>
+          <div style={{ display: "grid", gridTemplateRows: open ? "1fr" : "0fr", transition: "grid-template-rows 0.26s cubic-bezier(0.4,0,0.2,1)", pointerEvents: open ? "auto" : "none" }}>
+            {/* Same padding/negative-margin trick as `sec`: overflow clips at the
+                padding box, and the cards in here throw a 22px hover glow that
+                would otherwise be sliced off on every edge. */}
+            <div style={{ overflow: "hidden", minHeight: 0, padding: 26, margin: -26, pointerEvents: "none" }}>
+              <div style={{ opacity: open ? 1 : 0, transition: "opacity 0.18s ease", pointerEvents: "auto" }}>{body}</div>
+            </div>
+          </div>
+        </div>;
+      };
       const sec = (key, title, body, extra, first) => {
         const open = !detailSecClosed[key];
         return <div style={{ paddingTop: first ? 0 : 34 }}>
@@ -23760,8 +23868,7 @@ ${jobsCtx || "No jobs found."}`;
                 {dCanEdit && <Btn size="sm" onClick={() => { openEdit(fresh); closeModal(); }}>Edit</Btn>}
               </div>}
           {dPanels.length > 0
-            ? <div>
-              <h4 style={{ color: T.text, fontSize: 15, margin: "0 0 10px", fontWeight: 600 }}>Panels ({dPanels.length})</h4>
+            ? mainSec("panels", "Panels", `${dPanels.length} panel${dPanels.length === 1 ? "" : "s"}`, <div>
               {parent.subs.map(panel => {
                 const hasEng = panel.engineering !== undefined;
                 const pEng = panel.engineering || {};
@@ -23798,7 +23905,7 @@ ${jobsCtx || "No jobs found."}`;
                   </div>}
                 </div>;
               })}
-            </div>
+            </div>)
             : <div style={{ fontSize: 13, color: T.textDim, padding: "24px 0" }}>This job has no panels yet.</div>}
           {/* Project Plan board — the design's centre card. Sits after the panels
               list, same order as the mock. Reads the job's own panels/ops, so it
@@ -23811,7 +23918,7 @@ ${jobsCtx || "No jobs found."}`;
             over the panel's border with a negative margin so it costs no layout width.
             The three bars are the affordance: without them the handle is invisible and
             nobody discovers the panel resizes. Centred vertically, dimmed until hover. */}
-        {!isMobile && <div onMouseDown={startDetailResize} title="Drag to resize"
+        {!isMobile && detailSideOpen && <div onMouseDown={startDetailResize} title="Drag to resize"
           onMouseEnter={e => { const g = e.currentTarget.firstChild; if (g) g.style.opacity = "1"; }}
           onMouseLeave={e => { const g = e.currentTarget.firstChild; if (g) g.style.opacity = "0.35"; }}
           style={{ width: 7, marginRight: -7, flexShrink: 0, cursor: "col-resize", zIndex: 5, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -23823,7 +23930,31 @@ ${jobsCtx || "No jobs found."}`;
             clips at its padding box — so the hover halo on the controls inside
             (.tq-drop is `0 6px 22px`, a 22px blur) was being sliced off at the right
             edge. The padding has to clear the blur radius for the glow to survive. */}
-        <div style={{ width: isMobile ? "auto" : detailSideW, flexShrink: 0, borderLeft: isMobile ? "none" : `1px solid ${T.border}`, borderTop: isMobile ? `1px solid ${T.border}` : "none", background: T.surface, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "16px 18px" : (asPage ? "20px 30px 30px" : "0 30px 30px"), display: "flex", flexDirection: "column", gap: 4 }}>
+        {/* Collapsed on desktop: a tab poking out of the right edge. It keeps the
+            full height so it is easy to hit anywhere down the side, and the
+            chevron points LEFT -- the direction the panel travels when it comes
+            back. Mobile has no column to collapse (the sections stack under the
+            content), so the tab is desktop-only. */}
+        {!isMobile && !detailSideOpen && (
+          <div onClick={() => setDetailSideOpen(true)} title="Show information"
+            style={{ width: 22, flexShrink: 0, borderLeft: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+            onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
+            onMouseLeave={e => { e.currentTarget.style.background = T.surface; }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m14 6-6 6 6 6" /></svg>
+          </div>
+        )}
+        {(isMobile || detailSideOpen) && <div style={{ width: isMobile ? "auto" : detailSideW, flexShrink: 0, borderLeft: isMobile ? "none" : `1px solid ${T.border}`, borderTop: isMobile ? `1px solid ${T.border}` : "none", background: T.surface, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "16px 18px" : (asPage ? "20px 30px 30px" : "0 30px 30px"), display: "flex", flexDirection: "column", gap: 4 }}>
+          {/* Collapse control, at the top of the column. Chevron points RIGHT --
+              where the panel is going. Sits above the section list rather than
+              beside a section title so it reads as acting on the whole column. */}
+          {!isMobile && <div style={{ display: "flex", justifyContent: "flex-end", flexShrink: 0, paddingTop: asPage ? 0 : 8 }}>
+            <button className="tq-noanim" onClick={() => setDetailSideOpen(false)} title="Collapse information"
+              style={{ width: 26, height: 26, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, cursor: "pointer", display: "grid", placeItems: "center" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m10 6 6 6-6 6" /></svg>
+            </button>
+          </div>}
           {/* Close-button header band — keeps the ✕ on its own row so the Information section
               header doesn't sit level with it. Not needed as a page: the ✕ became a Back
               pill in the LEFT column's title row, so reserving 56px here is dead space. */}
@@ -23929,7 +24060,7 @@ ${jobsCtx || "No jobs found."}`;
               {statCard("Timeline", dIsDone ? "Done" : dDaysLeft == null ? "—" : dDaysLeft < 0 ? `${-dDaysLeft}d late` : `${dDaysLeft}d left`, dIsDone ? "#10b981" : dDaysLeft != null && dDaysLeft < 0 ? "#ef4444" : dDaysLeft != null && dDaysLeft <= 3 ? "#f59e0b" : undefined)}
             </div>
           </>)}
-        </div>
+        </div>}
       </div></div>; }
     if (modal.type === "deps") { const item = modal.data; if (!item) return null; const fi = allItems.find(x => x.id === item.id) || item; const others = allItems.filter(x => x.id !== fi.id);
       return <div className={ovCls} style={ov}>{_pageBg}<div className={bxCls} style={{ ...bx(false), position: "relative", ...pageFill }} onClick={e => e.stopPropagation()}>{cls}
@@ -27040,6 +27171,128 @@ ${jobsCtx || "No jobs found."}`;
     </div>}</FadeOnClose>
 
     {/* ── Custom select-column Popover (styled picker for Dropdown-type custom columns) ── */}
+    {/* Project Plan assign picker — built to the same pattern as the Grouping
+        dropdown: a search field at the top, one collapsible accordion per
+        department, and rows that drop in one-by-one on the shared toolDrop
+        stagger. Typing force-opens every section so a search never hides a
+        match behind a collapsed header, exactly as GroupingSelect does.
+        Toggles membership rather than replacing it: an op can be shared, which
+        is what pickTeam's "all" mode produces. */}
+    <FadeOnClose open={!!planAssign}>{planAssign && (() => {
+      const live = findTaskNode(planAssign.id) || {};
+      const team = (live.team || []).map(String);
+      const commit = (next, person, added) => {
+        updTask(planAssign.id, { team: next }, planAssign.pid || null);
+        // Confirmation in the app's own idiom, naming the task as well as the
+        // person: a phase routinely holds several rows with the same title, so
+        // "Treysen assigned" alone would not say which one took it.
+        toast(person
+          ? `${person.name} ${added ? "assigned to" : "removed from"} ${planAssign.title || "task"}`
+          : `${planAssign.title || "Task"} unassigned`);
+      };
+      const ql = planAssignQ.trim().toLowerCase();
+      const roster = people.filter(pp => pp && !pp.deletedAt);
+      const match = pp => !ql || (pp.name || "").toLowerCase().includes(ql) || (pp.department || "").toLowerCase().includes(ql);
+      // Departments in the org's own order, then anyone with no department. Only
+      // groups with a match are rendered, so a search collapses the list rather
+      // than leaving a column of empty headers.
+      const deptOrder = [...(orgSettings.roles || []).map(String), "__none__"];
+      const grouped = deptOrder.map(d => ({
+        id: d,
+        title: d === "__none__" ? "No department" : d,
+        items: roster.filter(pp => (d === "__none__" ? !pp.department : String(pp.department || "") === d)).filter(match),
+      })).filter(g => g.items.length > 0);
+
+      // Availability against the task's own dates. Someone ALREADY on the task is
+      // never struck out: they are on it, and offering no way to take them off
+      // would strand the assignment. An undated task cannot be judged, so
+      // planAvailability returns ok and nobody is struck.
+      const avail = pp => planAvailability(pp.id, planAssign.start, planAssign.end);
+      const personRow = (pp, i) => {
+        const on = team.includes(String(pp.id));
+        const av = avail(pp);
+        const blocked = !av.ok && !on;
+        const pc = elColor(pp.color || T.accent);
+        return (
+          <div key={pp.id}
+            title={blocked ? `${pp.name} — ${av.why} ${fm(planAssign.start)}–${fm(planAssign.end)}` : (av.why || undefined)}
+            onClick={() => {
+              if (blocked) return;                       // struck out: not selectable
+              const next = on ? team.filter(v => v !== String(pp.id)) : [...team, String(pp.id)];
+              commit(next, pp, !on);
+              setPlanAssign(null);
+            }}
+            style={{ margin: "4px 8px", padding: "8px 12px", borderRadius: 16, cursor: blocked ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13,
+              color: blocked ? T.textDim : (on ? pc : T.text), fontWeight: on ? 600 : 400, background: on ? pc + "1e" : "transparent",
+              opacity: blocked ? 0.55 : 1,
+              transition: "background-color 0.2s ease, color 0.2s ease", animation: `toolDrop 0.14s ${i * 22}ms both ease-out` }}
+            onMouseEnter={e => { if (!blocked) e.currentTarget.style.background = pc + "26"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = on ? pc + "1e" : "transparent"; }}>
+            <PersonAvatar person={pp} size={22} style={blocked ? { filter: "grayscale(1)" } : undefined} />
+            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: blocked ? "line-through" : "none" }}>{pp.name}</span>
+            {/* Why, not just that. "Booked up" and "Time off" send you to
+                different fixes, and a bare strike-through says neither. */}
+            {blocked && <span style={{ fontSize: 10, color: T.textDim, flexShrink: 0, whiteSpace: "nowrap" }}>{av.why}</span>}
+            {!blocked && av.why && <span style={{ fontSize: 10, color: "#B47A12", flexShrink: 0, whiteSpace: "nowrap" }}>{av.why}</span>}
+            {on && <span style={{ color: pc, fontSize: 13, fontWeight: 800 }}>✓</span>}
+          </div>
+        );
+      };
+
+      return <div>
+        <div style={{ position: "fixed", inset: 0, zIndex: 10012 }} onClick={() => setPlanAssign(null)} />
+        <div className={planAssign.up ? "anim-ctx-up" : "anim-ctx"} onClick={e => e.stopPropagation()}
+          style={{ position: "fixed", left: planAssign.x, top: planAssign.y, zIndex: 10013, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 16px 48px rgba(0,0,0,0.55)", minWidth: 248, maxWidth: 300, maxHeight: planAssign.maxHeight, overflowY: "auto", overflowX: "hidden", padding: "6px 0", fontFamily: T.font }}>
+          {/* Search — autoFocus so the keyboard is already in the field, same as
+              the Grouping dropdown. */}
+          <div style={{ padding: "6px 10px 8px" }}>
+            <input className="tq-bare" value={planAssignQ} onChange={e => setPlanAssignQ(e.target.value)} placeholder="Search people…" autoFocus
+              style={{ width: "100%", padding: "8px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box", outline: "none" }} />
+          </div>
+          {team.length > 0 && (
+            <div onClick={() => { commit([], null, false); setPlanAssign(null); }}
+              style={{ margin: "0 8px 4px", padding: "8px 12px", borderRadius: 16, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.textDim, animation: "toolDrop 0.14s both ease-out" }}
+              onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
+              <div style={{ width: 22, height: 22, borderRadius: 12, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />
+              <span style={{ flex: 1 }}>— Unassign —</span>
+            </div>
+          )}
+          {grouped.length === 0 && (
+            <div style={{ padding: "12px 16px", fontSize: 12.5, color: T.textDim }}>No people match “{planAssignQ}”.</div>
+          )}
+          {grouped.map((g, gi) => {
+            // A search force-opens every section, so a match is never hidden
+            // behind a collapsed header.
+            const isOpen = ql ? true : !!planAssignSec[g.id];
+            const onCount = g.items.filter(pp => team.includes(String(pp.id))).length;
+            return (
+              <div key={g.id} style={{ animation: `toolDrop 0.14s ${gi * 22}ms both ease-out` }}>
+                <div onClick={() => { if (!ql) setPlanAssignSec(pv => ({ ...pv, [g.id]: !pv[g.id] })); }}
+                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", cursor: ql ? "default" : "pointer", userSelect: "none", borderTop: `1px solid ${T.border}` }}>
+                  <svg style={{ color: T.textDim, transition: "transform 0.22s cubic-bezier(0.4,0,0.2,1)", transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)", flexShrink: 0 }}
+                    width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                  <span style={{ flex: 1, fontSize: 12, fontWeight: 700, letterSpacing: "-0.02em", color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.title}</span>
+                  {onCount > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "1e", borderRadius: T.radiusPill, padding: "1px 7px", flexShrink: 0 }}>{onCount}</span>}
+                  {/* free-of-total, so a department that is entirely booked is
+                      obvious without expanding it */}
+                  <span style={{ fontSize: 11, color: T.textDim, flexShrink: 0 }}>
+                    {planAssign.start && planAssign.end
+                      ? `${g.items.filter(pp => avail(pp).ok || team.includes(String(pp.id))).length}/${g.items.length}`
+                      : g.items.length}
+                  </span>
+                </div>
+                <div style={{ display: "grid", gridTemplateRows: isOpen ? "1fr" : "0fr", transition: "grid-template-rows 0.22s cubic-bezier(0.4,0,0.2,1), opacity 0.15s ease", opacity: isOpen ? 1 : 0, pointerEvents: isOpen ? "auto" : "none" }}>
+                  <div style={{ overflow: "hidden", minHeight: 0 }}>
+                    {g.items.map((pp, i) => personRow(pp, i))}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>;
+    })()}</FadeOnClose>
     <FadeOnClose open={!!ccSelectPopover}>{ccSelectPopover && <div>
       <div style={{ position: "fixed", inset: 0, zIndex: 10012 }} onClick={() => setCcSelectPopover(null)} />
       <div style={{ position: "fixed", left: ccSelectPopover.x, top: ccSelectPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 168, maxHeight: ccSelectPopover.maxHeight || 320, overflowY: "auto", fontFamily: T.font, animation: `${ccSelectPopover.up ? "menuInUp" : "menuIn"} 0.15s ease-out` }}>
