@@ -2155,6 +2155,36 @@ input[type="range"].tq-pill-range::-moz-range-thumb {
     filter: brightness(1.015);
   }
 }
+/* Some .tq-drop triggers are <button> and some are <div>, and only the divs were
+   actually calm. The app-wide button hover sets transform and box-shadow with
+   !important, so on a <button class="tq-drop"> it beat the rule above and those
+   dropdowns kept lifting 1.5px and throwing the 22px halo while the div ones sat
+   still -- the same control animating two different ways depending on its tag.
+
+   button + class + three :not()s + :hover is (0,5,1), which clears the app-wide
+   button:...:hover at (0,4,1); !important is needed too because that rule uses it.
+   Same trick, and the same reasoning, as .tq-softglow and .tq-noanim above.
+
+   The transition is restated at (0,4,1) for the same reason: the button rule sets
+   one with !important, and its spring curve would otherwise still drive whatever
+   it can animate here. */
+button.tq-drop:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
+  transition: box-shadow 0.15s ease, filter 0.15s ease,
+              background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
+}
+@media (hover: hover) {
+  button.tq-drop:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
+    transform: none !important;
+    box-shadow: 0 1px 3px var(--tq-glow-ring, rgba(0,0,0,0.09)) !important;
+    filter: brightness(1.015) !important;
+  }
+  /* Under Frosted Glass a div .tq-drop shows the control edge on hover instead of
+     the hairline shadow (.traqs-glass .tq-drop:hover, further down). Mirrored here
+     at (0,6,1) so the button ones match rather than losing the edge. */
+  .traqs-glass button.tq-drop:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
+    box-shadow: var(--tq-control-edge) !important;
+  }
+}
 .tq-drop:active {
   transform: scale(0.985);
   box-shadow: inset 0 0 0 9999px rgba(255, 255, 255, 0.14);
