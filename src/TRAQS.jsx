@@ -1029,7 +1029,6 @@ animStyle.textContent = `
   position: relative;
   overflow: hidden;
 }
-.anim-tab:hover  { transform: translateY(-1px) scale(1.03); }
 .anim-tab:active { transform: scale(0.94) translateY(0); transition-duration: 0.08s; }
 
 .anim-btn {
@@ -1037,7 +1036,6 @@ animStyle.textContent = `
   position: relative;
   overflow: hidden;
 }
-.anim-btn:hover  { box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16)); filter: brightness(1.05); }
 .anim-btn:active { filter: brightness(0.95); transition-duration: 0.08s; }
 
 /* Customize-modal mockup: ease every colour/theme change so edits fade in rather than snap. */
@@ -1052,7 +1050,6 @@ animStyle.textContent = `
 .icon-btn-glow {
   transition: box-shadow 0.22s ease-out, filter 0.22s ease-out, border-color 0.18s ease-out, background 0.18s ease-out;
 }
-.icon-btn-glow:hover  { box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16)); filter: brightness(1.05); }
 .icon-btn-glow:active { filter: brightness(0.96); transition-duration: 0.08s; }
 
 /* ── Universal button hover — subtle lift + accent glow on EVERY button, app-wide.
@@ -1063,9 +1060,15 @@ animStyle.textContent = `
    effect also overrides buttons that set their own inline transition/transform/
    box-shadow. Disabled buttons are excluded; the lift is gated to real pointers
    (hover: hover) so it can't stick on touch devices. */
+/* box-shadow fades at 0.12s, not the 0.2-0.32s it used to. The hover tint is a
+   full-box inset shadow and these controls sit on a backdrop-filter surface, so
+   every frame of that transition re-composites the 28px blur. A short window
+   keeps it cheap enough to be smooth while still reading as a fade rather than a
+   snap. The genuinely expensive hovers -- a 4px card lift and two 22px glows --
+   are gone entirely, which is what was actually making this glitch. */
 button:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
   transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
-              box-shadow 0.2s ease, filter 0.2s ease,
+              filter 0.2s ease,
               background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
 }
 button:not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
@@ -1407,9 +1410,6 @@ button.tq-x:active {
    have meant losing the edge everywhere instead.
 
    Frosted Glass off, and none of it applies — every outline is back. */
-.traqs-glass button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(.tq-sidebar *):not(.anim-drop *):not(.anim-ctx *):not(.anim-ctx-up *):not(.anim-modal-box *):not(.anim-modal-overlay *) {
-  border: none !important;
-}
 /* box-shadow is ONE property: a rule that sets a hover glow does not add to the
    edge, it replaces it. So every interactive state has to restate the edge, or the
    border vanishes the moment you point at the button — which is exactly what it did.
@@ -1422,6 +1422,43 @@ button.tq-x:active {
    (0,5,1) clears the app-wide hover (0,4,1) and .dash-btn's (0,5,0). The two classes
    that want something different — .tq-softglow and  — are scoped with
    .traqs-glass themselves, which puts them at (0,6,1) and keeps them ahead of this. */
+/* Hover is a whisper of accent, not a movement. See --tq-accent-hover above for
+   why it is this faint, and why it is a shadow rather than a background. */
+/* No hover box-shadow rule for glass-surface buttons, deliberately. One was
+   added here when the tint was still a box-shadow, to stop the tint's !important
+   eating their edge. It is worse than useless now: the resting rule gives these
+   cards surface-edge plus lglass-shadow -- edge AND a 60px drop shadow -- and this
+   rule declared only the edge, so pointing at an EmployeeCard instantly deleted
+   its shadow. box-shadow is not transitioned, so it snapped. With the tint on
+   ::after there is nothing to defend against: the card keeps its resting shadow
+   untouched and only the overlay fades. */
+/* The overlay needs a containing block. 179 controls already set this inline;
+   the rest are static, and a button is the intended anchor for anything absolute
+   inside it anyway (the filter-count badge already relies on that). */
+button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]), .tq-drop { position: relative; }
+button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"])::after,
+.tq-drop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--tq-accent-hover, rgba(65,105,225,0.07));
+  opacity: 0;
+  /* Fade OUT: this is the state being returned to, so its duration governs the
+     exit. Longer than the entry on purpose -- a slow exit is what reads as a
+     fade; a fast one reads as the highlight being switched off. */
+  transition: opacity 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+@media (hover: hover) {
+  button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover::after,
+  .tq-drop:hover::after {
+    opacity: 1;
+    /* Fade IN: entering hover. Quick enough to feel responsive to the cursor,
+       slow enough not to be a snap. */
+    transition: opacity 0.18s ease-out;
+  }
+}
 /* The one width exception, and it earns it. A button that fills its container has no
    fixed size to tune against: the My Clock buttons run the full width of their card at
    ~218px, so the global 1.02 moves them 4.4px where it moves the + New Job button
@@ -1862,7 +1899,7 @@ select:not(:disabled):active {
    that shadow is a plain rule and would never win. Restated here WITH the insets
    so a hovered card keeps its glass edges instead of trading them for the lift. */
 .traqs-glass .anim-card-wrap:hover {
-  box-shadow: var(--tq-surface-edge), var(--tq-lglass-shadow-hover, 0 20px 52px rgba(0,0,0,0.30)) !important;
+  box-shadow: var(--tq-surface-edge), var(--tq-lglass-shadow, 0 24px 60px rgba(0,0,0,0.28)) !important;
 }
 /* Menu rows need NO rule here, and must not get one: they already declare
    background:transparent inline, and their hover fill is set inline by an
@@ -1874,10 +1911,8 @@ select:not(:disabled):active {
 
 .anim-card-wrap {
   transition: transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1),
-              box-shadow 0.32s cubic-bezier(0.22, 1, 0.36, 1),
               border-color 0.22s ease;
 }
-.anim-card-wrap:hover  { transform: translateY(-4px) scale(1.007); box-shadow: 0 20px 52px rgba(0,0,0,0.18); }
 .anim-card-wrap:active { transform: translateY(-1px) scale(0.99); transition-duration: 0.1s; }
 
 .anim-stagger { animation: staggerUp 0.4s  cubic-bezier(0.34, 1.56, 0.64, 1) both; }
@@ -2023,12 +2058,18 @@ input[type="range"].tq-pill-range::-moz-range-thumb {
 /* Dropdown triggers are <div>s, so the universal button:hover rule above can't
    reach them — this mirrors it so a TRAQS dropdown lifts and glows exactly like
    a TRAQS button. Same curve, same --tq-glow accent variable. */
+/* box-shadow fades at 0.12s, not the 0.2-0.32s it used to. The hover tint is a
+   full-box inset shadow and these controls sit on a backdrop-filter surface, so
+   every frame of that transition re-composites the 28px blur. A short window
+   keeps it cheap enough to be smooth while still reading as a fade rather than a
+   snap. The genuinely expensive hovers -- a 4px card lift and two 22px glows --
+   are gone entirely, which is what was actually making this glitch. */
 .tq-drop {
   /* !important, and matching the button curve exactly. Without it the trigger's
      own inline transition wins (inline beats stylesheet) and the glow snaps in
      with no animation at all — which is what made it read as "not TRAQS". */
   transition: transform 0.15s ease,
-              box-shadow 0.2s ease, filter 0.2s ease,
+              filter 0.2s ease,
               background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
 }
 /* No swell. A dropdown trigger is a field, and it now hovers like the rest of the
@@ -2050,8 +2091,14 @@ input[type="range"].tq-pill-range::-moz-range-thumb {
    The transition is restated at (0,4,1) for the same reason: the button rule sets
    one with !important, and its spring curve would otherwise still drive whatever
    it can animate here. */
+/* box-shadow fades at 0.12s, not the 0.2-0.32s it used to. The hover tint is a
+   full-box inset shadow and these controls sit on a backdrop-filter surface, so
+   every frame of that transition re-composites the 28px blur. A short window
+   keeps it cheap enough to be smooth while still reading as a fade rather than a
+   snap. The genuinely expensive hovers -- a 4px card lift and two 22px glows --
+   are gone entirely, which is what was actually making this glitch. */
 button.tq-drop:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
-  transition: box-shadow 0.15s ease, filter 0.15s ease,
+  transition: filter 0.15s ease,
               background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
 }
 @media (hover: hover) {
@@ -3624,6 +3671,11 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     document.documentElement.style.setProperty("--tq-toggle-track", hexLum(T.surface) < 0.5 ? blendHex(T.surface, 0.30) : blendHex(T.surface, -0.14));
     document.documentElement.style.setProperty("--tq-accent", T.accent);
     document.documentElement.style.setProperty("--tq-accent-soft", hexA(T.accent, 0.18));
+    // Hover tint for buttons and dropdown triggers. 0.07 is deliberately near the
+    // floor of visible: enough to confirm the cursor is on something pressable,
+    // not enough to notice as the mouse crosses a toolbar. The lift and the glow
+    // are gone, so this is the ONLY hover feedback these controls have.
+    document.documentElement.style.setProperty("--tq-accent-hover", hexA(T.accent, 0.07));
     document.documentElement.style.setProperty("--tq-primary-text", T.systemText || T.text);
     document.documentElement.style.setProperty("--tq-frost-bg", T.adaptive ? hexA(solid, (T.cardOpacity ?? 80) / 100) : solid);
     document.documentElement.style.setProperty("--tq-bg-image", T.adaptive && T.bgImage ? `url("${T.bgImage}")` : "none");
@@ -11592,7 +11644,7 @@ ${jobsCtx || "No jobs found."}`;
             <style>{`@keyframes toolDrop{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:translateY(0)}}@keyframes gridRowIn{0%{opacity:0;transform:translateY(-7px);max-height:0;border-bottom-width:0;overflow:hidden}90%{opacity:1;transform:translateY(0);max-height:80px;border-bottom-width:1px;overflow:hidden}100%{opacity:1;transform:translateY(0);max-height:1000px;border-bottom-width:1px;overflow:visible}}@keyframes gridRowOut{0%{opacity:1;transform:translateY(0);max-height:1000px;border-bottom-width:1px;overflow:hidden}10%{opacity:1;transform:translateY(0);max-height:80px;border-bottom-width:1px;overflow:hidden}100%{opacity:0;transform:translateY(-7px);max-height:0;border-bottom-width:0;overflow:hidden}}`}</style>
             {/* Select */}
             <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} style={{ minWidth: 78 }} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
-            <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:hover{filter:brightness(1.08);}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
+            <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
             <div style={{ display: "flex", alignItems: "center", overflow: jobSelRevealed ? "visible" : "hidden", maxWidth: jobSelectMode ? 90 : 0, opacity: jobSelectMode ? 1 : 0, transform: jobSelectMode ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: jobSelectMode ? "auto" : "none", marginRight: jobSelectMode ? 0 : -6 }}>
               <button className="subtle-all-btn" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>
                 {selJobs.size === activeTasks.length ? "None" : "All"}
@@ -12660,7 +12712,7 @@ ${jobsCtx || "No jobs found."}`;
               count + Delete slides out behind that — same timings as Schedule. */}
           {can("manageClients") && <>
             <Btn size="sm" style={{ minWidth: 78, flexShrink: 0 }} onClick={() => { setClientSelectMode(m => !m); setSelClients(new Set()); }}>{clientSelectMode ? "Done" : "Select"}</Btn>
-            <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:hover{filter:brightness(1.08);}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
+            <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
             <div style={{ display: "flex", alignItems: "center", overflow: clientSelRevealed ? "visible" : "hidden", maxWidth: clientSelectMode ? 90 : 0, opacity: clientSelectMode ? 1 : 0, transform: clientSelectMode ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: clientSelectMode ? "auto" : "none", marginRight: clientSelectMode ? 0 : -12 }}>
               <button className="subtle-all-btn" onClick={() => setSelClients(selClients.size === filteredClients.length && filteredClients.length > 0 ? new Set() : new Set(filteredClients.map(c => c.id)))}>
                 {selClients.size === filteredClients.length && filteredClients.length > 0 ? "None" : "All"}
@@ -13396,11 +13448,10 @@ ${jobsCtx || "No jobs found."}`;
              The glow is kept, just retuned to fit that 16px: blur 10 + 2px
              offset reaches 12px, so it fades out fully before the card's own
              overflow:hidden — visible halo, no cut edge. */
-          .dash-btn:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
-            transform: translateY(-1px) !important;
-            box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16)) !important;
-            filter: brightness(1.06);
-          }
+          /* Accent tint, same as every other control. The lift and the 22px glow
+             that used to live here are gone; the long note above explains the
+             specificity and clipping they needed, which no longer applies. */
+          /* covered by the app-wide ::after overlay; nothing to add here */
           .dash-btn:not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
             transform: scale(0.985) !important;
           }
@@ -13555,7 +13606,7 @@ ${jobsCtx || "No jobs found."}`;
 
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     <button className="dash-btn tq-softglow" onClick={() => openClockFlow(myState?.isClocked ? "clockOut_pin" : "clockIn_pin")}
-                      style={{ padding: "10px 14px", borderRadius: T.radiusPill, border: "none", background: myState?.isClocked ? hexA("#ef4444", 0.16) : brandGrad(T.accent), color: myState?.isClocked ? "#ef4444" : T.accentText, fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: T.font }}>
+                      style={{ padding: "10px 14px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: T.font }}>
                       {myState?.isClocked ? "Clock out" : "Clock in"}
                     </button>
                     {/* Lunch and break only mean anything on an open shift, so
@@ -13567,7 +13618,7 @@ ${jobsCtx || "No jobs found."}`;
                         { on: myState?.isOnBreak, label: "Break", end: "End break", state: myState?.isOnBreak ? "breakEnd_pin" : "breakStart_pin", color: "#8b5cf6" },
                       ].map(b => (
                         <button key={b.label} className="dash-btn tq-softglow" disabled={!myState?.isClocked} onClick={() => openClockFlow(b.state)}
-                          style={{ padding: "8px 10px", borderRadius: T.radiusPill, border: `1px solid ${b.on ? b.color : T.border}`, background: b.on ? hexA(b.color, 0.18) : "transparent", color: myState?.isClocked ? (b.on ? b.color : T.textSec) : T.textDim, fontSize: 11.5, fontWeight: 700, cursor: myState?.isClocked ? "pointer" : "not-allowed", opacity: myState?.isClocked ? 1 : 0.5, fontFamily: T.font, whiteSpace: "nowrap" }}>
+                          style={{ padding: "8px 10px", borderRadius: T.radiusPill, border: `1px solid ${b.on ? b.color : hexA(T.accent, myState?.isClocked ? 0.55 : 0.26)}`, background: b.on ? hexA(b.color, 0.18) : "transparent", color: b.on ? b.color : hexA(T.accent, myState?.isClocked ? 1 : 0.45), fontSize: 11.5, fontWeight: 700, cursor: myState?.isClocked ? "pointer" : "not-allowed", opacity: myState?.isClocked ? 1 : 0.5, fontFamily: T.font, whiteSpace: "nowrap" }}>
                           {b.on ? b.end : b.label}
                         </button>
                       ))}
@@ -14195,7 +14246,7 @@ ${jobsCtx || "No jobs found."}`;
         {isAdmin && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Btn size="sm" style={{ minWidth: 78 }} onClick={() => { setBarSelectMode(m => !m); setSelBars(new Set()); }}>{barSelectMode ? "Done" : "Select"}</Btn>
           {/* Sliding "All / None" — same animation + style as the Jobs page Select toggle. */}
-          <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:hover{filter:brightness(1.08);}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
+          <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
           <div style={{ display: "flex", alignItems: "center", overflow: barSelRevealed ? "visible" : "hidden", maxWidth: barSelectMode ? 90 : 0, opacity: barSelectMode ? 1 : 0, transform: barSelectMode ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: barSelectMode ? "auto" : "none", marginRight: barSelectMode ? 0 : -6 }}>
             <button className="subtle-all-btn" onClick={() => { const allIds = new Set(); rowList.forEach(r => { if (r.type === "person") (r.bars || []).forEach(b => { if (b.type === "task") allIds.add(b.id); }); }); setSelBars(selBars.size === allIds.size && allIds.size > 0 ? new Set() : allIds); }}>
               {(() => { const allIds = new Set(); rowList.forEach(r => { if (r.type === "person") (r.bars || []).forEach(b => { if (b.type === "task") allIds.add(b.id); }); }); return selBars.size === allIds.size && allIds.size > 0 ? "None" : "All"; })()}
