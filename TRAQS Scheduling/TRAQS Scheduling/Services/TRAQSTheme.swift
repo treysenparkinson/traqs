@@ -184,12 +184,16 @@ enum T {
     // Preset-driven (see `ThemeSettings.applyNavToT`) for the same reason
     // `progressTrack` and the rim are: one set of numbers cannot serve a
     // near-white page and a near-black one.
-    /// Laid over the blur while frosted glass is ON.
+    //
+    // There is no flat counterpart. The bar is native Liquid Glass on the same
+    // terms as every glass button — the frosted-glass toggle governs the
+    // surfaces TRAQS paints, and this is Apple's material. See NavPillMaterial.
+    /// The colour of the pill's glass. Passed to `Glass.tint` — see
+    /// `NavPillMaterial`, which is always glass whatever the frosted-glass
+    /// toggle says.
     static var navTint = "#FFFFFF"
     /// How much of `navTint` (see above). THE transparency dial for the bar.
     static var navTintOpacity: Double = 0.55
-    /// The flat opaque fill used while frosted glass is OFF.
-    static var navSolid = "#FFFFFF"
 
     // ── Progress track + presence dots ──
     // `var`, not `let`: the track is preset-driven (see BgPreset.track and

@@ -75,17 +75,23 @@ final class ThemeSettings {
     /// `T.surface` — and collapses the specular rim on them to a flat hairline.
     /// (`glassFill`, `GlassSurface`, `specularRim`.)
     ///
-    /// It ALSO flattens the app's chrome and its modals — the floating nav pill
-    /// (`TRAQSTabBar`), every prompting popup (`GlassPanel`: the PIN pad, the
-    /// break/lunch banner, the end-job photo prompt, the start-job, availability
-    /// and time-off confirms). Off means flat, everywhere TRAQS paints.
+    /// It ALSO flattens the app's modals — every prompting popup (`GlassPanel`:
+    /// the PIN pad, the break/lunch banner, the end-job photo prompt, the
+    /// start-job, availability and time-off confirms). Off means flat,
+    /// everywhere TRAQS paints.
     ///
-    /// It does NOT reach two things, each for its own reason:
+    /// It does NOT reach three things, each for its own reason:
     ///
     ///  • BUTTONS. Header pills, menu buttons, the keypad keys and every glass
     ///    CTA are Apple's material, not ours. A flat app with native glass
     ///    controls is a coherent look; one whose buttons went flat too just
     ///    looks unfinished. (`GlassControl`, `GlassCircleButton`, `GlassCTA`.)
+    ///
+    ///  • THE NAV PILL (`NavPillMaterial`). It used to flatten, back when it was
+    ///    a hand-rolled `.ultraThinMaterial` — TRAQS painting its own glass on
+    ///    chrome, which the switch rightly governed. It is native
+    ///    `.glassEffect` now, the same material as the buttons above and as the
+    ///    highlighter riding on it, so it keeps it on the same terms.
     ///
     ///  • THE TWO MASKED PLATES — the Messages thread header
     ///    (`OverlayWindowController`) and the composer bar under it. Both are a
@@ -255,11 +261,9 @@ final class ThemeSettings {
         if isLight {
             T.navTint        = "#FFFFFF"
             T.navTintOpacity = 0.55
-            T.navSolid       = "#FFFFFF"
         } else {
             T.navTint        = "#101010"
             T.navTintOpacity = 0.45
-            T.navSolid       = "#171717"
         }
     }
 

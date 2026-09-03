@@ -72,7 +72,7 @@ struct CustomizeView: View {
 
                             SLine().padding(.leading, 70)
                             ToggleRow(title: "Frosted Glass",
-                                      subtitle: "*Off flattens cards and panels; buttons, nav bar and prompts stay glass",
+                                      subtitle: "*Off flattens cards, panels and prompts; buttons and the nav bar stay glass",
                                       isOn: theme.frostedGlass) { on in
                                 theme.setFrostedGlass(on)
                             }

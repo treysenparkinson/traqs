@@ -502,11 +502,11 @@ struct TRAQSTabBar: View {
         }
         .padding(.horizontal, hPad)
         .padding(.vertical, vPad)   // shrinks as the highlighter grows → pill height locked
-        // The bar's paint — native Liquid Glass, flattening with the
-        // frosted-glass toggle. Everything about WHY it looks the way it does
-        // (its own tint, no rim, and why the glass branch takes no
-        // `compositingGroup`) lives on `NavPillMaterial`; this is one call so the
-        // two branches can't drift into different shapes or paddings.
+        // The bar's paint — native Liquid Glass, and always glass: the
+        // frosted-glass toggle governs the surfaces TRAQS paints, and this is
+        // Apple's material, same as the highlighter above. Everything about WHY
+        // it looks the way it does (its own tint, no rim, no `compositingGroup`)
+        // lives on `NavPillMaterial`.
         //
         // It paints BEHIND the content, never as an `.overlay`. This part is
         // load-bearing and must not change: an overlay is drawn above
