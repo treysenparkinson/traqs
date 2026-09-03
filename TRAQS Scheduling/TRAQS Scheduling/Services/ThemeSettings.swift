@@ -252,15 +252,35 @@ final class ThemeSettings {
 
     /// The floating nav pill's paint, tuned per preset — see the `T.nav*` block.
     ///
-    /// The bar pushes AWAY from the page it floats over, which is the whole
-    /// point: on White it goes near-solid white so the dark glyphs bite, on
-    /// Charcoal it drops well BELOW the surface colour so the light glyphs do.
-    /// Sharing `glassSurfaceTint` over `T.surface` put it too close to the page
-    /// in both directions and the unselected icons washed out.
+    /// The bar pushes AWAY from the page it floats over: on White it goes white
+    /// so the dark glyphs bite, on Charcoal it drops BELOW the surface colour so
+    /// the light glyphs do. Sharing `glassSurfaceTint` over `T.surface` put it
+    /// too close to the page in both directions and the unselected icons washed
+    /// out.
+    ///
+    /// LIGHT came down from 0.55 to 0.38 — the bar was reading as a near-solid
+    /// white slab rather than something you can see the page through. 0.55 was
+    /// set when the pill was a hand-rolled `.ultraThinMaterial`, where the tint
+    /// was doing ALL of the separating. It's native glass now
+    /// (`NavPillMaterial`): the material refracts the page and carries its own
+    /// edge, so the same legibility comes at a lower tint and the extra opacity
+    /// was only costing transparency.
+    ///
+    /// The floor is around 0.22 — `glassSurfaceTint`, which is where the
+    /// unselected glyphs measurably washed out before. 0.38 keeps clear of it.
+    /// This is THE dial if the bar wants to be clearer or denser; nothing else
+    /// reads it.
+    ///
+    /// Dark is unchanged at 0.45. A dark tint over a dark page is not the same
+    /// problem — it was never reading as a slab — and only light was asked about.
+    ///
+    /// Neither number can win against iOS's own Reduce Transparency
+    /// (Accessibility → Display & Text Size), which takes system glass opaque
+    /// whatever we tint it.
     private func applyNavToT(isLight: Bool) {
         if isLight {
             T.navTint        = "#FFFFFF"
-            T.navTintOpacity = 0.55
+            T.navTintOpacity = 0.38
         } else {
             T.navTint        = "#101010"
             T.navTintOpacity = 0.45

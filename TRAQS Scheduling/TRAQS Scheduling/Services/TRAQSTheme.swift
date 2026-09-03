@@ -192,8 +192,11 @@ enum T {
     /// `NavPillMaterial`, which is always glass whatever the frosted-glass
     /// toggle says.
     static var navTint = "#FFFFFF"
-    /// How much of `navTint` (see above). THE transparency dial for the bar.
-    static var navTintOpacity: Double = 0.55
+    /// How much of `navTint` (see above). THE transparency dial for the bar —
+    /// nothing else reads it. Preset-driven; this default matches the LIGHT
+    /// value, as `navTint` above does. See `applyNavToT` for why light sits
+    /// where it does and where the legibility floor is.
+    static var navTintOpacity: Double = 0.38
 
     // ── Progress track + presence dots ──
     // `var`, not `let`: the track is preset-driven (see BgPreset.track and
