@@ -4740,6 +4740,15 @@ Extraction rules:
     });
   }, []);
   const pushModal = useCallback((m) => setModalStack(prev => [...prev, m]), []);
+  const clearModals = useCallback(() => setModalStack(prev => (prev.length ? [] : prev)), []);
+  // Skips the first run: on mount the stack is already empty, and a modal
+  // restored from a deep link would otherwise be closed before it painted.
+  const navViewRef = useRef(view);
+  useEffect(() => {
+    if (navViewRef.current === view) return;
+    navViewRef.current = view;
+    clearModals();
+  }, [view, clearModals]);
   const popModal = useCallback(() => setModalStack(prev => prev.slice(0, -1)), []);
   const [engBlockError, setEngBlockError] = useState(null);
   const [personModal, setPersonModal] = useState(null);
@@ -24670,6 +24679,7 @@ ${jobsCtx || "No jobs found."}`;
     settingsAnimTimer.current = setTimeout(() => setSettingsTransitioning(false), 420);
   };
   const enterSettings = () => {
+    clearModals();
     setPriorView(view);
     setSettingsSection("general");
     loadSectionDraft("general");
