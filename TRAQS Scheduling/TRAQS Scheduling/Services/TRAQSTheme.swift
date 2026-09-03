@@ -233,8 +233,8 @@ enum T {
     // against a near-white card, so on the light presets the lips need to run
     // brighter and the side band needs to be a real grey rather than the faint
     // `T.border` hairline, which is what made the glass hard to see on white.
-    static var rimTop:  Double  = 0.70   // glare along the top lip
-    static var rimBot:  Double  = 0.50   // the bottom lip, light bouncing back up
+    static var rimTop:  Double  = 0.50   // glare along the top lip
+    static var rimBot:  Double  = 0.37   // the bottom lip, light bouncing back up
     /// The band down the LEFT AND RIGHT edges — a colour, not an alpha, because
     /// it has to be darker than the surface on both families and there's no one
     /// opacity of black that manages it.
@@ -244,11 +244,11 @@ enum T {
     /// looked painted on rather than caught. Each preset pushes AWAY from its
     /// surface — a definite grey on White, a near-black groove on Charcoal —
     /// the same trick `progressTrack` uses, and for the same reason.
-    static var rimSide: String  = "#151515"
+    static var rimSide: String  = "#3A3A42"
     /// How quickly each lip gives way to the side band, as a fraction of the
     /// stroke's height. Small: a lip is a lip, not a fade over half the card.
     static var rimLip:  Double  = 0.18
-    static var rimWidth: CGFloat = 1.2
+    static var rimWidth: CGFloat = 1.0
 
     // ── CTA glow shadow (accompanies every gradient pill) ──
     static var ctaGlowColor   = "#7B5BE8"          // mirrors accent end for custom accents

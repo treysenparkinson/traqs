@@ -267,23 +267,51 @@ final class ThemeSettings {
     ///
     /// Same shape both ways: white glare across the top lip, a darker band down
     /// the sides for contrast, the bottom lip lit again. What changes is how
-    /// hard each has to work. On White the lips run near-full white and the side
-    /// band is a definite grey, because a subtle edge on a near-white card is no
-    /// edge at all. On Charcoal the lips can ease off and the band drops BELOW
-    /// the surface colour, so the sides read as a recessed groove.
+    /// hard each has to work — the light family needs more from the lips than
+    /// the dark one, because a white glare has less to do against a near-white
+    /// card.
+    ///
+    /// These are the WEB's numbers, not iOS's own. The web draws the same edge
+    /// from one helper (`_edge` in TRAQS.jsx, feeding `--tq-surface-edge`) and
+    /// its four dials are the source of truth for both clients, so a card reads
+    /// the same on a phone as it does on the desktop beside it.
+    ///
+    /// iOS was still on the values the web moved AWAY from — 0.95/0.80 light and
+    /// 0.70/0.50 dark. Near-full white on both lips drew a bright chalk line
+    /// around every control, and with a page full of pills and cards the screen
+    /// read as outlined rather than as glass catching light. A lip suggests a lit
+    /// top edge; it is not the border.
+    ///
+    /// The side bands came up as the lips came down, so the edge still separates
+    /// a control from its background once the white is doing less of that work:
+    ///
+    ///   * light `#A6ADB9` → `#C2C8D1`. Still a definite grey — a groove darker
+    ///     than a near-white card — just no longer competing with the lips.
+    ///   * dark `#151515` → `#3A3A42`. The near-black band read as a gap punched
+    ///     THROUGH the panel rather than an edge catching light, and it fought
+    ///     the white above and below it. Grey sits between the two: a defined
+    ///     side, no black seam. Solid, not a white alpha — these surfaces are
+    ///     translucent, so an alpha edge takes its value from whatever is behind
+    ///     the panel and drifts as the page scrolls under it.
+    ///
+    /// `rimWidth` follows the web's 1px ring; 1.4/1.2 was part of the same
+    /// heaviness. `rimLip` is geometry rather than lightness and is unchanged —
+    /// the web draws its lips as two hard 1px insets and its ring separately,
+    /// while iOS runs all three as one vertical stroke gradient, so the lip
+    /// fraction has no web counterpart to match.
     private func applyRimToT(isLight: Bool) {
         if isLight {
-            T.rimTop   = 0.95
-            T.rimBot   = 0.80
-            T.rimSide  = "#A6ADB9"
-            T.rimLip   = 0.20
-            T.rimWidth = 1.4
-        } else {
             T.rimTop   = 0.70
-            T.rimBot   = 0.50
-            T.rimSide  = "#151515"
+            T.rimBot   = 0.55
+            T.rimSide  = "#C2C8D1"
+            T.rimLip   = 0.20
+            T.rimWidth = 1.0
+        } else {
+            T.rimTop   = 0.50
+            T.rimBot   = 0.37
+            T.rimSide  = "#3A3A42"
             T.rimLip   = 0.18
-            T.rimWidth = 1.2
+            T.rimWidth = 1.0
         }
     }
 
