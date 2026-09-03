@@ -1459,6 +1459,23 @@ button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([di
     transition: opacity 0.18s ease-out;
   }
 }
+button.tq-pill-seg:not(:disabled):not([disabled]):not([aria-disabled="true"]) { position: relative; }
+button.tq-pill-seg:not(:disabled):not([disabled]):not([aria-disabled="true"])::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--tq-accent-hover, rgba(65,105,225,0.07));
+  opacity: 0;
+  transition: opacity 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
+}
+@media (hover: hover) {
+  button.tq-pill-seg:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover::after {
+    opacity: 1;
+    transition: opacity 0.18s ease-out;
+  }
+}
 /* The one width exception, and it earns it. A button that fills its container has no
    fixed size to tune against: the My Clock buttons run the full width of their card at
    ~218px, so the global 1.02 moves them 4.4px where it moves the + New Job button
@@ -6642,6 +6659,85 @@ Extraction rules:
   // component of its own, so it cannot hold hooks. Both reset on open.
   const [planAssignQ, setPlanAssignQ] = useState("");
   const [planAssignSec, setPlanAssignSec] = useState({});
+  // Job Details view: tasks | gantt | split. Persisted per machine like every
+  // other view preference -- the page you left it on is the page you come back
+  // to. The design persists this too (localStorage "traqs-jobdetail-view").
+  const [jobDetailView, setJobDetailView] = usePersistedUI("jobDetailView", "tasks");
+  // Split ratio, as a fraction of the width given to the task list. Clamped on
+  // drag rather than at read time so a stored value from a wider window still
+  // lands somewhere usable.
+  const [jobDetailSplit, setJobDetailSplit] = usePersistedUI("jobDetailSplit", 0.42);
+  // Which phases are rolled up on the Job Details page. Shared by the Tasks list
+  // and the Gantt so collapsing in one collapses in the other, which is what the
+  // design does across its three views.
+  const [jdPhaseClosed, setJdPhaseClosed] = usePersistedUI("jdPhaseClosed", {});
+  // Phases mid-collapse, so children can play gridRowOut before they unmount --
+  // the same two-step the Jobs list uses for its own rows. jdPhaseOpening is the
+  // mirror of it: without a flag saying "this phase was just expanded" there is
+  // no way to tell a real expand from an ordinary mount, and the rows replayed
+  // the stagger every time the view changed.
+  const [jdPhaseClosing, setJdPhaseClosing] = useState({});
+  const [jdPhaseOpening, setJdPhaseOpening] = useState({});
+  const JD_STAG_CAP = 10;                                   // rows past this share the last offset
+  const jdInMs  = (i) => Math.min(i, JD_STAG_CAP) * 22;
+  const jdOutMs = (i) => Math.min(i, JD_STAG_CAP) * 18;
+  // Long enough for the LAST row to finish leaving, whatever the row count.
+  const jdCloseMs = (n) => jdOutMs(Math.max(0, n - 1)) + 200;
+  const toggleJdPhase = (id, count = 0) => {
+    if (jdPhaseClosed[id]) {
+      setJdPhaseClosed(p => ({ ...p, [id]: false }));
+      setJdPhaseOpening(o => ({ ...o, [id]: true }));
+      setTimeout(() => setJdPhaseOpening(o => { const n = { ...o }; delete n[id]; return n; }), jdInMs(count) + 200);
+      return;
+    }
+    setJdPhaseClosing(c => ({ ...c, [id]: true }));
+    setTimeout(() => {
+      setJdPhaseClosed(p => ({ ...p, [id]: true }));
+      setJdPhaseClosing(c => { const n = { ...c }; delete n[id]; return n; });
+    }, jdCloseMs(count));
+  };
+  // Job Details' own column set -- deliberately NOT the Jobs page's. Same shape
+  // so the cell renderer is shared, but its own order, labels and custom columns.
+  const [jdColOrder, setJdColOrder] = usePersistedUI("jdColOrder", ["name", "start", "end", "due", "status", "pri", "progress", "team"]);
+  const [jdColLabels, setJdColLabels] = usePersistedUI("jdColLabels", {});
+  const [jdCustomCols, setJdCustomCols] = usePersistedUI("jdCustomCols", []);
+  const [jdColPicker, setJdColPicker] = useState(false);
+  const jdAddCustomCol = (label, type) => {
+    const id = "jd" + Math.random().toString(36).slice(2, 8);
+    setJdCustomCols(prev => [...prev, { id, label: label || "New column", type: type || "text", options: [] }]);
+    return id;
+  };
+  // Add a row from the Job Details list. Same node shape the new-job form
+  // builds, so a row added here is indistinguishable from one created up front.
+  const jdAddOp = (jobId, panelId) => {
+    if (!can("editJobs")) return;
+    const nid = uid();
+    setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(pn => {
+      if (pn.id !== panelId) return pn;
+      const live = (pn.subs || []).filter(o => o && !o.deletedAt);
+      // Undated by default: an unscheduled row is exactly what the Project Plan
+      // is for, and dating it here would drop it onto the Schedule uninvited.
+      return { ...pn, subs: [...(pn.subs || []), {
+        id: nid, title: `Task ${live.length + 1}`, start: null, end: null,
+        pri: "Medium", status: "Not Started", team: [], hpd: pn.hpd ?? j.hpd ?? 8,
+        notes: "", deps: [],
+      }] };
+    }) }));
+    toast("Task added");
+  };
+  const jdAddPhase = (jobId) => {
+    if (!can("editJobs")) return;
+    const nid = uid();
+    setTasks(prev => prev.map(j => j.id !== jobId ? j : {
+      ...j,
+      subs: [...(j.subs || []), {
+        id: nid, title: `Phase ${(j.subs || []).filter(x => x && !x.deletedAt).length + 1}`,
+        start: null, end: null, pri: "Medium", status: "Not Started",
+        team: [], hpd: j.hpd ?? 8, notes: "", subs: [], deps: [],
+      }],
+    }));
+    toast("Phase added");
+  };
   // ── Job details side panel width ─────────────────────────────────────────
   // Drag its left edge to resize. Persisted, because a width you picked for how you
   // read job data should not reset every reload. Clamped so it can't be dragged shut
@@ -12850,7 +12946,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>}
 
         {/* Scrollable body */}
-        <div style={{ flex: 1, overflowY: "auto", padding: asPage ? "0 32px 28px" : "24px 28px" }}>
+        <div style={{ flex: 1, overflowY: "auto", scrollbarGutter: "stable", padding: asPage ? "0 32px 28px" : "24px 28px" }}>
           {sel.notes && <div className="tq-frost" style={{ fontSize: 14, color: T.textSec, padding: 14, background: T.surface, borderRadius: T.radiusSm, marginBottom: 20, lineHeight: 1.6, border: `1px solid ${T.border}` }}>{sel.notes}</div>}
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10, marginBottom: 24 }}>
@@ -13131,11 +13227,15 @@ ${jobsCtx || "No jobs found."}`;
   // purpose: a second hand-rolled copy drifted by 0.8px because it omitted minHeight,
   // and the title visibly jumped when you moved between pages. Anything that needs a
   // page header calls this and passes its own onBack.
-  const pageHead = (title, { onBack, right = null } = {}) => (
-    <div style={{ display: "flex", alignItems: "center", gap: isMobile ? 12 : 16, marginBottom: isMobile ? 12 : 18, minHeight: isMobile ? 34 : 50 }}>
+  const pageHead = (title, { onBack, right = null, center = null } = {}) => (
+    <div style={{ position: "relative", display: "flex", alignItems: "center", gap: isMobile ? 12 : 16, marginBottom: isMobile ? 12 : 18, minHeight: isMobile ? 34 : 50 }}>
       {backBtn(onBack)}
       <h1 style={pageTitleStyle}>{title}</h1>
       <div style={{ flex: 1, minWidth: 0 }} />
+      {/* Absolutely centred on the ROW, so it stays put regardless of how long
+          the title is or how many action buttons sit on the right. Desktop only:
+          on a narrow screen it would collide with both. */}
+      {center && !isMobile && <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", zIndex: 1 }}>{center}</div>}
       {right}
     </div>
   );
@@ -18934,7 +19034,7 @@ ${jobsCtx || "No jobs found."}`;
       const asPage = !isMobile;
       const node = (
         <div className={asPage ? "" : "anim-modal-overlay"} style={asPage
-          ? { position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflowY: "auto", overflowX: "hidden", background: "transparent", padding: "34px 32px 28px", fontFamily: T.font }
+          ? { position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflowY: "auto", overflowX: "hidden", scrollbarGutter: "stable", background: "transparent", padding: "34px 32px 28px", fontFamily: T.font }
           : { position: "fixed", inset: 0, zIndex: 10015, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflow: "auto" }} onClick={asPage ? undefined : closePastLogs}>
           {/* Header sits OUTSIDE the capped column, so the title and Back pill land at
               the page's left edge like every other page. It was inside it, which centred
@@ -21829,17 +21929,22 @@ ${jobsCtx || "No jobs found."}`;
     return { k: "ns", label: String(status || "Not Started").toUpperCase() };
   };
 
-  const renderProjectPlan = (job) => {
+  const renderProjectPlan = (job, opts = {}) => {
     if (!job) return null;
+    // labelless: no Item column; the Split's task list is the label column.
+    const labelless = !!opts.labelless;
+    const LBL = labelless ? "0px" : "280px";
+    const ROW_H = labelless ? 39 : null;        // null = intrinsic (PLAN_ROW_H)
+    const HDR_H = labelless ? 38 : null;
     const win = planWindow(job);
     const total = win.weeks * 7;
     const pctOf = (d) => Math.max(0, Math.min(100, (diffD(win.start, d) / total) * 100));
     const dayPct = 100 / total;
     const panels = (job.subs || []).filter(s => s && !s.deletedAt);
-    const allOps = panels.flatMap(pn => (pn.subs || []).filter(o => o && !o.deletedAt));
-    const unscheduled = allOps.filter(o => !o.start || !o.end || !(o.team || []).length).length;
-    const isGantt = planView === "gantt";
-    const planOpen = !detailSecClosed.plan;
+    const isGantt = labelless ? true : planView === "gantt";
+    // No section chevron in the Split -- there is no header to hang it on, so
+    // the body must not be collapsible there.
+    const planOpen = labelless ? true : !detailSecClosed.plan;
     const canMove = can("moveJobs");
     const canEditJ = can("editJobs");
 
@@ -21849,17 +21954,22 @@ ${jobsCtx || "No jobs found."}`;
     // heights, so y is a running sum of PLAN_ROW_H and x comes from the same
     // date→percent maths the bars use. No measurement pass, no resize listener,
     // nothing to fall out of sync with the layout on the frame after a re-render.
+    const rowH_ = (kind) => ROW_H || PLAN_ROW_H[kind];
+    const jdAnimating = panels.some(pn => jdPhaseClosing[pn.id] || jdPhaseOpening[pn.id]);
     const rows = [];
     let yAcc = 0;
     for (const pn of panels) {
-      rows.push({ kind: "phase", node: pn, y: yAcc, h: PLAN_ROW_H.phase });
-      yAcc += PLAN_ROW_H.phase;
-      const ops = (pn.subs || []).filter(o => o && !o.deletedAt);
-      if (!ops.length) { rows.push({ kind: "empty", node: pn, y: yAcc, h: PLAN_ROW_H.empty }); yAcc += PLAN_ROW_H.empty; }
-      for (const op of ops) {
-        rows.push({ kind: "item", node: op, panelId: pn.id, tint: pn.color, y: yAcc, h: PLAN_ROW_H.item });
-        yAcc += PLAN_ROW_H.item;
-      }
+      rows.push({ kind: "phase", node: pn, y: yAcc, h: rowH_("phase") });
+      yAcc += rowH_("phase");
+      // Mid-close the rows are still mounted so they can animate out, so only a
+      // settled `closed` drops them.
+      const collapsed = !!jdPhaseClosed[pn.id];
+      const ops = collapsed ? [] : (pn.subs || []).filter(o => o && !o.deletedAt);
+      if (!collapsed && !ops.length) { rows.push({ kind: "empty", node: pn, y: yAcc, h: rowH_("empty") }); yAcc += rowH_("empty"); }
+      ops.forEach((op, oi) => {
+        rows.push({ kind: "item", node: op, panelId: pn.id, tint: pn.color, oi, closing: !!jdPhaseClosing[pn.id], opening: !!jdPhaseOpening[pn.id], y: yAcc, h: rowH_("item") });
+        yAcc += rowH_("item");
+      });
     }
     // A phase drag carries its tasks, so the live preview has to move them too --
     // planDrag holds every id the drag affects, not just the one under the cursor.
@@ -21869,9 +21979,9 @@ ${jobsCtx || "No jobs found."}`;
     const barGeo = (n) => {
       if (!n.start || !n.end) return null;
       const d = dragDays(n);
-      const l = pctOf(addD(n.start, d));
-      const r = pctOf(addD(n.end, d)) + dayPct;
-      return { l, r: Math.max(l + 1.2, r) };
+      const l0 = pctOf(addD(n.start, d));
+      const r = Math.min(100, Math.max(l0 + 1.2, pctOf(addD(n.end, d)) + dayPct));
+      return { l: Math.max(0, Math.min(l0, r - 1.2)), r };
     };
     const itemRows = rows.filter(r => r.kind === "item");
     const itemById = new Map(itemRows.map(r => [String(r.node.id), r]));
@@ -21959,7 +22069,7 @@ ${jobsCtx || "No jobs found."}`;
         // predecessor's own bar. Drop under the successor's row and come up into
         // its left edge -- the same two-case shape the mock's script draws,
         // minus the measuring pass.
-        const under = by + PLAN_ROW_H.item / 2 - 6;
+        const under = by + rowH_("item") / 2 - 6;
         const xm = a.r + gap;
         const xin = Math.max(0, b.l - gap);
         hseg(a.r, xm, ay); vseg(xm, ay, under); hseg(xm, xin, under); vseg(xin, under, by);
@@ -22038,11 +22148,15 @@ ${jobsCtx || "No jobs found."}`;
       const isMile = !!g && n.start === n.end;
       const pct = _opPct(n);
       const col = elColor(n.color || r.tint || "#9A99A0");
-      const editing = planEdit && planEdit.id === n.id;
+      const editing = planEdit && planEdit.id === n.id && planEdit.col === "title";
       const depCount = (n.deps || []).length;
       return (
-        <div key={n.id} style={{ display: "grid", gridTemplateColumns: isGantt ? "280px 1fr" : "1fr", alignItems: "center", borderBottom: `1px solid ${T.border}`, height: r.h, boxSizing: "border-box" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 14px 0 31px", borderRight: isGantt ? `1px solid ${T.border}` : "none", minWidth: 0, height: "100%", boxSizing: "border-box" }}>
+        <div key={n.id} style={{ display: "grid", gridTemplateColumns: isGantt ? (labelless ? "1fr" : "280px 1fr") : "1fr", alignItems: "center", borderBottom: `1px solid ${T.border}`, height: ROW_H || r.h, boxSizing: "border-box",
+          // Only a real toggle animates -- see toggleJdPhase.
+          animation: r.closing ? `gridRowOut 0.18s ${jdOutMs(r.oi || 0)}ms both ease-in`
+            : r.opening ? `gridRowIn 0.14s ${jdInMs(r.oi || 0)}ms both ease-out`
+            : "none" }}>
+          {!labelless && <span style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 14px 0 31px", borderRight: isGantt ? `1px solid ${T.border}` : "none", minWidth: 0, height: "100%", boxSizing: "border-box" }}>
             {/* No colour dot on a task row -- the phase above it carries the
                 colour for the whole group, and repeating it on every child made
                 the Item column a column of dots. The 31px left padding above is
@@ -22052,7 +22166,7 @@ ${jobsCtx || "No jobs found."}`;
                   onBlur={e => { commitCellEdit(n.id, "title", e.target.value, panelId); setPlanEdit(null); }}
                   onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setPlanEdit(null); }}
                   style={{ flex: 1, minWidth: 0, background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 8, color: T.text, fontSize: 12.5, fontFamily: T.font, padding: "1px 4px" }} />
-              : <span title={n.title} onDoubleClick={() => canEditJ && setPlanEdit({ id: n.id, pid: panelId })}
+              : <span title={n.title} onDoubleClick={() => canEditJ && setPlanEdit({ id: n.id, pid: panelId, col: "title" })}
                   style={{ fontSize: 12.5, fontWeight: 500, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, cursor: canEditJ ? "text" : "default" }}>{n.title}</span>}
             {depCount > 0 && <Tip label={`${depCount} dependenc${depCount === 1 ? "y" : "ies"} — the latest-finishing one is drawn`}>
               <span style={{ fontSize: 9.5, fontWeight: 700, color: T.accent, flexShrink: 0, fontFamily: T.mono }}>⋯{depCount}</span>
@@ -22093,7 +22207,7 @@ ${jobsCtx || "No jobs found."}`;
               style={{ width: 20, height: 20, padding: 0, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", flexShrink: 0, borderRadius: T.radiusPill, display: "grid", placeItems: "center" }}>
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
             </button>}
-          </span>
+          </span>}
           {isGantt && <span style={{ position: "relative", height: "100%" }}>
             {!g
               ? <span style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", fontSize: 10, fontWeight: 600, color: T.textDim, whiteSpace: "nowrap" }}>no dates yet — set them in Edit</span>
@@ -22126,13 +22240,16 @@ ${jobsCtx || "No jobs found."}`;
         || (pn.subs || []).some(o => o && (o.team || []).length > 0);
       const g = barGeo(pn);
       return (
-        <div key={"ph-" + pn.id} style={{ display: "grid", gridTemplateColumns: isGantt ? "280px 1fr" : "1fr", alignItems: "center", background: T.surface, borderBottom: `1px solid ${T.border}`, height: r.h, boxSizing: "border-box" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 14px", borderRight: isGantt ? `1px solid ${T.border}` : "none", height: "100%", boxSizing: "border-box", minWidth: 0 }}>
+        <div key={"ph-" + pn.id} style={{ display: "grid", gridTemplateColumns: isGantt ? (labelless ? "1fr" : "280px 1fr") : "1fr", alignItems: "center", background: T.surface, borderBottom: `1px solid ${T.border}`, height: ROW_H || r.h, boxSizing: "border-box" }}>
+          {!labelless && <span onClick={() => toggleJdPhase(pn.id, (pn.subs || []).filter(o => o && !o.deletedAt).length)}
+            style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 14px", borderRight: isGantt ? `1px solid ${T.border}` : "none", height: "100%", boxSizing: "border-box", minWidth: 0, cursor: "pointer", userSelect: "none" }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"
+              style={{ transition: "transform 0.2s", transform: jdPhaseClosed[pn.id] ? "rotate(-90deg)" : "none", flexShrink: 0 }}><path d="m6 9 6 6 6-6" /></svg>
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: tint, flexShrink: 0 }} />
             <b style={{ fontSize: 12.5, letterSpacing: "-0.045em", color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pn.title}</b>
             <span style={{ flex: 1 }} />
             {phaseHasAssignee && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 8px", flexShrink: 0, background: ppct > 0 ? PLAN_CHIP.inp.bg : PLAN_CHIP.ns.bg, color: ppct > 0 ? PLAN_CHIP.inp.fg : PLAN_CHIP.ns.fg }}>{ppct}%</span>}
-          </span>
+          </span>}
           {isGantt && <span style={{ position: "relative", height: "100%" }}>
             {/* Dragging the phase brings its tasks. pid for a PANEL is the job's
                 id, not the panel's -- updTask reads the second argument as the
@@ -22147,21 +22264,16 @@ ${jobsCtx || "No jobs found."}`;
     };
 
     return (
-      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", marginBottom: 26 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", borderBottom: `1px solid ${T.border}`, flexWrap: "wrap" }}>
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", marginBottom: labelless ? 0 : 26, ...(labelless ? { display: "flex", flexDirection: "column", minHeight: 0 } : {}) }}>
+        {!labelless && <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", borderBottom: `1px solid ${T.border}`, flexWrap: "wrap" }}>
           <span onClick={() => setDetailSecClosed(pv => ({ ...pv, plan: !pv.plan }))}
             style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
             <svg style={{ color: T.textDim, transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)", transform: planOpen ? "rotate(0deg)" : "rotate(-90deg)", flexShrink: 0 }}
               width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
             <b style={{ fontSize: 14.5, letterSpacing: "-0.045em", color: T.text }}>Project Plan</b>
-            <small style={{ fontSize: 12, color: T.textDim, fontWeight: 500 }}>
-              {/* Counts of unscheduled items and links are gone from here. The
-                  footer already states the unscheduled count in a sentence that
-                  says what it MEANS ("not on the Schedule"), and a raw link count
-                  describes the drawing rather than the work. */}
-              {` · ${panels.length} phase${panels.length === 1 ? "" : "s"} · ${allOps.length} item${allOps.length === 1 ? "" : "s"}`}
-              {isGantt ? ` · ${fm(win.start)} → ${fm(win.end)}` : ""}
-            </small>
+            {isGantt && <small style={{ fontSize: 12, color: T.textDim, fontWeight: 500 }}>
+              {` · ${fm(win.start)} → ${fm(win.end)}`}
+            </small>}
           </span>
           <span style={{ flex: 1 }} />
           {panels.length > 0 && <span style={{ display: "flex", gap: 14, fontSize: 11, fontWeight: 600, color: T.textDim, flexWrap: "wrap" }}>
@@ -22180,7 +22292,7 @@ ${jobsCtx || "No jobs found."}`;
               </button>
             ))}
           </div>
-        </div>
+        </div>}
 
         <div style={{ display: "grid", gridTemplateRows: planOpen ? "1fr" : "0fr", transition: "grid-template-rows 0.26s cubic-bezier(0.4,0,0.2,1)", pointerEvents: planOpen ? "auto" : "none" }}>
         <div style={{ overflow: "hidden", minHeight: 0 }}>
@@ -22190,29 +22302,29 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           : <div style={{ overflowX: "auto" }}>
             <div style={{ minWidth: isGantt ? 980 : "auto" }}>
-              {isGantt && <div style={{ display: "grid", gridTemplateColumns: `280px repeat(${win.weeks}, 1fr)`, borderBottom: `1px solid ${T.border}`, background: T.surface }}>
-                <span style={{ padding: "9px 14px", fontSize: 10, letterSpacing: "-0.045em", fontWeight: 700, textTransform: "uppercase", color: T.textDim, borderRight: `1px solid ${T.border}` }}>Item</span>
+              {isGantt && <div style={{ display: "grid", gridTemplateColumns: labelless ? `repeat(${win.weeks}, 1fr)` : `280px repeat(${win.weeks}, 1fr)`, borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+                {!labelless && <span style={{ padding: "9px 14px", fontSize: 10, letterSpacing: "-0.045em", fontWeight: 700, textTransform: "uppercase", color: T.textDim, borderRight: `1px solid ${T.border}` }}>Item</span>}
                 {Array.from({ length: win.weeks }, (_, i) => (
-                  <span key={i} style={{ padding: "9px 0", textAlign: "center", fontSize: 10, fontWeight: 600, color: T.textDim, borderLeft: `1px solid ${T.borderLight}` }}>{fm(addD(win.start, i * 7))}</span>
+                  <span key={i} style={{ padding: HDR_H ? 0 : "9px 0", height: HDR_H || undefined, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 600, color: T.textDim, borderLeft: `1px solid ${T.borderLight}`, boxSizing: "border-box" }}>{fm(addD(win.start, i * 7))}</span>
                 ))}
               </div>}
               <div style={{ position: "relative" }}>
-                {isGantt && <div style={{ position: "absolute", inset: "0 0 0 280px", display: "grid", gridTemplateColumns: `repeat(${win.weeks}, 1fr)`, pointerEvents: "none" }}>
+                {isGantt && <div style={{ position: "absolute", inset: labelless ? 0 : "0 0 0 280px", display: "grid", gridTemplateColumns: `repeat(${win.weeks}, 1fr)`, pointerEvents: "none" }}>
                   {Array.from({ length: win.weeks }, (_, i) => <i key={i} style={{ borderLeft: `1px solid ${T.borderLight}` }} />)}
                 </div>}
                 {/* Connectors share the gridlines' box, so their percentages are
                     against the same timeline column the bars use. Under the bars
                     (z 4 vs 6) so a line never crosses a bar's face. */}
-                {isGantt && conns.length > 0 && <div style={{ position: "absolute", inset: "0 0 0 280px", pointerEvents: "none", zIndex: 4 }}>
+                {isGantt && conns.length > 0 && <div style={{ position: "absolute", inset: labelless ? 0 : "0 0 0 280px", pointerEvents: "none", zIndex: 4, opacity: jdAnimating ? 0 : 1, transition: `opacity ${jdAnimating ? "0.1s" : "0.2s"} ease` }}>
                   {conns.map(elbow)}
                 </div>}
                 {/* TODAY sits on the real date rather than the mock's fixed 45% */}
-                {isGantt && TD >= win.start && TD <= win.end && <div style={{ position: "absolute", top: 0, bottom: 0, left: `calc(280px + (100% - 280px) * ${pctOf(TD) / 100})`, width: 2, background: `linear-gradient(180deg, ${T.accent}, ${T.accent}1f)`, zIndex: 5, pointerEvents: "none" }}>
+                {isGantt && TD >= win.start && TD <= win.end && <div style={{ position: "absolute", top: 0, bottom: 0, left: labelless ? `${pctOf(TD)}%` : `calc(280px + (100% - 280px) * ${pctOf(TD) / 100})`, width: 2, background: `linear-gradient(180deg, ${T.accent}, ${T.accent}1f)`, zIndex: 5, pointerEvents: "none" }}>
                   <span style={{ position: "absolute", top: 6, left: "50%", transform: "translateX(-50%)", fontSize: 8.5, fontWeight: 700, letterSpacing: "-0.045em", color: T.accentText, background: T.accent, borderRadius: T.radiusPill, padding: "2px 8px", whiteSpace: "nowrap" }}>TODAY</span>
                 </div>}
                 {rows.map(r => r.kind === "phase" ? phaseRow(r)
                   : r.kind === "item" ? itemRow(r)
-                  : <div key={"e-" + r.node.id} style={{ display: "grid", gridTemplateColumns: isGantt ? "280px 1fr" : "1fr", borderBottom: `1px solid ${T.border}`, height: r.h, boxSizing: "border-box" }}>
+                  : <div key={"e-" + r.node.id} style={{ display: "grid", gridTemplateColumns: isGantt ? (labelless ? "1fr" : "280px 1fr") : "1fr", borderBottom: `1px solid ${T.border}`, height: ROW_H || r.h, boxSizing: "border-box" }}>
                       <span style={{ padding: "0 14px", borderRight: isGantt ? `1px solid ${T.border}` : "none", display: "flex", alignItems: "center", fontSize: 11.5, color: T.textDim }}>no operations</span>
                       {isGantt && <span />}
                     </div>)}
@@ -22220,22 +22332,303 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           </div>}
 
-        {/* Footer states measured facts. The mock's "Baselines on · Critical path
-            on" is not here: TRAQS stores neither, so it would be a caption for a
-            feature that does not exist. */}
-        <div style={{ display: "flex", alignItems: "center", gap: 18, padding: "11px 18px", borderTop: `1px solid ${T.border}`, background: T.surface, fontSize: 11.5, color: T.textDim, fontWeight: 500, flexWrap: "wrap" }}>
-          <span>{unscheduled > 0
-            ? <><b style={{ color: T.text }}>{unscheduled}</b>{` item${unscheduled === 1 ? "" : "s"} not on the Schedule — unassigned or undated`}</>
-            : "Every item is assigned and dated"}</span>
-          <span style={{ flex: 1 }} />
-          {canMove && isGantt && <span>Drag a task to reschedule it · drag a phase to move it with its tasks{canEditJ ? " · double-click a name to rename" : ""}</span>}
-        </div>
         </div>
         </div>
       </div>
     );
   };
 
+  // ══ Job Details: Tasks list ══════════════════════════════════════════════
+  // The design's Tasks view is a table of phases and their items. It borrows the
+  // Jobs grid's cell SHAPE -- same look, same commitCellEdit write path -- but
+  // NOT its configuration: jdColOrder / jdColLabels / jdCustomCols are this
+  // page's own, so adding, renaming or removing a column here leaves the Jobs
+  // page exactly as it was, and vice versa. That separation is deliberate; the
+  // two pages are read for different reasons and were never meant to move
+  // together.
+  //
+  // What it does not reuse is GridRow itself, which lives inside renderTasks and
+  // closes over five locals declared there. Hoisting ~500 lines of the app's
+  // busiest grid belongs in its own change, not bundled with three new views.
+  const jobListCols = useMemo(() => {
+    const std = jdColOrder.map(id => STD_COL_DEFS.find(c => c.id === id)).filter(Boolean);
+    return { std, custom: jdCustomCols };
+  }, [jdColOrder, jdCustomCols]);
+
+  const renderJobTaskList = (job, compact = false) => {
+    if (!job) return null;
+    const panels = (job.subs || []).filter(s => s && !s.deletedAt);
+    // Compact (the Split pane) drops to the four columns the design keeps there:
+    // name, start, end, assignee. Everything else needs width it will not have.
+    const cols = compact
+      ? jobListCols.std.filter(c => ["name", "start", "end", "team"].includes(c.id))
+      : jobListCols.std;
+    const customs = compact ? [] : jobListCols.custom;
+    const showAdd = !compact && can("editJobs");
+    const gridCols = [
+      compact ? "minmax(150px, 1.6fr)" : "minmax(180px, 2fr)",
+      ...cols.filter(c => c.id !== "name").map(() => "minmax(96px, 1fr)"),
+      ...customs.map(() => "minmax(110px, 1fr)"),
+      ...(showAdd ? ["34px"] : []),
+    ].join(" ");
+    const rowH = 39;   // matched to the Gantt's row height so Split lines up
+
+    const hdr = (
+      <div style={{ display: "grid", gridTemplateColumns: gridCols, background: T.surface, borderBottom: `1px solid ${T.border}`, position: "sticky", top: 0, zIndex: 2 }}>
+        {[...cols, ...customs].map(c => (
+          <span key={c.id || c.fieldKey}
+            title={can("editJobs") && !compact ? "Double-click to rename · right-click to remove" : undefined}
+            onDoubleClick={() => { if (!can("editJobs") || compact) return;
+              const cur = jdColLabels[c.id] || c.label;
+              const next = window.prompt("Column name", cur);
+              if (next != null && next.trim()) setJdColLabels(p => ({ ...p, [c.id]: next.trim() })); }}
+            onContextMenu={e => { if (!can("editJobs") || compact) return; e.preventDefault();
+              // A standard column is hidden (it can be added back); a custom one
+              // is deleted, since nothing else references it.
+              if (c.fieldKey || String(c.id).startsWith("jd")) setJdCustomCols(p => p.filter(x => x.id !== c.id));
+              else setJdColOrder(p => p.filter(x => x !== c.id)); }}
+            style={{ padding: "0 12px", height: 38, display: "flex", alignItems: "center", fontSize: 9.5, letterSpacing: "-0.02em", fontWeight: 700, textTransform: "uppercase", color: T.textDim, borderRight: `1px solid ${T.borderLight}`, whiteSpace: "nowrap", overflow: "hidden", cursor: can("editJobs") && !compact ? "context-menu" : "default", userSelect: "none" }}>
+            {jdColLabels[c.id] || c.label}
+          </span>
+        ))}
+        {/* The design's trailing + header. Adds a column to THIS page only. */}
+        {!compact && can("editJobs") && (
+          <span style={{ height: 38, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <button title="Add a column" onClick={() => setJdColPicker(true)}
+              style={{ width: 22, height: 22, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, cursor: "pointer", display: "grid", placeItems: "center", fontSize: 13, lineHeight: 1, fontFamily: T.font }}>+</button>
+          </span>
+        )}
+      </div>
+    );
+
+    // Task-level field behind each column. "name" is stored as `title` and "due"
+    // as `dueDate`; a custom column lives under the "_cc_" prefix the Jobs grid
+    // also uses. Getting this wrong writes a field nothing reads, which is what
+    // made renames here look like they saved and then vanish.
+    const FIELD_OF = { name: "title", due: "dueDate" };
+    const keyOf = (col) => col.fieldKey
+      || (STD_COL_DEFS.some(sc => sc.id === col.id) ? (FIELD_OF[col.id] || col.id) : "_cc_" + col.id);
+    const cell = (node, col, panelId, level) => {
+      const key = keyOf(col);
+      const pad = { padding: "0 12px", height: rowH, display: "flex", alignItems: "center", borderRight: `1px solid ${T.borderLight}`, borderBottom: `1px solid ${T.border}`, minWidth: 0, fontSize: 12.5, color: T.text, boxSizing: "border-box" };
+      const editing = planEdit && planEdit.id === node.id && planEdit.col === key;
+      const startEditing = () => can("editJobs") && setPlanEdit({ id: node.id, pid: panelId, col: key });
+      const commit = v => { commitCellEdit(node.id, key, v, panelId); setPlanEdit(null); };
+
+      if (col.id === "name") {
+        return <span key={key} style={{ ...pad, paddingLeft: level === 1 ? 12 : 30, gap: 9, fontWeight: level === 1 ? 700 : 500 }}>
+          {editing
+            ? <input className="tq-sq tq-bare" autoFocus defaultValue={node.title}
+                onBlur={e => commit(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setPlanEdit(null); }}
+                style={{ flex: 1, minWidth: 0, background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 8, color: T.text, fontSize: 12.5, fontFamily: T.font, padding: "1px 4px" }} />
+            : <span onDoubleClick={startEditing} title={node.title}
+                style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: can("editJobs") ? "text" : "default" }}>{node.title}</span>}
+        </span>;
+      }
+      if (col.id === "start" || col.id === "end") {
+        const v = node[col.id];
+        return <span key={key} style={{ ...pad, fontFamily: T.mono, color: T.textSec, cursor: can("moveJobs") ? "text" : "default" }}
+          onClick={() => can("moveJobs") && setPlanEdit({ id: node.id, pid: panelId, col: key })}>
+          {editing
+            ? <TraqsDatePicker autoOpen compact portal value={v || ""} onChange={nv => commit(nv)} onClose={() => setPlanEdit(null)} style={{ width: "100%" }} />
+            : (v ? fm(v) : "—")}
+        </span>;
+      }
+      if (col.id === "due") {
+        const v = node.dueDate;
+        return <span key={key} style={{ ...pad, fontFamily: T.mono, color: v && v < TD ? "#ef4444" : T.textSec, cursor: can("editJobs") ? "text" : "default" }}
+          onClick={() => can("editJobs") && setPlanEdit({ id: node.id, pid: panelId, col: key })}>
+          {editing
+            ? <TraqsDatePicker autoOpen compact portal value={v || ""} onChange={nv => commit(nv)} onClose={() => setPlanEdit(null)} style={{ width: "100%" }} />
+            : (v ? fm(v) : "—")}
+        </span>;
+      }
+      if (col.id === "status") {
+        const st = level === 1 ? getPanelDisplayStatus(node) : getOpDisplayStatus(node);
+        const c = staColorOf(st);
+        return <span key={key} style={pad}>
+          <span onClick={e => { if (!can("editJobs")) return; e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); const pl = placePopover(r, STATUSES.length); setStatusPopover({ id: node.id, pid: panelId, current: node.status || "Not Started", x: pl.x, y: pl.y, maxHeight: pl.maxHeight, up: pl.up }); }}
+            style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 9px", background: c + "20", border: `1px solid ${c}44`, color: c, textTransform: "uppercase", cursor: can("editJobs") ? "pointer" : "default", whiteSpace: "nowrap" }}>{st}</span>
+        </span>;
+      }
+      if (col.id === "pri") {
+        const pc = priColorOf(node.pri);
+        return <span key={key} style={{ ...pad, justifyContent: "center" }}>
+          <span onClick={e => { if (!can("editJobs")) return; e.stopPropagation();
+              const r = e.currentTarget.getBoundingClientRect();
+              const pl = placePopover(r, priOpts.length);
+              setCcSelectPopover({ itemId: node.id, pid: panelId, key: "pri", current: node.pri || "Medium", options: priOpts, x: pl.x, y: pl.y, maxHeight: pl.maxHeight, up: pl.up }); }}
+            style={{ cursor: can("editJobs") ? "pointer" : "default", fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 9px", background: pc + "1a", border: `1px solid ${pc}44`, color: pc, textTransform: "uppercase" }}>{node.pri || "Med"}</span>
+        </span>;
+      }
+      if (col.id === "hrs") {
+        const h = level === 1 ? (node.subs || []).reduce((s, o) => s + (o.hpd || 0), 0) : (node.hpd || 0);
+        return <span key={key} style={{ ...pad, justifyContent: "flex-end", fontFamily: T.mono, color: T.textSec }}>{h ? `${Math.round(h * 10) / 10}h` : "—"}</span>;
+      }
+      if (col.id === "progress") {
+        const pct = Math.round(level === 1 ? _panelPct(node) : _opPct(node));
+        const pc = pctRampColor(pct, T.accent);
+        return <span key={key} style={{ ...pad, gap: 8 }}>
+          <b style={{ fontSize: 10.5, color: T.textDim, fontWeight: 600, minWidth: 26 }}>{pct}%</b>
+          <span style={{ flex: 1, minWidth: 24, height: 5, borderRadius: T.radiusPill, background: T.border, overflow: "hidden" }}>
+            <i style={{ display: "block", height: "100%", width: `${pct}%`, background: pc, borderRadius: T.radiusPill }} />
+          </span>
+        </span>;
+      }
+      if (col.id === "team") {
+        // Same assign control the Gantt rows use, so assigning is one behaviour
+        // wherever you do it -- including the availability strike-out.
+        const team = (node.team || []).map(v => people.find(q => sameId(q.id, v))).filter(Boolean);
+        const label = !team.length ? "+ Assign" : team.length === 1 ? team[0].name.split(" ")[0] : `${team[0].name.split(" ")[0]} +${team.length - 1}`;
+        const tone = team.length ? elColor(team[0].color || T.accent) : T.textDim;
+        return <span key={key} style={pad}>
+          <button disabled={!can("editJobs")}
+            onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); const pl = placePopover(r, Math.min(people.length + 1, 9)); setPlanAssignQ(""); setPlanAssignSec({}); setPlanAssign({ id: node.id, pid: panelId, title: node.title, start: node.start || null, end: node.end || null, x: pl.x, y: pl.y, up: pl.up, maxHeight: pl.maxHeight }); }}
+            style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 9px", border: `1px solid ${team.length ? tone + "55" : T.border}`, background: team.length ? tone + "1f" : "transparent", color: tone, cursor: can("editJobs") ? "pointer" : "default", fontFamily: T.font, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {label}
+          </button>
+        </span>;
+      }
+      // Select columns open the shared picker popover -- the same one the Jobs
+      // grid's select cells use, so options and the apprLog side effect behave
+      // identically here.
+      if (col.type === "select" && (col.options || []).length > 0) {
+        const cur = String(node[key] ?? "");
+        const oc = cur ? (staColorOf(cur) || T.accent) : T.textDim;
+        return <span key={key} style={{ ...pad, cursor: can("editJobs") ? "pointer" : "default" }}
+          onClick={e => { if (!can("editJobs")) return; e.stopPropagation();
+            const r = e.currentTarget.getBoundingClientRect();
+            const pl = placePopover(r, (col.options || []).length + 1);
+            setCcSelectPopover({ itemId: node.id, pid: panelId, key, current: cur, options: [{ name: "—" }, ...(col.options || [])], x: pl.x, y: pl.y, maxHeight: pl.maxHeight, up: pl.up }); }}>
+          {cur
+            ? <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 9px", background: oc + "1e", border: `1px solid ${oc}44`, color: oc, textTransform: "uppercase", whiteSpace: "nowrap" }}>{cur}</span>
+            : <span style={{ color: T.textDim }}>—</span>}
+        </span>;
+      }
+      if (col.id === "client" || col.id === "jobNum" || col.id === "appr") {
+        const v = col.id === "appr" ? "" : (col.id === "client" ? (job.client || "") : (job.jobNum || ""));
+        return <span key={key} style={{ ...pad, color: v ? T.textSec : T.textDim, fontFamily: col.id === "jobNum" ? T.mono : T.font }}
+          title={col.id === "appr" ? "Approvals are tracked per job, not per task" : "From the job"}>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v || "—"}</span>
+        </span>;
+      }
+      // custom + field-linked columns, committed through the same path
+      const raw = node[key] ?? "";
+      return <span key={key} style={{ ...pad, cursor: can("editJobs") ? "text" : "default" }} onDoubleClick={startEditing}>
+        {editing
+          ? <input className="tq-sq tq-bare" autoFocus defaultValue={String(raw)}
+              onBlur={e => commit(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setPlanEdit(null); }}
+              style={{ width: "100%", background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 8, color: T.text, fontSize: 12.5, fontFamily: T.font, padding: "1px 4px" }} />
+          : <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: String(raw) ? T.text : T.textDim }}>{String(raw) || "—"}</span>}
+      </span>;
+    };
+
+    const allCols = [...cols, ...customs];
+    return (
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
+        {/* The pane scrolls rather than compressing. A Split dragged narrow rolls
+            the columns under an x-scroller instead of crushing them to unreadable
+            slivers, which is what minmax() floors on every column buy. */}
+        <div style={{ overflow: "auto", minHeight: 0 }}>
+          <div style={{ minWidth: compact ? 420 : 980 }}>
+            {hdr}
+            {panels.length === 0
+              ? <div style={{ padding: "26px 14px", textAlign: "center", fontSize: 13, color: T.textDim }}>No phases yet.</div>
+              : panels.map(pn => {
+                const ops = (pn.subs || []).filter(o => o && !o.deletedAt);
+                const closed = !!jdPhaseClosed[pn.id];
+                const closing = !!jdPhaseClosing[pn.id];
+                const opening = !!jdPhaseOpening[pn.id];
+                const tint = elColor(pn.color || "#9A99A0");
+                return (
+                  <Fragment key={pn.id}>
+                    {/* Phase row — collapsible, and on the SAME grid as the item
+                        rows beneath it. It used to be a plain flex band, so its
+                        date range was pushed to the far right edge of the card by
+                        a spacer while every task's dates sat in the START and END
+                        columns. The phase's own dates now occupy those same two
+                        columns, which is all it took to line up.
+
+                        Still reads as one band: the cells carry no vertical
+                        borders, so no column separators cut across it. */}
+                    <div onClick={() => toggleJdPhase(pn.id, ops.length)}
+                      style={{ display: "grid", gridTemplateColumns: gridCols, alignItems: "stretch", height: rowH, background: T.surface, borderBottom: `1px solid ${T.border}`, cursor: "pointer", userSelect: "none", boxSizing: "border-box" }}>
+                      <span style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 14px", minWidth: 0, boxSizing: "border-box" }}>
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"
+                          style={{ transition: "transform 0.2s", transform: closed ? "rotate(-90deg)" : "none", flexShrink: 0 }}><path d="m6 9 6 6 6-6" /></svg>
+                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: tint, flexShrink: 0 }} />
+                        <b style={{ fontSize: 12.5, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{pn.title}</b>
+                        <span style={{ fontSize: 11, color: T.textDim, fontWeight: 600, flexShrink: 0 }}>{ops.length}</span>
+                        <span style={{ flex: 1 }} />
+                        {!compact && can("editJobs") && (
+                          <button title="Delete this phase" onClick={e => { e.stopPropagation(); if (window.confirm(`Delete "${pn.title || "phase"}" and its ${ops.length} task${ops.length === 1 ? "" : "s"}?`)) delTask(pn.id, job.id); }}
+                            style={{ width: 20, height: 20, padding: 0, marginLeft: 4, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", display: "grid", placeItems: "center", flexShrink: 0, fontFamily: T.font }}>
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                          </button>
+                        )}
+                      </span>
+                      {/* One cell per remaining column so the grid stays in step.
+                          Dates are the only phase-level values shown -- read-only,
+                          because the whole band is the collapse target and an
+                          editor in here would fight that click. */}
+                      {allCols.filter(c => c.id !== "name").map(c => {
+                        const dv = c.id === "start" ? pn.start : c.id === "end" ? pn.end : c.id === "due" ? pn.dueDate : null;
+                        return <span key={c.id || c.fieldKey}
+                          style={{ display: "flex", alignItems: "center", padding: "0 12px", minWidth: 0, boxSizing: "border-box", fontSize: 11.5, fontWeight: 600, fontFamily: T.mono, color: T.textDim, whiteSpace: "nowrap", overflow: "hidden" }}>
+                          {dv ? fm(dv) : ""}
+                        </span>;
+                      })}
+                      {showAdd && <span />}
+                    </div>
+                    {!closed && ops.map((op, oi) => (
+                      <div key={op.id} style={{ display: "grid", gridTemplateColumns: gridCols, alignItems: "stretch",
+                        // Only a real toggle animates -- see toggleJdPhase.
+                        animation: closing ? `gridRowOut 0.18s ${jdOutMs(oi)}ms both ease-in`
+                          : opening ? `gridRowIn 0.14s ${jdInMs(oi)}ms both ease-out`
+                          : "none" }}>
+                        {allCols.map(c => cell(op, c, pn.id, 2))}
+                        {showAdd && (
+                          <span style={{ borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                            <button title="Delete this task" onClick={e => { e.stopPropagation(); if (window.confirm(`Delete "${op.title || "task"}"?`)) delTask(op.id, pn.id); }}
+                              style={{ width: 20, height: 20, padding: 0, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", display: "grid", placeItems: "center", fontFamily: T.font }}>
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                            </button>
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                    {!closed && ops.length === 0 && (
+                      <div style={{ padding: "0 14px", height: rowH, display: "flex", alignItems: "center", fontSize: 11.5, color: T.textDim, borderBottom: `1px solid ${T.border}` }}>no operations</div>
+                    )}
+                    {/* Compact is excluded on purpose: an extra row per phase in
+                        the Split's left pane would push it out of step with the
+                        Gantt on the right. */}
+                    {!closed && !compact && can("editJobs") && (
+                      <div style={{ padding: "0 14px 0 30px", height: rowH, display: "flex", alignItems: "center", borderBottom: `1px solid ${T.border}` }}>
+                        <button onClick={e => { e.stopPropagation(); jdAddOp(job.id, pn.id); }}
+                          style={{ padding: "3px 10px", borderRadius: T.radiusPill, border: `1px dashed ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
+                          + Task
+                        </button>
+                      </div>
+                    )}
+                  </Fragment>
+                );
+              })}
+            {!compact && can("editJobs") && (
+              <div style={{ padding: "0 14px", height: rowH, display: "flex", alignItems: "center", background: T.surface }}>
+                <button onClick={() => jdAddPhase(job.id)}
+                  style={{ padding: "4px 12px", borderRadius: T.radiusPill, border: `1px dashed ${T.border}`, background: "transparent", color: T.textSec, fontSize: 11.5, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+                  + Phase
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
   const renderModal = () => {
     if (!modal) return null;
     // Desktop renders content popups as full pages inside the content panel — the
@@ -23703,6 +24096,34 @@ ${jobsCtx || "No jobs found."}`;
       const dPanels = (parent && parent.subs) || [];
       const dTotalAtt = dPanels.reduce((n, p) => n + (p.attachments?.length || 0), 0);
       const dCanEdit = can("editJobs");
+      // The design's three-view switcher, centred in the header row.
+      //
+      // The selected fill is a separate opacity layer rather than the button's
+      // own background, because background-image is not an interpolatable
+      // property -- `transition: background` across a gradient snaps instead of
+      // fading. Giving each segment its own always-mounted gradient span and
+      // animating only its opacity means pressing a new option fades the old
+      // segment's fill out while the new one's fades in, on the same curve, with
+      // no reflow. Nothing outside the control moves: the views themselves swap
+      // instantly, which is what was asked for.
+      const jdViewSeg = (
+        <div style={{ display: "flex", alignItems: "center", height: 34, boxSizing: "border-box", background: T.bg, borderRadius: T.radiusPill, padding: 3, flexShrink: 0 }}>
+          {[["tasks", "Tasks"], ["gantt", "Gantt"], ["split", "Split"]].map(([v, label]) => {
+            const on = jobDetailView === v;
+            return (
+              <button key={v} className="tq-noanim tq-pill-seg" onClick={() => setJobDetailView(v)}
+                style={{ position: "relative", height: 28, boxSizing: "border-box", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, border: "none", borderRadius: T.radiusPill, padding: "0 18px", cursor: "pointer", fontFamily: T.font,
+                  background: "transparent", boxShadow: "none",
+                  // The label crossfades with the fill so the text never sits at
+                  // full accent-on-accent contrast mid-transition.
+                  color: on ? T.accentText : T.textDim, transition: "color 0.22s ease" }}>
+                <span aria-hidden="true" style={{ position: "absolute", inset: 0, borderRadius: "inherit", background: brandGrad(T.accent), opacity: on ? 1 : 0, transition: "opacity 0.22s ease", pointerEvents: "none" }} />
+                <span style={{ position: "relative", zIndex: 1 }}>{label}</span>
+              </button>
+            );
+          })}
+        </div>
+      );
       const dClient = fresh.clientId ? clients.find(c => sameId(c.id, fresh.clientId)) : null;
       // ── Analytics ──────────────────────────────────────────────────────────
       const dJob = parent || fresh;
@@ -23792,9 +24213,10 @@ ${jobsCtx || "No jobs found."}`;
         {/* ── Left: panel / operation details ── */}
         {/* 34/32 as a page — the same padding frostScroll gives every other view, so this
             title sits in the identical spot as the Schedule and Employees titles. */}
-        <div style={{ flex: 1, minWidth: 0, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "52px 18px 18px" : (asPage ? "34px 32px 28px" : "30px 32px 28px") }}>
+        <div style={{ flex: 1, minWidth: 0, overflowY: isMobile ? "visible" : "auto", scrollbarGutter: "stable", padding: isMobile ? "52px 18px 18px" : (asPage ? "34px 32px 28px" : "30px 32px 28px") }}>
           {asPage
             ? pageHead(fresh.title, {
+                center: jdViewSeg,
                 onBack: closeModal,
                 right: <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
                   {/* Export opens the standard export sheet already scoped to this job.
@@ -23820,50 +24242,67 @@ ${jobsCtx || "No jobs found."}`;
                 <h3 style={{ margin: 0, color: T.text, fontSize: 22, fontWeight: 700, lineHeight: 1.2, flex: 1, minWidth: 0 }}>{fresh.title}</h3>
                 {dCanEdit && <Btn size="sm" onClick={() => { openEdit(fresh); closeModal(); }}>Edit</Btn>}
               </div>}
-          {dPanels.length > 0
-            ? mainSec("panels", "Panels", `${dPanels.length} panel${dPanels.length === 1 ? "" : "s"}`, <div>
-              {parent.subs.map(panel => {
-                const hasEng = panel.engineering !== undefined;
-                const pEng = panel.engineering || {};
-                const engAllDone = hasEng && !!(pEng.designed && pEng.verified && pEng.sentToPerforex);
-                const pActiveStep = hasEng ? (!pEng.designed ? "designed" : !pEng.verified ? "verified" : "sentToPerforex") : null;
-                return <div key={panel.id} style={{ background: T.surface, borderRadius: T.radiusLg, border: `1px solid ${engAllDone ? "#10b98133" : hasEng ? T.accent + "33" : T.border}`, padding: 16, marginBottom: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-                    <HealthIcon t={panel} size={14} />
-                    <span style={{ flex: 1, fontSize: 14, color: T.text, fontWeight: 600, fontFamily: T.mono }}>{panel.title}</span>
-                    <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>{fm(panel.start)} → {fm(panel.end)}</span>
-                  </div>
-                  {/* Engineering sign-off row — only for panel jobs */}
-                  {hasEng && <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", borderRadius: T.radiusXs, marginBottom: 8, background: engAllDone ? "#10b98108" : T.accent + "08", border: `1px solid ${engAllDone ? "#10b98133" : T.accent + "22"}`, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, marginRight: 4 }}>ENG:</span>
-                    {approvalSteps.map(step => {
-                      const done = !!pEng[step.key];
-                      const isActive = step.key === pActiveStep;
-                      if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ <span style={{ color: T.textDim }}>{step.label}</span></span>;
-                      if (isActive && canApprove) return <button key={step.key} onClick={() => signOffEngineering(parent.id, panel.id, step.key)} style={{ padding: "3px 10px", borderRadius: T.radiusPill, background: brandGrad(T.accent), color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
-                      if (isActive) return <span key={step.key} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>→ {step.label}</span>;
-                      return <span key={step.key} style={{ fontSize: 11, color: T.textDim, opacity: 0.4 }}>○ {step.label}</span>;
-                    })}
-                    {engAllDone && <span style={{ marginLeft: "auto", fontSize: 11, color: "#10b981", fontWeight: 600 }}>✓ Ready</span>}
-                  </div>}
-                  {(panel.subs || []).length > 0 && <div>
-                    {panel.subs.map(op => { const assignee = (op.team || [])[0]; const person = assignee ? people.find(x => x.id === assignee) : null;
-                      return <div key={op.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: T.radiusXs, marginBottom: 4, background: T.bg, border: `1px solid ${T.border}` }}>
-                        <HealthIcon t={op} size={12} />
-                        <span style={{ fontSize: 13, fontWeight: 500, color: T.text, minWidth: 50 }}>{op.title}</span>
-                        <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(op.start)}–{fm(op.end)}</span>
-                        {person && <span style={{ marginLeft: "auto", fontSize: 12, color: person.color, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}><PersonAvatar person={person} size={16} />{person.name}</span>}
-                        {!person && <span style={{ marginLeft: "auto", fontSize: 11, color: T.textDim, fontStyle: "italic" }}>Unassigned</span>}
-                      </div>; })}
-                  </div>}
-                </div>;
-              })}
-            </div>)
-            : <div style={{ fontSize: 13, color: T.textDim, padding: "24px 0" }}>This job has no panels yet.</div>}
-          {/* Project Plan board — the design's centre card. Sits after the panels
-              list, same order as the mock. Reads the job's own panels/ops, so it
-              also carries the work the Schedule drops: unassigned and undated items. */}
-          {renderProjectPlan(parent || fresh)}
+          {/* Meta summary only. The view switcher lives in the page header,
+              centred on the row, which is where the design puts it. */}
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12.5, color: T.text, fontWeight: 700 }}>Project Plan</span>
+          </div>
+
+          {jobDetailView === "tasks" && renderJobTaskList(parent || fresh, false)}
+          {jobDetailView === "gantt" && renderProjectPlan(parent || fresh)}
+          {jobDetailView === "split" && (() => {
+            // Draggable divider. The panes are sized by FRACTION but each carries a
+            // hard min-width, and each scrolls internally -- so dragging past the
+            // floor rolls a pane's content under its own scroller instead of
+            // crushing the columns into slivers. That is the "roll over the
+            // information instead of squeezing it" behaviour: the divider simply
+            // stops travelling once a pane is at its floor.
+            const onGrip = (e) => {
+              e.preventDefault();
+              const host = e.currentTarget.parentElement;
+              if (!host) return;
+              const box = host.getBoundingClientRect();
+              const move = (ev) => {
+                const frac = (ev.clientX - box.left) / Math.max(1, box.width);
+                // Floors expressed as fractions of the CURRENT width, so a narrow
+                // window cannot drag either pane below what it can show.
+                const minL = Math.min(0.62, 300 / Math.max(1, box.width));
+                const minR = Math.min(0.62, 320 / Math.max(1, box.width));
+                setJobDetailSplit(Math.max(minL, Math.min(1 - minR, frac)));
+              };
+              const up = () => {
+                document.removeEventListener("pointermove", move);
+                document.removeEventListener("pointerup", up);
+                document.body.style.cursor = "";
+              };
+              document.body.style.cursor = "col-resize";
+              document.addEventListener("pointermove", move);
+              document.addEventListener("pointerup", up);
+            };
+            const f = Math.max(0.2, Math.min(0.8, Number(jobDetailSplit) || 0.42));
+            return <div style={{ display: "flex", alignItems: "stretch", gap: 0, minHeight: 380 }}>
+              <div style={{ width: `calc(${f * 100}% - 5px)`, minWidth: 0, display: "flex", flexDirection: "column" }}>
+                {renderJobTaskList(parent || fresh, true)}
+              </div>
+              {/* 10px of grab area, with three bars so it is discoverable -- the
+                  same affordance the details sidebar's resize handle uses. */}
+              <div onPointerDown={onGrip} title="Drag to resize"
+                onMouseEnter={e => { const g = e.currentTarget.firstChild; if (g) g.style.opacity = "1"; }}
+                onMouseLeave={e => { const g = e.currentTarget.firstChild; if (g) g.style.opacity = "0.35"; }}
+                style={{ width: 10, flexShrink: 0, cursor: "col-resize", display: "flex", alignItems: "center", justifyContent: "center", touchAction: "none" }}>
+                <div aria-hidden="true" style={{ display: "flex", flexDirection: "column", gap: 3, opacity: 0.35, transition: "opacity 0.15s" }}>
+                  {[0, 1, 2].map(i => <span key={i} style={{ display: "block", width: 3, height: 3, borderRadius: 3, background: T.textSec }} />)}
+                </div>
+              </div>
+              <div style={{ width: `calc(${(1 - f) * 100}% - 5px)`, minWidth: 0, display: "flex", flexDirection: "column" }}>
+                {renderProjectPlan(parent || fresh, { labelless: true })}
+              </div>
+            </div>;
+          })()}
+
+          {/* No Panels card here. The v2 design has none -- the three views ARE
+              the page, and the Tasks list already names every phase and its
+              range. mainSec/detailSecClosed still drive the right column. */}
         </div>
         {/* ── Right: Information · Notes · Attachments ── */}
         {/* Resize handle — a sibling flex item, so it is full height for free and needs
@@ -27131,6 +27570,47 @@ ${jobsCtx || "No jobs found."}`;
         match behind a collapsed header, exactly as GroupingSelect does.
         Toggles membership rather than replacing it: an op can be shared, which
         is what pickTeam's "all" mode produces. */}
+    <FadeOnClose open={jdColPicker}>{jdColPicker && (
+      <div style={{ position: "fixed", inset: 0, zIndex: 10014, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
+        onClick={() => setJdColPicker(false)}>
+        <div className="anim-modal-box" onClick={e => e.stopPropagation()}
+          style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, width: "100%", maxWidth: 420, maxHeight: "80vh", overflowY: "auto", padding: "20px 22px", fontFamily: T.font }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: T.text, marginBottom: 4 }}>Add a column</div>
+          <div style={{ fontSize: 12, color: T.textDim, marginBottom: 16 }}>
+            Job Details only — the Jobs page keeps its own columns.
+          </div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "-0.02em", textTransform: "uppercase", color: T.textDim, marginBottom: 6 }}>Standard</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+            {STD_COL_DEFS.filter(c => !jdColOrder.includes(c.id)).map(c => (
+              <button key={c.id} onClick={() => { setJdColOrder(p => [...p, c.id]); setJdColPicker(false); }}
+                style={{ padding: "6px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
+                + {c.label}
+              </button>
+            ))}
+            {STD_COL_DEFS.filter(c => !jdColOrder.includes(c.id)).length === 0 && <span style={{ fontSize: 12, color: T.textDim }}>All standard columns are shown.</span>}
+          </div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "-0.02em", textTransform: "uppercase", color: T.textDim, marginBottom: 6 }}>Job fields</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+            {FIELD_COL_CATALOG.filter(f => !jdCustomCols.some(c => c.fieldKey === f.fieldKey)).map(f => (
+              <button key={f.fieldKey} onClick={() => { setJdCustomCols(p => [...p, { id: "jdf_" + f.fieldKey, ...f }]); setJdColPicker(false); }}
+                style={{ padding: "6px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
+                + {f.label}
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => { const n = window.prompt("New column name"); if (n && n.trim()) { jdAddCustomCol(n.trim(), "text"); setJdColPicker(false); } }}
+              style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+              Custom column…
+            </button>
+            <button onClick={() => setJdColPicker(false)}
+              style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    )}</FadeOnClose>
     <FadeOnClose open={!!planAssign}>{planAssign && (() => {
       const live = findTaskNode(planAssign.id) || {};
       const team = (live.team || []).map(String);
