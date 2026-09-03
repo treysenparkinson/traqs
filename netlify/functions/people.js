@@ -18,6 +18,42 @@ const PROTECTED_PERSON_FIELDS = [
   "department", "isEngineer",
 ];
 
+// Fields only the SERVER may set. A full-roster POST carries every person's
+// whole record, so any client holding a stale roster writes back whatever it last
+// saw — and for these fields "what it last saw" is routinely out of date by the
+// time the POST lands. The desktop autosaves the entire array (doSave in
+// TRAQS.jsx), so with a browser left open all day a stale value gets re-asserted
+// every few seconds.
+//
+// Two live bugs came from exactly that, and both looked like the phone was broken:
+//
+//   * activeBreak — the worker ends a break (or clocks out, which closes it via
+//     closeActiveBreak); timeclock.js clears the flag and logs the breakEnd row
+//     to payhours. Then a stale POST puts the flag BACK. payhours stays correct,
+//     so the timesheet reads right while every client shows "On break · 47m" and
+//     iOS's OpenBreakCard tells them to end a break they already ended. No client
+//     sets this through here — web and iOS both go through breakBegin/breakClear —
+//     so pinning it costs nothing.
+//
+//   * pushToken — a roster fetched before a phone registered has no token, so the
+//     POST wipes it, and _utils/push.js then drops that person from every native
+//     push (desktop web push comes from its own store, so it keeps working and the
+//     loss looks like an iOS problem). iOS re-registers on the next foreground and
+//     the next stale POST wipes it again. PATCH is the writer for this field —
+//     that is what it exists for — so a POST has no business carrying it.
+//
+// activeClockIn/activeJobClock were already pinned; these two belong with them.
+// Deliberately NOT applied to PATCH: a PATCH names the one field it means to
+// change, so it can't carry a stale value it never looked at.
+export function serverOwnedPersonFields(stored) {
+  return {
+    activeClockIn:  stored.activeClockIn  ?? null,
+    activeJobClock: stored.activeJobClock ?? null,
+    activeBreak:    stored.activeBreak    ?? null,
+    pushToken:      stored.pushToken      ?? null,
+  };
+}
+
 // Normalize a person's activeBreak so an active break always carries a startedAt.
 // iOS may set the flag (even as a bare boolean) without persisting a start time;
 // without this the admin "Live status" break timer has nothing to count from.
@@ -118,18 +154,19 @@ export async function handler(event) {
         // `hasPin` is a server-derived read flag — never persist it back.
         const { hasPin: _hp, ...pIn } = p;
         let np = (stored?.pin && !pIn.pin) ? { ...pIn, pin: stored.pin } : pIn;
-        np = withBreakStart(np, stored);
-        // Clock state is SERVER-AUTHORITATIVE — only the timeclock functions
-        // (clockIn/clockOut/jobClockIn/jobClockOut/admin*) may set or clear it.
-        // A general people POST must never carry it back, or a client holding a
-        // stale roster (esp. iOS, whose sync lags across a WKWebView background/
-        // foreground cycle) would clobber a clock-out done elsewhere and resurrect
-        // a finished shift — corrupting payroll hours. Always keep whatever the
-        // server currently stores; ignore the incoming activeClockIn/activeJobClock.
-        // (Same class of bug the activeBreak handling above already guards against.)
+        // Clock/break state and the push token are SERVER-AUTHORITATIVE — only the
+        // timeclock functions (clockIn/clockOut/jobClockIn/jobClockOut/breakBegin/
+        // breakClear/admin*) and the granular PATCH may set them. A general people
+        // POST must never carry them back, or a client holding a stale roster
+        // clobbers a clock-out, break-end or token registration that happened
+        // elsewhere. Always keep whatever the server currently stores — see
+        // serverOwnedPersonFields for what each one broke.
         if (stored) {
-          np = { ...np, activeClockIn: stored.activeClockIn ?? null, activeJobClock: stored.activeJobClock ?? null };
+          np = { ...np, ...serverOwnedPersonFields(stored) };
         }
+        // Anchor a startedAt on the break we just pinned. Runs AFTER the pin, so
+        // it can only ever repair the stored break — never adopt an incoming one.
+        np = withBreakStart(np, stored);
         // Non-admins may only edit SAFE fields (name/email/phone/color/image/
         // pushToken) on their OWN record. Other people's records are preserved
         // verbatim, and escalation-sensitive fields on their own record are

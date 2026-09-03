@@ -463,6 +463,11 @@ class AppState {
         localCache?.clearAll()
         jobs = []; people = []; clients = []; messages = []; groups = []
         configuredOrgCode = nil
+        // The confirmation belongs to the person who just logged out. Leaving it
+        // set would make `writePushToken` skip the next account's registration on
+        // this device — the same device, the same OneSignal subscription id, a
+        // different person record to write it to.
+        confirmedPushToken = nil
     }
 
     // MARK: - Sync status & optimistic UI (Phase 6)
@@ -2156,11 +2161,22 @@ class AppState {
         #endif
     }
 
+    /// The token this session has CONFIRMED the server accepted. The skip below
+    /// reads this and not `people[idx].pushToken`, because the roster is a local
+    /// belief about the server, not evidence of a write to it — and the two came
+    /// apart routinely: a full-roster POST from another client used to drop the
+    /// token server-side (see serverOwnedPersonFields in people.js) while this
+    /// device still held its own optimistic copy. The skip then fired on every
+    /// retry — foreground, observer, poll — and the phone sat unreachable with a
+    /// roster that said otherwise. One confirmed write per launch is cheap; a
+    /// silently unregistered device is not.
+    private var confirmedPushToken: String?
+
     private func writePushToken(_ token: String) async {
         guard let api,
               let personId = currentPersonId,
               let idx = people.firstIndex(where: { $0.id == personId }),
-              people[idx].pushToken != token else { return }
+              confirmedPushToken != token else { return }
         var updated = people
         updated[idx].pushToken = token
         people = updated
@@ -2172,14 +2188,23 @@ class AppState {
         // land in people.json. Without this fallback, the chat
         // notifications break the moment the iOS client races ahead of
         // the Netlify deploy.
+        //
+        // The fallback only ever reaches a deploy old enough to lack PATCH, and
+        // such a deploy still accepts `pushToken` through the roster — so it
+        // remains the right thing to do there. On a current server the field is
+        // pinned to its stored value and the POST would write nothing, which is
+        // fine: there PATCH succeeds, and PATCH is tried first.
         do {
             try await api.patchPerson(personId: personId, fields: ["pushToken": token])
+            confirmedPushToken = token
         } catch APIError.httpError(405), APIError.httpError(404) {
-            try? await api.savePeople(updated)
+            if (try? await api.savePeople(updated)) != nil { confirmedPushToken = token }
         } catch {
             // Any other error: also fall back, since we'd rather have
             // push working with the legacy race than not working at all.
-            try? await api.savePeople(updated)
+            // `confirmedPushToken` stays put on failure, so the next
+            // foreground/observer retry tries again instead of skipping.
+            if (try? await api.savePeople(updated)) != nil { confirmedPushToken = token }
         }
     }
 
