@@ -502,45 +502,25 @@ struct TRAQSTabBar: View {
         }
         .padding(.horizontal, hPad)
         .padding(.vertical, vPad)   // shrinks as the highlighter grows → pill height locked
-        // The bar's paint, and it FOLLOWS THE FROSTED-GLASS TOGGLE — glass on,
-        // a real blur under `T.navTint`; glass off, a flat opaque `T.navSolid`
-        // with the plain hairline. This reverses an earlier call that kept the
-        // bar frosted unconditionally on the grounds that the page showing
-        // through it is what says it floats: with the toggle off it was the last
-        // glassy thing on screen, so "flat" only ever looked half-applied.
+        // The bar's paint — native Liquid Glass, flattening with the
+        // frosted-glass toggle. Everything about WHY it looks the way it does
+        // (its own tint, no rim, and why the glass branch takes no
+        // `compositingGroup`) lives on `NavPillMaterial`; this is one call so the
+        // two branches can't drift into different shapes or paddings.
+        //
+        // It paints BEHIND the content, never as an `.overlay`. This part is
+        // load-bearing and must not change: an overlay is drawn above
+        // everything, so when the highlighter stretched wide enough to reach the
+        // bar's ends — jobs → analytics, the longest throw — the border cut
+        // straight across it and the pill looked like it was travelling INSIDE
+        // the bar's wall. Behind the content, the pill rides over it and reads as
+        // an object sitting on the bar. Both branches of `NavPillMaterial` keep
+        // that: `glassEffect` renders its material under the view it modifies,
+        // exactly as the old `.background` did.
+        //
         // (Measured on device: replacing this whole stack with a plain opaque
-        // fill did NOT reduce the per-tap stall, so the blur is not the cost.)
-        //
-        // Deliberately NOT `glassFill()`: that paints `glassSurfaceTint` of
-        // `T.surface`, which sat too close to the page for five small glyphs to
-        // hold their own. The bar has its own preset-driven tint — lighter than
-        // the page on White, darker on Charcoal. See the `T.nav*` block.
-        //
-        // NO RIM while the glass is on. The lit bevel is for surfaces you look
-        // AT; on permanent chrome it read as a bright wire tracing the pill, and
-        // the ambient shadow below already separates the bar from the page. The
-        // flat branch keeps a hairline because an opaque slab with no edge has
-        // nothing to end it.
-        //
-        // The edge is painted HERE, in the background, not as an `.overlay`.
-        // This part is load-bearing and must not change: an overlay is drawn
-        // above everything, so when the highlighter stretched wide enough to
-        // reach the bar's ends — jobs → analytics, the longest throw — the
-        // border cut straight across it and the pill looked like it was
-        // travelling INSIDE the bar's wall. Behind the content, the pill rides
-        // over it and reads as an object sitting on the bar.
-        .background {
-            ZStack {
-                if T.glassEnabled {
-                    shape.fill(.ultraThinMaterial)
-                    shape.fill(Color(hex: T.navTint).opacity(T.navTintOpacity))
-                } else {
-                    shape.fill(Color(hex: T.navSolid))
-                    shape.flatHairline()
-                }
-            }
-        }
-        .compositingGroup()
+        // fill did NOT reduce the per-tap stall, so the material is not the cost.)
+        .navPillMaterial(shape)
         .shadow(color: .black.opacity(T.ambientShadowOpacity),
                 radius: T.ambientShadowRadius, x: 0, y: T.ambientShadowY)
         // Floating "which page" label that tracks the finger while dragging.

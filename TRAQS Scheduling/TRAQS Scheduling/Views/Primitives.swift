@@ -395,6 +395,83 @@ struct GlassSurface<S: InsettableShape>: ViewModifier {
     }
 }
 
+/// The floating nav pill's paint.
+///
+/// Glass on, this is NATIVE Liquid Glass — Apple's material, the same one the
+/// highlighter riding on top of it uses (`glassCTA`) and the same one every
+/// glass button in the app uses (`GlassControl`). Glass off, a flat opaque
+/// `T.navSolid` slab with the plain hairline.
+///
+/// It was `.ultraThinMaterial` under a tint fill: TRAQS painting its own
+/// approximation of glass on the one piece of chrome that is never not on
+/// screen. Native glass refracts and specular-lights what is behind it instead
+/// of just blurring it, so the bar reads as a lens over the page rather than a
+/// frosted panel laid on it.
+///
+/// It still FOLLOWS THE FROSTED-GLASS TOGGLE, unlike `GlassControl`. That
+/// exception is for BUTTONS — Apple's material on a control the user reaches
+/// for. The bar is a surface, and it is the surface the toggle is most visible
+/// on: leave it glass with the switch off and it's the last glassy thing on
+/// screen, which is what "half-applied" looked like before.
+///
+/// Three things here are load-bearing:
+///
+///   * The bar keeps its OWN tint (`T.navTint` at `T.navTintOpacity`) rather
+///     than taking untinted glass or `glassSurfaceTint`. Five small glyphs have
+///     to hold their own against the page showing through, and the bar's tint is
+///     the one that pushes AWAY from it in both families — lighter than the page
+///     on White, darker on Charcoal. `T.navTintOpacity` is still THE dial.
+///
+///   * NO `compositingGroup()` on the glass branch. Every such pairing in this
+///     file sits under a TRAQS-painted surface, where it stops a shadow being
+///     applied to each layer separately. Native glass is one layer and samples
+///     its backdrop live; an offscreen compositing pass is the wrong thing to
+///     wrap it in. The house precedent is the tab highlighter itself —
+///     `.glassCTA()` then a plain `.shadow()`. The flat branch keeps the group,
+///     because there it really is a fill plus a hairline.
+///
+///   * NO RIM. The lit bevel is for surfaces you look AT; on permanent chrome it
+///     read as a bright wire tracing the pill, and native glass carries its own
+///     edge. The flat branch keeps a hairline because an opaque slab with no
+///     edge has nothing to end it.
+///
+/// Self-observing for the same reason as `GlassSurface`: none of the `T.*`
+/// tokens it reads are observable, so a live Customize change to the preset, the
+/// accent or the glass switch has to re-render it from here.
+struct NavPillMaterial<S: InsettableShape>: ViewModifier {
+    @Environment(ThemeSettings.self) private var theme
+    let shape: S
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        let _ = (theme.bgPresetId, theme.accent, theme.frostedGlass)
+        if T.glassEnabled {
+            // Not `.interactive()`: that is the press response for a control, and
+            // the thing that answers a tap here is the highlighter's squash and
+            // stretch. Both at once reads as two separate reactions to one tap.
+            content.glassEffect(
+                Glass.regular.tint(Color(hex: T.navTint).opacity(T.navTintOpacity)),
+                in: shape)
+        } else {
+            content
+                .background {
+                    ZStack {
+                        shape.fill(Color(hex: T.navSolid))
+                        shape.flatHairline()
+                    }
+                }
+                .compositingGroup()
+        }
+    }
+}
+
+extension View {
+    /// See `NavPillMaterial` — the nav bar's paint, glass or flat.
+    func navPillMaterial<S: InsettableShape>(_ shape: S) -> some View {
+        modifier(NavPillMaterial(shape: shape))
+    }
+}
+
 enum HeaderControl {
     /// Height AND width of every header control — circles and pills alike, so a
     /// pill differs from a circle only in how long it is, never in how thick.
