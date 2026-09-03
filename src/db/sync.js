@@ -168,7 +168,27 @@ export async function mergeFullSlice(entity, list) {
   if (!Array.isArray(list) || list.length === 0) return false;
   const rows = list.filter((r) => r && r.id != null && !r.deletedAt);
   if (!rows.length) return false;
-  await db[entity].bulkPut(rows);
+  // A full authoritative GET is the WHOLE truth for this slice, so a row the
+  // cache holds that is not in it is gone -- deleted by someone, or tombstoned
+  // server-side (the GET filters tombstones out before we ever see them).
+  //
+  // This used to be a bare bulkPut, and that is why deleted jobs came back. The
+  // row survived in IndexedDB; mergeFullSlice then fired `tasks-changed`;
+  // applySlice read the slice straight back out; mergeInOrder saw an id that
+  // `prev` did not have and APPENDED it as if another user had just created it.
+  // The job returned on the next sync event, and a cold start painted it from
+  // the cache before the network even answered.
+  //
+  // Callers must pass a COMPLETE list for the slice -- every current caller is a
+  // full fetch (tasks/people/clients/payhours/productionhours). A partial list
+  // here would evict everything it omitted.
+  const live = new Set(rows.map((r) => String(r.id)));
+  const stale = (await db[entity].toCollection().primaryKeys())
+    .filter((k) => !live.has(String(k)));
+  await db.transaction("rw", db[entity], async () => {
+    if (stale.length) await db[entity].bulkDelete(stale);
+    await db[entity].bulkPut(rows);
+  });
   syncBus.dispatchEvent(new CustomEvent(`${entity}-changed`));
   syncBus.dispatchEvent(new CustomEvent("any-changed", { detail: { entities: [entity] } }));
   return true;

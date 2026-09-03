@@ -90,6 +90,10 @@ const evalCondition = (cond, item) => {
 // Predefined job fields that can be added as linked columns
 const FIELD_COL_CATALOG = [
   { fieldKey: "poNumber",      label: "PO #",        type: "text",   defaultWidth: 100, description: "Purchase order number" },
+  // Job-level only: a panel or op has no project manager, so the cell renders
+  // blank on sub-rows rather than offering an edit that would write the field
+  // onto a child where nothing reads it.
+  { fieldKey: "projectManagerId", label: "PM",       type: "person", defaultWidth: 140, description: "Project manager" },
   { fieldKey: "jobType",       label: "Job Type",    type: "text",   defaultWidth: 110, description: "Type or category of job" },
   { fieldKey: "hpd",           label: "Hrs/Day",     type: "number", defaultWidth: 80,  description: "Hours per day capacity" },
   { fieldKey: "notes",         label: "Notes",       type: "text",   defaultWidth: 180, description: "Free-form job notes" },
@@ -1025,7 +1029,6 @@ animStyle.textContent = `
   position: relative;
   overflow: hidden;
 }
-.anim-tab:hover  { transform: translateY(-1px) scale(1.03); }
 .anim-tab:active { transform: scale(0.94) translateY(0); transition-duration: 0.08s; }
 
 .anim-btn {
@@ -1033,7 +1036,6 @@ animStyle.textContent = `
   position: relative;
   overflow: hidden;
 }
-.anim-btn:hover  { box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16)); filter: brightness(1.05); }
 .anim-btn:active { filter: brightness(0.95); transition-duration: 0.08s; }
 
 /* Customize-modal mockup: ease every colour/theme change so edits fade in rather than snap. */
@@ -1048,7 +1050,6 @@ animStyle.textContent = `
 .icon-btn-glow {
   transition: box-shadow 0.22s ease-out, filter 0.22s ease-out, border-color 0.18s ease-out, background 0.18s ease-out;
 }
-.icon-btn-glow:hover  { box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16)); filter: brightness(1.05); }
 .icon-btn-glow:active { filter: brightness(0.96); transition-duration: 0.08s; }
 
 /* ── Universal button hover — subtle lift + accent glow on EVERY button, app-wide.
@@ -1059,50 +1060,45 @@ animStyle.textContent = `
    effect also overrides buttons that set their own inline transition/transform/
    box-shadow. Disabled buttons are excluded; the lift is gated to real pointers
    (hover: hover) so it can't stick on touch devices. */
+/* box-shadow fades at 0.12s, not the 0.2-0.32s it used to. The hover tint is a
+   full-box inset shadow and these controls sit on a backdrop-filter surface, so
+   every frame of that transition re-composites the 28px blur. A short window
+   keeps it cheap enough to be smooth while still reading as a fade rather than a
+   snap. The genuinely expensive hovers -- a 4px card lift and two 22px glows --
+   are gone entirely, which is what was actually making this glitch. */
 button:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
   transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
-              box-shadow 0.2s ease, filter 0.2s ease,
+              filter 0.2s ease,
               background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
-}
-@media (hover: hover) {
-  button:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
-    /* Same halo as .tq-drop and the input rule below. Buttons used to carry a
-       tighter, harder shadow (0 4px 16px of --tq-glow at 40% accent), so a
-       button and the dropdown beside it glowed differently. One value now, so
-       every interactive control reads as the same family. */
-    transform: translateY(-1.5px) !important;
-    box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16)) !important;
-    filter: brightness(1.05);
-  }
 }
 button:not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
   transform: translateY(0) scale(0.97) !important;
   transition-duration: 0.07s !important;
 }
-/* Every text-entry control carries the same soft accent halo the dropdowns and
-   calendar days do: hover lifts it, focus holds the glow and rings the border in
-   the accent. Element selectors (not a class) so this reaches all ~170 inputs and
-   textareas without touching a call site — including any added later.
+/* Every text-entry control reads the same on hover: a hairline shadow, no motion.
+   Focus is where the accent halo and border live, so the loud state belongs to the
+   one field you are in rather than to whichever field the cursor happens to cross.
+   Element selectors (not a class) so this reaches all ~170 inputs and textareas
+   without touching a call site — including any added later.
 
-   Excluded on purpose, because a lift reads as a glitch rather than an affordance:
-   checkbox/radio (they sit inline with label text), range (the slider pill has its
-   own thumb treatment), color and file (OS-drawn widgets), and type=button, which
-   is already covered by the button rules above. Disabled fields get nothing. */
+   Excluded on purpose: checkbox/radio (they sit inline with label text), range (the
+   slider pill has its own thumb treatment), color and file (OS-drawn widgets), and
+   type=button, which is already covered by the button rules above. Disabled fields
+   get nothing.
+
+   NOTE: the universal button rule above still lifts 1.5px on a spring and throws
+   the 22px halo. It is deliberately left alone — this change was scoped to inputs. */
 input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare),
 textarea:not(:disabled):not([readonly]):not(.tq-bare),
 select:not(:disabled) {
-  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
-              box-shadow 0.2s ease, filter 0.2s ease,
+  /* Plain ease, not cubic-bezier(0.34, 1.56, 0.64, 1). That 1.56 overshoots past
+     its target and settles back, which is what made every field bounce under the
+     cursor. The transform property stays in the list only so an inline transform
+     elsewhere still eases (this rule's !important would otherwise replace its
+     transition outright) -- hover no longer sets one. */
+  transition: transform 0.15s ease,
+              box-shadow 0.15s ease, filter 0.15s ease,
               border-color 0.15s ease, background-color 0.15s ease !important;
-}
-@media (hover: hover) {
-  input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover,
-  textarea:not(:disabled):not([readonly]):not(.tq-bare):hover,
-  select:not(:disabled):hover {
-    transform: translateY(-1.5px);
-    box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16));
-    filter: brightness(1.04);
-  }
 }
 /* Grid cells that act as dropdowns (the styled pickers in the jobs table) get the
    same halo but NOT the lift: a table cell that rises breaks alignment with the
@@ -1121,12 +1117,6 @@ select:not(:disabled) {
    soft glow bleeding out of one cell into its neighbours is the same problem the ring
    was — a table reads as a grid, and anything that spills across a cell boundary
    fights that. Brightness alone marks the hover: it stays inside the cell. */
-@media (hover: hover) {
-  .tq-cell-drop:hover {
-    box-shadow: none;
-    filter: brightness(1.04);
-  }
-}
 /* Focus holds the halo but NOT the lift — a field that stays raised while you
    type reads as stuck, and the caret shifting mid-edit is worse than no motion. */
 input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):focus,
@@ -1195,17 +1185,12 @@ select:not(.tq-sq) { padding-left: 14px; padding-right: 12px; }
 .sched-person:hover .sched-person-glow { opacity: 1; }
 /* Toolbar search pills (Schedule + Jobs). They're <div> wrappers, not <button>,
    so the universal button lift/glow above never reached them and they sat flat
-   next to the buttons they share a toolbar with. Same values as that rule so
-   they lift identically. The transition itself lives inline alongside the
+   so the universal button rule above never reached them and they sat flat next to
+   the buttons they share a toolbar with. They now match the FIELD family rather
+   than the buttons: a search pill is somewhere you type, so it gets the same
+   hairline hover as every other input instead of a 1.5px lift and a 22px halo.
    width/border-color ones — an inline transition would otherwise win outright
    and drop these properties. */
-@media (hover: hover) {
-  .tq-searchbar:hover {
-    transform: translateY(-1.5px);
-    box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16));
-    filter: brightness(1.06);
-  }
-}
 /* Navigation sidebar opts out of the lift/glow — it keeps the simple background
    fade (set inline per nav button). Higher specificity than the rule above so it
    wins even against !important. */
@@ -1243,11 +1228,8 @@ button.tq-noanim:not(:disabled):not([disabled]):not([aria-disabled="true"]):acti
    button + class + three :not()s + :hover is (0,5,1), which clears both the
    app-wide button:...:hover (0,4,1) and .dash-btn:...:hover (0,5,0) without
    needing to name .dash-btn — so it keeps working if that class ever moves. */
-.traqs-glass button.tq-softglow:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
-  box-shadow: var(--tq-control-edge), 0 2px 7px var(--tq-glow-ring-soft, rgba(0,0,0,0.12)) !important;
-}
 .traqs-glass button.tq-softglow:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
-  box-shadow: var(--tq-control-edge), 0 1px 4px var(--tq-glow-ring-soft, rgba(0,0,0,0.12)) !important;
+  box-shadow: 0 1px 4px var(--tq-glow-ring-soft, rgba(0,0,0,0.12)) !important;
 }
 /* Glass off, and the contained glow goes with everything else — these three
    buttons return to the shared dash-btn hover, which is what "as it was before"
@@ -1396,7 +1378,13 @@ button.tq-x:active {
 
    Every selector here hangs off .traqs-glass. With Frosted Glass off not one of
    them matches, and every control is exactly what it was. */
-.traqs-glass button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day),
+/* Buttons deliberately have NO glass edge. The ring reads as a border, and a
+   screen of buttons each wearing one looked like a form of outlined boxes rather
+   than a set of things to press -- the fill and the label are enough to say
+   "button". Everything that is a FIELD keeps its edge: inputs, .tq-drop triggers
+   (including the button-based ones like the date picker), the search bar, and
+   every card and popup surface. A field is a place to put something and wants a
+   defined boundary; a button is not. */
 .traqs-glass .tq-searchbar {
   box-shadow: var(--tq-control-edge) !important;
   /* The outline removal lives in its own rule below — it needs a narrower selector
@@ -1422,9 +1410,6 @@ button.tq-x:active {
    have meant losing the edge everywhere instead.
 
    Frosted Glass off, and none of it applies — every outline is back. */
-.traqs-glass button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(.tq-sidebar *):not(.anim-drop *):not(.anim-ctx *):not(.anim-ctx-up *):not(.anim-modal-box *):not(.anim-modal-overlay *) {
-  border: none !important;
-}
 /* box-shadow is ONE property: a rule that sets a hover glow does not add to the
    edge, it replaces it. So every interactive state has to restate the edge, or the
    border vanishes the moment you point at the button — which is exactly what it did.
@@ -1437,13 +1422,42 @@ button.tq-x:active {
    (0,5,1) clears the app-wide hover (0,4,1) and .dash-btn's (0,5,0). The two classes
    that want something different — .tq-softglow and  — are scoped with
    .traqs-glass themselves, which puts them at (0,6,1) and keeps them ahead of this. */
-@media (hover: hover) {
-  .traqs-glass button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):hover {
-    box-shadow: var(--tq-control-edge), 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16)) !important;
-  }
+/* Hover is a whisper of accent, not a movement. See --tq-accent-hover above for
+   why it is this faint, and why it is a shadow rather than a background. */
+/* No hover box-shadow rule for glass-surface buttons, deliberately. One was
+   added here when the tint was still a box-shadow, to stop the tint's !important
+   eating their edge. It is worse than useless now: the resting rule gives these
+   cards surface-edge plus lglass-shadow -- edge AND a 60px drop shadow -- and this
+   rule declared only the edge, so pointing at an EmployeeCard instantly deleted
+   its shadow. box-shadow is not transitioned, so it snapped. With the tint on
+   ::after there is nothing to defend against: the card keeps its resting shadow
+   untouched and only the overlay fades. */
+/* The overlay needs a containing block. 179 controls already set this inline;
+   the rest are static, and a button is the intended anchor for anything absolute
+   inside it anyway (the filter-count badge already relies on that). */
+button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]), .tq-drop { position: relative; }
+button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"])::after,
+.tq-drop::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--tq-accent-hover, rgba(65,105,225,0.07));
+  opacity: 0;
+  /* Fade OUT: this is the state being returned to, so its duration governs the
+     exit. Longer than the entry on purpose -- a slow exit is what reads as a
+     fade; a fast one reads as the highlight being switched off. */
+  transition: opacity 0.34s cubic-bezier(0.22, 1, 0.36, 1);
+  pointer-events: none;
 }
-.traqs-glass button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):active {
-  box-shadow: var(--tq-control-edge) !important;
+@media (hover: hover) {
+  button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover::after,
+  .tq-drop:hover::after {
+    opacity: 1;
+    /* Fade IN: entering hover. Quick enough to feel responsive to the cursor,
+       slow enough not to be a snap. */
+    transition: opacity 0.18s ease-out;
+  }
 }
 /* The one width exception, and it earns it. A button that fills its container has no
    fixed size to tune against: the My Clock buttons run the full width of their card at
@@ -1458,18 +1472,6 @@ button.tq-x:active {
    .tq-wide is the marker for anything else that fills its container — add the class
    rather than another rule. (0,8,0), clear of the global (0,7,1). .tq-softglow sits at
    (0,9,1) but only declares box-shadow, so the My Clock glow survives this untouched. */
-@media (hover: hover) {
-  .dash-btn:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover,
-  .tq-wide:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
-    transform: scale(1.008) !important;
-  }
-  .dash-btn:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > svg,
-  .dash-btn:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > span > svg,
-  .tq-wide:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > svg,
-  .tq-wide:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > span > svg {
-    transform: scale(0.9921);
-  }
-}
 .dash-btn:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active,
 .tq-wide:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
   transform: scale(0.995) !important;
@@ -1497,15 +1499,6 @@ button.tq-x:active {
    the helper uses the same number.
 
    (0,9,0), clear of the global (0,7,1) and of the full-width exception at (0,8,0). */
-@media (hover: hover) {
-  .tq-pagehdr button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
-    transform: scale(1.03) !important;
-  }
-  .tq-pagehdr button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > svg,
-  .tq-pagehdr button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > span > svg {
-    transform: scale(0.9709);
-  }
-}
 .tq-pagehdr button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
   transform: scale(0.985) !important;
 }
@@ -1609,23 +1602,6 @@ button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day) > svg,
 button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day) > span > svg {
   transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-@media (hover: hover) {
-  button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
-    transform: scale(1.02) !important;
-    box-shadow: none !important;
-    filter: none !important;
-    will-change: transform;
-  }
-  /* Counter-scaled by the reciprocal so the glyph renders at its authored size all
-     the way through. Scaling an SVG is a redraw, not a resize: a 2.5px stroke gets
-     thicker with the box, which reads as the icon thickening and shifting rather
-     than the button growing. This pins its SIZE, not its position — the box scales
-     about its centre, so an off-centre glyph still drifts a pixel or two. */
-  button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > svg,
-  button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover > span > svg {
-    transform: scale(0.9804);
-  }
-}
 button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
   transform: scale(0.99) !important;
   box-shadow: inset 0 0 0 9999px rgba(255, 255, 255, 0.14) !important;
@@ -1689,26 +1665,20 @@ button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([di
 .anim-ctx-up button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active > span > svg {
   transform: none;
 }
-/* Text fields, textareas and selects answer the pointer the same way buttons do —
-   and at the gentle scale, because a field is nearly always wide. Their existing
-   rule lifted and glowed on the same overshoot curve; this swaps the translate for a
-   scale and drops the glow, matching everything else.
+/* THIS is the rule that wins for text fields, textareas and selects: it is declared
+   after the base one near the top of the sheet at equal specificity, so it takes it
+   on source order (the old comment here said exactly that). Worth knowing, because
+   calming the earlier rule alone changes nothing on screen -- the swell lived here.
 
-   Their selector is copied verbatim from that rule rather than rewritten, so the
-   long list of input types it deliberately skips — checkbox, radio, range, colour,
-   file, button, submit, .tq-bare — cannot drift out of step. Declared after it, at
-   equal specificity, so it wins on order.
+   It used to set scale(1.02) with box-shadow:none and filter:none, so it also
+   cancelled the base rule to leave motion as the only hover signal. Now it carries
+   the same hairline shadow as the rest of the field family and no transform.
+
+   Their selector is copied verbatim from the base rule rather than rewritten, so the
+   long list of input types it deliberately skips -- checkbox, radio, range, colour,
+   file, button, submit, .tq-bare -- cannot drift out of step.
 
    Under Frosted Glass they take the control edge too. */
-@media (hover: hover) {
-  input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover,
-  textarea:not(:disabled):not([readonly]):not(.tq-bare):hover,
-  select:not(:disabled):hover {
-    transform: scale(1.02);
-    box-shadow: none;
-    filter: none;
-  }
-}
 input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):active,
 textarea:not(:disabled):not([readonly]):not(.tq-bare):active,
 select:not(:disabled):active {
@@ -1727,54 +1697,23 @@ select:not(:disabled):active {
     box-shadow: var(--tq-control-edge);
   }
 }
-/* Fields inside a dialog get a THIRD, quieter tier: 1.008 / 0.994.
-
-   The gentle 1.02 that suits a 220px search bar still travels 10px on a 500px field
-   and 13px on a 640px one — and the New Job and Edit Job forms are full of exactly
-   those. The number worth matching is the one that already reads right: a Jobs-header
-   pill at 1.06 moves 4.7px. 1.008 puts a 500px field at 4.0px and a 640px one at
-   5.1px, so a long field travels about as far as a small button rather than scaling
-   like it.
+/* Fields inside a dialog no longer scale on hover, and neither does anything else
+   in the field family. The tier system here used to read 1.06 / 1.02 / 1.008 and the
+   sizing table below it made the case well: a 640px field at 1.02 travels 12.8px,
+   which is why a dialog got its own quieter number.
 
        width   1.06     1.02     1.008
         220px  13.2px    4.4px    1.8px
         500px  30.0px   10.0px    4.0px
         640px  38.4px   12.8px    5.1px
 
-   Chosen for the widest case, which is why even the narrow fields in a dialog take it
-   — one tier per context beats a tier per element, and a dialog is where the wide
-   ones live. Named after the modal, so the same field outside one keeps the gentle
-   scale. Icon counter-scale is the reciprocal of THESE values. */
-@media (hover: hover) {
-.anim-modal-box input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover,
-.anim-modal-box textarea:not(:disabled):not([readonly]):not(.tq-bare):hover,
-.anim-modal-box select:not(:disabled):hover,
-.anim-modal-box .tq-drop:hover,
-.anim-modal-overlay input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover,
-.anim-modal-overlay textarea:not(:disabled):not([readonly]):not(.tq-bare):hover,
-.anim-modal-overlay select:not(:disabled):hover,
-.anim-modal-overlay .tq-drop:hover {
-    transform: scale(1.008) !important;
-  }
-.anim-modal-box input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover > svg,
-.anim-modal-box input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover > span > svg,
-.anim-modal-box textarea:not(:disabled):not([readonly]):not(.tq-bare):hover > svg,
-.anim-modal-box textarea:not(:disabled):not([readonly]):not(.tq-bare):hover > span > svg,
-.anim-modal-box select:not(:disabled):hover > svg,
-.anim-modal-box select:not(:disabled):hover > span > svg,
-.anim-modal-box .tq-drop:hover > svg,
-.anim-modal-box .tq-drop:hover > span > svg,
-.anim-modal-overlay input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover > svg,
-.anim-modal-overlay input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):hover > span > svg,
-.anim-modal-overlay textarea:not(:disabled):not([readonly]):not(.tq-bare):hover > svg,
-.anim-modal-overlay textarea:not(:disabled):not([readonly]):not(.tq-bare):hover > span > svg,
-.anim-modal-overlay select:not(:disabled):hover > svg,
-.anim-modal-overlay select:not(:disabled):hover > span > svg,
-.anim-modal-overlay .tq-drop:hover > svg,
-.anim-modal-overlay .tq-drop:hover > span > svg {
-    transform: scale(0.9921);
-  }
-}
+   The table is kept because it is the reasoning, not the rule: it shows that ANY
+   scale on a wide field moves its edges further than the same scale on a button,
+   so picking a smaller number per context was treating the symptom. A form full of
+   fields that each swell as the cursor crosses them reads as the page twitching.
+   Hover is now a hairline shadow everywhere in this family; focus keeps the accent
+   halo, so the strong signal belongs to the field you are actually in. The icon
+   counter-scale rules that paired with each tier are gone with the scales. */
 .anim-modal-box input:not(:disabled):not([readonly]):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]):not([type="file"]):not([type="button"]):not([type="submit"]):not(.tq-bare):active,
 .anim-modal-box textarea:not(:disabled):not([readonly]):not(.tq-bare):active,
 .anim-modal-box select:not(:disabled):active,
@@ -1817,15 +1756,6 @@ select:not(:disabled):active {
 .tq-searchbar > span > svg {
   transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-@media (hover: hover) {
-  .tq-searchbar:hover {
-    transform: scale(1.02);
-  }
-  .tq-searchbar:hover > svg,
-  .tq-searchbar:hover > span > svg {
-    transform: scale(0.9804);
-  }
-}
 .tq-searchbar:active {
   transform: scale(0.985);
 }
@@ -1840,13 +1770,9 @@ select:not(:disabled):active {
    covers the border and the button loses its edge at the moment you press it. Glass
    off and none of this matches, leaving the behaviour above intact and every border
    where it was. */
-@media (hover: hover) {
-  .traqs-glass button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
-    box-shadow: var(--tq-control-edge) !important;
-  }
-}
+/* The press flash stays -- it is feedback, not a border. Only the edge comes off. */
 .traqs-glass button:not(.tq-noanim):not(.tq-pill-seg):not(.tq-cal-day):not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
-  box-shadow: var(--tq-control-edge), inset 0 0 0 9999px rgba(255, 255, 255, 0.14) !important;
+  box-shadow: inset 0 0 0 9999px rgba(255, 255, 255, 0.14) !important;
 }
 /* Reading surfaces — the job/client list cards (FrostCard), and both export
    windows including the layout designer's toolbar and side rail. They read as too
@@ -1973,7 +1899,7 @@ select:not(:disabled):active {
    that shadow is a plain rule and would never win. Restated here WITH the insets
    so a hovered card keeps its glass edges instead of trading them for the lift. */
 .traqs-glass .anim-card-wrap:hover {
-  box-shadow: var(--tq-surface-edge), var(--tq-lglass-shadow-hover, 0 20px 52px rgba(0,0,0,0.30)) !important;
+  box-shadow: var(--tq-surface-edge), var(--tq-lglass-shadow, 0 24px 60px rgba(0,0,0,0.28)) !important;
 }
 /* Menu rows need NO rule here, and must not get one: they already declare
    background:transparent inline, and their hover fill is set inline by an
@@ -1985,10 +1911,8 @@ select:not(:disabled):active {
 
 .anim-card-wrap {
   transition: transform 0.32s cubic-bezier(0.34, 1.56, 0.64, 1),
-              box-shadow 0.32s cubic-bezier(0.22, 1, 0.36, 1),
               border-color 0.22s ease;
 }
-.anim-card-wrap:hover  { transform: translateY(-4px) scale(1.007); box-shadow: 0 20px 52px rgba(0,0,0,0.18); }
 .anim-card-wrap:active { transform: translateY(-1px) scale(0.99); transition-duration: 0.1s; }
 
 .anim-stagger { animation: staggerUp 0.4s  cubic-bezier(0.34, 1.56, 0.64, 1) both; }
@@ -2134,31 +2058,55 @@ input[type="range"].tq-pill-range::-moz-range-thumb {
 /* Dropdown triggers are <div>s, so the universal button:hover rule above can't
    reach them — this mirrors it so a TRAQS dropdown lifts and glows exactly like
    a TRAQS button. Same curve, same --tq-glow accent variable. */
+/* box-shadow fades at 0.12s, not the 0.2-0.32s it used to. The hover tint is a
+   full-box inset shadow and these controls sit on a backdrop-filter surface, so
+   every frame of that transition re-composites the 28px blur. A short window
+   keeps it cheap enough to be smooth while still reading as a fade rather than a
+   snap. The genuinely expensive hovers -- a 4px card lift and two 22px glows --
+   are gone entirely, which is what was actually making this glitch. */
 .tq-drop {
   /* !important, and matching the button curve exactly. Without it the trigger's
      own inline transition wins (inline beats stylesheet) and the glow snaps in
      with no animation at all — which is what made it read as "not TRAQS". */
-  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1),
-              box-shadow 0.2s ease, filter 0.2s ease,
+  transition: transform 0.15s ease,
+              filter 0.2s ease,
               background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
 }
-/* Swell and squeeze, matching the buttons, and at the GENTLE scale: a dropdown
-   trigger is a field, and fields are wide. 1.06 on something spanning half a form
-   lunges — the same trap the search bar and the My Clock buttons hit. Its icon
-   counter-scales by the reciprocal so the chevron neither thickens nor drifts.
+/* No swell. A dropdown trigger is a field, and it now hovers like the rest of the
+   field family: a hairline shadow, no motion. It used to scale 1.02 with its icon
+   counter-scaling by the reciprocal to keep the chevron from thickening -- that
+   whole apparatus existed to make the swell tolerable on wide triggers, and it goes
+   with the swell. The press (:active) keeps its squeeze and its counter-scale: a
+   press is a deliberate act and momentary, which is the opposite of hover. */
+/* Some .tq-drop triggers are <button> and some are <div>, and only the divs were
+   actually calm. The app-wide button hover sets transform and box-shadow with
+   !important, so on a <button class="tq-drop"> it beat the rule above and those
+   dropdowns kept lifting 1.5px and throwing the 22px halo while the div ones sat
+   still -- the same control animating two different ways depending on its tag.
 
-   The glow goes. It was the softer --tq-glow-ring rather than the button's --tq-glow
-   precisely because a trigger is mostly empty space and a hard shadow under it read
-   wrong; with the swell doing the work there is nothing left for it to soften. */
+   button + class + three :not()s + :hover is (0,5,1), which clears the app-wide
+   button:...:hover at (0,4,1); !important is needed too because that rule uses it.
+   Same trick, and the same reasoning, as .tq-softglow and .tq-noanim above.
+
+   The transition is restated at (0,4,1) for the same reason: the button rule sets
+   one with !important, and its spring curve would otherwise still drive whatever
+   it can animate here. */
+/* box-shadow fades at 0.12s, not the 0.2-0.32s it used to. The hover tint is a
+   full-box inset shadow and these controls sit on a backdrop-filter surface, so
+   every frame of that transition re-composites the 28px blur. A short window
+   keeps it cheap enough to be smooth while still reading as a fade rather than a
+   snap. The genuinely expensive hovers -- a 4px card lift and two 22px glows --
+   are gone entirely, which is what was actually making this glitch. */
+button.tq-drop:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
+  transition: filter 0.15s ease,
+              background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease !important;
+}
 @media (hover: hover) {
-  .tq-drop:hover {
-    transform: scale(1.02);
-    box-shadow: none;
-    filter: none;
-  }
-  .tq-drop:hover > svg,
-  .tq-drop:hover > span > svg {
-    transform: scale(0.9804);
+  /* Under Frosted Glass a div .tq-drop shows the control edge on hover instead of
+     the hairline shadow (.traqs-glass .tq-drop:hover, further down). Mirrored here
+     at (0,6,1) so the button ones match rather than losing the edge. */
+  .traqs-glass button.tq-drop:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
+    box-shadow: var(--tq-control-edge) !important;
   }
 }
 .tq-drop:active {
@@ -2828,6 +2776,20 @@ function DateField({ value, onChange, placeholder = "Pick a date", style = {}, w
 // with === or Array.includes.
 const sameId = (a, b) => a != null && b != null && String(a) === String(b);
 const onTeam = (team, pid) => (team || []).some(x => sameId(x, pid));
+
+// ── Scheduling state of one work item ───────────────────────────────────────
+// "Unscheduled" was three unrelated shapes spread across the app, which is why
+// the same job could be missing from one surface and today-pinned on another:
+//   job.scheduledLater === true   a whole job parked by "Schedule Later..."
+//   has a team but no dates       assignable work with nowhere to sit on a timeline
+//   neither dates nor a team      only ever visible in the Jobs grid
+// These name the states once so the Schedule, the Jobs grid and the Project Plan
+// board all read the same predicate instead of re-deriving it. A node here is a
+// job, a panel or an op — the fields tested exist at every level.
+const isDated = (n) => !!(n && n.start && n.end);
+const isAssigned = (n) => !!(n && (n.team || []).length > 0);
+/** Placed on the timeline: it has dates AND somebody to draw the bar against. */
+const isTimelinePlaced = (n) => isDated(n) && isAssigned(n);
 // Map key for a person id that reproduces `===` exactly — type included, so 99 and "99"
 // stay DISTINCT. Used only by the lookup indexes below, whose whole job is to be a faster
 // spelling of a === scan they replace; unifying the two types there would quietly change
@@ -3248,7 +3210,7 @@ function CustomDrop({ value, onChange, options, placeholder = "Select…", compa
       <span style={{ fontSize: compact ? 12 : 14, fontWeight: compact ? 600 : 400, color: value ? T.text : T.textDim, fontFamily: T.font, flex: 1, lineHeight: compact ? "16px" : "normal" }}>{value || placeholder}</span>
       <svg width={compact ? 10 : 12} height={compact ? 10 : 12} viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
     </div>
-    <FadeOnClose open={open}><div style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out" }}>
+    <FadeOnClose open={open}><div className="anim-drop" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.3)", padding: "4px 0", animation: "menuIn 0.15s ease-out" }}>
       {options.map((r, ri) => {
         const isOn = value === r;
         return <div key={r} onClick={() => { onChange(r); setOpen(false); }}
@@ -3302,7 +3264,7 @@ function AssigneeDrop({ value, onChange, people }) {
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
     </div>
     {open && anchor && createPortal(
-      <div ref={menuRef} style={{ position: "fixed", left: anchor.left, top: anchor.top, width: anchor.width, zIndex: 10060, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.4)", padding: "4px 0", maxHeight: anchor.maxHeight, overflowY: "auto", animation: "menuIn 0.15s ease-out", fontFamily: T.font }}>
+      <div ref={menuRef} className="tq-lglass" style={{ position: "fixed", left: anchor.left, top: anchor.top, width: anchor.width, zIndex: 10060, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.4)", padding: "4px 0", maxHeight: anchor.maxHeight, overflowY: "auto", animation: "menuIn 0.15s ease-out", fontFamily: T.font }}>
         {opts.map((p, ri) => { const isOn = (value || "") === p.id; return <div key={p.id || "__any__"} onClick={() => { onChange(p.id); setOpen(false); }}
           style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 9, padding: "10px 14px", cursor: "pointer", animation: `toolDrop 0.14s ${Math.min(ri, 14) * 28}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }}
           onMouseEnter={e => e.currentTarget.style.background = T.hover}
@@ -3709,6 +3671,11 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     document.documentElement.style.setProperty("--tq-toggle-track", hexLum(T.surface) < 0.5 ? blendHex(T.surface, 0.30) : blendHex(T.surface, -0.14));
     document.documentElement.style.setProperty("--tq-accent", T.accent);
     document.documentElement.style.setProperty("--tq-accent-soft", hexA(T.accent, 0.18));
+    // Hover tint for buttons and dropdown triggers. 0.07 is deliberately near the
+    // floor of visible: enough to confirm the cursor is on something pressable,
+    // not enough to notice as the mouse crosses a toolbar. The lift and the glow
+    // are gone, so this is the ONLY hover feedback these controls have.
+    document.documentElement.style.setProperty("--tq-accent-hover", hexA(T.accent, 0.07));
     document.documentElement.style.setProperty("--tq-primary-text", T.systemText || T.text);
     document.documentElement.style.setProperty("--tq-frost-bg", T.adaptive ? hexA(solid, (T.cardOpacity ?? 80) / 100) : solid);
     document.documentElement.style.setProperty("--tq-bg-image", T.adaptive && T.bgImage ? `url("${T.bgImage}")` : "none");
@@ -3766,17 +3733,42 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     // Order is the other half of it. box-shadow paints FIRST-listed on top, so the
     // lips come first and the uniform ring last — the ring fills the corners behind
     // them, and the lit top and bottom still read over it.
+    // The white lips came down from 0.95/0.80 on light and 0.70/0.50 on dark,
+    // which drew a bright chalk line around every control -- with a page full of
+    // pills and cards the whole screen read as outlined rather than as glass
+    // catching light. A lip is meant to suggest a lit top edge, not to be the
+    // border. Set on screen rather than by ratio: halving them first went too
+    // far and lost the glass, so these sit between the two. The ring underneath
+    // goes the other way -- a little darker -- so the edge still separates the
+    // control from its background now that the white is doing less of that work.
+    //
+    // One helper, and the two vars below feed all 16 places that draw a glass
+    // edge, so these four numbers are the app-wide dial. Tune here, nowhere else.
     const _edge = side => [
-      `inset 0 1px 0 rgba(255,255,255,${lightSurface ? 0.95 : 0.70})`,
-      `inset 0 -1px 0 rgba(255,255,255,${lightSurface ? 0.80 : 0.50})`,
+      `inset 0 1px 0 rgba(255,255,255,${lightSurface ? 0.70 : 0.50})`,
+      `inset 0 -1px 0 rgba(255,255,255,${lightSurface ? 0.55 : 0.37})`,
       `inset 0 0 0 1px ${side}`,
     ].join(", ");
     // A surface's band is a COLOUR — it has to be darker than a near-white card, and
     // no single black alpha manages that across both families. A control's is an
     // ALPHA, because the same grey would come out lighter than a saturated fill,
     // which is the opposite of a groove.
-    document.documentElement.style.setProperty("--tq-surface-edge", _edge(lightSurface ? "#CFD4DC" : "#151515"));
-    document.documentElement.style.setProperty("--tq-control-edge", _edge(lightSurface ? "rgba(0,0,0,0.24)" : "rgba(0,0,0,0.34)"));
+    // DARK mode rings are GREY, not black. #101013 and a 0.42 black alpha drew a
+    // hard black line down the sides of every glass surface -- on a dark page that
+    // reads as a gap punched through the panel rather than as an edge catching
+    // light, and it fought the white lips above and below it. Grey sits between
+    // the two: still a defined side, no longer a black seam.
+    //
+    // Solid greys rather than a white alpha on purpose. These surfaces are
+    // translucent, so an alpha edge takes its value from whatever is behind the
+    // panel and drifts as the page scrolls under it; a solid grey is the same
+    // grey everywhere. The control ring is the lighter of the two so a control
+    // still reads as sitting slightly proud of the surface it is on.
+    //
+    // LIGHT mode is unchanged -- there the ring is doing the opposite job
+    // (a groove darker than a near-white card) and a black-ish value is right.
+    document.documentElement.style.setProperty("--tq-surface-edge", _edge(lightSurface ? "#C2C8D1" : "#3A3A42"));
+    document.documentElement.style.setProperty("--tq-control-edge", _edge(lightSurface ? "rgba(0,0,0,0.30)" : "#474751"));
     // Separate fill for the list cards (.tq-lglass-card) — currently a little
     // CLEARER than the shared one, not denser. It started out the other way round on
     // the theory that a page-filling table of small text needs more frost than a
@@ -4446,6 +4438,43 @@ Extraction rules:
   // Throttles wheel/trackpad paging so one flick advances a single stat rather
   // than tearing through the whole set.
   const dashStatWheelRef = useRef(0);
+  // ── Personal, per-machine view state ────────────────────────────────────
+  // Which departments you collapsed on the Schedule, which filters you left on,
+  // how you sorted, which sections are open. These are PREFERENCES, not org
+  // data, so they live in localStorage beside the theme -- deliberately NOT in
+  // userSettings, which is server-side and would follow you onto every other
+  // machine. A layout you set on your desk should not rearrange someone else's
+  // screen, or your own on a different computer.
+  //
+  // Keyed per org so switching orgs does not inherit the last one's filters.
+  // orgCode is fixed for a session (changing it means re-logging in), so the key
+  // never moves under a mounted hook.
+  //
+  // Every read is failure-tolerant. A private window, cleared site data, a
+  // value written by an older build, or a quota error must fall back to the
+  // default -- a remembered filter is a nicety and must never be able to stop
+  // the app mounting.
+  const uiKey = useCallback((name) => `tq_ui_${orgCode || "none"}_${name}`, [orgCode]);
+  const usePersistedUI = (name, fallback, opts) => {
+    const revive = opts && opts.revive, freeze = opts && opts.freeze;
+    const [v, setV] = useState(() => {
+      try {
+        const raw = localStorage.getItem(`tq_ui_${orgCode || "none"}_${name}`);
+        if (raw == null) return fallback;
+        const parsed = JSON.parse(raw);
+        return revive ? revive(parsed) : parsed;
+      } catch { return fallback; }
+    });
+    useEffect(() => {
+      try { localStorage.setItem(uiKey(name), JSON.stringify(freeze ? freeze(v) : v)); }
+      catch { /* private mode or quota -- the preference is optional, the app is not */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [name, v, uiKey]);
+    return [v, setV];
+  };
+  // A Set does not survive JSON, so these two translate it at the boundary.
+  const UI_SET = { revive: a => new Set(Array.isArray(a) ? a : []), freeze: x => [...x] };
+
   // Button mode starts OPEN. Read straight from localStorage rather than letting
   // the sync effect below do it, so a button-mode reload paints expanded instead
   // of flashing the collapsed rail and animating open on the first frame.
@@ -4514,7 +4543,31 @@ Extraction rules:
   const latestTasksRef = useRef(tasks);
   const latestPeopleRef = useRef(people);
   const protectedJobIds = useRef(new Set());
-  const pollUpdateRef = useRef(false);
+  // "Was this state change a user edit, or data we just pulled from the server?"
+  //
+  // This was ONE boolean (pollUpdateRef) set immediately before each setter and
+  // reset inside the updater on a no-op. It could not work: the poll calls
+  // setTasks/setPeople/setClients back-to-back, React batches all three into a
+  // SINGLE commit, and the save-trigger effect runs once — so one flag had to
+  // answer for three setters, and the LAST one to run decided its value.
+  //
+  // What that produced in production: `people` genuinely changes every cycle
+  // (live clock fields), so setPeople raised the flag correctly — and then
+  // setClients, a no-op on data that had not changed since August, reset it to
+  // false. The effect read false, called the poll's own update a user edit, and
+  // autosaved the server's data straight back. tasks.json was rewritten every
+  // 30.0s with byte-identical content (4,000+ stored versions in six days, no
+  // job content change across the last ~500 writes) and each cycle's write
+  // clobbered whatever the user had edited locally but not yet saved.
+  //
+  // Identity is the reliable signal instead. Each poll/cache write records the
+  // exact array object it installed; the effect compares by reference, per
+  // slice. A slice whose new value is the object a poll installed is a poll
+  // update; anything else is a user edit. No ordering assumptions, no flag to
+  // leak, and a commit carrying BOTH a poll update and a user edit is correctly
+  // treated as a user edit.
+  const pollAppliedRef = useRef({ tasks: null, people: null, clients: null });
+  const seenSliceRef = useRef({ tasks: null, people: null, clients: null });
   const saveStatusRef = useRef("saved");
 
   // Keep ref in sync for save functions
@@ -4591,33 +4644,37 @@ Extraction rules:
   };
   const deleteTemplate = (tid) => { persistTemplates(templates.filter(t => t.id !== tid)); };
 
-  const [fStat, setFStat] = useState([]);      // multi-select statuses; empty = All
-  const [fPers, setFPers] = useState([]);      // multi-select person IDs (strings); empty = All
+  const [fStat, setFStat] = usePersistedUI("fStat", []);      // multi-select statuses; empty = All
+  const [fPers, setFPers] = usePersistedUI("fPers", []);      // multi-select person IDs (strings); empty = All
   // Jobs List-view grouping. Array of tokens { type: 'person'|'client'|'column', id }.
   // When non-empty, the jobs list renders one section per token (a column token
   // expands to one section per distinct value). Multi-select; duplicates allowed.
-  const [grouping, setGrouping] = useState([]);
+  const [grouping, setGrouping] = usePersistedUI("grouping", []);
   const toggleGrouping = (tok) => setGrouping(prev => {
     const i = prev.findIndex(g => g.type === tok.type && g.id === tok.id);
     return i >= 0 ? prev.filter((_, j) => j !== i) : [...prev, tok];
   });
-  const [fJobNum, setFJobNum] = useState("");
-  const [fRole, setFRole] = useState([]);  // multi-select assigned-person roles; empty = All
-  const [fHpd, setFHpd] = useState("All");    // filter by hours-per-day
-  const [fOverloaded, setFOverloaded] = useState(false); // show only tasks with overbooked team
+  const [fJobNum, setFJobNum] = usePersistedUI("fJobNum", "");
+  const [fRole, setFRole] = usePersistedUI("fRole", []);  // multi-select assigned-person roles; empty = All
+  const [fHpd, setFHpd] = usePersistedUI("fHpd", "All");    // filter by hours-per-day
+  const [fOverloaded, setFOverloaded] = usePersistedUI("fOverloaded", false); // show only tasks with overbooked team
   const [fTimePeriod, setFTimePeriod] = useState(['current', 'future', 'finished']); // time-based visibility
-  const [jobSort, setJobSort] = useState("date"); // "date" | "project" | "client"
-  const [colSort, setColSort] = useState({ id: null, dir: "asc" }); // column header sort
+  const [jobSort, setJobSort] = usePersistedUI("jobSort", "date"); // "date" | "project" | "client"
+  const [colSort, setColSort] = usePersistedUI("colSort", { id: null, dir: "asc" }); // column header sort
   const [filterOpen, setFilterOpen] = useState(false);
   const filterRef = useRef(null);
   // Schedule page has its OWN filter state — keeps Schedule filtering independent
   // from the Jobs/Gantt filters so changes here never leak between pages.
   const [scheduleFilterOpen, setScheduleFilterOpen] = useState(false);
-  const [sFStat, setSFStat] = useState([]);    // multi-select statuses; empty = All
-  const [sFClient, setSFClient] = useState([]);  // multi-select client IDs; empty = All
-  const [sFJobNum, setSFJobNum] = useState("");
-  const [sFPers, setSFPers] = useState([]);
-  const [sFRole, setSFRole] = useState([]);    // multi-select roles; empty = All
+  // Persisted per machine, exactly like the Jobs filters. Keyed separately from
+  // them (sF* rather than f*) so the two pages stay independent -- that is the
+  // whole point of the comment above, and sharing a key would quietly couple
+  // them the first time someone filtered one page and switched to the other.
+  const [sFStat, setSFStat] = usePersistedUI("sFStat", []);      // multi-select statuses; empty = All
+  const [sFClient, setSFClient] = usePersistedUI("sFClient", []);  // multi-select client IDs; empty = All
+  const [sFJobNum, setSFJobNum] = usePersistedUI("sFJobNum", "");
+  const [sFPers, setSFPers] = usePersistedUI("sFPers", []);
+  const [sFRole, setSFRole] = usePersistedUI("sFRole", []);      // multi-select roles; empty = All
   // Inline expanding job-name search next to each page's filter button.
   const [taskSearchOpen, setTaskSearchOpen] = useState(true); // Jobs search stays expanded
   const [taskSearchQ, setTaskSearchQ] = useState("");
@@ -4760,7 +4817,7 @@ Extraction rules:
   const [gStart, setGStart] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth(), 1)); });
   const [gEnd, setGEnd] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth() + 1, 0)); });
   const [gMode, setGMode] = useState("month"); // day, week, month
-  const [gSort, setGSort] = useState("date"); // date, project, client
+  const [gSort, setGSort] = usePersistedUI("gSort", "date"); // date, project, client
   const [exp, setExp] = useState({});
   const [ctxMenu, setCtxMenu] = useState(null);
   const [depsModal, setDepsModal] = useState(null); // { item, panelSubs, panelId, jobId, panelTitle }
@@ -4781,10 +4838,10 @@ Extraction rules:
   }, [confirmDeleteClient]);
   const [selTask, setSelTask] = useState(null);
   const [gridCell, setGridCell] = useState(null); // { id, col }
-  const [expandedJobs, setExpandedJobs] = useState(new Set());
+  const [expandedJobs, setExpandedJobs] = usePersistedUI("expandedJobs", new Set(), UI_SET);
   // In Grouping mode rows default to expanded — these sets track per-person collapse state.
   // Keys are `<personId>:<itemId>` so two people sharing a panel/job don't collapse together.
-  const [groupCollapsed, setGroupCollapsed] = useState(new Set());
+  const [groupCollapsed, setGroupCollapsed] = usePersistedUI("groupCollapsed", new Set(), UI_SET);
   const [groupClosing, setGroupClosing]   = useState(new Set());
   const toggleGroupCollapse = (key) => {
     setGroupCollapsed(prev => {
@@ -4977,7 +5034,7 @@ Extraction rules:
   const [splitRatio, setSplitRatio] = useState(55);
   const [splitGanttExpanded, setSplitGanttExpanded] = useState(new Set());
   const [signOffSettingsOpen, setSignOffSettingsOpen] = useState(false);
-  const [pmSectionsCollapsed, setPmSectionsCollapsed] = useState({});
+  const [pmSectionsCollapsed, setPmSectionsCollapsed] = usePersistedUI("pmSectionsCollapsed", {});
   const [signOffTemplateEditing, setSignOffTemplateEditing] = useState(null); // { id?, name, steps: string[] }
   // ── Approval chain editor, opened from the Approval cell on the jobs grid ──
   const [approvalModal, setApprovalModal] = useState(null); // { target:{kind:"chain",jobId,panelId}, title, steps:[{label,done?,byName?,at?,assigneeId?}] }
@@ -6101,7 +6158,7 @@ Extraction rules:
   const [pickerExpandedPanels, setPickerExpandedPanels] = useState(new Set());
   const [tsAdminTab, setTsAdminTab] = useState("live");
   // Admin live-status page state (mirrors the iOS/Android AdminScreen)
-  const [adminFilter, setAdminFilter] = useState("live"); // "live" | "dept" | "today"
+  const [adminFilter, setAdminFilter] = usePersistedUI("adminFilter", "live"); // "live" | "dept" | "today"
   const [adminNow, setAdminNow] = useState(Date.now());
   useEffect(() => {
     if (view !== "admin") return;
@@ -6564,7 +6621,27 @@ Extraction rules:
   const [panelPhotoUploading, setPanelPhotoUploading] = useState(false);
   const [attachmentsModal, setAttachmentsModal] = useState(null); // jobId
   const [attView, setAttView] = useState("large"); // "large" | "list" — View Details attachments layout
-  const [detailSecClosed, setDetailSecClosed] = useState({ notes: true, att: true, analytics: true }); // View Details right-sidebar sections collapsed by key (Information open by default)
+  // Which Job Details sections are collapsed, by key. Information, Panels and
+  // Project Plan open by default; Notes/Attachments/Analytics closed. Persisted
+  // per machine like the other view preferences -- a section you rolled up
+  // should stay rolled up on the next open, not just the next render.
+  const [detailSecClosed, setDetailSecClosed] = usePersistedUI("detailSecClosed", { notes: true, att: true, analytics: true });
+  // The right-hand information column. Open by default; collapses to a tab on
+  // the right edge that pokes out and reopens it.
+  const [detailSideOpen, setDetailSideOpen] = usePersistedUI("detailSideOpen", true);
+  // Project Plan board (Job Details centre panel): which view, the bar being
+  // dragged right now (committed on pointerup, so state stays clean mid-drag),
+  // and which item name is being renamed inline.
+  const [planView, setPlanView] = usePersistedUI("planView", "gantt");
+  const [planDrag, setPlanDrag] = useState(null);   // { id, days }
+  const [planEdit, setPlanEdit] = useState(null);   // { id, pid }
+  // Assign-people picker opened from a Project Plan row: { id, pid, title, team, x, y, up }
+  const [planAssign, setPlanAssign] = useState(null);
+  // Search text and which department accordions are open inside that picker.
+  // Component-level rather than local because the popover is inline JSX, not a
+  // component of its own, so it cannot hold hooks. Both reset on open.
+  const [planAssignQ, setPlanAssignQ] = useState("");
+  const [planAssignSec, setPlanAssignSec] = useState({});
   // ── Job details side panel width ─────────────────────────────────────────
   // Drag its left edge to resize. Persisted, because a width you picked for how you
   // read job data should not reset every reload. Clamped so it can't be dragged shut
@@ -6728,7 +6805,7 @@ Extraction rules:
 
   // Approve / deny / cancel a time-off request. Approve & cancel mutate
   // person.timeOff on the server, so we pull fresh people afterward (guarding
-  // pollUpdateRef like the poll does) — the schedule + export then reflect it
+  // the poll-applied value like the poll does) — the schedule + export then reflect it
   // without the admin's stale local people state clobbering it on next save.
   const decideTimeOff = async (id, action, reason = "") => {
     // "cancel" is a worker withdrawing their OWN request, not an approval, so
@@ -6740,15 +6817,15 @@ Extraction rules:
       toast(action === "approve" ? "Time off approved" : action === "deny" ? "Time off denied" : "Request cancelled");
       try { const r = await fetchTimeOffRequests(getToken, orgCode); setTimeOffRequests(r.requests || []); } catch {}
       // Always pull fresh people after approve/cancel so the PTO bar appears on
-      // the schedule immediately. pollUpdateRef prevents the setter from being
-      // mistaken for a user edit (which would trigger autosave).
+      // the schedule immediately. Recording the installed array in pollAppliedRef
+      // keeps the setter from being mistaken for a user edit (which would autosave).
       if (action === "approve" || action === "cancel") {
         try {
           const np = await fetchPeople(getToken, orgCode);
-          pollUpdateRef.current = true;
           setPeople(prev => {
             const norm = normalizePeople(np);
-            if (JSON.stringify(prev) === JSON.stringify(norm)) { pollUpdateRef.current = false; return prev; }
+            if (JSON.stringify(prev) === JSON.stringify(norm)) return prev;
+            pollAppliedRef.current.people = norm;
             return norm;
           });
         } catch {}
@@ -6829,33 +6906,40 @@ Extraction rules:
         console.warn("[poll] aborting state update — user edited during refetch");
         return;
       }
-      // CRITICAL: pollUpdateRef must be reset to false whenever setTasks
-      // returns prev (no-op), otherwise the ref leaks: it stays true forever
-      // until the NEXT state change, which the unsaved effect then mistakes
-      // for a poll update and skips the save — silently dropping a user edit.
-      // Was the root cause of "jobs disappearing after reschedule": save
-      // never fired, then the next poll wrote stale S3 over the user's edit.
-      pollUpdateRef.current = true;
+        // Compare NORMALIZED against NORMALIZED. This compared `prev` (which is
+        // normalized) against the RAW server array. That happens to match on
+        // data which has already round-tripped through a save — normalizeTasks
+        // is key-order preserving, so once every job carries a color and every
+        // op a requiredDepartment, normalized and raw stringify identically —
+        // which is why this was not the trigger for the write loop. But it is
+        // still the wrong comparison: the first time normalization actually adds
+        // a field (a job written by an older client, an op with no
+        // requiredDepartment, a colorless job) the guard silently stops firing
+        // and the poll replaces the whole tree on every cycle, overwriting any
+        // local edit that has not been saved yet. Normalize once, then compare.
         setTasks(prev => {
-          if (JSON.stringify(prev) === JSON.stringify(newTasks)) { pollUpdateRef.current = false; return prev; }
+          const norm = normalizeTasks(newTasks);
+          if (JSON.stringify(prev) === JSON.stringify(norm)) return prev;
           const _findId = (id, list) => list.some(t => t.id === id || (t.subs || []).some(s => s.id === id || (s.subs || []).some(o => o.id === id)));
           const missingProtected = [...protectedJobIds.current].some(id => !_findId(id, newTasks));
-          if (missingProtected) { pollUpdateRef.current = false; return prev; }
+          if (missingProtected) return prev;
           // Diagnostic: when poll replaces state, log a fingerprint of what's coming in
           // vs what's going out so we can spot a poll-clobber of an unsaved edit.
           const _prevFp = prev.slice(0, 3).map(t => `${t.id}/${t.start}->${t.end}`).join(" | ");
-          const _newFp = newTasks.slice(0, 3).map(t => `${t.id}/${t.start}->${t.end}`).join(" | ");
+          const _newFp = norm.slice(0, 3).map(t => `${t.id}/${t.start}->${t.end}`).join(" | ");
           console.warn(`[poll] state REPLACED. prev: ${_prevFp}  new: ${_newFp}`);
-          return normalizeTasks(newTasks);
+          pollAppliedRef.current.tasks = norm;
+          return norm;
         });
-        pollUpdateRef.current = true;
         setPeople(prev => {
-          if (JSON.stringify(prev) === JSON.stringify(newPeople)) { pollUpdateRef.current = false; return prev; }
-          return normalizePeople(newPeople);
+          const norm = normalizePeople(newPeople);
+          if (JSON.stringify(prev) === JSON.stringify(norm)) return prev;
+          pollAppliedRef.current.people = norm;
+          return norm;
         });
-        pollUpdateRef.current = true;
         setClients(prev => {
-          if (JSON.stringify(prev) === JSON.stringify(newClients)) { pollUpdateRef.current = false; return prev; }
+          if (JSON.stringify(prev) === JSON.stringify(newClients)) return prev;
+          pollAppliedRef.current.clients = newClients;
           return newClients;
         });
         // Same reconciliation as the initial load: the poll just proved what the
@@ -6960,6 +7044,12 @@ Extraction rules:
   // Auto-save system
   // Step 3: wrap getToken in a ref so doSave never needs getToken as a dependency
   const getTokenRef = useRef(getToken);
+  // Same reason getToken is behind a ref: doSave is useCallback(…, []) with the
+  // exhaustive-deps rule disabled, so every value it closes over is frozen at
+  // first render. orgCode was being read straight from props, which meant the
+  // POSTs carried whatever orgCode existed when the component first mounted.
+  const orgCodeRef = useRef(orgCode);
+  useEffect(() => { orgCodeRef.current = orgCode; }, [orgCode]);
   useEffect(() => { getTokenRef.current = getToken; }, [getToken]);
 
   const doSave = useCallback(async () => {
@@ -6994,9 +7084,9 @@ Extraction rules:
         sum + (j.subs || []).reduce((s, p) => s + (p.subs || []).filter(o => (o.moveLog || []).length > 0).length, 0), 0);
       console.log(`[doSave] POST ${dedupedTasks.length} tasks, ${_moveLogCount} ops w/ moveLog. Sample: ${_fingerprint}`);
       const results = await Promise.allSettled([
-        saveTasks(dedupedTasks, getTokenRef.current, orgCode),
-        savePeople(people, getTokenRef.current, orgCode),
-        saveClients(clients, getTokenRef.current, orgCode),
+        saveTasks(dedupedTasks, getTokenRef.current, orgCodeRef.current),
+        savePeople(people, getTokenRef.current, orgCodeRef.current),
+        saveClients(clients, getTokenRef.current, orgCodeRef.current),
       ]);
       const failures = results
         .map((r, i) => r.status === "rejected" ? { endpoint: ["saveTasks","savePeople","saveClients"][i], error: r.reason } : null)
@@ -7103,8 +7193,8 @@ Extraction rules:
   // `${entity}-changed` on syncBus; here we pull the fresh slice back into React
   // state. For the SAVE-TRACKED slices (tasks/people/clients) we replicate the
   // 30s poll's guard contract exactly: bail while the user has unsaved edits;
-  // set pollUpdateRef before the setter (resetting it on a no-op to avoid the
-  // documented ref-leak) so the change isn't mistaken for a user edit; reject a
+  // record the installed array in pollAppliedRef so the change is not mistaken for
+  // a user edit (see that ref comment for why one flag could not work); reject a
   // tasks update that would drop an optimistically-created protected job; and
   // merge preserving the current array order so identical data is a true no-op.
   // messages/groups/timeclock/settings are not save-tracked, so they apply directly.
@@ -7131,24 +7221,22 @@ Extraction rules:
         if (entity === "tasks") {
           const fresh = normalizeTasks((await readSlice("tasks")) || []);
           if (busy()) return;
-          pollUpdateRef.current = true;
           setTasks(prev => {
             const merged = mergeInOrder(prev, fresh);
-            if (JSON.stringify(prev) === JSON.stringify(merged)) { pollUpdateRef.current = false; return prev; }
+            if (JSON.stringify(prev) === JSON.stringify(merged)) return prev;
             const findId = (id, list) => list.some(t => t.id === id || (t.subs || []).some(s => s.id === id || (s.subs || []).some(o => o.id === id)));
-            if ([...protectedJobIds.current].some(id => !findId(id, merged))) { pollUpdateRef.current = false; return prev; }
+            if ([...protectedJobIds.current].some(id => !findId(id, merged))) return prev;
+            pollAppliedRef.current.tasks = merged;
             return merged;
           });
         } else if (entity === "people") {
           const fresh = normalizePeople((await readSlice("people")) || []);
           if (busy()) return;
-          pollUpdateRef.current = true;
-          setPeople(prev => { const merged = mergeInOrder(prev, fresh); if (JSON.stringify(prev) === JSON.stringify(merged)) { pollUpdateRef.current = false; return prev; } return merged; });
+          setPeople(prev => { const merged = mergeInOrder(prev, fresh); if (JSON.stringify(prev) === JSON.stringify(merged)) return prev; pollAppliedRef.current.people = merged; return merged; });
         } else if (entity === "clients") {
           const fresh = (await readSlice("clients")) || [];
           if (busy()) return;
-          pollUpdateRef.current = true;
-          setClients(prev => { const merged = mergeInOrder(prev, fresh); if (JSON.stringify(prev) === JSON.stringify(merged)) { pollUpdateRef.current = false; return prev; } return merged; });
+          setClients(prev => { const merged = mergeInOrder(prev, fresh); if (JSON.stringify(prev) === JSON.stringify(merged)) return prev; pollAppliedRef.current.clients = merged; return merged; });
         } else if (entity === "messages") {
           const freshMsgs = (await readSlice("messages")) || [];
           setMessages(freshMsgs);
@@ -7233,13 +7321,34 @@ Extraction rules:
     // the server load both mutate [tasks,people,clients] before dataLoadedRef
     // flips true, and neither is a user edit. (doSave also guards on
     // dataLoadedRef, but bailing here keeps saveStatus from flickering "unsaved".)
+    // seenSliceRef must track the latest values even on the paths that bail,
+    // or the next run compares against a stale baseline and reports a change
+    // that already happened.
+    const seen = seenSliceRef.current;
+    const applied = pollAppliedRef.current;
+    // A slice counts as a user edit when it changed since the last run AND the
+    // value it changed TO is not the object a poll/cache write installed.
+    const userEdited =
+      (tasks    !== seen.tasks    && tasks    !== applied.tasks)   ||
+      (people   !== seen.people   && people   !== applied.people)  ||
+      (clients  !== seen.clients  && clients  !== applied.clients);
+    seenSliceRef.current = { tasks, people, clients };
+
     if (!dataLoadedRef.current) return;
     if (isInitialSave.current) { isInitialSave.current = false; return; }
-    if (pollUpdateRef.current) { pollUpdateRef.current = false; return; }
+    if (!userEdited) return;
     setSaveStatus("unsaved");
     clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => { doSaveRef.current(); }, 1000);
-    return () => clearTimeout(saveTimerRef.current);
+    // NO cleanup that clears saveTimerRef. React runs the previous run's cleanup
+    // before every re-run, so `return () => clearTimeout(...)` meant any
+    // unrelated re-render inside the 1s debounce cancelled a pending user save —
+    // and the early-return paths above never re-armed it, so the edit was
+    // dropped with no error and the status pill still read "Saved". The
+    // clearTimeout above is what debounces; a cleanup adds nothing but the bug.
+    // On unmount the timer is deliberately left to fire: doSave reads refs, so
+    // it still writes, and losing the user's last edit is worse than a stray
+    // setState on an unmounted tree (a no-op in React 18).
   }, [tasks, people, clients]); // Step 1: doSave removed — only real data changes trigger unsaved
 
   // ── Auto-end stranded job clocks ──────────────────────────────────────────
@@ -7344,9 +7453,9 @@ Extraction rules:
   };
 
   const [clientModal, setClientModal] = useState(null);
-  const [fClient, setFClient] = useState([]);  // multi-select client IDs; empty = All
+  const [fClient, setFClient] = usePersistedUI("fClient", []);  // multi-select client IDs; empty = All
   // Custom-column filters — maps "_cc_<id>" → array of selected options (select cols) or substring string (text/number/date cols)
-  const [fCustom, setFCustom] = useState({});
+  const [fCustom, setFCustom] = usePersistedUI("fCustom", {});
   const [taskFilterOpen, setTaskFilterOpen] = useState(false);
   const [selClient, setSelClient] = useState(null);
   const [clientSearch, setClientSearch] = useState("");
@@ -7518,6 +7627,27 @@ Extraction rules:
     if (hit(t.team)) return true;
     return (t.subs || []).some(panel => (panel.subs || []).some(op => hit(op.team)));
   }, []);
+  // Grouping offers only people and clients that actually have work. The dropdown
+  // was handed the FULL rosters, so a client with no jobs (or an employee on
+  // nothing) still got a row, and choosing it produced an empty section.
+  //
+  // Deliberately derived from `tasks`, not from the filtered list: keying off the
+  // current filter would make options vanish as you narrow, with no way back to
+  // them. And deliberately using personOnTask / clientId -- the same tests the
+  // sections themselves apply -- so an offered option can never render empty.
+  const groupablePersonIds = useMemo(() => {
+    const live = tasks.filter(t => t && !t.deletedAt);
+    const out = new Set();
+    for (const person of people) {
+      if (person && person.id != null && live.some(t => personOnTask(person.id, t))) out.add(String(person.id));
+    }
+    return out;
+  }, [tasks, people, personOnTask]);
+  const groupableClientIds = useMemo(() => {
+    const out = new Set();
+    for (const t of tasks) { if (t && !t.deletedAt && t.clientId != null) out.add(String(t.clientId)); }
+    return out;
+  }, [tasks]);
   // Universal job search — matches `q` against every searchable cell of a job and its
   // panels/ops: standard fields, resolved client + team names, hrs/progress, linked field
   // columns (FIELD_COL_CATALOG), and any user-created custom columns (_cc_*). New linked or
@@ -7536,7 +7666,7 @@ Extraction rules:
       Object.keys(node).forEach(k => { if (k.startsWith("_cc_")) push(node[k]); });
     };
     collect(t);
-    push(clients.find(c => c.id === t.clientId)?.name);
+    push(clients.find(c => sameId(c.id, t.clientId))?.name);
     push(_jobHrs(t) > 0 ? _jobHrs(t) + "h" : "");
     push(_jobPct(t) + "%");
     (t.subs || []).forEach(panel => { collect(panel); (panel.subs || []).forEach(op => collect(op)); });
@@ -7544,7 +7674,7 @@ Extraction rules:
   };
   const filtered = useMemo(() => tasks.filter(t => {
     // Non-admins only see jobs where they are the project manager
-    if (!isAdmin && loggedInUser && t.projectManagerId !== loggedInUser.id) return false;
+    if (!isAdmin && loggedInUser && !sameId(t.projectManagerId, loggedInUser.id)) return false;
     if (fStat.length && !fStat.includes(t.status)) return false;
     if (fPers.length > 0) {
       const pSet = new Set(fPers);
@@ -7697,8 +7827,70 @@ Extraction rules:
     return h;
   }, [bookedIntervals, isOff]);
 
+  // Can this person take work spanning [start,end]? Used to strike out people in
+  // the Project Plan's assign picker who cannot actually do the task on its dates.
+  //
+  // Only WORK days count. Counting the calendar would mark anyone busy across a
+  // weekend, and a Sat-Sun span would come back "fully booked" with nothing
+  // booked at all. Holidays come out too, from the same org settings the
+  // schedulers read.
+  //
+  // "Too busy" means EVERY work day in the window is already gone -- off, or
+  // booked to capacity. A partly-full window is not a blocker: that is ordinary,
+  // and refusing it would rule out most of the roster most of the time. The
+  // partial case is reported separately so the row can say so without being
+  // disabled.
+  const planAvailability = useCallback((pid, start, end) => {
+    if (!start || !end || pid == null) return { ok: true };
+    const wd = orgSettings.workDays, hol = orgSettings.holidays || [];
+    let days = 0, off = 0, full = 0;
+    for (let d = start; d <= end; d = addD(d, 1)) {
+      if (!isWorkDay(d, wd) || hol.includes(d)) continue;
+      days++;
+      if (isOff(pid, d)) { off++; continue; }
+      if (bookedHrs(pid, d) >= productiveHoursPerDay) full++;
+    }
+    if (days === 0) return { ok: true };                  // nothing but weekend/holiday
+    if (off === days) return { ok: false, why: "Time off" };
+    if (off + full === days) return { ok: false, why: off ? "Off / booked up" : "Booked up" };
+    if (off + full > 0) return { ok: true, why: `${off + full} of ${days} days full` };
+    return { ok: true };
+  }, [orgSettings.workDays, orgSettings.holidays, isOff, bookedHrs, productiveHoursPerDay]);
+
   // Returns "primary" | "secondary" | false — secondary means the person can cover
   // the job as a backup (their secondaryDepartment matches) but should sort below primary.
+  // Which department a unit belongs to, resolved once for the whole app.
+  //
+  // Two sources, and in production it is almost always the second:
+  // requiredDepartment is set on 1 of 84 panels and 3 of 280 ops, while the real
+  // convention is that an OP IS its department -- ops are titled Wire / Cut /
+  // Layout, which are entries in orgSettings.roles. Field first (an explicit
+  // answer beats an inferred one), then the title, then inherit from the parent.
+  //
+  // This exists because the same question was being asked in four places with
+  // three different answers. The three schedulers each open with
+  // `!reqDept ? allCrew : ...`, which is what auto-assigned a random person to
+  // work nobody had put in a department: personDeptMatch(p, "") returns
+  // "primary", so with no department EVERYONE matches and the load-balancer
+  // just picks the least busy body.
+  const deptNamesLower = useMemo(
+    () => new Set((orgSettings.roles || []).map(r => String(r).trim().toLowerCase())),
+    [orgSettings.roles]
+  );
+  // Precedence is the schedulers' existing order -- own field, then the parent's,
+  // then the title -- NOT title-before-parent. The two copies this replaced
+  // (_inferDept / _inferDept2) both read the parent first, and one panel in
+  // production carries requiredDepartment "Admin"; putting the title ahead of it
+  // would have silently re-departmented that panel's ops and changed who the
+  // scheduler picks for them. The only behaviour change intended here is the
+  // no-department case.
+  const deptOfUnit = (n, panel, job) =>
+    (n && n.requiredDepartment)
+    || (panel && panel.requiredDepartment)
+    || (job && job.requiredDepartment)
+    || (deptNamesLower.has(String((n && n.title) || "").trim().toLowerCase()) ? String(n.title).trim() : "")
+    || "";
+
   const personDeptMatch = (p, reqDept) => {
     if (!reqDept) return "primary";
     if ((p.department || "") === reqDept) return "primary";
@@ -8395,11 +8587,16 @@ Extraction rules:
             const endDelta = upd.end ? diffD(s.end, upd.end) : 0;
             // Move: both start+end shift same amount — shift all ops equally
             if (upd.start && upd.end && startDelta === endDelta && startDelta !== 0) {
-              updated.subs = ops.map(op => ({ ...op, start: addD(op.start, startDelta), end: addD(op.end, startDelta) }));
+              // Undated ops are skipped, not shifted: addD(null, n) is an Invalid
+              // Date and toDS stringifies that as "NaN-NaN-NaN", which is what
+              // used to be written into the record. They stay unscheduled.
+              updated.subs = ops.map(op => (op.start && op.end)
+                ? { ...op, start: addD(op.start, startDelta), end: addD(op.end, startDelta) }
+                : op);
             }
             // Left resize: panel start moved — shift first op's start
             else if (upd.start && !upd.end && startDelta !== 0) {
-              updated.subs = ops.map((op, i) => i === 0 ? { ...op, start: addD(op.start, startDelta) } : op);
+              updated.subs = ops.map((op, i) => (i === 0 && op.start) ? { ...op, start: addD(op.start, startDelta) } : op);
             }
             // Right resize: panel end moved — shift last op's end
             else if (upd.end && !upd.start && endDelta !== 0) {
@@ -8425,8 +8622,10 @@ Extraction rules:
         // Move: shift all panels and their operations equally
         if (upd.start && upd.end && startDelta === endDelta && startDelta !== 0) {
           updated.subs = (t.subs || []).map(s => ({
-            ...s, start: addD(s.start, startDelta), end: addD(s.end, startDelta),
-            subs: (s.subs || []).map(op => ({ ...op, start: addD(op.start, startDelta), end: addD(op.end, startDelta) }))
+            ...s, ...((s.start && s.end) ? { start: addD(s.start, startDelta), end: addD(s.end, startDelta) } : {}),
+            subs: (s.subs || []).map(op => (op.start && op.end)
+              ? { ...op, start: addD(op.start, startDelta), end: addD(op.end, startDelta) }
+              : op)
           }));
         }
       }
@@ -8543,8 +8742,23 @@ Extraction rules:
     setEditJobModal(prev => (prev ? null : prev));
   }, [view]);
   const _loadEditDraft = (t) => {
-    // Locate the freshest copy of the job from tasks so we always edit the latest data
-    const live = tasks.find(x => x.id === t.id) || t;
+    // Resolve to the JOB that owns `t`, via the same helper openDetail uses.
+    //
+    // This was `tasks.find(x => x.id === t.id) || t`, which only ever matches a
+    // TOP-LEVEL job, and silently fell back to the passed-in object otherwise.
+    // Two ways that broke the save, both ending in a "Job saved" toast and no
+    // change on disk:
+    //   • A panel or op reached here (the context menu's `openEdit(it, it.pid)`
+    //     fallbacks, and openDetail's Edit passing a sub-item). `live` became
+    //     the panel/op, so saveEditJob called updTask(<panel id>, …, null) —
+    //     the level-0 branch, which walks only top-level jobs, matched nothing
+    //     and returned the tree untouched.
+    //   • `===` on ids. Job ids are mixed string/number across web and iOS, so
+    //     even a real job missed the lookup on a type mismatch and fell through
+    //     to the stale spread the context menu captured.
+    // jobOfItem fixes both: it compares ids as strings and walks panels and ops
+    // up to their owning job, which is what this page can actually edit.
+    const live = jobOfItem(t);
     setEditJobModal({
       id: live.id,
       title: live.title || "",
@@ -8648,7 +8862,7 @@ Extraction rules:
     }).join("\n");
     const jobsCtx = tasks.map(t => {
       const team = (t.team || []).map(id => people.find(p => p.id === id)?.name || id).join(", ");
-      const client = t.clientId ? clients.find(c => c.id === t.clientId)?.name || "" : "";
+      const client = t.clientId ? clients.find(c => sameId(c.id, t.clientId))?.name || "" : "";
       const panels = (t.subs || []).map(panel => {
         const ops = (panel.subs || []).map(op => {
           const opTeam = (op.team || []).map(id => people.find(p => p.id === id)?.name || id).join(", ");
@@ -11462,7 +11676,7 @@ ${jobsCtx || "No jobs found."}`;
             <style>{`@keyframes toolDrop{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:translateY(0)}}@keyframes gridRowIn{0%{opacity:0;transform:translateY(-7px);max-height:0;border-bottom-width:0;overflow:hidden}90%{opacity:1;transform:translateY(0);max-height:80px;border-bottom-width:1px;overflow:hidden}100%{opacity:1;transform:translateY(0);max-height:1000px;border-bottom-width:1px;overflow:visible}}@keyframes gridRowOut{0%{opacity:1;transform:translateY(0);max-height:1000px;border-bottom-width:1px;overflow:hidden}10%{opacity:1;transform:translateY(0);max-height:80px;border-bottom-width:1px;overflow:hidden}100%{opacity:0;transform:translateY(-7px);max-height:0;border-bottom-width:0;overflow:hidden}}`}</style>
             {/* Select */}
             <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} style={{ minWidth: 78 }} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
-            <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:hover{filter:brightness(1.08);}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
+            <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
             <div style={{ display: "flex", alignItems: "center", overflow: jobSelRevealed ? "visible" : "hidden", maxWidth: jobSelectMode ? 90 : 0, opacity: jobSelectMode ? 1 : 0, transform: jobSelectMode ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: jobSelectMode ? "auto" : "none", marginRight: jobSelectMode ? 0 : -6 }}>
               <button className="subtle-all-btn" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>
                 {selJobs.size === activeTasks.length ? "None" : "All"}
@@ -11493,8 +11707,8 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             {/* Grouping — its own independent button, next to Filter */}
             <GroupingSelect asIconButton onOpen={() => setTaskFilterOpen(false)} value={grouping} onToggle={toggleGrouping} onClear={() => setGrouping([])}
-              workers={people.map(p => ({ id: String(p.id), label: p.name, color: elColor(p.color || T.accent) }))}
-              clientOpts={clients.map(c => ({ id: c.id, label: c.name, color: elColor(c.color) }))}
+              workers={people.filter(p => groupablePersonIds.has(String(p.id))).map(p => ({ id: String(p.id), label: p.name, color: elColor(p.color || T.accent) }))}
+              clientOpts={clients.filter(c => groupableClientIds.has(String(c.id))).map(c => ({ id: c.id, label: c.name, color: elColor(c.color) }))}
               columnOpts={[...colOrder.map(id => STD_COL_DEFS.find(c => c.id === id)).filter(c => c && isColGroupable(c.id)).map(c => ({ id: c.id, label: c.label })), ...customCols.filter(c => isColGroupable("_cc_" + c.id)).map(c => ({ id: "_cc_" + c.id, label: c.label }))]} />
             {/* Search jobs — kept expanded on the Jobs page */}
             <div className="tq-searchbar" onClick={e => { e.stopPropagation(); document.getElementById("taskSearchInput")?.focus(); }} style={{ order: 1, display: "flex", alignItems: "center", height: 34, width: taskSearchOpen || taskSearchQ ? 220 : 34, borderRadius: T.radiusPill, border: `1px solid ${taskSearchQ ? T.accent+"88" : T.border}`, background: T.surface, overflow: "hidden", cursor: "text", transition: "width 0.26s cubic-bezier(0.22,1,0.36,1), border-color 0.18s, transform 0.18s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.2s ease, filter 0.2s ease", flexShrink: 0 }}>
@@ -11613,7 +11827,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>}
             {activeTasks.map(t => {
               const isSel = selTask === t.id;
-              const client = t.clientId ? clients.find(c => c.id === t.clientId) : null;
+              const client = t.clientId ? clients.find(c => sameId(c.id, t.clientId)) : null;
               const health = healthOf(t);
               const healthColor = HEALTH_DOT[health];
               return <div key={t.id} onClick={() => { if (jobSelectMode) { setSelJobs(prev => { const n = new Set(prev); n.has(t.id) ? n.delete(t.id) : n.add(t.id); return n; }); } else { setSelTask(isSel ? null : t.id); } }}
@@ -11628,7 +11842,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                   {t.jobNumber && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 8, padding: "1px 5px", fontFamily: T.mono }}>#{t.jobNumber}</span>}
                   {client && <span style={{ fontSize: 11, color: elColor(client.color), fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><span style={{ width: 5, height: 5, borderRadius: "50%", background: elColor(client.color), display: "inline-block" }} />{client.name}</span>}
-                  {t.projectManagerId && (() => { const pm = people.find(p => p.id === t.projectManagerId); return pm ? <span style={{ fontSize: 10, color: T.accent, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><PersonAvatar person={pm} size={10} />{pm.name.split(" ")[0]}</span> : null; })()}
+                  {t.projectManagerId && (() => { const pm = people.find(p => sameId(p.id, t.projectManagerId)); return pm ? <span style={{ fontSize: 10, color: T.accent, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}><PersonAvatar person={pm} size={10} />{pm.name.split(" ")[0]}</span> : null; })()}
                   {t.scheduledLater ? <span style={{ fontSize: 10, color: "#f59e0b", fontWeight: 600, marginLeft: "auto" }}>PENDING</span> : <span style={{ fontSize: 10, color: T.textDim, fontFamily: T.mono, marginLeft: "auto" }}>{fm(t.start)} – {fm(t.end)}</span>}
                 </div>
               </div>;
@@ -11639,7 +11853,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>
               {finishedTasks.map(t => {
                 const isSel = selTask === t.id;
-                const client = t.clientId ? clients.find(c => c.id === t.clientId) : null;
+                const client = t.clientId ? clients.find(c => sameId(c.id, t.clientId)) : null;
                 return <div key={t.id} onClick={() => setSelTask(isSel ? null : t.id)}
                   style={{ background: isSel ? "#10b98118" : T.card, borderRadius: T.radiusSm, border: `1.5px solid ${isSel ? "#10b98166" : T.border}`, borderLeft: "4px solid #10b981", padding: "9px 12px", cursor: "pointer", opacity: isSel ? 1 : 0.65, transition: "all 0.15s ease" }}
                   onMouseEnter={e => { e.currentTarget.style.opacity = "0.9"; if (!isSel) e.currentTarget.style.borderColor = "#10b98144"; }}
@@ -11676,7 +11890,7 @@ ${jobsCtx || "No jobs found."}`;
                     {(fresh.jobNumber || fresh.poNumber || fresh.projectManagerId) && <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
                       {fresh.jobNumber && <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: 12, padding: "3px 10px", fontFamily: T.mono }}>Task # {fresh.jobNumber}</span>}
                       {fresh.poNumber && <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981", background: "#10b98115", border: "1px solid #10b98133", borderRadius: 12, padding: "3px 10px", fontFamily: T.mono }}>PO # {fresh.poNumber}</span>}
-                      {fresh.projectManagerId && (() => { const pm = people.find(p => p.id === fresh.projectManagerId); return pm ? <span style={{ fontSize: 12, fontWeight: 700, color: T.textSec, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "3px 10px", display: "flex", alignItems: "center", gap: 5 }}><PersonAvatar person={pm} size={14} />PM: {pm.name}</span> : null; })()}
+                      {fresh.projectManagerId && (() => { const pm = people.find(p => sameId(p.id, fresh.projectManagerId)); return pm ? <span style={{ fontSize: 12, fontWeight: 700, color: T.textSec, background: T.surface, border: `1px solid ${T.border}`, borderRadius: 12, padding: "3px 10px", display: "flex", alignItems: "center", gap: 5 }}><PersonAvatar person={pm} size={14} />PM: {pm.name}</span> : null; })()}
                     </div>}
                   </div>
                 </div>
@@ -11858,7 +12072,7 @@ ${jobsCtx || "No jobs found."}`;
         const pctColor = (pct) => pctRampColor(pct, "#94a3b8");
 
         const renderStdCell = (colId, item, level, pid, jobId, panelId, jobColor, alwaysExpand = false, groupPrefix = "") => {
-          const client = level === 0 && item.clientId ? clients.find(c => c.id === item.clientId) : null;
+          const client = level === 0 && item.clientId ? clients.find(c => sameId(c.id, item.clientId)) : null;
           const assignee = level > 0 ? (item.team || [])[0] : null;
           const assigneePerson = assignee ? people.find(p => p.id === assignee) : null;
           const teamMembers = level === 0 ? (item.team || []).map(id => people.find(p => p.id === id)).filter(Boolean) : [];
@@ -12173,6 +12387,30 @@ ${jobsCtx || "No jobs found."}`;
                     </div>
                   );
                 }
+                if (col.type === "person") {
+                  // Only jobs carry a PM. Sub-rows get an empty cell so the column
+                  // still lines up without offering a meaningless edit.
+                  if (level !== 0) return <div key={col.id} style={{ ...cellBase, ...ccCond }} />;
+                  // sameId, because projectManagerId is stored as a string on some
+                  // jobs and a number on others -- a strict match would show a real
+                  // PM as unset. A value that resolves to nobody shows as "-" and
+                  // is replaceable, which is the only sane thing to do with the
+                  // dangling ids already in the data.
+                  const selP = val ? people.find(pp => sameId(pp.id, val)) : null;
+                  return (
+                    <div key={col.id} style={{ ...cellBase, ...ccCond }} onClick={e => e.stopPropagation()}>
+                      {can("editJobs")
+                        ? <div style={{ flex: 1, minWidth: 0 }}>
+                            <SimpleDrop pill portal key={item.id + key}
+                              value={selP ? String(selP.id) : ""}
+                              placeholder="—"
+                              options={[{ value: "", label: "—" }, ...people.filter(pp => pp && !pp.deletedAt).map(pp => ({ value: String(pp.id), label: pp.name, color: elColor(pp.color || T.accent) }))]}
+                              onChange={v => commitEdit(item.id, key, v || null, pid)} />
+                          </div>
+                        : <span style={{ fontSize: 12, color: selP ? T.text : T.textDim }}>{selP ? selP.name : "—"}</span>}
+                    </div>
+                  );
+                }
                 if (col.type === "select" && (col.options || []).length > 0) {
                   const selVal = val && val !== "—" ? val : "";
                   const selOpt = (col.options || []).find(o => optName(o) === selVal);
@@ -12278,7 +12516,12 @@ ${jobsCtx || "No jobs found."}`;
             // Grouping mode: one section per selected token (worker / client / column value).
             // Duplicates allowed — a job appears under every section it belongs to.
             // A column token expands to one section per distinct value of that column.
+            // Returns null for an empty group rather than a header with a 0 count.
+            // The option list above already hides people/clients with no work at
+            // all; this catches the other case -- a group whose jobs are all
+            // filtered out right now.
             const renderGroupSection = ({ key, sKey, headerNode, countColor, activeJobs, finishedJobs, trimFn, groupPrefix }) => {
+              if (activeJobs.length === 0 && finishedJobs.length === 0) return null;
               const isCollapsed = !!pmSectionsCollapsed[sKey];
               const trim = trimFn || (j => j);
               return <div key={key} style={{ marginBottom: 20 }}>
@@ -12378,8 +12621,8 @@ ${jobsCtx || "No jobs found."}`;
                   </>;
                   sections.push(renderGroupSection({
                     key: `c_${tok.id}`, sKey: `__g_client__${tok.id}`, headerNode: header, countColor: color,
-                    activeJobs: orderedActive.filter(t => t.clientId === tok.id),
-                    finishedJobs: finishedTasks.filter(t => t.clientId === tok.id),
+                    activeJobs: orderedActive.filter(t => sameId(t.clientId, tok.id)),
+                    finishedJobs: finishedTasks.filter(t => sameId(t.clientId, tok.id)),
                     groupPrefix: `c_${tok.id}`,
                   }));
                 } else if (tok.type === "column") {
@@ -12405,7 +12648,7 @@ ${jobsCtx || "No jobs found."}`;
                   });
                 }
               });
-              return <>{sections}</>;
+              return <>{sections.filter(Boolean)}</>;
             }
 
             const pmIds = [];
@@ -12501,7 +12744,7 @@ ${jobsCtx || "No jobs found."}`;
               count + Delete slides out behind that — same timings as Schedule. */}
           {can("manageClients") && <>
             <Btn size="sm" style={{ minWidth: 78, flexShrink: 0 }} onClick={() => { setClientSelectMode(m => !m); setSelClients(new Set()); }}>{clientSelectMode ? "Done" : "Select"}</Btn>
-            <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:hover{filter:brightness(1.08);}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
+            <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
             <div style={{ display: "flex", alignItems: "center", overflow: clientSelRevealed ? "visible" : "hidden", maxWidth: clientSelectMode ? 90 : 0, opacity: clientSelectMode ? 1 : 0, transform: clientSelectMode ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: clientSelectMode ? "auto" : "none", marginRight: clientSelectMode ? 0 : -12 }}>
               <button className="subtle-all-btn" onClick={() => setSelClients(selClients.size === filteredClients.length && filteredClients.length > 0 ? new Set() : new Set(filteredClients.map(c => c.id)))}>
                 {selClients.size === filteredClients.length && filteredClients.length > 0 ? "None" : "All"}
@@ -12811,7 +13054,8 @@ ${jobsCtx || "No jobs found."}`;
       setTimeout(() => setScheduleHighlightId(null), 4000);
     }, 80);
   };
-  const [tCollapsed, setTCollapsed] = useState({});
+  // The Schedule's department groups -- the collapse the report specifically named.
+  const [tCollapsed, setTCollapsed] = usePersistedUI("tCollapsed", {});
   const teamRef = useRef(null);
   const teamContainerRef = useRef(null);
   const contentPanelRef = useRef(null);
@@ -13236,11 +13480,10 @@ ${jobsCtx || "No jobs found."}`;
              The glow is kept, just retuned to fit that 16px: blur 10 + 2px
              offset reaches 12px, so it fades out fully before the card's own
              overflow:hidden — visible halo, no cut edge. */
-          .dash-btn:not(:disabled):not([disabled]):not([aria-disabled="true"]):hover {
-            transform: translateY(-1px) !important;
-            box-shadow: 0 6px 22px var(--tq-glow-ring, rgba(0,0,0,0.16)) !important;
-            filter: brightness(1.06);
-          }
+          /* Accent tint, same as every other control. The lift and the 22px glow
+             that used to live here are gone; the long note above explains the
+             specificity and clipping they needed, which no longer applies. */
+          /* covered by the app-wide ::after overlay; nothing to add here */
           .dash-btn:not(:disabled):not([disabled]):not([aria-disabled="true"]):active {
             transform: scale(0.985) !important;
           }
@@ -13395,7 +13638,7 @@ ${jobsCtx || "No jobs found."}`;
 
                   <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                     <button className="dash-btn tq-softglow" onClick={() => openClockFlow(myState?.isClocked ? "clockOut_pin" : "clockIn_pin")}
-                      style={{ padding: "10px 14px", borderRadius: T.radiusPill, border: "none", background: myState?.isClocked ? hexA("#ef4444", 0.16) : brandGrad(T.accent), color: myState?.isClocked ? "#ef4444" : T.accentText, fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: T.font }}>
+                      style={{ padding: "10px 14px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 12.5, fontWeight: 800, cursor: "pointer", fontFamily: T.font }}>
                       {myState?.isClocked ? "Clock out" : "Clock in"}
                     </button>
                     {/* Lunch and break only mean anything on an open shift, so
@@ -13407,7 +13650,7 @@ ${jobsCtx || "No jobs found."}`;
                         { on: myState?.isOnBreak, label: "Break", end: "End break", state: myState?.isOnBreak ? "breakEnd_pin" : "breakStart_pin", color: "#8b5cf6" },
                       ].map(b => (
                         <button key={b.label} className="dash-btn tq-softglow" disabled={!myState?.isClocked} onClick={() => openClockFlow(b.state)}
-                          style={{ padding: "8px 10px", borderRadius: T.radiusPill, border: `1px solid ${b.on ? b.color : T.border}`, background: b.on ? hexA(b.color, 0.18) : "transparent", color: myState?.isClocked ? (b.on ? b.color : T.textSec) : T.textDim, fontSize: 11.5, fontWeight: 700, cursor: myState?.isClocked ? "pointer" : "not-allowed", opacity: myState?.isClocked ? 1 : 0.5, fontFamily: T.font, whiteSpace: "nowrap" }}>
+                          style={{ padding: "8px 10px", borderRadius: T.radiusPill, border: `1px solid ${b.on ? b.color : hexA(T.accent, myState?.isClocked ? 0.55 : 0.26)}`, background: b.on ? hexA(b.color, 0.18) : "transparent", color: b.on ? b.color : hexA(T.accent, myState?.isClocked ? 1 : 0.45), fontSize: 11.5, fontWeight: 700, cursor: myState?.isClocked ? "pointer" : "not-allowed", opacity: myState?.isClocked ? 1 : 0.5, fontFamily: T.font, whiteSpace: "nowrap" }}>
                           {b.on ? b.end : b.label}
                         </button>
                       ))}
@@ -13768,34 +14011,38 @@ ${jobsCtx || "No jobs found."}`;
             (panel.subs || []).forEach(op => {
               if (!onTeam(op.team, pid)) return;
               if (op.status === "Finished") return;
-              // An assigned op with no dates is real work you can log against but can't
-              // be placed on the timeline — pin it to today as an "unscheduled" bar so
-              // it still shows instead of vanishing off the schedule.
-              const undated = !op.start || !op.end;
-              if (undated) { if (TD < _winS || TD > _winE) return; }
-              else if (_visualEnd(op) < _winS || op.start > _winE) return;
-              const bStart = undated ? TD : op.start;
-              const bEnd = undated ? TD : op.end;
+              // Undated work is NOT on the timeline any more. It used to be pinned to
+              // today ("real work you can log against but can't be placed on the
+              // timeline — pin it so it still shows instead of vanishing"), which put a
+              // bar on a date nobody had chosen: it read as scheduled for today, moved
+              // itself every midnight, and stacked onto whatever genuinely was today's
+              // work. It now lives on the Project Plan board, which is the surface built
+              // for work that has no date yet. isTimelinePlaced is the single predicate
+              // for this across all three assignment levels below.
+              if (!isTimelinePlaced(op)) return;
+              if (_visualEnd(op) < _winS || op.start > _winE) return;
+              const bStart = op.start;
+              const bEnd = op.end;
               const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
               const tc = panel.color || "#94a3b8";
               const opPersonName = (() => { const pp = people.find(x => x.id === (op.team || [])[0]); return pp ? pp.name : null; })();
-              bars.push({ type: "task", id: op.id, start: bStart, end: bEnd, title: `${panel.title} · ${op.title}${opPersonName ? ` · ${opPersonName}` : ""}`, color: elColor(tc), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, jobCreatedAt: job.createdAt || null, unscheduled: undated, task: { ...op, start: bStart, end: bEnd, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
+              bars.push({ type: "task", id: op.id, start: bStart, end: bEnd, title: `${panel.title} · ${op.title}${opPersonName ? ` · ${opPersonName}` : ""}`, color: elColor(tc), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, jobCreatedAt: job.createdAt || null, task: { ...op, start: bStart, end: bEnd, color: tc, isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
             });
             // Panel-level assignment: render the panel itself when the user is on the
             // panel's team but NOT on any of its ops — covers panels with no ops AND
             // panels whose ops belong to other people (matches what iOS surfaces and
-            // lets you log time against). Undated panels are pinned to today.
+            // lets you log time against). An undated panel goes to the Project Plan
+            // board, same rule as the ops above.
             const onPanelTeam = onTeam(panel.team, pid);
             const onAnyOp = (panel.subs || []).some(op => onTeam(op.team, pid));
-            if (onPanelTeam && !onAnyOp && panel.status !== "Finished") {
-              const pUndated = !panel.start || !panel.end;
-              const pInView = pUndated ? (TD >= _winS && TD <= _winE) : (_visualEnd(panel) >= _winS && panel.start <= _winE);
+            if (onPanelTeam && !onAnyOp && panel.status !== "Finished" && isTimelinePlaced(panel)) {
+              const pInView = _visualEnd(panel) >= _winS && panel.start <= _winE;
               if (pInView) {
-                const pStart = pUndated ? TD : panel.start;
-                const pEnd = pUndated ? TD : panel.end;
+                const pStart = panel.start;
+                const pEnd = panel.end;
                 const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
                 const tc = panel.color || "#94a3b8";
-                bars.push({ type: "task", id: panel.id, start: pStart, end: pEnd, title: `${job.title} · ${panel.title}`, color: elColor(tc), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: panel.status, jobCreatedAt: job.createdAt || null, unscheduled: pUndated, task: { ...panel, start: pStart, end: pEnd, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
+                bars.push({ type: "task", id: panel.id, start: pStart, end: pEnd, title: `${job.title} · ${panel.title}`, color: elColor(tc), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: panel.status, jobCreatedAt: job.createdAt || null, task: { ...panel, start: pStart, end: pEnd, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
               }
             }
           });
@@ -13804,14 +14051,14 @@ ${jobsCtx || "No jobs found."}`;
           (job.subs || []).forEach(sub => {
             if (!onTeam(sub.team, pid)) return;
             if (sub.status === "Finished") return;
-            const undated = !sub.start || !sub.end;
-            if (undated) { if (TD < _winS || TD > _winE) return; }
-            else if (_visualEnd(sub) < _winS || sub.start > _winE) return;
-            const bStart = undated ? TD : sub.start;
-            const bEnd = undated ? TD : sub.end;
+            // Same rule as the panel-job branch above — undated goes to the board.
+            if (!isTimelinePlaced(sub)) return;
+            if (_visualEnd(sub) < _winS || sub.start > _winE) return;
+            const bStart = sub.start;
+            const bEnd = sub.end;
             const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
             const tc = sub.color || "#94a3b8";
-            bars.push({ type: "task", id: sub.id, start: bStart, end: bEnd, title: `${job.title} · ${sub.title}`, color: elColor(tc), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: sub.status, jobCreatedAt: job.createdAt || null, unscheduled: undated, task: { ...sub, start: bStart, end: bEnd, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
+            bars.push({ type: "task", id: sub.id, start: bStart, end: bEnd, title: `${job.title} · ${sub.title}`, color: elColor(tc), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: sub.status, jobCreatedAt: job.createdAt || null, task: { ...sub, start: bStart, end: bEnd, color: tc, isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
           });
         }
       });
@@ -14031,7 +14278,7 @@ ${jobsCtx || "No jobs found."}`;
         {isAdmin && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Btn size="sm" style={{ minWidth: 78 }} onClick={() => { setBarSelectMode(m => !m); setSelBars(new Set()); }}>{barSelectMode ? "Done" : "Select"}</Btn>
           {/* Sliding "All / None" — same animation + style as the Jobs page Select toggle. */}
-          <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:hover{filter:brightness(1.08);}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
+          <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
           <div style={{ display: "flex", alignItems: "center", overflow: barSelRevealed ? "visible" : "hidden", maxWidth: barSelectMode ? 90 : 0, opacity: barSelectMode ? 1 : 0, transform: barSelectMode ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: barSelectMode ? "auto" : "none", marginRight: barSelectMode ? 0 : -6 }}>
             <button className="subtle-all-btn" onClick={() => { const allIds = new Set(); rowList.forEach(r => { if (r.type === "person") (r.bars || []).forEach(b => { if (b.type === "task") allIds.add(b.id); }); }); setSelBars(selBars.size === allIds.size && allIds.size > 0 ? new Set() : allIds); }}>
               {(() => { const allIds = new Set(); rowList.forEach(r => { if (r.type === "person") (r.bars || []).forEach(b => { if (b.type === "task") allIds.add(b.id); }); }); return selBars.size === allIds.size && allIds.size > 0 ? "None" : "All"; })()}
@@ -15911,7 +16158,7 @@ ${jobsCtx || "No jobs found."}`;
                   return [<div key={barKey}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, minWidth: _wFirst > 0 ? 2 : 0, height: rH - 8, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: isPto ? `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${bc}` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : bar.unscheduled ? `1.5px dashed ${accentText(bc)}` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
+                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, minWidth: _wFirst > 0 ? 2 : 0, height: rH - 8, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: isPto ? `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${bc}` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
                     onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
                     {!isPto && ws && ws.workedFraction > 0 && _wFirst > 0 && (() => {
                       const _segWorked = Math.max(0, Math.min(_workedRemainingBudget, _wFirst));
@@ -16600,7 +16847,7 @@ ${jobsCtx || "No jobs found."}`;
         {dayParents.length === 0 && <div style={{ textAlign: "center", padding: "40px 0", color: T.textDim, fontSize: 14 }}>No tasks scheduled</div>}
         {dayParents.map(t => {
           const owner = people.find(p => p.id === (t.team || [])[0]);
-          const cl = t.clientId ? clients.find(c => c.id === t.clientId) : null;
+          const cl = t.clientId ? clients.find(c => sameId(c.id, t.clientId)) : null;
           const subs = (t.subs || []).filter(s => selDS >= s.start && selDS <= s.end);
           const hasSubs = (t.subs || []).length > 0;
           const isExp = mobileExp[t.id];
@@ -16656,7 +16903,7 @@ ${jobsCtx || "No jobs found."}`;
     const overdue = myParents.filter(t => t.end < TD && t.status !== "Finished");
 
     const renderTaskCard = (t, opts = {}) => {
-      const cl = t.clientId ? clients.find(c => c.id === t.clientId) : null;
+      const cl = t.clientId ? clients.find(c => sameId(c.id, t.clientId)) : null;
       const hasSubs = (t.subs || []).length > 0;
       const isExp = mobileExp["my_" + t.id];
       const cardBg = opts.bg || T.card;
@@ -20351,7 +20598,7 @@ ${jobsCtx || "No jobs found."}`;
 
     const renderMobileTaskRow = (t) => {
       const owner = people.find(p => p.id === (t.team || [])[0]);
-      const cl = t.clientId ? clients.find(c => c.id === t.clientId) : null;
+      const cl = t.clientId ? clients.find(c => sameId(c.id, t.clientId)) : null;
       const hasSubs = (t.subs || []).length > 0;
       const isExp = mobileExp["t_" + t.id];
       return <div key={t.id} style={{ marginBottom: 6 }}>
@@ -21554,6 +21801,469 @@ ${jobsCtx || "No jobs found."}`;
   };
 
   // ═══════════════════ MODALS ═══════════════════
+
+  // ══ Project Plan board ═══════════════════════════════════════════════════
+  // The Job Details page's centre panel. Phases are the job's PANELS and items
+  // are their OPS — the tree TRAQS already stores, not a second planning model.
+  // Nothing here is seeded: an empty job renders an empty board.
+  //
+  // It is deliberately the one surface that shows work the Schedule cannot. The
+  // Schedule's rows are people, so an op with no team has nowhere to appear, and
+  // an op with no dates has nowhere to sit; both show here instead, tagged
+  // UNASSIGNED / NO DATES, and both stay editable from here.
+  const PLAN_ROW_H = { phase: 38, item: 42, empty: 36 };
+
+  const planWindow = (job) => {
+    // The window spans the job's real extent, backed up to a Monday so every
+    // column header is a whole week. Undated work contributes nothing (it has no
+    // dates to contribute), so a job of only undated ops falls back to a window
+    // around today rather than collapsing to zero width.
+    const ds = [];
+    const eat = n => { if (n && n.start) ds.push(n.start); if (n && n.end) ds.push(n.end); };
+    eat(job);
+    (job.subs || []).forEach(pn => { eat(pn); (pn.subs || []).forEach(eat); });
+    if (job.dueDate) ds.push(job.dueDate);
+    if (!ds.length) return { start: addD(TD, -7), end: addD(TD, 69), weeks: 11 };
+    const sorted = ds.slice().sort();
+    const lo = sorted[0], hi = sorted[sorted.length - 1];
+    const start = addD(lo, -(((new Date(lo + "T12:00:00").getDay()) + 6) % 7));
+    const weeks = Math.max(4, Math.min(26, Math.ceil((Math.max(7, diffD(start, hi) + 1)) / 7)));
+    return { start, end: addD(start, weeks * 7 - 1), weeks };
+  };
+
+  // The design's five status chips, driven by real status + assignment state.
+  // UNASSIGNED and NO DATES are the two that matter most here: they are exactly
+  // the items the Schedule drops, and this is where they surface.
+  const PLAN_CHIP = {
+    done: { bg: "#E3F5EA", fg: "#1C8A4E" },
+    inp:  { bg: "#E7F2FF", fg: "#1D6FD8" },
+    pend: { bg: "#FFF4E0", fg: "#B47A12" },
+    ns:   { bg: "rgba(16,24,40,0.06)", fg: "#8B8A91" },
+    blk:  { bg: "#FBE0EA", fg: "#B5124A" },
+  };
+  const planChipFor = (n, status) => {
+    if (status === "Finished") return { k: "done", label: "DONE" };
+    // Unassigned gets NO pill. A status on work nobody owns is noise -- "NOT
+    // STARTED" is the only thing it could ever say -- and on a job that is
+    // mostly unassigned the column turned into a wall of identical grey pills.
+    // The dimmed bar is what marks it now, which is why `dim` below no longer
+    // reads the chip to decide. A FINISHED unassigned task still says DONE:
+    // that is real information, and the check above it runs first.
+    if (!(n.team || []).length) return null;
+    if (!n.start || !n.end) return { k: "pend", label: "NO DATES" };
+    if (status === "In Progress") return { k: "inp", label: "IN PROGRESS" };
+    if (status === "On Hold") return { k: "blk", label: "ON HOLD" };
+    if (status === "Pending") return { k: "pend", label: "PENDING" };
+    return { k: "ns", label: String(status || "Not Started").toUpperCase() };
+  };
+
+  const renderProjectPlan = (job) => {
+    if (!job) return null;
+    const win = planWindow(job);
+    const total = win.weeks * 7;
+    const pctOf = (d) => Math.max(0, Math.min(100, (diffD(win.start, d) / total) * 100));
+    const dayPct = 100 / total;
+    const panels = (job.subs || []).filter(s => s && !s.deletedAt);
+    const allOps = panels.flatMap(pn => (pn.subs || []).filter(o => o && !o.deletedAt));
+    const unscheduled = allOps.filter(o => !o.start || !o.end || !(o.team || []).length).length;
+    const isGantt = planView === "gantt";
+    const planOpen = !detailSecClosed.plan;
+    const canMove = can("moveJobs");
+    const canEditJ = can("editJobs");
+
+    // ── Row geometry, computed rather than measured ─────────────────────────
+    // The mock's connector script reads getBoundingClientRect on every bar and
+    // redraws on resize. It does not need to here: this component owns the row
+    // heights, so y is a running sum of PLAN_ROW_H and x comes from the same
+    // date→percent maths the bars use. No measurement pass, no resize listener,
+    // nothing to fall out of sync with the layout on the frame after a re-render.
+    const rows = [];
+    let yAcc = 0;
+    for (const pn of panels) {
+      rows.push({ kind: "phase", node: pn, y: yAcc, h: PLAN_ROW_H.phase });
+      yAcc += PLAN_ROW_H.phase;
+      const ops = (pn.subs || []).filter(o => o && !o.deletedAt);
+      if (!ops.length) { rows.push({ kind: "empty", node: pn, y: yAcc, h: PLAN_ROW_H.empty }); yAcc += PLAN_ROW_H.empty; }
+      for (const op of ops) {
+        rows.push({ kind: "item", node: op, panelId: pn.id, tint: pn.color, y: yAcc, h: PLAN_ROW_H.item });
+        yAcc += PLAN_ROW_H.item;
+      }
+    }
+    // A phase drag carries its tasks, so the live preview has to move them too --
+    // planDrag holds every id the drag affects, not just the one under the cursor.
+    const dragDays = (n) => (planDrag && planDrag.ids && planDrag.ids.has(String(n && n.id)) ? planDrag.days : 0);
+    // Bar extent in percent, drag included so a connector tracks the bar it is
+    // attached to while that bar is being dragged.
+    const barGeo = (n) => {
+      if (!n.start || !n.end) return null;
+      const d = dragDays(n);
+      const l = pctOf(addD(n.start, d));
+      const r = pctOf(addD(n.end, d)) + dayPct;
+      return { l, r: Math.max(l + 1.2, r) };
+    };
+    const itemRows = rows.filter(r => r.kind === "item");
+    const itemById = new Map(itemRows.map(r => [String(r.node.id), r]));
+
+    // ── Dependency connectors ──────────────────────────────────────────────
+    // `deps` holds an item's PREDECESSORS, so an arrow runs dep → item.
+    //
+    // Drawing every edge would be unreadable on real data: the only panels that
+    // carry dependencies have all four ops depending on all three siblings — a
+    // complete graph, twelve edges for four rows. The mock draws a chain, and a
+    // chain is also the honest reading: of an item's predecessors, the one that
+    // finishes LAST is the constraint actually holding its start, so that is the
+    // single edge worth a line. K4 collapses to the three links that mean
+    // something, and an explicitly sequenced chain draws exactly as authored.
+    const conns = [];
+    for (const r of itemRows) {
+      const n = r.node;
+      const g = barGeo(n);
+      if (!g) continue;                                  // undated: nothing to point at
+      // Only a predecessor that actually FINISHES BY this item's start is a
+      // real constraint. Without that filter a complete graph draws backwards:
+      // Cut's "latest-finishing predecessor" is Wire, which starts weeks after
+      // Cut ends, so the arrow ran right-to-left into the earliest bar. Verified
+      // against the two panels in production that carry deps -- the filter turns
+      // three backwards arrows per panel into the Cut->Labels->Layout->Wire chain.
+      const preds = (n.deps || [])
+        .map(id => itemById.get(String(id)))
+        .filter(p => p && p.node.id !== n.id && barGeo(p.node) && p.node.end <= n.start);
+      let from = preds.length
+        ? preds.reduce((a, b) => (b.node.end > a.node.end ? b : a))
+        : null;
+      // Sequence fallback. Requiring an explicit `deps` record meant the lines
+      // appeared on exactly two panels in the whole org -- 8 of 280 ops carry
+      // deps, so an ordinary job showed a clean staircase of bars and nothing
+      // joining them. The order of items within a phase IS the running order
+      // (it is what the scheduler chains unassigned work along), so the
+      // preceding item in the same phase is the predecessor unless a `deps`
+      // record says otherwise. Explicit data still wins where it exists.
+      if (!from) {
+        const mine = itemRows.filter(x => x.panelId === r.panelId);
+        const at = mine.indexOf(r);
+        const prev = at > 0 ? mine[at - 1] : null;
+        // Same finishes-by-start test as above, so genuinely concurrent items
+        // get no line rather than a finish-to-start arrow that lies about them.
+        if (prev && barGeo(prev.node) && prev.node.end && prev.node.end <= n.start) from = prev;
+      }
+      if (!from) continue;
+      conns.push({ key: `${from.node.id}->${n.id}`, from, to: r });
+    }
+
+    // An elbow as absolutely-positioned divs rather than SVG. x is a percentage
+    // of the timeline column and y is pixels; a viewBox would have to pick one
+    // unit and distort the other, while two CSS properties can each keep their
+    // own. Segments are axis-aligned, so every one is a 1.6px-thin rectangle.
+    const CW = 1.6;                                       // connector weight
+    const elbow = (c) => {
+      const a = barGeo(c.from.node), b = barGeo(c.to.node);
+      const ay = c.from.y + c.from.h / 2, by = c.to.y + c.to.h / 2;
+      const segs = [];
+      const hseg = (x1, x2, y) => segs.push({ h: true, left: Math.min(x1, x2), w: Math.abs(x2 - x1), top: y - CW / 2 });
+      const vseg = (x, y1, y2) => segs.push({ h: false, left: x, top: Math.min(y1, y2), hgt: Math.abs(y2 - y1) });
+      const gap = Math.max(dayPct * 0.6, 1.1);            // elbow column, in percent
+      // The step handles every DOWNWARD link, including back-to-back bars and a
+      // small overlap: the vertical segment does the work, so a tiny or slightly
+      // negative horizontal gap is harmless. Requiring a full `gap` of clearance
+      // (the first cut of this) pushed ordinary chain links -- Cut ends 6/30,
+      // Labels starts 7/02 -- into the detour below, which is for concurrency,
+      // not for adjacency. Verified on both panels in production that carry deps.
+      if (b.l >= a.r - gap * 3) {
+        // Out along the predecessor's row, down just short of the successor,
+        // then right into its left edge so the arrowhead reads as entering it.
+        //
+        // The stub only exists when there is room for it. Back-to-back items
+        // put the predecessor's right edge exactly on the successor's left
+        // (Netlify ends Aug 4, iOS App starts Aug 5 -- one day apart, so
+        // pctOf(end)+dayPct === pctOf(start)), and subtracting a gap there sent
+        // the line backwards and then forwards again in a visible zigzag. With
+        // no room the elbow collapses to a single vertical drop at the shared
+        // edge, which is what a finish-to-start link should look like.
+        const xm = (b.l - a.r) > gap ? b.l - gap : b.l;
+        hseg(a.r, xm, ay); vseg(xm, ay, by); hseg(xm, b.l, by);
+      } else {
+        // Genuinely concurrent: the successor starts well before its
+        // predecessor ends, so a straight step would run backwards THROUGH the
+        // predecessor's own bar. Drop under the successor's row and come up into
+        // its left edge -- the same two-case shape the mock's script draws,
+        // minus the measuring pass.
+        const under = by + PLAN_ROW_H.item / 2 - 6;
+        const xm = a.r + gap;
+        const xin = Math.max(0, b.l - gap);
+        hseg(a.r, xm, ay); vseg(xm, ay, under); hseg(xm, xin, under); vseg(xin, under, by);
+      }
+      return (
+        <Fragment key={c.key}>
+          {segs.map((s, i) => (
+            <span key={i} style={{
+              position: "absolute", background: T.accent, opacity: 0.45, borderRadius: 1,
+              left: `${s.left}%`, top: s.top,
+              ...(s.h ? { width: `${s.w}%`, height: CW } : { width: CW, height: s.hgt }),
+            }} />
+          ))}
+          {/* arrowhead, in the accent so it reads as one object with the line */}
+          <span style={{
+            position: "absolute", left: `calc(${b.l}% - 5px)`, top: by - 4,
+            width: 0, height: 0, borderTop: "4px solid transparent", borderBottom: "4px solid transparent",
+            borderLeft: `6px solid ${T.accent}`, opacity: 0.55,
+          }} />
+        </Fragment>
+      );
+    };
+
+    // Drag a bar to reschedule. Pointer events rather than HTML5 drag: this is a
+    // slider, not a transfer, so there is no ghost image or drop target. The
+    // commit is a single updTask, so it rides the same autosave path and lands in
+    // the same undo entry as every other edit.
+    // `kin` are the ids that move with `node`. For a phase that is its ops, so
+    // the whole group tracks the cursor instead of the parent sliding out from
+    // under its children. The COMMIT still needs only one call: updTask on a
+    // panel with equal start and end deltas already shifts its ops (see the
+    // level-1 branch), so the drag does not walk the tree itself.
+    const onBarDown = (e, node, panelId, kin) => {
+      if (!canMove || !node.start || !node.end) return;
+      e.preventDefault(); e.stopPropagation();
+      const track = e.currentTarget.parentElement;
+      if (!track) return;
+      const w = track.getBoundingClientRect().width;
+      if (!w) return;
+      const x0 = e.clientX;
+      const len = diffD(node.start, node.end);
+      const ids = new Set([String(node.id), ...(kin || []).map(String)]);
+      let shifted = 0;
+      const move = (ev) => {
+        const days = Math.round(((ev.clientX - x0) / w) * total);
+        if (days === shifted) return;
+        shifted = days;
+        setPlanDrag({ id: node.id, days, ids });
+      };
+      const up = () => {
+        document.removeEventListener("pointermove", move);
+        document.removeEventListener("pointerup", up);
+        setPlanDrag(null);
+        if (!shifted) return;
+        const ns = addD(node.start, shifted);
+        updTask(node.id, { start: ns, end: addD(ns, len) }, panelId);
+      };
+      document.addEventListener("pointermove", move);
+      document.addEventListener("pointerup", up);
+    };
+
+    // One item row: label cell + timeline cell. A zero-length item draws the
+    // design's milestone diamond; an undated item draws no bar at all rather
+    // than a bar on a date nobody chose.
+    const itemRow = (r) => {
+      const n = r.node, panelId = r.panelId;
+      const status = getOpDisplayStatus(n);
+      const chip = planChipFor(n, status);
+      const c = chip ? PLAN_CHIP[chip.k] : null;
+      // Computed independently of the chip, because an unassigned row now has no
+      // chip to read and the dimming is the ONLY thing left telling you it is
+      // unassigned. The chip clause preserves the previous behaviour for
+      // assigned rows (Pending and unknown statuses dimmed too).
+      const dim = !(n.team || []).length || !(n.start && n.end) || (chip && (chip.k === "ns" || chip.k === "pend"));
+      const g = barGeo(n);
+      const isMile = !!g && n.start === n.end;
+      const pct = _opPct(n);
+      const col = elColor(n.color || r.tint || "#9A99A0");
+      const editing = planEdit && planEdit.id === n.id;
+      const depCount = (n.deps || []).length;
+      return (
+        <div key={n.id} style={{ display: "grid", gridTemplateColumns: isGantt ? "280px 1fr" : "1fr", alignItems: "center", borderBottom: `1px solid ${T.border}`, height: r.h, boxSizing: "border-box" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 14px 0 31px", borderRight: isGantt ? `1px solid ${T.border}` : "none", minWidth: 0, height: "100%", boxSizing: "border-box" }}>
+            {/* No colour dot on a task row -- the phase above it carries the
+                colour for the whole group, and repeating it on every child made
+                the Item column a column of dots. The 31px left padding above is
+                14 + the dot's 8 + its 9px flex gap, so the label does not shift. */}
+            {editing
+              ? <input className="tq-sq tq-bare" autoFocus defaultValue={n.title}
+                  onBlur={e => { commitCellEdit(n.id, "title", e.target.value, panelId); setPlanEdit(null); }}
+                  onKeyDown={e => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setPlanEdit(null); }}
+                  style={{ flex: 1, minWidth: 0, background: "transparent", border: "none", outline: `1.5px solid ${T.accent}`, borderRadius: 8, color: T.text, fontSize: 12.5, fontFamily: T.font, padding: "1px 4px" }} />
+              : <span title={n.title} onDoubleClick={() => canEditJ && setPlanEdit({ id: n.id, pid: panelId })}
+                  style={{ fontSize: 12.5, fontWeight: 500, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, cursor: canEditJ ? "text" : "default" }}>{n.title}</span>}
+            {depCount > 0 && <Tip label={`${depCount} dependenc${depCount === 1 ? "y" : "ies"} — the latest-finishing one is drawn`}>
+              <span style={{ fontSize: 9.5, fontWeight: 700, color: T.accent, flexShrink: 0, fontFamily: T.mono }}>⋯{depCount}</span>
+            </Tip>}
+            {!isGantt && g && <span style={{ fontSize: 11.5, color: T.textDim, fontFamily: T.mono, flexShrink: 0 }}>{fm(n.start)} – {fm(n.end)}</span>}
+            {/* Assign control, in the slot the status pill used to occupy. Grey
+                "+ Assign" with nobody on it, accent-tinted with the assignee's
+                name once there is. This is the row-level way to put a person on
+                work -- the Edit page's picker is the other. */}
+            {(() => {
+              const team = (n.team || []).map(pp => people.find(q => sameId(q.id, pp))).filter(Boolean);
+              const assigned = team.length > 0;
+              const label = !assigned ? "+ Assign"
+                : team.length === 1 ? team[0].name.split(" ")[0]
+                : `${team[0].name.split(" ")[0]} +${team.length - 1}`;
+              const tone = assigned ? elColor(team[0].color || T.accent) : T.textDim;
+              return (
+                <button title={assigned ? `Assigned to ${team.map(q => q.name).join(", ")}` : "Assign someone"}
+                  disabled={!canEditJ}
+                  onClick={e => {
+                    e.stopPropagation();
+                    const r = e.currentTarget.getBoundingClientRect();
+                    const pl = placePopover(r, Math.min(people.length + 1, 9));
+                    setPlanAssignQ(""); setPlanAssignSec({}); setPlanAssign({ id: n.id, pid: panelId, title: n.title, start: n.start || null, end: n.end || null, x: pl.x, y: pl.y, up: pl.up, maxHeight: pl.maxHeight });
+                  }}
+                  style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 9px", flexShrink: 0,
+                    border: `1px solid ${assigned ? tone + "55" : T.border}`,
+                    background: assigned ? tone + "1f" : "transparent",
+                    color: tone, cursor: canEditJ ? "pointer" : "default", fontFamily: T.font, maxWidth: 118, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {label}
+                </button>
+              );
+            })()}
+            {/* Status stays, but only where it says something a glance cannot:
+                an assigned row that is not simply "not started". */}
+            {chip && chip.k !== "ns" && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 8px", flexShrink: 0, background: c.bg, color: c.fg }}>{chip.label}</span>}
+            {canEditJ && <button title="Delete item" onClick={() => delTask(n.id, panelId)}
+              style={{ width: 20, height: 20, padding: 0, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", flexShrink: 0, borderRadius: T.radiusPill, display: "grid", placeItems: "center" }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+            </button>}
+          </span>
+          {isGantt && <span style={{ position: "relative", height: "100%" }}>
+            {!g
+              ? <span style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", fontSize: 10, fontWeight: 600, color: T.textDim, whiteSpace: "nowrap" }}>no dates yet — set them in Edit</span>
+              : isMile
+                ? <>
+                    <span onPointerDown={e => onBarDown(e, n, panelId)} style={{ position: "absolute", top: "50%", left: `${g.l}%`, width: 11, height: 11, transform: "translateY(-50%) rotate(45deg)", borderRadius: 3, background: col, opacity: dim ? 0.5 : 1, cursor: canMove ? "grab" : "default", zIndex: 6 }} />
+                    <b style={{ position: "absolute", top: "50%", left: `calc(${g.l}% + 18px)`, transform: "translateY(-50%)", fontSize: 10, fontWeight: 600, color: T.textDim, whiteSpace: "nowrap" }}>{fm(addD(n.start, dragDays(n)))}</b>
+                  </>
+                : <span onPointerDown={e => onBarDown(e, n, panelId)}
+                    style={{ position: "absolute", top: "50%", transform: "translateY(-50%)", height: 18, borderRadius: T.radiusPill, boxSizing: "border-box", left: `${g.l}%`, width: `${g.r - g.l}%`, background: col, opacity: dim ? 0.45 : 1, cursor: canMove ? "grab" : "default", zIndex: 6 }}>
+                    {pct > 0 && <span style={{ position: "absolute", left: 0, top: 0, bottom: 0, borderRadius: "inherit", background: "rgba(255,255,255,0.35)", width: `${Math.min(100, pct)}%` }} />}
+                  </span>}
+          </span>}
+        </div>
+      );
+    };
+
+    const phaseRow = (r) => {
+      const pn = r.node;
+      const tint = elColor(pn.color || "#9A99A0");
+      const ppct = Math.round(_panelPct(pn));
+      // Progress is only shown for a phase that has somebody on it. Percent
+      // comes from logged-vs-estimated hours, and nobody logs against work with
+      // no assignee -- so on an unassigned phase it can only ever read 0%, which
+      // is a number that looks like information and is not. Six phases all
+      // reading 0% said nothing except that the column existed. Any assigned op
+      // counts, not just a team on the panel itself: that is where the hours
+      // actually land.
+      const phaseHasAssignee = (pn.team || []).length > 0
+        || (pn.subs || []).some(o => o && (o.team || []).length > 0);
+      const g = barGeo(pn);
+      return (
+        <div key={"ph-" + pn.id} style={{ display: "grid", gridTemplateColumns: isGantt ? "280px 1fr" : "1fr", alignItems: "center", background: T.surface, borderBottom: `1px solid ${T.border}`, height: r.h, boxSizing: "border-box" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 14px", borderRight: isGantt ? `1px solid ${T.border}` : "none", height: "100%", boxSizing: "border-box", minWidth: 0 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: tint, flexShrink: 0 }} />
+            <b style={{ fontSize: 12.5, letterSpacing: "-0.045em", color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{pn.title}</b>
+            <span style={{ flex: 1 }} />
+            {phaseHasAssignee && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 8px", flexShrink: 0, background: ppct > 0 ? PLAN_CHIP.inp.bg : PLAN_CHIP.ns.bg, color: ppct > 0 ? PLAN_CHIP.inp.fg : PLAN_CHIP.ns.fg }}>{ppct}%</span>}
+          </span>
+          {isGantt && <span style={{ position: "relative", height: "100%" }}>
+            {/* Dragging the phase brings its tasks. pid for a PANEL is the job's
+                id, not the panel's -- updTask reads the second argument as the
+                parent, and passing the panel's own id would send it down the
+                op branch and match nothing. */}
+            {g && <span onPointerDown={e => onBarDown(e, pn, job.id, (pn.subs || []).map(o => o && o.id).filter(Boolean))}
+              title={canMove ? "Drag to move this phase and its tasks" : undefined}
+              style={{ position: "absolute", top: "50%", transform: "translateY(-50%)", height: 9, borderRadius: 4, opacity: 0.9, left: `${g.l}%`, width: `${g.r - g.l}%`, background: tint, cursor: canMove ? "grab" : "default", zIndex: 6 }} />}
+          </span>}
+        </div>
+      );
+    };
+
+    return (
+      <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", marginBottom: 26 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 18px", borderBottom: `1px solid ${T.border}`, flexWrap: "wrap" }}>
+          <span onClick={() => setDetailSecClosed(pv => ({ ...pv, plan: !pv.plan }))}
+            style={{ display: "inline-flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none" }}>
+            <svg style={{ color: T.textDim, transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)", transform: planOpen ? "rotate(0deg)" : "rotate(-90deg)", flexShrink: 0 }}
+              width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+            <b style={{ fontSize: 14.5, letterSpacing: "-0.045em", color: T.text }}>Project Plan</b>
+            <small style={{ fontSize: 12, color: T.textDim, fontWeight: 500 }}>
+              {/* Counts of unscheduled items and links are gone from here. The
+                  footer already states the unscheduled count in a sentence that
+                  says what it MEANS ("not on the Schedule"), and a raw link count
+                  describes the drawing rather than the work. */}
+              {` · ${panels.length} phase${panels.length === 1 ? "" : "s"} · ${allOps.length} item${allOps.length === 1 ? "" : "s"}`}
+              {isGantt ? ` · ${fm(win.start)} → ${fm(win.end)}` : ""}
+            </small>
+          </span>
+          <span style={{ flex: 1 }} />
+          {panels.length > 0 && <span style={{ display: "flex", gap: 14, fontSize: 11, fontWeight: 600, color: T.textDim, flexWrap: "wrap" }}>
+            {panels.slice(0, 4).map(pn => (
+              <span key={pn.id}>
+                <i style={{ display: "inline-block", width: 9, height: 9, borderRadius: 3, marginRight: 5, verticalAlign: -1, background: elColor(pn.color || "#9A99A0") }} />
+                {pn.title}
+              </span>
+            ))}
+          </span>}
+          <div style={{ display: "flex", background: T.bg, borderRadius: T.radiusPill, padding: 3, flexShrink: 0 }}>
+            {["sheet", "gantt"].map(v => (
+              <button key={v} className="tq-noanim tq-pill-seg" onClick={() => setPlanView(v)}
+                style={{ fontSize: 11.5, fontWeight: 700, border: "none", borderRadius: T.radiusPill, padding: "6px 14px", cursor: "pointer", fontFamily: T.font, background: planView === v ? T.card : "transparent", color: planView === v ? T.text : T.textDim }}>
+                {v === "sheet" ? "Sheet" : "Gantt"}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateRows: planOpen ? "1fr" : "0fr", transition: "grid-template-rows 0.26s cubic-bezier(0.4,0,0.2,1)", pointerEvents: planOpen ? "auto" : "none" }}>
+        <div style={{ overflow: "hidden", minHeight: 0 }}>
+        {panels.length === 0
+          ? <div style={{ padding: "28px 18px", textAlign: "center", fontSize: 13, color: T.textDim }}>
+              No phases yet.{canEditJ ? " Add a panel from Edit and its operations appear here." : ""}
+            </div>
+          : <div style={{ overflowX: "auto" }}>
+            <div style={{ minWidth: isGantt ? 980 : "auto" }}>
+              {isGantt && <div style={{ display: "grid", gridTemplateColumns: `280px repeat(${win.weeks}, 1fr)`, borderBottom: `1px solid ${T.border}`, background: T.surface }}>
+                <span style={{ padding: "9px 14px", fontSize: 10, letterSpacing: "-0.045em", fontWeight: 700, textTransform: "uppercase", color: T.textDim, borderRight: `1px solid ${T.border}` }}>Item</span>
+                {Array.from({ length: win.weeks }, (_, i) => (
+                  <span key={i} style={{ padding: "9px 0", textAlign: "center", fontSize: 10, fontWeight: 600, color: T.textDim, borderLeft: `1px solid ${T.borderLight}` }}>{fm(addD(win.start, i * 7))}</span>
+                ))}
+              </div>}
+              <div style={{ position: "relative" }}>
+                {isGantt && <div style={{ position: "absolute", inset: "0 0 0 280px", display: "grid", gridTemplateColumns: `repeat(${win.weeks}, 1fr)`, pointerEvents: "none" }}>
+                  {Array.from({ length: win.weeks }, (_, i) => <i key={i} style={{ borderLeft: `1px solid ${T.borderLight}` }} />)}
+                </div>}
+                {/* Connectors share the gridlines' box, so their percentages are
+                    against the same timeline column the bars use. Under the bars
+                    (z 4 vs 6) so a line never crosses a bar's face. */}
+                {isGantt && conns.length > 0 && <div style={{ position: "absolute", inset: "0 0 0 280px", pointerEvents: "none", zIndex: 4 }}>
+                  {conns.map(elbow)}
+                </div>}
+                {/* TODAY sits on the real date rather than the mock's fixed 45% */}
+                {isGantt && TD >= win.start && TD <= win.end && <div style={{ position: "absolute", top: 0, bottom: 0, left: `calc(280px + (100% - 280px) * ${pctOf(TD) / 100})`, width: 2, background: `linear-gradient(180deg, ${T.accent}, ${T.accent}1f)`, zIndex: 5, pointerEvents: "none" }}>
+                  <span style={{ position: "absolute", top: 6, left: "50%", transform: "translateX(-50%)", fontSize: 8.5, fontWeight: 700, letterSpacing: "-0.045em", color: T.accentText, background: T.accent, borderRadius: T.radiusPill, padding: "2px 8px", whiteSpace: "nowrap" }}>TODAY</span>
+                </div>}
+                {rows.map(r => r.kind === "phase" ? phaseRow(r)
+                  : r.kind === "item" ? itemRow(r)
+                  : <div key={"e-" + r.node.id} style={{ display: "grid", gridTemplateColumns: isGantt ? "280px 1fr" : "1fr", borderBottom: `1px solid ${T.border}`, height: r.h, boxSizing: "border-box" }}>
+                      <span style={{ padding: "0 14px", borderRight: isGantt ? `1px solid ${T.border}` : "none", display: "flex", alignItems: "center", fontSize: 11.5, color: T.textDim }}>no operations</span>
+                      {isGantt && <span />}
+                    </div>)}
+              </div>
+            </div>
+          </div>}
+
+        {/* Footer states measured facts. The mock's "Baselines on · Critical path
+            on" is not here: TRAQS stores neither, so it would be a caption for a
+            feature that does not exist. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 18, padding: "11px 18px", borderTop: `1px solid ${T.border}`, background: T.surface, fontSize: 11.5, color: T.textDim, fontWeight: 500, flexWrap: "wrap" }}>
+          <span>{unscheduled > 0
+            ? <><b style={{ color: T.text }}>{unscheduled}</b>{` item${unscheduled === 1 ? "" : "s"} not on the Schedule — unassigned or undated`}</>
+            : "Every item is assigned and dated"}</span>
+          <span style={{ flex: 1 }} />
+          {canMove && isGantt && <span>Drag a task to reschedule it · drag a phase to move it with its tasks{canEditJ ? " · double-click a name to rename" : ""}</span>}
+        </div>
+        </div>
+        </div>
+      </div>
+    );
+  };
+
   const renderModal = () => {
     if (!modal) return null;
     // Desktop renders content popups as full pages inside the content panel — the
@@ -21726,15 +22436,7 @@ ${jobsCtx || "No jobs found."}`;
           // titles ("Wire", "Cut", "Layout", "Labels") match department names
           // exactly. Without inference the scheduler ignores departments
           // entirely on a first reschedule and assigns by jobCount only.
-          const _roleSet = (orgSettings.roles || []);
-          const _inferDept = (op, panel) => {
-            if (op?.requiredDepartment) return op.requiredDepartment;
-            if (panel?.requiredDepartment) return panel.requiredDepartment;
-            const t = (op?.title || "").trim().toLowerCase();
-            if (!t) return "";
-            const match = _roleSet.find(r => String(r).trim().toLowerCase() === t);
-            return match || "";
-          };
+          const _inferDept = (op, panel) => deptOfUnit(op, panel, null);
           const rawOps = (ed.subs || []).flatMap(panel => {
             if ((panel.subs || []).length > 0) {
               return topoSort((panel.subs || []).filter(o => o.title?.trim()))
@@ -21750,7 +22452,7 @@ ${jobsCtx || "No jobs found."}`;
           // Treat all assignable units as a flat sequence — no replication across numPanels
           const numPanels = 1;
           const opsPerPanel = rawOps.length;
-          const _clientName = (clients.find(c => c.id === ed.clientId) || {}).name || "";
+          const _clientName = (clients.find(c => sameId(c.id, ed.clientId)) || {}).name || "";
           const allCrew = people.filter(p => (p.userRole === "user" || p.userRole === "admin") && !p.noAutoSchedule);
           const crewForOp = (rawOp) => {
             const reqDept = rawOp.requiredDepartment || "";
@@ -21932,7 +22634,13 @@ ${jobsCtx || "No jobs found."}`;
           }, 0);
           const pickTeamLocal = (op, minStart = null) => {
             const totalHours = (typeof op === "object" && op?.hpd) ? op.hpd : productiveHoursPerDay;
-            const reqDept = typeof op === "object" ? (op.requiredDepartment || "") : "";
+            const reqDept = typeof op === "object" ? deptOfUnit(op, null, null) : "";
+            // Same rule as pickTeam above: no department means stay unassigned.
+            if (!reqDept) {
+              const s0 = minStart || newStartDate;
+              const d0 = Math.max(1, Math.ceil(totalHours / productiveHoursPerDay));
+              return { team: [], start: s0, end: sAddBD(s0, Math.max(0, d0 - 1)), unassigned: true };
+            }
             const eligible = allCrew.filter(pp => personDeptMatch(pp, reqDept)).sort((a, b) => {
               // Primary-dept candidates always come before secondary (backup) candidates,
               // regardless of job count — primary is preferred when available.
@@ -21976,8 +22684,10 @@ ${jobsCtx || "No jobs found."}`;
             const placedSubs = [];
             let opEarliestStart = newStartDate;
             for (const sub of (panel.subs || [])) {
-              const { team: subTeam, start: ss, end: se } = pickTeamLocal(sub, opEarliestStart);
-              if (subTeam.length === 0) {
+              const { team: subTeam, start: ss, end: se, unassigned: subUn } = pickTeamLocal(sub, opEarliestStart);
+              // An empty team is only a failure when a department WAS required and
+              // nobody was free. Deliberately-unassigned work is a success.
+              if (subTeam.length === 0 && !subUn) {
                 setOverrideError(prev => ({ ...prev, [panelId]: `No available workers for "${sub.title}" starting ${newStartDate}. Try a later date.` }));
                 setOverrideLoading(prev => ({ ...prev, [panelId]: false }));
                 return;
@@ -21990,8 +22700,8 @@ ${jobsCtx || "No jobs found."}`;
             const opEnd = placedSubs[placedSubs.length - 1]?.end || newStartDate;
             newPanel = { ...panel, start: opStart, end: opEnd, subs: placedSubs };
           } else {
-            const { team: panelTeam, start: ps, end: pe } = pickTeamLocal(panel, newStartDate);
-            if (panelTeam.length === 0) {
+            const { team: panelTeam, start: ps, end: pe, unassigned: pnUn } = pickTeamLocal(panel, newStartDate);
+            if (panelTeam.length === 0 && !pnUn) {
               setOverrideError(prev => ({ ...prev, [panelId]: "No available workers found for that date. Try a later date." }));
               setOverrideLoading(prev => ({ ...prev, [panelId]: false }));
               return;
@@ -22410,7 +23120,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ fontSize:14, color:T.textSec }}>Finding available windows…</div>
               </div>;
               const assignedPanels=(ed.subs||[]).filter(p=>(p.subs||[]).some(s=>(s.team||[]).length>0)||(p.team||[]).length>0);
-              const pm=people.find(x=>x.id===ed.projectManagerId);
+              const pm=people.find(x=>sameId(x.id, ed.projectManagerId));
               const cl=clients.find(x=>x.id===ed.clientId);
               const goToField=(fieldId)=>{ goStep(1); if(fieldId) setTimeout(()=>{ const el=document.getElementById(fieldId); if(el){el.focus();el.scrollIntoView({block:"center",behavior:"smooth"});} },280); };
               const hIn=e=>{ e.currentTarget.style.background=T.accent+"14"; const p=e.currentTarget.querySelector("[data-pencil]"); if(p) p.style.opacity="1"; };
@@ -22591,15 +23301,7 @@ ${jobsCtx || "No jobs found."}`;
                       // titles ("Wire", "Cut", "Layout", "Labels") match department names
                       // exactly; without this, the first reschedule routes ops to whoever
                       // has the lowest jobCount regardless of department.
-                      const _roleSet2 = (orgSettings.roles || []);
-                      const _inferDept2 = (op, panel) => {
-                        if (op?.requiredDepartment) return op.requiredDepartment;
-                        if (panel?.requiredDepartment) return panel.requiredDepartment;
-                        const t = (op?.title || "").trim().toLowerCase();
-                        if (!t) return "";
-                        const match = _roleSet2.find(r => String(r).trim().toLowerCase() === t);
-                        return match || "";
-                      };
+                      const _inferDept2 = (op, panel) => deptOfUnit(op, panel, null);
                       const panelsForScheduling = p.isReschedule
                         ? (p.subs||[]).map(panel => !rescheduleSelection.includes(panel.id) ? panel : { ...panel, team: [], subs: (panel.subs||[]).map(sub => ({ ...sub, team: [] })) })
                         : (p.subs||[]);
@@ -22645,7 +23347,18 @@ ${jobsCtx || "No jobs found."}`;
                       },0);
                       const pickTeam=(op,minStart=null) => {
                         const totalHours=(typeof op==="object" && op?.hpd)?op.hpd:productiveHoursPerDay;
-                        const reqDept=typeof op==="object"?(op.requiredDepartment||""):"";
+                        const reqDept=typeof op==="object"?deptOfUnit(op,null,null):"";
+                        // No department on this unit -> deliberately unassigned. Dates are
+                        // still computed so it lands on the Jobs list and the Project Plan
+                        // board as a real dated task; having nobody on it is exactly what
+                        // keeps it off the Schedule, whose rows are people. Previously this
+                        // fell through to allCrew and the load-balancer handed it to whoever
+                        // had the fewest jobs.
+                        if(!reqDept){
+                          const s0=minStart||slot.start;
+                          const d0=Math.max(1,Math.ceil(totalHours/productiveHoursPerDay));
+                          return {team:[],start:s0,end:sAddBD(s0,Math.max(0,d0-1)),unassigned:true};
+                        }
                         // Filter by dept first; if dept is set but no crew matches (e.g. an
                         // inferred dept that nobody has yet), fall back to all crew so the
                         // op still gets scheduled instead of going unassigned.
@@ -22696,25 +23409,55 @@ ${jobsCtx || "No jobs found."}`;
                         ...op,
                         placedSubs:(op.subs||[]).map(sub => ({...sub,_placed:false,start:null,end:null,team:sub.team||[]})),
                       }));
-                      const opQueue=[];
-                      resultSubs.forEach((op,pi) => { if((op.subs||[]).length>0) opQueue.push({panelIdx:pi,opIdx:0,earliestStart:slot.start}); });
-                      for(let safety=0;safety<10000 && opQueue.length>0;safety++) {
-                        opQueue.sort((a,b) => a.earliestStart.localeCompare(b.earliestStart));
-                        const {panelIdx,opIdx,earliestStart}=opQueue.shift();
-                        const sub=expandedOps[panelIdx].subs[opIdx];
-                        const {team:subTeam,start:ss,end:se}=pickTeam(sub,earliestStart);
-                        resultSubs[panelIdx].placedSubs[opIdx]={...sub,_placed:true,start:ss,end:se,team:subTeam.length>0?subTeam.map(m => m.id):(sub.team||[])};
-                        subTeam.forEach(m => { inSession.push({pid:m.id,start:ss,end:se,hpd:(sub.hpd||productiveHoursPerDay)/Math.max(1,subTeam.length)}); personCursors[m.id]=sAddBD(se,1); });
-                        if(se>latestEnd) latestEnd=se;
-                        const nextOpIdx=opIdx+1;
-                        if(nextOpIdx<(expandedOps[panelIdx].subs||[]).length) opQueue.push({panelIdx,opIdx:nextOpIdx,earliestStart:sAddBD(se,1)});
-                      }
-                      resultSubs.forEach((op,pi) => {
-                        if((op.subs||[]).length===0) {
-                          const {team:panelTeam,start:ps,end:pe}=pickTeam(op,null);
+                      // Ordering rule, and it is deliberately NOT the same for both kinds of work.
+                      //
+                      //   ASSIGNED work keeps its concurrency. Two phases held by different people
+                      //   genuinely do run at the same time, so an assigned unit is floored only by
+                      //   its own panel's op chain and placed by crew availability -- the original
+                      //   behaviour. Forcing these to queue would invent weeks of idle time.
+                      //
+                      //   UNASSIGNED work chains. With nobody on it there is no availability to
+                      //   schedule against, so "as early as possible" collapsed every unassigned
+                      //   phase onto the first day of the window: a six-phase job with one assigned
+                      //   phase drew phases 3-6 all restarting on day one, stacked on top of phases
+                      //   1 and 2. These now follow everything already placed before them, and each
+                      //   other, in authored order.
+                      //
+                      // flowEnd is the end of everything placed so far and is what unassigned work
+                      // waits behind -- so an unassigned phase after an assigned one starts after it
+                      // finishes, which is the case that prompted this. Assigned work still updates
+                      // flowEnd (it is real work occupying real days) but never reads it as a floor.
+                      let flowEnd = null;
+                      const laterOf = (a, b) => (!a ? b : !b ? a : (a > b ? a : b));
+                      resultSubs.forEach((op, pi) => {
+                        const pnl = expandedOps[pi];
+                        const pOps = pnl.subs || [];
+                        if (pOps.length === 0) {
+                          // A childless panel IS the work item, so it takes its turn here rather
+                          // than in a pass after the loop -- that pass called pickTeam(op, null),
+                          // which meant slot.start, another route to day one.
+                          const unassigned = !deptOfUnit(op, null, null);
+                          const floor = unassigned ? laterOf(slot.start, flowEnd && sAddBD(flowEnd, 1)) : slot.start;
+                          const {team:panelTeam,start:ps,end:pe}=pickTeam(op,floor);
                           resultSubs[pi]={...op,_panelScheduled:true,_panelStart:ps,_panelEnd:pe,_panelTeam:panelTeam.map(m => m.id)};
                           panelTeam.forEach(m => { inSession.push({pid:m.id,start:ps,end:pe,hpd:(op.hpd||productiveHoursPerDay)/Math.max(1,panelTeam.length)}); personCursors[m.id]=sAddBD(pe,1); });
                           if(pe>latestEnd) latestEnd=pe;
+                          flowEnd = laterOf(flowEnd, pe);
+                          return;
+                        }
+                        let opCursor = slot.start;   // assigned work may open as early as the window
+                        for (let oi = 0; oi < pOps.length; oi++) {
+                          const sub = pOps[oi];
+                          // Same resolver pickTeam uses, so "will this get a team?" is answered
+                          // identically on both sides of the call.
+                          const unassigned = !deptOfUnit(sub, pnl, null);
+                          const floor = unassigned ? laterOf(opCursor, flowEnd && sAddBD(flowEnd, 1)) : opCursor;
+                          const {team:subTeam,start:ss,end:se}=pickTeam(sub,floor);
+                          resultSubs[pi].placedSubs[oi]={...sub,_placed:true,start:ss,end:se,team:subTeam.length>0?subTeam.map(m => m.id):(sub.team||[])};
+                          subTeam.forEach(m => { inSession.push({pid:m.id,start:ss,end:se,hpd:(sub.hpd||productiveHoursPerDay)/Math.max(1,subTeam.length)}); personCursors[m.id]=sAddBD(se,1); });
+                          if(se>latestEnd) latestEnd=se;
+                          opCursor = sAddBD(se, 1);
+                          flowEnd = laterOf(flowEnd, se);
                         }
                       });
                       const newSubs=resultSubs.map((op) => {
@@ -22988,7 +23731,7 @@ ${jobsCtx || "No jobs found."}`;
       const dPanels = (parent && parent.subs) || [];
       const dTotalAtt = dPanels.reduce((n, p) => n + (p.attachments?.length || 0), 0);
       const dCanEdit = can("editJobs");
-      const dClient = fresh.clientId ? clients.find(c => c.id === fresh.clientId) : null;
+      const dClient = fresh.clientId ? clients.find(c => sameId(c.id, fresh.clientId)) : null;
       // ── Analytics ──────────────────────────────────────────────────────────
       const dJob = parent || fresh;
       const dOps = dPanels.flatMap(p => p.subs || []);
@@ -23013,6 +23756,30 @@ ${jobsCtx || "No jobs found."}`;
       // Collapsible right-sidebar section with the TRAQS expand/collapse animation. Large header,
       // chevron that rotates, body that grid-rows-animates open/closed. `extra` renders inline on
       // the right of the header (e.g. the attachments view toggle).
+      // Main-column collapsible. Same grid-rows 0fr<->1fr animation as `sec`
+      // below, but sized for the centre column rather than the sidebar: a
+      // smaller header, no 34px section gap, and the chevron sits inline with
+      // the title so the row reads as one control.
+      const mainSec = (key, title, meta, body) => {
+        const open = !detailSecClosed[key];
+        return <div style={{ marginBottom: 18 }}>
+          <div onClick={() => setDetailSecClosed(pv => ({ ...pv, [key]: !pv[key] }))}
+            style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none", padding: "2px 0 10px" }}>
+            <svg style={{ color: T.textDim, transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)", transform: open ? "rotate(0deg)" : "rotate(-90deg)", flexShrink: 0 }}
+              width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+            <span style={{ fontSize: 15, fontWeight: 600, color: T.text, letterSpacing: "-0.01em" }}>{title}</span>
+            {meta ? <span style={{ fontSize: 12, color: T.textDim, fontWeight: 500 }}>{meta}</span> : null}
+          </div>
+          <div style={{ display: "grid", gridTemplateRows: open ? "1fr" : "0fr", transition: "grid-template-rows 0.26s cubic-bezier(0.4,0,0.2,1)", pointerEvents: open ? "auto" : "none" }}>
+            {/* Same padding/negative-margin trick as `sec`: overflow clips at the
+                padding box, and the cards in here throw a 22px hover glow that
+                would otherwise be sliced off on every edge. */}
+            <div style={{ overflow: "hidden", minHeight: 0, padding: 26, margin: -26, pointerEvents: "none" }}>
+              <div style={{ opacity: open ? 1 : 0, transition: "opacity 0.18s ease", pointerEvents: "auto" }}>{body}</div>
+            </div>
+          </div>
+        </div>;
+      };
       const sec = (key, title, body, extra, first) => {
         const open = !detailSecClosed[key];
         return <div style={{ paddingTop: first ? 0 : 34 }}>
@@ -23079,11 +23846,10 @@ ${jobsCtx || "No jobs found."}`;
             : <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 18 }}>
                 <HealthIcon t={fresh} size={22} style={{ flexShrink: 0, marginTop: 2 }} />
                 <h3 style={{ margin: 0, color: T.text, fontSize: 22, fontWeight: 700, lineHeight: 1.2, flex: 1, minWidth: 0 }}>{fresh.title}</h3>
-                {dCanEdit && <Btn size="sm" onClick={() => { openEdit(fresh, fresh.isSub ? fresh.pid : null); closeModal(); }}>Edit</Btn>}
+                {dCanEdit && <Btn size="sm" onClick={() => { openEdit(fresh); closeModal(); }}>Edit</Btn>}
               </div>}
           {dPanels.length > 0
-            ? <div>
-              <h4 style={{ color: T.text, fontSize: 15, margin: "0 0 10px", fontWeight: 600 }}>Panels ({dPanels.length})</h4>
+            ? mainSec("panels", "Panels", `${dPanels.length} panel${dPanels.length === 1 ? "" : "s"}`, <div>
               {parent.subs.map(panel => {
                 const hasEng = panel.engineering !== undefined;
                 const pEng = panel.engineering || {};
@@ -23120,8 +23886,12 @@ ${jobsCtx || "No jobs found."}`;
                   </div>}
                 </div>;
               })}
-            </div>
+            </div>)
             : <div style={{ fontSize: 13, color: T.textDim, padding: "24px 0" }}>This job has no panels yet.</div>}
+          {/* Project Plan board — the design's centre card. Sits after the panels
+              list, same order as the mock. Reads the job's own panels/ops, so it
+              also carries the work the Schedule drops: unassigned and undated items. */}
+          {renderProjectPlan(parent || fresh)}
         </div>
         {/* ── Right: Information · Notes · Attachments ── */}
         {/* Resize handle — a sibling flex item, so it is full height for free and needs
@@ -23129,7 +23899,7 @@ ${jobsCtx || "No jobs found."}`;
             over the panel's border with a negative margin so it costs no layout width.
             The three bars are the affordance: without them the handle is invisible and
             nobody discovers the panel resizes. Centred vertically, dimmed until hover. */}
-        {!isMobile && <div onMouseDown={startDetailResize} title="Drag to resize"
+        {!isMobile && detailSideOpen && <div onMouseDown={startDetailResize} title="Drag to resize"
           onMouseEnter={e => { const g = e.currentTarget.firstChild; if (g) g.style.opacity = "1"; }}
           onMouseLeave={e => { const g = e.currentTarget.firstChild; if (g) g.style.opacity = "0.35"; }}
           style={{ width: 7, marginRight: -7, flexShrink: 0, cursor: "col-resize", zIndex: 5, position: "relative", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -23141,7 +23911,31 @@ ${jobsCtx || "No jobs found."}`;
             clips at its padding box — so the hover halo on the controls inside
             (.tq-drop is `0 6px 22px`, a 22px blur) was being sliced off at the right
             edge. The padding has to clear the blur radius for the glow to survive. */}
-        <div style={{ width: isMobile ? "auto" : detailSideW, flexShrink: 0, borderLeft: isMobile ? "none" : `1px solid ${T.border}`, borderTop: isMobile ? `1px solid ${T.border}` : "none", background: T.surface, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "16px 18px" : (asPage ? "20px 30px 30px" : "0 30px 30px"), display: "flex", flexDirection: "column", gap: 4 }}>
+        {/* Collapsed on desktop: a tab poking out of the right edge. It keeps the
+            full height so it is easy to hit anywhere down the side, and the
+            chevron points LEFT -- the direction the panel travels when it comes
+            back. Mobile has no column to collapse (the sections stack under the
+            content), so the tab is desktop-only. */}
+        {!isMobile && !detailSideOpen && (
+          <div onClick={() => setDetailSideOpen(true)} title="Show information"
+            style={{ width: 22, flexShrink: 0, borderLeft: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+            onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
+            onMouseLeave={e => { e.currentTarget.style.background = T.surface; }}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m14 6-6 6 6 6" /></svg>
+          </div>
+        )}
+        {(isMobile || detailSideOpen) && <div style={{ width: isMobile ? "auto" : detailSideW, flexShrink: 0, borderLeft: isMobile ? "none" : `1px solid ${T.border}`, borderTop: isMobile ? `1px solid ${T.border}` : "none", background: T.surface, overflowY: isMobile ? "visible" : "auto", padding: isMobile ? "16px 18px" : (asPage ? "20px 30px 30px" : "0 30px 30px"), display: "flex", flexDirection: "column", gap: 4 }}>
+          {/* Collapse control, at the top of the column. Chevron points RIGHT --
+              where the panel is going. Sits above the section list rather than
+              beside a section title so it reads as acting on the whole column. */}
+          {!isMobile && <div style={{ display: "flex", justifyContent: "flex-end", flexShrink: 0, paddingTop: asPage ? 0 : 8 }}>
+            <button onClick={() => setDetailSideOpen(false)} title="Collapse information"
+              style={{ width: 26, height: 26, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, cursor: "pointer", display: "grid", placeItems: "center" }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m10 6 6 6-6 6" /></svg>
+            </button>
+          </div>}
           {/* Close-button header band — keeps the ✕ on its own row so the Information section
               header doesn't sit level with it. Not needed as a page: the ✕ became a Back
               pill in the LEFT column's title row, so reserving 56px here is dead space. */}
@@ -23247,7 +24041,7 @@ ${jobsCtx || "No jobs found."}`;
               {statCard("Timeline", dIsDone ? "Done" : dDaysLeft == null ? "—" : dDaysLeft < 0 ? `${-dDaysLeft}d late` : `${dDaysLeft}d left`, dIsDone ? "#10b981" : dDaysLeft != null && dDaysLeft < 0 ? "#ef4444" : dDaysLeft != null && dDaysLeft <= 3 ? "#f59e0b" : undefined)}
             </div>
           </>)}
-        </div>
+        </div>}
       </div></div>; }
     if (modal.type === "deps") { const item = modal.data; if (!item) return null; const fi = allItems.find(x => x.id === item.id) || item; const others = allItems.filter(x => x.id !== fi.id);
       return <div className={ovCls} style={ov}>{_pageBg}<div className={bxCls} style={{ ...bx(false), position: "relative", ...pageFill }} onClick={e => e.stopPropagation()}>{cls}
@@ -26334,7 +27128,7 @@ ${jobsCtx || "No jobs found."}`;
     {/* ── Status Popover ── */}
     <FadeOnClose open={!!statusPopover}>{statusPopover && <div>
       <div style={{ position: "fixed", inset: 0, zIndex: 10012 }} onClick={() => setStatusPopover(null)} />
-      <div style={{ position: "fixed", left: statusPopover.x, top: statusPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 168, maxHeight: statusPopover.maxHeight, overflowY: statusPopover.maxHeight ? "auto" : "visible", fontFamily: T.font, animation: `${statusPopover.up ? "menuInUp" : "menuIn"} 0.15s ease-out` }}>
+      <div className="tq-lglass" style={{ position: "fixed", left: statusPopover.x, top: statusPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 168, maxHeight: statusPopover.maxHeight, overflowY: statusPopover.maxHeight ? "auto" : "visible", fontFamily: T.font, animation: `${statusPopover.up ? "menuInUp" : "menuIn"} 0.15s ease-out` }}>
         {STATUSES.map((s, si) => {
           const sc = staColorOf(s);
           const isCurrent = s === statusPopover.current;
@@ -26358,9 +27152,131 @@ ${jobsCtx || "No jobs found."}`;
     </div>}</FadeOnClose>
 
     {/* ── Custom select-column Popover (styled picker for Dropdown-type custom columns) ── */}
+    {/* Project Plan assign picker — built to the same pattern as the Grouping
+        dropdown: a search field at the top, one collapsible accordion per
+        department, and rows that drop in one-by-one on the shared toolDrop
+        stagger. Typing force-opens every section so a search never hides a
+        match behind a collapsed header, exactly as GroupingSelect does.
+        Toggles membership rather than replacing it: an op can be shared, which
+        is what pickTeam's "all" mode produces. */}
+    <FadeOnClose open={!!planAssign}>{planAssign && (() => {
+      const live = findTaskNode(planAssign.id) || {};
+      const team = (live.team || []).map(String);
+      const commit = (next, person, added) => {
+        updTask(planAssign.id, { team: next }, planAssign.pid || null);
+        // Confirmation in the app's own idiom, naming the task as well as the
+        // person: a phase routinely holds several rows with the same title, so
+        // "Treysen assigned" alone would not say which one took it.
+        toast(person
+          ? `${person.name} ${added ? "assigned to" : "removed from"} ${planAssign.title || "task"}`
+          : `${planAssign.title || "Task"} unassigned`);
+      };
+      const ql = planAssignQ.trim().toLowerCase();
+      const roster = people.filter(pp => pp && !pp.deletedAt);
+      const match = pp => !ql || (pp.name || "").toLowerCase().includes(ql) || (pp.department || "").toLowerCase().includes(ql);
+      // Departments in the org's own order, then anyone with no department. Only
+      // groups with a match are rendered, so a search collapses the list rather
+      // than leaving a column of empty headers.
+      const deptOrder = [...(orgSettings.roles || []).map(String), "__none__"];
+      const grouped = deptOrder.map(d => ({
+        id: d,
+        title: d === "__none__" ? "No department" : d,
+        items: roster.filter(pp => (d === "__none__" ? !pp.department : String(pp.department || "") === d)).filter(match),
+      })).filter(g => g.items.length > 0);
+
+      // Availability against the task's own dates. Someone ALREADY on the task is
+      // never struck out: they are on it, and offering no way to take them off
+      // would strand the assignment. An undated task cannot be judged, so
+      // planAvailability returns ok and nobody is struck.
+      const avail = pp => planAvailability(pp.id, planAssign.start, planAssign.end);
+      const personRow = (pp, i) => {
+        const on = team.includes(String(pp.id));
+        const av = avail(pp);
+        const blocked = !av.ok && !on;
+        const pc = elColor(pp.color || T.accent);
+        return (
+          <div key={pp.id}
+            title={blocked ? `${pp.name} — ${av.why} ${fm(planAssign.start)}–${fm(planAssign.end)}` : (av.why || undefined)}
+            onClick={() => {
+              if (blocked) return;                       // struck out: not selectable
+              const next = on ? team.filter(v => v !== String(pp.id)) : [...team, String(pp.id)];
+              commit(next, pp, !on);
+              setPlanAssign(null);
+            }}
+            style={{ margin: "4px 8px", padding: "8px 12px", borderRadius: 16, cursor: blocked ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13,
+              color: blocked ? T.textDim : (on ? pc : T.text), fontWeight: on ? 600 : 400, background: on ? pc + "1e" : "transparent",
+              opacity: blocked ? 0.55 : 1,
+              transition: "background-color 0.2s ease, color 0.2s ease", animation: `toolDrop 0.14s ${i * 22}ms both ease-out` }}
+            onMouseEnter={e => { if (!blocked) e.currentTarget.style.background = pc + "26"; }}
+            onMouseLeave={e => { e.currentTarget.style.background = on ? pc + "1e" : "transparent"; }}>
+            <PersonAvatar person={pp} size={22} style={blocked ? { filter: "grayscale(1)" } : undefined} />
+            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: blocked ? "line-through" : "none" }}>{pp.name}</span>
+            {/* Why, not just that. "Booked up" and "Time off" send you to
+                different fixes, and a bare strike-through says neither. */}
+            {blocked && <span style={{ fontSize: 10, color: T.textDim, flexShrink: 0, whiteSpace: "nowrap" }}>{av.why}</span>}
+            {!blocked && av.why && <span style={{ fontSize: 10, color: "#B47A12", flexShrink: 0, whiteSpace: "nowrap" }}>{av.why}</span>}
+            {on && <span style={{ color: pc, fontSize: 13, fontWeight: 800 }}>✓</span>}
+          </div>
+        );
+      };
+
+      return <div>
+        <div style={{ position: "fixed", inset: 0, zIndex: 10012 }} onClick={() => setPlanAssign(null)} />
+        <div className={planAssign.up ? "anim-ctx-up" : "anim-ctx"} onClick={e => e.stopPropagation()}
+          style={{ position: "fixed", left: planAssign.x, top: planAssign.y, zIndex: 10013, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 16px 48px rgba(0,0,0,0.55)", minWidth: 248, maxWidth: 300, maxHeight: planAssign.maxHeight, overflowY: "auto", overflowX: "hidden", padding: "6px 0", fontFamily: T.font }}>
+          {/* Search — autoFocus so the keyboard is already in the field, same as
+              the Grouping dropdown. */}
+          <div style={{ padding: "6px 10px 8px" }}>
+            <input className="tq-bare" value={planAssignQ} onChange={e => setPlanAssignQ(e.target.value)} placeholder="Search people…" autoFocus
+              style={{ width: "100%", padding: "8px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box", outline: "none" }} />
+          </div>
+          {team.length > 0 && (
+            <div onClick={() => { commit([], null, false); setPlanAssign(null); }}
+              style={{ margin: "0 8px 4px", padding: "8px 12px", borderRadius: 16, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.textDim, animation: "toolDrop 0.14s both ease-out" }}
+              onMouseEnter={e => { e.currentTarget.style.background = T.hover; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
+              <div style={{ width: 22, height: 22, borderRadius: 12, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />
+              <span style={{ flex: 1 }}>— Unassign —</span>
+            </div>
+          )}
+          {grouped.length === 0 && (
+            <div style={{ padding: "12px 16px", fontSize: 12.5, color: T.textDim }}>No people match “{planAssignQ}”.</div>
+          )}
+          {grouped.map((g, gi) => {
+            // A search force-opens every section, so a match is never hidden
+            // behind a collapsed header.
+            const isOpen = ql ? true : !!planAssignSec[g.id];
+            const onCount = g.items.filter(pp => team.includes(String(pp.id))).length;
+            return (
+              <div key={g.id} style={{ animation: `toolDrop 0.14s ${gi * 22}ms both ease-out` }}>
+                <div onClick={() => { if (!ql) setPlanAssignSec(pv => ({ ...pv, [g.id]: !pv[g.id] })); }}
+                  style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 14px", cursor: ql ? "default" : "pointer", userSelect: "none", borderTop: `1px solid ${T.border}` }}>
+                  <svg style={{ color: T.textDim, transition: "transform 0.22s cubic-bezier(0.4,0,0.2,1)", transform: isOpen ? "rotate(0deg)" : "rotate(-90deg)", flexShrink: 0 }}
+                    width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
+                  <span style={{ flex: 1, fontSize: 12, fontWeight: 700, letterSpacing: "-0.02em", color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{g.title}</span>
+                  {onCount > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: T.accent + "1e", borderRadius: T.radiusPill, padding: "1px 7px", flexShrink: 0 }}>{onCount}</span>}
+                  {/* free-of-total, so a department that is entirely booked is
+                      obvious without expanding it */}
+                  <span style={{ fontSize: 11, color: T.textDim, flexShrink: 0 }}>
+                    {planAssign.start && planAssign.end
+                      ? `${g.items.filter(pp => avail(pp).ok || team.includes(String(pp.id))).length}/${g.items.length}`
+                      : g.items.length}
+                  </span>
+                </div>
+                <div style={{ display: "grid", gridTemplateRows: isOpen ? "1fr" : "0fr", transition: "grid-template-rows 0.22s cubic-bezier(0.4,0,0.2,1), opacity 0.15s ease", opacity: isOpen ? 1 : 0, pointerEvents: isOpen ? "auto" : "none" }}>
+                  <div style={{ overflow: "hidden", minHeight: 0 }}>
+                    {g.items.map((pp, i) => personRow(pp, i))}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>;
+    })()}</FadeOnClose>
     <FadeOnClose open={!!ccSelectPopover}>{ccSelectPopover && <div>
       <div style={{ position: "fixed", inset: 0, zIndex: 10012 }} onClick={() => setCcSelectPopover(null)} />
-      <div style={{ position: "fixed", left: ccSelectPopover.x, top: ccSelectPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 168, maxHeight: ccSelectPopover.maxHeight || 320, overflowY: "auto", fontFamily: T.font, animation: `${ccSelectPopover.up ? "menuInUp" : "menuIn"} 0.15s ease-out` }}>
+      <div className="tq-lglass" style={{ position: "fixed", left: ccSelectPopover.x, top: ccSelectPopover.y, zIndex: 10013, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "4px 0", minWidth: 168, maxHeight: ccSelectPopover.maxHeight || 320, overflowY: "auto", fontFamily: T.font, animation: `${ccSelectPopover.up ? "menuInUp" : "menuIn"} 0.15s ease-out` }}>
         {ccSelectPopover.options.map((o, oi) => {
           const n = optName(o);
           const optVal = n === "—" ? "" : n;
@@ -28037,7 +28953,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 11, color: T.textDim }}>{fm(it.start)} → {fm(it.end)}{it.hpd > 0 ? ` · ${it.hpd}h/day` : ""}</div>
             </div>
             <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
-              {can("editJobs") && <Tip label="Edit"><button onClick={() => { setCtxMenu(null); if (isOp) { let parentJob = null; for (const job of tasks) { for (const panel of (job.subs||[])) { if ((panel.subs||[]).find(o => o.id === it.id)) { parentJob = job; break; } } if (parentJob) break; } if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else if (isPanel) { const parentJob = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); if (parentJob) openEdit(parentJob, null); else openEdit(it, it.pid); } else { openEdit(it, null); } }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></Tip>}
+              {can("editJobs") && <Tip label="Edit"><button onClick={() => { setCtxMenu(null); openEdit(it); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></Tip>}
               <Tip label="Open Chat"><button onClick={() => { openChat(it); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0.9 0.9 22.2 22.2" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5c0 4.29-4.04 7.76-9 7.76-1.08 0-2.12-.17-3.08-.47L4.2 20.8l1.2-3.46C3.9 15.8 3 13.8 3 11.5 3 7.3 7 3.8 12 3.8s9 3.47 9 7.7z"/></svg></button></Tip>
               {can("editJobs") && <Tip label="Send Reminder"><button onClick={() => { setReminderModal({ item: it }); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button></Tip>}
               {showDepToggle && <button
@@ -29277,9 +30193,9 @@ ${jobsCtx || "No jobs found."}`;
                   {fieldLabel("Project Manager")}
                   <div style={{ position: "relative" }}>
                     {(() => {
-                      const selPm = people.find(p => p.id === ej.projectManagerId);
+                      const selPm = people.find(p => sameId(p.id, ej.projectManagerId));
                       return (
-                        <button onClick={e => { e.stopPropagation(); const opening = deptDropId !== "editJobPM"; setDeptDropId(opening ? "editJobPM" : null); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: T.radiusPill, border: `1px solid ${selPm ? T.accent + "55" : T.glassBorder}`, background: selPm ? T.accent + "10" : T.glass, cursor: "pointer", boxSizing: "border-box", transition: "all 0.15s", fontFamily: T.font }}>
+                        <button className="tq-drop" onClick={e => { e.stopPropagation(); const opening = deptDropId !== "editJobPM"; setDeptDropId(opening ? "editJobPM" : null); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", borderRadius: T.radiusPill, border: `1px solid ${selPm ? T.accent + "55" : T.glassBorder}`, background: selPm ? T.accent + "10" : T.glass, cursor: "pointer", boxSizing: "border-box", transition: "all 0.15s", fontFamily: T.font }}>
                           {selPm
                             ? <><PersonAvatar person={selPm} size={22} /><span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: T.accent, textAlign: "left" }}>{selPm.name}</span></>
                             : <span style={{ flex: 1, fontSize: 14, color: T.textDim, textAlign: "left" }}>— No PM —</span>}
@@ -29287,13 +30203,20 @@ ${jobsCtx || "No jobs found."}`;
                         </button>
                       );
                     })()}
-                    <FadeOnClose open={deptDropId === "editJobPM"}>{deptDropId === "editJobPM" && <div onClick={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 2200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "8px 0", animation: "menuIn 0.15s ease-out", maxHeight: 260, overflowY: "auto" }}>
+                    {/* onMouseDown must stop too, not just onClick. A document-level
+                        mousedown listener closes this family of dropdowns, and stopping
+                        only click was too late: mousedown cleared deptDropId, the inner
+                        `deptDropId === "editJobPM" &&` guard unmounted the list before
+                        mouseup, and the row's onClick never ran -- so picking a PM
+                        appeared to do nothing. Every other dropdown on this pattern
+                        (department, sign-off, deps, colour) already had it; this one did not. */}
+                    <FadeOnClose open={deptDropId === "editJobPM"}>{deptDropId === "editJobPM" && <div className="anim-drop" onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 2200, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 28px rgba(0,0,0,0.35)", padding: "8px 0", animation: "menuIn 0.15s ease-out", maxHeight: 260, overflowY: "auto" }}>
                       <div onClick={() => { setEj({ projectManagerId: null }); setDeptDropId(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", cursor: "pointer", animation: `toolDrop 0.14s 0ms both ease-out` }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                         <div style={{ width: 22, height: 22, borderRadius: 12, border: `2px dashed ${T.textDim}`, flexShrink: 0 }} />
                         <span style={{ fontSize: 13, color: T.textDim }}>— No PM —</span>
                       </div>
                       {people.map((p, pi) => {
-                        const isOn = ej.projectManagerId === p.id;
+                        const isOn = sameId(ej.projectManagerId, p.id);
                         const fk = `editJob-pm-${p.id}`;
                         return <div key={p.id} onClick={() => { setDropFlashKey(fk); setTimeout(() => { setEj({ projectManagerId: p.id }); setDeptDropId(null); setDropFlashKey(null); }, 150); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", cursor: "pointer", animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `toolDrop 0.14s ${(pi + 1) * 38}ms both ease-out` }} onMouseEnter={e => { if (!dropFlashKey) e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { if (!dropFlashKey) e.currentTarget.style.background = "transparent"; }}>
                           <PersonAvatar person={p} size={22} />
@@ -29395,6 +30318,28 @@ ${jobsCtx || "No jobs found."}`;
                             <input value={op.title} onChange={e => updOp(pi, oi, { title: e.target.value })} placeholder="Op name" style={{ flex: 1, padding: "4px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontWeight: 600, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
                             <div style={{ minWidth: 140, flexShrink: 0 }}>
                               <CustomDrop value={op.requiredDepartment || ""} onChange={v => updOp(pi, oi, { requiredDepartment: v })} options={orgSettings.roles || []} placeholder="— Dept —" compact />
+                            </div>
+                            {/* Assignees. There was no way to put a person on an op from anywhere in
+                                the app except the auto-scheduler and dragging a bar on the Schedule --
+                                the Jobs grid's Team column is avatars with no editor, and this page had
+                                no picker at all. Writes into the draft's subs, which saveEditJob already
+                                persists wholesale, so it needs no new save path. Multi-select: an op can
+                                be shared, which is what pickTeam's "all" mode produces. */}
+                            <div style={{ minWidth: 150, flexShrink: 0 }}>
+                              {/* SearchSelect, not CustomDrop: CustomDrop takes no `multi`
+                                  prop, so it would have silently ignored it, single-selected,
+                                  and then failed to label an array value. An op can be shared
+                                  by several people -- pickTeam's "all" mode produces exactly
+                                  that -- so the control has to be multi.
+                                  Ids are normalised to strings on the way in AND out: team
+                                  entries are mixed string/number in the data (9 numeric ones),
+                                  and SearchSelect matches with .includes, which is strict. */}
+                              <SearchSelect
+                                multi
+                                values={(op.team || []).map(String)}
+                                onChangeMulti={vals => updOp(pi, oi, { team: (vals || []).map(String) })}
+                                options={people.filter(pp => pp && !pp.deletedAt).map(pp => ({ value: String(pp.id), label: pp.name }))}
+                                placeholder="Search people…" emptyLabel="Unassigned" compact />
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
                               <input type="number" min="0" step="0.5" value={op.hpd ?? ""} onChange={e => updOp(pi, oi, { hpd: e.target.value === "" ? null : parseFloat(e.target.value) })} placeholder="hrs" title="Hours per day" style={{ width: 56, padding: "4px 6px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontWeight: 600, fontFamily: T.font, outline: "none", boxSizing: "border-box", textAlign: "right", MozAppearance: "textfield" }} />
