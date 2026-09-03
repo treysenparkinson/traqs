@@ -423,11 +423,19 @@ struct GlassSurface<S: InsettableShape>: ViewModifier {
 ///
 /// Two things here are load-bearing:
 ///
-///   * The bar keeps its OWN tint (`T.navTint` at `T.navTintOpacity`) rather
-///     than taking untinted glass or `glassSurfaceTint`. Five small glyphs have
-///     to hold their own against the page showing through, and the bar's tint is
-///     the one that pushes AWAY from it in both families — lighter than the page
-///     on White, darker on Charcoal. `T.navTintOpacity` is THE dial for it.
+///   * The tint is OPTIONAL, per preset, and `T.navTintOpacity` is THE dial —
+///     `0` means none, the same idiom as `GlassSurface(tint: 0)`.
+///
+///     Untinted is the more native state, and the more accessible one: a plain
+///     `Glass.regular` follows the system Liquid Glass appearance and Reduce
+///     Transparency by itself, and OUR tint is what used to override them. So
+///     light takes no tint — the OS decides how see-through the bar is.
+///
+///     Charcoal keeps one. Five small glyphs have to hold their own against the
+///     page drifting underneath, and on a dark page the bar has to drop BELOW
+///     the surface colour for the light glyphs to bite; untinted glass over dark
+///     content has nothing to do that with. Light doesn't have that problem —
+///     the material's own refraction and edge are enough there.
 ///
 ///   * NO `compositingGroup()`. Every such pairing in this file sits under a
 ///     TRAQS-painted surface, where it stops a shadow being applied to each
@@ -450,12 +458,20 @@ struct NavPillMaterial<S: InsettableShape>: ViewModifier {
 
     func body(content: Content) -> some View {
         let _ = (theme.bgPresetId, theme.accent)
-        // Not `.interactive()`: that is the press response for a control, and
-        // the thing that answers a tap here is the highlighter's squash and
+        // `0` → plain `Glass.regular`, NOT a zero-alpha tint. A tint that happens
+        // to be transparent is still a tint: it pins the material to a colour and
+        // is what stops the system Liquid Glass appearance and Reduce
+        // Transparency from having the last word. Not calling `.tint` at all is
+        // what hands them the decision.
+        //
+        // Not `.interactive()` either: that is the press response for a control,
+        // and the thing that answers a tap here is the highlighter's squash and
         // stretch. Both at once reads as two separate reactions to one tap.
-        return content.glassEffect(
-            Glass.regular.tint(Color(hex: T.navTint).opacity(T.navTintOpacity)),
-            in: shape)
+        var g: Glass = .regular
+        if T.navTintOpacity > 0 {
+            g = g.tint(Color(hex: T.navTint).opacity(T.navTintOpacity))
+        }
+        return content.glassEffect(g, in: shape)
     }
 }
 

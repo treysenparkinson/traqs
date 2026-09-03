@@ -258,29 +258,35 @@ final class ThemeSettings {
     /// too close to the page in both directions and the unselected icons washed
     /// out.
     ///
-    /// LIGHT came down from 0.55 to 0.38 — the bar was reading as a near-solid
-    /// white slab rather than something you can see the page through. 0.55 was
-    /// set when the pill was a hand-rolled `.ultraThinMaterial`, where the tint
-    /// was doing ALL of the separating. It's native glass now
-    /// (`NavPillMaterial`): the material refracts the page and carries its own
-    /// edge, so the same legibility comes at a lower tint and the extra opacity
-    /// was only costing transparency.
+    /// LIGHT TAKES NO TINT — `0`, which `NavPillMaterial` reads as "plain
+    /// `Glass.regular`", not as a transparent tint.
     ///
-    /// The floor is around 0.22 — `glassSurfaceTint`, which is where the
-    /// unselected glyphs measurably washed out before. 0.38 keeps clear of it.
-    /// This is THE dial if the bar wants to be clearer or denser; nothing else
-    /// reads it.
+    /// It went 0.55 → 0.38 → 0. The 0.55 was set when the pill was a hand-rolled
+    /// `.ultraThinMaterial`, where the tint did ALL of the separating; on native
+    /// glass the material refracts the page and carries its own edge, so each
+    /// step down cost less legibility than the last and 0.38 was still reading
+    /// denser than the page warranted.
     ///
-    /// Dark is unchanged at 0.45. A dark tint over a dark page is not the same
-    /// problem — it was never reading as a slab — and only light was asked about.
+    /// Going to zero also hands the decision to iOS. An untinted `Glass.regular`
+    /// follows the system Liquid Glass appearance and Reduce Transparency
+    /// (Accessibility → Display & Text Size) on its own; a fixed tint of ours is
+    /// precisely what was overriding them. So how see-through the bar is on light
+    /// is now a system setting, not a number here.
     ///
-    /// Neither number can win against iOS's own Reduce Transparency
-    /// (Accessibility → Display & Text Size), which takes system glass opaque
-    /// whatever we tint it.
+    /// The old floor of ~0.22 (`glassSurfaceTint`, where the unselected glyphs
+    /// measurably washed out) was measured on `.ultraThinMaterial` and does not
+    /// carry over — that fill had no refraction and no edge of its own to help.
+    /// It's still the number to reach for if light ever needs a touch of tint
+    /// back, since anything below it washed glyphs out even WITH the tint doing
+    /// the work.
+    ///
+    /// DARK keeps 0.45, deliberately. On a dark page the bar has to drop BELOW
+    /// the surface colour for the light glyphs to bite, and untinted glass over
+    /// dark content has nothing to do that with. Light never had that problem.
     private func applyNavToT(isLight: Bool) {
         if isLight {
-            T.navTint        = "#FFFFFF"
-            T.navTintOpacity = 0.38
+            T.navTint        = "#FFFFFF"   // unused while the opacity is 0
+            T.navTintOpacity = 0
         } else {
             T.navTint        = "#101010"
             T.navTintOpacity = 0.45
