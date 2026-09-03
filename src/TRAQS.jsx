@@ -4666,11 +4666,15 @@ Extraction rules:
   // Schedule page has its OWN filter state — keeps Schedule filtering independent
   // from the Jobs/Gantt filters so changes here never leak between pages.
   const [scheduleFilterOpen, setScheduleFilterOpen] = useState(false);
-  const [sFStat, setSFStat] = useState([]);    // multi-select statuses; empty = All
-  const [sFClient, setSFClient] = useState([]);  // multi-select client IDs; empty = All
-  const [sFJobNum, setSFJobNum] = useState("");
-  const [sFPers, setSFPers] = useState([]);
-  const [sFRole, setSFRole] = useState([]);    // multi-select roles; empty = All
+  // Persisted per machine, exactly like the Jobs filters. Keyed separately from
+  // them (sF* rather than f*) so the two pages stay independent -- that is the
+  // whole point of the comment above, and sharing a key would quietly couple
+  // them the first time someone filtered one page and switched to the other.
+  const [sFStat, setSFStat] = usePersistedUI("sFStat", []);      // multi-select statuses; empty = All
+  const [sFClient, setSFClient] = usePersistedUI("sFClient", []);  // multi-select client IDs; empty = All
+  const [sFJobNum, setSFJobNum] = usePersistedUI("sFJobNum", "");
+  const [sFPers, setSFPers] = usePersistedUI("sFPers", []);
+  const [sFRole, setSFRole] = usePersistedUI("sFRole", []);      // multi-select roles; empty = All
   // Inline expanding job-name search next to each page's filter button.
   const [taskSearchOpen, setTaskSearchOpen] = useState(true); // Jobs search stays expanded
   const [taskSearchQ, setTaskSearchQ] = useState("");
