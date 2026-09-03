@@ -154,4 +154,57 @@ enum CompletionRequestRules {
     static func status(job: Job?, panelId: String?, opId: String?, requestId: String?) -> String? {
         status(target: target(job: job, panelId: panelId, opId: opId), requestId: requestId)
     }
+
+    // MARK: - Raising a request
+
+    /// Stamp a NEW pending request onto the item it was raised against — sub-op,
+    /// else panel, else the job — and return the updated job.
+    ///
+    /// The counterpart to `target`, and the reason it exists: reading and writing
+    /// have to agree on WHICH item owns the request. They didn't. A task-level
+    /// request appended its entry to `job.finishRequests` while the chat message
+    /// carried the panel/op ids, so `target` resolved to the panel, found no row,
+    /// no stamp and no `pendingFinish`, and `status` — correctly — answered
+    /// "unknown". Unknown is not actionable, so the card came up with no
+    /// Approve/Deny at all. The web could still resolve it only because it falls
+    /// back to "pending" and upserts the missing row on approval.
+    ///
+    /// Writes all three signals the web writes (`addFinishReq` in TRAQS.jsx), and
+    /// the same three the undo path re-arms: the entry row, the `finishRequest`
+    /// stamp, and `pendingFinish`. Any one of them alone is enough for the web to
+    /// read the request as pending, so writing all three keeps the two clients
+    /// agreeing however either side reads it.
+    ///
+    /// `nil` — the panel/op isn't in the tree — means DON'T write. Falling back
+    /// to the job would put the entry on the wrong item, which is the bug this
+    /// replaces. `pendingFinish` is set on a panel/op only: Job has no such
+    /// field (see `target`, which reads `false` for job level).
+    static func addPendingRequest(to job: Job, panelId: String?, opId: String?,
+                                  entry: FinishRequestEntry) -> Job? {
+        var job = job
+        let stamp = FinishRequestStamp(requestId: entry.id, by: entry.by,
+                                       byName: entry.byName, at: entry.at)
+        guard let panelId else {
+            job.finishRequest = stamp
+            job.finishRequests = (job.finishRequests ?? []) + [entry]
+            return job
+        }
+        guard let pi = job.subs.firstIndex(where: { $0.id == panelId }) else { return nil }
+        var panel = job.subs[pi]
+        guard let opId else {
+            panel.finishRequest = stamp
+            panel.pendingFinish = true
+            panel.finishRequests = (panel.finishRequests ?? []) + [entry]
+            job.subs[pi] = panel
+            return job
+        }
+        guard let oi = panel.subs.firstIndex(where: { $0.id == opId }) else { return nil }
+        var op = panel.subs[oi]
+        op.finishRequest = stamp
+        op.pendingFinish = true
+        op.finishRequests = (op.finishRequests ?? []) + [entry]
+        panel.subs[oi] = op
+        job.subs[pi] = panel
+        return job
+    }
 }

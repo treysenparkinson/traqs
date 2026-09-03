@@ -1239,13 +1239,13 @@ class AppState {
 
         let reqId = UUID().uuidString
         let now = Date.nowISO()
-        var job = jobs[idx]
-        job.finishRequest = FinishRequestStamp(requestId: reqId, by: me.id, byName: me.name, at: now)
-        var reqs = job.finishRequests ?? []
-        reqs.append(FinishRequestEntry(id: reqId, by: me.id, byName: me.name, at: now,
+        let entry = FinishRequestEntry(id: reqId, by: me.id, byName: me.name, at: now,
                                        status: "pending", resolvedBy: nil, resolvedByName: nil,
-                                       resolvedAt: nil, declineReason: nil))
-        job.finishRequests = reqs
+                                       resolvedAt: nil, declineReason: nil)
+        // Stamps the job itself — panelId/opId are nil. Routed through the same
+        // rule as the task-level path so both write the shape `target` reads.
+        guard let job = CompletionRequestRules.addPendingRequest(
+            to: jobs[idx], panelId: nil, opId: nil, entry: entry) else { return }
         updateJob(job)
         cacheJobLocally(job)
 
@@ -1272,12 +1272,19 @@ class AppState {
 
         let reqId = UUID().uuidString
         let now = Date.nowISO()
-        var job = jobs[idx]
-        var reqs = job.finishRequests ?? []
-        reqs.append(FinishRequestEntry(id: reqId, by: me.id, byName: me.name, at: now,
+        let entry = FinishRequestEntry(id: reqId, by: me.id, byName: me.name, at: now,
                                        status: "pending", resolvedBy: nil, resolvedByName: nil,
-                                       resolvedAt: nil, declineReason: nil))
-        job.finishRequests = reqs
+                                       resolvedAt: nil, declineReason: nil)
+        // Onto the PANEL/OP that was requested — not the job. The message below
+        // carries panelId/opId, and that is what the request card resolves the
+        // status through, so an entry parked on the job left the card unable to
+        // learn the request was pending: no Approve, no Deny, on iOS only. See
+        // `CompletionRequestRules.addPendingRequest`.
+        //
+        // A panel/op that isn't in the tree aborts the whole request rather than
+        // posting a message nothing can answer.
+        guard let job = CompletionRequestRules.addPendingRequest(
+            to: jobs[idx], panelId: panelId, opId: opId, entry: entry) else { return }
         updateJob(job)
         cacheJobLocally(job)
 
