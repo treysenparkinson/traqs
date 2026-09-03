@@ -2805,6 +2805,94 @@ const onTeam = (team, pid) => (team || []).some(x => sameId(x, pid));
 // job, a panel or an op — the fields tested exist at every level.
 const isDated = (n) => !!(n && n.start && n.end);
 const isAssigned = (n) => !!(n && (n.team || []).length > 0);
+// ── Keeping a job's dates in order after one of its parts moves ───────────
+// Two jobs of work, both asked for when a task is dragged: nothing may sit out
+// of sequence, and a parent's dates must follow its children.
+//
+// The sequencing rule is the "unlocked dependency" the app already talks about,
+// and it is deliberately NOT "serialise everything". Two assigned tasks in the
+// same phase are allowed to run at the same time -- that is real concurrent
+// work by two people, and forcing it serial would be wrong. What cannot happen
+// is one PERSON in two places at once, or an UNASSIGNED task drifting out of
+// chronological order (it has no owner to negotiate with, so its only claim to
+// a slot is its position in the queue). So:
+//
+//   * per person -- their tasks inside a phase never overlap; a later one is
+//     pushed to the next working day after the earlier one ends.
+//   * unassigned  -- pushed to follow everything already placed before it.
+//   * assigned to different people -- left alone, free to overlap.
+//
+// Undated tasks are skipped: they have no position to preserve, and addBD(null)
+// would write "NaN-NaN-NaN" into the record.
+//
+// Idempotent by construction -- a phase with no conflict comes back untouched --
+// so it is safe to run after every date change, including ones that arrive from
+// the Schedule's own push flow.
+const reflowPhaseOps = (ops, opts) => {
+  const dated = (ops || []).filter(o => o && !o.deletedAt && isDated(o));
+  if (dated.length < 2) return null;
+  const order = [...dated].sort((a, b) => String(a.start).localeCompare(String(b.start)));
+  const personEnd = new Map();
+  let placedEnd = null;
+  const moves = new Map();
+  for (const op of order) {
+    const len = diffBD(op.start, op.end);
+    let earliest = null;
+    const bump = (d) => { if (d && (!earliest || d > earliest)) earliest = d; };
+    if (isAssigned(op)) {
+      for (const t of (op.team || []).map(String)) bump(personEnd.get(t));
+    } else {
+      bump(placedEnd);
+    }
+    let start = op.start, end = op.end;
+    if (earliest) {
+      const floor = addBD(earliest, 1, opts);
+      if (start < floor) { start = floor; end = addBD(start, len, opts); }
+    }
+    if (start !== op.start || end !== op.end) moves.set(op.id, { start, end });
+    if (isAssigned(op)) for (const t of (op.team || []).map(String)) personEnd.set(String(t), end);
+    if (!placedEnd || end > placedEnd) placedEnd = end;
+  }
+  return moves.size ? moves : null;
+};
+// Parent dates follow their children: a phase spans its dated ops, a job spans
+// its dated phases. A phase with no dated ops keeps whatever dates it was given
+// -- there is nothing to derive them from, and blanking them would lose them.
+const rollUpJobDates = (job) => {
+  let out = job, subs = null;
+  (job.subs || []).forEach((pn, i) => {
+    if (!pn || pn.deletedAt) return;
+    const dated = (pn.subs || []).filter(o => o && !o.deletedAt && isDated(o));
+    if (!dated.length) return;
+    const st = dated.reduce((a, b) => (a.start < b.start ? a : b)).start;
+    const en = dated.reduce((a, b) => (a.end > b.end ? a : b)).end;
+    if (pn.start === st && pn.end === en) return;
+    if (!subs) subs = [...(job.subs || [])];
+    subs[i] = { ...pn, start: st, end: en };
+  });
+  if (subs) out = { ...out, subs };
+  const phases = (out.subs || []).filter(pn => pn && !pn.deletedAt && isDated(pn));
+  if (phases.length) {
+    const js = phases.reduce((a, b) => (a.start < b.start ? a : b)).start;
+    const je = phases.reduce((a, b) => (a.end > b.end ? a : b)).end;
+    if (out.start !== js || out.end !== je) out = { ...out, start: js, end: je };
+  }
+  return out;
+};
+// One entry point: reorder every phase's ops, then roll the dates upward.
+const reflowJob = (job, opts) => {
+  let out = job, subs = null;
+  (job.subs || []).forEach((pn, i) => {
+    if (!pn || pn.deletedAt) return;
+    const moves = reflowPhaseOps(pn.subs, opts);
+    if (!moves) return;
+    if (!subs) subs = [...(job.subs || [])];
+    subs[i] = { ...pn, subs: (pn.subs || []).map(o => (o && moves.has(o.id)) ? { ...o, ...moves.get(o.id) } : o) };
+  });
+  if (subs) out = { ...out, subs };
+  return rollUpJobDates(out);
+};
+
 /** Placed on the timeline: it has dates AND somebody to draw the bar against. */
 const isTimelinePlaced = (n) => isDated(n) && isAssigned(n);
 // Map key for a person id that reproduces `===` exactly — type included, so 99 and "99"
@@ -6711,9 +6799,23 @@ Extraction rules:
   const [jdColLabels, setJdColLabels] = usePersistedUI("jdColLabels", {});
   const [jdCustomCols, setJdCustomCols] = usePersistedUI("jdCustomCols", []);
   const [jdColPicker, setJdColPicker] = useState(false);
-  const jdAddCustomCol = (label, type) => {
+  // Right-click on a Job Details header: { x, y, col, subMenu }.
+  // Deliberately its own menu rather than a scoped colCtxMenu -- that one is
+  // wired throughout to the Jobs page column state and grouping, and
+  // parameterising it would put a working feature at risk for no gain here.
+  const [jdColCtx, setJdColCtx] = useState(null);
+  const jdSetColOptions = (colId, options) =>
+    setJdCustomCols(prev => prev.map(c => c.id === colId ? { ...c, options } : c));
+  const jdAddCustomCol = (label, type, anchorId = null, side = "right") => {
     const id = "jd" + Math.random().toString(36).slice(2, 8);
     setJdCustomCols(prev => [...prev, { id, label: label || "New column", type: type || "text", options: [] }]);
+    setJdColOrder(prev => {
+      const at = anchorId ? prev.indexOf(anchorId) : -1;
+      if (at < 0) return [...prev, id];
+      const next = [...prev];
+      next.splice(side === "left" ? at : at + 1, 0, id);
+      return next;
+    });
     return id;
   };
   // Add a row from the Job Details list. Same node shape the new-job form
@@ -7703,7 +7805,7 @@ Extraction rules:
 
   useEffect(() => { const h = () => { setCtxMenu(null); setPtoCtx(null); setSettingsOpen(false); setPrefOpen(false); setFilterOpen(false); setScheduleFilterOpen(false); setSoDropPanelId(null); setColorDropId(null); setDeptDropId(null); setDepsDropId(null); setTaskFilterOpen(false); }; window.addEventListener("click", h); return () => window.removeEventListener("click", h); }, []);
   useEffect(() => { if (!soDropPanelId && !deptDropId && !depsDropId && !colorDropId) return; const h = () => { setSoDropPanelId(null); setDeptDropId(null); setDepsDropId(null); setColorDropId(null); }; document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h); }, [!!soDropPanelId, !!deptDropId, !!depsDropId, !!colorDropId]);
-  useEffect(() => { const h = e => { if (e.key === "Escape") { setLinkingFrom(null); setCtxMenu(null); setPtoCtx(null); setDeptDropId(null); setDepsDropId(null); setTaskFilterOpen(false); setFilterOpen(false); setSettingsOpen(false); setPrefOpen(false); setSoDropPanelId(null); setColorDropId(null); setNotifOpen(false); setColPickerOpen(false); setAskExpanded(false); setToolbarExpanded(false); setStatusPopover(null); setColCtxMenu(null); setGroupCtxMenu(null); setThreadCtxMenu(null); setTsSettingsOpen(false); setSearchOpen(false); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []);
+  useEffect(() => { const h = e => { if (e.key === "Escape") { setLinkingFrom(null); setCtxMenu(null); setPtoCtx(null); setDeptDropId(null); setDepsDropId(null); setTaskFilterOpen(false); setFilterOpen(false); setSettingsOpen(false); setPrefOpen(false); setSoDropPanelId(null); setColorDropId(null); setNotifOpen(false); setColPickerOpen(false); setAskExpanded(false); setToolbarExpanded(false); setStatusPopover(null); setColCtxMenu(null); setJdColCtx(null); setGroupCtxMenu(null); setThreadCtxMenu(null); setTsSettingsOpen(false); setSearchOpen(false); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []);
   useEffect(() => { if (settingsOpen) { setSettingsScrollable(false); const t = setTimeout(() => setSettingsScrollable(true), 500); return () => clearTimeout(t); } }, [settingsOpen]);
 
 
@@ -8655,6 +8757,15 @@ Extraction rules:
         }
       }
     }
+    // Only a date change can put a job out of sequence, so a status or title
+    // edit must not trigger a reflow -- it would quietly move tasks the user
+    // never touched.
+    const datesMoved = Object.prototype.hasOwnProperty.call(upd, "start")
+      || Object.prototype.hasOwnProperty.call(upd, "end")
+      || Object.prototype.hasOwnProperty.call(upd, "team");
+    // schedOpts is the org's own working days + holidays, the same options every
+    // other business-day calculation in the app already runs on.
+    const settle = (t) => (datesMoved ? reflowJob(t, schedOpts) : t);
     setTasks(p => p.map(t => {
     if (pid) {
       // Level 2: updating an operation (Wire/Cut/Layout) — moves independently, no chaining
@@ -8663,7 +8774,7 @@ Extraction rules:
         const panel = t.subs[panelIdx];
         const newOps = (panel.subs || []).map(op => op.id === id ? { ...op, ...upd } : op);
         let newSubs = [...t.subs]; newSubs[panelIdx] = { ...panel, subs: newOps };
-        return { ...t, subs: newSubs };
+        return settle({ ...t, subs: newSubs });
       }
       // Level 1: updating a panel — operations move with it
       if (t.id === pid) {
@@ -8695,7 +8806,7 @@ Extraction rules:
           }
           return updated;
         });
-        return { ...t, subs: newSubs };
+        return settle({ ...t, subs: newSubs });
       }
       return t;
     }
@@ -8718,7 +8829,7 @@ Extraction rules:
           }));
         }
       }
-      return updated;
+      return settle(updated);
     }
     return t;
   }));
@@ -9302,6 +9413,22 @@ ${jobsCtx || "No jobs found."}`;
   // cascade never reversed. Keying on the node re-runs it the moment one attaches.
   const [ctxMenuEl, setCtxMenuEl] = useState(null);
   const ctxMenuRef = useCallback(node => setCtxMenuEl(node), []);
+  // Click-off dismissal. The shared window click handler further up already
+  // closes this menu, but it listens in the BUBBLE phase -- so anything between
+  // the click and the window that calls stopPropagation swallows it and the menu
+  // just sits there. Plenty does: grid cells, the status pill, the assign
+  // button, phase bands. Listening on the CAPTURE phase runs before any of them
+  // can intercept, and clicks inside the menu are excluded by element identity
+  // rather than by propagation, so its own buttons still work.
+  //
+  // pointerdown, not click: the menu should be gone the moment you press
+  // elsewhere, and a press that turns into a drag never produces a click at all.
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const h = (e) => { if (ctxMenuEl && ctxMenuEl.contains(e.target)) return; setCtxMenu(null); };
+    document.addEventListener("pointerdown", h, true);
+    return () => document.removeEventListener("pointerdown", h, true);
+  }, [ctxMenu, ctxMenuEl]);
   const [ctxPlace, setCtxPlace] = useState(null);
   useLayoutEffect(() => {
     if (!ctxMenu) { setCtxPlace(null); return; }
@@ -13114,20 +13241,24 @@ ${jobsCtx || "No jobs found."}`;
   // Jump to a job on the Schedule from anywhere (e.g. the Jobs-list right-click).
   // Switches to the schedule, centers the visible window on the job's dates (or
   // today if it's unscheduled), then flashes a highlight on every bar of that job.
-  const goToScheduleJob = (jobId) => {
+  const goToScheduleJob = (jobId, focus = null) => {
     if (!jobId) return;
     const job = tasks.find(t => t.id === jobId);
     setView("schedule");
     const nDays = Math.max(1, diffD(tStart, tEnd) + 1);
-    const anchorStart = job && job.start ? job.start : TD;
-    const anchorEnd = job && job.end ? job.end : anchorStart;
+    // A focus node (an op or phase) centres and glows itself; without one the
+    // whole job is the target, as before.
+    const anchor = focus && focus.start ? focus : job;
+    const anchorStart = anchor && anchor.start ? anchor.start : TD;
+    const anchorEnd = anchor && anchor.end ? anchor.end : anchorStart;
     const barMid = addD(anchorStart, Math.floor((diffD(anchorStart, anchorEnd) + 1) / 2));
     const newStart = addD(barMid, -Math.floor(nDays / 2));
     setTStart(newStart);
     setTEnd(addD(newStart, nDays - 1));
     setScheduleHighlightId(null);
+    const hl = focus && focus.id ? focus.id : jobId;
     setTimeout(() => {
-      setScheduleHighlightId(jobId);
+      setScheduleHighlightId(hl);
       setTimeout(() => setScheduleHighlightId(null), 4000);
     }, 80);
   };
@@ -22112,7 +22243,20 @@ ${jobsCtx || "No jobs found."}`;
     // panel with equal start and end deltas already shifts its ops (see the
     // level-1 branch), so the drag does not walk the tree itself.
     const onBarDown = (e, node, panelId, kin) => {
-      if (!canMove || !node.start || !node.end) return;
+      if (e.button !== 0) return;
+      const jump = () => goToScheduleJob(job.id, node);
+      if (!canMove || !node.start || !node.end) {
+        // Read-only, or undated: nothing to drag, so a press is only ever a
+        // click. Bind on the element so a press that drifts off it still counts.
+        e.preventDefault(); e.stopPropagation();
+        const x0c = e.clientX, y0c = e.clientY;
+        const upOnly = (ev) => {
+          document.removeEventListener("pointerup", upOnly);
+          if (Math.abs(ev.clientX - x0c) < 4 && Math.abs(ev.clientY - y0c) < 4) jump();
+        };
+        document.addEventListener("pointerup", upOnly);
+        return;
+      }
       e.preventDefault(); e.stopPropagation();
       const track = e.currentTarget.parentElement;
       if (!track) return;
@@ -22132,7 +22276,8 @@ ${jobsCtx || "No jobs found."}`;
         document.removeEventListener("pointermove", move);
         document.removeEventListener("pointerup", up);
         setPlanDrag(null);
-        if (!shifted) return;
+        // Never moved -> it was a click, not a drag.
+        if (!shifted) { jump(); return; }
         const ns = addD(node.start, shifted);
         updTask(node.id, { start: ns, end: addD(ns, len) }, panelId);
       };
@@ -22156,11 +22301,15 @@ ${jobsCtx || "No jobs found."}`;
       const g = barGeo(n);
       const isMile = !!g && n.start === n.end;
       const pct = _opPct(n);
-      const col = elColor(n.color || r.tint || "#9A99A0");
+      // Finished work is green with a tick, whatever colour its phase carries.
+      // Status is the one thing you scan a plan for, and the phase tint says
+      // which group a task belongs to -- not whether it is done.
+      const done = getOpDisplayStatus(n) === "Finished";
+      const col = done ? "#10b981" : elColor(n.color || r.tint || "#9A99A0");
       const editing = planEdit && planEdit.id === n.id && planEdit.col === "title";
       const depCount = (n.deps || []).length;
       return (
-        <div key={n.id} style={{ display: "grid", gridTemplateColumns: isGantt ? (labelless ? "1fr" : "280px 1fr") : "1fr", alignItems: "center", borderBottom: `1px solid ${T.border}`, height: ROW_H || r.h, boxSizing: "border-box",
+        <div key={n.id} onContextMenu={e => handleCtx(e, { ...n, isSub: true, pid: panelId, grandPid: job.id, level: 2, panelTitle: (tasks.flatMap(j => j.subs || []).find(pp => pp.id === panelId) || {}).title || "" }, "job-detail")} style={{ display: "grid", gridTemplateColumns: isGantt ? (labelless ? "1fr" : "280px 1fr") : "1fr", alignItems: "center", borderBottom: `1px solid ${T.border}`, height: ROW_H || r.h, boxSizing: "border-box",
           // Only a real toggle animates -- see toggleJdPhase.
           animation: r.closing ? `gridRowOut 0.18s ${jdOutMs(r.oi || 0)}ms both ease-in`
             : r.opening ? `gridRowIn 0.14s ${jdInMs(r.oi || 0)}ms both ease-out`
@@ -22222,12 +22371,16 @@ ${jobsCtx || "No jobs found."}`;
               ? <span style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", fontSize: 10, fontWeight: 600, color: T.textDim, whiteSpace: "nowrap" }}>no dates yet — set them in Edit</span>
               : isMile
                 ? <>
-                    <span onPointerDown={e => onBarDown(e, n, panelId)} style={{ position: "absolute", top: "50%", left: `${g.l}%`, width: 11, height: 11, transform: "translateY(-50%) rotate(45deg)", borderRadius: 3, background: col, opacity: dim ? 0.5 : 1, cursor: canMove ? "grab" : "default", zIndex: 6 }} />
+                    <span onPointerDown={e => onBarDown(e, n, panelId)} title={done ? "Finished — click to show on the Schedule" : "Click to show on the Schedule"} style={{ position: "absolute", top: "50%", left: `${g.l}%`, width: 11, height: 11, transform: "translateY(-50%) rotate(45deg)", borderRadius: 3, background: col, opacity: done ? 1 : (dim ? 0.5 : 1), cursor: canMove ? "grab" : "pointer", zIndex: 6, boxShadow: done ? "0 0 0 2px rgba(16,185,129,0.35)" : "none" }} />
                     <b style={{ position: "absolute", top: "50%", left: `calc(${g.l}% + 18px)`, transform: "translateY(-50%)", fontSize: 10, fontWeight: 600, color: T.textDim, whiteSpace: "nowrap" }}>{fm(addD(n.start, dragDays(n)))}</b>
                   </>
                 : <span onPointerDown={e => onBarDown(e, n, panelId)}
-                    style={{ position: "absolute", top: "50%", transform: "translateY(-50%)", height: 18, borderRadius: T.radiusPill, boxSizing: "border-box", left: `${g.l}%`, width: `${g.r - g.l}%`, background: col, opacity: dim ? 0.45 : 1, cursor: canMove ? "grab" : "default", zIndex: 6 }}>
-                    {pct > 0 && <span style={{ position: "absolute", left: 0, top: 0, bottom: 0, borderRadius: "inherit", background: "rgba(255,255,255,0.35)", width: `${Math.min(100, pct)}%` }} />}
+                    title={done ? "Finished — click to show on the Schedule" : "Click to show on the Schedule"}
+                    style={{ position: "absolute", top: "50%", transform: "translateY(-50%)", height: 18, borderRadius: T.radiusPill, boxSizing: "border-box", left: `${g.l}%`, width: `${g.r - g.l}%`, background: col, opacity: done ? 1 : (dim ? 0.45 : 1), cursor: canMove ? "grab" : "pointer", zIndex: 6, display: "flex", alignItems: "center", overflow: "hidden" }}>
+                    {/* No progress wash on a finished bar -- it would be a 100%
+                        white overlay, which just washes the green out. */}
+                    {!done && pct > 0 && <span style={{ position: "absolute", left: 0, top: 0, bottom: 0, borderRadius: "inherit", background: "rgba(255,255,255,0.35)", width: `${Math.min(100, pct)}%` }} />}
+                    {done && <svg style={{ marginLeft: 4, flexShrink: 0 }} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>}
                   </span>}
           </span>}
         </div>
@@ -22249,7 +22402,7 @@ ${jobsCtx || "No jobs found."}`;
         || (pn.subs || []).some(o => o && (o.team || []).length > 0);
       const g = barGeo(pn);
       return (
-        <div key={"ph-" + pn.id} style={{ display: "grid", gridTemplateColumns: isGantt ? (labelless ? "1fr" : "280px 1fr") : "1fr", alignItems: "center", background: T.surface, borderBottom: `1px solid ${T.border}`, height: ROW_H || r.h, boxSizing: "border-box" }}>
+        <div key={"ph-" + pn.id} onContextMenu={e => handleCtx(e, { ...pn, isSub: true, pid: job.id, grandPid: null, level: 1 }, "job-detail")} style={{ display: "grid", gridTemplateColumns: isGantt ? (labelless ? "1fr" : "280px 1fr") : "1fr", alignItems: "center", background: T.surface, borderBottom: `1px solid ${T.border}`, height: ROW_H || r.h, boxSizing: "border-box" }}>
           {!labelless && <span onClick={() => toggleJdPhase(pn.id, (pn.subs || []).filter(o => o && !o.deletedAt).length)}
             style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 14px", borderRight: isGantt ? `1px solid ${T.border}` : "none", height: "100%", boxSizing: "border-box", minWidth: 0, cursor: "pointer", userSelect: "none" }}>
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"
@@ -22360,42 +22513,61 @@ ${jobsCtx || "No jobs found."}`;
   // closes over five locals declared there. Hoisting ~500 lines of the app's
   // busiest grid belongs in its own change, not bundled with three new views.
   const jobListCols = useMemo(() => {
-    const std = jdColOrder.map(id => STD_COL_DEFS.find(c => c.id === id)).filter(Boolean);
-    return { std, custom: jdCustomCols };
+    const byId = new Map(jdCustomCols.map(c => [c.id, c]));
+    const out = [];
+    for (const key of jdColOrder) {
+      const std = STD_COL_DEFS.find(c => c.id === key);
+      if (std) { out.push({ ...std, custom: false }); continue; }
+      const cc = byId.get(key);
+      if (cc) { out.push({ ...cc, custom: true }); byId.delete(key); }
+    }
+    // Anything in jdCustomCols the order has not placed yet -- a column added
+    // before this model existed, or by a build that only pushed to jdCustomCols.
+    // Appending keeps those visible instead of silently dropping them.
+    for (const cc of jdCustomCols) if (byId.has(cc.id)) out.push({ ...cc, custom: true });
+    return out;
   }, [jdColOrder, jdCustomCols]);
+  // Insert a column key into the order beside another one. side "right" lands
+  // after the anchor, "left" before it; an unknown anchor appends.
+  const jdInsertCol = (key, anchorId, side) => setJdColOrder(prev => {
+    const next = prev.filter(k => k !== key);
+    const at = next.indexOf(anchorId);
+    if (at < 0) return [...next, key];
+    next.splice(side === "left" ? at : at + 1, 0, key);
+    return next;
+  });
+  const jdRemoveCol = (col) => {
+    setJdColOrder(prev => prev.filter(k => k !== col.id));
+    if (col.custom) setJdCustomCols(prev => prev.filter(c => c.id !== col.id));
+  };
 
   const renderJobTaskList = (job, compact = false) => {
     if (!job) return null;
     const panels = (job.subs || []).filter(s => s && !s.deletedAt);
     // Compact (the Split pane) drops to the four columns the design keeps there:
     // name, start, end, assignee. Everything else needs width it will not have.
-    const cols = compact
-      ? jobListCols.std.filter(c => ["name", "start", "end", "team"].includes(c.id))
-      : jobListCols.std;
-    const customs = compact ? [] : jobListCols.custom;
+    // Compact (the Split pane) drops to the four columns the design keeps there.
+    const allCols = compact
+      ? jobListCols.filter(c => ["name", "start", "end", "team"].includes(c.id))
+      : jobListCols;
     const showAdd = !compact && can("editJobs");
     const gridCols = [
-      compact ? "minmax(150px, 1.6fr)" : "minmax(180px, 2fr)",
-      ...cols.filter(c => c.id !== "name").map(() => "minmax(96px, 1fr)"),
-      ...customs.map(() => "minmax(110px, 1fr)"),
+      ...allCols.map(c => c.id === "name"
+        ? (compact ? "minmax(150px, 1.6fr)" : "minmax(180px, 2fr)")
+        : (c.custom ? "minmax(110px, 1fr)" : "minmax(96px, 1fr)")),
       ...(showAdd ? ["34px"] : []),
     ].join(" ");
     const rowH = 39;   // matched to the Gantt's row height so Split lines up
 
     const hdr = (
       <div style={{ display: "grid", gridTemplateColumns: gridCols, background: T.surface, borderBottom: `1px solid ${T.border}`, position: "sticky", top: 0, zIndex: 2 }}>
-        {[...cols, ...customs].map(c => (
-          <span key={c.id || c.fieldKey}
-            title={can("editJobs") && !compact ? "Double-click to rename · right-click to remove" : undefined}
-            onDoubleClick={() => { if (!can("editJobs") || compact) return;
-              const cur = jdColLabels[c.id] || c.label;
-              const next = window.prompt("Column name", cur);
-              if (next != null && next.trim()) setJdColLabels(p => ({ ...p, [c.id]: next.trim() })); }}
-            onContextMenu={e => { if (!can("editJobs") || compact) return; e.preventDefault();
-              // A standard column is hidden (it can be added back); a custom one
-              // is deleted, since nothing else references it.
-              if (c.fieldKey || String(c.id).startsWith("jd")) setJdCustomCols(p => p.filter(x => x.id !== c.id));
-              else setJdColOrder(p => p.filter(x => x !== c.id)); }}
+        {allCols.map(c => (
+          <span key={c.id}
+            title={can("editJobs") && !compact ? "Right-click for column options" : undefined}
+            onContextMenu={e => { if (!can("editJobs") || compact) return; e.preventDefault(); e.stopPropagation();
+              // Opens the options menu. It used to delete the column outright,
+              // with no confirm and no undo.
+              setJdColCtx({ x: e.clientX, y: e.clientY, col: c, subMenu: null }); }}
             style={{ padding: "0 12px", height: 38, display: "flex", alignItems: "center", fontSize: 9.5, letterSpacing: "-0.02em", fontWeight: 700, textTransform: "uppercase", color: T.textDim, borderRight: `1px solid ${T.borderLight}`, whiteSpace: "nowrap", overflow: "hidden", cursor: can("editJobs") && !compact ? "context-menu" : "default", userSelect: "none" }}>
             {jdColLabels[c.id] || c.label}
           </span>
@@ -22416,7 +22588,7 @@ ${jobsCtx || "No jobs found."}`;
     // made renames here look like they saved and then vanish.
     const FIELD_OF = { name: "title", due: "dueDate" };
     const keyOf = (col) => col.fieldKey
-      || (STD_COL_DEFS.some(sc => sc.id === col.id) ? (FIELD_OF[col.id] || col.id) : "_cc_" + col.id);
+      || (col.custom ? "_cc_" + col.id : (FIELD_OF[col.id] || col.id));
     const cell = (node, col, panelId, level) => {
       const key = keyOf(col);
       const pad = { padding: "0 12px", height: rowH, display: "flex", alignItems: "center", borderRight: `1px solid ${T.borderLight}`, borderBottom: `1px solid ${T.border}`, minWidth: 0, fontSize: 12.5, color: T.text, boxSizing: "border-box" };
@@ -22534,7 +22706,6 @@ ${jobsCtx || "No jobs found."}`;
       </span>;
     };
 
-    const allCols = [...cols, ...customs];
     return (
       <div style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0 }}>
         {/* The pane scrolls rather than compressing. A Split dragged narrow rolls
@@ -22563,6 +22734,7 @@ ${jobsCtx || "No jobs found."}`;
                         Still reads as one band: the cells carry no vertical
                         borders, so no column separators cut across it. */}
                     <div onClick={() => toggleJdPhase(pn.id, ops.length)}
+                      onContextMenu={e => handleCtx(e, { ...pn, isSub: true, pid: job.id, grandPid: null, level: 1 }, "job-detail")}
                       style={{ display: "grid", gridTemplateColumns: gridCols, alignItems: "stretch", height: rowH, background: T.surface, borderBottom: `1px solid ${T.border}`, cursor: "pointer", userSelect: "none", boxSizing: "border-box" }}>
                       <span style={{ display: "flex", alignItems: "center", gap: 9, padding: "0 14px", minWidth: 0, boxSizing: "border-box" }}>
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.8" strokeLinecap="round" strokeLinejoin="round"
@@ -22592,7 +22764,9 @@ ${jobsCtx || "No jobs found."}`;
                       {showAdd && <span />}
                     </div>
                     {!closed && ops.map((op, oi) => (
-                      <div key={op.id} style={{ display: "grid", gridTemplateColumns: gridCols, alignItems: "stretch",
+                      <div key={op.id}
+                        onContextMenu={e => handleCtx(e, { ...op, isSub: true, pid: pn.id, grandPid: job.id, level: 2, panelTitle: pn.title || "" }, "job-detail")}
+                        style={{ display: "grid", gridTemplateColumns: gridCols, alignItems: "stretch",
                         // Only a real toggle animates -- see toggleJdPhase.
                         animation: closing ? `gridRowOut 0.18s ${jdOutMs(oi)}ms both ease-in`
                           : opening ? `gridRowIn 0.14s ${jdInMs(oi)}ms both ease-out`
@@ -27580,6 +27754,107 @@ ${jobsCtx || "No jobs found."}`;
         match behind a collapsed header, exactly as GroupingSelect does.
         Toggles membership rather than replacing it: an op can be shared, which
         is what pickTeam's "all" mode produces. */}
+    <FadeOnClose open={!!jdColCtx}>{jdColCtx && (() => {
+      const col = jdColCtx.col;
+      const label = jdColLabels[col.id] || col.label;
+      const isSelect = !!(col.custom && col.type === "select");
+      const opts = col.custom ? ((jdCustomCols.find(c => c.id === col.id) || {}).options || []) : [];
+      const row = { width: "100%", padding: "9px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.text, fontFamily: T.font, textAlign: "left", transition: "background-color 0.15s ease" };
+      const hov = e => { e.currentTarget.style.background = T.hover; };
+      const off = e => { e.currentTarget.style.background = "transparent"; };
+      const sub = (k) => setJdColCtx(pv => ({ ...pv, subMenu: pv.subMenu === k ? null : k }));
+      // Columns not already on the page, offered by both Add Column entries.
+      const addable = [
+        ...STD_COL_DEFS.filter(c => !jdColOrder.includes(c.id)).map(c => ({ kind: "std", id: c.id, label: c.label })),
+        ...FIELD_COL_CATALOG.filter(f => !jdCustomCols.some(c => c.fieldKey === f.fieldKey)).map(f => ({ kind: "field", def: f, label: f.label })),
+      ];
+      const addPanel = (side) => (
+        <div style={{ maxHeight: 190, overflowY: "auto", background: T.bg, borderTop: `1px solid ${T.border}`, borderBottom: `1px solid ${T.border}` }}>
+          {addable.map(a => (
+            <button key={a.kind + (a.id || a.def.fieldKey)}
+              onClick={() => {
+                if (a.kind === "std") jdInsertCol(a.id, col.id, side);
+                else {
+                  const fid = "jdf_" + a.def.fieldKey;
+                  setJdCustomCols(pv => pv.some(c => c.id === fid) ? pv : [...pv, { id: fid, ...a.def }]);
+                  jdInsertCol(fid, col.id, side);
+                }
+                setJdColCtx(null);
+              }}
+              style={{ ...row, padding: "8px 14px 8px 30px", fontSize: 12.5 }} onMouseEnter={hov} onMouseLeave={off}>
+              {a.label}
+            </button>
+          ))}
+          <button onClick={() => { const n = window.prompt("New column name"); if (n && n.trim()) jdAddCustomCol(n.trim(), "text", col.id, side); setJdColCtx(null); }}
+            style={{ ...row, padding: "8px 14px 8px 30px", fontSize: 12.5, color: T.accent, fontWeight: 700 }} onMouseEnter={hov} onMouseLeave={off}>
+            Custom column...
+          </button>
+        </div>
+      );
+      return <div style={{ position: "fixed", inset: 0, zIndex: 10010 }} onClick={() => setJdColCtx(null)}>
+        <div onClick={e => e.stopPropagation()} className="anim-ctx"
+          style={{ position: "fixed", left: Math.min(jdColCtx.x, window.innerWidth - 250), top: Math.min(jdColCtx.y, window.innerHeight - 300), background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", width: 232, zIndex: 10011, overflow: "hidden", fontFamily: T.font }}>
+          <div style={{ padding: "10px 14px 8px", fontSize: 9.5, fontWeight: 700, letterSpacing: "-0.02em", textTransform: "uppercase", color: T.textDim, borderBottom: `1px solid ${T.border}` }}>{label}</div>
+
+          <button onClick={() => { const n = window.prompt("Column name", label); if (n != null && n.trim()) setJdColLabels(pv => ({ ...pv, [col.id]: n.trim() })); setJdColCtx(null); }}
+            style={row} onMouseEnter={hov} onMouseLeave={off}>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            Rename Column
+          </button>
+
+          {/* Selection options -- only a select column has any */}
+          {isSelect && <div>
+            <button onClick={() => sub("opts")} style={{ ...row, background: jdColCtx.subMenu === "opts" ? T.accent + "15" : "transparent" }}
+              onMouseEnter={e => { if (jdColCtx.subMenu !== "opts") hov(e); }} onMouseLeave={e => { if (jdColCtx.subMenu !== "opts") off(e); }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/></svg>
+              Edit Options
+              <svg style={{ marginLeft: "auto", transform: jdColCtx.subMenu === "opts" ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+            {jdColCtx.subMenu === "opts" && (
+              <div style={{ maxHeight: 190, overflowY: "auto", background: T.bg, borderTop: `1px solid ${T.border}`, borderBottom: `1px solid ${T.border}` }}>
+                {opts.length === 0 && <div style={{ padding: "8px 14px 8px 30px", fontSize: 12, color: T.textDim }}>No options yet.</div>}
+                {opts.map((o, oi) => (
+                  <div key={oi} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 10px 6px 30px" }}>
+                    <span style={{ flex: 1, fontSize: 12.5, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{optName(o)}</span>
+                    <button title="Remove option" onClick={() => jdSetColOptions(col.id, opts.filter((_, i) => i !== oi))}
+                      style={{ width: 18, height: 18, padding: 0, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", display: "grid", placeItems: "center" }}>
+                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                    </button>
+                  </div>
+                ))}
+                <button onClick={() => { const n = window.prompt("New option"); if (n && n.trim()) jdSetColOptions(col.id, [...opts, { name: n.trim() }]); }}
+                  style={{ ...row, padding: "8px 14px 8px 30px", fontSize: 12.5, color: T.accent, fontWeight: 700 }} onMouseEnter={hov} onMouseLeave={off}>
+                  + Add option
+                </button>
+              </div>
+            )}
+          </div>}
+
+          {["left", "right"].map(side => (
+            <div key={side}>
+              <button onClick={() => sub("add" + side)} style={{ ...row, background: jdColCtx.subMenu === "add" + side ? T.accent + "15" : "transparent" }}
+                onMouseEnter={e => { if (jdColCtx.subMenu !== "add" + side) hov(e); }} onMouseLeave={e => { if (jdColCtx.subMenu !== "add" + side) off(e); }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add Column {side === "left" ? "Left" : "Right"}
+                <svg style={{ marginLeft: "auto", transform: jdColCtx.subMenu === "add" + side ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+              {jdColCtx.subMenu === "add" + side && addPanel(side)}
+            </div>
+          ))}
+
+          {/* Name is the row's identity -- removing it leaves rows with nothing
+              to read, so it is the one column that cannot be taken away. */}
+          {col.id !== "name" && (
+            <button onClick={() => { jdRemoveCol(col); setJdColCtx(null); }}
+              style={{ ...row, color: "#ef4444", padding: "10px 14px" }}
+              onMouseEnter={e => { e.currentTarget.style.background = "#ef444414"; }} onMouseLeave={off}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+              {col.custom ? "Delete Column" : "Remove Column"}
+            </button>
+          )}
+        </div>
+      </div>;
+    })()}</FadeOnClose>
     <FadeOnClose open={jdColPicker}>{jdColPicker && (
       <div style={{ position: "fixed", inset: 0, zIndex: 10014, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
         onClick={() => setJdColPicker(false)}>
@@ -27602,7 +27877,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "-0.02em", textTransform: "uppercase", color: T.textDim, marginBottom: 6 }}>Job fields</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
             {FIELD_COL_CATALOG.filter(f => !jdCustomCols.some(c => c.fieldKey === f.fieldKey)).map(f => (
-              <button key={f.fieldKey} onClick={() => { setJdCustomCols(p => [...p, { id: "jdf_" + f.fieldKey, ...f }]); setJdColPicker(false); }}
+              <button key={f.fieldKey} onClick={() => { const fid = "jdf_" + f.fieldKey; setJdCustomCols(p => [...p, { id: fid, ...f }]); setJdColOrder(p => p.includes(fid) ? p : [...p, fid]); setJdColPicker(false); }}
                 style={{ padding: "6px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
                 + {f.label}
               </button>
@@ -29349,8 +29624,14 @@ ${jobsCtx || "No jobs found."}`;
       const maxH = ctxPlace?.maxHeight;
       const vPos = flipUp ? { bottom: window.innerHeight - ctxMenu.y } : { top: ctxMenu.y };
       const it = ctxMenu.item;
-      const isOp = it.level === 2 || (it.isSub && it.pid && !tasks.find(x => x.id === it.id));
+      // Resolved panel-first, and a node can only be ONE of the three. isOp's
+      // fallback clause ("a sub whose id is not a top-level job") is true of a
+      // phase as well as a task, so a phase used to satisfy isOp and isPanel at
+      // once and picked up task-only entries -- Split Task, Set Dependency --
+      // that cannot mean anything for a phase. Every branch that reads both
+      // already tested isPanel first, so nothing else changes behaviour here.
       const isPanel = it.level === 1 || (it.isSub && it.pid && !it.grandPid && tasks.find(j => (j.subs||[]).find(p => p.id === it.id)));
+      const isOp = !isPanel && (it.level === 2 || (it.isSub && it.pid && !tasks.find(x => x.id === it.id)));
       const isJob = it.level === 0 || (!it.isSub && !it.pid);
       // Live children count — read from tasks state, not from the spread item (which may not have subs populated)
       const liveChildCount = (() => {
