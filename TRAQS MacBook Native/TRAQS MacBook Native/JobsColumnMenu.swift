@@ -474,13 +474,14 @@ struct JobsOptionsEditor: View {
 
     private func optionRow(_ index: Int) -> some View {
         HStack(spacing: 6) {
-            ColorPicker("", selection: Binding(
-                get: { Color.hex(draft[index].color ?? "#94a3b8") },
-                set: { draft[index].color = $0.toHexString() }
-            ), supportsOpacity: false)
-            .labelsHidden()
-            .frame(width: 22)
+            // A CIRCLE, like every other colour input — a bare ColorPicker draws
+            // a wide well that reads as an empty field beside the name box.
+            TQColorSwatch(hex: Binding(
+                get: { draft[index].color ?? "#94a3b8" },
+                set: { draft[index].color = $0.isEmpty ? nil : $0 }
+            ), size: 16, clearable: false)
             .disabled(!editable)
+            .opacity(editable ? 1 : 0.5)
 
             TextField("", text: Binding(
                 get: { draft[index].icon ?? "" },

@@ -1382,7 +1382,7 @@ private struct JobsGridCell: View {
                 .foregroundStyle(done ? Color.hex("#10b981") : theme.textDim)
                 .fixedSize()
             Text(done ? "approved"
-                 : "across \(state.panelCount) panel\(state.panelCount == 1 ? "" : "s")")
+                 : "across \(state.panelCount) operation\(state.panelCount == 1 ? "" : "s")")
                 .font(TFont.body(10))
                 .foregroundStyle(theme.textDim)
                 .lineLimit(1)

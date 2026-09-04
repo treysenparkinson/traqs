@@ -831,6 +831,13 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
     var id: String
     var name: String
     var role: String
+    /// `secondaryDepartment` — the backup department this person can cover.
+    ///
+    /// Read for scheduling: `personDeptMatch` ranks a primary match above a
+    /// secondary one and offers both, so a department's backup crew is
+    /// schedulable when its own people are busy. Separate from `role`, which
+    /// carries the PRIMARY department (see its decode below).
+    var secondaryDepartment: String
     var email: String
     var cap: Double
     var color: String
@@ -899,6 +906,11 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         let dept = (try? decoder.container(keyedBy: PersonRawKey.self))
             .flatMap { try? $0.decode(String.self, forKey: PersonRawKey("department")) } ?? ""
         role     = dept.isEmpty ? legacyRole : dept
+        // Same raw-key read as `department` above, and for the same reason: it
+        // is not in the legacy shape, so it has no synthesized key to decode
+        // from on an older record.
+        secondaryDepartment = (try? decoder.container(keyedBy: PersonRawKey.self))
+            .flatMap { try? $0.decode(String.self, forKey: PersonRawKey("secondaryDepartment")) } ?? ""
         email    = (try? c.decode(String.self, forKey: .email)) ?? ""
         cap      = (try? c.decode(Double.self, forKey: .cap)) ?? 8.0
         color    = (try? c.decode(String.self, forKey: .color)) ?? "#7c3aed"
@@ -922,7 +934,8 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
     }
 
     // Explicit memberwise init (needed because init(from:) in struct body suppresses synthesis)
-    init(id: String, name: String, role: String, email: String, cap: Double,
+    init(id: String, name: String, role: String, secondaryDepartment: String = "",
+         email: String, cap: Double,
          color: String, userRole: String, adminPerms: AdminPerms? = nil,
          isEngineer: Bool? = nil,
          autoSchedule: Bool? = nil, noAutoSchedule: Bool? = nil, teamNumber: Int? = nil,
@@ -933,7 +946,9 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
          hasPin: Bool? = nil,
          payType: String? = nil, phone: String? = nil, image: String? = nil,
          canClockInOut: Bool? = nil, canSignOff: Bool? = nil) {
-        self.id = id; self.name = name; self.role = role; self.email = email
+        self.id = id; self.name = name; self.role = role
+        self.secondaryDepartment = secondaryDepartment
+        self.email = email
         self.cap = cap; self.color = color; self.userRole = userRole
         self.adminPerms = adminPerms; self.isEngineer = isEngineer
         self.autoSchedule = autoSchedule

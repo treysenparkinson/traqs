@@ -224,7 +224,7 @@ struct JobsPage: View {
             }
             Button("Cancel", role: .cancel) { }
         } message: {
-            Text("This also deletes their panels and operations. Undo with \u{2318}Z.")
+            Text("This also deletes their operations and sub-operations. Undo with \u{2318}Z.")
         }
         // The menu layer, and the space it is measured in. Both on the OUTERMOST
         // view: inside TPage the content sits in a scroller, and a menu placed
@@ -303,6 +303,29 @@ struct JobsPage: View {
             JobsNewJobSheet(people: appState.people,
                             clients: appState.clients,
                             customColumns: appState.orgSettings.customCols,
+                            // `orgSettings.roles` — the department list the Dept
+                            // pickers offer, and what filters each row's
+                            // assignee options.
+                            departments: appState.orgSettings.roles,
+                            // The approval chains a new panel can start on. Read
+                            // through JobsApproval, which is the one place that
+                            // knows they live in the org settings' passthrough.
+                            signOffTemplates: JobsApproval.templates(appState.orgSettings),
+                            // Job templates are per device AND per org — see
+                            // JobsTemplateStore.
+                            orgCode: appState.orgCode,
+                            // Step 3 needs the roster, everything already
+                            // booked, and the org's work calendar. Assembled
+                            // here so the sheet still reads no AppState itself.
+                            scheduling: JobsNewJobSheet.JobsSchedulingContext(
+                                people: appState.people,
+                                jobs: appState.jobs,
+                                calendar: WorkCalendar(
+                                    workDays: appState.orgSettings.workDays,
+                                    holidays: appState.orgSettings.holidays),
+                                orgHpd: appState.orgSettings.hpd,
+                                departments: appState.orgSettings.roles,
+                                today: JobsDate.todayKey),
                             create: { job in
                                 // `sendNotification: true` — the web's `saveTask`
                                 // fires the "new job" heads-up to the admins, and
@@ -642,15 +665,17 @@ struct JobsPage: View {
         guard let row = confirmingRowDelete else { return "Delete?" }
         switch row.level {
         case 0:  return "Delete \u{201C}\(row.title)\u{201D}?"
-        case 1:  return "Delete panel \u{201C}\(row.title)\u{201D}?"
-        default: return "Delete operation \u{201C}\(row.title)\u{201D}?"
+        case 1:  return "Delete operation \u{201C}\(row.title)\u{201D}?"
+        default: return "Delete sub-operation \u{201C}\(row.title)\u{201D}?"
         }
     }
 
     private var rowDeleteDetail: String {
         guard let row = confirmingRowDelete else { return "" }
         let children = row.childCount
-        let noun = row.level == 0 ? "panel" : "operation"
+        // Level 0 owns operations; a level-1 row owns sub-operations. The names
+        // the whole page uses — see the note in JobsNewJobSheet.
+        let noun = row.level == 0 ? "operation" : "sub-operation"
         let sweeps = children > 0
             ? " This also deletes its \(children) \(noun)\(children == 1 ? "" : "s")."
             : ""

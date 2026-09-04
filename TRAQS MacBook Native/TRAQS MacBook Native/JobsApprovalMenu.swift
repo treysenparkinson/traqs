@@ -57,7 +57,7 @@ struct JobsApprovalMenu: View {
                     glyph: WebIcon.pencil,
                     label: "Edit \u{201C}\(target.title)\u{201D} Steps",
                     enabled: false,
-                    help: "Editing a sign-off template changes every panel using it — the template editor is not ported yet",
+                    help: "Editing a sign-off template changes every operation using it — the template editor is not ported yet",
                     cascade: cascade(0)) { }
             }
 
