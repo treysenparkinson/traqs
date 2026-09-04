@@ -2452,7 +2452,7 @@ const outlineBtnStyle = (c) => ({ background: T.surface, border: `1.5px solid ${
 // Retains a snapshot of children during the fade so dropdowns driven by object state
 // (e.g. {x, y, ...} that gets set to null on close) don't crash mid-animation. Re-opening
 // during a close suppresses the entry animation so the dropdown doesn't visibly restart.
-const FadeOnClose = ({ open, children, duration = 180, outAnim = "fadeOutDrop", outEasing = "ease-out" }) => {
+export const FadeOnClose = ({ open, children, duration = 180, outAnim = "fadeOutDrop", outEasing = "ease-out" }) => {
   const [mounted, setMounted] = useState(!!open);
   const [suppressEntry, setSuppressEntry] = useState(false);
   const stableRef = useRef(children);
@@ -2475,17 +2475,34 @@ const FadeOnClose = ({ open, children, duration = 180, outAnim = "fadeOutDrop", 
   // because a conditional like `{state && <div/>}` has short-circuited.
   const kids = open ? children : stableRef.current;
   if (!kids) return null;
-  if (!open) {
-    return cloneElement(kids, {
-      style: { ...(kids.props.style || {}), animation: `${outAnim} ${duration}ms ${outEasing} both`, pointerEvents: "none" },
+  // The exit is driven by a `style` prop, so what the child IS decides how to apply it.
+  const anim = !open ? `${outAnim} ${duration}ms ${outEasing} both` : (suppressEntry ? "none" : undefined);
+  const animate = el => {
+    if (!el) return el;
+    // A host element takes the animation directly. A Fragment throws the prop away
+    // (and warns) and a component swallows it unless it happens to spread style onto
+    // its own root, so those get a plain wrapper div — rendered in BOTH states so the
+    // fade never remounts the subtree, which would replay every child entry animation
+    // mid-fade. The div carries no layout of its own; these overlays are all
+    // position:fixed/absolute.
+    if (typeof el.type !== "string") {
+      const w = {};
+      if (anim) w.animation = anim;
+      if (!open) w.pointerEvents = "none";
+      return <div style={w}>{el}</div>;
+    }
+    if (!anim && open) return el;
+    return cloneElement(el, {
+      style: { ...(el.props.style || {}), ...(anim ? { animation: anim } : null), ...(open ? null : { pointerEvents: "none" }) },
     });
+  };
+  // A portal is not an element — no `type`, no `props` — and a wrapper around it would
+  // animate an empty box while the real content sits elsewhere in the DOM. Reach through
+  // it and animate what it renders, keeping the same container so nothing remounts.
+  if (!kids.type && kids.containerInfo) {
+    return createPortal(animate(kids.children), kids.containerInfo, kids.key ?? undefined);
   }
-  if (suppressEntry) {
-    return cloneElement(kids, {
-      style: { ...(kids.props.style || {}), animation: "none" },
-    });
-  }
-  return kids;
+  return animate(kids);
 };
 // TRAQS-styled date picker — custom calendar popover with month nav and Today/Clear shortcuts.
 const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", id, portal = false, required = false, compact = false, min, style: extraStyle, autoOpen = false, onClose }) => {
@@ -2567,9 +2584,9 @@ const TraqsDatePicker = ({ label, value, onChange, placeholder = "Select date", 
         <span>{value ? formatDate(value) : placeholder}</span>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={open || value ? T.accent : T.textDim} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ transition: "stroke 0.15s" }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
       </button>
-      {/* wrapPop goes OUTSIDE FadeOnClose: on close FadeOnClose cloneElement()s
-          its child and reads child.props.style, and a portal object has no
-          .props — portalling the child threw a TypeError on every close. */}
+      {/* wrapPop goes OUTSIDE FadeOnClose so the fading element is the popup
+          itself rather than the portal wrapper — FadeOnClose can reach through a
+          portal, but keeping it inside means one less indirection on every close. */}
       {wrapPop(<FadeOnClose open={open}>{open && (<div ref={popRef} onClick={e => e.stopPropagation()} className="anim-drop" style={{ ...(portal ? { position: "fixed", left: anchor?.left ?? 0, top: anchor?.top ?? 0, minWidth: anchor?.width, maxHeight: anchor?.maxH, overflowY: "auto" } : { position: "absolute", top: "calc(100% + 6px)", left: 0 }), zIndex: portal ? 10060 : 1500, background: T.surfaceSolid || T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, overflow: portal ? undefined : "hidden", boxShadow: "0 16px 48px rgba(0,0,0,0.5)", padding: 14, width: 290, fontFamily: T.font }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <button onClick={NAV(-1)} style={{ width: 30, height: 30, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.12s" }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
@@ -2737,7 +2754,7 @@ function DateField({ value, onChange, placeholder = "Pick a date", style = {}, w
         <span style={{ lineHeight: 0, flexShrink: 0, color: open ? T.accent : T.textSec }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
         <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
       </button>
-      {open && wrapPop(
+      {wrapPop(<FadeOnClose open={open}>{open && (
         <div className="anim-ctx" style={{ ...(portal ? { position: "fixed", left: anchor?.left ?? 0, top: anchor?.top ?? 0 } : { position: "absolute", top: "calc(100% + 6px)", left: 0 }), zIndex: 3000, width: 258, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 16px 48px rgba(0,0,0,0.45)", padding: 12, fontFamily: T.font }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
             <button type="button" onClick={() => setView(new Date(y, mo - 1, 1))} style={navBtn}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
@@ -2771,7 +2788,7 @@ function DateField({ value, onChange, placeholder = "Pick a date", style = {}, w
             <button type="button" onClick={() => setOpen(false)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, padding: 0 }}>Close</button>
           </div>
         </div>
-      )}
+      )}</FadeOnClose>)}
     </div>
   );
 }
@@ -3368,7 +3385,7 @@ function AssigneeDrop({ value, onChange, people }) {
       <span style={{ fontSize: 12, fontWeight: sel ? 600 : 400, color: sel ? T.bgText : T.textDim, fontFamily: T.font, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel ? sel.name : "Anyone"}</span>
       <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "rotate(0deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
     </div>
-    {open && anchor && createPortal(
+    <FadeOnClose open={open && !!anchor}>{open && anchor && createPortal(
       <div ref={menuRef} className="tq-lglass" style={{ position: "fixed", left: anchor.left, top: anchor.top, width: anchor.width, zIndex: 10060, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,0.4)", padding: "4px 0", maxHeight: anchor.maxHeight, overflowY: "auto", animation: "menuIn 0.15s ease-out", fontFamily: T.font }}>
         {opts.map((p, ri) => { const isOn = (value || "") === p.id; return <div key={p.id || "__any__"} onClick={() => { onChange(p.id); setOpen(false); }}
           style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 9, padding: "10px 14px", cursor: "pointer", animation: `toolDrop 0.14s ${Math.min(ri, 14) * 28}ms both ease-out`, background: isOn ? T.accent + "10" : "transparent" }}
@@ -3379,7 +3396,7 @@ function AssigneeDrop({ value, onChange, people }) {
         </div>; })}
       </div>,
       document.body
-    )}
+    )}</FadeOnClose>
   </div>;
 }
 // Minimal TRAQS-styled single-select. options: [{ value, label, color? }]. No built-in margin.
@@ -3425,7 +3442,7 @@ function SimpleDrop({ value, options, onChange, placeholder = "Select…", pill 
       <span style={{ display: "flex", alignItems: "center", gap: 7, minWidth: 0, flex: 1 }}>{sel?.color && <span style={{ width: 8, height: 8, borderRadius: 8, background: sel.color, flexShrink: 0 }} />}<span style={{ fontSize: 14, color: sel ? T.bgText : hexA(T.bgText, 0.55), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sel ? sel.label : placeholder}</span></span>
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.15s", transform: open ? "rotate(180deg)" : "none" }}><polyline points="6 9 12 15 18 9"/></svg>
     </div>
-    {open && (portal ? (anchor ? createPortal(menu, document.body) : null) : menu)}
+    <FadeOnClose open={open && (!portal || !!anchor)}>{open && (portal ? (anchor ? createPortal(menu, document.body) : null) : menu)}</FadeOnClose>
   </div>;
 }
 // Compact comment input for an approval-queue row. Enter or the arrow button adds the comment.
@@ -6804,6 +6821,9 @@ Extraction rules:
   // wired throughout to the Jobs page column state and grouping, and
   // parameterising it would put a working feature at risk for no gain here.
   const [jdColCtx, setJdColCtx] = useState(null);
+  // Same tiny draggable rename popover the Jobs page uses (renameCol), scoped
+  // to Job Details labels: { colId, defLabel, value, x, y }.
+  const [jdRenameCol, setJdRenameCol] = useState(null);
   const jdSetColOptions = (colId, options) =>
     setJdCustomCols(prev => prev.map(c => c.id === colId ? { ...c, options } : c));
   const jdAddCustomCol = (label, type, anchorId = null, side = "right") => {
@@ -10389,10 +10409,15 @@ ${jobsCtx || "No jobs found."}`;
     const panLW = isMobile ? 140 : 280;
     const rect = ganttRef.current?.getBoundingClientRect();
     if (rect && e.clientX < rect.left + panLW) return;
+    // Without this the browser starts a text selection on mousedown and the pan
+    // fights it — the drag stalls and only resumes after releasing and grabbing
+    // again. preventDefault stops the selection drag from ever beginning;
+    // user-select:none below covers anything that slips past it mid-drag.
+    e.preventDefault();
     const startX = e.clientX;
     let lastShift = 0;
     const styleEl = document.createElement("style");
-    styleEl.textContent = "* { cursor: grabbing !important; }";
+    styleEl.textContent = "* { cursor: grabbing !important; user-select: none !important; }";
     document.head.appendChild(styleEl);
     const onUp = () => {
       styleEl.remove();
@@ -10418,10 +10443,12 @@ ${jobsCtx || "No jobs found."}`;
     const panLW = isMobile ? 120 : 260;
     const rect = teamRef.current?.getBoundingClientRect();
     if (rect && e.clientX < rect.left + panLW) return;
+    // Same as handleGanttPan: kill the native selection drag before it starts.
+    e.preventDefault();
     const startX = e.clientX;
     let lastShift = 0;
     const styleEl = document.createElement("style");
-    styleEl.textContent = "* { cursor: grabbing !important; }";
+    styleEl.textContent = "* { cursor: grabbing !important; user-select: none !important; }";
     document.head.appendChild(styleEl);
     const onUp = () => {
       styleEl.remove();
@@ -12219,6 +12246,10 @@ ${jobsCtx || "No jobs found."}`;
         // group (standard cols vs. custom cols), matching how the body renders the two groups.
         const startColDrag = (e, colId, isCustom) => {
           if (e.button !== 0) return;
+          // The header cell is user-select:none, but the rows below it are not, so a
+          // reorder drag would sweep a selection through the table. Same fix as the
+          // timeline pans; it leaves click and dblclick (sort, rename) intact.
+          e.preventDefault();
           const headerRow = e.currentTarget.parentElement;
           const startX = e.clientX;
           const stdCount = orderedStdCols.length;
@@ -17210,8 +17241,8 @@ ${jobsCtx || "No jobs found."}`;
       )}</FadeOnClose>
     );
 
-    const employeeDeleteModal = !empDelete ? null : createPortal(
-      <div className="anim-modal-overlay" onClick={() => setEmpDelete(null)}
+    const employeeDeleteModal = createPortal(
+      <FadeOnClose open={!!empDelete} duration={220}>{empDelete && (<div className="anim-modal-overlay" onClick={() => setEmpDelete(null)}
         style={{ position: "fixed", inset: 0, zIndex: 10020, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
         <div onClick={e => e.stopPropagation()} className="anim-modal-box"
           style={{ background: T.card, borderRadius: 30, width: "100%", maxWidth: 440, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", padding: 24, fontFamily: T.font }}>
@@ -17238,7 +17269,7 @@ ${jobsCtx || "No jobs found."}`;
             </button>
           </div>
         </div>
-      </div>,
+      </div>)}</FadeOnClose>,
       document.body
     );
 
@@ -17287,8 +17318,8 @@ ${jobsCtx || "No jobs found."}`;
       });
       setAddEmpDraft(null);
     };
-    const addEmployeeModal = !d ? null : createPortal(
-      <div className="anim-modal-overlay" onClick={() => setAddEmpDraft(null)}
+    const addEmployeeModal = createPortal(
+      <FadeOnClose open={!!d} duration={220}>{d && (<div className="anim-modal-overlay" onClick={() => setAddEmpDraft(null)}
         style={{ position: "fixed", inset: 0, zIndex: 10015, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 20px", overflowY: "auto" }}>
         <div onClick={e => e.stopPropagation()} className="anim-modal-box"
           style={{ background: T.card, borderRadius: 30, width: "100%", maxWidth: 520, margin: "auto", border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", fontFamily: T.font }}>
@@ -17341,7 +17372,7 @@ ${jobsCtx || "No jobs found."}`;
               style={{ padding: "11px 26px", borderRadius: T.radiusPill, border: "none", background: empValid ? brandGrad(T.accent) : T.border, color: empValid ? T.accentText : T.textDim, fontSize: 13, fontWeight: 800, cursor: empValid ? "pointer" : "not-allowed", fontFamily: T.font }}>{d.id ? "Save changes" : "Create"}</button>
           </div>
         </div>
-      </div>,
+      </div>)}</FadeOnClose>,
       document.body
     );
     // can() already folds in isAdmin, so a non-admin never sees this.
@@ -19031,7 +19062,7 @@ ${jobsCtx || "No jobs found."}`;
               Nested inside the same portal so it stacks above the Timestamps
               modal. Deliberately NOT dismissible by backdrop click — a stray
               click behind a destructive dialog shouldn't count as an answer. */}
-          {confirmReopen && (
+          <FadeOnClose open={!!confirmReopen} duration={200}>{confirmReopen && (
             <div
               onClick={e => e.stopPropagation()}
               style={{ position: "fixed", inset: 0, zIndex: 10020, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
@@ -19064,8 +19095,8 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               </div>
             </div>
-          )}
-          {confirmDelete && (
+          )}</FadeOnClose>
+          <FadeOnClose open={!!confirmDelete} duration={200}>{confirmDelete && (
             <div
               onClick={e => e.stopPropagation()}
               style={{ position: "fixed", inset: 0, zIndex: 10020, background: "rgba(0,0,0,0.55)", backdropFilter: "blur(3px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}
@@ -19097,7 +19128,7 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               </div>
             </div>
-          )}
+          )}</FadeOnClose>
         </div>,
         document.body
       );
@@ -19707,11 +19738,11 @@ ${jobsCtx || "No jobs found."}`;
 
       return (
         <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden", fontFamily: T.font }}>
-          {renderPinModal()}
-          {renderPersonEditModal()}
-          {renderStartJobPicker()}
-          {mobileSettingsPanel()}
-          {renderPastLogsModal()}
+          <FadeOnClose open={pinState !== "closed"} duration={220}>{renderPinModal()}</FadeOnClose>
+          <FadeOnClose open={!!tsPersonEditModal} duration={220}>{renderPersonEditModal()}</FadeOnClose>
+          <FadeOnClose open={!!startJobPickerOpen} duration={220}>{renderStartJobPicker()}</FadeOnClose>
+          <FadeOnClose open={tsSettingsOpen && !!tsSettingsDraft} duration={220}>{mobileSettingsPanel()}</FadeOnClose>
+          <FadeOnClose open={!!pastLogsOpen} duration={isMobile ? 220 : 0}>{renderPastLogsModal()}</FadeOnClose>
 
           {/* Header */}
           <div style={{ padding: "12px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0, background: T.surface }}>
@@ -20236,15 +20267,15 @@ ${jobsCtx || "No jobs found."}`;
 
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-        {renderPinModal()}
-        {renderPersonEditModal()}
-        {renderStartJobPicker()}
+        <FadeOnClose open={pinState !== "closed"} duration={220}>{renderPinModal()}</FadeOnClose>
+        <FadeOnClose open={!!tsPersonEditModal} duration={220}>{renderPersonEditModal()}</FadeOnClose>
+        <FadeOnClose open={!!startJobPickerOpen} duration={220}>{renderStartJobPicker()}</FadeOnClose>
         {renderConfirmModal()}
         {/* Called on both — the function itself decides where it lands: portalled into
             the content panel as a page on desktop, portalled to the body as an overlay
             on mobile. It has to run here either way, because it is scoped to
             renderTimeStamp and renderModal cannot reach it. */}
-        {renderPastLogsModal()}
+        <FadeOnClose open={!!pastLogsOpen} duration={isMobile ? 220 : 0}>{renderPastLogsModal()}</FadeOnClose>
         {/* Header — page title always; Past Logs / Export Hours / Confirm Time
             Sheet are admin-only and simply absent for everyone else. */}
           <div className="tq-pagehdr" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", minHeight: 50 }}>
@@ -21121,7 +21152,7 @@ ${jobsCtx || "No jobs found."}`;
             <input className="tq-bare" value={searchQ} onChange={e => { setSearchQ(e.target.value); setSearchOpen(true); }} onFocus={() => { if (searchQ) setSearchOpen(true); }} placeholder="Search..." style={{ flex: 1, border: "none", outline: "none", background: "transparent", color: T.text, fontSize: 14, fontFamily: T.font }} />
             {searchQ && <span onClick={() => { setSearchQ(""); setSearchOpen(false); }} style={{ cursor: "pointer", fontSize: 11, color: T.textDim, padding: "2px 6px", borderRadius: 8, background: "transparent"}}>✕</span>}
           </div>
-          {searchOpen && searchQ.length > 0 && (() => {
+          <FadeOnClose open={searchOpen && searchQ.length > 0}>{searchOpen && searchQ.length > 0 && (() => {
             const q = searchQ.toLowerCase();
             const jobResults = allItems.filter(t => t.title.toLowerCase().includes(q) || (t.notes || "").toLowerCase().includes(q));
             const clientResults = clients.filter(c => c.name.toLowerCase().includes(q) || (c.contact || "").toLowerCase().includes(q));
@@ -21142,7 +21173,7 @@ ${jobsCtx || "No jobs found."}`;
                 <span style={{ fontWeight: 500, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
               </div>)}
             </div>;
-          })()}
+          })()}</FadeOnClose>
         </div>
       </div>
       {/* Top nav */}
@@ -21159,7 +21190,7 @@ ${jobsCtx || "No jobs found."}`;
         onChange={id => { if (id === "more") { setMoreOpen(m => !m); } else { setMoreOpen(false); setView(id === "home" ? "schedule" : id); } }}
       />
       {/* More bottom sheet */}
-      {moreOpen && (
+      <FadeOnClose open={!!moreOpen} duration={220}>{moreOpen && (
         <div style={{ position: "fixed", inset: 0, zIndex: 9990 }} onClick={() => setMoreOpen(false)}>
           <div style={{ position: "absolute", bottom: 60, left: 0, right: 0, background: T.surface, borderTop: `1px solid ${T.border}`, borderRadius: `${T.radius}px ${T.radius}px 0 0`, padding: "8px 0 20px", boxShadow: "0 -8px 32px rgba(0,0,0,0.4)" }} onClick={e => e.stopPropagation()}>
             <div style={{ width: 36, height: 4, borderRadius: 8, background: T.border, margin: "6px auto 16px" }} />
@@ -21174,7 +21205,7 @@ ${jobsCtx || "No jobs found."}`;
             ))}
           </div>
         </div>
-      )}
+      )}</FadeOnClose>
       {/* Animated content */}
       <AnimatedView viewKey={mobileView} style={{ flex: 1, minHeight: 0, overflow: mobileView === "messages" ? "hidden" : "auto", display: "flex", flexDirection: "column" }}>
         {mobileView === "home" && renderMobileHome()}
@@ -21186,7 +21217,7 @@ ${jobsCtx || "No jobs found."}`;
         {mobileView === "messages" && renderMessages()}
       </AnimatedView>
       {/* Mobile Settings Overlay */}
-      {settingsOpen && <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: T.bg, display: "flex", flexDirection: "column", fontFamily: T.font }}>
+      <FadeOnClose open={!!settingsOpen} duration={220}>{settingsOpen && <div style={{ position: "fixed", inset: 0, zIndex: 9999, background: T.bg, display: "flex", flexDirection: "column", fontFamily: T.font }}>
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0, background: T.surface }}>
           <button onClick={() => prefOpen ? setPrefOpen(false) : setSettingsOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: T.text, padding: "0 4px", lineHeight: 1 }}>←</button>
           <span style={{ fontSize: 17, fontWeight: 700, color: T.text, flex: 1 }}>{prefOpen ? "Preferences" : "Settings"}</span>
@@ -21267,9 +21298,9 @@ ${jobsCtx || "No jobs found."}`;
           </button>
           </>}
         </div>
-      </div>}
+      </div>}</FadeOnClose>
       {/* Org Code Panel */}
-      {orgCodePanelOpen && (
+      <FadeOnClose open={!!orgCodePanelOpen} duration={220}>{orgCodePanelOpen && (
         <div style={{ position: "fixed", inset: 0, zIndex: 10010, background: T.bg, display: "flex", flexDirection: "column", fontFamily: T.font }}>
           <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0, background: T.surface }}>
             <button onClick={() => setOrgCodePanelOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 22, color: T.text, padding: "0 4px", lineHeight: 1 }}>←</button>
@@ -21315,9 +21346,9 @@ ${jobsCtx || "No jobs found."}`;
             >{orgCodeSaving ? "Validating…" : "Switch Organization"}</button>
           </div>
         </div>
-      )}
+      )}</FadeOnClose>
       {/* Mobile Notifications Dropdown */}
-      {notifOpen && <>
+      <FadeOnClose open={!!notifOpen}>{notifOpen && <>
         <div onClick={() => setNotifOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 9998 }} />
         <div onClick={e => e.stopPropagation()} style={{ position: "fixed", top: 56, right: 12, width: "min(300px, calc(100vw - 24px))", maxHeight: "60vh", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 16px 48px rgba(0,0,0,0.5)", zIndex: 9999, overflow: "hidden", display: "flex", flexDirection: "column", fontFamily: T.font }}>
           <div style={{ padding: "12px 16px 10px", borderBottom: `1px solid ${T.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
@@ -21360,7 +21391,7 @@ ${jobsCtx || "No jobs found."}`;
             })}
           </div>
         </div>
-      </>}
+      </>}</FadeOnClose>
       {/* Ask TRAQS FAB — always visible on mobile */}
       {!askOpen && <Tip label="Ask TRAQS"><button onClick={() => setAskOpen(true)}
         style={{ position: "fixed", bottom: "calc(24px + env(safe-area-inset-bottom, 0px))", right: 20, zIndex: 1500, width: 56, height: 56, borderRadius: T.radiusPill, background: T.accent, border: "none", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: `0 4px 20px ${T.accent}55, 0 2px 8px rgba(0,0,0,0.3)`, animation: "glow-pulse 2.8s ease-in-out infinite" }}>
@@ -22567,7 +22598,8 @@ ${jobsCtx || "No jobs found."}`;
             onContextMenu={e => { if (!can("editJobs") || compact) return; e.preventDefault(); e.stopPropagation();
               // Opens the options menu. It used to delete the column outright,
               // with no confirm and no undo.
-              setJdColCtx({ x: e.clientX, y: e.clientY, col: c, subMenu: null }); }}
+              const r = e.currentTarget.getBoundingClientRect();
+              setJdColCtx({ x: e.clientX, y: e.clientY, col: c, subMenu: null, hdrLeft: r.left, hdrTop: r.top }); }}
             style={{ padding: "0 12px", height: 38, display: "flex", alignItems: "center", fontSize: 9.5, letterSpacing: "-0.02em", fontWeight: 700, textTransform: "uppercase", color: T.textDim, borderRight: `1px solid ${T.borderLight}`, whiteSpace: "nowrap", overflow: "hidden", cursor: can("editJobs") && !compact ? "context-menu" : "default", userSelect: "none" }}>
             {jdColLabels[c.id] || c.label}
           </span>
@@ -23421,14 +23453,14 @@ ${jobsCtx || "No jobs found."}`;
                         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ color:T.textDim }}><polyline points="6 9 12 15 18 9"/></svg>
                       </button>
                       </Tip>
-                      {colorDropId===panel.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:300, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.22)", padding:10, width:208, display:"flex", flexDirection:"column", gap:8, animation:"menuIn 0.15s ease-out" }}>
+                      <FadeOnClose open={colorDropId===panel.id}>{colorDropId===panel.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 6px)", left:0, zIndex:300, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.22)", padding:10, width:208, display:"flex", flexDirection:"column", gap:8, animation:"menuIn 0.15s ease-out" }}>
                         <HexColorPicker color={panel.color||COLORS[pi%COLORS.length]} onChange={c => updatePanel({color:c})} style={{ width:"100%", height:160 }} />
                         <div style={{ display:"flex", alignItems:"center", gap:8 }}>
                           <div style={{ width:22, height:22, borderRadius:11, background:panel.color||COLORS[pi%COLORS.length], flexShrink:0, border:`1px solid ${T.border}` }} />
                           <span style={{ fontSize:11, fontFamily:T.mono, color:T.textDim, flex:1, letterSpacing:"0.03em" }}>{panel.color||COLORS[pi%COLORS.length]}</span>
                           <button onClick={() => setColorDropId(null)} style={{ padding:"3px 10px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.surface, color:T.text, fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Done</button>
                         </div>
-                      </div>}
+                      </div>}</FadeOnClose>
                     </div>
                     <input value={panel.title} onChange={e => updatePanel({title:e.target.value})} placeholder="Operation name"
                       onKeyDown={e => { if(e.key==="Enter") { e.preventDefault(); setEd(p => ({ ...p, subs:[...(p.subs||[]),{id:uid(),title:"Op-"+String((p.subs||[]).length+1).padStart(3,"0"),start:"",end:"",pri:"High",status:"Not Started",team:[],hpd:7.5,notes:"",deps:[],subs:[],color:p.color||randomJobColor()}] })); } }}
@@ -23446,7 +23478,7 @@ ${jobsCtx || "No jobs found."}`;
                           <span style={{ fontSize:13, color:panel.requiredDepartment?T.accent:T.textDim, fontWeight:600 }}>{panel.requiredDepartment||"Dept"}</span>
                           <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                         </button>
-                        {deptDropId===panel.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                        <FadeOnClose open={deptDropId===panel.id}>{deptDropId===panel.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
                           {orgSettings.roles.length===0 && !deptAddMode && <div style={{ padding:"8px 14px", fontSize:12, color:T.textDim }}>No departments yet</div>}
                           {orgSettings.roles.map((r,ri) => {
                             const isOn=panel.requiredDepartment===r;
@@ -23471,7 +23503,7 @@ ${jobsCtx || "No jobs found."}`;
                                 </div>
                             }
                           </div>
-                        </div>}
+                        </div>}</FadeOnClose>
                       </div>}
                       <button onClick={() => { setAvailCheckPassed(false); setEd(p => ({ ...p, subs:(p.subs||[]).filter((_,j) => j!==pi) })); }} style={{ padding:"4px 8px", borderRadius:T.radiusPill, border: "none", background: "transparent", color:T.danger, fontSize:13, cursor:"pointer", lineHeight:1, flexShrink:0 }}>×</button>
                     </div>
@@ -23497,7 +23529,7 @@ ${jobsCtx || "No jobs found."}`;
                               <span style={{ fontSize:13, color:sub.requiredDepartment?T.accent:T.textDim, fontWeight:600 }}>{sub.requiredDepartment||"Dept"}</span>
                               <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                             </button>
-                            {deptDropId===sub.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                            <FadeOnClose open={deptDropId===sub.id}>{deptDropId===sub.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
                               {orgSettings.roles.length===0 && !deptAddMode && <div style={{ padding:"8px 14px", fontSize:12, color:T.textDim }}>No departments yet</div>}
                               {orgSettings.roles.map((r,ri) => {
                                 const isOn=sub.requiredDepartment===r;
@@ -23522,7 +23554,7 @@ ${jobsCtx || "No jobs found."}`;
                                     </div>
                                 }
                               </div>
-                            </div>}
+                            </div>}</FadeOnClose>
                           </div>
                           <button onClick={() => { setAvailCheckPassed(false); updatePanel({subs:(panel.subs||[]).filter((_,j) => j!==si)}); }} style={{ padding:"4px 8px", borderRadius:T.radiusPill, border: "none", background: "transparent", color:T.danger, fontSize:13, cursor:"pointer", lineHeight:1, flexShrink:0 }}>×</button>
                         </div>
@@ -23540,7 +23572,7 @@ ${jobsCtx || "No jobs found."}`;
                         </span>
                         <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                       </button>
-                      {soDropPanelId===panel.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 4px)", left:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:200, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                      <FadeOnClose open={soDropPanelId===panel.id}>{soDropPanelId===panel.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 4px)", left:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:200, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
                         {signOffTemplates.length===0 && <div style={{ padding:"8px 14px", fontSize:12, color:T.textDim }}>No templates yet</div>}
                         {signOffTemplates.map((tmpl,ti) => {
                           const isOn=(panel.signOffs||{})[tmpl.id]!==undefined;
@@ -23569,7 +23601,7 @@ ${jobsCtx || "No jobs found."}`;
                             <span style={{ fontSize:14 }}>+</span> Create new sign off
                           </div>
                         </div>
-                      </div>}
+                      </div>}</FadeOnClose>
                     </div>
                     {(panel.subs||[]).length>=2 && (() => {
                       const allSubs=panel.subs||[];
@@ -23587,7 +23619,7 @@ ${jobsCtx || "No jobs found."}`;
                           <span style={{ fontSize:11, color:hasAny?T.accent:T.textDim, fontWeight:600 }}>{hasAny?`${linkedCount} linked`:"Dependencies"}</span>
                           <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
                         </button>
-                        {depsDropId===panel.id && <div onClick={e=>e.stopPropagation()} onMouseDown={e=>e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 4px)", left:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:220, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
+                        <FadeOnClose open={depsDropId===panel.id}>{depsDropId===panel.id && <div onClick={e=>e.stopPropagation()} onMouseDown={e=>e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 4px)", left:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:220, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
                           <div style={{ padding:"6px 14px 4px", fontSize:10, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.07em" }}>Link sub-operations</div>
                           {allSubs.map((sub,di) => {
                             const on=isLinked(sub);
@@ -23631,7 +23663,7 @@ ${jobsCtx || "No jobs found."}`;
                               </div>;
                             })}
                           </>}
-                        </div>}
+                        </div>}</FadeOnClose>
                       </div>;
                     })()}
                     </div>
@@ -25935,7 +25967,7 @@ ${jobsCtx || "No jobs found."}`;
         {wide
           ? <div style={{ position: "relative", zIndex: 1, flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden" }}>{renderSettingsBody()}</div>
           : <div style={{ position: "relative", zIndex: 1, flex: 1, minHeight: 0, overflowY: "auto", padding: "8px 32px 32px" }}><div style={{ maxWidth: 1120, margin: "0 auto" }}>{renderSettingsBody()}{renderSettingsActions()}</div></div>}
-        {renderSettingsGuard()}
+        <FadeOnClose open={!!settingsGuard} duration={220}>{renderSettingsGuard()}</FadeOnClose>
       </div>
     );
   };
@@ -26434,7 +26466,7 @@ ${jobsCtx || "No jobs found."}`;
               {showSettings && <div style={showModalPage ? { ...layer(true), ...hidden } : layer(true)}>{renderSettingsPage()}</div>}
               {/* Popup modals mount LAST and paint over the app, which stays
                   visible and interactive-blocked behind the scrim. */}
-              {modalIsPopup && renderModal()}
+              <FadeOnClose open={modalIsPopup} duration={220}>{modalIsPopup && renderModal()}</FadeOnClose>
             </div>
           );
         })()}
@@ -26607,7 +26639,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     )}</FadeOnClose>
     {/* Customization Modal */}
-    {customizationOpen && (() => {
+    <FadeOnClose open={!!customizationOpen} duration={220}>{customizationOpen && (() => {
       const isCustom = draftMode === "custom";
       const dc = draftCustom;
       const setDc = upd => setDraftCustom(p => ({ ...p, ...(typeof upd === "function" ? upd(p) : upd) }));
@@ -27012,7 +27044,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
       </div>;
-    })()}
+    })()}</FadeOnClose>
     {/* Clients Modal */}
     {/* ── Export Selection Modal ── */}
     <FadeOnClose open={exportSelOpen} duration={220}>{exportSelOpen && (() => {
@@ -27534,7 +27566,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>;
     })()}</FadeOnClose>
     {/* ── Rename column popover — tiny, anchored over the header cell, draggable ── */}
-    {renameCol && (() => {
+    <FadeOnClose open={!!renameCol}>{renameCol && (() => {
       const commit = () => {
         const v = (renameCol.value || "").trim();
         if (renameCol.isCustom) { if (v) setCustomCols(prev => prev.map(x => x.id === renameCol.colId ? { ...x, label: v } : x)); }
@@ -27561,7 +27593,7 @@ ${jobsCtx || "No jobs found."}`;
           <input autoFocus value={renameCol.value} onMouseDown={e => e.stopPropagation()} onChange={e => setRenameCol(r => ({ ...r, value: e.target.value }))} onFocus={e => e.target.select()} onKeyDown={e => { if (e.key === "Enter") commit(); else if (e.key === "Escape") setRenameCol(null); }} placeholder="Column name" style={{ width: "100%", boxSizing: "border-box", padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, fontFamily: T.font, outline: "none", cursor: "text" }} onFocusCapture={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
         </div>
       </>;
-    })()}
+    })()}</FadeOnClose>
     {/* ── Column header context menu ── */}
     <FadeOnClose open={!!colCtxMenu}>{colCtxMenu && <div style={{ position: "fixed", inset: 0, zIndex: 10010 }} onClick={() => { setColCtxMenu(null); setOptDraft(null); }}>
       <div onClick={e => e.stopPropagation()} className="anim-ctx" style={{ position: "fixed", left: colCtxMenu.x, top: colCtxMenu.y, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", width: 224, minWidth: 0, zIndex: 10011, overflow: "hidden", fontFamily: T.font }}>
@@ -27754,6 +27786,34 @@ ${jobsCtx || "No jobs found."}`;
         match behind a collapsed header, exactly as GroupingSelect does.
         Toggles membership rather than replacing it: an op can be shared, which
         is what pickTeam's "all" mode produces. */}
+    {/* -- Job Details rename column popover -- mirrors the Jobs page renameCol popover -- */}
+    <FadeOnClose open={!!jdRenameCol}>{jdRenameCol && (() => {
+      const commit = () => {
+        const v = (jdRenameCol.value || "").trim();
+        setJdColLabels(pv => { const n = { ...pv }; if (!v || v === jdRenameCol.defLabel) delete n[jdRenameCol.colId]; else n[jdRenameCol.colId] = v; return n; });
+        setJdRenameCol(null);
+      };
+      const startDrag = e => {
+        if (e.target.tagName === "INPUT") return;
+        e.preventDefault();
+        const sx = e.clientX, sy = e.clientY, ox = jdRenameCol.x, oy = jdRenameCol.y;
+        const onM = me => setJdRenameCol(r => r ? { ...r, x: ox + (me.clientX - sx), y: oy + (me.clientY - sy) } : r);
+        const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
+        document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
+      };
+      const left = Math.max(8, Math.min(jdRenameCol.x, window.innerWidth - 222));
+      const top = Math.max(8, jdRenameCol.y);
+      return <>
+        <div style={{ position: "fixed", inset: 0, zIndex: 10029 }} onMouseDown={commit} />
+        <div onMouseDown={startDrag} className="anim-ctx" style={{ position: "fixed", left, top, zIndex: 10030, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: 12, boxShadow: "0 10px 30px rgba(0,0,0,0.45)", padding: 8, width: 206, cursor: "grab", fontFamily: T.font, userSelect: "none" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, margin: "0 2px 6px" }}>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" style={{ color: T.textDim, flexShrink: 0 }}><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>
+            <span style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Rename</span>
+          </div>
+          <input autoFocus value={jdRenameCol.value} onMouseDown={e => e.stopPropagation()} onChange={e => setJdRenameCol(r => ({ ...r, value: e.target.value }))} onFocus={e => e.target.select()} onKeyDown={e => { if (e.key === "Enter") commit(); else if (e.key === "Escape") setJdRenameCol(null); }} placeholder="Column name" style={{ width: "100%", boxSizing: "border-box", padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, fontFamily: T.font, outline: "none", cursor: "text" }} onFocusCapture={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
+        </div>
+      </>;
+    })()}</FadeOnClose>
     <FadeOnClose open={!!jdColCtx}>{jdColCtx && (() => {
       const col = jdColCtx.col;
       const label = jdColLabels[col.id] || col.label;
@@ -27796,7 +27856,7 @@ ${jobsCtx || "No jobs found."}`;
           style={{ position: "fixed", left: Math.min(jdColCtx.x, window.innerWidth - 250), top: Math.min(jdColCtx.y, window.innerHeight - 300), background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", width: 232, zIndex: 10011, overflow: "hidden", fontFamily: T.font }}>
           <div style={{ padding: "10px 14px 8px", fontSize: 9.5, fontWeight: 700, letterSpacing: "-0.02em", textTransform: "uppercase", color: T.textDim, borderBottom: `1px solid ${T.border}` }}>{label}</div>
 
-          <button onClick={() => { const n = window.prompt("Column name", label); if (n != null && n.trim()) setJdColLabels(pv => ({ ...pv, [col.id]: n.trim() })); setJdColCtx(null); }}
+          <button onClick={() => { setJdRenameCol({ colId: col.id, defLabel: col.label, value: label, x: jdColCtx.hdrLeft ?? jdColCtx.x, y: Math.max(8, (jdColCtx.hdrTop ?? jdColCtx.y) - 50) }); setJdColCtx(null); }}
             style={row} onMouseEnter={hov} onMouseLeave={off}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
             Rename Column
@@ -28188,7 +28248,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </div>}</FadeOnClose>
     {/* ── Split Job Modal ── */}
-    {splitModal && (() => {
+    <FadeOnClose open={!!splitModal} duration={220}>{splitModal && (() => {
       const { op, panel, parentJob } = splitModal;
       const totalHours = op.hpd || productiveHoursPerDay;
       const maxHour = totalHours - 0.5;
@@ -28255,9 +28315,9 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
       </div>;
-    })()}
+    })()}</FadeOnClose>
     {/* ── Set Worked Hours Modal (manual progress entry) ── */}
-    {workedHoursModal && (() => {
+    <FadeOnClose open={!!workedHoursModal} duration={220}>{workedHoursModal && (() => {
       const { op, panel, parentJob } = workedHoursModal;
       const totalHours = Math.max(0, op.hpd || productiveHoursPerDay);
       // What the schedule bar is showing right now: committed hours PLUS the running
@@ -28412,7 +28472,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
       </div>;
-    })()}
+    })()}</FadeOnClose>
     {/* ── Scheduling / Org Settings Modal ── */}
     <FadeOnClose open={!!orgSettingsOpen} duration={220}>{orgSettingsOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10002, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setOrgSettingsOpen(false)}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(460px, calc(100vw - 32px))", maxHeight: "90vh", overflowY: "auto", animation: "slideUp 0.22s ease-out" }}>
@@ -28630,7 +28690,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </div>}</FadeOnClose>
     {/* Approval cell — right-click menu. Panel → edit/remove its step chain; sign-off → edit that template's steps. */}
-    {approvalCtx && <><div onMouseDown={() => setApprovalCtx(null)} style={{ position: "fixed", inset: 0, zIndex: 10040 }} />
+    <FadeOnClose open={!!approvalCtx}>{approvalCtx && <><div onMouseDown={() => setApprovalCtx(null)} style={{ position: "fixed", inset: 0, zIndex: 10040 }} />
       <div className="anim-ctx" style={{ position: "fixed", left: Math.min(approvalCtx.x, window.innerWidth - 200), top: Math.min(approvalCtx.y, window.innerHeight - 110), zIndex: 10041, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 8px 24px rgba(0,0,0,0.4)", minWidth: 190, overflow: "hidden", fontFamily: T.font }}>
         {approvalCtx.kind === "signoff" ? <button onClick={() => { const t = signOffTemplates.find(x => x.id === approvalCtx.templateId); if (t) { setSignOffTemplateEditing({ id: t.id, name: t.name, steps: [...(t.steps || [])] }); setSignOffSettingsOpen(true); } setApprovalCtx(null); }} style={{ transition: "background-color 0.15s ease", width: "100%", textAlign: "left", padding: "10px 14px", background: "transparent", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: T.text, fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit “{approvalCtx.templateName}” Steps
@@ -28642,7 +28702,7 @@ ${jobsCtx || "No jobs found."}`;
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>Reset to default steps
           </button>}
         </>}
-      </div></>}
+      </div></>}</FadeOnClose>
     {/* Standalone approval — create / edit modal */}
     <FadeOnClose open={!!approvalModal} duration={200}>{approvalModal && (() => {
       const m = approvalModal;
@@ -28778,7 +28838,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </div>}</FadeOnClose>
     {/* Ask TRAQS Panel */}
-    {askOpen && <div style={{ position: "fixed", inset: 0, zIndex: 3000, display: "flex", justifyContent: "flex-end" }} onClick={() => setAskOpen(false)}>
+    <FadeOnClose open={!!askOpen} duration={220}>{askOpen && <div style={{ position: "fixed", inset: 0, zIndex: 3000, display: "flex", justifyContent: "flex-end" }} onClick={() => setAskOpen(false)}>
       <div onClick={e => e.stopPropagation()} style={{ width: 440, maxWidth: "95vw", height: "100%", background: T.card, borderLeft: `1px solid ${T.borderLight}`, display: "flex", flexDirection: "column", boxShadow: "-24px 0 80px rgba(0,0,0,0.5)", animation: "slideInRight 0.28s cubic-bezier(0.22,1,0.36,1)" }}>
         {/* Header */}
         <div style={{ padding: "20px 24px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
@@ -28863,11 +28923,11 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ fontSize: 10, color: T.textDim, marginTop: 6, textAlign: "center" }}>Enter to send · Shift+Enter for new line</div>
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
     {/* Mobile keeps the overlay. On desktop the modal renders as a page inside the
         content panel instead, so mounting it here as well would render it twice. */}
     <FadeOnClose open={isMobile && !!modal} duration={220}>{isMobile ? renderModal() : null}</FadeOnClose>
-    {Array.isArray(saveTemplateModal) && (
+    <FadeOnClose open={Array.isArray(saveTemplateModal)} duration={220}>{Array.isArray(saveTemplateModal) && (
       <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)",
         zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
         onClick={() => setSaveTemplateModal(false)}>
@@ -28906,9 +28966,9 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
       </div>
-    )}
+    )}</FadeOnClose>
     {/* Users Modal */}
-    {usersOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 2000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }}>
+    <FadeOnClose open={!!usersOpen} duration={220}>{usersOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 2000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }}>
       <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 0, width: "100%", maxWidth: 580, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", overflow: "hidden", position: "relative" }}>
         {/* Header */}
         <div style={{ padding: "24px 28px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${T.border}` }}>
@@ -29049,9 +29109,9 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
     {/* TRAQS Information Upload Modal */}
-    {uploadModal && <div className="anim-modal-overlay" onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", backdropFilter: "blur(14px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 12 : 24 }}>
+    <FadeOnClose open={!!uploadModal} duration={220}>{uploadModal && <div className="anim-modal-overlay" onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setFastTraqsExiting(false); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.88)", backdropFilter: "blur(14px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 12 : 24 }}>
 
       {/* ── Phase 1: FAST TRAQS splash intro ─────────────────────────── */}
       {fastTraqsPhase === "intro" && (
@@ -29334,7 +29394,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         );
       })()}
-    </div>}
+    </div>}</FadeOnClose>
     {/* ─── Clear/Delete chat confirmation ─── */}
     <FadeOnClose open={!!confirmClearChat} duration={220}>{confirmClearChat && <div className="anim-modal-overlay" onClick={() => setConfirmClearChat(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", zIndex: 10001, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 400, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)" }}>
@@ -29468,7 +29528,7 @@ ${jobsCtx || "No jobs found."}`;
     })()}</FadeOnClose>
 
     {/* ─── Quick chat sidebar ─── */}
-    {quickChat && <div onClick={() => setQuickChat(null)} style={{ position: "fixed", inset: 0, zIndex: 600 }}>
+    <FadeOnClose open={!!quickChat} duration={220}>{quickChat && <div onClick={() => setQuickChat(null)} style={{ position: "fixed", inset: 0, zIndex: 600 }}>
       <div onClick={e => e.stopPropagation()} style={{ position: "fixed", right: 0, top: 0, bottom: 0, width: isMobile ? "100%" : 360, background: T.card, borderLeft: `1px solid ${T.border}`, display: "flex", flexDirection: "column", zIndex: 601, boxShadow: "-8px 0 48px rgba(0,0,0,0.5)", animation: "slideInRight 0.22s cubic-bezier(0.22,1,0.36,1)" }}>
         {/* Header */}
         <div style={{ padding: "14px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
@@ -29537,7 +29597,7 @@ ${jobsCtx || "No jobs found."}`;
           )}
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
 
     {/* ─── Group context menu ─── */}
     <FadeOnClose open={!!groupCtxMenu}>{groupCtxMenu && <div onClick={() => setGroupCtxMenu(null)} style={{ position: "fixed", inset: 0, zIndex: 9998 }}>
@@ -29764,7 +29824,7 @@ ${jobsCtx || "No jobs found."}`;
     })()}</FadeOnClose>
     {/* Reassign Operation Modal */}
     {/* Add/Edit Dependencies Modal */}
-    {depsModal && (() => {
+    <FadeOnClose open={!!depsModal} duration={220}>{depsModal && (() => {
       const it=depsModal.item;
       const ps=depsModal.panelSubs;
       const checkedIds = new Set();
@@ -29825,7 +29885,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
       </div>;
-    })()}
+    })()}</FadeOnClose>
     {/* Quick add subtask popup */}
     <FadeOnClose open={!!quickAddSub}>{quickAddSub && <div onClick={() => setQuickAddSub(null)} style={{ position: "fixed", inset: 0, zIndex: 9997 }}>
       <div className="anim-ctx" onClick={e => e.stopPropagation()} style={{ position: "fixed", left: Math.min(quickAddSub.x, window.innerWidth - 320), top: Math.min(quickAddSub.y, window.innerHeight - 320), zIndex: 9998, width: 308, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, overflow: "hidden", padding: 16, boxShadow: "0 16px 48px rgba(0,0,0,0.7)", fontFamily: T.font }}>
@@ -29922,7 +29982,7 @@ ${jobsCtx || "No jobs found."}`;
     {/* Client edit modal */}
     {/* Client Edit. On desktop this portals into the content panel as a page (see
         pagePortalHost); on mobile it stays the original overlay. */}
-    {clientModal && (() => {
+    <FadeOnClose open={!!clientModal} duration={isMobile ? 220 : 0}>{clientModal && (() => {
       const [ed, setEd] = [clientModal, d => setClientModal(typeof d === "function" ? d(clientModal) : d)];
       const _cePage = !isMobile;
       const _ceNode = <div className={_cePage ? "" : "anim-modal-overlay"} style={_cePage
@@ -29976,7 +30036,7 @@ ${jobsCtx || "No jobs found."}`;
       // ref fires a frame after the page mounts, and the overlay would flash a scrim.
       if (!isMobile) return pagePortalHost ? createPortal(_ceNode, pagePortalHost) : null;
       return _ceNode;
-    })()}
+    })()}</FadeOnClose>
     {/* Client delete confirm modal */}
     <FadeOnClose open={!!confirmDeleteClient} duration={220}>{confirmDeleteClient && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div className="anim-modal-box" style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 420, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, textAlign: "center" }} onClick={e => e.stopPropagation()}>
@@ -30016,7 +30076,7 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </div>}</FadeOnClose>
     {/* Person edit modal */}
-    {personModal && (() => {
+    <FadeOnClose open={!!personModal} duration={220}>{personModal && (() => {
       const ed = personModal;
       const setEd = d => setPersonModal(typeof d === "function" ? d(personModal) : d);
       return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }} >
@@ -30093,7 +30153,7 @@ ${jobsCtx || "No jobs found."}`;
           })()}
         </div>
       </div>;
-    })()}
+    })()}</FadeOnClose>
     {/* Time Off edit modal */}
     <FadeOnClose open={!!timeOffEdit} duration={220}>{timeOffEdit && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1001, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
       <div className="anim-modal-box" style={{ background: T.card, borderRadius: 20, padding: 28, maxWidth: 420, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
@@ -30131,13 +30191,13 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </div>}</FadeOnClose>
     {/* Time Off modal */}
-    {timeOffModal && <TimeOffModal people={people} updPerson={updPerson} onClose={() => setTimeOffModal(false)} />}
+    <FadeOnClose open={!!timeOffModal} duration={220}>{timeOffModal && <TimeOffModal people={people} updPerson={updPerson} onClose={() => setTimeOffModal(false)} />}</FadeOnClose>
     {/* Engineering block error toast */}
-    {engBlockError && <div style={{ position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)", zIndex: 9999, background: "#ef4444", color: "#fff", borderRadius: 16, padding: "12px 20px", fontSize: 14, fontWeight: 600, boxShadow: "0 8px 32px rgba(0,0,0,0.4)", display: "flex", alignItems: "center", gap: 10, maxWidth: 480, pointerEvents: "none" }}>
+    <FadeOnClose open={!!engBlockError} duration={200}>{engBlockError && <div style={{ position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)", zIndex: 9999, background: "#ef4444", color: "#fff", borderRadius: 16, padding: "12px 20px", fontSize: 14, fontWeight: 600, boxShadow: "0 8px 32px rgba(0,0,0,0.4)", display: "flex", alignItems: "center", gap: 10, maxWidth: 480, pointerEvents: "none" }}>
       <span style={{ fontSize: 18 }}>🔧</span>{engBlockError}
-    </div>}
+    </div>}</FadeOnClose>
     {/* Logout confirmation modal */}
-    {confirmLogout && (
+    <FadeOnClose open={!!confirmLogout} duration={220}>{confirmLogout && (
       <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setConfirmLogout(false)}>
         <div style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.border}`, padding: 28, maxWidth: 360, width: "100%", boxShadow: "0 24px 64px rgba(0,0,0,0.4)" }} onClick={e => e.stopPropagation()}>
           <div style={{ fontSize: 18, fontWeight: 700, color: T.text, marginBottom: 8 }}>Log Out?</div>
@@ -30152,7 +30212,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
       </div>
-    )}
+    )}</FadeOnClose>
     {/* Delete confirmation modal */}
     <FadeOnClose open={!!templateDeleteConfirm} duration={220}>{templateDeleteConfirm && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2100, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div className="anim-delete-box" style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 400, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, textAlign: "center" }} onClick={e => e.stopPropagation()}>
@@ -30248,7 +30308,7 @@ ${jobsCtx || "No jobs found."}`;
     </div>}</FadeOnClose>
 
     {/* ── Optimize Schedule Preview Modal ─────────────────────────────────── */}
-    {optimizePreview && (() => {
+    <FadeOnClose open={!!optimizePreview} duration={220}>{optimizePreview && (() => {
       const { newTasks, changes, groupedByPerson } = optimizePreview;
       const movedEarlier = changes.filter(c => c.calDays < 0).length;
       const movedLater   = changes.filter(c => c.calDays > 0).length;
@@ -30334,7 +30394,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
       </div>;
-    })()}
+    })()}</FadeOnClose>
 
     {/* Edit Notes modal */}
     <FadeOnClose open={!!editNotesModal} duration={220}>{editNotesModal && <div className="anim-modal-overlay" onClick={() => setEditNotesModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
@@ -30360,7 +30420,7 @@ ${jobsCtx || "No jobs found."}`;
     </div>}</FadeOnClose>
 
     {/* Reschedule modal */}
-    {rescheduleModal && (() => {
+    <FadeOnClose open={!!rescheduleModal} duration={220}>{rescheduleModal && (() => {
       const { op, panelId, newStart, newEnd, autoStart, autoEnd } = rescheduleModal;
       const hasAutoSlot = !!(autoStart && autoEnd);
       const isSameAsAuto = newStart === autoStart && newEnd === autoEnd;
@@ -30457,10 +30517,10 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
       </div>;
-    })()}
+    })()}</FadeOnClose>
 
     {/* Push confirmation modal */}
-    {confirmPush && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
+    <FadeOnClose open={!!confirmPush} duration={220}>{confirmPush && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
       <div className="anim-modal-box" style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 560, width: "100%", border: `1px solid #f59e0b33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5)`, position: "relative" }} onClick={e => e.stopPropagation()}>
         <div style={{ width: 56, height: 56, borderRadius: 30, background: "#f59e0b15", border: "2px solid #f59e0b33", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: "#f59e0b" }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
         <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 20, fontWeight: 700, textAlign: "center" }}>Scheduling Conflict</h3>
@@ -30491,10 +30551,10 @@ ${jobsCtx || "No jobs found."}`;
           <Btn variant="ghost" onClick={() => confirmPush.onCancel()} style={{ width: "100%" }}>Cancel</Btn>
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
 
     {/* Bar Delete Confirmation Modal */}
-    {barDeleteConfirmOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setBarDeleteConfirmOpen(false)}>
+    <FadeOnClose open={!!barDeleteConfirmOpen} duration={220}>{barDeleteConfirmOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setBarDeleteConfirmOpen(false)}>
       <div className="anim-modal-box" style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 400, width: "100%", border: `1px solid #ef444433`, boxShadow: `0 24px 60px rgba(0,0,0,0.5)` }} onClick={e => e.stopPropagation()}>
         <div style={{ width: 52, height: 52, borderRadius: 30, background: "#ef444415", border: "2px solid #ef444433", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px", color: "#ef4444" }}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg></div>
         <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 19, fontWeight: 700, textAlign: "center" }}>Delete {selBars.size} {selBars.size === 1 ? "item" : "items"}?</h3>
@@ -30508,11 +30568,11 @@ ${jobsCtx || "No jobs found."}`;
           }}>Delete</Btn>
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
 
 
     {/* ── Employee review / note composer ───────────────────────────────────── */}
-    {empNoteModal && (() => {
+    <FadeOnClose open={!!empNoteModal} duration={220}>{empNoteModal && (() => {
       const m = empNoteModal;
       const set = u => setEmpNoteModal(p => ({ ...p, ...u }));
       const who = people.find(p => String(p.id) === String(m.personId));
@@ -30553,10 +30613,10 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
       </div>;
-    })()}
+    })()}</FadeOnClose>
 
     {/* ── New Group Modal ───────────────────────────────────────────────────── */}
-    {newGroupModal && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
+    <FadeOnClose open={!!newGroupModal} duration={220}>{newGroupModal && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
       <div className="anim-modal" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: T.radiusHero, padding: 36, width: "100%", maxWidth: 900, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
         <h3 style={{ margin: "0 0 18px", fontSize: 22, fontWeight: 700, color: T.text }}>New Group</h3>
 
@@ -30595,10 +30655,10 @@ ${jobsCtx || "No jobs found."}`;
           <Btn onClick={saveNewGroup} disabled={!newGroupPeople.length || newGroupSaving}>{newGroupSaving ? "Creating…" : "Create Group"}</Btn>
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
 
     {/* ── Edit Group Modal ──────────────────────────────────────────────────── */}
-    {editGroupModal && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+    <FadeOnClose open={!!editGroupModal} duration={220}>{editGroupModal && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
       <div className="anim-modal" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: T.radiusHero, padding: 36, width: "100%", maxWidth: 900, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
           <h3 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: T.text }}>Edit Group</h3>
@@ -30637,10 +30697,10 @@ ${jobsCtx || "No jobs found."}`;
           <Btn onClick={saveEditGroup} disabled={!editGroupModal.memberIds.length}>Save Changes</Btn>
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
 
     {/* ─── Pending Schedule tray — floating draggable window with newly-added ops to place ─── */}
-    {pendingScheduleItems.length > 0 && (() => {
+    <FadeOnClose open={pendingScheduleItems.length > 0} duration={200}>{pendingScheduleItems.length > 0 && (() => {
       // Default placement: top-right of the viewport, below the brand strip
       const defaultX = typeof window !== "undefined" ? window.innerWidth - 312 : 100;
       const defaultY = 96;
@@ -30704,12 +30764,12 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
       );
-    })()}
+    })()}</FadeOnClose>
 
     {/* Edit Job modal — simple field update, no wizard */}
     {/* Edit Job. On desktop this portals into the content panel as a page (see
         pagePortalHost); on mobile it stays the original overlay. */}
-    {(() => { if (!editJobModal) return null; const _ejNode = (() => {
+    <FadeOnClose open={!!editJobModal} duration={isMobile ? 220 : 0}>{(() => { if (!editJobModal) return null; const _ejNode = (() => {
       const ej = editJobModal;
       const setEj = v => setEditJobModal(m => typeof v === "function" ? v(m) : { ...m, ...v });
       const saveEditJob = () => {
@@ -31024,7 +31084,7 @@ ${jobsCtx || "No jobs found."}`;
                             onClick={e => { e.stopPropagation(); if (jobBarMode !== "system") return; setColorDropId(colorDropId === `editPanel-${panel.id}` ? null : `editPanel-${panel.id}`); }}
                             title={jobBarMode === "system" ? "Click to change color · Drag to reorder" : "Job colors are theme-controlled (Customize → Job Cards Color)"}
                             style={{ width: 22, height: 22, borderRadius: 12, background: pColor, border: `1.5px solid ${T.border}`, boxShadow: `0 0 0 2px ${pColor}33`, cursor: jobBarMode === "system" ? "grab" : "not-allowed", opacity: jobBarMode === "system" ? 1 : 0.4, flexShrink: 0 }} />
-                          {colorDropId === `editPanel-${panel.id}` && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 2300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.35)", padding: 10, width: 220, display: "flex", flexDirection: "column", gap: 8, animation: "menuIn 0.15s ease-out" }}>
+                          <FadeOnClose open={colorDropId === `editPanel-${panel.id}`}>{colorDropId === `editPanel-${panel.id}` && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} style={{ position: "absolute", top: "calc(100% + 6px)", left: 0, zIndex: 2300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 8px 24px rgba(0,0,0,0.35)", padding: 10, width: 220, display: "flex", flexDirection: "column", gap: 8, animation: "menuIn 0.15s ease-out" }}>
                             <HexColorPicker color={pColor} onChange={c => updPanel(pi, { color: c })} style={{ width: "100%", height: 160 }} />
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
                               {COLORS.map(c => <button key={c} onClick={() => updPanel(pi, { color: c })} title={c} style={{ width: 20, height: 20, borderRadius: T.radiusPill, background: c, border: pColor?.toLowerCase() === c.toLowerCase() ? `2px solid ${T.text}` : `1px solid ${T.border}`, cursor: "pointer", padding: 0 }} />)}
@@ -31033,7 +31093,7 @@ ${jobsCtx || "No jobs found."}`;
                               <button onClick={() => updPanel(pi, { color: ej.color })} style={{ padding: "4px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.textDim, fontSize: 10, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Reset to job</button>
                               <button onClick={() => setColorDropId(null)} style={{ padding: "4px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Done</button>
                             </div>
-                          </div>}
+                          </div>}</FadeOnClose>
                         </div>); })()}
                         <input value={panel.title} onChange={e => updPanel(pi, { title: e.target.value })} placeholder="Panel name" style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, fontWeight: 700, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
                         <button onClick={() => removePanel(pi)} title="Delete panel" style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.danger}33`, background: "transparent", color: T.danger, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }}>
@@ -31119,11 +31179,11 @@ ${jobsCtx || "No jobs found."}`;
       // the ref fires a frame after the page mounts, and rendering the overlay in
       // that gap would flash a dark scrim over the page.
       if (!isMobile) return pagePortalHost ? createPortal(_ejNode, pagePortalHost) : null;
-      return <FadeOnClose open={!!editJobModal} duration={220}>{_ejNode}</FadeOnClose>;
-    })()}
+      return _ejNode;
+    })()}</FadeOnClose>
 
     {/* Reminder modal */}
-    {reminderModal && (() => {
+    <FadeOnClose open={!!reminderModal} duration={220}>{reminderModal && (() => {
       const item = reminderModal.item;
       let scope, jobId, panelId = null, opId = null;
       if (item.level === 2 || (item.isSub && item.grandPid)) {
@@ -31162,15 +31222,15 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
       </div>;
-    })()}
+    })()}</FadeOnClose>
 
     {/* Floating bulk delete button(s) */}
     {/* Jobs and Clients deliberately absent — their Delete now slides out of the page header. */}
-    {selPeople.size > 0 && <div style={{ position: "fixed", bottom: 32, right: 32, zIndex: 1200, display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end", animation: "ghost-fade-in 0.2s ease" }}>
+    <FadeOnClose open={selPeople.size > 0} duration={200}>{selPeople.size > 0 && <div style={{ position: "fixed", bottom: 32, right: 32, zIndex: 1200, display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-end", animation: "ghost-fade-in 0.2s ease" }}>
       {selPeople.size > 0 && <button onClick={() => setBulkDeleteConfirm({ type: "people", ids: [...selPeople], count: selPeople.size })} style={{ padding: "11px 22px", borderRadius: T.radiusPill, border: `1.5px solid ${T.danger}55`, background: T.danger, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 4px 24px ${T.danger}55`, display: "flex", alignItems: "center", gap: 8 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg> Delete {selPeople.size} Person{selPeople.size !== 1 ? "s" : ""}</button>}
-    </div>}
+    </div>}</FadeOnClose>
     {/* Bulk delete confirmation modal */}
-    {bulkDeleteConfirm && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1300, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setBulkDeleteConfirm(null)}>
+    <FadeOnClose open={!!bulkDeleteConfirm} duration={220}>{bulkDeleteConfirm && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1300, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setBulkDeleteConfirm(null)}>
       <div className="anim-modal-box" style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 440, width: "100%", border: `1px solid ${T.danger}33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5), 0 0 40px ${T.danger}11`, textAlign: "center" }} onClick={e => e.stopPropagation()}>
         <div style={{ width: 56, height: 56, borderRadius: 30, background: T.danger + "15", border: `2px solid ${T.danger}33`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: T.danger }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></div>
         <h3 style={{ margin: "0 0 8px", color: T.danger, fontSize: 20, fontWeight: 700 }}>Delete {bulkDeleteConfirm.count} {bulkDeleteConfirm.type === "jobs" ? "Job" : bulkDeleteConfirm.type === "clients" ? "Client" : "Person"}{bulkDeleteConfirm.count !== 1 ? "s" : ""}?</h3>
@@ -31180,9 +31240,9 @@ ${jobsCtx || "No jobs found."}`;
           <Btn variant="danger" onClick={() => { const { type, ids } = bulkDeleteConfirm; if (type === "jobs") { ids.forEach(id => delTask(id)); setSelJobs(new Set()); setJobSelectMode(false); } else if (type === "clients") { ids.forEach(id => delClient(id)); setSelClients(new Set()); setClientSelectMode(false); } else if (type === "people") { ids.forEach(id => delPerson(id)); setSelPeople(new Set()); setTeamSelectMode(false); } setBulkDeleteConfirm(null); }}>Delete All</Btn>
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
     {/* ── TRAQS Conditions Manager ── */}
-    {conditionsOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10002, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setConditionsOpen(false)}>
+    <FadeOnClose open={!!conditionsOpen} duration={220}>{conditionsOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10002, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setConditionsOpen(false)}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(520px, calc(100vw - 32px))", maxHeight: "85vh", display: "flex", flexDirection: "column", animation: "slideUp 0.22s ease-out" }}>
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
@@ -31236,9 +31296,9 @@ ${jobsCtx || "No jobs found."}`;
           </button>
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
     {/* ── Condition Wizard ── */}
-    {condWizard && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10003, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setCondWizard(null)}>
+    <FadeOnClose open={!!condWizard} duration={220}>{condWizard && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10003, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setCondWizard(null)}>
       <div onClick={e => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusSm, boxShadow: "0 24px 64px rgba(0,0,0,0.6)", width: "min(460px, calc(100vw - 32px))", animation: "slideUp 0.22s ease-out", overflow: "hidden" }}>
         {/* Header */}
         <div style={{ padding: "16px 20px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
@@ -31358,13 +31418,13 @@ ${jobsCtx || "No jobs found."}`;
           }} style={{ padding: "8px 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Save Condition</button>}
         </div>
       </div>
-    </div>}
+    </div>}</FadeOnClose>
   </div>
-  {appTooltip && createPortal((() => {
+  <FadeOnClose open={!!appTooltip} duration={120}>{appTooltip && createPortal((() => {
     const flipLeft = appTooltip.x > window.innerWidth - 240;
     const flipUp   = appTooltip.y > window.innerHeight - 56;
     return <div style={{ position: "fixed", left: flipLeft ? undefined : appTooltip.x + 12, right: flipLeft ? window.innerWidth - appTooltip.x + 12 : undefined, top: flipUp ? undefined : appTooltip.y + 8, bottom: flipUp ? window.innerHeight - appTooltip.y + 8 : undefined, zIndex: 99999, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "5px 10px", fontSize: 12, fontWeight: 500, color: T.text, fontFamily: T.font, pointerEvents: "none", boxShadow: "0 4px 16px rgba(0,0,0,0.25)", animation: "tipIn 0.14s ease-out", whiteSpace: String(appTooltip.label).includes("\n") ? "pre-line" : "nowrap", maxWidth: String(appTooltip.label).includes("\n") ? 320 : 260, lineHeight: 1.45 }}>{appTooltip.label}</div>;
-  })(), document.body)}
+  })(), document.body)}</FadeOnClose>
   {/* Universal save/add/change confirmation. Portalled to document.body and
       fixed to the viewport so it appears identically from any view, page,
       overlay or popup — the edit-job modal used to own a copy of this, scoped

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useLayoutEffect } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
-import TRAQS from "./TRAQS.jsx";
+import TRAQS, { FadeOnClose } from "./TRAQS.jsx";
 import ErrorBoundary from "./ErrorBoundary.jsx";
 // Only the banded header (org-code / login steps) still uses an image wordmark;
 // the redesigned roster screen sets it as live text — see TraqsLockup.
@@ -757,6 +757,7 @@ function GlassPanel({ children, onClose, style }) {
       <style>{`
         @keyframes tqPadIn { from { opacity: 0; transform: translateY(12px) scale(.96); } to { opacity: 1; transform: none; } }
         @keyframes tqScrimIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes tqScrimOut { from { opacity: 1; } to { opacity: 0; } }
         @media (prefers-reduced-motion: reduce) {
           @keyframes tqPadIn { from { opacity: 0; } to { opacity: 1; } }
         }
@@ -1173,7 +1174,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
         })}
       </div>
 
-      {clockMode && (() => {
+      <FadeOnClose open={!!clockMode} duration={200} outAnim="tqScrimOut">{clockMode && (() => {
         const meta = CLOCK_MODE_META[clockMode] || CLOCK_MODE_META.clockIn;
         const doneMeta = CLOCK_MODE_META[completedAction] || meta;
         const isClockIn = clockMode === "clockIn";
@@ -1317,7 +1318,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
           )}
         </div>
         );
-      })()}
+      })()}</FadeOnClose>
     </>
   );
 }
