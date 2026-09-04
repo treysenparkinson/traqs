@@ -14,7 +14,7 @@ import Foundation
 /// (TRAQS.jsx:98) — the `i` there is the index into `colWidths`, which is why the
 /// widths below are not simply in declaration order on the web.
 enum JobColumn: String, CaseIterable, Identifiable, Equatable {
-    case name, jobNum, client, status, pri, start, end, due, hrs, progress, team
+    case name, jobNum, client, status, pri, start, end, due, hrs, progress, team, appr
 
     var id: String { rawValue }
 
@@ -31,6 +31,7 @@ enum JobColumn: String, CaseIterable, Identifiable, Equatable {
         case .hrs:      return "Hrs"
         case .progress: return "Progress"
         case .team:     return "Team"
+        case .appr:     return "Approval"
         }
     }
 
@@ -60,8 +61,15 @@ enum JobColumn: String, CaseIterable, Identifiable, Equatable {
         case .hrs:      return 70
         case .progress: return 130
         case .team:     return 140
+        // `colWidths[12]`. The widest column on the grid, because it holds one
+        // chip per approval step side by side.
+        case .appr:     return 200
         }
     }
+
+    /// Whether clicking this column's header sorts. Everything but Approval does
+    /// — see `JobsSort.cycled`.
+    var isSortable: Bool { self != .appr }
 
     /// The trailing "+" cell that opens the column picker. A column's worth of
     /// grid width with no column in it.
@@ -107,7 +115,15 @@ struct JobsSort: Equatable {
     var ascending: Bool = true
 
     /// One click sorts ascending, a second descending, a third clears it.
+    ///
+    /// A column with no comparator is REFUSED — the sort stays exactly as it was
+    /// rather than moving to a column that then orders nothing. The web does move
+    /// it (`colSort` accepts any id) and its comparator falls through to
+    /// `return 0`, so clicking Approval there parks the arrow on a column that
+    /// does not sort. That is a dead control, not a feature worth porting; a
+    /// custom column is already refused here for the same reason.
     func cycled(_ column: JobColumn) -> JobsSort {
+        guard column.isSortable else { return self }
         guard self.column == column else { return JobsSort(column: column, ascending: true) }
         return ascending ? JobsSort(column: column, ascending: false) : JobsSort(column: nil)
     }
@@ -271,6 +287,72 @@ enum JobsQuery {
         }
     }
 
+    // MARK: Manual order
+    //
+    // `taskOrder` (TRAQS.jsx:5148) and `orderedActive` (:12512) — the order
+    // somebody set by dragging rows, applied AFTER the filter and the column
+    // sort and therefore overriding both.
+    //
+    // Session-only, exactly as the web has it: `taskOrder` is `useState([])` and
+    // is not in the bundle `saveUserSettings` persists, so it lasts until reload
+    // there and until relaunch here. Worth stating because it looks like an
+    // omission — it is the web's behaviour, and a manual order that outlived a
+    // restart while the sort that produced it did not would be worse.
+
+    /// The list reordered by `order`, with anything not named in it kept in place
+    /// at the end — `taskOrder.map(...).filter(Boolean).concat(rest)`.
+    ///
+    /// Ids in `order` that no longer exist are dropped rather than leaving a
+    /// hole, which is what `filter(Boolean)` does there.
+    static func applyingManualOrder(_ jobs: [Job], _ order: [String]) -> [Job] {
+        guard !order.isEmpty else { return jobs }
+        var byID: [String: Job] = [:]
+        byID.reserveCapacity(jobs.count)
+        for job in jobs { byID[job.id] = job }
+
+        var ranked: [Job] = []
+        ranked.reserveCapacity(jobs.count)
+        var placed = Set<String>()
+        for id in order {
+            guard let job = byID[id] else { continue }
+            ranked.append(job)
+            placed.insert(id)
+        }
+        // Everything the manual order does not mention, in the order the sort
+        // put it — a job created since the drag goes to the end rather than
+        // jumping to the top.
+        for job in jobs where !placed.contains(job.id) { ranked.append(job) }
+        return ranked
+    }
+
+    /// `order` with `dragged` moved to where `target` currently sits.
+    ///
+    /// `current` seeds it the first time, because the web's own handler does:
+    /// `const base = prev.length ? prev : activeTasks.map(t => t.id)`. Without
+    /// that seed the first drag would produce a two-element order and shuffle
+    /// every other job to the end.
+    static func movingInManualOrder(_ order: [String], dragged: String,
+                                    onto target: String,
+                                    current: [String]) -> [String] {
+        guard dragged != target else { return order }
+        var base = order.isEmpty ? current : order
+        guard let from = base.firstIndex(of: dragged),
+              let to = base.firstIndex(of: target) else { return base }
+        base.remove(at: from)
+        // Re-found AFTER the removal, which is the same answer the web's
+        // `splice(to, 0, dragId)` arrives at by index arithmetic — removing an
+        // element above the target shifts it down by exactly one, so the web's
+        // pre-removal `to` and this post-removal index agree in both directions.
+        // Verified against it case by case; written this way because it stays
+        // right without the reader having to redo that reasoning.
+        //
+        // Dropping onto a row ABOVE you takes that row's place and pushes it
+        // down; dropping onto one BELOW you lands after it.
+        let insertAt = base.firstIndex(of: target).map { from < to ? $0 + 1 : $0 } ?? to
+        base.insert(dragged, at: min(insertAt, base.count))
+        return base
+    }
+
     /// Negative when `a` sorts first. One place per column, so a comparator and a
     /// cell cannot disagree about what a column means.
     static func compare(_ a: Job, _ b: Job, on column: JobColumn, context: Context) -> Int {
@@ -302,6 +384,14 @@ enum JobsQuery {
             let ta = a.team.first.map(context.personName) ?? ""
             let tb = b.team.first.map(context.personName) ?? ""
             return text(ta, tb)
+        case .appr:
+            // No comparator, matching the web's own `return 0` fall-through. A
+            // job's approval state is a count across its panels, and ordering by
+            // "2 of 5 signed" is not a question anybody asked. `isSortable` keeps
+            // the header from offering it at all, so this is unreachable — and it
+            // is here rather than as a `default:` so that adding the NEXT column
+            // is still a compile error.
+            return 0
         }
     }
 

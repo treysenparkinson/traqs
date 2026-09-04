@@ -108,10 +108,19 @@ struct JobsOptionList: View {
 
     /// Which row is mid-flash. `dropFlashKey` on the web.
     ///
-    /// Never cleared, deliberately: picking closes the popover, so the row goes
-    /// away rather than needing to be put back. Clearing it would flip the
-    /// keyframe trigger a SECOND time and replay the flash on the way out.
+    /// It IS cleared, and the version that did not was a latch waiting to happen:
+    /// the tap guard below refuses a second pick while `flashing` is set, and the
+    /// justification for never clearing it was that "picking closes the popover,
+    /// so the row goes away" — an assumption about SwiftUI view lifetime that
+    /// nothing guarantees. Any reuse of this view and every pick after the first
+    /// is swallowed in silence.
+    ///
+    /// The reason it was left set is real, though: `flashing` cannot also be the
+    /// keyframe trigger, because clearing it would flip that trigger a second time
+    /// and replay the flash on the way out. So the trigger is `flashTick`, which
+    /// only ever counts up.
     @State private var flashing: String?
+    @State private var flashTick = 0
     @State private var hovering: String?
 
     var body: some View {
@@ -135,6 +144,8 @@ struct JobsOptionList: View {
     private func row(_ option: JobsOptionRow, at index: Int) -> some View {
         let isCurrent = option.value == current
         let isFlashing = flashing == option.id
+        // The trigger is the counter, NOT `isFlashing` — see `flashTick`.
+        let tick = isFlashing ? flashTick : 0
 
         return HStack(spacing: 8) {
             Text(option.icon ?? "")
@@ -177,7 +188,7 @@ struct JobsOptionList: View {
         // what decides whether anything plays — a keyframeAnimator sits at its
         // initial value until the trigger CHANGES, so a row that is not flashing
         // holds at scale 1 and costs nothing.
-        .keyframeAnimator(initialValue: CGFloat(1), trigger: isFlashing) { view, scale in
+        .keyframeAnimator(initialValue: CGFloat(1), trigger: tick) { view, scale in
             view.scaleEffect(scale)
         } keyframes: { _ in
             KeyframeTrack {
@@ -201,10 +212,14 @@ struct JobsOptionList: View {
     /// what makes a pick feel acknowledged rather than instantaneous-and-gone.
     private func flash(_ option: JobsOptionRow) {
         flashing = option.id
+        flashTick += 1
         Task {
             try? await Task.sleep(for: .milliseconds(150))
-            // `flashing` is NOT reset — see the note on it.
             pick(option.value)
+            // Released whether or not the pick closed anything, so the guard in
+            // `onTapGesture` cannot latch this list shut. Clearing it does not
+            // replay the flash: the keyframe trigger is `flashTick`.
+            flashing = nil
         }
     }
 }
@@ -217,10 +232,17 @@ extension JobsOptionList {
     /// Finished is offered like any other and what happens when it is chosen is
     /// the caller's business — it raises a completion request rather than writing
     /// the status (`JobsEdit.needsCompletionRequest`).
-    @MainActor static func statusOptions() -> [JobsOptionRow] {
-        JobStatus.allCases.map {
-            JobsOptionRow(value: $0.rawValue, label: $0.rawValue,
-                          icon: $0.emblem, color: Color.hex($0.hex))
+    /// `styles` is this user's `statusOpts` — colour and glyph overrides keyed by
+    /// name. The LIST itself is `JobStatus.allCases`, not the override list:
+    /// names are not editable, because a job stores its status as a string that
+    /// has to decode back into the enum. See `JobsOptionsEditor.namesLocked`.
+    @MainActor static func statusOptions(
+        styles: [String: JobsSelectOption] = [:]) -> [JobsOptionRow] {
+        JobStatus.allCases.map { status in
+            let style = styles[status.rawValue]
+            return JobsOptionRow(value: status.rawValue, label: status.rawValue,
+                                 icon: style?.icon ?? status.emblem,
+                                 color: Color.hex(style?.color ?? status.hex))
         }
     }
 

@@ -149,16 +149,25 @@ enum JobsEdit {
         return all[(i + 1) % all.count]
     }
 
-    /// Whether choosing this status has to go through the completion-approval flow
-    /// instead of being written straight in.
+    /// Whether choosing this status has to go through the completion-approval
+    /// flow instead of being written straight in.
     ///
-    /// The web routes EVERY move to Finished through "Request Completion", which
-    /// notifies the admins rather than closing the job (:26530). So the grid can
-    /// never set Finished directly, at any level — a status popover that appeared
-    /// to close a job without the request would quietly skip an approval step
-    /// somebody depends on.
-    static func needsCompletionRequest(_ status: JobStatus) -> Bool {
-        status == .finished
+    /// ADMIN-GATED, and this was wrong before. The status popover on the web is
+    /// not a request form: it writes the status straight in, and its ONLY special
+    /// case for Finished is that a non-admin cannot pick it at all —
+    ///
+    ///     if (isCurrent) return;
+    ///     if (s === "Finished" && !isAdmin) return;  // non-admins must use
+    ///                                               // right-click > Request
+    ///                                               // Finish Approval
+    ///
+    /// `setFinishApproval` (:26530) is reached from `cycleStatus` and from the
+    /// row menu, not from this popover. Routing an admin's pick through a request
+    /// meant an admin could not close a job from the grid at all: the Mac sent a
+    /// completion request to the admins — that is, to themselves — and left the
+    /// status untouched.
+    static func needsCompletionRequest(_ status: JobStatus, isAdmin: Bool) -> Bool {
+        status == .finished && !isAdmin
     }
 
     // MARK: Removing

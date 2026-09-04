@@ -76,3 +76,47 @@ extension AppState {
         return index
     }
 }
+
+// MARK: - The Jobs grid's DISPLAY statuses
+//
+// `JobsDisplayStatus.index` does the walk; this supplies the two things it cannot
+// be pure about — an operation's logged hours, which reads the production-hours
+// rollup, and whether a clock is running against a given row right now.
+//
+// Indexed once per redraw for the same reason the percentages are: the rule needs
+// the roster, and asking it per cell is a scan of every person per operation.
+
+extension AppState {
+
+    /// Every row's displayed status, for every level, in one pass. Call ONCE per
+    /// redraw and hand the result down — see `JobsCellContext`.
+    func jobsDisplayStatusIndex(for jobs: [Job]) -> JobsDisplayStatus.Index {
+        let clocked = clockedRowIDs()
+        return JobsDisplayStatus.index(
+            for: jobs,
+            // `(op.loggedHours || 0) > 0 || producedFor(op) > 0` — the web tests
+            // both because the two disagree when a session's credit is lost to a
+            // concurrent tasks.json save. The greater of the pair is the figure
+            // that survives either way.
+            logged: { max($0.loggedHours ?? 0, self.producedFor(op: $0)) },
+            clockedOn: { clocked.contains($0) })
+    }
+
+    /// Every row id a running clock names, at the DEEPEST scope it carries.
+    ///
+    /// `sameId(jc.opId ?? jc.panelId ?? jc.jobId, item.id)` — a panel-level clock
+    /// marks the panel and none of its operations, which is why this cannot reuse
+    /// `activeClocksByOperation()`: that one deliberately drops every clock with
+    /// no `opId`, because such a clock contributes to no operation's HOURS. It
+    /// still contributes to a panel's displayed status.
+    func clockedRowIDs() -> Set<String> {
+        var ids: Set<String> = []
+        for person in people {
+            guard let clock = person.activeJobClock, !clock.clockIn.isEmpty else { continue }
+            if let opID = clock.opId, !opID.isEmpty { ids.insert(opID) }
+            else if let panelID = clock.panelId, !panelID.isEmpty { ids.insert(panelID) }
+            else if !clock.jobId.isEmpty { ids.insert(clock.jobId) }
+        }
+        return ids
+    }
+}

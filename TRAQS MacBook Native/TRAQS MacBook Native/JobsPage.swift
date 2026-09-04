@@ -13,12 +13,16 @@ import SwiftUI
 // Gantt are dead branches, so nothing here switches on a sub-view.
 //
 // STILL NOT PORTED, each its own piece of work rather than a detail: conditional
-// formatting, grouping, row drag-reordering, the Approval column's chain, the
-// engineering and sign-off queues above the grid, and the wizard's SCHEDULING
-// step (the availability check, the AI suggestion and the packer). The controls
-// those live behind are drawn — the toolbar is what the page looks like — and
-// disabled with a tooltip saying so, rather than left live and silently doing
-// nothing. The same convention applies to the right-click menus' rows.
+// formatting, grouping, row drag-reordering, the engineering and sign-off queues
+// above the grid, and the wizard's SCHEDULING step (the availability check, the
+// AI suggestion and the packer). The controls those live behind are drawn — the
+// toolbar is what the page looks like — and disabled with a tooltip saying so,
+// rather than left live and silently doing nothing. The same convention applies
+// to the right-click menus' rows.
+//
+// That convention is the whole rule here, and it is worth stating plainly: a
+// control that is drawn, enabled, and does nothing is indistinguishable from a
+// bug. Anything that cannot work yet says so on hover.
 //
 // Two things here are HALF wired, and both say so where they are:
 //
@@ -57,12 +61,25 @@ struct JobsPage: View {
 
     /// The open right-click menu, and the one row it was opened on. `ctxMenu`.
     @State private var rowMenu: JobsRowMenuTarget?
+    /// The Approval column's own right-click menu — `approvalCtx`. A separate
+    /// state from `rowMenu` rather than a case of it: they open on the same
+    /// gesture over different columns, and one optional per menu is what keeps
+    /// two from being up at once.
+    @State private var approvalMenu: JobsApprovalMenuTarget?
     /// A single row queued for deletion — the web's `confirmDelete`, which is a
     /// different thing from the toolbar's bulk `bulkDeleteConfirm`.
     @State private var confirmingRowDelete: JobGridRow?
     /// Column order, widths and renames (per device) recombined with the org's
     /// custom columns. See `JobsColumnStore` for why those two halves are stored
     /// apart.
+    /// `taskOrder` — the order somebody set by dragging rows, overriding the
+    /// column sort. Session-only, as it is on the web: it is `useState([])` there
+    /// and is not in the bundle `saveUserSettings` persists.
+    @State private var manualOrder: [String] = []
+    /// The ids currently on screen, in the order they are drawn. Recorded after
+    /// each render so a drag can seed `manualOrder` from it without recomputing
+    /// the filter, the sort and the whole cell context inside the gesture.
+    @State private var visibleOrder: [String] = []
     @State private var columnStore = JobsColumnStore()
     /// Which pointer-anchored column popover is open, if any. One at a time —
     /// the web's `colCtxMenu` / `renameCol` / `colPickerOpen` are three separate
@@ -145,12 +162,24 @@ struct JobsPage: View {
         // which lands a frame later — and a frame of the grid laid out at the
         // wrong width is a visible jump.
         let contentWidth = max(0, size.width - TPageMetrics.padSide * 2)
-        let cells = cellContext(appState.jobs)
+        // Instrumented, because "the Jobs page is slow" is not something anyone
+        // can act on and this is the whole of what a redraw computes. Off unless
+        // TRAQS_PERF=1 — see TQPerf.
+        let cells = TQPerf.measure("cellContext", TQPerf.shape(appState.jobs)) {
+            cellContext(appState.jobs)
+        }
         let query = queryContext(cells)
         let layout = columnStore.layout(customColumns: appState.orgSettings.customCols)
         let columns = layout.columns
-        let visible = JobsQuery.activeRows(appState.jobs, filter: filter,
-                                           sort: sort, context: query)
+        let visible = TQPerf.measure("filter+sort") {
+            // The manual order goes ON TOP of the filter and the sort, which is
+            // where `orderedActive` sits on the web — a row somebody dragged
+            // stays put until they change the sort themselves.
+            JobsQuery.applyingManualOrder(
+                JobsQuery.activeRows(appState.jobs, filter: filter,
+                                     sort: sort, context: query),
+                manualOrder)
+        }
         let finished = JobsQuery.finishedRows(appState.jobs, sort: sort, context: query)
         return TPage("Jobs", right: { toolbar(visible) }) {
             if appState.jobs.isEmpty {
@@ -168,6 +197,9 @@ struct JobsPage: View {
                                     collapsed: $collapsed,
                                     selectMode: selectMode, selected: $selected,
                                     secondaryClick: openRowMenu,
+                                    approvalMenu: { row, point in
+                                        openApprovalMenu(row, at: point, cells)
+                                    },
                                     columnActions: columnActions(layout)) {
                             managerHeader(section)
                         }
@@ -201,6 +233,9 @@ struct JobsPage: View {
         // Written from the reader rather than measured here. `.task(id:)` so it
         // lands once per size change instead of on every body pass.
         .task(id: size) { pageSize = size }
+        // After the render, not during it — writing state inside `body` is what
+        // produces "Modifying state during view update".
+        .task(id: visible.map(\.id)) { visibleOrder = visible.map(\.id) }
         .overlay { menuLayer }
         .overlay { columnLayer(layout) }
         // THE PAGE ITSELF BLURS behind a modal, rather than relying on the
@@ -235,7 +270,13 @@ struct JobsPage: View {
 
     // MARK: - The modals
 
-    enum JobsSheet: Equatable { case export, cloud, newJob }
+    enum JobsSheet: Equatable {
+        case export, cloud, newJob
+        /// `approvalModal`. Carries the panel it edits, because unlike the other
+        /// three it is about ONE row rather than about the page.
+        case approvalSteps(jobID: String, panelID: String, title: String,
+                           seed: [ApprovalChainStep])
+    }
 
     @ViewBuilder
     private func sheetLayer(_ cells: JobsCellContext,
@@ -273,6 +314,19 @@ struct JobsPage: View {
                             },
                             phase: modals.phase,
                             dismiss: { modals.close() })
+
+        case .approvalSteps(let jobID, let panelID, let title, let seed):
+            JobsApprovalSheet(title: title,
+                              people: appState.people,
+                              seed: seed,
+                              phase: modals.phase,
+                              save: { steps in
+                                  appState.setApprovalChain(jobId: jobID,
+                                                            panelId: panelID,
+                                                            steps: steps)
+                                  modals.close()
+                              },
+                              dismiss: { modals.close() })
 
         case nil:
             EmptyView()
@@ -342,6 +396,17 @@ struct JobsPage: View {
             },
             setOptions: { custom, options in
                 write(layout.updatingCustom(custom.id) { $0.options = options })
+            },
+            // A built-in list is recoloured for THIS user only, so it goes to the
+            // per-device store and never to the server — the same split the web
+            // uses, where `statusOpts` rides in `saveUserSettings` beside
+            // `colOrder` while `customCols` lives in org settings.
+            setPalette: { column, options in
+                switch column {
+                case .status: columnStore.saveStatusPalette(options)
+                case .pri:    columnStore.savePriorityPalette(options)
+                default:      break
+                }
             })
     }
 
@@ -349,17 +414,36 @@ struct JobsPage: View {
     /// columns to ORG SETTINGS, because a column somebody adds is a column the
     /// whole org gets. See `JobsColumnStore`.
     private func write(_ layout: JobsColumnLayout) {
+        // The per-device half always lands: order, widths and renames are this
+        // machine's preference and need nobody's permission.
         columnStore.save(layout)
+
         guard layout.custom != appState.orgSettings.customCols else { return }
-        var settings = appState.orgSettings
-        settings.customCols = layout.custom
-        appState.orgSettings = settings
-        // NOT SAVED to the server yet: nothing in this app writes org settings,
-        // and `APIService` has no endpoint wired for it. So a custom column
-        // survives until the next settings fetch and then disappears. Adding the
-        // write is its own piece of work — the passthrough on OrgSettings is
-        // already in place so that it will not destroy `conditions`,
-        // `statusOpts` and the rest when it lands.
+        // The ORG half now reaches the server. It used to write
+        // `AppState.orgSettings` and stop there, so a column added on this page
+        // survived until the next settings fetch and then vanished — which reads
+        // as the app losing your work rather than as a feature being unfinished.
+        //
+        // `updateOrgSettings` is optimistic and rolls back if the POST fails; the
+        // passthrough on `OrgSettings` is what stops that POST destroying
+        // `conditions`, `statusOpts` and everything else Swift does not model.
+        appState.updateOrgSettings { $0.customCols = layout.custom }
+    }
+
+    /// Whether this person may change the ORG's columns — adding, deleting and
+    /// editing a column's options all write org settings, which the server gates
+    /// on `orgSettings` permission. Asked before the control is offered rather
+    /// than after the POST comes back 403.
+    private var canEditColumns: Bool { appState.canEditOrgSettings }
+
+    /// The colours and glyphs the Edit Options editor should open on. Only the
+    /// two built-in lists have one here; a custom column carries its own options.
+    private func palette(for column: JobsGridColumn) -> [JobsSelectOption] {
+        switch column.standard {
+        case .status: return columnStore.statusOpts
+        case .pri:    return columnStore.priOpts
+        default:      return []
+        }
     }
 
     @ViewBuilder
@@ -373,6 +457,8 @@ struct JobsPage: View {
                     JobsColumnMenu(column: column,
                                    isGroupable: layout.isGroupable(column.id),
                                    placement: placement,
+                                   canEditColumns: canEditColumns,
+                                   palette: palette(for: column),
                                    actions: columnMenuActions(layout),
                                    dismiss: { columnPopover = nil })
                 case .rename(let column, _):
@@ -390,6 +476,7 @@ struct JobsPage: View {
                 case .add:
                     TQMenuCard(up: placement.up, width: popover.width) {
                         JobsColumnPicker(layout: layout,
+                                         canEditColumns: canEditColumns,
                                          add: { write(layout.inserting($0)) },
                                          dismiss: { columnPopover = nil })
                     }
@@ -420,6 +507,49 @@ struct JobsPage: View {
                             dismiss: { rowMenu = nil })
             }
         }
+        if let target = approvalMenu {
+            TQMenuPresenter(point: target.point, viewport: pageSize,
+                            width: TQMenuMetrics.rowMenuWidth,
+                            dismiss: { approvalMenu = nil }) { placement in
+                JobsApprovalMenu(target: target, placement: placement,
+                                 actions: approvalMenuActions,
+                                 dismiss: { approvalMenu = nil })
+            }
+        }
+    }
+
+    private var approvalMenuActions: JobsApprovalMenuActions {
+        JobsApprovalMenuActions(
+            editSteps: { target in
+                // Seeded from the panel as it stands NOW, not from the snapshot
+                // the menu was opened with — the same reason `openRowMenu`
+                // re-reads its child count.
+                guard let panel = appState.jobs.first(where: { $0.id == target.jobID })?
+                        .subs.first(where: { $0.id == target.panelID })
+                else { return }
+                modals.present(.approvalSteps(
+                    jobID: target.jobID, panelID: target.panelID,
+                    title: target.title,
+                    seed: JobsApproval.editableSteps(of: panel,
+                                                     settings: appState.orgSettings)))
+            },
+            resetChain: { target in
+                appState.removeApprovalChain(jobId: target.jobID,
+                                             panelId: target.panelID)
+            })
+    }
+
+    /// A right-click on a panel's Approval cell. Resolved here, like the row
+    /// menu's, so the cell hands over a row and a point and nothing else.
+    private func openApprovalMenu(_ row: JobGridRow, at point: CGPoint,
+                                  _ cells: JobsCellContext) {
+        editing = nil
+        guard case .panel(let panel, let jobID, _) = row,
+              let state = cells.approval[panel.id] else { return }
+        approvalMenu = JobsApprovalMenuTarget(
+            point: point, jobID: jobID, panelID: panel.id,
+            title: panel.title.isEmpty ? "Approval" : panel.title,
+            state: state)
     }
 
     /// Resolve the right-click into everything the menu needs, ONCE.
@@ -589,6 +719,27 @@ struct JobsPage: View {
                 guard JobsEdit.differs(job, updated) else { return }
                 appState.updateJob(updated)
             },
+            reorder: { dragged, target in
+                withAnimation(.easeOut(duration: 0.18)) {
+                    // Seeded from what is ON SCREEN the first time, so one drag
+                    // does not send every other job to the end.
+                    //
+                    // `visibleOrder`, not a fresh `activeRows` call: rebuilding it
+                    // here would rebuild the cell context with it — the three
+                    // full-tree index passes — inside a drag handler. It is
+                    // recorded after each render instead; see the `.task` in
+                    // `page`.
+                    manualOrder = JobsQuery.movingInManualOrder(
+                        manualOrder, dragged: dragged, onto: target,
+                        current: visibleOrder)
+                }
+            },
+            signApproval: { [appState] row, index in
+                // Only a panel row carries a signable chain — a job's cell is a
+                // rollup and is not clickable, and an operation has none.
+                guard case .panel(let panel, let jobID, _) = row else { return }
+                appState.signApproval(jobId: jobID, panelId: panel.id, stepIndex: index)
+            },
             requestCompletion: { [appState] row in
                 Task {
                     switch row {
@@ -634,7 +785,35 @@ struct JobsPage: View {
         //
         // Walking everything costs one pass over the operations and makes the
         // context identical before and after a toggle.
-        context.percent = appState.jobsProgressIndex(for: jobs)
+        context.percent = TQPerf.measure("  progress") {
+            appState.jobsProgressIndex(for: jobs)
+        }
+        // Derived from the same roster and the same clocks, and indexed here for
+        // the same reason — see `JobsDisplayStatus`.
+        context.displayStatus = TQPerf.measure("  displayStatus") {
+            appState.jobsDisplayStatusIndex(for: jobs)
+        }
+        // `tasks.find(t => t.id === jobId)?.scheduledLater` — the web asks the
+        // JOB even from a panel or an operation row, so this is indexed by job id
+        // and every level looks itself up through `row.jobID`.
+        context.scheduledLater = Set(jobs.filter { JobsCloudSheet.isScheduledLater($0) }
+                                        .map(\.id))
+        context.isAdmin = appState.isAdmin
+        // The approval chains and the Activity trail, resolved once for the same
+        // reason as the two above — both need `orgSettings`, and a cell that
+        // reaches for it becomes an observer of AppState. ONE walk for both: the
+        // Activity line's fallback IS the approval state, so asking separately
+        // derived every panel's chain twice. See `AppState.jobsApprovalIndex`.
+        let approval = TQPerf.measure("  approval+activity") {
+            appState.jobsApprovalIndex(for: jobs)
+        }
+        context.approval = approval.states
+        context.activity = approval.activity
+        context.actor = appState.approvalActor
+        // This user's status and priority palette. Cheap — two dictionaries over
+        // eight entries — and it keeps `JobPalette` out of the cells.
+        context.statusStyles = columnStore.statusStyles
+        context.priorityStyles = columnStore.priorityStyles
         return context
     }
 
@@ -675,6 +854,9 @@ struct JobsPage: View {
                     sort: $sort, expanded: $expanded, collapsed: $collapsed,
                     selectMode: false, selected: $selected,
                     secondaryClick: openRowMenu,
+                    approvalMenu: { row, point in
+                        openApprovalMenu(row, at: point, cells)
+                    },
                     columnActions: columnActions(layout)) {
             Text("\u{2713} Finished")
                 .font(TFont.body(13, 700))

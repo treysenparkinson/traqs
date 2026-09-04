@@ -75,14 +75,56 @@ struct JobsCustomCell: View {
 
     // MARK: Activity — read-only
     //
-    // Not wired to a real chain yet: `panel.extras["apprChain"]` and
-    // `["apprLog"]` now survive a save (see JSONExtras) but nothing reads them.
-    // Drawn as the em dash the web draws when a row has no signatures, rather
-    // than left blank, so the column is visibly present and visibly empty.
+    // `apprActivity` (TRAQS.jsx:12357). A computed column: the newest thing that
+    // happened to this row's approval, as a verb, a step, who, and when. Nothing
+    // backs it, so it never commits and has no editor.
+    //
+    // Resolved in the CONTEXT rather than here — it reads `orgSettings` for the
+    // sign-off templates and the step labels, and it walks every panel for a job
+    // row. See `JobsApproval.activity`.
+    //
+    // An em dash when a row has no approval history at all, which is what the web
+    // draws — and what this column drew unconditionally before the chain was
+    // ported.
 
+    @ViewBuilder
     private var activityCell: some View {
-        dash
-            .help("Approval activity — the approval chain is not read yet")
+        if let activity = context.activity[row.itemID] {
+            HStack(spacing: 4) {
+                Text(activity.verb)
+                    .font(TFont.body(11, 700))
+                    .foregroundStyle(activity.verbHex.map { Color.hex($0) } ?? theme.text)
+                    .lineLimit(1)
+                    .layoutPriority(1)
+
+                if !activity.step.isEmpty {
+                    Text(activity.step)
+                        .font(TFont.body(11))
+                        .foregroundStyle(theme.textSec)
+                        .lineLimit(1)
+                }
+
+                if !activity.byName.isEmpty {
+                    Text("\u{00B7} \(activity.byName)")
+                        .font(TFont.body(10))
+                        .foregroundStyle(theme.textDim)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .help(activityTip(activity))
+        } else {
+            dash
+        }
+    }
+
+    private func activityTip(_ activity: ApprovalActivity) -> String {
+        let when = JobsDate.stampShort(activity.at)
+        let head = [activity.verb, activity.step]
+            .filter { !$0.isEmpty }.joined(separator: " ")
+        let who = activity.byName.isEmpty ? "" : " by \(activity.byName)"
+        return when.isEmpty ? head + who : "\(head)\(who) \u{00B7} \(when)"
     }
 
     // MARK: Colour — panel rows only
@@ -157,21 +199,18 @@ struct JobsCustomCell: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { pickerOpen = true }
-        // Installed only while open — the same rule the status cell follows.
-        // A popover modifier left on every cell is a presentation host per cell.
-        .overlay {
-            if pickerOpen {
-                Color.clear.popover(isPresented: $pickerOpen, arrowEdge: .bottom) {
-                    JobsOptionList(
-                        options: JobsOptionList.selectOptions(column.options,
-                                                              accent: theme.accent,
-                                                              dim: theme.textDim),
-                        current: text) { picked in
-                        pickerOpen = false
-                        actions.commitCustom(row, column,
-                                             picked.isEmpty ? nil : .string(picked))
-                    }
-                }
+        // Unconditional — the same rule, and the same fix, as the status cell.
+        // Installing it only while open destroyed the anchor in the update that
+        // dismissed the popover, which left the list on screen unable to commit.
+        .popover(isPresented: $pickerOpen, arrowEdge: .bottom) {
+            JobsOptionList(
+                options: JobsOptionList.selectOptions(column.options,
+                                                      accent: theme.accent,
+                                                      dim: theme.textDim),
+                current: text) { picked in
+                pickerOpen = false
+                actions.commitCustom(row, column,
+                                     picked.isEmpty ? nil : .string(picked))
             }
         }
     }
@@ -189,15 +228,11 @@ struct JobsCustomCell: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { dateOpen = true }
-        .overlay {
-            if dateOpen {
-                Color.clear.popover(isPresented: $dateOpen, arrowEdge: .bottom) {
-                    JobsDatePopover(day: text, clearable: true) { picked in
-                        dateOpen = false
-                        actions.commitCustom(row, column,
-                                             picked.isEmpty ? nil : .string(picked))
-                    }
-                }
+        .popover(isPresented: $dateOpen, arrowEdge: .bottom) {
+            JobsDatePopover(day: text, clearable: true) { picked in
+                dateOpen = false
+                actions.commitCustom(row, column,
+                                     picked.isEmpty ? nil : .string(picked))
             }
         }
     }

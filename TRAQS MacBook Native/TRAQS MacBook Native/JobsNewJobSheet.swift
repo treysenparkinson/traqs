@@ -470,18 +470,24 @@ struct JobsCloudSheet: View {
     var phase: TQModalPhase = .presenting
     let dismiss: () -> Void
 
-    /// `tasks.filter(t => t.scheduledLater)`. Not a modelled field — it rides on
-    /// `Job.extras`, and before that existed this list was always empty on the
-    /// Mac because saving stripped the flag.
-    private var pending: [Job] {
-        jobs.filter { job in
-            switch job.extras["scheduledLater"] {
-            case .bool(let b):   return b
-            case .string(let s): return s == "true"
-            default:             return false
-            }
+    /// `t.scheduledLater`. Not a modelled field — it rides on `Job.extras`, and
+    /// before that existed this read was always false on the Mac because saving
+    /// stripped the flag.
+    ///
+    /// Static and non-private because the GRID asks it too: a job waiting in the
+    /// cloud shows PENDING in its Start and End cells instead of a date, at every
+    /// level. One reader, so the two cannot disagree about what the flag means —
+    /// the server has written it as both a bool and the string "true".
+    static func isScheduledLater(_ job: Job) -> Bool {
+        switch job.extras["scheduledLater"] {
+        case .bool(let b):   return b
+        case .string(let s): return s == "true"
+        default:             return false
         }
     }
+
+    /// `tasks.filter(t => t.scheduledLater)`.
+    private var pending: [Job] { jobs.filter(Self.isScheduledLater) }
 
     var body: some View {
         TQModal(width: 640, maxHeight: 560, phase: phase, dismiss: dismiss) {

@@ -30,6 +30,18 @@ final class JobsColumnStore {
     private(set) var widths: [String: CGFloat]
     private(set) var groupable: [String: Bool]
 
+    /// `statusOpts` / `priOpts` — the colour and glyph each status and priority
+    /// is drawn with.
+    ///
+    /// PER-USER, not per-org, and that is not a guess: on the web they sit in
+    /// `localStorage` beside `colOrder` and `colLabels`, and go up in the same
+    /// `saveUserSettings` bundle. So they belong here with the rest of the
+    /// per-device half rather than in `orgSettings`.
+    ///
+    /// Keyed by NAME, because that is what the value on a job is.
+    private(set) var statusOpts: [JobsSelectOption]
+    private(set) var priOpts: [JobsSelectOption]
+
     private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
@@ -50,6 +62,34 @@ final class JobsColumnStore {
         // alone ("ambiguous use of 'init'"). Same on the way out, below.
         widths = (defaults.dictionary(forKey: Key.widths) as? [String: Double] ?? [:])
             .mapValues { CGFloat($0) }
+        statusOpts = Self.readOptions(defaults, Key.statusOpts) ?? Self.defaultStatusOpts
+        priOpts = Self.readOptions(defaults, Key.priOpts) ?? Self.defaultPriOpts
+    }
+
+    /// Stored as JSON, matching the shape the web keeps in `localStorage` — an
+    /// array of `{ name, color, icon }`. A decode failure falls back to the
+    /// defaults rather than to an empty list, which would leave every pill grey.
+    private static func readOptions(_ defaults: UserDefaults,
+                                    _ key: String) -> [JobsSelectOption]? {
+        guard let data = defaults.data(forKey: key),
+              let decoded = try? JSONDecoder().decode([JobsSelectOption].self, from: data),
+              !decoded.isEmpty
+        else { return nil }
+        return decoded
+    }
+
+    /// `DEFAULT_STATUSES.map(n => ({ name: n, color: …, icon: … }))`. Built from
+    /// the enum and `JobPalette`, so the defaults cannot drift from the ones the
+    /// rest of the app draws with.
+    static var defaultStatusOpts: [JobsSelectOption] {
+        JobStatus.allCases.map {
+            JobsSelectOption(name: $0.rawValue, color: $0.hex, icon: $0.emblem)
+        }
+    }
+
+    /// The web gives priorities no icon, only a colour.
+    static var defaultPriOpts: [JobsSelectOption] {
+        Priority.allCases.map { JobsSelectOption(name: $0.rawValue, color: $0.hex) }
     }
 
     private enum Key {
@@ -59,6 +99,54 @@ final class JobsColumnStore {
         static let labels = "tq_col_labels"
         static let widths = "tq_col_widths"
         static let groupable = "tq_group_cols"
+        // The web's own localStorage keys, so the two are recognisably the same
+        // setting even though they cannot share storage.
+        static let statusOpts = "tq_status_opts"
+        static let priOpts = "tq_pri_opts"
+    }
+
+    // MARK: The status and priority palettes
+
+    /// Colour and glyph by NAME, which is what a cell has to look up with.
+    var statusStyles: [String: JobsSelectOption] {
+        Dictionary(statusOpts.map { ($0.name, $0) }, uniquingKeysWith: { _, b in b })
+    }
+
+    var priorityStyles: [String: JobsSelectOption] {
+        Dictionary(priOpts.map { ($0.name, $0) }, uniquingKeysWith: { _, b in b })
+    }
+
+    /// Save one of the two lists. NAMES ARE NOT WRITABLE — see
+    /// `JobsOptionsEditor.namesLocked` for why — so this keeps the stored names
+    /// and takes only the colour and the glyph, whatever the caller passed.
+    func saveStatusPalette(_ options: [JobsSelectOption]) {
+        statusOpts = Self.merged(into: statusOpts, from: options)
+        writeOptions(statusOpts, Key.statusOpts)
+    }
+
+    func savePriorityPalette(_ options: [JobsSelectOption]) {
+        priOpts = Self.merged(into: priOpts, from: options)
+        writeOptions(priOpts, Key.priOpts)
+    }
+
+    /// Take colour and icon from `edited`, matched by POSITION, and keep every
+    /// name. Position rather than name because the name field is locked, so the
+    /// two lists are the same length in the same order — and matching by name
+    /// would silently do nothing if that ever stopped being true.
+    private static func merged(into stored: [JobsSelectOption],
+                               from edited: [JobsSelectOption]) -> [JobsSelectOption] {
+        stored.enumerated().map { index, option in
+            guard index < edited.count else { return option }
+            var next = option
+            next.color = edited[index].color
+            next.icon = edited[index].icon
+            return next
+        }
+    }
+
+    private func writeOptions(_ options: [JobsSelectOption], _ key: String) {
+        guard let data = try? JSONEncoder().encode(options) else { return }
+        defaults.set(data, forKey: key)
     }
 
     // MARK: Reading

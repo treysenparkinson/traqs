@@ -324,6 +324,13 @@ enum WebIcon {
         .path("M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"),
     ])
 
+    /// "Reset to default steps" in the approval menu — a counter-clockwise arrow
+    /// round a circle. Transcribed from TRAQS.jsx:27904.
+    static let revert = GlyphSpec(elements: [
+        .path("M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"),
+        .path("M3 3v5h5"),
+    ])
+
     /// The header's Edit button, and "Edit Options" in the column menu.
     static let pencil = GlyphSpec(elements: [
         .path("M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"),

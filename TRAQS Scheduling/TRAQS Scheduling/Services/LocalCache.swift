@@ -44,6 +44,10 @@ final class LocalCache {
 
     private var ctx: ModelContext? { container?.mainContext }
 
+    /// Batches this size or smaller fetch only the rows they name — see
+    /// `applyBatch`. A cell edit is a batch of one.
+    private static let targetedFetchLimit = 32
+
     // True once any jobs/people are cached — gates "paint from cache" vs "spinner".
     func hasCachedData() -> Bool {
         guard let ctx else { return false }
@@ -61,7 +65,28 @@ final class LocalCache {
     @discardableResult
     func applyBatch<T: SyncRecord>(_ type: T.Type, _ records: [Incoming]) -> Int {
         guard let ctx, !records.isEmpty else { return 0 }
-        let existing = (try? ctx.fetch(FetchDescriptor<T>())) ?? []
+
+        // One fetch per batch, and for a SMALL batch only the rows it names.
+        //
+        // The unconditional `fetch(FetchDescriptor<T>())` is right for a sync
+        // delta, which touches most of the table. It is badly wrong for the write
+        // behind a single cell edit: that materialises every cached job — payload
+        // blobs and all — to update one of them. Below the threshold a predicate
+        // fetch reads the handful of rows actually involved.
+        //
+        // The threshold is deliberately low. A predicate with a large `ids` set
+        // is its own cost, and past a few dozen rows loading the table once is
+        // cheaper than matching against a big collection.
+        let ids = Set(records.map(\.id))
+        let existing: [T]
+        if ids.count <= Self.targetedFetchLimit {
+            var d = FetchDescriptor<T>(predicate: #Predicate { ids.contains($0.id) })
+            d.fetchLimit = ids.count
+            existing = (try? ctx.fetch(d)) ?? []
+        } else {
+            existing = (try? ctx.fetch(FetchDescriptor<T>())) ?? []
+        }
+
         var byId: [String: T] = [:]
         for e in existing { byId[e.id] = e }
         var wrote = 0, inserted = 0, deleted = 0

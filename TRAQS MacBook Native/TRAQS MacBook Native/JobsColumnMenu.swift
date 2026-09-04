@@ -23,6 +23,10 @@ struct JobsColumnMenuActions {
     var delete: (JobsGridColumn) -> Void = { _ in }
     /// The options editor's Save. Replaces the whole list at once.
     var setOptions: (_ column: JobsCustomColumn, _ options: [JobsSelectOption]) -> Void = { _, _ in }
+    /// Recolour a BUILT-IN list — Status or Priority. Separate from `setOptions`
+    /// because it lands somewhere else entirely: a custom column's options are
+    /// org data, these are this user's own palette. See `JobsColumnStore`.
+    var setPalette: (JobColumn, [JobsSelectOption]) -> Void = { _, _ in }
 }
 
 // MARK: The context menu
@@ -33,8 +37,22 @@ struct JobsColumnMenu: View {
     let column: JobsGridColumn
     let isGroupable: Bool
     let placement: MenuPlacement.Context
+    /// Whether this person may change the ORG's columns. Adding, deleting and
+    /// editing a column's options all write org settings, which the server gates
+    /// on the `orgSettings` permission — so the rows are refused here rather than
+    /// after the POST comes back 403. Renaming is NOT gated: a rename is a
+    /// per-device override in `UserDefaults` and reaches nobody else.
+    var canEditColumns = true
+    /// The CURRENT colours and glyphs for this column's built-in list, from the
+    /// per-device store. Empty for a custom column, which carries its own.
+    var palette: [JobsSelectOption] = []
     let actions: JobsColumnMenuActions
     let dismiss: () -> Void
+
+    private var orgGateHelp: String? {
+        canEditColumns ? nil
+            : "Only an admin with the Org Settings permission can change the org\u{2019}s columns"
+    }
 
     /// Which disclosure is open — only ever one. `colCtxMenu.subMenu`.
     @State private var open: Submenu?
@@ -63,15 +81,26 @@ struct JobsColumnMenu: View {
             addSection(.left)
             addSection(.right)
 
+            // Drawn and refused rather than left live. It WAS live: the checkbox
+            // toggled, the preference persisted to `tq_group_cols`, and nothing
+            // on this page has ever read it, because grouping itself is not
+            // ported — the toolbar's grouping button is disabled for the same
+            // reason. A checkbox that ticks and changes nothing visible is the
+            // exact shape of a bug, so it says so instead.
             JobsColumnMenuRow(glyph: nil, label: "Use for grouping",
-                              checked: isGroupable, cascade: cascade(4)) {
+                              checked: isGroupable,
+                              enabled: false,
+                              help: "Grouping the list by a column is not ported yet",
+                              cascade: cascade(4)) {
                 actions.toggleGroupable(column)
             }
 
             TQMenuDivider()
 
             JobsColumnMenuRow(glyph: WebIcon.trashColumn, label: "Delete Column",
-                              destructive: true, cascade: cascade(5)) {
+                              destructive: true,
+                              enabled: canEditColumns, help: orgGateHelp,
+                              cascade: cascade(5)) {
                 dismiss()
                 actions.delete(column)
             }
@@ -104,10 +133,16 @@ struct JobsColumnMenu: View {
                 // Standard status and priority lists live in org settings, which
                 // this app does not write yet. Shown, and refused, rather than
                 // offering a Save that silently drops the change.
-                editable: column.isCustom,
+                // A CUSTOM column's list is org data and needs the permission. The
+                // built-in Status and Priority palettes are this user's own — the
+                // web keeps them in localStorage beside the column order — so they
+                // need no permission, only the name lock.
+                editable: column.isCustom ? canEditColumns : true,
+                namesLocked: !column.isCustom,
                 cancel: { withAnimation(.easeOut(duration: 0.18)) { open = nil } },
                 save: { list in
                     if let custom = column.custom { actions.setOptions(custom, list) }
+                    else if let standard = column.standard { actions.setPalette(standard, list) }
                     withAnimation(.easeOut(duration: 0.18)) { open = nil }
                 })
             .transition(.opacity.combined(with: .move(edge: .top)))
@@ -124,23 +159,11 @@ struct JobsColumnMenu: View {
 
     private var currentOptions: [JobsSelectOption] {
         if let custom = column.custom { return custom.options }
-        // The standard lists, as the built-in enums define them — the web reads
-        // `statusOpts` / `priOpts` off org settings, which is where a customised
-        // list would come from once this app can write them.
-        switch column.standard {
-        case .status:
-            return JobStatus.allCases.map {
-                JobsSelectOption(name: $0.rawValue, color: $0.hex, icon: $0.emblem)
-            }
-        case .pri:
-            // No icon: `hasIcon` is false for priority on the web — "status and
-            // custom lists carry an icon; priority is colour-only".
-            return Priority.allCases.map {
-                JobsSelectOption(name: $0.rawValue, color: $0.hex)
-            }
-        default:
-            return []
-        }
+        // THIS USER'S palette, so the editor opens on the colours actually on
+        // screen rather than on the built-in defaults — which is what made an
+        // edit look like it had been discarded the moment the popover reopened.
+        // `JobsColumnStore` falls back to the defaults when nothing is stored.
+        return palette
     }
 
     // MARK: Add Column Left / Right
@@ -150,7 +173,8 @@ struct JobsColumnMenu: View {
         let mine: Submenu = side == .left ? .addLeft : .addRight
         JobsColumnMenuRow(glyph: WebIcon.plus,
                           label: "Add Column \(side == .left ? "Left" : "Right")",
-                          disclosed: open == mine,
+                          disclosed: canEditColumns ? (open == mine) : nil,
+                          enabled: canEditColumns, help: orgGateHelp,
                           cascade: cascade(side == .left ? 2 : 3)) {
             withAnimation(.easeOut(duration: 0.18)) { open = open == mine ? nil : mine }
         }
@@ -181,6 +205,11 @@ struct JobsColumnMenuRow: View {
     /// Rotates a trailing chevron and tints the row while its submenu is open.
     var disclosed: Bool? = nil
     var destructive = false
+    /// Drawn, and refused, with a reason on hover — the convention the row menu
+    /// already follows for an action whose destination is not ported. A live
+    /// control that quietly does nothing is worse than a dimmed one that says why.
+    var enabled = true
+    var help: String? = nil
     var cascade = TQMenuCascade()
     let action: () -> Void
 
@@ -210,7 +239,10 @@ struct JobsColumnMenuRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.45)
+        .help(help ?? "")
+        .onHover { hovering = enabled && $0 }
         .modifier(cascade)
     }
 
@@ -346,10 +378,21 @@ struct JobsOptionsEditor: View {
 
     let title: String
     let options: [JobsSelectOption]
-    /// False for the built-in status and priority lists: they live in org
-    /// settings, which this app does not write yet. Shown read-only rather than
-    /// hidden, so the menu does not silently differ from the web's.
     var editable: Bool = true
+    /// Colour and glyph are editable; the NAME, and adding or removing an entry,
+    /// are not.
+    ///
+    /// This is the built-in Status and Priority lists, and the restriction is a
+    /// real constraint rather than unfinished work. The web stores a job's status
+    /// as a free string, so renaming an option there rewrites what every job
+    /// means. Swift models it as `enum JobStatus`, so a renamed or invented
+    /// status has no case to decode into — `JobStatus(rawValue:)` returns nil and
+    /// the value is lost on the next save. Colour and glyph are pure display,
+    /// keyed by name, and carry no such risk.
+    ///
+    /// Lifting this means making status a string throughout the model layer, on
+    /// both platforms. That is its own piece of work; it is not this one.
+    var namesLocked: Bool = false
     let cancel: () -> Void
     let save: ([JobsSelectOption]) -> Void
 
@@ -381,7 +424,14 @@ struct JobsOptionsEditor: View {
             }
             .frame(maxHeight: 190)
 
-            if editable {
+            if namesLocked {
+                Text("Colour and glyph only \u{2014} renaming a built-in status would change what every job means.")
+                    .font(TFont.body(10))
+                    .foregroundStyle(theme.textDim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            if editable && !namesLocked {
                 Button { draft.append(.next(at: draft.count)) } label: {
                     HStack(spacing: 5) {
                         WebGlyph(spec: WebIcon.plus, size: 9, color: theme.accent)
@@ -413,7 +463,7 @@ struct JobsOptionsEditor: View {
                 .opacity(dirty && editable ? 1 : 0.45)
                 .help(editable
                       ? (dirty ? "Apply changes" : "No changes to save")
-                      : "Built-in lists live in org settings, which this app cannot write yet")
+                      : "Only an admin with the Org Settings permission can change a column\u{2019}s options")
             }
         }
         .padding(.horizontal, 14)
@@ -453,7 +503,8 @@ struct JobsOptionsEditor: View {
             .padding(.horizontal, 6).padding(.vertical, 3)
             .background(Capsule().fill(theme.card))
             .overlay(Capsule().strokeBorder(theme.border, lineWidth: 1))
-            .disabled(!editable)
+            .disabled(!editable || namesLocked)
+            .opacity(namesLocked ? 0.6 : 1)
 
             Button { draft.remove(at: index) } label: {
                 Text("\u{00D7}")
@@ -462,8 +513,8 @@ struct JobsOptionsEditor: View {
                     .frame(width: 18, height: 18)
             }
             .buttonStyle(.plain)
-            .disabled(!editable)
-            .opacity(editable ? 1 : 0.3)
+            .disabled(!editable || namesLocked)
+            .opacity(editable && !namesLocked ? 1 : 0.3)
         }
     }
 }
@@ -478,6 +529,10 @@ struct JobsColumnPicker: View {
     @Environment(\.tqTheme) private var theme
 
     let layout: JobsColumnLayout
+    /// A column added here is added for the whole ORG — the values live on the
+    /// jobs — so the server gates it on the `orgSettings` permission. Refused up
+    /// front rather than after a 403.
+    var canEditColumns = true
     let add: (JobsCustomColumn) -> Void
     let dismiss: () -> Void
 
@@ -486,6 +541,12 @@ struct JobsColumnPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            if !canEditColumns {
+                Text("Only an admin with the Org Settings permission can add a column \u{2014} a new column is added for everyone.")
+                    .font(TFont.body(11))
+                    .foregroundStyle(theme.textDim)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             section("Link to Job Field") {
                 ForEach(JobsFieldCatalog.all) { entry in
                     let added = layout.hasLinkedField(entry.fieldKey)
@@ -585,6 +646,8 @@ struct JobsColumnPicker: View {
         }
         .padding(14)
         .frame(width: 280)
+        .disabled(!canEditColumns)
+        .opacity(canEditColumns ? 1 : 0.55)
     }
 
     /// A new list column starts with the blank sentinel and two placeholders, as

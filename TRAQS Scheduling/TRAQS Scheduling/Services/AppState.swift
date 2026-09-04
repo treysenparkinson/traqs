@@ -227,6 +227,28 @@ class AppState {
     private var isForeground = true
     private var api: APIService?
 
+    /// POST the org settings object.
+    ///
+    /// Here rather than in the extension for the same reason `sendNotify` is:
+    /// `api` is private to this file. Unlike `sendNotify` this one THROWS —
+    /// the caller rolls the local copy back on failure, so it has to know.
+    func persistOrgSettings(_ settings: OrgSettings) async throws {
+        guard let api else { throw URLError(.notConnectedToInternet) }
+        try await api.saveOrgSettings(settings)
+    }
+
+    /// Fire one push, best-effort.
+    ///
+    /// Exists so the notify side-effects can live in an EXTENSION — `api` is
+    /// private to this file, and the alternative was either widening it or
+    /// keeping every notifying method in a file that is already three thousand
+    /// lines. Swallows its error like every other notify here: a push that does
+    /// not land must not make the write that triggered it look like it failed.
+    func sendNotify(_ payload: NotifyPayload) async {
+        guard let api else { return }
+        try? await api.sendNotification(payload)
+    }
+
     // Live sync (Phase 4): SwiftData cache + Ably realtime — the primary refresh
     // path. loadAll() is now reserved for cold launch, pull-to-refresh, and the
     // stale-foreground safety net; a degraded-only poll covers Ably outages.
@@ -745,7 +767,12 @@ class AppState {
 
     // MARK: - Jobs
 
-    func updateJobs(_ newJobs: [Job], pushUndo: Bool = true) {
+    /// `changedIDs` names the jobs that actually differ, so the local cache
+    /// rewrites those rows and not the whole table. nil means "I don't know" and
+    /// falls back to caching everything — correct, and what the bulk paths
+    /// (delete, undo) want anyway. See `cacheJobsLocally`.
+    func updateJobs(_ newJobs: [Job], pushUndo: Bool = true,
+                    changedIDs: Set<String>? = nil) {
         if pushUndo {
             undoStack.append(jobs)
             if undoStack.count > maxUndoSize { undoStack.removeFirst() }
@@ -764,7 +791,10 @@ class AppState {
         // reverted array, losing the change permanently. The completion-request
         // flows already guard this per-job via cacheJobLocally; do the same here
         // for every general edit path (drag/schedule, sign-off, panel photo, …).
-        cacheJobsLocally(newJobs)
+        TQPerf.measure("cacheJobsLocally",
+                       changedIDs.map { "\($0.count) changed" } ?? "ALL \(newJobs.count)") {
+            cacheJobsLocally(newJobs, changedIDs: changedIDs)
+        }
         scheduleSave()
     }
 
@@ -773,11 +803,31 @@ class AppState {
     /// rewrites (unchanged payloads), so re-caching the full array on each rapid
     /// edit is cheap on the write side, and a later server delta (different
     /// `lastModifiedAt`) still overwrites these entries normally.
-    private func cacheJobsLocally(_ jobs: [Job]) {
+    /// Mirror an edit into the local cache before the debounced save.
+    ///
+    /// ONLY the jobs that changed. This used to hand `applyBatch` every job on
+    /// every edit, and that was the reason a cell edit took seconds to appear:
+    ///
+    ///   * it encoded the WHOLE dataset — 46 ms of JSON for 200 jobs, measured,
+    ///     with a fresh `JSONEncoder` allocated per job on top; and
+    ///   * it stamped `lastModifiedAt: now` on every one of them, which defeats
+    ///     the no-op skip inside `applyBatch`. That skip exists for exactly this
+    ///     reason — its own comment says "SwiftData writes run on the main actor,
+    ///     so rewriting the entire delta every sync stalls the UI" — and a fresh
+    ///     stamp on every job makes `inLM == curLM` false for every job, so one
+    ///     status pick rewrote and re-saved every row in the table, on the main
+    ///     actor, before the frame could draw.
+    ///
+    /// Passing nil for `changedIDs` keeps the old behaviour, which is what a bulk
+    /// delete or an undo actually wants: those replace the array wholesale.
+    private func cacheJobsLocally(_ jobs: [Job], changedIDs: Set<String>? = nil) {
         guard let cache = localCache else { return }
         let now = Date()
-        let incoming: [LocalCache.Incoming] = jobs.compactMap { job in
-            guard let data = try? JSONEncoder().encode(job) else { return nil }
+        // One encoder for the batch, not one per job.
+        let encoder = JSONEncoder()
+        let subject = changedIDs.map { ids in jobs.filter { ids.contains($0.id) } } ?? jobs
+        let incoming: [LocalCache.Incoming] = subject.compactMap { job in
+            guard let data = try? encoder.encode(job) else { return nil }
             return LocalCache.Incoming(id: job.id, lastModifiedAt: now, deletedAt: nil, payload: data)
         }
         guard !incoming.isEmpty else { return }
@@ -792,7 +842,9 @@ class AppState {
         } else {
             updated.append(job)
         }
-        updateJobs(updated)
+        // ONE job changed, and saying so is what keeps the cache write off the
+        // whole table — see `cacheJobsLocally`. Every grid cell edit lands here.
+        updateJobs(updated, changedIDs: [job.id])
 
         guard sendNotification else { return }
         Task {

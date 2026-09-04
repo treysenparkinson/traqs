@@ -194,3 +194,39 @@ extension JSONValue {
         }
     }
 }
+
+// MARK: - Bridging a captured value to a typed one
+//
+// The passthrough keeps unmodelled fields losslessly, and most of them only ever
+// need to round-trip. A few have to be READ as a structure — a panel's approval
+// chain, its sign-off records, its activity trail — and one has to be written
+// back. See `JobsApproval`, which is the typed view over those three keys.
+//
+// Re-encoding through `JSONEncoder` rather than pattern-matching the `JSONValue`
+// tree by hand: the shapes involved have optional and flexibly-typed fields
+// (`by` is a string or a number), and the models already express all of that in
+// their `init(from:)`. Hand-matching would be a second, divergent decoder.
+//
+// Both directions FAIL SOFT, returning nil, for the same reason every model
+// decode does: one malformed approval chain must not take a job down with it.
+
+extension JSONValue {
+
+    /// This value decoded as `T`, or nil if it is not shaped like one.
+    func decoded<T: Decodable>(_ type: T.Type) -> T? {
+        guard let data = try? JSONEncoder().encode(self) else { return nil }
+        return try? JSONDecoder().decode(T.self, from: data)
+    }
+
+    /// `value` as JSON, or `.null` if it cannot be encoded.
+    ///
+    /// `.null` rather than nil so this can be used directly in `extras.set(_:_:)`
+    /// without every caller unwrapping — and because a null is what the web
+    /// itself writes for a cleared record.
+    static func encoding<T: Encodable>(_ value: T) -> JSONValue {
+        guard let data = try? JSONEncoder().encode(value),
+              let decoded = try? JSONDecoder().decode(JSONValue.self, from: data)
+        else { return .null }
+        return decoded
+    }
+}

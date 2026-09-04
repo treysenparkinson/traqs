@@ -106,13 +106,20 @@ struct JobsEditTests {
         #expect(JobsEdit.nextPriority(after: .high) == .low)
     }
 
-    // The web routes EVERY move to Finished through "Request Completion", which
-    // notifies the admins rather than closing the job. A grid that set Finished
-    // directly would quietly skip an approval step somebody depends on.
-    @Test func onlyFinishedNeedsACompletionRequest() {
-        #expect(JobsEdit.needsCompletionRequest(.finished))
+    // The status popover WRITES the status; the only move it treats specially is
+    // Finished, and only for a non-admin — the web ignores that click and tells
+    // them to use the row menu's Request Finish Approval instead. An admin closes
+    // the job from the popover like any other status change.
+    @Test func onlyANonAdminChoosingFinishedNeedsACompletionRequest() {
+        #expect(JobsEdit.needsCompletionRequest(.finished, isAdmin: false))
+        // The bug this guards: an admin's pick used to raise a request too, which
+        // notified the admins — themselves — and left the status unchanged, so
+        // Finished could not be set from the grid at all.
+        #expect(!JobsEdit.needsCompletionRequest(.finished, isAdmin: true))
+
         for status in JobStatus.allCases where status != .finished {
-            #expect(!JobsEdit.needsCompletionRequest(status))
+            #expect(!JobsEdit.needsCompletionRequest(status, isAdmin: false))
+            #expect(!JobsEdit.needsCompletionRequest(status, isAdmin: true))
         }
     }
 

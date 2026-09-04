@@ -60,6 +60,46 @@ struct JobsCellContext: Equatable {
     /// expanding one job invalidated every cell on the page and re-ran the walk
     /// for all of them.
     var percent = JobsProgress.Index()
+    /// What each row's Status pill SHOWS, which at levels 1 and 2 is derived
+    /// rather than stored — see `JobsDisplayStatus`. Precomputed for the same
+    /// reason `percent` is: the rule reads logged hours and live job clocks off
+    /// AppState, which is exactly what a cell must not do.
+    var displayStatus = JobsDisplayStatus.Index()
+    /// The jobs sitting in TRAQS Cloud (`scheduledLater`). Their Start and End
+    /// cells read PENDING and refuse to open a date picker — those dates are the
+    /// scheduler's to set, and the web makes the cell inert rather than editable.
+    /// A set of job ids, so a panel or an operation can ask using `row.jobID`.
+    var scheduledLater: Set<String> = []
+    /// `isAdmin`. The status popover offers Finished to everyone and the web only
+    /// lets an admin take it — a non-admin has to go through the row menu's
+    /// Request Completion instead.
+    var isAdmin = false
+    /// Each row's approval state, keyed by `JobGridRow.itemID`. A JOB row holds
+    /// the rollup across its panels; a PANEL row holds its own chain; an
+    /// operation has none and is absent.
+    ///
+    /// Precomputed for the third time for the third version of the same reason:
+    /// resolving it needs `orgSettings` (the step labels and the sign-off
+    /// templates), and a cell that reaches for AppState becomes an observer of
+    /// it. See `JobsApproval`.
+    var approval: [String: ApprovalState] = [:]
+    /// What the ACTIVITY column prints, keyed the same way. Separate from
+    /// `approval` because it is not derivable from it: the newest entry on the
+    /// row's `apprLog` wins over the newest signature still sitting on its steps,
+    /// and only the log can say "reverted" or "steps changed" — a reverted step
+    /// has no record left to read. See `JobsApproval.activity`.
+    var activity: [String: ApprovalActivity] = [:]
+    /// Whoever is signing. `canApprove` is the web's admin-or-signer-or-engineer
+    /// test; `id` decides whether a step ASSIGNED to someone is assigned to you.
+    var actor = JobsApproval.Actor(id: "", name: "", canApprove: false)
+    /// `statusOpts` / `priOpts` — what colour and glyph each status and priority
+    /// is drawn with, keyed by NAME because that is what a job stores.
+    ///
+    /// Per-user, kept in `JobsColumnStore`; the web keeps them in localStorage
+    /// beside the column order. Absent means "use the built-in", so an empty
+    /// dictionary draws exactly what `JobPalette` always drew.
+    var statusStyles: [String: JobsSelectOption] = [:]
+    var priorityStyles: [String: JobsSelectOption] = [:]
     /// `TD`, resolved once — so every Due cell in a render agrees on what "today"
     /// is even if the render straddles midnight.
     var today: String = ""
@@ -123,8 +163,15 @@ struct JobsCellActions {
     /// `JobsEdit.Field` for it: a linked column writes the job field it names, an
     /// invented one writes `_cc_<id>` into `extras`, and `nil` clears it.
     var commitCustom: (JobGridRow, JobsCustomColumn, JSONValue?) -> Void = { _, _, _ in }
-    /// Choosing Finished. The web never writes that status directly; it raises a
-    /// completion request with the admins (:26530).
+    /// Drag one job row onto another to reorder the list. Job rows only — the
+    /// web's `draggable={level === 0 && !jobSelectMode}`.
+    var reorder: (_ dragged: String, _ onto: String) -> Void = { _, _ in }
+    /// Sign the step at this index of the row's approval chain. Only ever called
+    /// from the ACTIVE chip, and refused again in `JobsApproval.signing` — the
+    /// cell decides what to draw, the rule decides what may happen.
+    var signApproval: (JobGridRow, Int) -> Void = { _, _ in }
+    /// Choosing Finished as a NON-ADMIN. An admin's pick is an ordinary status
+    /// write; anyone else raises a completion request with the admins (:26530).
     var requestCompletion: (JobGridRow) -> Void = { _ in }
 }
 
@@ -183,6 +230,9 @@ struct JobsSection<Header: View>: View {
     /// A right-click on a row, with the point in the page's coordinate space.
     /// Passed straight through — the section has no opinion about the menu.
     var secondaryClick: (JobGridRow, CGPoint) -> Void = { _, _ in }
+    /// A right-click on the APPROVAL column of a panel row. Its own menu, not the
+    /// row's — see `hitCatcher`.
+    var approvalMenu: (JobGridRow, CGPoint) -> Void = { _, _ in }
     /// What the column header can do — sort, resize, reorder, and open its own
     /// menu. Passed through untouched; the section has no opinion about columns
     /// either.
@@ -277,7 +327,19 @@ struct JobsSection<Header: View>: View {
             let index = Int((local.y - JobsGridMetrics.headerHeight)
                             / JobsGridMetrics.rowHeight)
             guard rows.indices.contains(index) else { return }
-            secondaryClick(rows[index], page)
+            let row = rows[index]
+
+            // The Approval column has its OWN context menu (`approvalCtx`,
+            // TRAQS.jsx:12215) — Edit Steps and Remove chain, which are about the
+            // chain rather than about the row. Only on a panel, which is the only
+            // level that owns one, and only for an admin; anywhere else the click
+            // falls through to the ordinary row menu.
+            if column(atX: local.x)?.standard == .appr, row.level == 1,
+               context.isAdmin, context.approval[row.itemID] != nil {
+                approvalMenu(row, page)
+                return
+            }
+            secondaryClick(row, page)
         }
         .onGeometryChange(for: CGPoint.self) {
             $0.frame(in: .named(JobsPage.menuSpace)).origin
@@ -633,6 +695,8 @@ struct JobsGridRow: View {
     @Binding var selected: Set<String>
 
     @State private var hovering = false
+    /// True while a dragged row is over this one — draws the drop rule.
+    @State private var dropTargeted = false
 
     var body: some View {
         HStack(spacing: 0) {
@@ -667,6 +731,27 @@ struct JobsGridRow: View {
         // gap past the last column. Without it a click there hits nothing.
         .contentShape(Rectangle())
         .onTapGesture { tap() }
+        // The drop half of row reordering. JOB rows only: a panel cannot be
+        // reordered against a job, and `taskOrder` is a list of job ids.
+        //
+        // On the ROW rather than on the handle, so the whole width is a target —
+        // aiming at a 13pt glyph to drop on would be worse than the web, which
+        // makes the entire row a drop zone.
+        .dropDestination(for: String.self) { ids, _ in
+            guard row.level == 0, !selectMode, let dragged = ids.first,
+                  dragged != row.jobID else { return false }
+            actions.reorder(dragged, row.jobID)
+            return true
+        } isTargeted: { over in
+            dropTargeted = over && row.level == 0 && !selectMode
+        }
+        // `borderTop: isDragTarget ? 2px solid accent` — a rule at the row's top
+        // edge showing where the dragged row will land.
+        .overlay(alignment: .top) {
+            if dropTargeted {
+                Rectangle().fill(theme.accent).frame(height: 2)
+            }
+        }
         // No right-click handling here — the SECTION catches those for every row
         // at once. See `JobsSection.hitCatcher`.
     }
@@ -809,11 +894,21 @@ private struct JobsGridCell: View {
             guard row.level == 0 else { return nil }
             return { beginEditing(.jobNumber(row.job?.jobNumber ?? "")) }
         case .start, .end:
+            // A job waiting in the cloud has no dates to pick — the cell reads
+            // PENDING and the click belongs to the row, exactly as the web's
+            // `onClick={e => !isScheduledLater && startEdit(...)}` leaves it.
+            guard !isPendingSchedule else { return nil }
             return { dateOpen = true }
         case .due:
             guard row.level == 0 else { return nil }
             return { dueOpen = true }
         case .name, .client, .hrs, .progress, .team:
+            return nil
+        case .appr:
+            // A LEFT click on a chip is handled by the chip itself — only the
+            // active step is clickable, and only for someone who may sign it, so
+            // the cell as a whole must not swallow the click. Everywhere else in
+            // the cell the click belongs to the row.
             return nil
         }
     }
@@ -843,6 +938,7 @@ private struct JobsGridCell: View {
         case .hrs:      hoursCell
         case .progress: progressCell
         case .team:     teamCell
+        case .appr:     approvalCell
         }
     }
 
@@ -868,15 +964,35 @@ private struct JobsGridCell: View {
             if row.level == 0 && selectMode {
                 selectionDot
             } else if row.level == 0 {
-                // `⠿` at 0.22 — the drag handle. Row reordering is not ported, so
-                // this is the affordance without the behaviour; drawn anyway
-                // because its width is what keeps titles aligned with the select
-                // mode that replaces it.
+                // `⠿` — and it now DOES something. It was drawn and inert, which
+                // is the same shape of bug as a menu row that ticks and changes
+                // nothing: the one affordance on the row that says "drag me" was
+                // the one thing that could not be dragged.
+                //
+                // Only the HANDLE is the drag source, where the web makes the
+                // whole row draggable. A deliberate narrowing: this row already
+                // owns a tap (expand / select), a right-click, and four cells that
+                // open pickers, and a whole-row drag competes with every one of
+                // them. The handle is what the affordance points at anyway.
                 Text("\u{283F}")
                     .font(.system(size: 13))
-                    .foregroundStyle(theme.textDim.opacity(0.22))
+                    .foregroundStyle(theme.textDim.opacity(dragHandleOpacity))
+                    .contentShape(Rectangle())
+                    .pointerStyle(.grabActive)
+                    .draggable(row.jobID) {
+                        // What follows the pointer: the job's title, not an
+                        // empty box, which is what a bare `draggable` gives.
+                        Text(row.title)
+                            .font(TFont.body(12, 700))
+                            .padding(.horizontal, 10).padding(.vertical, 5)
+                            .background(Capsule().fill(theme.accent.opacity(0.16)))
+                    }
+                    .help("Drag to reorder")
             } else if row.level == 1 {
-                Circle().fill(Color.hex(row.status.hex).opacity(0.8))
+                // `staColorOf(getPanelDisplayStatus(item))` — the DERIVED status,
+                // same as the pill. The two sit on the same row and disagreeing
+                // about the colour is worse than either being wrong alone.
+                Circle().fill(Color.hex(styled(displayStatus).hex).opacity(0.8))
                     .frame(width: 5, height: 5)
             } else {
                 Circle().fill(theme.textDim.opacity(0.5))
@@ -912,6 +1028,10 @@ private struct JobsGridCell: View {
                  + CGFloat(row.level) * JobsGridMetrics.indentPerLevel
                  - JobsGridMetrics.cellHPad)
     }
+
+    /// 0.22 at rest, and up on hover so the handle announces itself — it is a
+    /// 13pt glyph at 22% and easy to miss otherwise.
+    private var dragHandleOpacity: Double { 0.22 }
 
     private var selectionDot: some View {
         let on = selected.contains(row.itemID)
@@ -980,40 +1100,78 @@ private struct JobsGridCell: View {
 
     private var statusCell: some View {
         statusPill
-            // The popover modifier is installed ONLY WHILE OPEN. Attached
-            // unconditionally it is a presentation anchor that exists on every
-            // cell of every row — four per row here, across status, start, end and
-            // due — and they cost their keep whether or not anything is showing.
-            .overlay {
-                if statusOpen {
-                    Color.clear.popover(isPresented: $statusOpen, arrowEdge: .bottom) {
-                        JobsOptionList(options: JobsOptionList.statusOptions(),
+            // ATTACHED UNCONDITIONALLY, and that is a fix rather than a style.
+            //
+            // It used to be installed only while open — `if statusOpen { Color
+            // .clear.popover(isPresented: $statusOpen) }` — to save a presentation
+            // anchor on every cell of every row. What that actually did was
+            // destroy the ANCHOR in the same update that flipped the binding, so
+            // dismissal raced its own presenter: the list stayed on screen with
+            // its state frozen, every later click landing on a view that was no
+            // longer part of the hierarchy and could no longer commit anything.
+            // A dropdown you can open and click and that does nothing.
+            //
+            // The tell was on this page already: the toolbar's Filter popover is
+            // attached unconditionally and has always worked, while all five cell
+            // popovers were conditional and all five were dead.
+            //
+            // An unpresented `.popover` is a modifier, not a window. If four per
+            // row ever measures, the fix is ONE popover for the whole grid keyed
+            // by which cell is open — not putting the `if` back.
+            .popover(isPresented: $statusOpen, arrowEdge: .bottom) {
+                        JobsOptionList(options: JobsOptionList.statusOptions(
+                                            styles: context.statusStyles),
                                        current: row.status.rawValue) { picked in
                             statusOpen = false
                             guard let status = JobStatus(rawValue: picked),
                                   status != row.status else { return }
-                            // Finished never gets written straight in — it raises
-                            // a completion request with the admins.
-                            if JobsEdit.needsCompletionRequest(status) {
+                            // An admin closes the job from here; anyone else
+                            // raises a completion request instead.
+                            //
+                            // A DELIBERATE divergence for the second half, and a
+                            // small one: the web's popover simply ignores the
+                            // click for a non-admin, with a comment telling them
+                            // to use the row menu's Request Finish Approval. Doing
+                            // that for them is the same outcome in one click
+                            // rather than a dead one — and a dead click in a
+                            // dropdown is indistinguishable from a bug.
+                            if JobsEdit.needsCompletionRequest(status,
+                                                               isAdmin: context.isAdmin) {
                                 actions.requestCompletion(row)
                             } else {
                                 actions.commit(row, .status(status))
                             }
                         }
-                    }
-                }
             }
     }
 
+    /// What this row's pill SHOWS. A job reads its stored status; a panel rolls
+    /// its operations up and an operation reads its logged hours and whatever
+    /// clock is running — see `JobsDisplayStatus`. Resolved in the context, not
+    /// here, because the rule needs the roster.
+    private var displayStatus: JobsDisplayStatus {
+        context.displayStatus.status(row.itemID, fallback: row.status)
+    }
+
+    /// `STA_C` / `STA_ICON` — the built-in table with this user's overrides on
+    /// top, which is exactly how the web merges `statusOpts` over
+    /// `DEFAULT_STA_C`. Falls back to the built-in when nothing overrides it.
+    private func styled(_ display: JobsDisplayStatus) -> (hex: String, emblem: String) {
+        let override = context.statusStyles[display.label]
+        return (override?.color ?? display.hex, override?.icon ?? display.emblem)
+    }
+
     private var statusPill: some View {
-        let color = Color.hex(row.status.hex)
+        let display = displayStatus
+        let style = styled(display)
+        let color = Color.hex(style.hex)
         return HStack(spacing: 5) {
             // A fixed 12pt slot, so the emblems — which differ in width despite
             // being one Unicode family — cannot shift the label between rows.
-            Text(row.status.emblem)
+            Text(style.emblem)
                 .font(TFont.body(11))
                 .frame(width: 12)
-            Text(row.status.rawValue)
+            Text(display.label)
                 .font(TFont.body(10, 700))
                 .tracking(10 * -0.045)
                 .textCase(.uppercase)
@@ -1034,8 +1192,12 @@ private struct JobsGridCell: View {
     // MARK: Priority
 
     private var priorityCell: some View {
-        let color = Color.hex(row.priority.hex)
-        let editable = JobsEdit.isEditable(.priority(row.priority), atLevel: row.level)
+        let color = Color.hex(context.priorityStyles[row.priority.rawValue]?.color
+                              ?? row.priority.hex)
+        // No `editable` test here, and there was a bound one that nothing read.
+        // The level guard lives in `wholeCellTap`, which is where the click is —
+        // a cell that cannot be cycled simply gets no gesture, and the pill looks
+        // the same either way (the web draws it identically at all three levels).
         return Text(row.priority.rawValue)
             .font(TFont.body(11, 700))
             .tracking(11 * -0.045)
@@ -1054,24 +1216,41 @@ private struct JobsGridCell: View {
 
     // MARK: Dates
 
-    /// Start and End. Both editable at every level.
+    /// Start and End. Editable at every level — EXCEPT on a job still waiting in
+    /// TRAQS Cloud, which has no dates yet and whose cell the web makes inert:
+    /// `cursor: isScheduledLater ? "default" : "text"`, and the click handler
+    /// short-circuits. Writing a date here would half-schedule a job behind the
+    /// scheduler's back.
+    @ViewBuilder
     private func dateCell(_ day: String, _ field: @escaping (String) -> JobsEdit.Field)
         -> some View {
-        Text(JobsDate.short(day))
-            .font(TFont.mono(12))
-            .foregroundStyle(theme.textSec)
-            .lineLimit(1)
-            .frame(maxWidth: .infinity, alignment: cellAlignment.horizontalOnly)
-            .overlay {
-                if dateOpen {
-                    Color.clear.popover(isPresented: $dateOpen, arrowEdge: .bottom) {
-                        JobsDatePopover(day: day) { picked in
-                            dateOpen = false
-                            actions.commit(row, field(picked))
-                        }
+        if isPendingSchedule {
+            Text("PENDING")
+                .font(TFont.mono(12, 600))
+                .foregroundStyle(Color.hex("#f59e0b"))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: cellAlignment.horizontalOnly)
+        } else {
+            Text(JobsDate.short(day))
+                .font(TFont.mono(12))
+                .foregroundStyle(theme.textSec)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: cellAlignment.horizontalOnly)
+                // Unconditional — see the note on `statusCell`.
+                .popover(isPresented: $dateOpen, arrowEdge: .bottom) {
+                    JobsDatePopover(day: day) { picked in
+                        dateOpen = false
+                        actions.commit(row, field(picked))
                     }
                 }
-            }
+        }
+    }
+
+    /// Whether this row's JOB is still waiting in TRAQS Cloud. Asked at every
+    /// level, because a panel and an operation under an unscheduled job are
+    /// unscheduled too — `tasks.find(t => t.id === jobId)?.scheduledLater`.
+    private var isPendingSchedule: Bool {
+        context.scheduledLater.contains(row.jobID)
     }
 
     @ViewBuilder
@@ -1093,14 +1272,12 @@ private struct JobsGridCell: View {
         }
     }
 
-    @ViewBuilder
+    /// Unconditional — see the note on `statusCell`.
     private func duePopover(_ due: String) -> some View {
-        if dueOpen {
-            Color.clear.popover(isPresented: $dueOpen, arrowEdge: .bottom) {
-                JobsDatePopover(day: due, clearable: true) { picked in
-                    dueOpen = false
-                    actions.commit(row, .dueDate(picked.isEmpty ? nil : picked))
-                }
+        Color.clear.popover(isPresented: $dueOpen, arrowEdge: .bottom) {
+            JobsDatePopover(day: due, clearable: true) { picked in
+                dueOpen = false
+                actions.commit(row, .dueDate(picked.isEmpty ? nil : picked))
             }
         }
     }
@@ -1168,6 +1345,122 @@ private struct JobsGridCell: View {
             }
             .frame(width: barWidth, height: 4)
         }
+    }
+
+    // MARK: Approval
+    //
+    // `case "appr"` (TRAQS.jsx:12213). Two different cells behind one column:
+    //
+    //   JOB   a compact rollup — `{done}/{total}` and either "approved" or
+    //         "across n panels". NOT clickable; signing happens on the panel row
+    //         that owns the step.
+    //   PANEL one chip per step. The first unsigned step is ACTIVE and is the
+    //         only one anybody can click.
+    //   OP    nothing. An operation has no approval of its own.
+    //
+    // The state is resolved once per render into the context — see JobsApproval.
+
+    @ViewBuilder
+    private var approvalCell: some View {
+        if let state = context.approval[row.itemID] {
+            switch state.kind {
+            case .rollup: approvalRollup(state)
+            default:      approvalChain(state)
+            }
+        } else {
+            // EMPTY, not absent: an EmptyView takes no space whatever frame wraps
+            // it, and every column after it would slide left on that row alone.
+            Color.clear
+        }
+    }
+
+    private func approvalRollup(_ state: ApprovalState) -> some View {
+        let done = state.allDone
+        return HStack(spacing: 6) {
+            Text("\(state.done)/\(state.total)")
+                .font(TFont.mono(11, 700))
+                .foregroundStyle(done ? Color.hex("#10b981") : theme.textDim)
+                .fixedSize()
+            Text(done ? "approved"
+                 : "across \(state.panelCount) panel\(state.panelCount == 1 ? "" : "s")")
+                .font(TFont.body(10))
+                .foregroundStyle(theme.textDim)
+                .lineLimit(1)
+                .truncationMode(.tail)
+        }
+        .frame(maxWidth: contentWidth, alignment: .leading)
+    }
+
+    private func approvalChain(_ state: ApprovalState) -> some View {
+        let active = state.activeIndex
+        return HStack(spacing: 4) {
+            ForEach(Array(state.steps.enumerated()), id: \.offset) { index, step in
+                approvalChip(step, isActive: index == active) {
+                    actions.signApproval(row, index)
+                }
+            }
+        }
+        .frame(maxWidth: contentWidth, alignment: .leading)
+        // The chips are drawn side by side and a chain can be longer than the
+        // column. They do NOT wrap on the web (`flexWrap: "nowrap"`); the overflow
+        // is simply clipped by the cell. Clipping here rather than letting them
+        // spill is the one place in this grid that needs it — everything else caps
+        // its own width, which is why the per-cell clip could be dropped.
+        .clipped()
+    }
+
+    /// `✓` signed · `●` active · `○` pending, and only the active chip is ever
+    /// clickable — and then only when this person may sign it.
+    private func approvalChip(_ step: ApprovalStepView, isActive: Bool,
+                              sign: @escaping () -> Void) -> some View {
+        let signed = step.isSigned
+        // `!step.assigneeId || sameId(step.assigneeId, loggedInUser?.id)` — an
+        // unassigned step is anybody's to sign, an assigned one is only its
+        // assignee's, whatever the general permission says.
+        let mine = step.assigneeId.map { $0.isEmpty || $0 == context.actor.id } ?? true
+        let clickable = isActive && context.actor.canApprove && mine
+
+        let tint: Color = signed ? Color.hex("#10b981") : isActive ? theme.accent : theme.textDim
+        let fill: Color = signed ? Color.hex("#10b981").opacity(0.13)
+                          : isActive ? theme.accent.opacity(0.10) : theme.surface
+        let stroke: Color = signed ? Color.hex("#10b981").opacity(0.33)
+                            : isActive ? theme.accent.opacity(0.33) : theme.border
+
+        return HStack(spacing: 3) {
+            Text(signed ? "\u{2713}" : isActive ? "\u{25CF}" : "\u{25CB}")
+                .font(TFont.body(10, 700))
+            Text(step.label)
+                .font(TFont.body(10, 700))
+                .lineLimit(1)
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 2)
+        .background(Capsule().fill(fill))
+        .overlay(Capsule().strokeBorder(stroke, lineWidth: 1))
+        .opacity(signed || isActive ? 1 : 0.55)
+        .fixedSize()
+        .contentShape(Capsule())
+        .modifier(JobsCellTap(action: clickable ? sign : nil))
+        .help(approvalTip(step, isActive: isActive, clickable: clickable))
+    }
+
+    /// The web's own `title` strings, which are the only explanation a chip gets
+    /// for refusing a click.
+    private func approvalTip(_ step: ApprovalStepView, isActive: Bool,
+                             clickable: Bool) -> String {
+        if let record = step.record {
+            let who = record.byName.isEmpty ? "signed" : record.byName
+            let when = JobsDate.stampShort(record.at)
+            return when.isEmpty ? "\(step.label) — \(who)"
+                                : "\(step.label) — \(who) \u{00B7} \(when)"
+        }
+        guard isActive else { return step.label }
+        if clickable { return "Sign \(step.label)" }
+        if let assignee = step.assigneeId, !assignee.isEmpty {
+            return "\(step.label) — assigned to someone else"
+        }
+        return "\(step.label) — you don\u{2019}t have approval access"
     }
 
     // MARK: Team
@@ -1285,6 +1578,19 @@ enum JobsDate {
     /// into the previous day in a western timezone.
     static func date(from day: String) -> Date? { parse(day) }
 
+    /// An ISO-8601 TIMESTAMP as "Mar 10, 3:42 PM" — the web's
+    /// `toLocaleString("en-US", { month, day, hour, minute })` on an approval
+    /// signature. Distinct from `short`, which takes a `yyyy-MM-dd` DAY and knows
+    /// nothing about a time; feeding one a stamp gives the em dash.
+    ///
+    /// "" rather than a dash for an unparseable stamp: the only caller builds a
+    /// tooltip and drops the whole clause when this is empty, which is what the
+    /// web's `step.rec.at ? " · " + … : ""` does.
+    static func stampShort(_ stamp: String) -> String {
+        guard let date = ApprovalDate.parse(stamp) else { return "" }
+        return stampFormatter.string(from: date)
+    }
+
     /// The inverse. Local, matching `todayKey`.
     static func key(from date: Date) -> String { keyFormatter.string(from: date) }
 
@@ -1310,6 +1616,16 @@ enum JobsDate {
     private static let shortFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "MMM d"
+        f.locale = Locale(identifier: "en_US")
+        return f
+    }()
+
+    /// `{ month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }`.
+    /// Local time, deliberately: the stamp is stored in UTC and read by whoever is
+    /// looking at it.
+    private static let stampFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d, h:mm a"
         f.locale = Locale(identifier: "en_US")
         return f
     }()
