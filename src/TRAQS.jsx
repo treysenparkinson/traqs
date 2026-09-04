@@ -22361,7 +22361,10 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ fontSize: 9.5, fontWeight: 700, color: T.accent, flexShrink: 0, fontFamily: T.mono }}>⋯{depCount}</span>
             </Tip>}
             {!isGantt && g && <span style={{ fontSize: 11.5, color: T.textDim, fontFamily: T.mono, flexShrink: 0 }}>{fm(n.start)} – {fm(n.end)}</span>}
-            {/* Assign control, in the slot the status pill used to occupy. Grey
+            {/* Status stays, but only where it says something a glance cannot:
+                an assigned row that is not simply "not started". */}
+            {chip && chip.k !== "ns" && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 8px", flexShrink: 0, background: c.bg, color: c.fg }}>{chip.label}</span>}
+            {/* Assign control, the row's last control before Delete. Grey
                 "+ Assign" with nobody on it, accent-tinted with the assignee's
                 name once there is. This is the row-level way to put a person on
                 work -- the Edit page's picker is the other. */}
@@ -22389,9 +22392,6 @@ ${jobsCtx || "No jobs found."}`;
                 </button>
               );
             })()}
-            {/* Status stays, but only where it says something a glance cannot:
-                an assigned row that is not simply "not started". */}
-            {chip && chip.k !== "ns" && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 8px", flexShrink: 0, background: c.bg, color: c.fg }}>{chip.label}</span>}
             {canEditJ && <button title="Delete item" onClick={() => delTask(n.id, panelId)}
               style={{ width: 20, height: 20, padding: 0, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", flexShrink: 0, borderRadius: T.radiusPill, display: "grid", placeItems: "center" }}>
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
@@ -22405,14 +22405,33 @@ ${jobsCtx || "No jobs found."}`;
                     <span onPointerDown={e => onBarDown(e, n, panelId)} title={done ? "Finished — click to show on the Schedule" : "Click to show on the Schedule"} style={{ position: "absolute", top: "50%", left: `${g.l}%`, width: 11, height: 11, transform: "translateY(-50%) rotate(45deg)", borderRadius: 3, background: col, opacity: done ? 1 : (dim ? 0.5 : 1), cursor: canMove ? "grab" : "pointer", zIndex: 6, boxShadow: done ? "0 0 0 2px rgba(16,185,129,0.35)" : "none" }} />
                     <b style={{ position: "absolute", top: "50%", left: `calc(${g.l}% + 18px)`, transform: "translateY(-50%)", fontSize: 10, fontWeight: 600, color: T.textDim, whiteSpace: "nowrap" }}>{fm(addD(n.start, dragDays(n)))}</b>
                   </>
-                : <span onPointerDown={e => onBarDown(e, n, panelId)}
-                    title={done ? "Finished — click to show on the Schedule" : "Click to show on the Schedule"}
-                    style={{ position: "absolute", top: "50%", transform: "translateY(-50%)", height: 18, borderRadius: T.radiusPill, boxSizing: "border-box", left: `${g.l}%`, width: `${g.r - g.l}%`, background: col, opacity: done ? 1 : (dim ? 0.45 : 1), cursor: canMove ? "grab" : "pointer", zIndex: 6, display: "flex", alignItems: "center", overflow: "hidden" }}>
-                    {/* No progress wash on a finished bar -- it would be a 100%
-                        white overlay, which just washes the green out. */}
-                    {!done && pct > 0 && <span style={{ position: "absolute", left: 0, top: 0, bottom: 0, borderRadius: "inherit", background: "rgba(255,255,255,0.35)", width: `${Math.min(100, pct)}%` }} />}
-                    {done && <svg style={{ marginLeft: 4, flexShrink: 0 }} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>}
-                  </span>}
+                : <>
+                    <span onPointerDown={e => onBarDown(e, n, panelId)}
+                      title={done ? "Finished — click to show on the Schedule" : "Click to show on the Schedule"}
+                      style={{ position: "absolute", top: "50%", transform: "translateY(-50%)", height: 18, borderRadius: T.radiusPill, boxSizing: "border-box", left: `${g.l}%`, width: `${g.r - g.l}%`, background: col, opacity: done ? 1 : (dim ? 0.45 : 1), cursor: canMove ? "grab" : "pointer", zIndex: 6, display: "flex", alignItems: "center", overflow: "hidden" }}>
+                      {/* No progress wash on a finished bar -- it would be a 100%
+                          white overlay, which just washes the green out. */}
+                      {!done && pct > 0 && <span style={{ position: "absolute", left: 0, top: 0, bottom: 0, borderRadius: "inherit", background: "rgba(255,255,255,0.35)", width: `${Math.min(100, pct)}%` }} />}
+                      {done && <svg style={{ marginLeft: 4, flexShrink: 0 }} width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12" /></svg>}
+                    </span>
+                    {/* The diamond labels itself, so a multi-day item was the one row
+                        whose dates the Gantt never showed. Start sits off the bar's
+                        left edge and end off its right, as siblings — the bar clips
+                        its own overflow, so a child label would be cut. A bar pressed
+                        against either end of the timeline has no room outside it, so
+                        that label tucks inside the bar in white instead of running off
+                        the edge. */}
+                    {(() => {
+                      const dd = dragDays(n);
+                      const inStart = g.l < 13, inEnd = g.r > 87;
+                      const base = { position: "absolute", top: "50%", transform: "translateY(-50%)", fontSize: 10, fontWeight: 600, whiteSpace: "nowrap", zIndex: 7, pointerEvents: "none" };
+                      const inside = { color: "#fff", textShadow: "0 1px 2px rgba(0,0,0,0.35)" };
+                      return <>
+                        <b style={{ ...base, ...(inStart ? { left: `calc(${g.l}% + 8px)`, ...inside } : { right: `calc(${100 - g.l}% + 8px)`, color: T.textDim }) }}>{fm(addD(n.start, dd))}</b>
+                        <b style={{ ...base, ...(inEnd ? { right: `calc(${100 - g.r}% + 8px)`, ...inside } : { left: `calc(${g.r}% + 8px)`, color: T.textDim }) }}>{fm(addD(n.end, dd))}</b>
+                      </>;
+                    })()}
+                  </>}
           </span>}
         </div>
       );
