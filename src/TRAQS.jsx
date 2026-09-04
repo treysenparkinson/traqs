@@ -2448,6 +2448,10 @@ const Btn = ({ children, onClick, variant = "primary", size = "md", disabled = f
 // matching label — accent for All/None, danger for Delete. Passed through Btn's
 // `style` prop, which merges last and so also clears the gradient's glow.
 const outlineBtnStyle = (c) => ({ background: T.surface, border: `1.5px solid ${c}`, color: c, boxShadow: "none" });
+// Corner radius of the content panel — the curve you see where it meets the
+// sidebar on the left and the brand strip above. LiquidBackground clips to the
+// same value, so they live in one place rather than two literals that drift.
+const SHELL_RADIUS = 45;
 // Wrapper that keeps a dropdown mounted long enough to fade out cleanly after `open` toggles false.
 // Retains a snapshot of children during the fade so dropdowns driven by object state
 // (e.g. {x, y, ...} that gets set to null on close) don't crash mid-animation. Re-opening
@@ -26429,11 +26433,11 @@ ${jobsCtx || "No jobs found."}`;
         </div>
       </div>
     </aside>); })()}
-    <div ref={contentPanelRef} style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", backgroundColor: T.bg, borderTopLeftRadius: isMobile ? 0 : 22, borderTopRightRadius: isMobile ? 0 : 22, borderBottomLeftRadius: isMobile ? 0 : 22, borderBottomRightRadius: isMobile ? 0 : 22 }}>
+    <div ref={contentPanelRef} style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column", overflow: "hidden", backgroundColor: T.bg, borderTopLeftRadius: isMobile ? 0 : SHELL_RADIUS, borderTopRightRadius: isMobile ? 0 : SHELL_RADIUS, borderBottomLeftRadius: isMobile ? 0 : SHELL_RADIUS, borderBottomRightRadius: isMobile ? 0 : SHELL_RADIUS }}>
       {/* base fills the layer with the page colour so the blurred blobs composite
           over something OPAQUE. Without it, blur() samples the transparent pixels
           at the panel's rounded clip edge and darkens the corners. */}
-      {T.bgMode === "liquid" && <LiquidBackground color={T.liquidColor} companion={T.liquidCompanion} base={T.bg} radius={isMobile ? 0 : 22} />}
+      {T.bgMode === "liquid" && <LiquidBackground color={T.liquidColor} companion={T.liquidCompanion} base={T.bg} radius={isMobile ? 0 : SHELL_RADIUS} />}
       {/* Sharp background-image layer for views that DON'T provide their own pinned background.
           Every card/grid view (jobs, schedule, clients, analytics, admin, timestamp)
           renders its own pinned bg inside its scroller (so backdrop-filter can sample it); only
@@ -26920,7 +26924,9 @@ ${jobsCtx || "No jobs found."}`;
                       {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ width: 20, height: 20, borderRadius: 20, background: i === 0 ? pT.accent : pSysBorder }} />)}
                     </div>
                   </div>
-                  {/* rounded content panel with the background image (mirrors the 22px content area) */}
+                  {/* rounded content panel with the background image. Its own value, not
+                      SHELL_RADIUS: the mock is about a fifth of the real panel's size, so the
+                      panel's corner copied literally would read as a blob at this scale. */}
                   <div style={{ flex: 1, minHeight: 0, minWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: "hidden", position: "relative", background: pT.bg }}>
                   {isCustom && (dc.bgMode || "color") === "liquid" && <LiquidBackground color={dc.liquidColor || dc.accent} companion={companionHue(dc.liquidColor || dc.accent || "#4169e1")} />}
                     {pAdaptive && <>
