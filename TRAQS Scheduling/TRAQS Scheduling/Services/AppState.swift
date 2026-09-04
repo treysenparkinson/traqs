@@ -65,9 +65,29 @@ class AppState {
 
     var matchEmail: String? = nil  // set from AuthManager after login
     // MARK: - Core Data
-    var jobs: [Job] = []
-    var people: [Person] = []
-    var clients: [Client] = []
+    // `didSet` on each, feeding one counter. It is what lets the Jobs grid know
+    // its derived indices are still good WITHOUT comparing anything — see
+    // `dataRevision` and `jobsCellIndices(for:)`.
+    //
+    // On the property rather than at each call site deliberately: `jobs` is
+    // assigned from the sync path, the cache rehydrate, undo, redo and logout as
+    // well as from edits, and a counter bumped by hand would be wrong the first
+    // time somebody added a sixth.
+    var jobs: [Job] = [] { didSet { dataRevision &+= 1 } }
+    var people: [Person] = [] { didSet { dataRevision &+= 1 } }
+    var clients: [Client] = [] { didSet { dataRevision &+= 1 } }
+
+    /// The Jobs grid's derived data, and the revision it was built at. Not
+    /// observed — they are a cache, and a cell reading one must not become an
+    /// observer of it. See `jobsCellIndices()`.
+    @ObservationIgnored var cachedCellIndices: JobsCellIndices?
+    @ObservationIgnored var cachedCellIndicesRevision: Int = -1
+
+    /// Bumped whenever anything the Jobs grid derives from changes.
+    ///
+    /// `&+`, so it wraps rather than traps after a few billion edits. Only ever
+    /// compared for equality, so wrapping is harmless.
+    private(set) var dataRevision: Int = 0
     var messages: [Message] = [] { didSet { recomputeUnread() } }
     var groups: [ChatGroup] = []
     /// Server-side read receipts: `[threadKey: [personId: ISO "read up to"]]`.
@@ -97,7 +117,16 @@ class AppState {
     /// `productionHours` totalled per op / panel / job. Cached rather than
     /// recomputed because `opHoursPair` is called once per op per render — deriving
     /// this inside it would make progress O(ops × sessions).
-    private(set) var producedScopes: StatsMath.ProducedScopes = .empty
+    ///
+    /// Bumps `dataRevision`: the Jobs grid's percentages and displayed statuses
+    /// are computed from `max(loggedHours, producedFor(op))`, so production hours
+    /// arriving must invalidate the cached indices. Missing this would have shown
+    /// stale percentages until the next edit — the exact failure a cache with an
+    /// incomplete key produces, and the reason this is on the property rather
+    /// than remembered at a call site.
+    private(set) var producedScopes: StatsMath.ProducedScopes = .empty {
+        didSet { dataRevision &+= 1 }
+    }
 
     /// Set the production-hours rows and refresh their rollup together.
     func applyProductionHours(_ rows: [JobSession]) {
@@ -118,7 +147,7 @@ class AppState {
     var timeOffRequests: [TimeOffRequest] = []
     /// Org-level settings (hpd, workStart/End, lunch, breaks, payPeriod, …).
     /// Synced from the web; falls back to `OrgSettings.default` until first fetch.
-    var orgSettings: OrgSettings = .default
+    var orgSettings: OrgSettings = .default { didSet { dataRevision &+= 1 } }
 
     // MARK: - UI State
     var isLoading = false

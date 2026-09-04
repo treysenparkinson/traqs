@@ -166,7 +166,7 @@ struct JobsPage: View {
         // can act on and this is the whole of what a redraw computes. Off unless
         // TRAQS_PERF=1 — see TQPerf.
         let cells = TQPerf.measure("cellContext", TQPerf.shape(appState.jobs)) {
-            cellContext(appState.jobs)
+            cellContext()
         }
         let query = queryContext(cells)
         let layout = columnStore.layout(customColumns: appState.orgSettings.customCols)
@@ -791,55 +791,30 @@ struct JobsPage: View {
     /// keep AppState out of the cells entirely: a cell that reads it becomes an
     /// observer of it, and a few hundred observers on one object means any change
     /// anywhere invalidates the whole grid.
-    private func cellContext(_ jobs: [Job]) -> JobsCellContext {
-        var context = JobsCellContext(today: JobsDate.todayKey)
-        for client in appState.clients { context.clientsByID[client.id] = client }
-        for person in appState.people { context.peopleByID[person.id] = person }
-
-        // EVERY level, expanded or not, in one walk — see `JobsProgress` and
-        // `jobsProgressIndex`.
-        //
-        // This used to fill in only what was on screen, descending into a job
-        // just far enough to cover its open branches. That reads as the frugal
-        // version and was the reason expanding a row took about a second: the
-        // walk itself ran three times over the same operations (once through
-        // `jobPct`, again through `panelPct`, again per operation), each hours
-        // pair scanned the whole roster for a running clock, and — worst of it —
-        // the result CHANGED SHAPE on every expand, so a context that every cell
-        // on the page holds became unequal and invalidated all of them.
-        //
-        // Walking everything costs one pass over the operations and makes the
-        // context identical before and after a toggle.
-        context.percent = TQPerf.measure("  progress") {
-            appState.jobsProgressIndex(for: jobs)
-        }
-        // Derived from the same roster and the same clocks, and indexed here for
-        // the same reason — see `JobsDisplayStatus`.
-        context.displayStatus = TQPerf.measure("  displayStatus") {
-            appState.jobsDisplayStatusIndex(for: jobs)
-        }
-        // `tasks.find(t => t.id === jobId)?.scheduledLater` — the web asks the
-        // JOB even from a panel or an operation row, so this is indexed by job id
-        // and every level looks itself up through `row.jobID`.
-        context.scheduledLater = Set(jobs.filter { JobsCloudSheet.isScheduledLater($0) }
-                                        .map(\.id))
-        context.isAdmin = appState.isAdmin
-        // The approval chains and the Activity trail, resolved once for the same
-        // reason as the two above — both need `orgSettings`, and a cell that
-        // reaches for it becomes an observer of AppState. ONE walk for both: the
-        // Activity line's fallback IS the approval state, so asking separately
-        // derived every panel's chain twice. See `AppState.jobsApprovalIndex`.
-        let approval = TQPerf.measure("  approval+activity") {
-            appState.jobsApprovalIndex(for: jobs)
-        }
-        context.approval = approval.states
-        context.activity = approval.activity
-        context.actor = appState.approvalActor
-        // This user's status and priority palette. Cheap — two dictionaries over
-        // eight entries — and it keeps `JobPalette` out of the cells.
-        context.statusStyles = columnStore.statusStyles
-        context.priorityStyles = columnStore.priorityStyles
-        return context
+    /// Everything a cell needs, resolved ONCE — and, on the common path, not
+    /// resolved at all.
+    ///
+    /// The derived half (clients, people, percentages, display statuses,
+    /// approval chains, the activity trail, the cloud list) lives behind a class
+    /// reference that `AppState` rebuilds only when its `dataRevision` moves. So
+    /// this runs on every body pass and is usually one `Int` comparison.
+    ///
+    /// That indirection is the difference between a page that responds and one
+    /// that does not. Held by VALUE, the context's dictionaries were rebuilt each
+    /// pass, never shared storage, and so had to be compared element by element —
+    /// once per cell. Measured at 831 ms per pass against a 16 ms frame. See
+    /// `JobsCellIndices`.
+    ///
+    /// The rest — the palettes, `today`, `isAdmin`, the approval actor — stays by
+    /// value. None is derived from the job tree and all are tiny, so comparing
+    /// them costs nothing and a recolour does not have to invalidate the indices.
+    private func cellContext() -> JobsCellContext {
+        JobsCellContext(indices: appState.jobsCellIndices(),
+                        statusStyles: columnStore.statusStyles,
+                        priorityStyles: columnStore.priorityStyles,
+                        isAdmin: appState.isAdmin,
+                        actor: appState.approvalActor,
+                        today: JobsDate.todayKey)
     }
 
     // MARK: Section headers

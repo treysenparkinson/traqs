@@ -48,61 +48,63 @@ enum JobsGridMetrics {
 // them. Dictionaries and an Int instead, so a cell's body touches nothing
 // observable and SwiftUI can skip the whole row when nothing it uses changed.
 struct JobsCellContext: Equatable {
-    var clientsByID: [String: Client] = [:]
-    var peopleByID: [String: Person] = [:]
-    /// Progress per row, keyed by `JobGridRow.itemID`. Precomputed because the real
-    /// figure reads logged hours and live job clocks off AppState, which is
-    /// exactly what a cell must not do.
+
+    /// Everything derived from the data, by REFERENCE.
     ///
-    /// Covers EVERY level, expanded or not — see `JobsProgress`. It used to be
-    /// filled in only for what was on screen, which sounds cheaper and was the
-    /// bug: it made the context change shape every time a row was expanded, so
-    /// expanding one job invalidated every cell on the page and re-ran the walk
-    /// for all of them.
-    var percent = JobsProgress.Index()
-    /// What each row's Status pill SHOWS, which at levels 1 and 2 is derived
-    /// rather than stored — see `JobsDisplayStatus`. Precomputed for the same
-    /// reason `percent` is: the rule reads logged hours and live job clocks off
-    /// AppState, which is exactly what a cell must not do.
-    var displayStatus = JobsDisplayStatus.Index()
-    /// The jobs sitting in TRAQS Cloud (`scheduledLater`). Their Start and End
-    /// cells read PENDING and refuse to open a date picker — those dates are the
-    /// scheduler's to set, and the web makes the cell inert rather than editable.
-    /// A set of job ids, so a panel or an operation can ask using `row.jobID`.
-    var scheduledLater: Set<String> = []
-    /// `isAdmin`. The status popover offers Finished to everyone and the web only
-    /// lets an admin take it — a non-admin has to go through the row menu's
-    /// Request Completion instead.
-    var isAdmin = false
-    /// Each row's approval state, keyed by `JobGridRow.itemID`. A JOB row holds
-    /// the rollup across its panels; a PANEL row holds its own chain; an
-    /// operation has none and is absent.
+    /// This is the whole performance story of the grid, so it is worth stating
+    /// plainly. The context used to hold six dictionaries by value and be
+    /// compared field by field. It is rebuilt on every body pass, so those
+    /// dictionaries never shared storage, so `Dictionary ==` could not
+    /// short-circuit on identity and walked every element — once per cell, and
+    /// again per row and per section. Measured on 5000 rows of data across 2400
+    /// cells, release build:
     ///
-    /// Precomputed for the third time for the third version of the same reason:
-    /// resolving it needs `orgSettings` (the step labels and the sign-off
-    /// templates), and a cell that reaches for AppState becomes an observer of
-    /// it. See `JobsApproval`.
-    var approval: [String: ApprovalState] = [:]
-    /// What the ACTIVITY column prints, keyed the same way. Separate from
-    /// `approval` because it is not derivable from it: the newest entry on the
-    /// row's `apprLog` wins over the newest signature still sitting on its steps,
-    /// and only the log can say "reverted" or "steps changed" — a reverted step
-    /// has no record left to read. See `JobsApproval.activity`.
-    var activity: [String: ApprovalActivity] = [:]
-    /// Whoever is signing. `canApprove` is the web's admin-or-signer-or-engineer
-    /// test; `id` decides whether a step ASSIGNED to someone is assigned to you.
-    var actor = JobsApproval.Actor(id: "", name: "", canApprove: false)
-    /// `statusOpts` / `priOpts` — what colour and glyph each status and priority
-    /// is drawn with, keyed by NAME because that is what a job stores.
+    ///     sharing storage      0.03 ms
+    ///     rebuilt, equal     830.97 ms
     ///
-    /// Per-user, kept in `JobsColumnStore`; the web keeps them in localStorage
-    /// beside the column order. Absent means "use the built-in", so an empty
-    /// dictionary draws exactly what `JobPalette` always drew.
+    /// Against a 16 ms frame. Every click that touched page state paid it.
+    ///
+    /// Now it is one class reference, `===` in `==` below, and `AppState`
+    /// rebuilds the box only when its `dataRevision` moves.
+    var indices: JobsCellIndices = .empty
+
+    // The fields below are NOT in the box, and deliberately: each is a handful
+    // of bytes or a handful of entries, none of them derived from the job tree,
+    // and comparing them by value costs nothing. Putting them in the box would
+    // mean rebuilding every index whenever somebody recoloured a status.
+
+    /// `statusOpts` / `priOpts` — this user's palette, keyed by NAME.
     var statusStyles: [String: JobsSelectOption] = [:]
     var priorityStyles: [String: JobsSelectOption] = [:]
+    /// `isAdmin`. The status popover offers Finished to everyone and the web only
+    /// lets an admin take it.
+    var isAdmin = false
+    /// Whoever is signing approvals.
+    var actor = JobsApproval.Actor(id: "", name: "", canApprove: false)
     /// `TD`, resolved once — so every Due cell in a render agrees on what "today"
     /// is even if the render straddles midnight.
     var today: String = ""
+
+    /// Identity on the box, value on the rest. A pointer test whatever the data
+    /// is, which is the point.
+    static func == (a: JobsCellContext, b: JobsCellContext) -> Bool {
+        a.indices === b.indices
+            && a.isAdmin == b.isAdmin
+            && a.today == b.today
+            && a.actor == b.actor
+            && a.statusStyles == b.statusStyles
+            && a.priorityStyles == b.priorityStyles
+    }
+
+    // Passthroughs, so a cell reads `context.percent` exactly as it always has
+    // and none of them had to change when this moved behind a reference.
+    var clientsByID: [String: Client] { indices.clientsByID }
+    var peopleByID: [String: Person] { indices.peopleByID }
+    var percent: JobsProgress.Index { indices.percent }
+    var displayStatus: JobsDisplayStatus.Index { indices.displayStatus }
+    var approval: [String: ApprovalState] { indices.approval }
+    var activity: [String: ApprovalActivity] { indices.activity }
+    var scheduledLater: Set<String> { indices.scheduledLater }
 }
 
 // MARK: - Every rule in the grid, as one shape
@@ -147,6 +149,16 @@ struct JobsGridLines: Shape {
         }
         return path
     }
+}
+
+/// Somewhere to put a value that changes constantly and that nothing draws.
+///
+/// `@State` is the wrong tool for the grid's origin: it changes every scrolled
+/// frame and is read only when somebody right-clicks, so making it invalidate
+/// the view is all cost and no benefit. A final class held in `@State` keeps the
+/// same instance across body passes while mutating it tells SwiftUI nothing.
+final class OriginBox {
+    var point: CGPoint = .zero
 }
 
 // MARK: - What a cell can do
@@ -312,11 +324,25 @@ struct JobsSection<Header: View>: View {
 
     /// Where the grid sits in the page's coordinate space, so a local hit can be
     /// reported as a page point for the menu to be placed at.
-    @State private var gridOrigin: CGPoint = .zero
+    ///
+    /// A BOX, NOT `@State`, and this is the scrolling fix.
+    ///
+    /// The coordinate space is the PAGE — named above TPage's scroller so an open
+    /// menu stays put while the list moves under it. Which means this origin
+    /// changes on EVERY SCROLLED FRAME. As `@State` that was a state write per
+    /// frame, so the section's body re-ran per frame, so every row and every cell
+    /// was rebuilt and re-compared per frame. That is what made scrolling look
+    /// like a 20fps display.
+    ///
+    /// Nothing needs to redraw when it changes: it is read once, inside the
+    /// right-click handler, to turn a local point into a page point. A reference
+    /// that SwiftUI does not observe stores it for free.
+    @State private var gridOrigin = OriginBox()
 
     private func hitCatcher(_ rows: [JobGridRow]) -> some View {
         TQRightClickCatcher { local in
-            let page = CGPoint(x: gridOrigin.x + local.x, y: gridOrigin.y + local.y)
+            let origin = gridOrigin.point
+            let page = CGPoint(x: origin.x + local.x, y: origin.y + local.y)
 
             if local.y < JobsGridMetrics.headerHeight {
                 guard let column = column(atX: local.x) else { return }
@@ -343,7 +369,8 @@ struct JobsSection<Header: View>: View {
         }
         .onGeometryChange(for: CGPoint.self) {
             $0.frame(in: .named(JobsPage.menuSpace)).origin
-        } action: { gridOrigin = $0 }
+        // Writes a class property, so it costs a store and invalidates nothing.
+        } action: { gridOrigin.point = $0 }
     }
 
     /// Walks the widths rather than dividing: columns are not a uniform width.
