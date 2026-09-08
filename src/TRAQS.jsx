@@ -14987,30 +14987,29 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ display: "flex", flexDirection: "column", position: "relative", width: tMode === "month" ? `${monthZoom * 100}%` : "100%", minWidth: "100%" }}>
           {/* Dual header: week groups + day numbers */}
           <div style={{ borderBottom: `2px solid ${T.border}` }}>
+            {/* Header corner + the two day-header rows. The corner is ONE cell spanning
+                BOTH rows rather than a 28px spacer in each, so the Time Off button can be
+                centred in it for real: the previous version overlaid a 56px box inside a
+                28px cell, which clipped the button along its top edge. sticky left:0 keeps
+                it pinned above the person column when the timeline pans sideways. */}
             <div style={{ display: "flex" }}>
-              {/* Time Off lives in the header corner above the person column, centred in
-                  the full box rather than in this single 28px row: the overlay is a child
-                  of this sticky cell, so it travels with it on horizontal scroll (an
-                  absolutely-positioned sibling of the header would scroll away), and it
-                  spans both header rows so it sits in the middle of the white block the
-                  two of them make. The lower cell is empty, so nothing is covered. */}
-              <div style={{ minWidth: lW, maxWidth: lW, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface, zIndex: 15, height: 28 }}>
-                {can("manageTeam") && <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 56, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 16, pointerEvents: "none" }}>
-                  <Tip label="Schedule time off for the crew">
-                    <Btn size="sm" onClick={() => setTimeOffModal(true)} style={{ pointerEvents: "auto" }}>
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="16" x2="15" y2="16"/></svg>
-                        Time Off
-                      </span>
-                    </Btn>
-                  </Tip>
-                </div>}
+              <div style={{ minWidth: lW, maxWidth: lW, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface, zIndex: 15, height: 56, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                {can("manageTeam") && <Tip label="Schedule time off for the crew">
+                  <Btn size="sm" onClick={() => setTimeOffModal(true)}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="16" x2="15" y2="16"/></svg>
+                      Time Off
+                    </span>
+                  </Btn>
+                </Tip>}
               </div>
-              <div style={{ display: "flex", flex: 1 }}>{hGroups.map(g => <div key={g.key} style={{ flex: g.span, height: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: T.textSec, letterSpacing: "-0.045em", borderRight: `1px solid ${T.border}`, background: schedSubBg }}>{g.label}</div>)}</div>
-            </div>
-            <div style={{ display: "flex" }}>
-              <div style={{ minWidth: lW, maxWidth: lW, height: 28, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface, zIndex: 15 }} />
-              <div style={{ display: "flex", flex: 1 }}>{days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !orgSettings.workDays.includes(dt.getDay()); const isT = day === TD; const dayLetter = ["S","M","T","W","T","F","S"][dt.getDay()]; return <div key={day} style={{ flex: 1, height: 28, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontSize: 12, fontFamily: T.mono, color: isT ? T.accent : wk ? T.textDim + "66" : T.textDim, fontWeight: isT ? 700 : 400, background: wk ? schedDisabled : "transparent", borderRight: gridOn ? `1px solid ${schedLine}` : "none", gap: 0 }}><span style={{ fontSize: 9, opacity: 0.7, lineHeight: 1 }}>{dayLetter}</span><span style={{ lineHeight: 1 }}>{dt.getDate()}</span></div>; })}</div>
+              {/* Both header rows stack in the remaining width, so the day columns still
+                  line up with the timeline below exactly as they did when each row carried
+                  its own lW spacer. */}
+              <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex" }}>{hGroups.map(g => <div key={g.key} style={{ flex: g.span, height: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: T.textSec, letterSpacing: "-0.045em", borderRight: `1px solid ${T.border}`, background: schedSubBg }}>{g.label}</div>)}</div>
+              <div style={{ display: "flex" }}>{days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !orgSettings.workDays.includes(dt.getDay()); const isT = day === TD; const dayLetter = ["S","M","T","W","T","F","S"][dt.getDay()]; return <div key={day} style={{ flex: 1, height: 28, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontSize: 12, fontFamily: T.mono, color: isT ? T.accent : wk ? T.textDim + "66" : T.textDim, fontWeight: isT ? 700 : 400, background: wk ? schedDisabled : "transparent", borderRight: gridOn ? `1px solid ${schedLine}` : "none", gap: 0 }}><span style={{ fontSize: 9, opacity: 0.7, lineHeight: 1 }}>{dayLetter}</span><span style={{ lineHeight: 1 }}>{dt.getDate()}</span></div>; })}</div>
+              </div>
             </div>
           </div>
           {/* Rows */}
