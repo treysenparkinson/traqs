@@ -19120,7 +19120,7 @@ ${jobsCtx || "No jobs found."}`;
 
       return createPortal(
         <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10015, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflow: "auto" }} onClick={() => setTsPersonEditModal(null)}>
-          <div style={{ background: T.card, borderRadius: 20, width: "100%", maxWidth: 580, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", animation: "slideUp 0.22s ease-out", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: T.card, margin: "auto", borderRadius: 20, width: "100%", maxWidth: 580, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", animation: "slideUp 0.22s ease-out", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div style={{ padding: "18px 24px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
               <div style={{ width: 10, height: 10, borderRadius: 8, background: T.textDim, flexShrink: 0 }} />
@@ -19437,7 +19437,7 @@ ${jobsCtx || "No jobs found."}`;
           {asPage && pageHead("Past Logs", { onBack: closePastLogs })}
           <div style={asPage
             ? { background: "transparent", borderRadius: 0, width: "100%", maxWidth: FIELD_COL_W, marginLeft: "auto", marginRight: "auto", border: "none", boxShadow: "none", fontFamily: T.font }
-            : { background: T.card, borderRadius: 20, width: "100%", maxWidth: 620, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", animation: "slideUp 0.22s ease-out", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
+            : { background: T.card, margin: "auto", borderRadius: 20, width: "100%", maxWidth: 620, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", animation: "slideUp 0.22s ease-out", fontFamily: T.font }} onClick={e => e.stopPropagation()}>
             {/* Header — overlay only; as a page it lives above, outside the column. */}
             <div style={{ display: asPage ? "none" : "flex", padding: "18px 24px", borderBottom: `1px solid ${T.border}`, alignItems: "center", gap: 12 }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
@@ -29300,7 +29300,7 @@ ${jobsCtx || "No jobs found."}`;
     )}</FadeOnClose>
     {/* Users Modal */}
     <FadeOnClose open={!!usersOpen} duration={220}>{usersOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 2000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }}>
-      <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 0, width: "100%", maxWidth: 580, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", overflow: "hidden", position: "relative" }}>
+      <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, margin: "auto", borderRadius: 20, padding: 0, width: "100%", maxWidth: 580, border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", overflow: "hidden", position: "relative" }}>
         {/* Header */}
         <div style={{ padding: "24px 28px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${T.border}` }}>
           <h3 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: T.text }}>User Permissions</h3>
@@ -30322,7 +30322,7 @@ ${jobsCtx || "No jobs found."}`;
         {_cePage ? pageBgLayer() : null}
         <div className={_cePage ? "" : "anim-modal-box"} style={_cePage
             ? { background: "transparent", borderRadius: 0, padding: 0, maxWidth: "none", width: "100%", border: "none", boxShadow: "none", position: "relative", zIndex: 1, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }
-            : { background: T.card, borderRadius: 0, padding: "54px 16px 16px", maxWidth: "100%", width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }} onClick={e => e.stopPropagation()}>
+            : { background: T.card, margin: "auto", borderRadius: 0, padding: "54px 16px 16px", maxWidth: "100%", width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }} onClick={e => e.stopPropagation()}>
           {/* As a page: the shared pageHead, and the fields capped to FIELD_COL_W and
               centred — the same treatment Edit Job gets. Title stays top-left. */}
           {_cePage
@@ -30411,7 +30411,7 @@ ${jobsCtx || "No jobs found."}`;
       const ed = personModal;
       const setEd = d => setPersonModal(typeof d === "function" ? d(personModal) : d);
       return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }} >
-        <div className="anim-modal-box" style={{ background: T.card, borderRadius: isMobile ? 0 : 22, padding: isMobile ? "54px 16px 16px" : "60px 32px 32px", maxWidth: isMobile ? "100%" : 600, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }} onClick={e => e.stopPropagation()}>
+        <div className="anim-modal-box" style={{ background: T.card, margin: "auto", borderRadius: isMobile ? 0 : 22, padding: isMobile ? "54px 16px 16px" : "60px 32px 32px", maxWidth: isMobile ? "100%" : 600, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)", position: "relative" }} onClick={e => e.stopPropagation()}>
           <button onClick={() => setPersonModal(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
           <h3 style={{ margin: "0 0 24px", color: T.text, fontSize: 22, fontWeight: 700 }}>{ed.id ? "Edit Team Member" : "New Team Member"}</h3>
           <InputField label="Full Name" value={ed.name} onChange={v => setEd(p => {
@@ -31782,7 +31782,7 @@ function AvailModal({ people, allItems, bookedHrs, onClose, isMobile, onStartTas
   const available = results.filter(r => r.ok);
   const busy = results.filter(r => !r.ok);
   return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }}>
-    <div className="anim-modal-box" style={{ background: T.card, borderRadius: isMobile ? 0 : 22, padding: isMobile ? "54px 16px 16px" : "60px 32px 32px", maxWidth: isMobile ? "100%" : 600, width: "100%", border: `1px solid ${T.borderLight}`, position: "relative", boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
+    <div className="anim-modal-box" style={{ background: T.card, margin: "auto", borderRadius: isMobile ? 0 : 22, padding: isMobile ? "54px 16px 16px" : "60px 32px 32px", maxWidth: isMobile ? "100%" : 600, width: "100%", border: `1px solid ${T.borderLight}`, position: "relative", boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
       <button onClick={onClose} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
       <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 22, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>Availability Finder</h3>
       <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textDim }}>Find available team members for a date range</p>
@@ -31879,7 +31879,7 @@ function TimeOffModal({ people, updPerson, onClose, initialPersonId = null }) {
     updPerson(pid, { timeOff: (p.timeOff || []).filter((_, i) => i !== idx) });
   };
   return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", backdropFilter: "blur(6px)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 24px", overflow: "auto" }}>
-    <div className="anim-modal-box" style={{ background: T.card, borderRadius: 20, padding: "60px 32px 32px", maxWidth: 560, width: "100%", border: `1px solid ${T.borderLight}`, position: "relative", boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
+    <div className="anim-modal-box" style={{ background: T.card, margin: "auto", borderRadius: 20, padding: "60px 32px 32px", maxWidth: 560, width: "100%", border: `1px solid ${T.borderLight}`, position: "relative", boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }} onClick={e => e.stopPropagation()}>
       <button onClick={onClose} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>
       <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 22, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>Manage Time Off</h3>
       <p style={{ margin: "0 0 20px", fontSize: 13, color: T.textDim }}>Schedule time off for team members</p>
