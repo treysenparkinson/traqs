@@ -14666,6 +14666,14 @@ ${jobsCtx || "No jobs found."}`;
             <Tip label="Zoom (double-click to reset)"><input type="range" min={1} max={6} step={0.1} value={monthZoom} onChange={e => setMonthZoom(Number(e.target.value))} onDoubleClick={() => setMonthZoom(1)} style={{ width: 190, cursor: "pointer", accentColor: T.accent }} /></Tip>
           </div>}
           <Btn size="sm" onClick={() => setBcModalState("open")} style={pageActionIconBtn}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></Btn>
+          {/* Time Off. TimeOffModal already existed and was already mounted at the app
+              root, but nothing ever set timeOffModal — it was unreachable. This is its
+              entry point; the calendar-minus glyph is drawn rather than an emoji. */}
+          {can("manageTeam") && <Tip label="Schedule time off for the crew">
+            <Btn size="sm" onClick={() => setTimeOffModal(true)} style={pageActionIconBtn}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="16" x2="15" y2="16"/></svg>
+            </Btn>
+          </Tip>}
           {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
         </div>
       </div>
@@ -17952,7 +17960,19 @@ ${jobsCtx || "No jobs found."}`;
       {/* ── PTO / attendance + reviews ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: 14 }}>
         <div className="tq-frost" style={card()}>
-          <h3 style={{ ...cardTitle, marginBottom: 12 }}>PTO / Attendance</h3>
+          {/* Header carries the add affordance: adding PTO for the employee whose page
+              this is should not mean navigating to the Schedule toolbar and re-picking
+              them out of the roster. Opens the same TimeOffModal, preselected. */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12 }}>
+            <h3 style={cardTitle}>PTO / Attendance</h3>
+            {can("manageTeam") && <Tip label={`Add time off for ${(P.name || "").split(" ")[0] || "this employee"}`}>
+              <button className="icon-btn-glow" onClick={() => setTimeOffModal({ personId: P.id })}
+                aria-label="Add time off"
+                style={{ width: 26, height: 26, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              </button>
+            </Tip>}
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 9 }}>
             <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "12px 13px" }}>
               <div style={{ ...dim, marginBottom: 6 }}>Upcoming PTO</div>
@@ -30260,7 +30280,9 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     </div>}</FadeOnClose>
     {/* Time Off modal */}
-    <FadeOnClose open={!!timeOffModal} duration={220}>{timeOffModal && <TimeOffModal people={people} updPerson={updPerson} onClose={() => setTimeOffModal(false)} />}</FadeOnClose>
+    {/* timeOffModal is `true` for the plain toolbar entry, or { personId } when opened
+        from one employee's PTO card so the form lands with them already chosen. */}
+    <FadeOnClose open={!!timeOffModal} duration={220}>{timeOffModal && <TimeOffModal people={people} updPerson={updPerson} initialPersonId={timeOffModal?.personId ?? null} onClose={() => setTimeOffModal(false)} />}</FadeOnClose>
     {/* Engineering block error toast */}
     <FadeOnClose open={!!engBlockError} duration={200}>{engBlockError && <div style={{ position: "fixed", bottom: 28, left: "50%", transform: "translateX(-50%)", zIndex: 9999, background: "#ef4444", color: "#fff", borderRadius: 16, padding: "12px 20px", fontSize: 14, fontWeight: 600, boxShadow: "0 8px 32px rgba(0,0,0,0.4)", display: "flex", alignItems: "center", gap: 10, maxWidth: 480, pointerEvents: "none" }}>
       <span style={{ fontSize: 18 }}>🔧</span>{engBlockError}
@@ -31586,13 +31608,18 @@ function AvailModal({ people, allItems, bookedHrs, onClose, isMobile, onStartTas
   </div>;
 }
 
-function TimeOffModal({ people, updPerson, onClose }) {
-  const [toPerson, setToPerson] = useState(null);
+function TimeOffModal({ people, updPerson, onClose, initialPersonId = null }) {
+  const [toPerson, setToPerson] = useState(initialPersonId);
   const [toStart, setToStart] = useState(TD);
   const [toEnd, setToEnd] = useState(addD(TD, 1));
   const [toReason, setToReason] = useState("");
   const [toType, setToType] = useState("PTO");
-  const shopCrew = people.filter(p => p.userRole === "user");
+  // Roster is the shop crew, PLUS whoever was preselected. Opening this from an
+  // employee's own PTO card has to be able to show that employee even when they are an
+  // admin — the bare userRole === "user" filter left the card's "+" selecting somebody
+  // who then had no chip in the list, so the selection was invisible and unclearable.
+  const shopCrew = people.filter(p => p.userRole === "user"
+    || (initialPersonId != null && sameId(p.id, initialPersonId)));
   const allTimeOff = people.flatMap(p => (p.timeOff || []).map((to, idx) => ({ ...to, person: p, idx }))).sort((a, b) => a.start.localeCompare(b.start));
   const upcoming = allTimeOff.filter(to => to.end >= TD);
   const past = allTimeOff.filter(to => to.end < TD);
