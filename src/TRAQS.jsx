@@ -3587,9 +3587,12 @@ function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [
   </div></FadeOnClose>;
   return <div style={{ position: "relative", ...(asIconButton ? { flexShrink: 0 } : {}) }}>
     {asIconButton
-      ? <button ref={triggerRef} className={`icon-btn-glow${btnClass ? " " + btnClass : ""}`} onClick={(e) => { e.stopPropagation(); if (!open) onOpen?.(); setOpen(o => !o); }} title="Grouping" style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${value.length > 0 ? T.accent + "88" : T.border}`, background: value.length > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: value.length > 0 ? T.accent : T.textSec, position: "relative" }}>
+      ? <button ref={triggerRef} className={`icon-btn-glow${btnClass ? " " + btnClass : ""}`} onClick={(e) => { e.stopPropagation(); if (!open) onOpen?.(); setOpen(o => !o); }} title="Grouping" style={{ width: 34, height: 34, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${(value.length > 0 || myTasksOn) ? T.accent + "88" : T.border}`, background: (value.length > 0 || myTasksOn) ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: (value.length > 0 || myTasksOn) ? T.accent : T.textSec, position: "relative" }}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-          {value.length > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 12, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{value.length}</span>}
+          {/* Counts My Tasks as well as groupings. My Tasks lives in this dropdown but
+              drives the People filter, so the badge used to appear on the Filter button
+              while the Grouping button — the one actually pressed — showed nothing. */}
+          {(value.length > 0 || myTasksOn) && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 12, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, lineHeight: "14px", textAlign: "center", padding: "0 3px" }}>{value.length + (myTasksOn ? 1 : 0)}</span>}
         </button>
       : <div className="tq-drop" ref={triggerRef} onClick={() => setOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: compact ? 7 : 10, padding: compact ? "5px 9px" : "12px 16px", borderRadius: compact ? T.radiusXs : T.radiusSm, border: `1px solid ${open ? T.accent : T.glassBorder}`, background: `var(--tq-field-bg, ${T.surface})`, cursor: "pointer", transition: "border 0.15s" }}>
           {value.length > 0
@@ -7907,7 +7910,24 @@ Extraction rules:
     const idStr = String(personId);
     const hit = (idList) => (idList || []).some(id => String(id) === idStr);
     if (hit(t.team)) return true;
-    return (t.subs || []).some(panel => (panel.subs || []).some(op => hit(op.team)));
+    // Three levels. This tested the job team and the ops and skipped PANEL membership,
+    // so somebody assigned to a panel and to none of its ops did not count as being on
+    // the job — the same omission the fPers filter had.
+    return (t.subs || []).some(panel => hit(panel.team) || (panel.subs || []).some(op => hit(op.team)));
+  }, []);
+  // Narrow a job to just what the given people are on, for the person-filtered views.
+  // Being on the JOB team keeps the whole tree — they own the job, so every panel under
+  // it is theirs to see. Otherwise keep panels they are on (whole panel, since the panel
+  // itself is the assignment) plus panels where they hold ops, trimmed to those ops.
+  const trimTaskToPeople = useCallback((t, idSet) => {
+    const hit = (idList) => (idList || []).some(id => idSet.has(String(id)));
+    if (hit(t.team)) return t;
+    const keptPanels = (t.subs || []).map(panel => {
+      if (hit(panel.team)) return panel;
+      const keptOps = (panel.subs || []).filter(op => hit(op.team));
+      return keptOps.length ? { ...panel, subs: keptOps } : null;
+    }).filter(Boolean);
+    return { ...t, subs: keptPanels };
   }, []);
   // Grouping offers only people and clients that actually have work. The dropdown
   // was handed the FULL rosters, so a client with no jobs (or an employee on
@@ -11539,8 +11559,26 @@ ${jobsCtx || "No jobs found."}`;
   // The Jobs list and grid already had a dedicated Completed section, so they only need
   // to respect the same switch the Schedule and gantt now use — emptying this list is
   // enough, since both render sites are already gated on its length.
-  const finishedTasks = showCompleted ? sortTasks(tasks.filter(t => t.status === "Finished" && jobSearchMatch(t))) : [];
-  const activeTasks = sortTasks(filtered.filter(t => t.status !== "Finished" && jobSearchMatch(t)));
+  // From `filtered`, NOT `tasks`. Reading the raw list meant the Completed section
+  // ignored every filter — People, Client, Status, Task #, My Tasks — so it listed every
+  // finished job in the org no matter what was selected. That was always true but stayed
+  // hidden while completed work was excluded from the board by default; showCompleted
+  // turned it into "why am I seeing jobs that aren't mine".
+  // With a People filter on (My Tasks sets it to just you), the job list showed the
+  // matching JOBS but still every panel and op inside them — so "only my work" listed a
+  // wall of other people's tasks. Trim each job to what the filtered people are actually
+  // on. Same shape the group-by-worker sections already use via trimTaskToPerson.
+  //
+  // Note this also narrows the progress figures on those rows to the kept children, which
+  // is the intent of a per-person view (and how group-by-worker already behaves) — a job
+  // row under My Tasks reads YOUR share of it, not the whole job's.
+  const _persTrim = useMemo(() => {
+    if (!fPers.length) return (t => t);
+    const idSet = new Set(fPers.map(String));
+    return (t => trimTaskToPeople(t, idSet));
+  }, [fPers, trimTaskToPeople]);
+  const finishedTasks = showCompleted ? sortTasks(filtered.filter(t => t.status === "Finished" && jobSearchMatch(t))).map(_persTrim) : [];
+  const activeTasks = sortTasks(filtered.filter(t => t.status !== "Finished" && jobSearchMatch(t))).map(_persTrim);
 
   // Pending finish requests (admin-only)
   const finishRequests = tasks.filter(t => t.finishRequest);
