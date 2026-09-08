@@ -15024,7 +15024,13 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ display: "flex" }}>
               <div style={{ minWidth: lW, maxWidth: lW, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface, zIndex: 15, height: 56, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 {can("manageTeam") && <Tip label="Schedule time off for the crew">
-                  <Btn size="sm" onClick={() => setTimeOffModal(true)}>
+                  {/* Card fill with an accent outline, rather than the accent-filled
+                      primary look — this sits in the header corner beside the day columns,
+                      not in a row of page actions, and a solid accent block there competes
+                      with the bars. outlineBtnStyle carries the border/colour/shadow; the
+                      background is overridden to T.card because the cell behind it is
+                      already T.surface, which the helper's own fill would disappear into. */}
+                  <Btn size="sm" onClick={() => setTimeOffModal(true)} style={{ ...outlineBtnStyle(T.accent), background: T.card }}>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="16" x2="15" y2="16"/></svg>
                       Time Off
