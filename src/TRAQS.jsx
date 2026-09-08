@@ -4810,6 +4810,11 @@ Extraction rules:
   // whole point of the comment above, and sharing a key would quietly couple
   // them the first time someone filtered one page and switched to the other.
   const [sFStat, setSFStat] = usePersistedUI("sFStat", []);      // multi-select statuses; empty = All
+  // Finished work stays on the board by default. It used to be dropped outright — a job
+  // vanished the moment it was completed, so there was no way to look back at what had
+  // been worked without reopening it. Shared by the Schedule bars, the Jobs gantt and the
+  // Jobs list so "Hide completed" means the same thing everywhere. Default true = show.
+  const [showCompleted, setShowCompleted] = usePersistedUI("showCompleted", true);
   const [sFClient, setSFClient] = usePersistedUI("sFClient", []);  // multi-select client IDs; empty = All
   const [sFJobNum, setSFJobNum] = usePersistedUI("sFJobNum", "");
   const [sFPers, setSFPers] = usePersistedUI("sFPers", []);
@@ -10564,7 +10569,9 @@ ${jobsCtx || "No jobs found."}`;
         } else groups[groups.length - 1].span++;
       }
     });
-    const gSortedFiltered = [...filtered].filter(t => t.status !== "Finished").sort((a, b) => {
+    // Completed jobs stay on the gantt unless hidden — see showCompleted. This was an
+    // unconditional drop, so a job left the board the moment it was signed off.
+    const gSortedFiltered = [...filtered].filter(t => showCompleted || t.status !== "Finished").sort((a, b) => {
       if (gSort === "project") return String(a.jobNumber || a.title || "").localeCompare(String(b.jobNumber || b.title || ""), undefined, { numeric: true });
       if (gSort === "client") { const ca = a.clientId ? (clients.find(c => c.id === a.clientId)?.name || "") : ""; const cb = b.clientId ? (clients.find(c => c.id === b.clientId)?.name || "") : ""; return ca.localeCompare(cb) || (a.start || "").localeCompare(b.start || ""); }
       return (a.start || "").localeCompare(b.start || "");
@@ -11438,7 +11445,10 @@ ${jobsCtx || "No jobs found."}`;
     if (jobSort === "client") { return [...arr].sort((a, b) => { const ca = a.clientId ? (clients.find(c => c.id === a.clientId)?.name || "") : ""; const cb = b.clientId ? (clients.find(c => c.id === b.clientId)?.name || "") : ""; return ca.localeCompare(cb) || (a.start || "").localeCompare(b.start || ""); }); }
     return [...arr].sort((a, b) => (a.start || "").localeCompare(b.start || ""));
   };
-  const finishedTasks = sortTasks(tasks.filter(t => t.status === "Finished" && jobSearchMatch(t)));
+  // The Jobs list and grid already had a dedicated Completed section, so they only need
+  // to respect the same switch the Schedule and gantt now use — emptying this list is
+  // enough, since both render sites are already gated on its length.
+  const finishedTasks = showCompleted ? sortTasks(tasks.filter(t => t.status === "Finished" && jobSearchMatch(t))) : [];
   const activeTasks = sortTasks(filtered.filter(t => t.status !== "Finished" && jobSearchMatch(t)));
 
   // Pending finish requests (admin-only)
@@ -14304,7 +14314,11 @@ ${jobsCtx || "No jobs found."}`;
           (job.subs || []).forEach(panel => {
             (panel.subs || []).forEach(op => {
               if (!onTeam(op.team, pid)) return;
-              if (op.status === "Finished") return;
+              // Completed work stays drawn unless the user has hidden it (see
+              // showCompleted), rather than disappearing the instant the op is signed off.
+              // The bar still carries `status`, so a muted/Finished treatment can key off
+              // that later without another pass through this walk.
+              if (!showCompleted && op.status === "Finished") return;
               // Undated work is NOT on the timeline any more. It used to be pinned to
               // today ("real work you can log against but can't be placed on the
               // timeline — pin it so it still shows instead of vanishing"), which put a
@@ -14329,7 +14343,7 @@ ${jobsCtx || "No jobs found."}`;
             // board, same rule as the ops above.
             const onPanelTeam = onTeam(panel.team, pid);
             const onAnyOp = (panel.subs || []).some(op => onTeam(op.team, pid));
-            if (onPanelTeam && !onAnyOp && panel.status !== "Finished" && isTimelinePlaced(panel)) {
+            if (onPanelTeam && !onAnyOp && (showCompleted || panel.status !== "Finished") && isTimelinePlaced(panel)) {
               const pInView = _visualEnd(panel) >= _winS && panel.start <= _winE;
               if (pInView) {
                 const pStart = panel.start;
@@ -14344,7 +14358,7 @@ ${jobsCtx || "No jobs found."}`;
           // General task: flat subtasks assigned directly to people
           (job.subs || []).forEach(sub => {
             if (!onTeam(sub.team, pid)) return;
-            if (sub.status === "Finished") return;
+            if (!showCompleted && sub.status === "Finished") return;
             // Same rule as the panel-job branch above — undated goes to the board.
             if (!isTimelinePlaced(sub)) return;
             if (_visualEnd(sub) < _winS || sub.start > _winE) return;
@@ -14607,6 +14621,17 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                   {["All","Not Started","In Progress","Finished","On Hold"].map(s => { const active = s === "All" ? sFStat.length === 0 : sFStat.includes(s); return <button key={s} onClick={() => s === "All" ? setSFStat([]) : setSFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : T.surface, color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>; })}
                 </div>
+              </div>
+              {/* Show completed — sits with Status because it is the same axis, but it is a
+                  visibility switch rather than a filter value: completed work is on the
+                  board by default and this takes it off, which is the reverse of every
+                  chip above. Mirrors the Overloaded Only switch's shape. */}
+              <div style={{ animation: `toolDrop 0.14s 28ms both ease-out`, display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Show Completed</span>
+                <button className="tq-noanim" onClick={() => setShowCompleted(p => !p)} aria-label="Show completed work"
+                  style={{ width: 36, height: 20, borderRadius: T.radiusPill, background: showCompleted ? T.accent : T.border, border: "none", position: "relative", cursor: "pointer", flexShrink: 0, transition: "background 0.2s" }}>
+                  <div style={{ position: "absolute", top: 2, left: showCompleted ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.2s" }} />
+                </button>
               </div>
               <div style={{ animation: `toolDrop 0.14s 38ms both ease-out` }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Client</div>
