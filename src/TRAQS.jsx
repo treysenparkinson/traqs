@@ -2448,15 +2448,28 @@ const Btn = ({ children, onClick, variant = "primary", size = "md", disabled = f
 // matching label — accent for All/None, danger for Delete. Passed through Btn's
 // `style` prop, which merges last and so also clears the gradient's glow.
 const outlineBtnStyle = (c) => ({ background: T.surface, border: `1.5px solid ${c}`, color: c, boxShadow: "none" });
-// Completed work stays on the schedule (see showCompleted) but reads as done: grey rather
-// than the job's colour. Module-level because the board paints finished work from two
-// separate sources — the `bars` array the day/month views build, and the raw task tree the
-// expanded subtask segments read — and one rule beats greying each renderer by hand.
+// Completed work stays on the schedule (see showCompleted) but reads as done: the job's
+// OWN colour, muted. Deliberately not replaced with a flat grey — this returned T.textDim,
+// which threw the job colour away entirely and, being a near-white/mid-grey token, painted
+// bars that read as dead slabs rather than as the job you recognise.
+//
+// mixHex toward a neutral keeps the hue identifiable while draining the saturation, and it
+// returns a HEX, which matters: the segment renderer builds `${colour}bb` alpha suffixes,
+// so an rgba() here (hexA) would produce invalid CSS. Falls through unchanged for any
+// non-hex colour rather than feeding it to a hex parser.
+//
+// Module-level because the board paints finished work from two separate sources — the
+// `bars` array the day/month views build, and the raw task tree the expanded subtask
+// segments read — and one rule beats muting each renderer by hand.
 //
 // COLOUR ONLY, deliberately. Nothing here touches hit-testing or pointer-events, so a
 // finished bar still opens details, still right-clicks for Reopen / Set Worked Hours, and
 // still drags. accentText() picks the label colour from this, so text stays readable.
-const barPaint = (item, color) => (item && item.status === "Finished" ? T.textDim : color);
+const DONE_MUTE = "#8c8c94";
+const barPaint = (item, color) =>
+  (item && item.status === "Finished" && typeof color === "string" && color.startsWith("#"))
+    ? mixHex(color, DONE_MUTE, 0.62)
+    : color;
 // Corner radius of the content panel — the curve you see where it meets the
 // sidebar on the left and the brand strip above. LiquidBackground clips to the
 // same value, so they live in one place rather than two literals that drift.
