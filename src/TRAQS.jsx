@@ -3463,7 +3463,7 @@ function ApprovalCommentInput({ onAdd }) {
 }
 // Multi-select grouping picker — Workers / Clients / Columns sections, styled like SearchSelect.
 // `value` is an array of { type, id } tokens; clicking a row toggles it and keeps the popup open.
-function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [], columnOpts = [], compact = false, asIconButton = false, onOpen, btnClass = "" }) {
+function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [], columnOpts = [], compact = false, asIconButton = false, onOpen, btnClass = "", onMyTasks, myTasksOn = false }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [coords, setCoords] = useState(null);
@@ -3561,6 +3561,19 @@ function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [
   const popup = <FadeOnClose open={open}><div ref={popupRef} className="anim-drop" style={popupStyle}>
     <div style={{ padding: "8px 10px", borderBottom: `1px solid ${T.border}` }}>
       <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search…" autoFocus style={{ width: "100%", padding: "8px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box", outline: "none" }} />
+      {/* My Tasks — a one-click narrowing to the signed-in user's own work, sat directly
+          under the search box. It drives the People filter rather than the grouping, so
+          it narrows every view the filter feeds (Schedule and Jobs), not just this list.
+          Clicking it again clears, so it reads as a toggle rather than a trap. */}
+      {onMyTasks && <button onClick={() => onMyTasks()}
+        style={{ width: "100%", marginTop: 8, padding: "7px 10px", borderRadius: T.radiusPill, cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: T.font,
+          display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+          border: `1px solid ${myTasksOn ? T.accent : T.border}`,
+          background: myTasksOn ? hexA(T.accent, 0.14) : "transparent",
+          color: myTasksOn ? T.accent : T.textSec }}>
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        {myTasksOn ? "My Tasks — on" : "My Tasks"}
+      </button>}
     </div>
     <div style={{ maxHeight: 300, overflow: "auto" }}>
       {noneMatch && <div style={{ padding: "20px 16px", textAlign: "center", fontSize: 13, color: T.textDim }}>No matches for "{q}"</div>}
@@ -7918,8 +7931,13 @@ Extraction rules:
     if (fPers.length > 0) {
       const pSet = new Set(fPers);
       const matchTeam = (idList) => (idList || []).some(id => pSet.has(String(id)));
+      // Three assignment levels, not two. This tested the job team and the ops and skipped
+      // PANEL membership entirely, so filtering to somebody assigned at panel level — and
+      // on none of that panel's ops — hid the job they were actually on. Same omission
+      // renderEmployees documents for its own myOps walk.
+      const onPanel = (t.subs || []).some(panel => matchTeam(panel.team));
       const onOp = (t.subs || []).some(panel => (panel.subs || []).some(op => matchTeam(op.team)));
-      if (!matchTeam(t.team) && !onOp) return false;
+      if (!matchTeam(t.team) && !onPanel && !onOp) return false;
     }
     if (fClient.length && !fClient.includes(t.clientId)) return false;
     if (fRole.length) {
@@ -11968,7 +11986,12 @@ ${jobsCtx || "No jobs found."}`;
             <GroupingSelect asIconButton onOpen={() => setTaskFilterOpen(false)} value={grouping} onToggle={toggleGrouping} onClear={() => setGrouping([])}
               workers={people.filter(p => groupablePersonIds.has(String(p.id))).map(p => ({ id: String(p.id), label: p.name, color: elColor(p.color || T.accent) }))}
               clientOpts={clients.filter(c => groupableClientIds.has(String(c.id))).map(c => ({ id: c.id, label: c.name, color: elColor(c.color) }))}
-              columnOpts={[...colOrder.map(id => STD_COL_DEFS.find(c => c.id === id)).filter(c => c && isColGroupable(c.id)).map(c => ({ id: c.id, label: c.label })), ...customCols.filter(c => isColGroupable("_cc_" + c.id)).map(c => ({ id: "_cc_" + c.id, label: c.label }))]} />
+              columnOpts={[...colOrder.map(id => STD_COL_DEFS.find(c => c.id === id)).filter(c => c && isColGroupable(c.id)).map(c => ({ id: c.id, label: c.label })), ...customCols.filter(c => isColGroupable("_cc_" + c.id)).map(c => ({ id: "_cc_" + c.id, label: c.label }))]}
+              myTasksOn={!!loggedInUser && fPers.length === 1 && sameId(fPers[0], loggedInUser.id)}
+              onMyTasks={loggedInUser ? () => {
+                const mine = String(loggedInUser.id);
+                setFPers(prev => (prev.length === 1 && prev[0] === mine) ? [] : [mine]);
+              } : undefined} />
             {/* Search jobs — kept expanded on the Jobs page */}
             <div className="tq-searchbar" onClick={e => { e.stopPropagation(); document.getElementById("taskSearchInput")?.focus(); }} style={{ order: 1, display: "flex", alignItems: "center", height: 34, width: taskSearchOpen || taskSearchQ ? 220 : 34, borderRadius: T.radiusPill, border: `1px solid ${taskSearchQ ? T.accent+"88" : T.border}`, background: T.surface, overflow: "hidden", cursor: "text", transition: "width 0.26s cubic-bezier(0.22,1,0.36,1), border-color 0.18s, transform 0.18s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.2s ease, filter 0.2s ease", flexShrink: 0 }}>
               <span style={{ width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", color: taskSearchQ ? T.accent : T.textSec, flexShrink: 0, pointerEvents: "none" }}>
