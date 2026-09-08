@@ -2465,11 +2465,20 @@ const outlineBtnStyle = (c) => ({ background: T.surface, border: `1.5px solid ${
 // COLOUR ONLY, deliberately. Nothing here touches hit-testing or pointer-events, so a
 // finished bar still opens details, still right-clicks for Reopen / Set Worked Hours, and
 // still drags. accentText() picks the label colour from this, so text stays readable.
+// Two signals stack for "finished": the colour desaturates, and the bar goes 30%
+// transparent so the grid reads through it. The mute is lighter than it was (0.62 -> 0.34)
+// now that transparency carries part of the job — at 0.62 plus a 30% fade the bars washed
+// out to near-illegible, and the hue is what makes a bar recognisable as its job.
 const DONE_MUTE = "#8c8c94";
 const barPaint = (item, color) =>
   (item && item.status === "Finished" && typeof color === "string" && color.startsWith("#"))
-    ? mixHex(color, DONE_MUTE, 0.62)
+    ? mixHex(color, DONE_MUTE, 0.34)
     : color;
+// Multiplied INTO each renderer's existing opacity rather than assigned over it: those
+// expressions already carry drag ghosting and the hover dim (0.2 for other people's rows),
+// and overwriting them would strand a finished bar at full opacity mid-drag.
+const DONE_FADE = 0.7;
+const barFade = (item) => (item && item.status === "Finished" ? DONE_FADE : 1);
 // Corner radius of the content panel — the curve you see where it meets the
 // sidebar on the left and the brand strip above. LiquidBackground clips to the
 // same value, so they live in one place rather than two literals that drift.
@@ -15023,7 +15032,7 @@ ${jobsCtx || "No jobs found."}`;
                         return <div key={bar.id}
                           onMouseDown={e=>{ if(e.button===0) { isDraggingRef.current = true; handleTeamDayBarDrag(e, bar.task, "move", p.id, rawS, rawE); } }}
                           onContextMenu={e=>bar.task&&handleCtx(e,bar.task,"team")}
-                          style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:bar.color,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis&&dayDragInfo?.mode==="move"?`0 0 0 2px ${bar.color}88`:`0 2px 8px ${bar.color}33`,opacity:isDraggingThis&&dayDragInfo?.mode==="move"?0.3:dayDragInfo&&!isDraggingThis?0.7:(!hoveredBarPid||bar.task?.pid===hoveredBarPid?1:0.2),transition:"box-shadow 0.1s,opacity 0.2s"}}
+                          style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:bar.color,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis&&dayDragInfo?.mode==="move"?`0 0 0 2px ${bar.color}88`:`0 2px 8px ${bar.color}33`,opacity:isDraggingThis&&dayDragInfo?.mode==="move"?0.3:dayDragInfo&&!isDraggingThis?0.7:(!hoveredBarPid||bar.task?.pid===hoveredBarPid?1:0.2)*barFade(bar.task),transition:"box-shadow 0.1s,opacity 0.2s"}}
                           onMouseEnter={e=>{ if(!dayDragInfo && !isDraggingRef.current){ e.currentTarget.style.filter="brightness(1.1)"; setHoveredBarPid(bar.task?.pid??null); } }} onMouseLeave={e=>{ e.currentTarget.style.filter="none"; setHoveredBarPid(null); }}>
                           <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"left",p.id);}} style={{position:"absolute",left:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
                             <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
@@ -15125,7 +15134,7 @@ ${jobsCtx || "No jobs found."}`;
               const sw = (Math.max(diffD(sub.start < tStart ? tStart : sub.start, sub.end > tEnd ? tEnd : sub.end) + 1, 1) / nDays * 100) + "%";
               return <div key={`sub-${row.person.id}-${sub.id}`} style={{ display: "flex", height: subH, borderBottom: gridOn ? `1px solid ${schedLine}` : "none", background: schedSubBg }}>
                 <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 6, padding: "0 16px 0 56px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: schedSubBg, zIndex: 10 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: 8, background: sub.color, flexShrink: 0 }} />
+                  <div style={{ width: 6, height: 6, borderRadius: 8, background: barPaint(sub, sub.color), opacity: barFade(sub), flexShrink: 0 }} />
                   <span style={{ fontSize: 12, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub.title}</span>
                 </div>
                 <div style={{ flex: 1, position: "relative", display: "flex" }}>
@@ -15146,7 +15155,7 @@ ${jobsCtx || "No jobs found."}`;
                           const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
                           document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
                         }}
-                        style={{ position: "absolute", top: 3, left: `calc(${segSx} + 2px)`, width: `calc(${segSw} - 4px)`, height: subH - 6, borderRadius: 8, background: barPaint(sub, sub.color), border: `1px solid ${barPaint(sub, sub.color)}`, borderRight: !isLast ? `2px dashed ${barPaint(sub, sub.color)}bb` : `1px solid ${barPaint(sub, sub.color)}`, borderLeft: !isFirst ? `2px dashed ${barPaint(sub, sub.color)}bb` : `1px solid ${barPaint(sub, sub.color)}`, cursor: "grab", display: "flex", alignItems: "center", padding: "0 8px", overflow: "hidden", zIndex: sub.id === scheduleHighlightId ? 10 : 4, animation: isFirst && sub.id === scheduleHighlightId ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": barPaint(sub, sub.color) + "99" }}>
+                        style={{ position: "absolute", top: 3, left: `calc(${segSx} + 2px)`, width: `calc(${segSw} - 4px)`, height: subH - 6, borderRadius: 8, background: barPaint(sub, sub.color), opacity: barFade(sub), border: `1px solid ${barPaint(sub, sub.color)}`, borderRight: !isLast ? `2px dashed ${barPaint(sub, sub.color)}bb` : `1px solid ${barPaint(sub, sub.color)}`, borderLeft: !isFirst ? `2px dashed ${barPaint(sub, sub.color)}bb` : `1px solid ${barPaint(sub, sub.color)}`, cursor: "grab", display: "flex", alignItems: "center", padding: "0 8px", overflow: "hidden", zIndex: sub.id === scheduleHighlightId ? 10 : 4, animation: isFirst && sub.id === scheduleHighlightId ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": barPaint(sub, sub.color) + "99" }}>
                         {isFirst && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 6, cursor: "ew-resize", zIndex: 5 }} onMouseDown={e => {
                           e.stopPropagation(); e.preventDefault(); const startX = e.clientX; const os = sub.start; let lastDx = 0;
                           const onM = me => { const dx = Math.round((me.clientX - startX) / cW); if (dx === lastDx) return; lastDx = dx; const ns = addD(os, dx); if (ns <= sub.end) updTask(sub.id, { start: ns }, row.parentTaskId); };
@@ -16662,7 +16671,7 @@ ${jobsCtx || "No jobs found."}`;
                   // bar (business-day stepping, weekend-skipping, 30-min hour snap).
                   const barOpacity = _isDragActive
                     ? 0
-                    : (barSelectMode || !hoveredBarPid || isPto || bar.task?.pid === hoveredBarPid ? 1 : 0.2);
+                    : (barSelectMode || !hoveredBarPid || isPto || bar.task?.pid === hoveredBarPid ? 1 : 0.2) * barFade(bar.task);
                   const isBarSelected = barSelectMode && selBars.has(bar.id);
                   const inDepGroup = !isPto && depGroupTaskIds.has(bar.task?.id);
                   const barKey = bar.id + "_0_" + bar.start;
