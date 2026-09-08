@@ -2514,7 +2514,22 @@ export const FadeOnClose = ({ open, children, duration = 180, outAnim = "fadeOut
     if (typeof el.type !== "string") {
       const w = {};
       if (anim) w.animation = anim;
-      if (!open) w.pointerEvents = "none";
+      if (!open) {
+        w.pointerEvents = "none";
+        // The wrapper is a bare div whose only child is position:fixed, so it has ZERO
+        // size — and an opacity animation on a zero-size box is what the two component
+        // modals (TimeOffModal, AvailModal) were relying on to fade. Give it a real
+        // full-viewport box and its own compositing layer for the duration of the exit,
+        // which is the one structural difference from the host-element branch below that
+        // every fading modal in the app goes through.
+        //
+        // Safe: it only applies while closing (pointer-events already off), and the child
+        // is itself position:fixed inset:0, so resolving against this box instead of the
+        // viewport lands it in exactly the same place.
+        w.position = "fixed";
+        w.inset = 0;
+        w.willChange = "opacity";
+      }
       // The wrapper alone was not enough. A component's root keeps its own
       // `.anim-modal-overlay { animation: fadeIn ... both }`, and the exit landing on an
       // ancestor instead of on that element left the overlay holding its entry animation's
@@ -2524,6 +2539,12 @@ export const FadeOnClose = ({ open, children, duration = 180, outAnim = "fadeOut
       // Hand the animation to the component as well: one that spreads `style` onto its own
       // root paints the exit on the real overlay, exactly as the host-element branch below
       // does. A component that ignores `style` is unaffected and still gets the wrapper.
+      //
+      // Both the wrapper and the child carry the exit, so opacity is applied twice and the
+      // curve is (1-t)^2 — a steeper fade than elsewhere, not a broken one. Deliberate
+      // belt-and-braces: this bug could not be reproduced outside the browser, so rather
+      // than pick one mechanism and guess, both are live. Drop whichever proves redundant
+      // once it is confirmed working.
       return <div style={w}>{cloneElement(el, {
         style: { ...(el.props.style || {}), ...(anim ? { animation: anim } : null) },
       })}</div>;
