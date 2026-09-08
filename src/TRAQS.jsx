@@ -5511,27 +5511,51 @@ Extraction rules:
   // op sat at 140% would stay amber after completion, and "overdue until it's completed"
   // is the whole point of the ramp. Uncapped otherwise, so a job over its estimate shows
   // how far over.
-  const _panelPct = (panel) => {
-    if (panel.status === "Finished") return 100;
+  // Worked hours roll UP. _opHoursPair only ever described a leaf, so anything wanting a
+  // panel's or a job's actual worked total had nothing to call — the percentage functions
+  // below summed the children internally and then threw the totals away, returning only a
+  // ratio. These expose the same sums so a parent can display "X of Y hours" the way a
+  // leaf can, and the percentage functions now delegate rather than re-implementing the
+  // walk twice.
+  const _panelHoursPair = (panel) => {
     const ops = panel.subs || [];
     // No ops: the panel itself is the work item time is logged against, so measure it
     // the same way an op is measured. Returning 0 reported no progress for a panel
     // somebody was actively clocked into.
-    if (!ops.length) return _opPct(panel);
+    if (!ops.length) return _opHoursPair(panel);
+    // Finished pins to the full estimate at every level, matching _opHoursPair — a parent
+    // closed under budget still has to read 100%, not "8 of 20 hours".
     let logged = 0, est = 0;
     for (const op of ops) { const h = _opHoursPair(op); logged += h.logged; est += h.est; }
+    return panel.status === "Finished" ? { logged: est, est } : { logged, est };
+  };
+  const _jobHoursPair = (job) => {
+    // Leaves, per panel: a panel with ops contributes its ops, a panel WITHOUT ops is
+    // itself the leaf (see _panelHoursPair). Flattening to ops alone reported 0% for a job
+    // whose panels carry the hours directly, and silently ignored such panels in a mixed job.
+    const leaves = (job.subs || []).flatMap(pn => ((pn.subs || []).length ? pn.subs : [pn]));
+    if (!leaves.length) return { logged: 0, est: 0 };
+    let logged = 0, est = 0;
+    for (const it of leaves) { const h = _opHoursPair(it); logged += h.logged; est += h.est; }
+    return job.status === "Finished" ? { logged: est, est } : { logged, est };
+  };
+  // Worked/estimated pair for an item at whatever level it sits — the hours counterpart of
+  // _pctForItem, and the same shape-sniffing rule.
+  const _hoursPairForItem = (t) => {
+    const kids = t.subs || [];
+    if (kids.some(k => (k.subs || []).length)) return _jobHoursPair(t);
+    if (kids.length) return _panelHoursPair(t);
+    return _opHoursPair(t);
+  };
+  const _panelPct = (panel) => {
+    if (panel.status === "Finished") return 100;
+    const { logged, est } = _panelHoursPair(panel);
     if (est === 0) return 0;
     return Math.round(logged / est * 100);
   };
   const _jobPct = (job) => {
     if (job.status === "Finished") return 100;
-    // Leaves, per panel: a panel with ops contributes its ops, a panel WITHOUT ops is
-    // itself the leaf (see _panelPct). Flattening to ops alone reported 0% for a job whose
-    // panels carry the hours directly, and silently ignored such panels in a mixed job.
-    const leaves = (job.subs || []).flatMap(pn => ((pn.subs || []).length ? pn.subs : [pn]));
-    if (!leaves.length) return 0;
-    let logged = 0, est = 0;
-    for (const it of leaves) { const h = _opHoursPair(it); logged += h.logged; est += h.est; }
+    const { logged, est } = _jobHoursPair(job);
     if (est === 0) return 0;
     return Math.round(logged / est * 100);
   };
@@ -17552,26 +17576,46 @@ ${jobsCtx || "No jobs found."}`;
     const hLabel = h => { const ap = h >= 12 ? "PM" : "AM"; const h12 = h > 12 ? h - 12 : h === 0 ? 12 : h; return `${h12} ${ap}`; };
     // A block's clock-time length: its share of the op's daily hours, scaled from
     // productive hours into wall-clock hours (same conversion the Gantt uses).
-    const blocksFor = (ds) => myOps
-      .filter(m => m.op.status !== "Finished")
-      .filter(m => {
-        // Undated work is real and loggable but cannot be placed on the timeline. The
-        // Schedule page pins it to today rather than letting it vanish, so match that
-        // instead of dropping it (a null start fails every string compare below).
-        if (!m.op.start || !m.op.end) return ds === TD;
-        return m.op.start <= ds && m.op.end >= ds;
-      })
-      .map(m => {
-        // Was (hpd / team) — the item's WHOLE estimate treated as one day's work, so a
-        // 140h panel reported 140h on every day it spanned, blew past the daily cap and
-        // painted ordinary assigned work as overtime.
-        const share = perDayShare(m.op);
-        const clockH = productiveHoursPerDay > 0 ? (share / productiveHoursPerDay) * totalWorkH : 0;
-        const sH = m.op.startHour ?? workStartH;
-        return { ...m, sH, eH: Math.min(workEndH, sH + clockH), share };
-      })
-      .filter(b => b.eH > b.sH)
-      .sort((a, b) => a.sH - b.sH);
+    const blocksFor = (ds) => {
+      const sized = myOps
+        .filter(m => m.op.status !== "Finished")
+        .filter(m => {
+          // Undated work is real and loggable but cannot be placed on the timeline. The
+          // Schedule page pins it to today rather than letting it vanish, so match that
+          // instead of dropping it (a null start fails every string compare below).
+          if (!m.op.start || !m.op.end) return ds === TD;
+          return m.op.start <= ds && m.op.end >= ds;
+        })
+        .map(m => {
+          // Was (hpd / team) — the item's WHOLE estimate treated as one day's work, so a
+          // 140h panel reported 140h on every day it spanned, blew past the daily cap and
+          // painted ordinary assigned work as overtime.
+          const share = perDayShare(m.op);
+          const clockH = productiveHoursPerDay > 0 ? (share / productiveHoursPerDay) * totalWorkH : 0;
+          return { ...m, share, clockH, manualH: m.op.startHour ?? null };
+        })
+        .filter(b => b.clockH > 0)
+        // Manually-positioned blocks anchor the order; the rest fall in behind them in a
+        // stable id order so the same day does not reshuffle between renders.
+        .sort((a, b) => (a.manualH ?? workStartH) - (b.manualH ?? workStartH)
+          || String(a.op.id).localeCompare(String(b.op.id)));
+
+      // Stack sequentially down the column. Every block used to take
+      // `startHour ?? workStartH`, and startHour is null for anything the user has not
+      // dragged by hand — so a person with three ops on one day got three blocks all
+      // computing top:0, painted directly on top of each other, and only the last one
+      // was visible. renderTeam on the Schedule page already stacks from a running
+      // cursor (`hasManual ? startHour : cumH`); this is the same rule.
+      let cursor = workStartH;
+      return sized
+        .map(b => {
+          const sH = b.manualH != null ? b.manualH : cursor;
+          const eH = Math.min(workEndH, sH + b.clockH);
+          cursor = Math.max(cursor, eH);
+          return { ...b, sH, eH };
+        })
+        .filter(b => b.eH > b.sH);
+    };
     const GRID_H = 260;
 
     // ── Current work ─────────────────────────────────────────────────────────
