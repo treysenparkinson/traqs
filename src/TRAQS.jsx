@@ -5097,7 +5097,6 @@ Extraction rules:
   const [finishDeclineState, setFinishDeclineState] = useState({}); // { [requestId]: { showInput, reason } }
   const [frDetailsExpanded, setFrDetailsExpanded] = useState({}); // { [finishRequestId]: bool }
   const [statusPopover, setStatusPopover] = useState(null); // { id, pid, current, x, y }
-  const [quickDone, setQuickDone] = useState(null);         // { jobId, x, y, up, maxHeight }
   const [ccSelectPopover, setCcSelectPopover] = useState(null); // custom select-column picker: { itemId, pid, key, current, options, x, y }
   const [clockPopover, setClockPopover] = useState(null); // { personId, action: "in"|"out", x, y }
   const [clockAccessOpen, setClockAccessOpen] = useState(false); // Time Settings → per-worker clock-in access disclosure
@@ -10004,52 +10003,61 @@ ${jobsCtx || "No jobs found."}`;
   // writing it here as well would put a second, competing source of truth on the record.
   // Permission: editJobs alone is not enough. Completion normally goes through
   // setFinishApproval — a request an approver signs off. Writing "Finished" directly IS
-  // that sign-off, so this also requires approveCompletions; otherwise the button would be
-  // a way for an admin without approval rights to approve their own work.
+  // that sign-off, so this also requires approveCompletions; otherwise this would be a
+  // way for an admin without approval rights to approve their own work.
   const canQuickComplete = can("editJobs") && can("approveCompletions");
-  const quickCompleteAt = (jobId, panelId = null, opId = null) => {
-    if (!canQuickComplete) return;
-    const job = tasks.find(t => sameId(t.id, jobId));
-    if (!job) return;
-    const targetId = opId || panelId || jobId;
+  // Complete the right-clicked node and everything under it, skipping the approval
+  // request entirely. The context menu already knows which job/panel/op was clicked, so
+  // this takes the item rather than a jobId/panelId/opId triple and a level picker.
+  const adminFinishItem = (it) => {
+    if (!canQuickComplete || !it) return;
 
-    // Same engineering gate updTask applies. Bypassing it here would let Quick Complete do
-    // what the status popover refuses to — sign off work on a panel that never cleared
-    // engineering. The completion is the wrong place to discover that, but a silent
-    // exception is worse than a visible refusal.
-    const panelsTouched = panelId
-      ? (job.subs || []).filter(p => sameId(p.id, panelId))
-      : opId
-        ? (job.subs || []).filter(p => (p.subs || []).some(o => sameId(o.id, opId)))
-        : (job.subs || []);
-    const blocked = panelsTouched.find(p => {
-      if (p.engineering === undefined) return false;
-      const e = p.engineering || {};
-      const hasOps = (p.subs || []).length > 0;
-      if (!hasOps) return false;
+    // Locate the node and its parent panel anywhere in the tree. The menu fires from the
+    // job list, the gantt and the schedule bars, and `it` carries a different shape in
+    // each, so resolve by id rather than trusting it.pid/it.grandPid.
+    let parentPanel = null, label = it.title || "Item";
+    for (const job of tasks) {
+      if (sameId(job.id, it.id)) { label = job.title; break; }
+      let hit = false;
+      for (const pnl of (job.subs || [])) {
+        if (sameId(pnl.id, it.id)) { parentPanel = pnl; label = pnl.title; hit = true; break; }
+        const op = (pnl.subs || []).find(o => sameId(o.id, it.id));
+        if (op) { parentPanel = pnl; label = `${pnl.title} › ${op.title}`; hit = true; break; }
+      }
+      if (hit) break;
+    }
+
+    // Same engineering gate updTask applies. Bypassing it here would let this do what the
+    // status popover refuses to — sign off work on a panel that never cleared engineering.
+    // A visible refusal beats a silent exception.
+    const gate = (pnl) => {
+      if (!pnl || pnl.engineering === undefined) return false;
+      if (!(pnl.subs || []).length) return false;
+      const e = pnl.engineering || {};
       return !(e.designed && e.verified && e.sentToPerforex);
-    });
+    };
+    const blocked = parentPanel
+      ? (gate(parentPanel) ? parentPanel : null)
+      : (tasks.find(j => sameId(j.id, it.id))?.subs || []).find(gate);
     if (blocked) {
       setEngBlockError(`Approval required before work can begin on ${blocked.title}.`);
       setTimeout(() => setEngBlockError(null), 4000);
       return;
     }
 
-    const finish = (item) => ({ ...item, status: "Finished", subs: (item.subs || []).map(finish) });
-    const applyAt = (items) => items.map(item => {
-      if (sameId(item.id, targetId)) return finish(item);
-      if (item.subs?.length) return { ...item, subs: applyAt(item.subs) };
-      return item;
+    // Cascade DOWN only. getOpDisplayStatus already derives a parent's status from its
+    // children, so writing the parent here too would put a second competing source of
+    // truth on the record.
+    const finish = (node) => ({ ...node, status: "Finished", subs: (node.subs || []).map(finish) });
+    const applyAt = (items) => items.map(node => {
+      if (sameId(node.id, it.id)) return finish(node);
+      if (node.subs?.length) return { ...node, subs: applyAt(node.subs) };
+      return node;
     });
     const next = applyAt(tasks);
     setTasks(next);
     saveTasks(next, getToken, orgCode).catch(console.warn);
-
-    const panel = panelId || opId
-      ? (job.subs || []).find(p => sameId(p.id, panelId) || (p.subs || []).some(o => sameId(o.id, opId)))
-      : null;
-    const op = opId && panel ? (panel.subs || []).find(o => sameId(o.id, opId)) : null;
-    toast(`${op ? `${panel.title} › ${op.title}` : panel ? panel.title : job.title} marked complete`);
+    toast(`${label} marked complete`);
   };
 
   async function sendReminder(item, note) {
@@ -12514,23 +12522,6 @@ ${jobsCtx || "No jobs found."}`;
             case "status": return (
               <div style={{ ...cellBase, cursor: "pointer" }}
                 onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); const p = placePopover(r, STATUSES.length); setStatusPopover({ id: item.id, pid: pid || null, current: item.status || "Not Started", x: p.x, y: p.y, maxHeight: p.maxHeight, up: p.up }); }}>
-                {/* Quick Complete — job rows only. The status chip beside it sets THIS
-                    node; this closes out the job, one of its panels, or one of its ops in
-                    a single action, cascading to descendants. stopPropagation so it does
-                    not also open the status popover the cell owns. */}
-                {level === 0 && canQuickComplete && item.status !== "Finished" && <button
-                  aria-label="Quick complete"
-                  title="Mark complete…"
-                  onClick={e => {
-                    e.stopPropagation();
-                    const r = e.currentTarget.getBoundingClientRect();
-                    const rows = 1 + (item.subs || []).reduce((n, p) => n + 1 + (p.subs || []).length, 0);
-                    const pl = placePopover(r, Math.min(rows, 12));
-                    setQuickDone({ jobId: item.id, x: pl.x, y: pl.y, up: pl.up, maxHeight: pl.maxHeight });
-                  }}
-                  style={{ width: 20, height: 20, marginRight: 5, padding: 0, flexShrink: 0, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.textDim, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", verticalAlign: "middle" }}>
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                </button>}
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: T.radiusPill, background: staColor + "20", border: `1px solid ${staColor}44`, fontSize: 10, fontWeight: 700, color: staColor, whiteSpace: "nowrap", userSelect: "none", textTransform: "uppercase", letterSpacing: "-0.045em", maxWidth: "100%", minWidth: 0 }}>
                   <span style={{ display: "inline-block", width: 12, textAlign: "center", flexShrink: 0, fontSize: 11, textTransform: "none" }}>{STA_ICON[dispStatus] || "○"}</span>
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{dispStatus}</span>
@@ -18116,21 +18107,21 @@ ${jobsCtx || "No jobs found."}`;
       {/* ── PTO / attendance + reviews ── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(420px, 1fr))", gap: 14 }}>
         <div className="tq-frost" style={card()}>
-          {/* Header carries the add affordance: adding PTO for the employee whose page
-              this is should not mean navigating to the Schedule toolbar and re-picking
-              them out of the roster. Opens the same TimeOffModal, preselected. */}
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 12 }}>
-            <h3 style={cardTitle}>PTO / Attendance</h3>
-            {can("manageTeam") && <Tip label={`Add time off for ${(P.name || "").split(" ")[0] || "this employee"}`}>
-              <button className="icon-btn-glow" onClick={() => setTimeOffModal({ personId: P.id })}
-                aria-label="Add time off"
-                style={{ width: 26, height: 26, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              </button>
-            </Tip>}
-          </div>
+          <h3 style={{ ...cardTitle, marginBottom: 12 }}>PTO / Attendance</h3>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 9 }}>
-            <div style={{ background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "12px 13px" }}>
+            {/* Upcoming PTO owns the add affordance, in its own top-right corner —
+                adding time off belongs to THIS tile, not to the whole PTO/Attendance
+                section (the other three tiles are read-only attendance figures).
+                position:relative so the button can corner itself; paddingRight clears
+                it so a long date range cannot run underneath. */}
+            <div style={{ position: "relative", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, padding: "12px 13px", paddingRight: can("manageTeam") ? 38 : 13 }}>
+              {can("manageTeam") && <Tip label={`Add time off for ${(P.name || "").split(" ")[0] || "this employee"}`}>
+                <button className="icon-btn-glow" onClick={() => setTimeOffModal({ personId: P.id })}
+                  aria-label="Add time off"
+                  style={{ position: "absolute", top: 7, right: 7, width: 22, height: 22, padding: 0, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.card, color: T.textSec, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                </button>
+              </Tip>}
               <div style={{ ...dim, marginBottom: 6 }}>Upcoming PTO</div>
               {upcomingPto
                 ? <><div style={{ fontSize: 13, fontWeight: 800, color: T.text }}>{fm(upcomingPto.start)}{upcomingPto.end !== upcomingPto.start ? ` – ${fm(upcomingPto.end)}` : ""}</div>
@@ -28082,32 +28073,6 @@ ${jobsCtx || "No jobs found."}`;
         mirror the job tree so "which level am I closing" is answered by position rather
         than by reading every label. Already-finished nodes are listed but inert, so the
         shape of the tree stays stable as you work down it. */}
-    <FadeOnClose open={!!quickDone}>{quickDone && (() => {
-      const qdJob = tasks.find(t => sameId(t.id, quickDone.jobId));
-      if (!qdJob) return null;
-      const qdRow = (key, label, lvl, done, onPick) => (
-        <div key={key} onClick={done ? undefined : onPick}
-          style={{ display: "flex", alignItems: "center", gap: 8, padding: `7px 14px 7px ${14 + lvl * 14}px`, cursor: done ? "default" : "pointer", userSelect: "none", opacity: done ? 0.45 : 1, whiteSpace: "nowrap" }}
-          onMouseEnter={e => { if (!done) e.currentTarget.style.background = hexA(T.accent, 0.12); }}
-          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
-          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={done ? T.textDim : T.accent} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
-          <span style={{ fontSize: 12.5, fontWeight: lvl === 0 ? 700 : 500, color: done ? T.textDim : T.text, overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
-          {done && <span style={{ fontSize: 9.5, fontWeight: 700, color: T.textDim, marginLeft: "auto", flexShrink: 0 }}>DONE</span>}
-        </div>
-      );
-      const qdPick = (panelId, opId) => { quickCompleteAt(qdJob.id, panelId, opId); setQuickDone(null); };
-      return <div>
-        <div style={{ position: "fixed", inset: 0, zIndex: 10012 }} onClick={() => setQuickDone(null)} />
-        <div className="tq-lglass" style={{ position: "fixed", left: quickDone.x, top: quickDone.y, zIndex: 10013, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 12px 32px rgba(0,0,0,0.45)", overflow: "auto", maxHeight: quickDone.maxHeight, minWidth: 240, maxWidth: 340, padding: "4px 0" }}>
-          <div style={{ padding: "6px 14px 4px", fontSize: 9.5, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Mark complete</div>
-          {qdRow("qd-job", `Entire job — ${qdJob.title}`, 0, qdJob.status === "Finished", () => qdPick(null, null))}
-          {(qdJob.subs || []).flatMap(panel => [
-            qdRow(`qd-p-${panel.id}`, panel.title, 1, panel.status === "Finished", () => qdPick(panel.id, null)),
-            ...(panel.subs || []).map(op => qdRow(`qd-o-${op.id}`, op.title, 2, op.status === "Finished", () => qdPick(null, op.id))),
-          ])}
-        </div>
-      </div>;
-    })()}</FadeOnClose>
 
     {/* ── Custom select-column Popover (styled picker for Dropdown-type custom columns) ── */}
     {/* Project Plan assign picker — built to the same pattern as the Grouping
@@ -30130,6 +30095,18 @@ ${jobsCtx || "No jobs found."}`;
       {can("editJobs") && isOp && it.status !== "Finished" && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 13.5"/></svg>} label="Set Worked Hours" sub="Manually mark hours done (greys out that portion)" onClick={() => { let panel = null, parentJob = null, freshOp = null; for (const j of tasks) { for (const pnl of (j.subs||[])) { const found = (pnl.subs||[]).find(o => o.id === it.id); if (found) { panel = pnl; parentJob = j; freshOp = found; break; } } if (panel) break; } if (!panel || !parentJob || !freshOp) return; setWorkedHoursInput(Math.round((Math.max(freshOp.loggedHours || 0, producedFor(freshOp)) + liveOpHours(freshOp)) * 100) / 100); setWorkedHoursWho(String((freshOp.team || [])[0] ?? "")); setWorkedHoursDate(TD); setWorkedHoursModal({ op: freshOp, panel, parentJob }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Request Completion — lowest level bar with no children */}
       {liveChildCount === 0 && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>} label="Request Completion" sub="Send to all admins for review and approval" onClick={() => { setFinishApproval({ id: it.id, pid: it.pid || null, title: it.title, jobNumber: it.jobNumber || null }); setCtxMenu(null); }} animIdx={ci()} />}
+      {/* Complete Now (admin) — the counterpart to Request Completion directly above it:
+          same outcome, without the approval round-trip. Sits last before the Delete
+          divider so the two admin-only destructive-ish actions group together.
+
+          No liveChildCount guard, unlike Request Completion: completing a job or panel
+          cascades Finished to everything under it, so it is useful precisely at the levels
+          a request cannot be raised from. */}
+      {canQuickComplete && it.status !== "Finished" && <CtxMenuItem
+        icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>}
+        label="Complete Now"
+        sub={(it.subs || []).length ? "Admin — marks this and everything under it complete, no approval" : "Admin — marks complete without an approval request"}
+        onClick={() => { adminFinishItem(it); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Delete */}
       <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
       {can("editJobs") && <div onClick={() => {
