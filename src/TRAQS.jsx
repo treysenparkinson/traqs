@@ -24472,6 +24472,39 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           </div>}
 
+          {/* Hours by panel — "actual of needed". Needed is the panel's own estimate roll-up
+              (_panelHoursPair, the same figure progress % is derived from, rather than a
+              second formula that could disagree with it). Actual is summed from the session
+              rows, which is what this page is sourced from throughout: a row belongs to a
+              panel if it names the panel directly or names any of that panel's ops.
+              Over-run panels read past 100% rather than clamping, matching _panelPct. */}
+          {(job.subs || []).length > 0 && <div style={{ marginBottom: 38 }}>
+            {sectionHead("Hours by panel")}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {(job.subs || []).map(panel => {
+                const pOpIds = new Set((panel.subs || []).map(o => String(o.id)));
+                const actual = rows.reduce((s, r) => {
+                  const hit = pOpIds.has(String(r.opId)) || sameId(r.panelId, panel.id);
+                  return hit ? s + (Number(r.hours) || 0) : s;
+                }, 0);
+                const needed = _panelHoursPair(panel).est;
+                const pctOf = needed > 0 ? Math.round((actual / needed) * 100) : 0;
+                const over = needed > 0 && actual > needed;
+                return (
+                  <div key={panel.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusLg }}>
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: elColor(panel.color || T.accent), flexShrink: 0 }} />
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: T.text, minWidth: 0, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{panel.title}</span>
+                    <span style={{ fontSize: 10.5, color: T.textDim, flexShrink: 0 }}>{(panel.subs || []).length} op{(panel.subs || []).length !== 1 ? "s" : ""}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, fontFamily: T.mono, color: over ? "#f59e0b" : T.accent, flexShrink: 0, minWidth: 108, textAlign: "right" }}>
+                      {fmtH(actual)} of {fmtH(needed)} hours
+                    </span>
+                    <span style={{ fontSize: 11, fontFamily: T.mono, color: over ? "#f59e0b" : T.textDim, flexShrink: 0, minWidth: 40, textAlign: "right" }}>{pctOf}%</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>}
+
           {sectionHead("Log")}
           {rows.length === 0
             ? <div style={{ padding: "36px 24px", textAlign: "center", color: T.textDim, fontSize: 13, background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusLg }}>
@@ -24492,7 +24525,12 @@ ${jobsCtx || "No jobs found."}`;
                           <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusLg }}>
                             {p ? <PersonAvatar person={p} size={20} /> : <span style={{ width: 20, height: 20, borderRadius: 20, background: T.border, flexShrink: 0 }} />}
                             <span style={{ fontSize: 12.5, fontWeight: 600, color: T.text, minWidth: 0, maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p?.name || "Unknown"}</span>
-                            <span style={{ fontSize: 12, color: T.textSec, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.opTitle || r.panelTitle || "—"}</span>
+                            {/* Both levels, not just the deepest. "Wire" alone does not say
+                                which panel it was wire ON, and a job routinely repeats the
+                                same op title across several panels. */}
+                            <span style={{ fontSize: 12, color: T.textSec, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {r.panelTitle && r.opTitle ? `${r.panelTitle} › ${r.opTitle}` : (r.opTitle || r.panelTitle || "—")}
+                            </span>
                             <span style={{ fontSize: 11, fontFamily: T.mono, color: T.textDim, flexShrink: 0 }}>{fmtT(r.clockIn)} – {fmtT(r.clockOut)}</span>
                             <span style={{ fontSize: 12, fontWeight: 700, fontFamily: T.mono, color: T.accent, flexShrink: 0, minWidth: 44, textAlign: "right" }}>{fmtH(Number(r.hours) || 0)}h</span>
                           </div>
@@ -24787,6 +24825,24 @@ ${jobsCtx || "No jobs found."}`;
               {fresh.poNumber && infoRow("PO #", <span style={{ fontFamily: T.mono }}>{fresh.poNumber}</span>)}
               {fresh.status && infoRow("Status", fresh.status)}
               {fresh.pri && infoRow("Priority", fresh.pri)}
+              {/* Hours per panel, as "actual of needed". Enriches the existing Information
+                  rows rather than adding a Panels card — the v2 detail page deliberately
+                  has none (see the note in the left column), the three views are the page.
+                  Both figures come from _panelHoursPair, so this agrees with the progress
+                  percentage shown everywhere else instead of being a second calculation.
+                  Over-run panels read amber and past 100%, matching _panelPct. */}
+              {dPanels.length > 0 && <>
+                <div style={{ height: 1, background: T.border, margin: "4px 0 2px" }} />
+                {dPanels.map(panel => {
+                  const ph = _panelHoursPair(panel);
+                  const pOver = ph.est > 0 && ph.logged > ph.est;
+                  return infoRow(panel.title, (
+                    <span style={{ fontFamily: T.mono, color: pOver ? "#f59e0b" : T.text, whiteSpace: "nowrap" }}>
+                      {ph.logged.toFixed(1)} of {ph.est.toFixed(1)} hours
+                    </span>
+                  ));
+                })}
+              </>}
             </div>
             {customCols.filter(c => !c.fieldKey).length > 0 && <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 14 }}>
               {customCols.filter(c => !c.fieldKey).map(col => {
