@@ -14814,14 +14814,6 @@ ${jobsCtx || "No jobs found."}`;
             <Tip label="Zoom (double-click to reset)"><input type="range" min={1} max={6} step={0.1} value={monthZoom} onChange={e => setMonthZoom(Number(e.target.value))} onDoubleClick={() => setMonthZoom(1)} style={{ width: 190, cursor: "pointer", accentColor: T.accent }} /></Tip>
           </div>}
           <Btn size="sm" onClick={() => setBcModalState("open")} style={pageActionIconBtn}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></Btn>
-          {/* Time Off. TimeOffModal already existed and was already mounted at the app
-              root, but nothing ever set timeOffModal — it was unreachable. This is its
-              entry point; the calendar-minus glyph is drawn rather than an emoji. */}
-          {can("manageTeam") && <Tip label="Schedule time off for the crew">
-            <Btn size="sm" onClick={() => setTimeOffModal(true)} style={pageActionIconBtn}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="16" x2="15" y2="16"/></svg>
-            </Btn>
-          </Tip>}
           {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
         </div>
       </div>
@@ -14996,7 +14988,24 @@ ${jobsCtx || "No jobs found."}`;
           {/* Dual header: week groups + day numbers */}
           <div style={{ borderBottom: `2px solid ${T.border}` }}>
             <div style={{ display: "flex" }}>
-              <div style={{ minWidth: lW, maxWidth: lW, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface, zIndex: 15, height: 28 }} />
+              {/* Time Off lives in the header corner above the person column, centred in
+                  the full box rather than in this single 28px row: the overlay is a child
+                  of this sticky cell, so it travels with it on horizontal scroll (an
+                  absolutely-positioned sibling of the header would scroll away), and it
+                  spans both header rows so it sits in the middle of the white block the
+                  two of them make. The lower cell is empty, so nothing is covered. */}
+              <div style={{ minWidth: lW, maxWidth: lW, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface, zIndex: 15, height: 28 }}>
+                {can("manageTeam") && <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 56, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 16, pointerEvents: "none" }}>
+                  <Tip label="Schedule time off for the crew">
+                    <Btn size="sm" onClick={() => setTimeOffModal(true)} style={{ pointerEvents: "auto" }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="16" x2="15" y2="16"/></svg>
+                        Time Off
+                      </span>
+                    </Btn>
+                  </Tip>
+                </div>}
+              </div>
               <div style={{ display: "flex", flex: 1 }}>{hGroups.map(g => <div key={g.key} style={{ flex: g.span, height: 28, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: T.textSec, letterSpacing: "-0.045em", borderRight: `1px solid ${T.border}`, background: schedSubBg }}>{g.label}</div>)}</div>
             </div>
             <div style={{ display: "flex" }}>
