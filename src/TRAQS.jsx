@@ -31877,12 +31877,25 @@ function TimeOffModal({ people, updPerson, onClose, initialPersonId = null }) {
   const [toEnd, setToEnd] = useState(addD(TD, 1));
   const [toReason, setToReason] = useState("");
   const [toType, setToType] = useState("PTO");
-  // Roster is the shop crew, PLUS whoever was preselected. Opening this from an
-  // employee's own PTO card has to be able to show that employee even when they are an
-  // admin — the bare userRole === "user" filter left the card's "+" selecting somebody
-  // who then had no chip in the list, so the selection was invisible and unclearable.
-  const shopCrew = people.filter(p => p.userRole === "user"
-    || (initialPersonId != null && sameId(p.id, initialPersonId)));
+  const [toQ, setToQ] = useState("");
+  // EVERYONE on the roster. This filtered to userRole === "user", which hid every admin:
+  // an admin could not be given time off from the Schedule toolbar at all, while the
+  // Employees PTO card "+" could preselect one — so the same person was reachable one way
+  // and not the other. Deliberately NOT re-gated on ("user" || "admin") either, because a
+  // legacy record with no userRole set would fall through that too.
+  //
+  // The only exclusion is deleted records, which this never applied — removed employees
+  // stayed listed and selectable. A preselected person survives even that, so the card's
+  // "+" can never land on somebody with no chip to show for them.
+  const roster = people.filter(p => p && (!p.deletedAt || sameId(p.id, initialPersonId)));
+  // Search is a plain name contains — the list is chips rather than rows, so a long
+  // roster wraps into a wall of them and scanning it by eye is the actual problem.
+  // The selected person is always kept visible, otherwise typing would appear to clear
+  // a selection that is still live.
+  const _toQ = toQ.trim().toLowerCase();
+  const shopCrew = _toQ
+    ? roster.filter(p => (p.name || "").toLowerCase().includes(_toQ) || sameId(p.id, toPerson))
+    : roster;
   const allTimeOff = people.flatMap(p => (p.timeOff || []).map((to, idx) => ({ ...to, person: p, idx }))).sort((a, b) => a.start.localeCompare(b.start));
   const upcoming = allTimeOff.filter(to => to.end >= TD);
   const past = allTimeOff.filter(to => to.end < TD);
@@ -31910,7 +31923,19 @@ function TimeOffModal({ people, updPerson, onClose, initialPersonId = null }) {
         <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 10 }}>Add New</div>
         <div style={{ marginBottom: 12 }}>
           <label style={{ display: "block", fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 500 }}>Team Member</label>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {/* Search above the chips. The magnifier is drawn, and the clear affordance is
+              the app's bare ✕ rather than an emoji. */}
+          <div style={{ position: "relative", marginBottom: 8 }}>
+            <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", display: "flex", color: toQ ? T.accent : T.textDim, pointerEvents: "none" }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            </span>
+            <input value={toQ} onChange={e => setToQ(e.target.value)} placeholder="Search names…"
+              style={{ width: "100%", padding: "8px 30px 8px 30px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.card})`, color: T.text, fontSize: 13, fontFamily: T.font, boxSizing: "border-box", outline: "none" }} />
+            {toQ && <button onClick={() => setToQ("")} aria-label="Clear search" className="tq-noanim"
+              style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", width: 18, height: 18, padding: 0, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", lineHeight: 1, fontSize: 14 }}>✕</button>}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 168, overflowY: "auto" }}>
+            {!shopCrew.length && <div style={{ fontSize: 12, color: T.textDim, padding: "6px 2px" }}>No names match “{toQ}”.</div>}
             {shopCrew.map(p => <button key={p.id} onClick={() => setToPerson(toPerson === p.id ? null : p.id)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusPill, border: `1px solid ${toPerson === p.id ? T.accent + "66" : T.border}`, background: toPerson === p.id ? T.accent + "15" : "transparent", cursor: "pointer", fontFamily: T.font, fontSize: 13, color: T.text, fontWeight: toPerson === p.id ? 600 : 400, transition: "all 0.15s" }}>
               <PersonAvatar person={p} size={18} />
               {p.name}
