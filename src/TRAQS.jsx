@@ -5097,6 +5097,7 @@ Extraction rules:
   const [finishDeclineState, setFinishDeclineState] = useState({}); // { [requestId]: { showInput, reason } }
   const [frDetailsExpanded, setFrDetailsExpanded] = useState({}); // { [finishRequestId]: bool }
   const [statusPopover, setStatusPopover] = useState(null); // { id, pid, current, x, y }
+  const [quickDone, setQuickDone] = useState(null);         // { jobId, x, y, up, maxHeight }
   const [ccSelectPopover, setCcSelectPopover] = useState(null); // custom select-column picker: { itemId, pid, key, current, options, x, y }
   const [clockPopover, setClockPopover] = useState(null); // { personId, action: "in"|"out", x, y }
   const [clockAccessOpen, setClockAccessOpen] = useState(false); // Time Settings → per-worker clock-in access disclosure
@@ -9969,6 +9970,63 @@ ${jobsCtx || "No jobs found."}`;
     // Deny/Complete pills again — the state change is visible on the request.
   };
 
+  // Quick Complete — mark a job, one panel, or one op Finished in a single action,
+  // cascading down to every descendant. The existing status popover can only set the node
+  // you clicked, so closing out a finished job meant walking every op by hand.
+  //
+  // Cascade direction is DOWN only. Completing an op deliberately does not roll its panel
+  // or job up: getOpDisplayStatus already derives a parent's status from its children, so
+  // writing it here as well would put a second, competing source of truth on the record.
+  // Permission: editJobs alone is not enough. Completion normally goes through
+  // setFinishApproval — a request an approver signs off. Writing "Finished" directly IS
+  // that sign-off, so this also requires approveCompletions; otherwise the button would be
+  // a way for an admin without approval rights to approve their own work.
+  const canQuickComplete = can("editJobs") && can("approveCompletions");
+  const quickCompleteAt = (jobId, panelId = null, opId = null) => {
+    if (!canQuickComplete) return;
+    const job = tasks.find(t => sameId(t.id, jobId));
+    if (!job) return;
+    const targetId = opId || panelId || jobId;
+
+    // Same engineering gate updTask applies. Bypassing it here would let Quick Complete do
+    // what the status popover refuses to — sign off work on a panel that never cleared
+    // engineering. The completion is the wrong place to discover that, but a silent
+    // exception is worse than a visible refusal.
+    const panelsTouched = panelId
+      ? (job.subs || []).filter(p => sameId(p.id, panelId))
+      : opId
+        ? (job.subs || []).filter(p => (p.subs || []).some(o => sameId(o.id, opId)))
+        : (job.subs || []);
+    const blocked = panelsTouched.find(p => {
+      if (p.engineering === undefined) return false;
+      const e = p.engineering || {};
+      const hasOps = (p.subs || []).length > 0;
+      if (!hasOps) return false;
+      return !(e.designed && e.verified && e.sentToPerforex);
+    });
+    if (blocked) {
+      setEngBlockError(`Approval required before work can begin on ${blocked.title}.`);
+      setTimeout(() => setEngBlockError(null), 4000);
+      return;
+    }
+
+    const finish = (item) => ({ ...item, status: "Finished", subs: (item.subs || []).map(finish) });
+    const applyAt = (items) => items.map(item => {
+      if (sameId(item.id, targetId)) return finish(item);
+      if (item.subs?.length) return { ...item, subs: applyAt(item.subs) };
+      return item;
+    });
+    const next = applyAt(tasks);
+    setTasks(next);
+    saveTasks(next, getToken, orgCode).catch(console.warn);
+
+    const panel = panelId || opId
+      ? (job.subs || []).find(p => sameId(p.id, panelId) || (p.subs || []).some(o => sameId(o.id, opId)))
+      : null;
+    const op = opId && panel ? (panel.subs || []).find(o => sameId(o.id, opId)) : null;
+    toast(`${op ? `${panel.title} › ${op.title}` : panel ? panel.title : job.title} marked complete`);
+  };
+
   async function sendReminder(item, note) {
     if (!loggedInUser || reminderSending) return;
     setReminderSending(true);
@@ -12431,6 +12489,23 @@ ${jobsCtx || "No jobs found."}`;
             case "status": return (
               <div style={{ ...cellBase, cursor: "pointer" }}
                 onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); const p = placePopover(r, STATUSES.length); setStatusPopover({ id: item.id, pid: pid || null, current: item.status || "Not Started", x: p.x, y: p.y, maxHeight: p.maxHeight, up: p.up }); }}>
+                {/* Quick Complete — job rows only. The status chip beside it sets THIS
+                    node; this closes out the job, one of its panels, or one of its ops in
+                    a single action, cascading to descendants. stopPropagation so it does
+                    not also open the status popover the cell owns. */}
+                {level === 0 && canQuickComplete && item.status !== "Finished" && <button
+                  aria-label="Quick complete"
+                  title="Mark complete…"
+                  onClick={e => {
+                    e.stopPropagation();
+                    const r = e.currentTarget.getBoundingClientRect();
+                    const rows = 1 + (item.subs || []).reduce((n, p) => n + 1 + (p.subs || []).length, 0);
+                    const pl = placePopover(r, Math.min(rows, 12));
+                    setQuickDone({ jobId: item.id, x: pl.x, y: pl.y, up: pl.up, maxHeight: pl.maxHeight });
+                  }}
+                  style={{ width: 20, height: 20, marginRight: 5, padding: 0, flexShrink: 0, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.textDim, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", verticalAlign: "middle" }}>
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </button>}
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: T.radiusPill, background: staColor + "20", border: `1px solid ${staColor}44`, fontSize: 10, fontWeight: 700, color: staColor, whiteSpace: "nowrap", userSelect: "none", textTransform: "uppercase", letterSpacing: "-0.045em", maxWidth: "100%", minWidth: 0 }}>
                   <span style={{ display: "inline-block", width: 12, textAlign: "center", flexShrink: 0, fontSize: 11, textTransform: "none" }}>{STA_ICON[dispStatus] || "○"}</span>
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{dispStatus}</span>
@@ -27914,6 +27989,36 @@ ${jobsCtx || "No jobs found."}`;
         })}
       </div>
     </div>}</FadeOnClose>
+    {/* Quick Complete picker — the whole job, one panel, or one op. Rows are indented to
+        mirror the job tree so "which level am I closing" is answered by position rather
+        than by reading every label. Already-finished nodes are listed but inert, so the
+        shape of the tree stays stable as you work down it. */}
+    <FadeOnClose open={!!quickDone}>{quickDone && (() => {
+      const qdJob = tasks.find(t => sameId(t.id, quickDone.jobId));
+      if (!qdJob) return null;
+      const qdRow = (key, label, lvl, done, onPick) => (
+        <div key={key} onClick={done ? undefined : onPick}
+          style={{ display: "flex", alignItems: "center", gap: 8, padding: `7px 14px 7px ${14 + lvl * 14}px`, cursor: done ? "default" : "pointer", userSelect: "none", opacity: done ? 0.45 : 1, whiteSpace: "nowrap" }}
+          onMouseEnter={e => { if (!done) e.currentTarget.style.background = hexA(T.accent, 0.12); }}
+          onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={done ? T.textDim : T.accent} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
+          <span style={{ fontSize: 12.5, fontWeight: lvl === 0 ? 700 : 500, color: done ? T.textDim : T.text, overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+          {done && <span style={{ fontSize: 9.5, fontWeight: 700, color: T.textDim, marginLeft: "auto", flexShrink: 0 }}>DONE</span>}
+        </div>
+      );
+      const qdPick = (panelId, opId) => { quickCompleteAt(qdJob.id, panelId, opId); setQuickDone(null); };
+      return <div>
+        <div style={{ position: "fixed", inset: 0, zIndex: 10012 }} onClick={() => setQuickDone(null)} />
+        <div className="tq-lglass" style={{ position: "fixed", left: quickDone.x, top: quickDone.y, zIndex: 10013, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 12px 32px rgba(0,0,0,0.45)", overflow: "auto", maxHeight: quickDone.maxHeight, minWidth: 240, maxWidth: 340, padding: "4px 0" }}>
+          <div style={{ padding: "6px 14px 4px", fontSize: 9.5, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Mark complete</div>
+          {qdRow("qd-job", `Entire job — ${qdJob.title}`, 0, qdJob.status === "Finished", () => qdPick(null, null))}
+          {(qdJob.subs || []).flatMap(panel => [
+            qdRow(`qd-p-${panel.id}`, panel.title, 1, panel.status === "Finished", () => qdPick(panel.id, null)),
+            ...(panel.subs || []).map(op => qdRow(`qd-o-${op.id}`, op.title, 2, op.status === "Finished", () => qdPick(null, op.id))),
+          ])}
+        </div>
+      </div>;
+    })()}</FadeOnClose>
 
     {/* ── Custom select-column Popover (styled picker for Dropdown-type custom columns) ── */}
     {/* Project Plan assign picker — built to the same pattern as the Grouping
