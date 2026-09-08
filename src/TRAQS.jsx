@@ -5689,7 +5689,11 @@ Extraction rules:
   const attListHtml = (atts) => `<div class="job-atts"><span class="lbl">Attachments (${atts.length})</span><div class="att-list">${atts.map(a => `<a class="att-link" href="${escHtml(window.location.origin + "/api/attachment?key=" + encodeURIComponent(a.key))}">${escHtml((a.panelTitle ? a.panelTitle + " — " : "") + a.filename)}</a>`).join("")}</div></div>`;
   const jobCardHtml = (job, o = {}) => {
     const cl = clients.find(c => c.id === job.clientId);
-    const stColor = staColorOf(job.status) || "#64748b";
+    // No status pill in the job header. It was the one place a job's status appeared on
+    // the sheet (panelHtml deliberately omits panel status for that reason), and it is
+    // not wanted in the printed output — progress % in the meta row carries the same
+    // signal against real hours rather than a label. The operations table keeps its own
+    // Status column: that is a column with a header, not the header pill.
     const meta = [
       (cl && o.client !== false) ? `<div><span class="lbl">Client</span><span>${escHtml(cl.name)}</span></div>` : "",
       o.priority !== false ? `<div><span class="lbl">Priority</span><span>${escHtml(job.pri || "—")}</span></div>` : "",
@@ -5701,11 +5705,16 @@ Extraction rules:
     ].join("");
     const panels = o.panels !== false ? (job.subs || []).map(p => panelHtml(p, { ops: o.ops })).join("") : "";
     const atts = (job.subs || []).flatMap(p => (p.attachments || []).map(a => ({ ...a, panelTitle: p.title })));
-    return `<section class="job-card"><div class="job-bar" style="background:${job.color || T.accent}"></div><div class="job-body"><div class="job-head"><div>${job.jobNumber ? `<span class="job-num">#${escHtml(job.jobNumber)}</span>` : ""}<span class="job-title">${escHtml(job.title)}</span></div><span class="status-pill" style="background:${stColor + "22"};color:${stColor}">${escHtml(job.status || "—")}</span></div>${meta.trim() ? `<div class="job-meta">${meta}</div>` : ""}${(job.notes && o.notes !== false) ? `<div class="job-notes" style="margin-bottom:10px"><span class="lbl">Notes</span>${escHtml(job.notes)}</div>` : ""}${o.panels !== false ? (panels ? `<div class="panels-wrap">${panels}</div>` : `<div class="empty">No tasks under this job</div>`) : ""}${(atts.length && o.attachments !== false) ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid #f1f5f9">${attListHtml(atts)}</div>` : ""}</div></section>`;
+    return `<section class="job-card"><div class="job-bar" style="background:${job.color || T.accent}"></div><div class="job-body"><div class="job-head"><div>${job.jobNumber ? `<span class="job-num">#${escHtml(job.jobNumber)}</span>` : ""}<span class="job-title">${escHtml(job.title)}</span></div></div>${meta.trim() ? `<div class="job-meta">${meta}</div>` : ""}${(job.notes && o.notes !== false) ? `<div class="job-notes" style="margin-bottom:10px"><span class="lbl">Notes</span>${escHtml(job.notes)}</div>` : ""}${o.panels !== false ? (panels ? `<div class="panels-wrap">${panels}</div>` : `<div class="empty">No tasks under this job</div>`) : ""}${(atts.length && o.attachments !== false) ? `<div style="margin-top:10px;padding-top:10px;border-top:1px solid #f1f5f9">${attListHtml(atts)}</div>` : ""}</div></section>`;
   };
   // Default per-block field-visibility options (everything on; user filters in the inspector).
   const defaultExportOpts = (type) => {
-    if (type === "job") return { client: true, priority: true, dates: true, due: true, po: true, hours: true, progress: true, notes: true, panels: true, ops: true, attachments: true };
+    // Job blocks default to DETAILS only — the meta row (client, priority, dates, due,
+    // PO, hours, progress) plus notes and attachments. The panel/op SECTIONS stay
+    // available in the inspector but are off by default: they are what made a single job
+    // fill a whole page, and stacking several jobs per sheet is only readable without
+    // them. Turning `panels` back on for one block still works exactly as before.
+    if (type === "job") return { client: true, priority: true, dates: true, due: true, po: true, hours: true, progress: true, notes: true, panels: false, ops: false, attachments: true };
     if (type === "panel") return { ops: true, dates: true, hours: true };
     if (type === "summary") return { jobs: true, tasks: true, operations: true, hours: true };
     if (type === "hours") return { department: true };
@@ -5822,16 +5831,32 @@ Extraction rules:
   const buildLayoutHtml = (layout, ctx) => { const dims = EXPORT_PAGE(layout.orientation); const pages = (layout.pages || []).map(pg => `<div class="page" style="width:${dims.w}px;height:${dims.h}px">${blocksHtml(pg, ctx)}${PAGE_FOOTER}</div>`).join(""); return `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>TRAQS Export</title><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet"/><style>${EXPORT_CSS}@page{size:letter ${layout.orientation === "landscape" ? "landscape" : "portrait"};margin:0}.page{page-break-after:always}.page:last-child{page-break-after:auto}</style></head><body>${pages}</body></html>`; };
   // Initial layout from the selected jobs: header band on page 1, then one job per page.
   const seedLayout = (jobs) => {
-    const M = 48, W = 816;
+    const M = 48, W = 816, PH = 1056;
     const pages = [{ blocks: [
       { id: uid(), type: "logo", x: M, y: M, w: 240, h: 64 },
       { id: uid(), type: "datetime", x: W - M - 200, y: M, w: 200, h: 48, opts: defaultExportOpts("datetime") },
       { id: uid(), type: "title", x: M, y: 128, w: W - 2 * M, h: 40, text: "Job Queue Export", fmt: defaultFmt("title") },
     ] }];
-    (jobs || []).forEach((job, i) => {
-      const blk = { id: uid(), type: "job", w: W - 2 * M, h: 360, ref: { jobId: job.id }, opts: defaultExportOpts("job") };
-      if (i === 0) pages[0].blocks.push({ ...blk, x: M, y: 192 });
-      else pages.push({ blocks: [{ ...blk, x: M, y: M }] });
+    // Stack jobs down each page instead of one job per page. Every job after the first
+    // used to get its own sheet (`pages.push` per job), so a ten-job export was ten
+    // pages with a single card near the top of nine of them.
+    //
+    // Height-packed the same way seedHoursLayout packs its roster: fill the space left on
+    // the current page, start a new one when the next card will not fit. Page one has less
+    // room because it also carries the logo, date and title band.
+    //
+    // JOB_H is the condensed card — details only, no panel/op sections (see
+    // defaultExportOpts). A block whose sections are switched back on will overflow its
+    // box, which is the same behaviour as before for any block the user grows by hand;
+    // the designer lets it be dragged or resized after seeding.
+    const JOB_H = 168, GAP = 16;
+    const FIRST_TOP = 192;
+    let y = FIRST_TOP;
+    (jobs || []).forEach((job) => {
+      const blk = { id: uid(), type: "job", w: W - 2 * M, h: JOB_H, ref: { jobId: job.id }, opts: defaultExportOpts("job") };
+      if (y + JOB_H > PH - M) { pages.push({ blocks: [] }); y = M; }
+      pages[pages.length - 1].blocks.push({ ...blk, x: M, y });
+      y += JOB_H + GAP;
     });
     return { orientation: "portrait", grid: 16, snap: true, logoDataUrl: null, pages };
   };
