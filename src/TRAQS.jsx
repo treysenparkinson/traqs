@@ -134,6 +134,11 @@ const STD_COL_DEFS = [
 // name (one section per job), progress/team (don't bucket well), and client (the
 // dropdown's dedicated Clients section already covers per-client grouping).
 const GROUPABLE_STD = ["status", "pri", "due", "start", "end", "jobNum", "hrs"];
+// Job Details' own column set. JD_DEFAULT_COLS is what a machine with nothing
+// stored gets; JD_SPLIT_COLS is the fixed four the Split pane's left column
+// always shows, independent of whatever the Tasks view has been configured to.
+const JD_DEFAULT_COLS = ["name", "start", "end", "due", "status", "pri", "progress", "team"];
+const JD_SPLIT_COLS = ["name", "start", "end", "team"];
 const ADMIN_PERMS = [
   { key: "editJobs",      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>, label: "Create, edit & delete jobs" },
   { key: "moveJobs",      icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/></svg>, label: "Move & resize jobs on Gantt and team view" },
@@ -2430,24 +2435,34 @@ let T = THEMES.light;
 function elColorT(c) { return T.jobBarMode === "adaptive" ? T.accent : T.jobBarMode === "custom" ? (T.jobBarColor || T.accent) : c; }
 
 const Badge = ({ t, c, lg }) => <span style={{ display: "inline-flex", alignItems: "center", padding: lg ? "5px 14px" : "4px 12px", borderRadius: T.radiusPill, fontSize: lg ? 13 : 12, fontWeight: 700, fontFamily: T.font, background: c + "18", color: c, border: `1px solid ${c}22`, whiteSpace: "nowrap" }}>{t}</span>;
+// THE secondary button, in one place. Card as the fill, the colour as both the
+// ring and the label -- and the icons inside stroke currentColor, so they follow
+// the label without each call site restating it. T.card rather than T.surface:
+// these sit on page backgrounds and on surface-coloured header cells alike, and
+// card is the one token distinct from both in all four theme ladders
+// (#FFFFFF/#FBFAF7, #27272C/#202024, #111120/#0d0d1a). boxShadow clears the
+// primary's glow when this is spread over Btn's fill.
+//
+// Defined above Btn because Btn's variant table reads it.
+const outlineBtnStyle = (c) => ({ background: T.card, border: `1.5px solid ${c}`, color: c, boxShadow: "none" });
 const Btn = ({ children, onClick, variant = "primary", size = "md", disabled = false, style: sx = {}, className = "" }) => {
   const base = { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, fontFamily: T.font, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer", borderRadius: T.radiusPill, border: "none", whiteSpace: "nowrap", flexShrink: 0 };
   const sizes = { sm: { height: 34, padding: "0 18px", fontSize: 13 }, md: { height: 40, padding: "0 22px", fontSize: 14 } };
-  // Every variant renders as the same primary CTA — the iOS brand-gradient pill
-  // with a soft accent glow. Semantic variant names (ghost/danger/teal/warn) are
-  // kept as accepted props so existing call sites don't break, but they all
-  // resolve to the one gradient look for a fully consistent treatment.
+  // Two looks, deliberately: the primary CTA (iOS brand-gradient pill with a soft
+  // accent glow) and the secondary (outlineBtnStyle -- card fill, accent ring,
+  // accent label). The rule a page header follows is ONE primary per header, the
+  // create/commit action, with every other action secondary.
+  //
+  // The older semantic names (ghost/danger/teal/warn) still resolve to the
+  // gradient, as they have since they were collapsed into it: ~40 call sites
+  // across modals and empty states depend on that, and re-splitting them belongs
+  // in its own pass. Header call sites that want the outline ask for it by name.
   const fill = { background: brandGrad(T.accent), color: T.accentText, boxShadow: `0 5px 16px -5px ${hexA(T.accent, 0.55)}`, border: "none" };
-  const vars = { primary: fill, ghost: fill, danger: fill, teal: fill, warn: fill };
+  const vars = { primary: fill, secondary: outlineBtnStyle(T.accent), ghost: fill, danger: fill, teal: fill, warn: fill };
   // className APPENDS to anim-btn rather than replacing it — every existing call
   // site relies on that class for the shared hover, and none of them pass one.
   return <button className={`anim-btn${className ? " " + className : ""}`} onClick={onClick} disabled={disabled} style={{ ...base, ...sizes[size], ...vars[variant], opacity: disabled ? 0.45 : 1, ...sx }}>{children}</button>;
 };
-// Outlined variant used by the select-bar buttons (All/None, Delete): the
-// Secondary role (list/cards surface) as the fill, with a colored ring and a
-// matching label — accent for All/None, danger for Delete. Passed through Btn's
-// `style` prop, which merges last and so also clears the gradient's glow.
-const outlineBtnStyle = (c) => ({ background: T.surface, border: `1.5px solid ${c}`, color: c, boxShadow: "none" });
 // Completed work stays on the schedule (see showCompleted) but reads as done: the job's
 // OWN colour, muted. Deliberately not replaced with a flat grey — this returned T.textDim,
 // which threw the job colour away entirely and, being a near-white/mid-grey token, painted
@@ -6949,7 +6964,13 @@ Extraction rules:
   };
   // Job Details' own column set -- deliberately NOT the Jobs page's. Same shape
   // so the cell renderer is shared, but its own order, labels and custom columns.
-  const [jdColOrder, setJdColOrder] = usePersistedUI("jdColOrder", ["name", "start", "end", "due", "status", "pri", "progress", "team"]);
+  // revive, not just a fallback: a machine that already stored an EMPTY order --
+  // removing columns one by one goes all the way to zero -- would otherwise keep
+  // reading [] back forever, and a table with no columns has no header left to
+  // right-click to get one back. Only emptiness is corrected; a deliberately
+  // trimmed order is left exactly as saved.
+  const [jdColOrder, setJdColOrder] = usePersistedUI("jdColOrder", JD_DEFAULT_COLS,
+    { revive: v => (Array.isArray(v) && v.length ? v : JD_DEFAULT_COLS) });
   const [jdColLabels, setJdColLabels] = usePersistedUI("jdColLabels", {});
   const [jdCustomCols, setJdCustomCols] = usePersistedUI("jdCustomCols", []);
   const [jdColPicker, setJdColPicker] = useState(false);
@@ -11132,7 +11153,7 @@ ${jobsCtx || "No jobs found."}`;
             }}
           />
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <Btn variant="ghost" size="sm" onClick={() => {
+            <Btn variant="secondary" size="sm" onClick={() => {
               if (gMode === "month") { const d = new Date(gStart + "T12:00:00"); d.setMonth(d.getMonth() - 1); const first = new Date(d.getFullYear(), d.getMonth(), 1); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0); setGStart(toDS(first)); setGEnd(toDS(last)); }
               else if (gMode === "day") { setGStart(addD(gStart, -1)); setGEnd(addD(gEnd, -1)); }
               else if (gMode === "week") { setGStart(addD(gStart, -7)); setGEnd(addD(gEnd, -7)); }
@@ -11144,7 +11165,7 @@ ${jobsCtx || "No jobs found."}`;
               if (gMode === "week") { const e = new Date(gEnd + "T12:00:00"); return `${s.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${e.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`; }
               return s.toLocaleDateString("en-US", { month: "long", year: "numeric" });
             })()}</span>
-            <Btn variant="ghost" size="sm" onClick={() => {
+            <Btn variant="secondary" size="sm" onClick={() => {
               if (gMode === "month") { const d = new Date(gStart + "T12:00:00"); d.setMonth(d.getMonth() + 1); const first = new Date(d.getFullYear(), d.getMonth(), 1); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0); setGStart(toDS(first)); setGEnd(toDS(last)); }
               else if (gMode === "day") { setGStart(addD(gStart, 1)); setGEnd(addD(gEnd, 1)); }
               else if (gMode === "week") { setGStart(addD(gStart, 7)); setGEnd(addD(gEnd, 7)); }
@@ -12154,7 +12175,7 @@ ${jobsCtx || "No jobs found."}`;
           {taskSubView === "list" && <>
             <style>{`@keyframes toolDrop{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:translateY(0)}}@keyframes gridRowIn{0%{opacity:0;transform:translateY(-7px);max-height:0;border-bottom-width:0;overflow:hidden}90%{opacity:1;transform:translateY(0);max-height:80px;border-bottom-width:1px;overflow:hidden}100%{opacity:1;transform:translateY(0);max-height:1000px;border-bottom-width:1px;overflow:visible}}@keyframes gridRowOut{0%{opacity:1;transform:translateY(0);max-height:1000px;border-bottom-width:1px;overflow:hidden}10%{opacity:1;transform:translateY(0);max-height:80px;border-bottom-width:1px;overflow:hidden}100%{opacity:0;transform:translateY(-7px);max-height:0;border-bottom-width:0;overflow:hidden}}`}</style>
             {/* Select */}
-            <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} style={{ minWidth: 78 }} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
+            <Btn size="sm" variant={jobSelectMode ? "primary" : "secondary"} style={{ minWidth: 78 }} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
             <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
             <div style={{ display: "flex", alignItems: "center", overflow: jobSelRevealed ? "visible" : "hidden", maxWidth: jobSelectMode ? 90 : 0, opacity: jobSelectMode ? 1 : 0, transform: jobSelectMode ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: jobSelectMode ? "auto" : "none", marginRight: jobSelectMode ? 0 : -6 }}>
               <button className="subtle-all-btn" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>
@@ -12229,18 +12250,20 @@ ${jobsCtx || "No jobs found."}`;
             {/* Export button. Tooltip says what it does rather than repeating the label,
                 which is now visible on the button itself. */}
             <Tip label="Export jobs to PDF, CSV or Word">
-            {/* Primary CTA, not a bare icon: the accent gradient fill every other primary
-                button uses, with the drawn download icon leading the label. It was a 34px
-                outline square that read as a tertiary tool. Icon strokes currentColor so it
-                follows the button text on any accent. */}
-            <button className="anim-btn" onClick={() => { setExportSelOpen(true); setExportSelRows(new Set()); setExportSelSearch(""); setColPickerOpen(false); }} style={{ height: 34, padding: "0 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, boxShadow: `0 5px 16px -5px ${hexA(T.accent, 0.55)}`, cursor: "pointer", display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 7, fontSize: 13, fontWeight: 700, fontFamily: T.font, whiteSpace: "nowrap", flexShrink: 0 }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-              Export
-            </button>
+            {/* Secondary: this header's one primary is "+ New Job". A hand-rolled copy of
+                the gradient put two identical CTAs a divider apart. Btn now carries both
+                looks, so the whole thing is a variant rather than 20 inline properties;
+                the icon strokes currentColor and follows the label to the accent. */}
+            <Btn size="sm" variant="secondary" onClick={() => { setExportSelOpen(true); setExportSelRows(new Set()); setExportSelSearch(""); setColPickerOpen(false); }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Export
+              </span>
+            </Btn>
             </Tip>
           </>}
           <div style={{ width: 1, height: 20, background: hexA(T.text, 0.22), flexShrink: 0, margin: "0 3px" }} />
-          <Btn size="sm" onClick={() => setBcModalState("open")} style={pageActionIconBtn}>
+          <Btn size="sm" variant="secondary" onClick={() => setBcModalState("open")} style={pageActionIconBtn}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
           </Btn>
           {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
@@ -12253,7 +12276,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, position: "relative" }}>
             <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Jobs</h3>
             <div style={{ display: "flex", alignItems: "center", gap: 6, position: "relative" }}>
-              <Btn size="sm" variant={jobSelectMode ? "primary" : "ghost"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
+              <Btn size="sm" variant={jobSelectMode ? "primary" : "secondary"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
               {jobSelectMode && <button onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "7px 14px", fontSize: 13, fontFamily: T.font, fontWeight: 600, cursor: "pointer", borderRadius: T.radiusPill, background: brandGrad(T.accent), border: "none", outline: "none", color: T.accentText, whiteSpace: "nowrap", flexShrink: 0 }}>{selJobs.size === activeTasks.length ? "None" : "All"}</button>}
               <Tip label="Filter">
               <button onClick={e => { e.stopPropagation(); setTaskFilterOpen(p => !p); }} style={{ width: 34, height: 34, borderRadius: T.radiusPill, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
@@ -13231,7 +13254,7 @@ ${jobsCtx || "No jobs found."}`;
           {/* Select sits right of the search; All/None slides out of it, then the
               count + Delete slides out behind that — same timings as Schedule. */}
           {can("manageClients") && <>
-            <Btn size="sm" style={{ minWidth: 78, flexShrink: 0 }} onClick={() => { setClientSelectMode(m => !m); setSelClients(new Set()); }}>{clientSelectMode ? "Done" : "Select"}</Btn>
+            <Btn size="sm" variant={clientSelectMode ? "primary" : "secondary"} style={{ minWidth: 78, flexShrink: 0 }} onClick={() => { setClientSelectMode(m => !m); setSelClients(new Set()); }}>{clientSelectMode ? "Done" : "Select"}</Btn>
             <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
             <div style={{ display: "flex", alignItems: "center", overflow: clientSelRevealed ? "visible" : "hidden", maxWidth: clientSelectMode ? 90 : 0, opacity: clientSelectMode ? 1 : 0, transform: clientSelectMode ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: clientSelectMode ? "auto" : "none", marginRight: clientSelectMode ? 0 : -12 }}>
               <button className="subtle-all-btn" onClick={() => setSelClients(selClients.size === filteredClients.length && filteredClients.length > 0 ? new Set() : new Set(filteredClients.map(c => c.id)))}>
@@ -13343,8 +13366,11 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
                   {can("manageClients") && <Btn size="sm" onClick={() => openClientEdit(sel, { stack: true })}>Edit</Btn>}
                   {/* Confirms rather than deleting outright — this used to remove the
-                      client on a single click with nothing to stop it. */}
-                  {can("manageClients") && <Btn variant="danger" size="sm" onClick={() => setConfirmDeleteClient(sel.id)}>Delete</Btn>}
+                      client on a single click with nothing to stop it.
+                      Secondary in danger: variant="danger" still resolves to the accent
+                      gradient, which put Delete and Edit side by side as two identical
+                      CTAs. Same shape the bulk-delete pills already use. */}
+                  {can("manageClients") && <Btn size="sm" style={outlineBtnStyle(T.danger)} onClick={() => setConfirmDeleteClient(sel.id)}>Delete</Btn>}
                 </div>
               ) })}
             </div>
@@ -13360,7 +13386,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
             {can("manageClients") && <Btn size="sm" onClick={() => { setClientModal({ ...sel }); setSelClient(null); }}>Edit</Btn>}
-            {can("manageClients") && <Btn variant="danger" size="sm" onClick={() => setConfirmDeleteClient(sel.id)}>Delete</Btn>}
+            {can("manageClients") && <Btn size="sm" style={outlineBtnStyle(T.danger)} onClick={() => setConfirmDeleteClient(sel.id)}>Delete</Btn>}
             <button onClick={closeClient} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", padding: "0 4px", lineHeight: 1, marginLeft: 4 }}>✕</button>
           </div>
         </div>}
@@ -14776,7 +14802,7 @@ ${jobsCtx || "No jobs found."}`;
       <div className="tq-pagehdr" style={{ display: "flex", gap: isMobile ? 6 : 12, marginBottom: isMobile ? 10 : 20, alignItems: "center", minHeight: 50, flexWrap: "wrap", position: "relative", justifyContent: isAdmin ? "flex-start" : "center" }}>
         <h1 style={pageTitle()}>Schedule</h1>
         {isAdmin && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <Btn size="sm" style={{ minWidth: 78 }} onClick={() => { setBarSelectMode(m => !m); setSelBars(new Set()); }}>{barSelectMode ? "Done" : "Select"}</Btn>
+          <Btn size="sm" variant={barSelectMode ? "primary" : "secondary"} style={{ minWidth: 78 }} onClick={() => { setBarSelectMode(m => !m); setSelBars(new Set()); }}>{barSelectMode ? "Done" : "Select"}</Btn>
           {/* Sliding "All / None" — same animation + style as the Jobs page Select toggle. */}
           <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
           <div style={{ display: "flex", alignItems: "center", overflow: barSelRevealed ? "visible" : "hidden", maxWidth: barSelectMode ? 90 : 0, opacity: barSelectMode ? 1 : 0, transform: barSelectMode ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: barSelectMode ? "auto" : "none", marginRight: barSelectMode ? 0 : -6 }}>
@@ -14857,7 +14883,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
           {/* Separator + Today */}
           <div style={{ width: 1, height: 20, background: hexA(T.text, 0.22), flexShrink: 0, margin: "0 5px" }} />
-          <Btn size="sm" onClick={() => {
+          <Btn size="sm" variant="secondary" onClick={() => {
             if (tMode === "day") { setTStart(TD); setTEnd(TD); }
             else { const span = diffD(tStart, tEnd); const half = Math.floor(span / 2); setTStart(addD(TD, -half)); setTEnd(addD(TD, span - half)); }
           }}>Today</Btn>
@@ -14905,7 +14931,7 @@ ${jobsCtx || "No jobs found."}`;
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.textSec} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.7, marginRight: 5 }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
             <Tip label="Zoom (double-click to reset)"><input type="range" min={1} max={6} step={0.1} value={monthZoom} onChange={e => setMonthZoom(Number(e.target.value))} onDoubleClick={() => setMonthZoom(1)} style={{ width: 190, cursor: "pointer", accentColor: T.accent }} /></Tip>
           </div>}
-          <Btn size="sm" onClick={() => setBcModalState("open")} style={pageActionIconBtn}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></Btn>
+          <Btn size="sm" variant="secondary" onClick={() => setBcModalState("open")} style={pageActionIconBtn}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg></Btn>
           {can("editJobs") && <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>}
         </div>
       </div>
@@ -15087,13 +15113,10 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ display: "flex" }}>
               <div style={{ minWidth: lW, maxWidth: lW, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface, zIndex: 15, height: 56, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 {can("manageTeam") && <Tip label="Schedule time off for the crew">
-                  {/* Card fill with an accent outline, rather than the accent-filled
-                      primary look — this sits in the header corner beside the day columns,
-                      not in a row of page actions, and a solid accent block there competes
-                      with the bars. outlineBtnStyle carries the border/colour/shadow; the
-                      background is overridden to T.card because the cell behind it is
-                      already T.surface, which the helper's own fill would disappear into. */}
-                  <Btn size="sm" onClick={() => setTimeOffModal(true)} style={{ ...outlineBtnStyle(T.accent), background: T.card }}>
+                  {/* Secondary, not the accent-filled primary — this sits in the header
+                      corner beside the day columns, not in a row of page actions, and a
+                      solid accent block there competes with the bars. */}
+                  <Btn size="sm" variant="secondary" onClick={() => setTimeOffModal(true)}>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="16" x2="15" y2="16"/></svg>
                       Time Off
@@ -20603,25 +20626,39 @@ ${jobsCtx || "No jobs found."}`;
           <div className="tq-pagehdr" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap", minHeight: 50 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
               <h1 style={pageTitleStyle}>Time Clock</h1>
-              {/* Accent outline button — the app's existing pattern: page background as
-                  the fill, accent for the label and the ring. It was a neutral
-                  chrome-coloured pill (T.systemBg fill, T.border ring, T.text label),
-                  which on a page with a background image related to nothing behind it. */}
+              {/* Secondary. Was a hand-rolled outline on a T.surface fill, 1.5px ring;
+                  Export Hours beside it was a near-miss of the same idea at 1px and a
+                  55-alpha ring. Both are the shared variant now, so the two read as one
+                  control class and neither competes with Confirm Time Sheet. */}
               {isAdmin && (
-            <button onClick={openPastLogs} title="Browse past pay-period logs" style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.surface, color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
-              Past Logs
-            </button> )}
+                <Tip label="Browse past pay-period logs">
+                  <Btn size="sm" variant="secondary" onClick={openPastLogs}>
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
+                      Past Logs
+                    </span>
+                  </Btn>
+                </Tip>
+              )}
             </div>
             {isAdmin && <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button onClick={openHoursExport} title="Export pay-period hours for payroll" style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}55`, background: T.surface, color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                Export Hours
-              </button>
-              <button onClick={openConfirm} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 16px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, boxShadow: `0 2px 8px ${T.accent}40` }}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
-                Confirm Time Sheet
-              </button>
+              <Tip label="Export pay-period hours for payroll">
+                <Btn size="sm" variant="secondary" onClick={openHoursExport}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Export Hours
+                  </span>
+                </Btn>
+              </Tip>
+              {/* This page's one primary. Was a hand-rolled gradient with its own
+                  8px shadow and 8/16 padding, so it stood a pixel or two off every
+                  other CTA in the app. */}
+              <Btn size="sm" onClick={openConfirm}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                  Confirm Time Sheet
+                </span>
+              </Btn>
             </div>}
           </div>
         {/* Time Clock Settings — centered popup, opened from the sidebar's Time Settings item.
@@ -22909,6 +22946,9 @@ ${jobsCtx || "No jobs found."}`;
     return next;
   });
   const jdRemoveCol = (col) => {
+    // The last column stays. With none left the grid has no cells, so every row
+    // renders as an empty div and the header offers nothing to right-click.
+    if (jobListCols.length <= 1) return;
     setJdColOrder(prev => prev.filter(k => k !== col.id));
     if (col.custom) setJdCustomCols(prev => prev.filter(c => c.id !== col.id));
   };
@@ -22918,9 +22958,17 @@ ${jobsCtx || "No jobs found."}`;
     const panels = (job.subs || []).filter(s => s && !s.deletedAt);
     // Compact (the Split pane) drops to the four columns the design keeps there:
     // name, start, end, assignee. Everything else needs width it will not have.
-    // Compact (the Split pane) drops to the four columns the design keeps there.
+    //
+    // Built straight from STD_COL_DEFS rather than by filtering jobListCols. The
+    // filter made this pane a hostage to jdColOrder: remove those same four from
+    // the Tasks view and `allCols` came back EMPTY here, at which point every task
+    // row -- whose only children are the column cells -- rendered as a zero-height
+    // div. Phase rows carry an explicit height and survived, so the pane looked
+    // permanently collapsed while the Gantt beside it, reading the very same
+    // jdPhaseClosed, opened and closed normally. jdColLabels still applies: the
+    // header reads it by id, and these carry the same ids.
     const allCols = compact
-      ? jobListCols.filter(c => ["name", "start", "end", "team"].includes(c.id))
+      ? JD_SPLIT_COLS.map(id => STD_COL_DEFS.find(c => c.id === id)).filter(Boolean).map(c => ({ ...c, custom: false }))
       : jobListCols;
     const showAdd = !compact && can("editJobs");
     const gridCols = [
@@ -23139,7 +23187,14 @@ ${jobsCtx || "No jobs found."}`;
                     {!closed && ops.map((op, oi) => (
                       <div key={op.id}
                         onContextMenu={e => handleCtx(e, { ...op, isSub: true, pid: pn.id, grandPid: job.id, level: 2, panelTitle: pn.title || "" }, "job-detail")}
-                        style={{ display: "grid", gridTemplateColumns: gridCols, alignItems: "stretch",
+                        style={{ display: "grid", gridTemplateColumns: gridCols, alignItems: "stretch", boxSizing: "border-box",
+                        // A floor, so a row can never collapse to nothing the way it did
+                        // when the column set came back empty and the cells -- the only
+                        // things carrying a height -- stopped rendering. Dropped while a
+                        // phase animates: min-height beats max-height in the cascade, and
+                        // gridRowOut collapses by max-height, so leaving it on would pin
+                        // the exit open.
+                        minHeight: (closing || opening) ? undefined : rowH,
                         // Only a real toggle animates -- see toggleJdPhase.
                         animation: closing ? `gridRowOut 0.18s ${jdOutMs(oi)}ms both ease-in`
                           : opening ? `gridRowIn 0.14s ${jdInMs(oi)}ms both ease-out`
@@ -24816,7 +24871,7 @@ ${jobsCtx || "No jobs found."}`;
                   {/* Export opens the standard export sheet already scoped to this job.
                       Drawn icon, not an emoji — it inherits currentColor so it tracks the
                       button's text in every theme. */}
-                  <Btn size="sm" variant="ghost" onClick={() => openJobExport(fresh)}>
+                  <Btn size="sm" variant="secondary" onClick={() => openJobExport(fresh)}>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
@@ -24827,7 +24882,7 @@ ${jobsCtx || "No jobs found."}`;
                     </span>
                   </Btn>
                   {/* Stacks, so Back returns to this details page. */}
-                  <Btn size="sm" variant="ghost" onClick={() => pushModal({ type: "jobLog", data: fresh, parentId: null })}>Job Log</Btn>
+                  <Btn size="sm" variant="secondary" onClick={() => pushModal({ type: "jobLog", data: fresh, parentId: null })}>Job Log</Btn>
                   {dCanEdit && <Btn size="sm" onClick={() => openEditStacked(fresh)}>Edit</Btn>}
                 </div>,
               })
