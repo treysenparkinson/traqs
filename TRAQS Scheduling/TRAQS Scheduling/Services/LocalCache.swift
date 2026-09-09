@@ -77,10 +77,15 @@ final class LocalCache {
         // The threshold is deliberately low. A predicate with a large `ids` set
         // is its own cost, and past a few dozen rows loading the table once is
         // cheaper than matching against a big collection.
-        let ids = Set(records.map(\.id))
+        let ids = Array(Set(records.map(\.id)))
         let existing: [T]
         if ids.count <= Self.targetedFetchLimit {
-            var d = FetchDescriptor<T>(predicate: #Predicate { ids.contains($0.id) })
+            // `T.withIDs`, not `#Predicate { ids.contains($0.id) }` written here.
+            // A predicate built in generic context keypaths through the SyncRecord
+            // witness, which SwiftData cannot match against the concrete model's
+            // registered properties — it traps at fetch time. See the note on the
+            // requirement in SyncModels.
+            var d = FetchDescriptor<T>(predicate: T.withIDs(ids))
             d.fetchLimit = ids.count
             existing = (try? ctx.fetch(d)) ?? []
         } else {
