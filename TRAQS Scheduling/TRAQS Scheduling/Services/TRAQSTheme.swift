@@ -171,42 +171,6 @@ enum T {
     // app whose buttons went flat too just looks unfinished.
     static var glassEnabled: Bool = true
 
-    // ── Nav bar paint (the floating tab pill) ──────────────────────────────
-    //
-    // When the pill takes a tint it is its OWN, never `glassSurfaceTint` over
-    // `T.surface`: it is the one surface that has to hold five small glyphs
-    // legible against whatever page is drifting underneath it, and at
-    // `glassSurfaceTint` (0.22 of `T.surface`) it sat close enough to the page
-    // for the unselected glyphs to wash out. A tint here pushes the bar AWAY
-    // from its page — near-black on Charcoal.
-    //
-    // But a tint is now the exception, not the rule. On the LIGHT presets the
-    // opacity is 0 and no tint is applied at all, which is what lets iOS's own
-    // Liquid Glass appearance and Reduce Transparency decide how see-through the
-    // bar is. Native glass refracts the page and carries its own edge, so on a
-    // light page it holds the glyphs without help; on a dark one it doesn't.
-    //
-    // Preset-driven (see `ThemeSettings.applyNavToT`) for the same reason
-    // `progressTrack` and the rim are: one set of numbers cannot serve a
-    // near-white page and a near-black one.
-    //
-    // There is no flat counterpart. The bar is native Liquid Glass on the same
-    // terms as every glass button — the frosted-glass toggle governs the
-    // surfaces TRAQS paints, and this is Apple's material. See NavPillMaterial.
-    /// The colour of the pill's glass, applied only when `navTintOpacity > 0`.
-    /// Passed to `Glass.tint` — see `NavPillMaterial`, which is always glass
-    /// whatever the frosted-glass toggle says.
-    static var navTint = "#FFFFFF"
-    /// How much of `navTint` (see above). THE transparency dial for the bar —
-    /// nothing else reads it.
-    ///
-    /// `0` means NO TINT: `NavPillMaterial` skips `.tint` entirely rather than
-    /// applying a transparent one, which is what lets the system Liquid Glass
-    /// appearance and Reduce Transparency govern the bar. Preset-driven, and
-    /// this default matches the LIGHT value (0) as `navTint` above matches the
-    /// light colour. See `applyNavToT`.
-    static var navTintOpacity: Double = 0
-
     // ── Progress track + presence dots ──
     // `var`, not `let`: the track is preset-driven (see BgPreset.track and
     // applyBgToT). A single mid-grey couldn't work for both — on frosted glass it
