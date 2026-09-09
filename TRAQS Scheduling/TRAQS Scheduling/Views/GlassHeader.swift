@@ -68,6 +68,17 @@ struct HeaderPill: Identifiable {
 
 struct HeaderConfig {
     var pills: [HeaderPill] = []
+    /// Whether the brand lockup is drawn. The lockup is the one part of the
+    /// header a page can't express as a pill, so it needs its own switch: a page
+    /// that draws its OWN top bar over the shell (the Messages thread, whose bar
+    /// lives in a separate UIWindow) has to be able to take the wordmark down,
+    /// or it shows through that bar's translucency.
+    ///
+    /// FADED, not unmounted — same reason as `HeaderPill.dimmed`. Dropping the
+    /// lockup from the stack would resize the row and hand its `maxWidth:
+    /// .infinity` back to the clusters on either side, so they'd slide inward
+    /// every time a thread opened.
+    var showsLogo: Bool = true
     func pills(on edge: HeaderEdge) -> [HeaderPill] { pills.filter { $0.edge == edge } }
 }
 
@@ -153,6 +164,11 @@ struct GlassHeader: View {
                 }
                 .offset(x: -logoLeftBearing)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .opacity(config.showsLogo ? 1 : 0)
+                // Matches the thread header's own 0.24s exit fade
+                // (OverlayWindowController.apply), so the wordmark comes back
+                // WITH that bar rather than snapping in behind it mid-pop.
+                .animation(.easeInOut(duration: 0.24), value: config.showsLogo)
 
                 cluster(.trailing)
             }

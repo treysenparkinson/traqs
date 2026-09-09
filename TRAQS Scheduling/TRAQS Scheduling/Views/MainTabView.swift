@@ -237,7 +237,12 @@ private struct HeaderHost: View {
         case .chat:
             // Nothing while a thread is open: that header is drawn in a separate
             // UIWindow (see OverlayWindowController) and would show through.
-            guard appState.activeMessageThread == nil else { return HeaderConfig() }
+            // The WORDMARK goes too — clearing the pills alone left the lockup
+            // ghosting through the thread bar's translucency, since the lockup
+            // isn't a pill and so isn't governed by the pill list.
+            guard appState.activeMessageThread == nil else {
+                return HeaderConfig(showsLogo: false)
+            }
             if appNav.chatSelectMode {
                 return HeaderConfig(pills: [
                     HeaderPill(slot: .selectDelete,
