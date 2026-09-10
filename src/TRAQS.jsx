@@ -8021,6 +8021,11 @@ Extraction rules:
   const [dropTarget, setDropTarget] = useState(null); // { personId } for team view drag
   const [rowDragId, setRowDragId] = useState(null);   // personId being row-dragged
   const [rowDragOver, setRowDragOver] = useState(null); // { type:"person"|"group", id, pos:"before"|"after" }
+  // Mirror of rowDragOver for the drop handler. The drop used to be performed
+  // inside a setRowDragId updater nested around a setRowDragOver updater, purely
+  // to read the latest value — state updaters must be pure, and that one called
+  // setPeople. A ref reads the same value without the side effect.
+  const rowDragOverRef = useRef(null);
   const [ganttDragInfo, setGanttDragInfo] = useState(null); // { itemId, snapStart, snapEnd, hasOverlap }
   const [teamDragInfo, setTeamDragInfo] = useState(null);   // { barId, snapStart, snapEnd, targetPersonId, hasOverlap }
   const [droppedBarId, setDroppedBarId] = useState(null);
@@ -8950,7 +8955,9 @@ Extraction rules:
   const startRowDrag = (e, personId) => {
     e.preventDefault(); e.stopPropagation();
     setRowDragId(personId);
+    rowDragOverRef.current = null;
     document.body.style.cursor = "grabbing";
+    const setDragOver = v => { rowDragOverRef.current = v; setRowDragOver(v); };
     const onMove = me => {
       const el = document.elementFromPoint(me.clientX, me.clientY);
       const rowEl = el?.closest("[data-rowtype]");
@@ -8960,40 +8967,43 @@ Extraction rules:
       if (rtype === "person" && rid !== String(personId)) {
         const rect = rowEl.getBoundingClientRect();
         const pos = me.clientY < rect.top + rect.height / 2 ? "before" : "after";
-        setRowDragOver({ type: "person", id: Number(rid), pos });
+        // Keep the id as the STRING the DOM gave us. Number(rid) was NaN for every
+        // uid()-generated person ("t3k9dk2a"), so the target lookup missed, the
+        // drop-position indicator never drew, and reordering silently did nothing
+        // for everyone except the legacy numeric-id records.
+        setDragOver({ type: "person", id: rid, pos });
       } else if (rtype === "group") {
-        setRowDragOver({ type: "group", id: rid });
+        setDragOver({ type: "group", id: rid });
       } else {
-        setRowDragOver(null);
+        setDragOver(null);
       }
     };
     const onUp = () => {
       document.body.style.cursor = "";
-      setRowDragId(pid => {
-        // apply drop inside setState to get latest rowDragOver via closure
-        setRowDragOver(over => {
-          if (over && pid != null) {
-            if (over.type === "person") {
-              const targetNumId = over.id;
-              setPeople(prev => {
-                const targetPerson = prev.find(p => p.id === targetNumId);
-                if (!targetPerson) return prev;
-                const dragged = { ...prev.find(p => p.id === personId), role: targetPerson.role };
-                const without = prev.filter(p => p.id !== personId);
-                const tIdx = without.findIndex(p => p.id === targetNumId);
-                const insertAt = over.pos === "before" ? tIdx : tIdx + 1;
-                const result = [...without];
-                result.splice(insertAt, 0, dragged);
-                return result;
-              });
-            } else if (over.type === "group") {
-              setPeople(prev => prev.map(p => p.id === personId ? { ...p, role: over.id } : p));
-            }
-          }
-          return null;
-        });
-        return null;
-      });
+      const over = rowDragOverRef.current;
+      if (over) {
+        if (over.type === "person") {
+          // sameId throughout: person ids are mixed string/number across web and iOS.
+          setPeople(prev => {
+            const targetPerson = prev.find(x => sameId(x.id, over.id));
+            const draggedPerson = prev.find(x => sameId(x.id, personId));
+            if (!targetPerson || !draggedPerson || sameId(targetPerson.id, personId)) return prev;
+            const dragged = { ...draggedPerson, role: targetPerson.role };
+            const without = prev.filter(x => !sameId(x.id, personId));
+            const tIdx = without.findIndex(x => sameId(x.id, over.id));
+            if (tIdx < 0) return prev;
+            const insertAt = over.pos === "before" ? tIdx : tIdx + 1;
+            const result = [...without];
+            result.splice(insertAt, 0, dragged);
+            return result;
+          });
+        } else if (over.type === "group") {
+          setPeople(prev => prev.map(x => sameId(x.id, personId) ? { ...x, role: over.id } : x));
+        }
+      }
+      rowDragOverRef.current = null;
+      setRowDragOver(null);
+      setRowDragId(null);
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
     };
@@ -14813,6 +14823,18 @@ ${jobsCtx || "No jobs found."}`;
     // rawBarS/rawBarE: actual visual start/end hours from barPositions (may differ from barTask.startHour/hpd when auto-stacked)
     const handleTeamDayBarDrag = (e, barTask, mode = "move", fromPersonId = null, rawBarS = null, rawBarE = null) => {
       if (!barTask) return;
+      // Same gates the month view puts on its bars. Day view had none of them:
+      // anyone could drag and reassign without the permission, a locked bar
+      // moved freely, and an op somebody was clocked into could be dragged out
+      // from under them. (The server rejects the write either way — this stops
+      // the optimistic move that then silently reverts on the next poll.)
+      if (!can("moveJobs")) { if (mode === "move") openJobDetail(barTask); return; }
+      if (isOpLocked(barTask)) {
+        e.preventDefault(); e.stopPropagation();
+        showLockedError([{ opTitle: barTask.title || "", panelTitle: barTask.panelTitle || barTask.jobTitle || "" }]);
+        return;
+      }
+      if (blockedByActiveClock(jobIdOfNode(barTask.id), barTask.id)) { e.preventDefault(); e.stopPropagation(); return; }
       e.preventDefault(); e.stopPropagation();
       const DHS = 5, DHE = 21, DNH = 16;
       const origHour = rawBarS ?? (barTask.startHour ?? 8);
@@ -14886,7 +14908,23 @@ ${jobsCtx || "No jobs found."}`;
           const clamped = Math.max(DHS, Math.min(DHE - Math.max(origHpd, 0.25), newStart));
           updTask(barTask.id, { startHour: clamped }, pid);
           const target = getPersonAtY(me.clientY);
-          if (fromPersonId && target && target.id !== fromPersonId) reassignTask(barTask.id, fromPersonId, target.id, pid);
+          if (fromPersonId && target && !sameId(target.id, fromPersonId)) {
+            // Dropping on a different row hands the work to someone else — that is
+            // the reassign permission, not moveJobs. The month path splits these
+            // two at the drop; this one used to ride on neither.
+            if (!can("reassign")) {
+              setSaveError({
+                endpoint: "permission", status: 403,
+                message: "Your account does not have permission to reassign operations to team members.",
+                allEndpoints: [], at: Date.now(),
+              });
+            } else if ((target.timeOff || []).some(to => to.start <= barTask.end && to.end >= barTask.start)) {
+              const _to = (target.timeOff || []).find(to => to.start <= barTask.end && to.end >= barTask.start);
+              showOverlapIfAny([{ person: target.name, isPto: true, panelTitle: _to.reason || _to.type || "PTO", start: _to.start, end: _to.end }]);
+            } else {
+              reassignTask(barTask.id, fromPersonId, target.id, pid);
+            }
+          }
         } else if (moved && mode === "left") {
           updTask(barTask.id, { startHour: pending.startHour, hpd: pending.hpd }, pid);
         } else if (moved && mode === "right") {
@@ -15430,9 +15468,9 @@ ${jobsCtx || "No jobs found."}`;
               }
             }
             const isDrop = dropTarget === p.id;
-            const isBeingDragged = rowDragId === p.id;
-            const isDragBefore = rowDragOver?.type === "person" && rowDragOver.id === p.id && rowDragOver.pos === "before";
-            const isDragAfter  = rowDragOver?.type === "person" && rowDragOver.id === p.id && rowDragOver.pos === "after";
+            const isBeingDragged = sameId(rowDragId, p.id);
+            const isDragBefore = rowDragOver?.type === "person" && sameId(rowDragOver.id, p.id) && rowDragOver.pos === "before";
+            const isDragAfter  = rowDragOver?.type === "person" && sameId(rowDragOver.id, p.id) && rowDragOver.pos === "after";
             const canEditPerson = !teamSelectMode && !barSelectMode && can("manageTeam");
             return <div key={p.id} data-rowtype="person" data-rowid={p.id} onClick={teamSelectMode ? () => setSelPeople(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; }) : undefined} style={{ display: "flex", height: row.hidden ? 0 : rH, overflow: "hidden", borderBottom: row.hidden ? "none" : (isDrop ? `1px solid ${T.accent}` : gridOn ? `1px solid ${schedLine}` : "none"), position: "relative", background: teamSelectMode && selPeople.has(p.id) ? T.accent + "18" : isDrop ? T.accent + "08" : "transparent", opacity: row.hidden ? 0 : (isBeingDragged ? 0.35 : 1), transition: "height 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.14s ease, background 0.15s, border-color 0.15s", pointerEvents: row.hidden ? "none" : "auto", cursor: teamSelectMode ? "pointer" : "default" }}>
               {/* Insertion line indicators */}
@@ -15836,10 +15874,10 @@ ${jobsCtx || "No jobs found."}`;
                         for (const job of tasks) {
                           for (const panel of (job.subs || [])) {
                             const op = (panel.subs || []).find(o => o.id === id);
-                            if (op) { members.push({ id, origStart: op.start, origEnd: op.end, origStartHour: op.startHour ?? workStartH, origEndHour: op.endHour ?? workEndH, hpd: op.hpd || 0, wdDur: getWorkingDayDuration(op.start, op.end), pid: panel.id, grandPid: job.id, level: 2, personIds: op.team || [] }); return; }
+                            if (op) { members.push({ id, origStart: op.start, origEnd: op.end, origStartHour: op.startHour ?? workStartH, origEndHour: op.endHour ?? workEndH, hpd: op.hpd || 0, wdDur: getWorkingDayDuration(op.start, op.end, barWorkDays), pid: panel.id, grandPid: job.id, level: 2, personIds: op.team || [] }); return; }
                           }
                           const panel = (job.subs || []).find(s => s.id === id);
-                          if (panel) { members.push({ id, origStart: panel.start, origEnd: panel.end, origStartHour: panel.startHour ?? workStartH, origEndHour: panel.endHour ?? workEndH, hpd: panel.hpd || 0, wdDur: getWorkingDayDuration(panel.start, panel.end), pid: job.id, level: 1, personIds: panel.team || [] }); return; }
+                          if (panel) { members.push({ id, origStart: panel.start, origEnd: panel.end, origStartHour: panel.startHour ?? workStartH, origEndHour: panel.endHour ?? workEndH, hpd: panel.hpd || 0, wdDur: getWorkingDayDuration(panel.start, panel.end, barWorkDays), pid: job.id, level: 1, personIds: panel.team || [] }); return; }
                         }
                       });
                       return members;
@@ -15888,8 +15926,8 @@ ${jobsCtx || "No jobs found."}`;
                     // Clamp helper: keeps a start date within unlocked dep boundaries
                     const clampUnlocked = (start, duration) => {
                       let s = start;
-                      if (predecessorEnd !== null) { const minS = addBD(predecessorEnd, 1); if (s < minS) s = minS; }
-                      if (successorStart !== null) { const latestS = addBD(successorStart, -duration); if (s > latestS) s = latestS; }
+                      if (predecessorEnd !== null) { const minS = addBD(predecessorEnd, 1, barBDOpts); if (s < minS) s = minS; }
+                      if (successorStart !== null) { const latestS = addBD(successorStart, -duration, barBDOpts); if (s > latestS) s = latestS; }
                       return s;
                     };
                     // Multi-select drag — collect all other selected bars
@@ -15909,8 +15947,8 @@ ${jobsCtx || "No jobs found."}`;
                             // appears to go. Grabbing the group by a different bar must not
                             // be a way around that.
                             if (op && deriveWorkedState(op, producedFor(op), liveOpHours(op)).isOverdueHours) { found = true; break; }
-                            if (op) { members.push({ id: bid, origStart: op.start, origEnd: op.end, origStartHour: op.startHour ?? workStartH, origEndHour: op.endHour ?? workEndH, hpd: op.hpd || 0, wdDur: getWorkingDayDuration(op.start, op.end), pid: panel.id, grandPid: job.id, level: 2, personIds: op.team || [], origPerson: (op.team || [])[0] ?? origPerson }); found = true; break; }
-                            if (panel.id === bid) { members.push({ id: bid, origStart: panel.start, origEnd: panel.end, origStartHour: panel.startHour ?? workStartH, origEndHour: panel.endHour ?? workEndH, hpd: panel.hpd || 0, wdDur: getWorkingDayDuration(panel.start, panel.end), pid: job.id, level: 1, personIds: panel.team || [], origPerson: (panel.team || [])[0] ?? origPerson }); found = true; break; }
+                            if (op) { members.push({ id: bid, origStart: op.start, origEnd: op.end, origStartHour: op.startHour ?? workStartH, origEndHour: op.endHour ?? workEndH, hpd: op.hpd || 0, wdDur: getWorkingDayDuration(op.start, op.end, barWorkDays), pid: panel.id, grandPid: job.id, level: 2, personIds: op.team || [], origPerson: (op.team || [])[0] ?? origPerson }); found = true; break; }
+                            if (panel.id === bid) { members.push({ id: bid, origStart: panel.start, origEnd: panel.end, origStartHour: panel.startHour ?? workStartH, origEndHour: panel.endHour ?? workEndH, hpd: panel.hpd || 0, wdDur: getWorkingDayDuration(panel.start, panel.end, barWorkDays), pid: job.id, level: 1, personIds: panel.team || [], origPerson: (panel.team || [])[0] ?? origPerson }); found = true; break; }
                           }
                           if (found) break;
                         }
@@ -16236,6 +16274,10 @@ ${jobsCtx || "No jobs found."}`;
                       document.removeEventListener("mousemove", onM);
                       document.removeEventListener("mouseup", onU);
                       isDraggingRef.current = false; setDropTarget(null); setTeamDragInfo(null);
+                      // Snapshot then clear: the commit below reads these five values, and
+                      // the ref used to outlive the drag that wrote it.
+                      const _live = teamDragLiveRef.current;
+                      teamDragLiveRef.current = null;
                       if (!moved) { if (barSelectMode && !isPto) { setSelBars(prev => { const n = new Set(prev); n.has(bar.id) ? n.delete(bar.id) : n.add(bar.id); return n; }); } else if (bar.task) { openJobDetail(bar.task); } return; }
                       // Can't move the SPECIFIC op someone is actively clocked into — they'd be
                       // stranded. Scoped to this op (bar.task.id): a clock on a sibling task in the
@@ -16243,14 +16285,13 @@ ${jobsCtx || "No jobs found."}`;
                       if (!isPto && bar.task && blockedByActiveClock(jobIdOfNode(bar.task.id), bar.task.id)) { console.warn("[schedule-drag] rejected: someone is clocked into this op"); return; }
                       const _dropId = bar.id; setDroppedBarId(_dropId); setTimeout(() => setDroppedBarId(prev => prev === _dropId ? null : prev), 500);
                       const finalDx = Math.floor((me.clientX - sx) / liveCW + _origColOffset);
-                      const newStart = teamDragLiveRef.current?.snapStart ?? nextBD(addD(_dragBaseStart, finalDx));
-                      const _finalDropH = teamDragLiveRef.current?.dropHour ?? workStartH;
-                      const _finalProdOff = Math.max(0, _finalDropH - workStartH) / totalWorkH * productiveHoursPerDay;
-                      const _finalVWD = _dragBarHpd > 0 ? Math.max(1, Math.ceil((_finalProdOff + _dragBarHpd) / productiveHoursPerDay)) : wdDuration;
-                      const newEnd = addBD(newStart, _finalVWD - 1);
+                      const newStart = _live?.snapStart ?? nextBD(addD(_dragBaseStart, finalDx), barBDOpts);
+                      const _finalDropH = _live?.dropHour ?? workStartH;
+                      const _finalVWD = _dragBarHpd > 0 ? walkProductiveHours(_finalDropH, _dragBarHpd, dayWindowCfg).days : wdDuration;
+                      const newEnd = addBD(newStart, _finalVWD - 1, barBDOpts);
                       // Unlocked: drop position is unclamped — sibling overlap is caught by the hasOverlap check below.
                       let effStart = newStart;
-                      const effEnd = addBD(effStart, _finalVWD - 1);
+                      const effEnd = addBD(effStart, _finalVWD - 1, barBDOpts);
                       const dropPerson = lastDropPid || origPerson;
                       const isReassign = !!(lastDropPid && !sameId(lastDropPid, origPerson));
                       // Split the drag permission at the drop, not at the grab: moving a bar
@@ -16281,8 +16322,8 @@ ${jobsCtx || "No jobs found."}`;
                         }
                       }
                       // Reject drop if the ghost was red (overlapping another job) — show error, no auto-push
-                      if (teamDragLiveRef.current?.hasOverlap) {
-                        const _info = teamDragLiveRef.current.overlapInfo;
+                      if (_live?.hasOverlap) {
+                        const _info = _live.overlapInfo;
                         if (_info?.isDepSibling) {
                           showDepSiblingError(_info);
                           return;
@@ -16302,8 +16343,8 @@ ${jobsCtx || "No jobs found."}`;
                         if (!effStart) { console.warn("[schedule-drag] rejected: drop day is not a work day", days[_di2]); return; }
                         // Use the bar's live drop date (window-independent). Fall back to newStart
                         // (also dx-based) rather than the stale `days[_dayIdx]` lookup above.
-                        effStart = teamDragLiveRef.current?.snapStart || newStart;
-                        let finalHour = teamDragLiveRef.current?.dropHour ?? workStartH;
+                        effStart = _live?.snapStart || newStart;
+                        let finalHour = _live?.dropHour ?? workStartH;
                         // No snap-forward here either — the commit has to land the bar exactly
                         // where the ghost showed it, and the ghost no longer bounces.
                         // ── Auto-split on drag-end for partially-worked ops ──
@@ -16376,19 +16417,19 @@ ${jobsCtx || "No jobs found."}`;
                         const _dropWalk = walkProductiveHours(finalHour, (bar.task.hpd || 0) / Math.max(1, (bar.task.team || []).length), dayWindowCfg);
                         const _newEnd = addBD(effStart, _dropWalk.days - 1, barBDOpts);
                         const _endHour = _dropWalk.endHour;
-                        const _mWdDelta = effStart > os ? diffBD(os, effStart) : -diffBD(effStart, os);
+                        const _mWdDelta = effStart > os ? diffBD(os, effStart, barBDOpts) : -diffBD(effStart, os, barBDOpts);
                         const osH = bar.task.startHour ?? workStartH;
                         const _hourDelta = finalHour - osH;
                         const _computeMonthMove = (m) => {
-                          let mStartDay = addBD(m.origStart, _mWdDelta);
+                          let mStartDay = addBD(m.origStart, _mWdDelta, barBDOpts);
                           let mStartH = (m.origStartHour ?? workStartH) + _hourDelta;
-                          while (mStartH >= workEndH) { mStartH -= totalWorkH; mStartDay = addBD(mStartDay, 1); }
-                          while (mStartH < workStartH) { mStartH += totalWorkH; mStartDay = addBD(mStartDay, -1); }
+                          while (mStartH >= workEndH) { mStartH -= totalWorkH; mStartDay = addBD(mStartDay, 1, barBDOpts); }
+                          while (mStartH < workStartH) { mStartH += totalWorkH; mStartDay = addBD(mStartDay, -1, barBDOpts); }
                           const mStartHour = Math.round(mStartH * 2) / 2;
                           const _mPerHpd = (m.hpd || 0) > 0 ? m.hpd / Math.max(1, (m.personIds || []).length) : productiveHoursPerDay;
                           const mWalk = walkProductiveHours(mStartHour, _mPerHpd, dayWindowCfg);
                           const mNewEnd = addBD(mStartDay, mWalk.days - 1, barBDOpts);
-                          return { id: m.id, newStart: mStartDay, newEnd: mNewEnd, newStartHour: mStartHour, newEndHour: mWalk.endHour };
+                          return { id: m.id, newStart: mStartDay, newEnd: mNewEnd, newStartHour: mStartHour, newEndHour: mWalk.endHour, origPerson: m.origPerson };
                         };
                         const groupMonthMoves = (isGroupDrag && depsMode === "locked") ? groupMembers.map(_computeMonthMove) : [];
                         // Multi-select members also need their hour/end snaps applied in month
@@ -16415,8 +16456,17 @@ ${jobsCtx || "No jobs found."}`;
                         };
                         // Dep-group / multi-select members can also be panels, not just ops.
                         const _memberMove = (node) => {
-                          const mv = groupMonthMoves.find(m => m.id === node.id) || multiDragMonthMoves.find(m => m.id === node.id);
-                          return mv ? { ...node, start: mv.newStart, end: mv.newEnd, startHour: mv.newStartHour, endHour: mv.newEndHour } : node;
+                          const gv = groupMonthMoves.find(m => m.id === node.id);
+                          const mv = gv || multiDragMonthMoves.find(m => m.id === node.id);
+                          if (!mv) return node;
+                          const moved = { ...node, start: mv.newStart, end: mv.newEnd, startHour: mv.newStartHour, endHour: mv.newEndHour };
+                          // Multi-selected bars follow the grab onto the target row. Dep-group
+                          // members (gv) do NOT: a dependency chain deliberately spans people,
+                          // so moving the chain must not collapse it onto one of them. Without
+                          // this the grabbed bar reassigned and the rest of the selection
+                          // stayed behind — the group split across two rows.
+                          if (gv || !lastDropPid || sameId(lastDropPid, mv.origPerson)) return moved;
+                          return { ...moved, team: (moved.team || []).map(x => sameId(x, mv.origPerson) ? lastDropPid : x) };
                         };
                         setTasks(prev => {
                           const next = prev.map(job => {
@@ -16441,17 +16491,17 @@ ${jobsCtx || "No jobs found."}`;
                         return;
                       }
                       // Compute final positions for all group members + multi-selected bars (same delta)
-                      const wdDelta = effStart > os ? diffBD(os, effStart) : -diffBD(effStart, os);
+                      const wdDelta = effStart > os ? diffBD(os, effStart, barBDOpts) : -diffBD(effStart, os, barBDOpts);
                       const groupFinalMoves = [
                         // Locked mode: all dep-group members move by the same delta as the dragged bar
                         // Unlocked mode: each task moves independently — only the dragged task moves
                         ...(depsMode === "locked" ? groupMembers.map(m => {
-                          const mStart = nextBD(addD(m.origStart, finalDx));
-                          return { ...m, newStart: mStart, newEnd: countWorkingDays(mStart, m.wdDur) };
+                          const mStart = nextBD(addD(m.origStart, finalDx), barBDOpts);
+                          return { ...m, newStart: mStart, newEnd: addBD(mStart, m.wdDur - 1, barBDOpts) };
                         }) : []),
                         ...multiDragMembers.map(m => {
-                          const mStart = addBD(m.origStart, wdDelta);
-                          const mEnd   = addBD(m.origEnd,   wdDelta);
+                          const mStart = addBD(m.origStart, wdDelta, barBDOpts);
+                          const mEnd   = addBD(m.origEnd,   wdDelta, barBDOpts);
                           return { ...m, newStart: mStart, newEnd: mEnd };
                         }),
                       ];
@@ -16520,7 +16570,11 @@ ${jobsCtx || "No jobs found."}`;
                           return updated;
                         });
                       };
-                      const effectiveReassign = isReassign && multiDragMembers.length === 0;
+                      // applyReassign has always built its list from the grabbed bar PLUS
+                      // multiDragMembers; gating it on "no members" made that half dead code,
+                      // so a multi-select dropped on another row moved the dates and
+                      // reassigned nobody. The reassign permission is already enforced above.
+                      const effectiveReassign = isReassign;
                       const commit = (snapshot) => {
                         setTStart(p => minNewStart < p ? minNewStart : p);
                         setTEnd(p => newEnd > p ? newEnd : p);
@@ -16556,7 +16610,7 @@ ${jobsCtx || "No jobs found."}`;
                             });
                           }
                         }
-                        setTasks(effectiveReassign && multiDragMembers.length === 0 ? applyReassign(base) : base);
+                        setTasks(effectiveReassign ? applyReassign(base) : base);
                       };
                       if (allPushes.length > 0) {
                         const withPushes = applyPushes(withMove, allPushes, movedByName);
@@ -16614,6 +16668,12 @@ ${jobsCtx || "No jobs found."}`;
                       oeH = walkProductiveHours(osH, _origHpd / Math.max(1, (bar.task.team || []).length), dayWindowCfg).endHour;
                     }
                     const taskPid2 = bar.task.pid || null;
+                    // A PANEL bar's live preview goes through updTask, which deliberately
+                    // drags the first/last child op along with the panel edge. The commit
+                    // below reverts to the drag-start state before re-applying, so it has to
+                    // be able to put those ops back too. bar.task is the panel as it was at
+                    // mousedown, so bar.task.subs is exactly that snapshot.
+                    const _origSubs = bar.task.level === 1 && Array.isArray(bar.task.subs) ? bar.task.subs : null;
                     const pending = { start: os, end: oe, startHour: osH, endHour: oeH, hpd: _origHpd };
                     let lastDx = 0;
                     // Compute total productive hpd from a (sDay, sH) → (eDay, eH) span (clock-hours scaled to productive)
@@ -16715,37 +16775,67 @@ ${jobsCtx || "No jobs found."}`;
                       document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU);
                       isDraggingRef.current = false;
                       setResizeTooltip(null);
-                      const personId = bar.task.team[0];
+                      const personId = (bar.task.team || [])[0];
                       if (!personId) return;
                       const isMonth = tMode === "month";
-                      const newStart = isMonth ? pending.start : (side === "left" ? nextBD(addD(os, lastDx)) : os);
-                      const newEnd = isMonth ? pending.end : (side === "right" ? nextBD(addD(oe, lastDx)) : oe);
+                      const newStart = isMonth ? pending.start : (side === "left" ? nextBD(addD(os, lastDx), barBDOpts) : os);
+                      const newEnd = isMonth ? pending.end : (side === "right" ? nextBD(addD(oe, lastDx), barBDOpts) : oe);
                       const movedByName = loggedInUser ? loggedInUser.name : "Admin";
                       setTasks(prev => {
-                        let reverted = prev.map(t => {
-                          if (taskPid2) {
-                            const pi2 = (t.subs || []).findIndex(s => s.id === taskPid2);
-                            if (pi2 >= 0) { const ns = [...t.subs]; ns[pi2] = { ...ns[pi2], subs: (ns[pi2].subs || []).map(op => op.id === bar.task.id ? { ...op, start: os, end: oe, startHour: osH, endHour: bar.task.endHour ?? null, hpd: _origHpd } : op) }; return { ...t, subs: ns }; }
-                          }
-                          return t;
+                        // Rewrite the bar at WHATEVER LEVEL it lives at. A schedule bar is
+                        // either an op (level 2) or a panel (level 1) — a panel assigned to
+                        // someone with no ops of their own, and every bar on a general
+                        // (non-panel) job. This commit only ever rewrote ops, keyed on
+                        // taskPid2, which for a panel bar is the JOB id and so matched no
+                        // panel: the revert, the lock check and the move-log were all skipped,
+                        // and the push-confirm's Cancel had nothing to restore. Same defect
+                        // the month MOVE commit already fixed (see _moveNode).
+                        const _mapTarget = (tl, fn) => tl.map(job => {
+                          let jobChanged = false;
+                          const subs = (job.subs || []).map(panel => {
+                            let p2 = panel;
+                            if (panel.id === bar.task.id) { p2 = fn(panel); jobChanged = true; }
+                            let opsChanged = false;
+                            const ops = (p2.subs || []).map(op => {
+                              if (op.id !== bar.task.id) return op;
+                              opsChanged = true; jobChanged = true;
+                              return fn(op);
+                            });
+                            return opsChanged ? { ...p2, subs: ops } : p2;
+                          });
+                          return jobChanged ? { ...job, subs } : job;
                         });
+                        const reverted = _mapTarget(prev, node => ({
+                          ...node, start: os, end: oe, startHour: osH, endHour: bar.task.endHour ?? null, hpd: _origHpd,
+                          ...(_origSubs ? { subs: _origSubs } : {}),
+                        }));
+                        // Look for the lock on the node itself, panel or op — the old scan
+                        // only walked ops, so a locked PANEL could be resized freely.
                         let isLocked = false;
-                        reverted.forEach(j => (j.subs || []).forEach(pnl => (pnl.subs || []).forEach(op => { if (op.id === bar.task.id && isOpLocked(op)) isLocked = true; })));
-                        if (isLocked) { setTimeout(() => showLockedError([{ opTitle: bar.task.title, panelTitle: bar.task.panelTitle || "" }]), 0); return reverted; }
-                        const applyResize = (tl) => tl.map(t => {
-                          if (taskPid2) {
-                            const pi2 = (t.subs || []).findIndex(s => s.id === taskPid2);
-                            if (pi2 >= 0) { const ns = [...t.subs]; ns[pi2] = { ...ns[pi2], subs: (ns[pi2].subs || []).map(op => {
-                              if (op.id === bar.task.id) {
-                                const logEntry = { fromStart: os, fromEnd: oe, toStart: newStart, toEnd: newEnd, date: TD, movedBy: movedByName, reason: "Manual resize" };
-                                return isMonth
-                                  ? { ...op, start: newStart, end: newEnd, startHour: pending.startHour, endHour: pending.endHour, hpd: pending.hpd, moveLog: [...(op.moveLog || []), logEntry] }
-                                  : { ...op, start: newStart, end: newEnd, moveLog: [...(op.moveLog || []), logEntry] };
-                              }
-                              return op;
-                            }) }; return { ...t, subs: ns }; }
+                        reverted.forEach(j => (j.subs || []).forEach(pnl => {
+                          if (pnl.id === bar.task.id && isOpLocked(pnl)) isLocked = true;
+                          (pnl.subs || []).forEach(op => { if (op.id === bar.task.id && isOpLocked(op)) isLocked = true; });
+                        }));
+                        if (isLocked) { setTimeout(() => showLockedError([{ opTitle: bar.task.title, panelTitle: bar.task.panelTitle || bar.task.jobTitle || "" }]), 0); return reverted; }
+                        const applyResize = (tl) => _mapTarget(tl, node => {
+                          const logEntry = { fromStart: os, fromEnd: oe, toStart: newStart, toEnd: newEnd, date: TD, movedBy: movedByName, reason: "Manual resize" };
+                          const resized = isMonth
+                            ? { ...node, start: newStart, end: newEnd, startHour: pending.startHour, endHour: pending.endHour, hpd: pending.hpd, moveLog: [...(node.moveLog || []), logEntry] }
+                            : { ...node, start: newStart, end: newEnd, moveLog: [...(node.moveLog || []), logEntry] };
+                          if (!_origSubs || _origSubs.length === 0) return resized;
+                          // Same child rule updTask applies to a panel resize, but measured
+                          // from the drag-START ops rather than from whatever the live
+                          // preview left behind — so the shift is applied exactly once.
+                          const sDelta = diffD(os, newStart);
+                          const eDelta = diffD(oe, newEnd);
+                          if (side === "left" && sDelta !== 0) {
+                            return { ...resized, subs: _origSubs.map((op, i) => (i === 0 && op.start) ? { ...op, start: addD(op.start, sDelta) } : op) };
                           }
-                          return t;
+                          if (side === "right" && eDelta !== 0) {
+                            const last = _origSubs.length - 1;
+                            return { ...resized, subs: _origSubs.map((op, i) => (i === last && op.end) ? { ...op, end: addD(op.end, eDelta) } : op) };
+                          }
+                          return resized;
                         });
                         const { pushes, blocked, lockedOps } = previewPush(reverted, bar.task.id, personId, newStart, newEnd);
                         if (blocked) { setTimeout(() => showLockedError(lockedOps), 0); return reverted; }
