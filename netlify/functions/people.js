@@ -4,7 +4,7 @@ import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey } from "./_utils/org.js";
 import { stampArray, nowIso, reconcileDeletions, softDelete, changedIds } from "./_utils/timestamps.js";
-import { filterLive } from "./_utils/entities.js";
+import { filterLive, emptyOverwriteError } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
 import { sendSilentPush } from "./_utils/push.js";
 import { encryptPin, decryptPin } from "./_utils/pin.js";
@@ -93,14 +93,26 @@ export async function handler(event) {
       let incoming;
       try { incoming = JSON.parse(event.body); } catch { return err(400, "Invalid JSON"); }
       if (!Array.isArray(incoming)) return err(400, "Invalid people data");
-      if (incoming.length === 0) return err(400, "Refusing to overwrite people with empty array");
+
+      const existing = (await readJson(s3Key)) ?? [];
+
+      // Refuse to overwrite a non-empty roster with an empty array. Shared with
+      // tasks.js and clients.js — see emptyOverwriteError. This used to be a
+      // blanket 400 on any empty POST, which also refused a roster that was
+      // already legitimately empty (everyone tombstoned); it now matches the
+      // other two handlers, including the ?force=1 escape hatch.
+      const emptyErr = emptyOverwriteError(incoming, existing, event, "people");
+      if (emptyErr) return err(409, emptyErr);
+      // String-keyed on purpose: ids are mixed Int/String across web and iOS
+      // (see stampArray / reconcileDeletions, which key the same way). A raw
+      // key here made every numeric-id person invisible to the lookups below.
+      const existingMap = new Map(existing.map(p => [String(p.id), p]));
+      const storedFor = p => existingMap.get(String(p?.id));
+      const callerId = member?.personId != null ? String(member.personId) : null;
 
       // Check for userRole changes — only admins may change them.
-      const existing = (await readJson(s3Key)) ?? [];
-      const existingMap = new Map(existing.map(p => [p.id, p]));
-      const callerId = member?.personId != null ? String(member.personId) : null;
       const hasRoleChange = incoming.some(p => {
-        const old = existingMap.get(p.id);
+        const old = storedFor(p);
         // New person being added as admin, or existing person's role changing.
         return old ? old.userRole !== p.userRole : p.userRole === "admin";
       });
@@ -114,7 +126,7 @@ export async function handler(event) {
       // iOS sets activeBreak without persisting startedAt) so admin timers stay
       // accurate. An existing startedAt is always preserved — never reset.
       const merged = incoming.map(p => {
-        const stored = existingMap.get(p.id);
+        const stored = storedFor(p);
         // `hasPin` is a server-derived read flag — never persist it back.
         const { hasPin: _hp, ...pIn } = p;
         let np = (stored?.pin && !pIn.pin) ? { ...pIn, pin: stored.pin } : pIn;
@@ -160,8 +172,9 @@ export async function handler(event) {
 
       // Reconcile deletions: any existing person absent from the incoming roster
       // becomes a tombstone (kept in the array) so delta-sync clients evict them.
-      // Runs only on a non-empty roster — the empty-array guard above already
-      // refuses an empty POST, so this can never mass-tombstone the whole team.
+      // The empty-overwrite guard above is what stops this mass-tombstoning the
+      // team: an empty POST is refused while any live person is stored, so the
+      // only empty array that reaches here is one with nothing left to tombstone.
       // Strip the PIN when tombstoning a person: a removed employee's PIN must
       // not linger at rest, and (belt-and-suspenders with timeclock's live-only
       // PIN identify) a pinless tombstone also can't authenticate a kiosk clock-in.
@@ -169,7 +182,7 @@ export async function handler(event) {
       // Non-admins can't create people — drop any incoming record with no stored
       // counterpart. (They still send the full roster, so existing rows aren't
       // tombstoned by this.)
-      const safeMerged = can(member, "manageTeam") ? merged : merged.filter(p => existingMap.has(p.id));
+      const safeMerged = can(member, "manageTeam") ? merged : merged.filter(p => existingMap.has(String(p.id)));
       const reconciled = reconcileDeletions(safeMerged, existing, tombstoneWithoutPin);
       await writeJson(s3Key, stampArray(reconciled, existing));
       await publishChange(member.orgCode, "people", { ids: changedIds(reconciled, existing) });

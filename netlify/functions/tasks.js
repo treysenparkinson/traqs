@@ -5,7 +5,7 @@ import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
 import { stampArray, reconcileDeletions, changedIds } from "./_utils/timestamps.js";
-import { filterLive } from "./_utils/entities.js";
+import { filterLive, emptyOverwriteError } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
 import { diffTaskEvents } from "./_utils/task-events.js";
 import { sendVisiblePush, sendSilentPush } from "./_utils/push.js";
@@ -51,20 +51,9 @@ export async function handler(event) {
       const existing = await readJson(s3Key);
 
       // Refuse to overwrite a non-empty tasks.json with an empty array.
-      // Why: a client bug (failed initial fetch → React resets state → autosave fires)
-      // wiped MTX2026TRAQS/tasks.json on 2026-06-03. This guard makes that race fatal
-      // on the server instead of silently destroying data. To intentionally clear all
-      // tasks, delete the S3 object directly or pass ?force=1.
-      // Empty-array safeguard: run on the RAW incoming array, before deletion
-      // reconciliation, or an empty POST would tombstone every live record. Only
-      // NON-tombstoned records count — once all live records are deleted, the
-      // leftover tombstones must not make a legitimately-empty roster get refused.
-      const force = event.queryStringParameters?.force === "1";
-      if (tasks.length === 0 && !force) {
-        if (Array.isArray(existing) && existing.some(r => r && !r.deletedAt)) {
-          return err(409, "Refusing to overwrite non-empty tasks with empty array");
-        }
-      }
+      // Shared with clients.js and people.js — see emptyOverwriteError.
+      const emptyErr = emptyOverwriteError(tasks, existing, event, "tasks");
+      if (emptyErr) return err(409, emptyErr);
 
       // ── Permission check ────────────────────────────────────────────────
       // This endpoint takes a whole-array replace, so the only way to tell a

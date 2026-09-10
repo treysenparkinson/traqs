@@ -88,7 +88,9 @@ export async function handler(event) {
     // Seed the org creator as the first admin person
     const adminName = adminEmail.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, c => c.toUpperCase());
     const seedPeople = [{
-      id: 1,
+      // String, matching uid() on the web and Person.id on iOS. A numeric id
+      // here dropped the founding admin out of every `x.id === pid` lookup.
+      id: "1",
       name: adminName,
       email: adminEmail.toLowerCase(),
       role: "Admin",

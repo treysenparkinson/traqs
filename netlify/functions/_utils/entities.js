@@ -25,3 +25,27 @@ export const isLive = (record) => !record?.deletedAt;
  * own `Array.isArray` / `?? []` handling.
  */
 export const filterLive = (arr) => (Array.isArray(arr) ? arr.filter(isLive) : arr);
+
+/**
+ * The empty-overwrite guard, shared by every whole-array POST handler.
+ *
+ * A client bug (failed initial fetch → React resets state → autosave fires)
+ * wiped MTX2026TRAQS/tasks.json on 2026-06-03. This makes that race fatal on
+ * the server instead of silently destroying data.
+ *
+ * Runs on the RAW incoming array, BEFORE deletion reconciliation — an empty
+ * POST that got past this would tombstone every live record. Only NON-tombstoned
+ * stored records count, so once everything is legitimately deleted, the leftover
+ * tombstones don't make an empty array get refused forever.
+ *
+ * `?force=1` is the deliberate escape hatch for actually clearing a dataset.
+ *
+ * @returns {string|null} an error message when the write must be refused with
+ *   409, or null when it may proceed.
+ */
+export function emptyOverwriteError(incoming, existing, event, label) {
+  if (!Array.isArray(incoming) || incoming.length > 0) return null;
+  if (event?.queryStringParameters?.force === "1") return null;
+  if (!Array.isArray(existing) || !existing.some(isLive)) return null;
+  return `Refusing to overwrite non-empty ${label} with empty array`;
+}

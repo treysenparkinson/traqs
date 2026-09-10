@@ -4,7 +4,7 @@ import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
 import { stampArray, reconcileDeletions, changedIds } from "./_utils/timestamps.js";
-import { filterLive } from "./_utils/entities.js";
+import { filterLive, emptyOverwriteError } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
 import { sendSilentPush } from "./_utils/push.js";
 
@@ -45,16 +45,9 @@ export async function handler(event) {
       const existing = await readJson(s3Key);
 
       // Refuse to overwrite a non-empty clients.json with an empty array.
-      // See tasks.js for the incident this guards against.
-      // Empty-array safeguard on the RAW incoming array (before reconciliation),
-      // counting only NON-tombstoned records so leftover tombstones don't make a
-      // legitimately-empty list get refused.
-      const force = event.queryStringParameters?.force === "1";
-      if (clients.length === 0 && !force) {
-        if (Array.isArray(existing) && existing.some(r => r && !r.deletedAt)) {
-          return err(409, "Refusing to overwrite non-empty clients with empty array");
-        }
-      }
+      // Shared with tasks.js and people.js — see emptyOverwriteError.
+      const emptyErr = emptyOverwriteError(clients, existing, event, "clients");
+      if (emptyErr) return err(409, emptyErr);
 
       // Tombstone client-side deletions (ids in `existing` missing from incoming)
       // so delta-sync propagates them instead of the record silently vanishing.
