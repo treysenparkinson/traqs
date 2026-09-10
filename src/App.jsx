@@ -1491,7 +1491,9 @@ function AuthGate() {
     const roster = teamPeople.length > 0 ? teamPeople : (() => {
       try { return JSON.parse(persist.getItem(LS_PEOPLE) || "[]"); } catch { return []; }
     })();
-    const inRoster = roster.some(p => p.email?.toLowerCase() === user.email?.toLowerCase());
+    // .trim() on both sides, matching the server (_utils/auth.js) — a stray
+    // trailing space in a person's email used to read as "not in team".
+    const inRoster = roster.some(p => p.email?.toLowerCase().trim() === user.email?.toLowerCase().trim());
     const rosterIsEmpty = roster.length === 0;
     // `isAdmin` is set by /org-config; while it's undefined we treat the
     // user as potentially-admin so the UI doesn't flicker.
