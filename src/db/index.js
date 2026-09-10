@@ -37,4 +37,3 @@ export const syncBus = new EventTarget();
 
 // Entities stored as arrays of records (vs the two object entities).
 export const ARRAY_ENTITIES = ["tasks", "people", "clients", "messages", "groups", "payhours", "productionhours"];
-export const OBJECT_ENTITIES = ["orgConfig", "settings"];

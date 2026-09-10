@@ -488,11 +488,6 @@ export async function callAI(payload, getToken) {
   };
 }
 
-// ─── Upload & Parse (alias kept for future direct-upload flows) ───────────────
-export async function uploadAndProcess(payload, getToken) {
-  return callAI(payload, getToken);
-}
-
 // ─── Timeclock (PIN-auth for kiosk writes; Bearer required for reads now) ────
 // GET now requires org membership — non-admins see only their own entries,
 // admins see the full org log. The kiosk POST flows below are PIN-based
@@ -537,13 +532,6 @@ export const clockOutAction = (payload, orgCode) =>
   }).then(r => r.json());
 
 export const timeclockEventAction = (payload, orgCode) =>
-  fetch(`${BASE}/timeclock`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
-    body: JSON.stringify(payload),
-  }).then(r => r.json());
-
-export const finishRequestAction = (payload, orgCode) =>
   fetch(`${BASE}/timeclock`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
@@ -714,24 +702,6 @@ export const jobClockOutAction = async (payload, getToken, orgCode) => {
   }).then(r => r.json());
 };
 
-export const jobPauseAction = async (payload, getToken, orgCode) => {
-  const headers = await authHeaders(getToken, orgCode);
-  return fetch(`${BASE}/timeclock`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ action: "jobPause", ...payload }),
-  }).then(r => r.json());
-};
-
-export const jobResumeAction = async (payload, getToken, orgCode) => {
-  const headers = await authHeaders(getToken, orgCode);
-  return fetch(`${BASE}/timeclock`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ action: "jobResume", ...payload }),
-  }).then(r => r.json());
-};
-
 // Break is a lightweight status — the job clock keeps running. payload:
 // breakBegin { personId, durationMinutes }, breakClear { personId }.
 export const breakBeginAction = async (payload, getToken, orgCode) => {
@@ -761,17 +731,6 @@ export async function savePushSubscription(subscription, theme, getToken, orgCod
     method: "POST",
     headers,
     body: JSON.stringify({ subscription, theme }),
-  });
-  if (!res.ok) throw await saveError("push-subscribe", res.status, res);
-  return res.json();
-}
-
-export async function removePushSubscription(endpoint, getToken, orgCode) {
-  const headers = await authHeaders(getToken, orgCode);
-  const res = await fetch(`${BASE}/push-subscribe`, {
-    method: "DELETE",
-    headers,
-    body: JSON.stringify({ endpoint }),
   });
   if (!res.ok) throw await saveError("push-subscribe", res.status, res);
   return res.json();

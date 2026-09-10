@@ -5,7 +5,7 @@
 // subscription to the backend (orgs/{code}/push-subs.json, keyed by personId).
 // The backend (messages.js / notify.js) then pushes to it. Native iOS/Android
 // continue to use OneSignal — this path is desktop browsers only.
-import { savePushSubscription, removePushSubscription } from "./api.js";
+import { savePushSubscription } from "./api.js";
 
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY;
 
@@ -110,21 +110,6 @@ export function watchTheme(getToken, orgCode) {
   };
   mq.addEventListener("change", onChange);
   return () => mq.removeEventListener("change", onChange);
-}
-
-/** Unsubscribe this browser and remove the subscription server-side. */
-export async function unsubscribePush(getToken, orgCode) {
-  if (!pushSupported()) return;
-  try {
-    const reg = await navigator.serviceWorker.getRegistration();
-    const sub = reg && (await reg.pushManager.getSubscription());
-    if (sub) {
-      await removePushSubscription(sub.endpoint, getToken, orgCode).catch(() => {});
-      await sub.unsubscribe().catch(() => {});
-    }
-  } catch (e) {
-    console.warn("unsubscribePush failed:", e);
-  }
 }
 
 /**
