@@ -180,6 +180,43 @@ roster write all still want one manual pass each.
 
 ---
 
+## 3b. Schedule job-card drag — separate pass, fixes applied
+
+`renderTeam` carries three independent drag implementations that had drifted
+apart: `handleTeamDrag` (month branch and non-month branch), `handleTeamResize`,
+and `handleTeamDayBarDrag`. Plus `startRowDrag` for the person rows.
+
+| # | Defect | Fix |
+|---|---|---|
+| S1 | **Row reorder was a no-op for most of the roster.** `setRowDragOver({ id: Number(rid) })` — `rid` is the DOM string and `uid()` mints `"t3k9dk2a"`, so `Number()` gave `NaN`. The target lookup missed, the before/after indicator never drew, and only the legacy numeric-id people could be reordered. | Keep the id as the string; `sameId` for every comparison. Also moved the drop out of a `setRowDragId`/`setRowDragOver` updater pair — it called `setPeople` from inside a state updater purely to read the latest value — onto a ref. |
+| S2 | **Resize only understood op-level bars.** Both the revert and `applyResize` keyed on `taskPid2`, which for a PANEL bar is the job id and so matched no panel. Affects a panel assigned to someone with no ops of their own, and *every* bar on a general (non-panel) job. Result: no move-log, the lock scan never saw the panel so a **locked panel could be resized**, and the push-confirm's Cancel restored a snapshot that already contained the resize. | One `_mapTarget` walker that rewrites the node at whatever level it lives at — the same shape the month MOVE commit already had. Lock scan now checks the panel itself. The revert also restores the panel's child ops (the live preview drags them via `updTask`), and `applyResize` re-applies that child shift once, measured from the drag-start ops. |
+| S3 | **Multi-select drag to another row didn't reassign.** `applyReassign` builds its list from the grabbed bar *plus* `multiDragMembers`, but was gated on `multiDragMembers.length === 0`, making that half dead. Month mode was different and worse: `_moveNode` remapped `team`, `_memberMove` didn't, so the selection **split across two people's rows**. | Ungated in the non-month path; `_memberMove` now remaps `team` for multi-select members. Dep-group members deliberately do NOT follow — a dependency chain spans people on purpose. |
+| S4 | **Day view had no guards at all** — no `can("moveJobs")`, no `can("reassign")`, no lock check, no clocked-in check, no PTO check on the drop target. The month view gates all of them. | All five added inside `handleTeamDayBarDrag`, so move / resize-left / resize-right can't drift apart again. |
+| S5 | **The ghost and the commit used different calendars.** Every preview call passed `barBDOpts` (the org's `workDays` + `holidays`); the commit called bare `addBD`/`nextBD`/`diffBD`/`countWorkingDays`, which default to Mon–Fri with no holidays. Live for any org that has added a holiday (Settings → Schedule): the bar landed a different length than the ghost it was dropped against, and group/multi members drifted relative to the bar actually grabbed. | 20 commit-side call sites moved onto `barBDOpts`. `countWorkingDays` has no holidays parameter at all, so that one became `addBD(start, n - 1, opts)`. Verified by scan: zero bare business-day calls remain between `handleTeamDrag` and `handleTeamResize`. |
+| S6 | `_finalVWD` still used the flat pro-rate day count the ghost abandoned (the comment on `_liveVWD` records why: a 1h job dropped at 16:00 read as 2 days). Latent — the two agree while `dropHour` is `workStartH`. | Both now call `walkProductiveHours(...).days`. |
+| S7 | `teamDragLiveRef` was never cleared, and the commit reads it in five places. Not reachable today (`onM`'s only early return before the write is `snapS === null`, and `nextBD` never returns null). | Snapshot into a local at the top of `onU`, then null the ref. |
+| S8 | `const personId = bar.task.team[0]` — unguarded, unlike every other read in the file. | `(bar.task.team || [])[0]`. |
+
+**Checked and correct, do not re-audit:** overlap/push preview and its confirm
+dialog, PTO blocking on the month drop, the clocked-in guard, dep-group
+locked/unlocked/free modes with magnetic sibling snap, edge auto-scroll
+(including the `sx` shift that keeps the bar under the cursor),
+partially-worked auto-split on drop, `buildGroupMove` (already level-aware),
+and the drop-row person resolution (`String(x.id) === found`).
+
+**Not a defect, checked and dismissed:** the day view's hardcoded `DHS = 5,
+DHE = 21` axis. The renderer hardcodes the same `HS = 5, HE = 21`, so the drag
+and the drawing agree, and `walkProductiveHours` clamps `startHour` into the
+org's window, so a 5am placement can't corrupt the month geometry. It is a
+deliberate wide envelope, not the org's working day.
+
+**Deliberately not added:** a move-log entry for the day view. Its move changes
+only `startHour`; the moveLog schema is `fromStart`/`fromEnd`/`toStart`/`toEnd`,
+so an hour-only nudge would write rows whose dates are identical — noise, not
+an audit trail.
+
+---
+
 ## 4. Still open
 
 - **Concurrency — `_utils/s3.js` writes with no `IfMatch`/ETag.** Deliberately
@@ -199,5 +236,12 @@ roster write all still want one manual pass each.
   (`TS2739`/`TS2741`/`TS2345`), triaged as untyped-object noise. Spot-checked
   the `TS2345` cluster this pass: the `GridRow` ones are level-0 rows where
   `jobId`/`panelId` are undefined by design. Not bugs.
+- **No Escape-to-cancel on any schedule drag**, and no `pointercancel`/blur
+  teardown — only `mouseup` on `document`. Cheap for the move (it doesn't
+  mutate until release); the resize live-mutates through `updTask`, so cancel
+  there means driving the same revert path the commit uses. A feature, not a
+  defect, so left out of a correctness pass.
+- `renderGantt`'s `handleDrag` / `handleDayBarDrag` were NOT audited — this
+  pass covered the team schedule only.
 - The Mac Swift shell (`TRAQS MacBook Native/`) and the iOS app beyond the
   `Person` model.
