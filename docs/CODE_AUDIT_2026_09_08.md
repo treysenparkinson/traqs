@@ -1,7 +1,10 @@
 # Code Audit — 2026-09-08
 
 **Scope:** `src/` (35,149 lines) + `netlify/functions/` (6,844 lines)
-**Status:** Findings only. Nothing in this document has been fixed.
+**Status:** SUPERSEDED — see `CODE_AUDIT_2026_09_10.md` for the follow-up pass
+and the fix log. §1.1, §1.2, §1.3 (the `org.js` half) and §2.1 are FIXED as of
+2026-09-10. §2.2, §3 and §4 are still open. Findings below are kept verbatim as
+the original record; do not read the numbers as current.
 **Trigger:** Full-codebase sweep for dead code and critical bugs, deferred so
 other feature work could land first.
 
