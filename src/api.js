@@ -611,6 +611,20 @@ export const adminDeleteEventAction = async (payload, getToken, orgCode) => {
   }).then(r => r.json());
 };
 
+// Add a whole shift that was never punched (admin only) — the fix for a day
+// someone forgot to clock in, out, or both. Writes a completed entry directly;
+// the server refuses a window that overlaps an existing shift, runs past the
+// person's live session, or lands on a confirmed day. payload:
+// { personId, clockIn, clockOut, note? }
+export const adminAddEntryAction = async (payload, getToken, orgCode) => {
+  const token = await getToken();
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
+    body: JSON.stringify({ action: "adminAddEntry", ...payload }),
+  }).then(r => r.json());
+};
+
 // Delete an entire past shift (admin only). Tombstones the punch and every
 // lunch/break row inside its window, so the deletion propagates to every device
 // through /sync instead of lingering in their caches. payload: { entryId }

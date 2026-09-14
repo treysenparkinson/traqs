@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminAddEntryAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import TRAQS_BARS_STATIC from "./traqs-bars-static.png";
 import TRAQS_BARS_ACCENT from "./traqs-bars-accent.png";
@@ -19269,6 +19269,52 @@ ${jobsCtx || "No jobs found."}`;
       });
       const clearActiveOut = () => setTsPersonEditModal(m => ({ ...m, activeEntry: { ...m.activeEntry, clockOut: "" } }));
 
+      // ── A shift nobody punched at all ─────────────────────────────────────
+      // addActiveOut above closes a session the worker actually started. This is
+      // the other half of "they forgot": the day with no session on it, because
+      // the in punch was missed, or the out, or both. Held as a draft inside
+      // `sessions` and written by Save via adminAddEntry — nothing exists
+      // server-side until then, so discarding one is a local drop, not a delete.
+      const localDayKey = (iso) => {
+        const d = new Date(iso);
+        if (Number.isNaN(d.getTime())) return "";
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      };
+      // Writable only as a complete pair, and only backwards in time — the same
+      // three things the server checks, so the card can say which one is wrong
+      // before the round trip rather than after it.
+      const draftInvalid = (s) => !s.clockIn || !s.clockOut
+        || new Date(s.clockOut) <= new Date(s.clockIn)
+        || new Date(s.clockOut).getTime() > Date.now() + 60000;
+      const badDrafts = sessions.filter(s => s._new && draftInvalid(s));
+      const addSession = () => setTsPersonEditModal(m => {
+        // Defaults to the most recent day with nothing on it — a missed punch is
+        // nearly always today's or yesterday's — across the org's work window, so
+        // the ordinary case is one click and Save. Both times stay editable.
+        // Read a draft's day off its in punch, not its row: an earlier draft the
+        // admin has already moved should still count as taken.
+        const taken = new Set([...(m.activeEntry ? [m.activeEntry.date] : []), ...m.sessions.map(x => (x._new ? localDayKey(x.clockIn) : "") || x.date)]);
+        const probe = new Date();
+        let day = localDayKey(probe.toISOString());
+        for (let i = 0; i < 14 && taken.has(day); i++) {
+          probe.setDate(probe.getDate() - 1);
+          day = localDayKey(probe.toISOString());
+        }
+        if (taken.has(day)) day = localDayKey(new Date().toISOString());
+        const at = (h) => { const d = new Date(`${day}T00:00:00`); d.setHours(Math.floor(h), Math.round((h % 1) * 60), 0, 0); return d.getTime(); };
+        // Never born in the future: the server refuses a shift that ends after
+        // now, and the admin would have to fix the card before it would save.
+        const inMs = Math.min(at(workStartH), Date.now() - 3600000);
+        const outMs = Math.max(Math.min(at(workEndH), Date.now()), inMs + 3600000);
+        return { ...m, addMenuFor: null, sessions: [{
+          id: `newshift_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          personId: m.person?.id, date: day,
+          clockIn: new Date(inMs).toISOString(), clockOut: new Date(outMs).toISOString(),
+          confirmed: false, origClockIn: "", origClockOut: "", events: [], _new: true,
+        }, ...m.sessions] };
+      });
+      const removeDraftSession = (sid) => setTsPersonEditModal(m => ({ ...m, sessions: m.sessions.filter(x => x.id !== sid) }));
+
       // ── Delete a whole past shift ─────────────────────────────────────────
       // Applied IMMEDIATELY rather than deferred to Save, unlike every other
       // edit in this modal. Deferring would mean the row vanishes on confirm
@@ -19322,7 +19368,11 @@ ${jobsCtx || "No jobs found."}`;
       };
 
       // Group [active + sessions] by date for display (active is newest first).
-      const rows = [...(activeEntry ? [activeEntry] : []), ...sessions];
+      // A draft's date is derived from its in punch rather than read off the row,
+      // so the card moves under the day it will actually be written to as the
+      // admin edits it; sorting keeps each day's cards contiguous afterwards.
+      const rows = [...(activeEntry ? [activeEntry] : []), ...sessions.map(r => r._new ? { ...r, date: localDayKey(r.clockIn) || r.date } : r)]
+        .sort((a, b) => (b.clockIn || "").localeCompare(a.clockIn || ""));
       const byDate = [];
       rows.forEach(r => {
         const last = byDate[byDate.length - 1];
@@ -19343,7 +19393,25 @@ ${jobsCtx || "No jobs found."}`;
         // The open shift's activeClockIn (start time + synced lunch events) may be
         // updated by several calls; keep the latest so people[] lands once, right.
         let latestActive = null;
+        // Drafted shifts that failed to write. Their lunch/break punches are then
+        // skipped in step 3: adminAddEvent resolves an event to whichever punch
+        // window contains it, so with no owner the row would either 409 or, worse,
+        // be adopted by a neighbouring shift and cut ITS hours.
+        const draftFailed = new Set();
         try {
+          // 0) New shifts FIRST, for that same reason — step 3 needs the owning
+          //    punch to already be in the log.
+          for (const s of sessions) {
+            if (!s._new) continue;
+            const day = fmtDayHeader(localDayKey(s.clockIn) || s.date);
+            if (draftInvalid(s)) {
+              draftFailed.add(s.id);
+              errors.push(`The ${day} shift needs an in and an out punch, with the out after the in and not in the future.`);
+              continue;
+            }
+            const r = await adminAddEntryAction({ personId: resolvedPid, clockIn: s.clockIn, clockOut: s.clockOut }, getToken, orgCode);
+            if (!r?.ok) { draftFailed.add(s.id); errors.push(r?.error || `Couldn't add the ${day} shift`); }
+          }
           // Sequential throughout — each admin action is a read-modify-write on
           // payhours.json, so parallel calls could clobber each other.
           // 1) Open-shift START time first: it defines the live window that the
@@ -19355,7 +19423,7 @@ ${jobsCtx || "No jobs found."}`;
           }
           // 2) Completed-shift in/out edits (they redefine each punch's window).
           for (const s of sessions) {
-            if (s.confirmed) continue;
+            if (s.confirmed || s._new) continue;
             const inOutChanged = s.clockIn !== s.origClockIn || (s.clockOut || "") !== (s.origClockOut || "");
             if (inOutChanged && s.clockIn && s.clockOut) {
               const r = await adminEditEntryAction({ entryId: s.id, clockIn: s.clockIn, clockOut: s.clockOut }, getToken, orgCode);
@@ -19364,7 +19432,7 @@ ${jobsCtx || "No jobs found."}`;
           }
           // 3) Completed-shift lunch/break punches.
           for (const s of sessions) {
-            if (s.confirmed) continue;
+            if (s.confirmed || draftFailed.has(s.id)) continue;
             for (const ev of s.events) {
               if (ev._new && !ev._deleted) {
                 if (!resolvedPid || !ev.eventType || !ev.timestamp) {
@@ -19465,7 +19533,11 @@ ${jobsCtx || "No jobs found."}`;
 
             {/* Body */}
             <div style={{ maxHeight: "62vh", overflowY: "auto", padding: "16px 24px", display: "flex", flexDirection: "column", gap: 18 }}>
-              {byDate.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: 24 }}>No entries in the last 30 days.</div>}
+              <button onClick={addSession} style={{ alignSelf: "flex-start", display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusPill, border: `1px dashed ${T.accent}77`, background: "none", color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add a shift
+              </button>
+              {byDate.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: 24 }}>No entries in the last 30 days. Add a shift to record one they never punched.</div>}
               {byDate.map(({ date, items }) => (
                 <div key={date}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
@@ -19538,13 +19610,16 @@ ${jobsCtx || "No jobs found."}`;
                         );
                       }
                       const locked = it.confirmed;
+                      const isDraft = !!it._new;
                       const canAdd = !locked && !!it.clockOut;
                       return (
-                        <div key={it.id} style={{ background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                        <div key={it.id} style={{ background: isDraft ? T.accent + "0e" : T.surface, borderRadius: T.radiusSm, border: `1px solid ${isDraft ? T.accent + "55" : T.border}`, padding: 10, display: "flex", flexDirection: "column", gap: 6 }}>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 2 }}>
                             {locked
                               ? <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 600, color: "#10b981" }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>Confirmed — re-open to edit</span>
-                              : <span style={{ fontSize: 10.5, color: T.textDim }}>Shift</span>}
+                              : isDraft
+                                ? <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, color: T.accent }}><span style={{ width: 6, height: 6, borderRadius: 8, background: T.accent }} />New shift — added on save</span>
+                                : <span style={{ fontSize: 10.5, color: T.textDim }}>Shift</span>}
                             <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
                               <span style={{ fontSize: 12, fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{sessionNetHours(it).toFixed(2)}h</span>
                               {/* Delete the whole shift. Hidden while confirmed —
@@ -19553,8 +19628,8 @@ ${jobsCtx || "No jobs found."}`;
                                   that is guaranteed to fail. */}
                               {!locked && (
                                 <button
-                                  onClick={() => setTsPersonEditModal(m => ({ ...m, confirmDelete: { id: it.id, date: it.date, hours: sessionNetHours(it) } }))}
-                                  title="Delete this shift"
+                                  onClick={() => isDraft ? removeDraftSession(it.id) : setTsPersonEditModal(m => ({ ...m, confirmDelete: { id: it.id, date: it.date, hours: sessionNetHours(it) } }))}
+                                  title={isDraft ? "Discard this shift" : "Delete this shift"}
                                   style={{ width: 24, height: 24, flexShrink: 0, borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: "none", color: T.textDim, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}
                                   onMouseEnter={e => { e.currentTarget.style.color = "#ef4444"; e.currentTarget.style.borderColor = "#ef444455"; e.currentTarget.style.background = "#ef444412"; }}
                                   onMouseLeave={e => { e.currentTarget.style.color = T.textDim; e.currentTarget.style.borderColor = T.border; e.currentTarget.style.background = "none"; }}
@@ -19568,7 +19643,7 @@ ${jobsCtx || "No jobs found."}`;
                               no start has no window, so there is nothing left to
                               own its lunch/break rows or compute hours from. */}
                           {punchRow({ key: "in", label: "In", color: "#10b981", value: it.clockIn, onChange: v => patchSession(it.id, { clockIn: v }),
-                            onDelete: () => setTsPersonEditModal(m => ({ ...m, confirmDelete: { id: it.id, date: it.date, hours: sessionNetHours(it) } })), locked })}
+                            onDelete: () => isDraft ? removeDraftSession(it.id) : setTsPersonEditModal(m => ({ ...m, confirmDelete: { id: it.id, date: it.date, hours: sessionNetHours(it) } })), locked })}
                           {it.events.filter(ev => !ev._deleted).map(ev => punchRow({
                             key: ev.id,
                             label: EVENT_META[ev.eventType]?.label || ev.eventType,
@@ -19583,7 +19658,16 @@ ${jobsCtx || "No jobs found."}`;
                               Suppressed while someone is already clocked in, since
                               the server refuses a second open session. */}
                           {punchRow({ key: "out", label: "Out", color: "#ef4444", value: it.clockOut, onChange: v => patchSession(it.id, { clockOut: v }),
-                            onDelete: (activeEntry || !it.clockOut) ? null : () => setTsPersonEditModal(m => ({ ...m, confirmReopen: { id: it.id, date: it.date, out: it.clockOut } })), locked })}
+                            onDelete: (isDraft || activeEntry || !it.clockOut) ? null : () => setTsPersonEditModal(m => ({ ...m, confirmReopen: { id: it.id, date: it.date, out: it.clockOut } })), locked })}
+                          {isDraft && draftInvalid(it) && (
+                            <div style={{ fontSize: 10.5, fontWeight: 600, color: "#ef4444", paddingLeft: 2 }}>
+                              {!it.clockIn || !it.clockOut
+                                ? "A new shift needs both an in and an out punch."
+                                : new Date(it.clockOut) <= new Date(it.clockIn)
+                                  ? "The out punch has to be after the in punch."
+                                  : "A shift can't end in the future."}
+                            </div>
+                          )}
                           {canAdd && (
                             <div style={{ position: "relative", paddingLeft: 2 }}>
                               <button onClick={() => setTsPersonEditModal(m => ({ ...m, addMenuFor: m.addMenuFor === it.id ? null : it.id }))} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "5px 10px", borderRadius: T.radiusPill, border: `1px dashed ${T.border}`, background: "none", color: T.textDim, fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
@@ -19610,7 +19694,7 @@ ${jobsCtx || "No jobs found."}`;
             {/* Footer */}
             <div style={{ padding: "16px 24px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
               <button onClick={() => setTsPersonEditModal(null)} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-              <button onClick={saveAll} disabled={saving || activeOutInvalid} title={activeOutInvalid ? "The out punch has to be after the clock-in time." : undefined} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: (saving || activeOutInvalid) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: (saving || activeOutInvalid) ? 0.7 : 1 }}>
+              <button onClick={saveAll} disabled={saving || activeOutInvalid || badDrafts.length > 0} title={activeOutInvalid ? "The out punch has to be after the clock-in time." : badDrafts.length > 0 ? "A new shift needs an in and an out punch, with the out after the in and not in the future." : undefined} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: (saving || activeOutInvalid || badDrafts.length > 0) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: (saving || activeOutInvalid || badDrafts.length > 0) ? 0.7 : 1 }}>
                 {saving ? "Saving…" : "Save Changes"}
               </button>
             </div>

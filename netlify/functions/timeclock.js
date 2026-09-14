@@ -572,7 +572,7 @@ export async function handler(event) {
     //     reconcile them — edit breaks after clock-out.
     //
     // A confirmed timesheet is always locked (re-open it first).
-    if (action === "adminEditEvent" || action === "adminAddEvent" || action === "adminDeleteEvent" || action === "adminDeleteEntry" || action === "adminReopenEntry") {
+    if (action === "adminEditEvent" || action === "adminAddEvent" || action === "adminDeleteEvent" || action === "adminAddEntry" || action === "adminDeleteEntry" || action === "adminReopenEntry") {
       let _me;
       try { _me = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
       if (!_me.isAdmin) return err(403, "Admin only");
@@ -737,6 +737,64 @@ export async function handler(event) {
         const entries = recomputeOwners([owner?.id]);
         try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
         return json(200, { ok: true, eventId, entries });
+      }
+
+      // ── Add a whole shift that was never punched ─────────────────────────
+      // The "they forgot to clock in, or out, or both" fix for a day that has no
+      // session at all. adminClockIn/adminClockOut can't serve it: both work
+      // through person.activeClockIn, so the pair would put the worker back on
+      // the clock and only close out once someone noticed. This writes the
+      // completed punch straight into the log instead.
+      if (action === "adminAddEntry") {
+        const { personId, clockIn, clockOut } = body;
+        if (!personId || !clockIn || !clockOut) return err(400, "Missing personId, clockIn, or clockOut");
+        if (!validTs(clockIn) || !validTs(clockOut)) return err(400, "Invalid clockIn or clockOut");
+        const inMs = new Date(clockIn).getTime(), outMs = new Date(clockOut).getTime();
+        if (outMs <= inMs) return err(400, "The out punch has to be after the in punch");
+        if (outMs > Date.now() + 60000) return err(400, "A shift can't end in the future");
+
+        const target = people.find(x => String(x.id) === String(personId));
+        if (!target) return err(404, "Person not found");
+
+        // Overlap is refused rather than merged. ownerPunch() resolves a
+        // lunch/break row to whichever punch window contains it, so two
+        // overlapping punches would both adopt the same rows and deduct the same
+        // lunch twice — and the day would read as two shifts worked in parallel.
+        // An open shift counts as running to now for this test.
+        const clash = log.find(e =>
+          !e.eventType && !e.deletedAt && e.clockIn &&
+          String(e.personId) === String(personId) &&
+          new Date(e.clockIn).getTime() < outMs &&
+          (e.clockOut ? new Date(e.clockOut).getTime() : Date.now()) > inMs);
+        if (clash) return err(409, `That overlaps the shift already recorded on ${clash.date}. Edit that one instead.`);
+
+        // Same guard for the live session, which has no row in the log yet.
+        const openMs = openClockInMs(personId);
+        if (openMs != null && outMs > openMs) return err(409, "They are on the clock right now. Clock them out first, then add the missing shift.");
+
+        // A confirmed day is locked exactly as editing one is: a new punch there
+        // would quietly move a payroll total that has already been signed off.
+        const day = localDayOf(clockIn);
+        if (log.some(e => !e.eventType && !e.deletedAt && e.confirmed && String(e.personId) === String(personId) && e.date === day))
+          return err(409, "That day is in a confirmed timesheet. Re-open the timesheet to add a shift.");
+
+        // Net of any lunch/break rows already sitting in the window — an orphan
+        // lunch from a deleted shift, or events the admin is adding in the same
+        // save. recomputeOwners re-derives it again on every later change.
+        const entry = {
+          id: `tc_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          personId: target.id,
+          date: day,
+          clockIn,
+          clockOut,
+          hours: netHoursForPunch(clockIn, clockOut, log.filter(r => String(r.personId) === String(personId))),
+          jobRefs: [],
+          note: typeof body.note === "string" ? body.note : "",
+          source: "admin",
+        };
+        log.push(entry);
+        try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save clock entry"); }
+        return json(200, { ok: true, entry });
       }
 
       // ── Delete an entire past shift ──────────────────────────────────────
