@@ -12208,6 +12208,11 @@ ${jobsCtx || "No jobs found."}`;
     const fresh = sel ? (allItems.find(x => x.id === sel.id) || sel) : null;
     const parent = fresh ? tasks.find(x => x.id === fresh.id) : null;
     // _opHrs / _panelHrs / _jobHrs / _opPct / _jobPct are defined at component level
+    // One green tick marks "already on the grid" in the column picker. Both the
+    // field rows and the template pills use it, so the two sections read the same;
+    // it replaces an "Added" label and a bare text tick that sat at two different
+    // sizes in the theme's dim grey and were easy to miss.
+    const addedTick = size => <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="#22c55e" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>;
 
 
     return <div ref={viewScrollRef} style={{ position: "relative", flex: 1, minHeight: 0, overflowY: "auto", scrollbarGutter: "stable" }}>
@@ -12227,7 +12232,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* ── Column picker (anchored to the "+" cell in column headers) ── */}
       {(colPickerOpen || colPickerExiting) && createPortal(<>
         {colPickerOpen && <div onMouseDown={() => setColPickerOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 9998 }} />}
-        <div className={colPickerExiting ? undefined : "anim-drop"} onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} style={{ position: "fixed", top: colPickerAnchor?.top ?? 100, right: colPickerAnchor?.right ?? 100, width: 300, maxHeight: colPickerAnchor?.maxHeight ?? "70vh", overflowY: "auto", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 12px 36px rgba(0,0,0,0.4)", zIndex: 9999, animation: colPickerExiting ? "fadeOutDrop 0.2s ease-out both" : undefined, pointerEvents: colPickerExiting ? "none" : "auto", fontFamily: T.font, color: T.text }}>
+        <div className={colPickerExiting ? undefined : "anim-drop"} onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} style={{ position: "fixed", ...(colPickerAnchor?.up ? { bottom: colPickerAnchor.bottom } : { top: colPickerAnchor?.top ?? 100 }), right: colPickerAnchor?.right ?? 100, width: 300, maxHeight: colPickerAnchor?.maxHeight ?? "70vh", overflowX: "hidden", overflowY: "auto", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, boxShadow: "0 12px 36px rgba(0,0,0,0.4)", zIndex: 9999, animation: colPickerExiting ? "fadeOutDrop 0.2s ease-out both" : (colPickerAnchor?.up ? "menuInUp 0.15s ease-out both" : undefined), pointerEvents: colPickerExiting ? "none" : "auto", fontFamily: T.font, color: T.text }}>
         {/* Section: Link to Job Field */}
         <div style={{ padding: "10px 14px 6px", borderBottom: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>Link to Job Field</div>
@@ -12235,15 +12240,15 @@ ${jobsCtx || "No jobs found."}`;
             {FIELD_COL_CATALOG.map((fc, fci) => {
               const alreadyAdded = customCols.some(c => c.fieldKey === fc.fieldKey);
               return <button key={fc.fieldKey} disabled={alreadyAdded} onClick={() => { if (alreadyAdded) return; const id = uid(); setCustomCols(prev => [...prev, { id, label: fc.label, type: fc.type, fieldKey: fc.fieldKey }]); setColWidths(prev => [...prev.slice(0, -1), fc.defaultWidth, prev[prev.length - 1]]); setEngColWidths(prev => [...prev.slice(0, -1), fc.defaultWidth, prev[prev.length - 1]]); setColPickerOpen(false); }}
-                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: T.radiusXs, border: "none", background: alreadyAdded ? T.surface : "transparent", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, transition: "background 0.12s", opacity: alreadyAdded ? 0.45 : 1, animation: `toolDrop 0.14s ${fci * 38}ms both ease-out` }}
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: T.radiusXs, border: "none", background: "transparent", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, transition: "background 0.12s", animation: `toolDrop 0.14s ${fci * 38}ms both ease-out` }}
                 onMouseEnter={e => { if (!alreadyAdded) e.currentTarget.style.background = T.hoverStrong; }}
                 onMouseLeave={e => { if (!alreadyAdded) e.currentTarget.style.background = "transparent"; }}>
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 1 }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{fc.label}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: alreadyAdded ? T.textDim : T.text }}>{fc.label}</span>
                   <span style={{ fontSize: 10, color: T.textDim }}>{fc.description}</span>
                 </div>
                 {alreadyAdded
-                  ? <span style={{ fontSize: 10, color: T.textDim, fontWeight: 600 }}>Added ✓</span>
+                  ? addedTick(18)
                   : <span style={{ fontSize: 11, color: T.accent, fontWeight: 700 }}>+ Add</span>}
               </button>;
             })}
@@ -12262,14 +12267,16 @@ ${jobsCtx || "No jobs found."}`;
                 setColWidths(prev => [...prev.slice(0, -1), tpl.width, prev[prev.length - 1]]);
                 setEngColWidths(prev => [...prev.slice(0, -1), tpl.width, prev[prev.length - 1]]);
                 setColPickerOpen(false);
-              }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 9px", borderRadius: T.radiusPill, border: `1px solid ${alreadyAdded ? T.border : T.accent + "44"}`, background: alreadyAdded ? T.surface : T.accent + "08", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, opacity: alreadyAdded ? 0.5 : 1, transition: "all 0.12s", animation: `toolDrop 0.14s ${ti * 38}ms both ease-out` }}
-                onMouseEnter={e => { if (!alreadyAdded) e.currentTarget.style.background = T.hoverStrong; }}
-                onMouseLeave={e => { if (!alreadyAdded) e.currentTarget.style.background = T.hover; }}>
+              // No hover fill on these pills. The handlers that used to be here set
+              // T.hoverStrong on enter and T.hover on LEAVE rather than restoring the
+              // resting tint, so every pill the pointer crossed stayed darkened for as
+              // long as the panel was open and the grid ended up in two colours at once.
+              }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 9px", borderRadius: T.radiusPill, border: `1px solid ${alreadyAdded ? T.border : T.accent + "44"}`, background: alreadyAdded ? "transparent" : T.accent + "08", cursor: alreadyAdded ? "default" : "pointer", fontFamily: T.font, transition: "all 0.12s", animation: `toolDrop 0.14s ${ti * 38}ms both ease-out` }}>
                 <div style={{ display: "flex", flex: 1, alignItems: "center", gap: 6 }}>
                   <span style={{ fontSize: 9, color: T.textDim, fontWeight: 600, background: T.surface, padding: "1px 5px", borderRadius: 8, border: `1px solid ${T.border}`, flexShrink: 0 }}>{tpl.type === "select" ? "LIST" : tpl.type === "number" ? "NUM" : "TXT"}</span>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: T.text }}>{tpl.label}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: alreadyAdded ? T.textDim : T.text }}>{tpl.label}</span>
                 </div>
-                {alreadyAdded ? <span style={{ fontSize: 9, color: T.textDim }}>✓</span> : <span style={{ fontSize: 10, color: T.accent, fontWeight: 700 }}>+</span>}
+                {alreadyAdded ? addedTick(15) : <span style={{ fontSize: 10, color: T.accent, fontWeight: 700 }}>+</span>}
               </button>;
             })}
           </div>
@@ -13116,10 +13123,18 @@ ${jobsCtx || "No jobs found."}`;
                     </div>
                   );
                 })}
-                <div style={{ ...hdrCell, padding: 0, borderRight: `1px solid ${T.border}` }}>
+                <div style={{ ...hdrCell, padding: 0, background: "transparent", borderRight: `1px solid ${T.border}` }}>
                   <button
                     onMouseDown={e => e.stopPropagation()}
-                    onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setColPickerAnchor({ top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right), maxHeight: Math.max(200, window.innerHeight - r.bottom - 24) }); setColPickerOpen(o => !o); setExportOpen(false); }}
+                    onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect();
+                      // Anchored downward the panel ran off the bottom of the window whenever the
+                      // header sat low on screen, and its Custom Column section -- the last one --
+                      // was simply unreachable. Flip it above the "+" when the room under the
+                      // button can't hold the panel and there is more room over it.
+                      const below = window.innerHeight - r.bottom - 24, above = r.top - 24;
+                      const up = below < 360 && above > below;
+                      setColPickerAnchor({ ...(up ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }), up, right: Math.max(8, window.innerWidth - r.right), maxHeight: Math.max(200, up ? above : below) });
+                      setColPickerOpen(o => !o); setExportOpen(false); }}
                     onMouseEnter={e => { if (!colPickerOpen) { e.currentTarget.style.background = T.hover; e.currentTarget.style.color = T.accent; } }}
                     onMouseLeave={e => { if (!colPickerOpen) { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = T.textDim; } }}
                     title="Add column"
