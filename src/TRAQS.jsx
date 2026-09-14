@@ -3987,7 +3987,24 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     //
     // LIGHT mode is unchanged -- there the ring is doing the opposite job
     // (a groove darker than a near-white card) and a black-ish value is right.
-    document.documentElement.style.setProperty("--tq-surface-edge", _edge(lightSurface ? "#C2C8D1" : "#3A3A42"));
+    // SURFACES CARRY NO EDGE. Frosted glass is the blur, the tint and the cast
+    // shadow — nothing is drawn around it.
+    //
+    // This used to be `_edge(...)`: a lit top lip, a lit bottom lip, and a 1px
+    // ring around the whole box. The ring is the part that read as a border, but
+    // the lips go with it — keeping them would leave a surface bright along two
+    // sides and bare down the other two, which reads as a half-finished frame
+    // rather than as a cleaner panel.
+    //
+    // A no-op shadow rather than removing the variable: it is composed into
+    // `box-shadow: var(--tq-surface-edge), <cast shadow>` in four places, and an
+    // empty value would make those declarations invalid and take the cast shadow
+    // down with it. To restore the edge, put `_edge(lightSurface ? "#C2C8D1" :
+    // "#3A3A42")` back here — nothing else needs to change.
+    //
+    // CONTROLS keep their ring (--tq-control-edge below). A button still has to
+    // read as an object sitting on the glass, not as more glass.
+    document.documentElement.style.setProperty("--tq-surface-edge", "0 0 0 0 transparent");
     document.documentElement.style.setProperty("--tq-control-edge", _edge(lightSurface ? "rgba(0,0,0,0.30)" : "#474751"));
     // Separate fill for the list cards (.tq-lglass-card) — currently a little
     // CLEARER than the shared one, not denser. It started out the other way round on
