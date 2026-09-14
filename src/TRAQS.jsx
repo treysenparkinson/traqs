@@ -25881,7 +25881,7 @@ ${jobsCtx || "No jobs found."}`;
                 ? { animation: "staggerUp 0.32s cubic-bezier(0.34, 1.56, 0.64, 1) both", animationDelay: `${Math.min(i, 14) * 32}ms` }
                 : {});
               return (<>
-                <div className="tq-drop" onClick={() => setClockAccessOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+                <div onClick={() => setClockAccessOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>Per-worker access</div>
                   </div>
@@ -25931,7 +25931,7 @@ ${jobsCtx || "No jobs found."}`;
           {(() => {
             const payOn = dp.filter(p => (p.payType || "hourly") !== "salary").length;
             return (<>
-              <div className="tq-drop" onClick={() => setPayClockOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
+              <div onClick={() => setPayClockOpen(o => !o)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
                 <div style={{ ...stLabel, flex: 1, marginBottom: 0 }}>Hourly</div>
                 <span style={{ fontSize: 12, fontWeight: 700, color: payOn > 0 ? T.accent : T.textDim }}>{payOn}/{dp.length}</span>
                 <span style={{ transform: payClockOpen ? "rotate(90deg)" : "none", transition: "transform 0.22s ease", color: T.textDim, lineHeight: 0 }}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg></span>
@@ -29634,7 +29634,11 @@ ${jobsCtx || "No jobs found."}`;
             {/* Standalone chevron — no pill, no border. The circled arrow read as
                 a second dismiss control competing with the close button opposite it; a bare
                 chevron is unambiguously "go back one step". */}
-            <Tip label="Back"><button onClick={() => setFastTraqsPhase("intro")} style={{ width: 28, height: 32, border: "none", background: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, flexShrink: 0 }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18 L9 12 L15 6"/></svg></button></Tip>
+            {/* Square frame + pill radius. The app-wide button hover paints an ::after
+                with `border-radius: inherit`, so a button with no radius of its own
+                gets a rectangular wash; and a non-square frame makes even a pill
+                radius come out as a lozenge. Both are needed for a round highlight. */}
+            <Tip label="Back"><button onClick={() => setFastTraqsPhase("intro")} style={{ width: 32, height: 32, borderRadius: T.radiusPill, border: "none", background: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, flexShrink: 0 }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18 L9 12 L15 6"/></svg></button></Tip>
             <div style={{ flex: 1 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                 <span style={{ fontSize: 17, fontWeight: 900, color: T.accent, fontFamily: T.font, letterSpacing: "-0.045em" }}>FAST TRAQS</span>
