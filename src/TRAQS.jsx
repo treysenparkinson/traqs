@@ -11224,7 +11224,7 @@ ${jobsCtx || "No jobs found."}`;
           {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
             <span style={{ lineHeight: 0, display: "flex" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/></svg></span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
-            <Tip label="Clear clipboard"><button onClick={() => setClipboard(null)} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button></Tip>
+            <Tip label="Clear clipboard"><button onClick={() => setClipboard(null)} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 L6 18"/><path d="M6 6 L18 18"/></svg></button></Tip>
           </div>}
           {can("editJobs") && (
             // Slide-out wrapper — keeps "+ New Job" mounted while jobSelectMode is true so
@@ -14892,7 +14892,7 @@ ${jobsCtx || "No jobs found."}`;
           {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
             <span style={{ lineHeight: 0, display: "flex" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/></svg></span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
-            <Tip label="Clear clipboard"><button onClick={() => setClipboard(null)} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button></Tip>
+            <Tip label="Clear clipboard"><button onClick={() => setClipboard(null)} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 L6 18"/><path d="M6 6 L18 18"/></svg></button></Tip>
           </div>}
           {/* Zoom cluster. No `gap` on the row: the reset button collapses to zero
               width when zoomed out, and a gap would leave a dead 5px hole behind it
@@ -21324,7 +21324,7 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ flex: 1, fontSize: 14, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
               <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, flexShrink: 0 }}>{fm(t.end)}</span>
             </div>
-            {can("editJobs") && <button onClick={() => setConfirmDelete({ title: t.title, id: t.id, pid: null })} style={{ background: "transparent", border: "none", borderRadius: T.radiusPill, padding: "5px 7px", fontSize: 11, color: T.danger, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>✕</button>}
+            {can("editJobs") && <button onClick={() => setConfirmDelete({ title: t.title, id: t.id, pid: null })} style={{ background: "transparent", border: "none", borderRadius: T.radiusPill, padding: "5px 7px", fontSize: 11, color: T.danger, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 L6 18"/><path d="M6 6 L18 18"/></svg></button>}
           </div>)}
         </>}
       </div>;
@@ -22364,7 +22364,7 @@ ${jobsCtx || "No jobs found."}`;
                       <div key={att.key} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 8px 4px 6px", background: T.accent + "18", border: `1px solid ${T.accent}44`, borderRadius: 12, maxWidth: 180 }}>
                         <span style={{ lineHeight: 0 }}>{att.mimeType.startsWith("image/") ? <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg> : <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>}</span>
                         <span style={{ fontSize: 11, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{att.filename}</span>
-                        <button onClick={() => setChatAttachments(prev => prev.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: T.textDim, fontSize: 13, cursor: "pointer", padding: "0 2px", lineHeight: 1, flexShrink: 0 }}>✕</button>
+                        <button onClick={() => setChatAttachments(prev => prev.filter((_, j) => j !== i))} style={{ background: "none", border: "none", color: T.textDim, fontSize: 13, cursor: "pointer", padding: "0 2px", lineHeight: 1, flexShrink: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 L6 18"/><path d="M6 6 L18 18"/></svg></button>
                       </div>
                     ))}
                   </div>
@@ -25756,7 +25756,7 @@ ${jobsCtx || "No jobs found."}`;
                   <div key={i} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, width: 18, textAlign: "center", flexShrink: 0 }}>{i + 1}</span>
                     <input value={step} onChange={e => setSignOffTemplateEditing(p => ({ ...p, steps: p.steps.map((s, j) => j === i ? e.target.value : s) }))} onFocus={stInputFocus} onBlur={stInputBlur} placeholder={`Step ${i + 1} label…`} style={{ ...stInput, padding: "8px 10px", fontSize: 13 }} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); setSignOffTemplateEditing(p => ({ ...p, steps: [...p.steps.slice(0, i + 1), "", ...p.steps.slice(i + 1)] })); } }} />
-                    {(ed.steps || []).length > 1 && <button onClick={() => setSignOffTemplateEditing(p => ({ ...p, steps: p.steps.filter((_, j) => j !== i) }))} style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "0 3px", flexShrink: 0 }}>✕</button>}
+                    {(ed.steps || []).length > 1 && <button onClick={() => setSignOffTemplateEditing(p => ({ ...p, steps: p.steps.filter((_, j) => j !== i) }))} style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "0 3px", flexShrink: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 L6 18"/><path d="M6 6 L18 18"/></svg></button>}
                   </div>
                 ))}
                 <button onClick={() => setSignOffTemplateEditing(p => ({ ...p, steps: [...(p.steps || []), ""] }))} style={{ alignSelf: "flex-start", marginTop: 2, padding: "5px 10px", borderRadius: T.radiusPill, border: `1px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Step</button>
@@ -26940,7 +26940,7 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 20px", borderBottom: `1px solid ${T.border}`, background: T.surface, flexShrink: 0 }}>
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></svg>
           <span style={{ fontSize: 16, fontWeight: 700, color: T.text, flex: 1 }}>TRAQS Cloud</span>
-          <button onClick={() => setBcModalState("closing")} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "0 4px" }}>✕</button>
+          <button onClick={() => setBcModalState("closing")} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", lineHeight: 1, padding: "0 4px" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 L6 18"/><path d="M6 6 L18 18"/></svg></button>
         </div>
         <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px" }}>
           {(() => {
@@ -27598,7 +27598,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 {exportSelRows.size > 0 && <span style={{ fontSize: 12, color: T.accent, fontWeight: 700, background: T.accent + "18", padding: "3px 10px", borderRadius: 12 }}>{exportSelRows.size} selected</span>}
-                <button onClick={closeExportSheet} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 22, lineHeight: 1, padding: "0 4px" }}>✕</button>
+                <button onClick={closeExportSheet} style={{ background: "none", border: "none", cursor: "pointer", color: T.textDim, fontSize: 22, lineHeight: 1, padding: "0 4px" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 L6 18"/><path d="M6 6 L18 18"/></svg></button>
               </div>
             </div>
             {/* Toolbar */}
@@ -29257,7 +29257,7 @@ ${jobsCtx || "No jobs found."}`;
                         style={{ flex: 1, padding: "7px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }}
                         onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border}
                         onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); setSignOffTemplateEditing(p => ({ ...p, steps: [...p.steps.slice(0, i + 1), "", ...p.steps.slice(i + 1)] })); } }} />
-                      {(signOffTemplateEditing.steps || []).length > 1 && <button onClick={() => setSignOffTemplateEditing(p => ({ ...p, steps: p.steps.filter((_, j) => j !== i) }))} style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "0 3px", flexShrink: 0 }}>✕</button>}
+                      {(signOffTemplateEditing.steps || []).length > 1 && <button onClick={() => setSignOffTemplateEditing(p => ({ ...p, steps: p.steps.filter((_, j) => j !== i) }))} style={{ background: "none", border: "none", color: T.danger, cursor: "pointer", fontSize: 14, lineHeight: 1, padding: "0 3px", flexShrink: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 L6 18"/><path d="M6 6 L18 18"/></svg></button>}
                     </div>
                   ))}
                   <button onClick={() => setSignOffTemplateEditing(p => ({ ...p, steps: [...(p.steps || []), ""] }))} style={{ alignSelf: "flex-start", marginTop: 2, padding: "5px 10px", borderRadius: T.radiusPill, border: `1px dashed ${T.accent}55`, background: T.accent + "08", color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Step</button>
@@ -29631,14 +29631,17 @@ ${jobsCtx || "No jobs found."}`;
         <div className="ft-input-enter" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 26, padding: 0, width: "100%", maxWidth: 620, maxHeight: "88vh", overflow: "auto", border: `1px solid ${T.accent}33`, boxShadow: `0 40px 100px rgba(0,0,0,0.65), 0 0 50px ${T.accent}14` }}>
           {/* Header */}
           <div style={{ padding: "18px 24px 16px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12 }}>
-            <Tip label="Back"><button onClick={() => setFastTraqsPhase("intro")} style={{ width: 32, height: 32, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.text, fontFamily: T.font, flexShrink: 0 }}>←</button></Tip>
+            {/* Standalone chevron — no pill, no border. The circled arrow read as
+                a second dismiss control competing with the close button opposite it; a bare
+                chevron is unambiguously "go back one step". */}
+            <Tip label="Back"><button onClick={() => setFastTraqsPhase("intro")} style={{ width: 28, height: 32, border: "none", background: "none", padding: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, flexShrink: 0 }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M15 18 L9 12 L15 6"/></svg></button></Tip>
             <div style={{ flex: 1 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                 <span style={{ fontSize: 17, fontWeight: 900, color: T.accent, fontFamily: T.font, letterSpacing: "-0.045em" }}>FAST TRAQS</span>
               </div>
               <div style={{ fontSize: 12, color: T.textSec, fontFamily: T.font, marginTop: 1 }}>Type a description OR drop in a file — FAST TRAQS detects jobs, panels, and assignments automatically</div>
             </div>
-            <button onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }} style={{ width: 32, height: 32, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.text, fontFamily: T.font, flexShrink: 0 }}>✕</button>
+            <button onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }} style={{ width: 32, height: 32, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.text, fontFamily: T.font, flexShrink: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 L6 18"/><path d="M6 6 L18 18"/></svg></button>
           </div>
 
           {/* Body */}
@@ -29653,20 +29656,20 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ border: `2px dashed ${T.border}`, borderRadius: T.radiusSm, padding: "14px 16px", textAlign: "center", cursor: "pointer", transition: "border-color 0.2s" }} onClick={() => document.getElementById("traqs-file-input").click()} onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.accent; }} onDragLeave={e => { e.currentTarget.style.borderColor = T.border; }} onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor = T.border; const files = Array.from(e.dataTransfer.files); setUploadFiles(prev => [...prev, ...files]); }}>
                 <input id="traqs-file-input" type="file" multiple accept=".xlsx,.xls,.csv,.pdf,.txt,.png,.jpg,.jpeg" style={{ display: "none" }} onChange={e => { const files = Array.from(e.target.files); setUploadFiles(prev => [...prev, ...files]); e.target.value = ""; }} />
               <input id="traqs-camera-input" type="file" accept="image/*" capture="environment" style={{ display: "none" }} onChange={e => { const files = Array.from(e.target.files); setUploadFiles(prev => [...prev, ...files]); e.target.value = ""; }} />
-                <div style={{ fontSize: 22, marginBottom: 4 }}>📁</div>
+                <div style={{ marginBottom: 6, color: T.textSec, display: "flex", justifyContent: "center" }}><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
                 <div style={{ fontSize: 13, color: T.textSec, fontWeight: 500 }}>Drop files here or click to browse</div>
                 <div style={{ fontSize: 11, color: T.textDim, marginTop: 2 }}>Excel, CSV, PDF, images, text</div>
               </div>
               {isMobile && <button onClick={() => document.getElementById("traqs-camera-input").click()} disabled={uploadProcessing}
                 style={{ width: "100%", marginTop: 8, padding: "11px", borderRadius: T.radiusSm, border: `1px dashed ${T.accent}55`, background: T.accent + "08", cursor: uploadProcessing ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontSize: 13, color: T.accent, fontWeight: 600, fontFamily: T.font, opacity: uploadProcessing ? 0.5 : 1 }}>
-                <span style={{ fontSize: 18 }}>📷</span> Take Photo of Drawing or Document
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Take Photo of Drawing or Document
               </button>}
               {uploadFiles.length > 0 && <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
                 {uploadFiles.map((f, i) => <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 10px", background: T.bg, borderRadius: T.radiusXs, fontSize: 12 }}>
                   <span style={{ lineHeight: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></span>
                   <span style={{ flex: 1, color: T.text, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</span>
                   <span style={{ color: T.textSec, fontSize: 11 }}>{(f.size / 1024).toFixed(1)}KB</span>
-                  {!uploadProcessing && <button onClick={e => { e.stopPropagation(); setUploadFiles(prev => prev.filter((_, j) => j !== i)); }} style={{ background: "none", border: "none", color: T.text, cursor: "pointer", fontSize: 14, padding: "0 4px" }}>✕</button>}
+                  {!uploadProcessing && <button onClick={e => { e.stopPropagation(); setUploadFiles(prev => prev.filter((_, j) => j !== i)); }} style={{ background: "none", border: "none", color: T.text, cursor: "pointer", fontSize: 14, padding: "0 4px" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 L6 18"/><path d="M6 6 L18 18"/></svg></button>}
                 </div>)}
               </div>}
             </div>
@@ -29683,7 +29686,12 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
               <Btn size="sm" variant="ghost" onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }}>Cancel</Btn>
               <Btn size="sm" onClick={processUpload} disabled={uploadProcessing || (uploadFiles.length === 0 && !uploadText.trim())}>
-                {uploadProcessing ? "⏳ Processing..." : "⚡ Process"}
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  {uploadProcessing
+                    ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "spin 0.9s linear infinite", flexShrink: 0 }}><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+                    : <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M13 2 L3 14 L12 14 L11 22 L21 10 L12 10 Z"/></svg>}
+                  {uploadProcessing ? "Processing..." : "Process"}
+                </span>
               </Btn>
             </div>
           </div>
@@ -29732,7 +29740,7 @@ ${jobsCtx || "No jobs found."}`;
                   {_checkedClients.length > 0 && ` · ${_checkedClients.length} new client${_checkedClients.length !== 1 ? "s" : ""}`}
                 </div>
               </div>
-              <button onClick={() => { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); setPreviewData(null); }} style={{ width: 32, height: 32, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.text, fontFamily: T.font, flexShrink: 0 }}>✕</button>
+              <button onClick={() => { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); setPreviewData(null); }} style={{ width: 32, height: 32, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.bg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, color: T.text, fontFamily: T.font, flexShrink: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 L6 18"/><path d="M6 6 L18 18"/></svg></button>
             </div>
 
             {/* Body */}
@@ -30000,7 +30008,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           </div>
           <Tip label="Open in Messages tab"><button onClick={() => { setChatThread(quickChat); setView("messages"); markThreadRead(quickChat.threadKey); setQuickChat(null); }} style={{ background: T.accent + "18", border: `1px solid ${T.accent}44`, color: T.accent, borderRadius: T.radiusPill, padding: "5px 11px", cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 }}>Full View →</button></Tip>
-          <button onClick={() => setQuickChat(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}>✕</button>
+          <button onClick={() => setQuickChat(null)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 22, cursor: "pointer", padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 L6 18"/><path d="M6 6 L18 18"/></svg></button>
         </div>
         {/* Messages scroll area */}
         <div style={{ flex: 1, overflow: "auto", padding: "10px 0" }}>
