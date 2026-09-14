@@ -17,6 +17,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.matrixsystems.traqs.services.AppState
+import com.matrixsystems.traqs.ui.theme.TRadius
+import com.matrixsystems.traqs.ui.theme.TIcons
+import com.matrixsystems.traqs.ui.theme.frostedCard
+import com.matrixsystems.traqs.ui.theme.glassSurfaceTint
 import com.matrixsystems.traqs.ui.theme.traQSColors
 import com.google.gson.Gson
 
@@ -58,35 +62,38 @@ Help with scheduling questions and workload analysis. You cannot make changes â€
     }
 
     Scaffold(
-        containerColor = c.bg,
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.AutoAwesome, null, tint = c.accent, modifier = Modifier.size(20.dp))
+                        Icon(TIcons.Spark, null, tint = c.accent, modifier = Modifier.size(20.dp))
                         Text("Ask TRAQS", fontWeight = FontWeight.Bold, color = c.text)
                     }
                 },
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBack, "Back", tint = c.accent)
+                        Icon(TIcons.ArrowLeft, "Back", tint = c.accent)
                     }
                 },
                 actions = {
                     if (messages.isNotEmpty()) {
                         IconButton(onClick = { messages = emptyList() }) {
-                            Icon(Icons.Default.DeleteSweep, "Clear", tint = c.muted)
+                            Icon(TIcons.Trash, "Clear", tint = c.muted)
                         }
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = c.surface)
+                // Transparent: the nav graph paints ONE page canvas and every screen
+                // floats on it. An opaque bar here cut a white slab across the
+                // top of that canvas on every pushed screen.
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         },
         bottomBar = {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(c.surface)
+                    .background(c.surface.copy(alpha = glassSurfaceTint))
                     .padding(12.dp)
                     .navigationBarsPadding(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -105,7 +112,7 @@ Help with scheduling questions and workload analysis. You cannot make changes â€
                         focusedBorderColor = c.accent,
                         unfocusedBorderColor = c.border
                     ),
-                    shape = RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(TRadius.md),
                     maxLines = 3
                 )
                 IconButton(
@@ -133,22 +140,22 @@ Help with scheduling questions and workload analysis. You cannot make changes â€
                     if (isLoading) {
                         CircularProgressIndicator(color = c.accent, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                     } else {
-                        Icon(Icons.Default.Send, "Send", tint = if (inputText.isNotBlank()) c.accent else c.muted)
+                        Icon(TIcons.Send, "Send", tint = if (inputText.isNotBlank()) c.accent else c.muted)
                     }
                 }
             }
         }
     ) { padding ->
         if (messages.isEmpty() && !isLoading) {
-            Box(Modifier.fillMaxSize().padding(padding).background(c.bg), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Box(contentAlignment = Alignment.TopEnd) {
-                        Icon(Icons.Default.AutoAwesome, null, tint = c.accent, modifier = Modifier.size(48.dp))
+                        Icon(TIcons.Spark, null, tint = c.accent, modifier = Modifier.size(48.dp))
                         if (!isAdmin) {
-                            Icon(Icons.Default.Lock, null, tint = c.muted, modifier = Modifier.size(16.dp))
+                            Icon(TIcons.Lock, null, tint = c.muted, modifier = Modifier.size(16.dp))
                         }
                     }
                     Text("Ask TRAQS", fontWeight = FontWeight.Bold, fontSize = 20.sp, color = c.text)
@@ -178,7 +185,7 @@ Help with scheduling questions and workload analysis. You cannot make changes â€
         } else {
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize().padding(padding).background(c.bg),
+                modifier = Modifier.fillMaxSize().padding(padding),
                 contentPadding = PaddingValues(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
@@ -194,7 +201,7 @@ Help with scheduling questions and workload analysis. You cannot make changes â€
                                     .background(c.accent, androidx.compose.foundation.shape.CircleShape),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.AutoAwesome, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                Icon(TIcons.Spark, null, tint = Color.White, modifier = Modifier.size(14.dp))
                             }
                             Spacer(Modifier.width(8.dp))
                         }
@@ -202,7 +209,7 @@ Help with scheduling questions and workload analysis. You cannot make changes â€
                             modifier = Modifier
                                 .background(
                                     if (isUser) c.accent else c.surface,
-                                    RoundedCornerShape(14.dp)
+                                    RoundedCornerShape(TRadius.sm)
                                 )
                                 .padding(horizontal = 14.dp, vertical = 10.dp)
                                 .widthIn(max = 300.dp)

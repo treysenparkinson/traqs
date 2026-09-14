@@ -22,6 +22,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.matrixsystems.traqs.services.ThemeSettings
 import com.matrixsystems.traqs.ui.theme.parseColor
+import com.matrixsystems.traqs.ui.theme.TRadius
+import com.matrixsystems.traqs.ui.theme.TIcons
+import com.matrixsystems.traqs.ui.theme.TTrack
 import com.matrixsystems.traqs.ui.theme.traQSColors
 import androidx.compose.foundation.border
 
@@ -33,13 +36,13 @@ fun CustomizeScreen(themeSettings: ThemeSettings, onBack: () -> Unit) {
     val currentBgId by themeSettings.bgPresetId.collectAsState()
 
     Scaffold(
-        containerColor = c.bg,
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
-                title = { Text("Customize", fontWeight = FontWeight.Bold, color = c.text) },
+                title = { },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, "Back", tint = c.accent)
+                        Icon(TIcons.ArrowLeft, "Back", tint = c.accent)
                     }
                 },
                 actions = {
@@ -47,19 +50,23 @@ fun CustomizeScreen(themeSettings: ThemeSettings, onBack: () -> Unit) {
                         Text("Reset", color = c.muted)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = c.surface)
+                // Transparent: the nav graph paints ONE page canvas and every screen
+                // floats on it. An opaque bar here cut a white slab across the
+                // top of that canvas on every pushed screen.
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         }
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding).background(c.bg),
+            modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
+item { PageTitle("Customize", subtitle = "Make TRAQS your own") }
             // Live preview card
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Preview", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = c.text)
+                    Text("PREVIEW", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = TTrack.section)
                     val previewAccent = try { parseColor(currentAccent) } catch (_: Exception) { c.accent }
                     val preset = ThemeSettings.BG_PRESETS.firstOrNull { it.id == currentBgId } ?: ThemeSettings.BG_PRESETS.first()
                     val previewBg = try { parseColor(preset.bg) } catch (_: Exception) { c.bg }
@@ -71,8 +78,8 @@ fun CustomizeScreen(themeSettings: ThemeSettings, onBack: () -> Unit) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(previewBg, RoundedCornerShape(12.dp))
-                            .border(1.dp, previewBorder, RoundedCornerShape(12.dp))
+                            .background(previewBg, RoundedCornerShape(TRadius.xs))
+                            .border(1.dp, previewBorder, RoundedCornerShape(TRadius.xs))
                     ) {
                         // Fake nav bar
                         Row(
@@ -88,7 +95,7 @@ fun CustomizeScreen(themeSettings: ThemeSettings, onBack: () -> Unit) {
                                 modifier = Modifier.size(28.dp).clip(CircleShape).background(previewAccent),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(Icons.Default.AutoAwesome, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                Icon(TIcons.Spark, null, tint = Color.White, modifier = Modifier.size(14.dp))
                             }
                         }
                         // Fake job row
@@ -96,8 +103,8 @@ fun CustomizeScreen(themeSettings: ThemeSettings, onBack: () -> Unit) {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(10.dp)
-                                .background(previewSurface, RoundedCornerShape(8.dp))
-                                .border(1.dp, previewBorder, RoundedCornerShape(8.dp))
+                                .background(previewSurface, RoundedCornerShape(TRadius.xs))
+                                .border(1.dp, previewBorder, RoundedCornerShape(TRadius.xs))
                                 .padding(10.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
@@ -108,7 +115,7 @@ fun CustomizeScreen(themeSettings: ThemeSettings, onBack: () -> Unit) {
                             }
                             Box(
                                 modifier = Modifier
-                                    .background(previewAccent.copy(alpha = 0.15f), RoundedCornerShape(6.dp))
+                                    .background(previewAccent.copy(alpha = 0.15f), RoundedCornerShape(TRadius.xs))
                                     .padding(horizontal = 7.dp, vertical = 3.dp)
                             ) {
                                 Text("Active", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = previewAccent)
@@ -121,7 +128,7 @@ fun CustomizeScreen(themeSettings: ThemeSettings, onBack: () -> Unit) {
             // Accent color
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Accent Color", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = c.text)
+                    Text("ACCENT COLOR", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = TTrack.section)
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(ThemeSettings.ACCENT_PRESETS) { hex ->
                             val color = parseColor(hex)
@@ -138,7 +145,7 @@ fun CustomizeScreen(themeSettings: ThemeSettings, onBack: () -> Unit) {
                                     .clickable { themeSettings.setAccent(hex) }
                             ) {
                                 if (isSelected) {
-                                    Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.align(Alignment.Center).size(18.dp))
+                                    Icon(TIcons.Check, null, tint = Color.White, modifier = Modifier.align(Alignment.Center).size(18.dp))
                                 }
                             }
                         }
@@ -149,7 +156,7 @@ fun CustomizeScreen(themeSettings: ThemeSettings, onBack: () -> Unit) {
             // Background theme
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Background Theme", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = c.text)
+                    Text("BACKGROUND THEME", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = TTrack.section)
                     ThemeSettings.BG_PRESETS.forEach { preset ->
                         val isSelected = currentBgId == preset.id
                         val bgColor = parseColor(preset.bg)
@@ -157,11 +164,11 @@ fun CustomizeScreen(themeSettings: ThemeSettings, onBack: () -> Unit) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(bgColor, RoundedCornerShape(10.dp))
+                                .background(bgColor, RoundedCornerShape(TRadius.xs))
                                 .border(
                                     2.dp,
                                     if (isSelected) c.accent else parseColor(preset.border),
-                                    RoundedCornerShape(10.dp)
+                                    RoundedCornerShape(TRadius.xs)
                                 )
                                 .clickable { themeSettings.setBgPreset(preset.id) }
                                 .padding(12.dp),
@@ -177,7 +184,7 @@ fun CustomizeScreen(themeSettings: ThemeSettings, onBack: () -> Unit) {
                                 )
                             }
                             if (isSelected) {
-                                Icon(Icons.Default.CheckCircle, null, tint = c.accent, modifier = Modifier.size(20.dp))
+                                Icon(TIcons.CheckCircle, null, tint = c.accent, modifier = Modifier.size(20.dp))
                             }
                         }
                     }

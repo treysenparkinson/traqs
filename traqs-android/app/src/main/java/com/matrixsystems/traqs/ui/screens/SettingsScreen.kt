@@ -28,6 +28,10 @@ import androidx.navigation.NavHostController
 import com.matrixsystems.traqs.services.AppState
 import com.matrixsystems.traqs.services.AuthManager
 import com.matrixsystems.traqs.ui.navigation.Screen
+import com.matrixsystems.traqs.ui.theme.TCard
+import com.matrixsystems.traqs.ui.theme.TRadius
+import com.matrixsystems.traqs.ui.theme.TTrack
+import com.matrixsystems.traqs.ui.theme.TIcons
 import com.matrixsystems.traqs.ui.theme.traQSColors
 
 // Settings — mirrors iOS SettingsView. Theme & accent, account info, about, sign out.
@@ -59,34 +63,33 @@ fun SettingsScreen(
         }.getOrNull()?.toString() ?: "—"
     }
 
-    Scaffold(containerColor = c.bg) { padding ->
+    Scaffold(containerColor = Color.Transparent) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .statusBarsPadding()
-                .background(c.bg),
+                ,
             contentPadding = PaddingValues(bottom = 32.dp)
         ) {
-            // Header: title + close (matches iOS SettingsView)
+            // Close sits on its own row above the title, not beside it: PageTitle
+            // is a 56pt display line that claims the full width, so a control
+            // sharing its row would either squeeze the title or be pushed off.
             item {
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp),
+                    horizontalArrangement = Arrangement.End,
                 ) {
-                    Text("Settings", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = c.text)
-                    Spacer(Modifier.weight(1f))
-                    TRAQSIconBtn(icon = Icons.Default.Close, contentDescription = "Close", onClick = onDismiss)
+                    TRAQSIconBtn(icon = TIcons.Close, contentDescription = "Close", onClick = onDismiss)
                 }
             }
+            item { PageTitle("Settings") }
 
             // Appearance
             item { SectionLabel("Appearance") }
             item {
                 SettingsRow(
-                    icon = Icons.Default.AutoAwesome,
+                    icon = TIcons.Spark,
                     title = "Theme & accent",
                     subtitle = "Customize colors and palette",
                     onClick = { navController.navigate(Screen.Customize.route) }
@@ -121,7 +124,7 @@ fun SettingsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 20.dp),
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(TRadius.lg),
                     color = c.danger.copy(alpha = 0.10f),
                     border = BorderStroke(1.dp, c.danger.copy(alpha = 0.30f))
                 ) {
@@ -132,9 +135,9 @@ fun SettingsScreen(
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Logout, null, tint = c.danger, modifier = Modifier.size(14.dp))
+                        Icon(TIcons.LogOut, null, tint = c.danger, modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("SIGN OUT", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = c.danger, letterSpacing = 1.0.sp)
+                        Text("SIGN OUT", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = c.danger, letterSpacing = TTrack.status)
                     }
                 }
             }
@@ -150,7 +153,7 @@ private fun SectionLabel(title: String) {
         fontSize = 11.sp,
         fontWeight = FontWeight.Bold,
         color = c.muted,
-        letterSpacing = 1.4.sp,
+        letterSpacing = TTrack.section,
         modifier = Modifier.padding(start = 24.dp, top = 4.dp, bottom = 8.dp)
     )
 }
@@ -163,12 +166,11 @@ private fun SettingsRow(
     onClick: () -> Unit
 ) {
     val c = traQSColors
-    Surface(
-        onClick = onClick,
+    TCard(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
-        shape = RoundedCornerShape(12.dp),
-        color = c.surface,
-        border = BorderStroke(1.dp, c.border)
+        radius = TRadius.lg,
+        rim = false,
+        onClick = onClick,
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(14.dp),
@@ -178,7 +180,7 @@ private fun SettingsRow(
             Box(
                 modifier = Modifier
                     .size(width = 36.dp, height = 28.dp)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(TRadius.sm))
                     .background(c.accent.copy(alpha = 0.10f)),
                 contentAlignment = Alignment.Center
             ) {
@@ -188,7 +190,7 @@ private fun SettingsRow(
                 Text(title, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = c.text)
                 subtitle?.let { Text(it, fontSize = 11.sp, color = c.muted) }
             }
-            Icon(Icons.Default.ChevronRight, null, tint = c.muted, modifier = Modifier.size(14.dp))
+            Icon(TIcons.ChevronRight, null, tint = c.muted, modifier = Modifier.size(14.dp))
         }
     }
 }
@@ -196,13 +198,12 @@ private fun SettingsRow(
 @Composable
 private fun SettingsDetailRow(label: String, value: String) {
     val c = traQSColors
-    Surface(
+    TCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
-        shape = RoundedCornerShape(12.dp),
-        color = c.surface,
-        border = BorderStroke(1.dp, c.border)
+        radius = TRadius.lg,
+        rim = false,
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(14.dp),

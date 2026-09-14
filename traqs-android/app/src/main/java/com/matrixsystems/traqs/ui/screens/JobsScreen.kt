@@ -33,6 +33,13 @@ import com.matrixsystems.traqs.services.BreakReminderScheduler
 import com.matrixsystems.traqs.services.parseFlexibleISO
 import com.matrixsystems.traqs.ui.navigation.Screen
 import com.matrixsystems.traqs.ui.theme.parseColor
+import com.matrixsystems.traqs.ui.theme.TCard
+import com.matrixsystems.traqs.ui.theme.TagKind
+import com.matrixsystems.traqs.ui.theme.TagPill
+import com.matrixsystems.traqs.ui.theme.TRadius
+import com.matrixsystems.traqs.ui.theme.tabPillBottomInset
+import com.matrixsystems.traqs.ui.theme.TTrack
+import com.matrixsystems.traqs.ui.theme.TIcons
 import com.matrixsystems.traqs.ui.theme.traQSColors
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -49,7 +56,9 @@ import kotlin.math.min
 fun JobsScreen(
     appState: AppState,
     navController: NavHostController,
-    onAskTRAQS: () -> Unit = { navController.navigate(Screen.AskTRAQS.route) }
+    onAskTRAQS: () -> Unit = { navController.navigate(Screen.AskTRAQS.route) },
+    jobsMode: JobsMode = JobsMode.LIST,
+    onToggleMode: (JobsMode) -> Unit = {},
 ) {
     val c = traQSColors
     val jobs by appState.jobs.collectAsState()
@@ -124,11 +133,12 @@ fun JobsScreen(
     }
 
     Scaffold(
-        containerColor = c.bg,
+        containerColor = Color.Transparent,
         topBar = {
             TRAQSHeader {
+                JobsViewToggle(mode = jobsMode, onToggle = onToggleMode)
                 TRAQSIconBtn(
-                    icon = Icons.Default.Search,
+                    icon = TIcons.Search,
                     contentDescription = "Search"
                 ) {
                     showSearch = !showSearch
@@ -136,7 +146,7 @@ fun JobsScreen(
                 }
                 if (currentPerson?.isAdmin == true) {
                     TRAQSIconBtn(
-                        icon = Icons.Default.Add,
+                        icon = TIcons.Plus,
                         contentDescription = "New",
                         iconColor = c.accent
                     ) { showJobEdit = true }
@@ -150,9 +160,15 @@ fun JobsScreen(
                 onRefresh = { isManualRefreshing = true; appState.loadAll() }
             ) {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize().background(c.bg),
-                    contentPadding = PaddingValues(bottom = 16.dp)
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(bottom = tabPillBottomInset)
                 ) {
+                    // The page title SCROLLS with the list rather than sitting in
+                    // the header — same as iOS TasksView, which moved it into the
+                    // content so there is no fixed-vs-scrolling seam under the
+                    // header.
+                    item { PageTitle("Jobs") }
+
                     // Inline search bar — only shown when the header's search icon is toggled.
                     // Matches iOS TasksView: slides in below the header with focus + Cancel.
                     if (showSearch) {
@@ -166,12 +182,12 @@ fun JobsScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
                                         .weight(1f)
-                                        .clip(RoundedCornerShape(20.dp))
+                                        .clip(RoundedCornerShape(TRadius.md))
                                         .background(c.surface)
-                                        .border(1.dp, c.border, RoundedCornerShape(20.dp))
+                                        .border(1.dp, c.border, RoundedCornerShape(TRadius.md))
                                         .padding(horizontal = 12.dp, vertical = 9.dp)
                                 ) {
-                                    Icon(Icons.Default.Search, null, tint = c.muted, modifier = Modifier.size(14.dp))
+                                    Icon(TIcons.Search, null, tint = c.muted, modifier = Modifier.size(14.dp))
                                     Spacer(Modifier.width(8.dp))
                                     BasicTextField(
                                         value = searchText,
@@ -190,7 +206,7 @@ fun JobsScreen(
                                     )
                                     if (searchText.isNotEmpty()) {
                                         IconButton(onClick = { searchText = "" }, modifier = Modifier.size(20.dp)) {
-                                            Icon(Icons.Default.Cancel, null, tint = c.muted, modifier = Modifier.size(14.dp))
+                                            Icon(TIcons.XCircle, null, tint = c.muted, modifier = Modifier.size(14.dp))
                                         }
                                     }
                                 }
@@ -310,7 +326,7 @@ data class TaskAssignment(
     }
 }
 
-private fun computeMyTasks(
+internal fun computeMyTasks(
     jobs: List<TRAQSJob>,
     me: Int?,
     search: String
@@ -478,7 +494,7 @@ private fun spanLabel(segment: JobsSegment, selectedDate: Date): String {
 private fun SpanSummaryLine(tasks: List<TaskAssignment>, label: String, modifier: Modifier = Modifier) {
     val c = traQSColors
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
-        Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = 1.4.sp)
+        Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = TTrack.section)
         Spacer(Modifier.weight(1f))
         Text(
             if (tasks.isEmpty()) "No tasks" else "${tasks.size} ${if (tasks.size == 1) "task" else "tasks"}",
@@ -505,7 +521,7 @@ private fun SectionHeader(title: String, modifier: Modifier = Modifier) {
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
             color = c.text,
-            letterSpacing = 1.6.sp,
+            letterSpacing = TTrack.section,
             maxLines = 1,
             softWrap = false,
         )
@@ -591,12 +607,13 @@ private fun AllJobsCard(
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // Thin tappable header — collapsed by default. The full-size TaskCard
         // is reserved for YOUR TASKS and the panels revealed on expand.
-        Card(
+        TCard(
             modifier = Modifier.fillMaxWidth(),
+            radius = TRadius.lg,
+            // No rim on a list row — the glass bevel is for cards, and traced
+            // around every row of a long list it reads as a bright wire fence.
+            rim = false,
             onClick = { isExpanded = !isExpanded },
-            shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = c.card),
-            border = BorderStroke(1.dp, c.border),
         ) {
             Row(
                 modifier = Modifier
@@ -632,7 +649,7 @@ private fun AllJobsCard(
                     }
                 }
                 Icon(
-                    if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    if (isExpanded) TIcons.ChevronUp else TIcons.ChevronDown,
                     contentDescription = null,
                     tint = c.muted,
                     modifier = Modifier.size(18.dp),
@@ -664,11 +681,9 @@ private fun AllJobsCard(
 @Composable
 private fun TasksEmptyState() {
     val c = traQSColors
-    Card(
+    TCard(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = c.card),
-        border = BorderStroke(1.dp, c.border)
+        radius = TRadius.lg,
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(20.dp),
@@ -695,6 +710,35 @@ private fun deptForTitle(title: String, jobColorHex: String): Pair<String, Color
         "callback" in key -> "CALLBACK" to Color(0xFFF43F5E)
         "contract" in key -> "CONTRACT" to Color(0xFF10B981)
         else -> title.uppercase() to (try { parseColor(jobColorHex) } catch (_: Exception) { Color(0xFF3D7FFF) })
+    }
+}
+
+// Map a department label onto a bright TagPill family. Mirrors iOS deptKind —
+// the department already has a colour in the schedule, but a pill needs a
+// tint/ink PAIR that stays legible, and the raw dept colour does not give one.
+private fun deptTagKind(label: String): TagKind {
+    val k = label.lowercase()
+    return when {
+        k.contains("repair") || k.contains("cut") -> TagKind.AMBER
+        k.contains("inspect") || k.contains("wire") -> TagKind.SKY
+        k.contains("callback") -> TagKind.MAGENTA
+        k.contains("contract") -> TagKind.GREEN
+        else -> TagKind.INDIGO   // install / layout / default
+    }
+}
+
+@Composable
+private fun TaskStatusPill(status: JobStatus, busyByOther: Boolean) {
+    if (busyByOther) {
+        TagPill(label = "In progress", kind = TagKind.AMBER, dot = true)
+        return
+    }
+    when (status) {
+        JobStatus.NOT_STARTED -> TagPill(label = "Up next", kind = TagKind.GREEN)
+        JobStatus.PENDING -> TagPill(label = "Pending", kind = TagKind.NEUTRAL)
+        JobStatus.IN_PROGRESS -> TagPill(label = "Active", kind = TagKind.INDIGO, dot = true)
+        JobStatus.ON_HOLD -> TagPill(label = "On hold", kind = TagKind.AMBER)
+        JobStatus.FINISHED -> TagPill(label = "Done", kind = TagKind.GREEN)
     }
 }
 
@@ -765,49 +809,37 @@ fun TaskCard(
     }
     val dateRange = remember(task) { formatDateRange(task.startStr, task.endStr) }
 
-    Card(
+    // The active task keeps its accent tint and ring — that is what makes the one
+    // job you are clocked into findable down a long list, and frosting it like
+    // every other row would throw that away.
+    TCard(
         modifier = modifier.fillMaxWidth(),
+        // The house hero radius, same as every other card in the app. The inset
+        // below has to clear the CORNER, not the straight edge — on a 42dp curve
+        // a tight inset leaves the top-left pill and the progress bar's ends
+        // riding the arc.
+        radius = TRadius.hero,
+        rim = false,
+        tint = if (isActive) c.accent.copy(alpha = 0.08f) else null,
+        ring = if (isActive) c.accent.copy(alpha = 0.45f) else null,
         onClick = onOpen,
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isActive) c.accent.copy(alpha = 0.08f) else c.card
-        ),
-        border = BorderStroke(1.dp, if (isActive) c.accent.copy(alpha = 0.45f) else c.border)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
-            // Top row: dept tag + job number [+ NOT ASSIGNED chip] ····· status badge
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    deptLabel,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White,
-                    letterSpacing = 0.8.sp,
-                    modifier = Modifier
-                        .background(deptColor, RoundedCornerShape(6.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                )
+        Column(modifier = Modifier.padding(horizontal = 22.dp, vertical = 20.dp)) {
+            // Top row: bright type + status pills ···· job number
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                TagPill(label = deptLabel, kind = deptTagKind(deptLabel))
+                if (!task.isMine) {
+                    TagPill(label = "Not assigned", kind = TagKind.NEUTRAL)
+                } else {
+                    TaskStatusPill(status = task.status, busyByOther = busyByOther)
+                }
+                Spacer(Modifier.weight(1f))
                 task.job.jobNumber?.takeIf { it.isNotEmpty() }?.let {
                     Text("#$it", fontSize = 11.sp, color = c.muted)
                 }
-                if (!task.isMine) {
-                    Text(
-                        "NOT ASSIGNED",
-                        fontSize = 8.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = c.muted,
-                        letterSpacing = 0.5.sp,
-                        maxLines = 1,
-                        softWrap = false,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(50))
-                            .background(c.text.copy(alpha = 0.05f))
-                            .border(1.dp, c.border, RoundedCornerShape(50))
-                            .padding(horizontal = 5.dp, vertical = 2.dp)
-                    )
-                }
-                Spacer(Modifier.weight(1f))
-                StatusBadge(if (busyByOther) JobStatus.IN_PROGRESS else task.status)
             }
 
             // Headline
@@ -831,7 +863,7 @@ fun TaskCard(
             ) {
                 if (task.op != null && task.panel.title.isNotEmpty()) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Icon(Icons.Default.ViewModule, null, tint = c.muted, modifier = Modifier.size(12.dp))
+                        Icon(TIcons.Layers, null, tint = c.muted, modifier = Modifier.size(12.dp))
                         Text(task.panel.title, fontSize = 11.sp, color = c.muted, maxLines = 1)
                     }
                 }
@@ -841,7 +873,11 @@ fun TaskCard(
                 }
             }
 
-            HorizontalDivider(color = c.border.copy(alpha = 0.5f), modifier = Modifier.padding(vertical = 12.dp))
+            // No rule between the title block and the progress block — white
+            // space does the separating. A hairline across a card this size cut
+            // it into two panels and added a hard horizontal fighting the card's
+            // own curve; the gap alone groups the title with its subline.
+            Spacer(Modifier.height(18.dp))
 
             if (isActive) {
                 ActiveRow(
@@ -987,7 +1023,7 @@ private fun ActiveRow(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = accent,
-                    letterSpacing = 1.0.sp
+                    letterSpacing = TTrack.status
                 )
                 if (onBreakNow && breakCountdown.isNotEmpty()) {
                     Spacer(Modifier.width(6.dp))
@@ -1020,14 +1056,14 @@ private fun ActiveRow(
                 onClick = onBreak,
                 enabled = !isBreakBusy && !isStopping,
                 modifier = Modifier.weight(1f).height(40.dp),
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(TRadius.md),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFF59E0B), contentColor = Color.White)
             ) {
                 if (isBreakBusy) {
                     CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
                 } else {
                     Icon(
-                        if (onBreakNow) Icons.Default.PlayArrow else Icons.Default.Pause,
+                        if (onBreakNow) TIcons.Play else TIcons.Pause,
                         null, modifier = Modifier.size(14.dp)
                     )
                     Spacer(Modifier.width(6.dp))
@@ -1038,7 +1074,7 @@ private fun ActiveRow(
                 onClick = onStop,
                 enabled = !isStopping && !isBreakBusy,
                 modifier = Modifier.weight(1f).height(40.dp),
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(TRadius.md),
                 colors = ButtonDefaults.buttonColors(containerColor = c.accent, contentColor = Color.White)
             ) {
                 if (isStopping) {
@@ -1046,7 +1082,7 @@ private fun ActiveRow(
                     Spacer(Modifier.width(6.dp))
                     Text("STOPPING…", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
                 } else {
-                    Icon(Icons.Default.Stop, null, modifier = Modifier.size(14.dp))
+                    Icon(TIcons.Square, null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("STOP", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
                 }
@@ -1082,7 +1118,7 @@ private fun QueuedRow(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = labelColor,
-                    letterSpacing = 1.0.sp
+                    letterSpacing = TTrack.status
                 )
                 Spacer(Modifier.weight(1f))
                 Text("$pct%", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = c.muted)
@@ -1108,13 +1144,13 @@ private fun QueuedRow(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
+                    .clip(RoundedCornerShape(TRadius.md))
                     .background(c.surface)
-                    .border(1.dp, c.border, RoundedCornerShape(20.dp))
+                    .border(1.dp, c.border, RoundedCornerShape(TRadius.md))
                     .padding(horizontal = 12.dp, vertical = 6.dp)
                     .alpha(0.55f)
             ) {
-                Icon(Icons.Default.Person, null, modifier = Modifier.size(14.dp), tint = c.muted)
+                Icon(TIcons.User, null, modifier = Modifier.size(14.dp), tint = c.muted)
                 Spacer(Modifier.width(6.dp))
                 Text(busyByFirstName, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = 0.8.sp)
             }
@@ -1122,7 +1158,7 @@ private fun QueuedRow(
             Button(
                 onClick = onLog,
                 enabled = !isStarting,
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(TRadius.md),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = c.surface, contentColor = c.text),
                 border = BorderStroke(1.dp, c.border)
@@ -1132,7 +1168,7 @@ private fun QueuedRow(
                     Spacer(Modifier.width(6.dp))
                     Text("STARTING…", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
                 } else {
-                    Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(14.dp))
+                    Icon(TIcons.Play, null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("LOG TIME", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
                 }
@@ -1168,10 +1204,8 @@ private fun LogTimeConfirmSheet(
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 16.dp)) {
             // Summary card
-            Card(
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = c.card),
-                border = BorderStroke(1.dp, c.border)
+            TCard(
+                radius = TRadius.lg,
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1182,7 +1216,7 @@ private fun LogTimeConfirmSheet(
                             color = Color.White,
                             letterSpacing = 0.8.sp,
                             modifier = Modifier
-                                .background(deptColor, RoundedCornerShape(6.dp))
+                                .background(deptColor, RoundedCornerShape(TRadius.xs))
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                         task.job.jobNumber?.takeIf { it.isNotEmpty() }?.let {
@@ -1216,7 +1250,7 @@ private fun LogTimeConfirmSheet(
                 OutlinedButton(
                     onClick = onDismiss,
                     modifier = Modifier.weight(1f).height(48.dp),
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(TRadius.lg),
                     border = BorderStroke(1.dp, c.border),
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = c.text)
                 ) { Text("CANCEL", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp) }
@@ -1224,10 +1258,10 @@ private fun LogTimeConfirmSheet(
                 Button(
                     onClick = onConfirm,
                     modifier = Modifier.weight(1f).height(48.dp),
-                    shape = RoundedCornerShape(24.dp),
+                    shape = RoundedCornerShape(TRadius.lg),
                     colors = ButtonDefaults.buttonColors(containerColor = c.accent, contentColor = Color.White)
                 ) {
-                    Icon(Icons.Default.PlayArrow, null, modifier = Modifier.size(14.dp))
+                    Icon(TIcons.Play, null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(6.dp))
                     Text("START TIMER", fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
                 }
@@ -1241,7 +1275,7 @@ private fun LogTimeConfirmSheet(
 private fun MetricRow(label: String, value: String, sub: String? = null) {
     val c = traQSColors
     Row(verticalAlignment = Alignment.Top) {
-        Text(label.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = 1.2.sp)
+        Text(label.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = TTrack.section)
         Spacer(Modifier.weight(1f))
         Column(horizontalAlignment = Alignment.End) {
             Text(value, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = c.text)
@@ -1290,11 +1324,9 @@ private fun formatDateRange(startStr: String, endStr: String): String {
 fun EngineeringQueueSection(appState: AppState, queue: List<Pair<TRAQSJob, Panel>>) {
     val c = traQSColors
     var isExpanded by remember { mutableStateOf(true) }
-    Card(
+    TCard(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = c.card),
-        border = BorderStroke(1.dp, c.border)
+        radius = TRadius.lg,
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(
@@ -1304,7 +1336,7 @@ fun EngineeringQueueSection(appState: AppState, queue: List<Pair<TRAQSJob, Panel
             ) {
                 Text("Engineering Queue (${queue.size})", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = c.text)
                 Icon(
-                    if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    if (isExpanded) TIcons.ChevronUp else TIcons.ChevronDown,
                     null, tint = c.muted, modifier = Modifier.size(20.dp)
                 )
             }
@@ -1325,8 +1357,8 @@ fun EngineeringCard(job: TRAQSJob, panel: Panel, appState: AppState) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(c.surface, RoundedCornerShape(8.dp))
-            .border(1.dp, c.border, RoundedCornerShape(8.dp))
+            .background(c.surface, RoundedCornerShape(TRadius.xs))
+            .border(1.dp, c.border, RoundedCornerShape(TRadius.xs))
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)

@@ -6,7 +6,11 @@ import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import com.matrixsystems.traqs.ui.theme.PageBackground
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -57,6 +61,14 @@ fun TRAQSNavGraph(
         else -> Screen.Main.route
     }
 
+    // THE page canvas, painted once for the whole graph rather than per screen.
+    //
+    // Every surface above it is translucent, so they are all translucent onto
+    // this one thing — and a per-screen copy would restart the blobs' 23s/29s
+    // drift on every push. Pushed destinations (Settings, Admin, Job Detail…)
+    // get it for free here; the tabbed shell sits inside the same box.
+    Box(Modifier.fillMaxSize()) {
+    PageBackground()
     NavHost(
         navController = navController,
         startDestination = Screen.Splash.route,
@@ -196,5 +208,6 @@ fun TRAQSNavGraph(
         composable(Screen.Admin.route) {
             AdminScreen(appState = appState, onBack = { navController.popBackStack() })
         }
+    }
     }
 }

@@ -17,6 +17,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.matrixsystems.traqs.services.AuthManager
+import com.matrixsystems.traqs.ui.theme.TRadius
+import com.matrixsystems.traqs.ui.theme.TIcons
 import com.matrixsystems.traqs.ui.theme.traQSColors
 
 @Composable
@@ -81,10 +83,10 @@ fun LoginScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(56.dp),
-                        shape = RoundedCornerShape(28.dp),
+                        shape = RoundedCornerShape(TRadius.lg),
                         colors = ButtonDefaults.buttonColors(containerColor = c.accent)
                     ) {
-                        Icon(Icons.Default.Lock, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        Icon(TIcons.Lock, null, tint = Color.White, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(10.dp))
                         Text(
                             text = "Sign in with Auth0",

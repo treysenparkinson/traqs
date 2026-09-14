@@ -35,6 +35,11 @@ import com.matrixsystems.traqs.services.AppState
 import com.matrixsystems.traqs.services.parseFlexibleISO
 import com.matrixsystems.traqs.ui.navigation.Screen
 import com.matrixsystems.traqs.ui.theme.parseColor
+import com.matrixsystems.traqs.ui.theme.TCard
+import com.matrixsystems.traqs.ui.theme.TRadius
+import com.matrixsystems.traqs.ui.theme.frostedCard
+import com.matrixsystems.traqs.ui.theme.TTrack
+import com.matrixsystems.traqs.ui.theme.TIcons
 import com.matrixsystems.traqs.ui.theme.traQSColors
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -53,7 +58,9 @@ enum class ScheduleSegment(val label: String) { DAY("Day"), WEEK("Week") }
 fun GanttScreen(
     appState: AppState,
     navController: NavHostController,
-    onAskTRAQS: () -> Unit = { navController.navigate(Screen.AskTRAQS.route) }
+    onAskTRAQS: () -> Unit = { navController.navigate(Screen.AskTRAQS.route) },
+    jobsMode: JobsMode = JobsMode.GANTT,
+    onToggleMode: (JobsMode) -> Unit = {},
 ) {
     val c = traQSColors
     val jobs by appState.jobs.collectAsState()
@@ -85,14 +92,15 @@ fun GanttScreen(
     }
 
     Scaffold(
-        containerColor = c.bg,
+        containerColor = Color.Transparent,
         topBar = {
             TRAQSHeader {
-                TRAQSIconBtn(icon = Icons.Default.CalendarMonth, contentDescription = "Today") {
+                JobsViewToggle(mode = jobsMode, onToggle = onToggleMode)
+                TRAQSIconBtn(icon = TIcons.Calendar, contentDescription = "Today") {
                     selectedDate = Date(startOfDay(System.currentTimeMillis()))
                 }
                 if (currentPerson?.isAdmin == true) {
-                    TRAQSIconBtn(icon = Icons.Default.Add, contentDescription = "New", iconColor = c.accent) {
+                    TRAQSIconBtn(icon = TIcons.Plus, contentDescription = "New", iconColor = c.accent) {
                         navController.navigate(Screen.JobEdit.createRoute(null))
                     }
                 }
@@ -103,8 +111,8 @@ fun GanttScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(c.bg)
         ) {
+            PageTitle("Schedule")
             // Day / Week segmented toggle (matches iOS GanttView).
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
@@ -205,14 +213,14 @@ private fun DateSelector(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        TRAQSIconBtn(icon = Icons.Default.ChevronLeft, contentDescription = "Prev", onClick = onPrev)
+        TRAQSIconBtn(icon = TIcons.ChevronLeft, contentDescription = "Prev", onClick = onPrev)
         Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
             Text(
                 subtitle,
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Bold,
                 color = c.muted,
-                letterSpacing = 1.3.sp
+                letterSpacing = TTrack.section
             )
             Text(
                 mainFmt.format(selected),
@@ -221,15 +229,16 @@ private fun DateSelector(
                 color = c.text
             )
         }
-        TRAQSIconBtn(icon = Icons.Default.ChevronRight, contentDescription = "Next", onClick = onNext)
+        TRAQSIconBtn(icon = TIcons.ChevronRight, contentDescription = "Next", onClick = onNext)
         Spacer(Modifier.weight(1f))
         // TODAY pill — jumps back to today
         Surface(
             onClick = onToday,
-            shape = RoundedCornerShape(20.dp),
-            color = c.surface,
-            border = BorderStroke(1.dp, c.border),
-            shadowElevation = 1.dp,
+            shape = RoundedCornerShape(TRadius.md),
+            // Near-solid, not the card tint: a button has to read as an opaque
+            // object ON the glass, not as more glass. Matches TRAQSIconBtn.
+            color = c.surface.copy(alpha = 0.90f),
+            border = BorderStroke(1.dp, c.controlHairline),
         ) {
             Text(
                 "TODAY",
@@ -247,13 +256,7 @@ private fun DateSelector(
 private fun StatPill(label: String, value: String, modifier: Modifier = Modifier) {
     val c = traQSColors
     // iOS statCard: small SBox raised, left-aligned, label xs(11)+1.0 tracking, value h3(18).
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(8.dp),
-        color = c.surface,
-        border = BorderStroke(1.dp, c.border),
-        shadowElevation = 1.dp,
-    ) {
+    TCard(modifier = modifier, radius = TRadius.lg) {
         Column(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -263,7 +266,7 @@ private fun StatPill(label: String, value: String, modifier: Modifier = Modifier
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = c.muted,
-                letterSpacing = 1.0.sp
+                letterSpacing = TTrack.status
             )
             Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = c.text)
         }
@@ -373,7 +376,7 @@ private fun DayTimeline(
                         .width(280.dp)
                         .height(height)
                         .padding(end = 8.dp, bottom = 2.dp)
-                        .clip(RoundedCornerShape(8.dp))
+                        .clip(RoundedCornerShape(TRadius.xs))
                         .background(block.color.copy(alpha = 0.85f))
                         .clickable { onBlockClick(block) }
                         .padding(horizontal = 10.dp, vertical = 6.dp)
@@ -626,15 +629,16 @@ private fun WeekHeaderBar(
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
             color = c.muted,
-            letterSpacing = 1.4.sp
+            letterSpacing = TTrack.section
         )
         Spacer(Modifier.weight(1f))
         Surface(
             onClick = onToday,
-            shape = RoundedCornerShape(20.dp),
-            color = c.surface,
-            border = BorderStroke(1.dp, c.border),
-            shadowElevation = 1.dp,
+            shape = RoundedCornerShape(TRadius.md),
+            // Near-solid, not the card tint: a button has to read as an opaque
+            // object ON the glass, not as more glass. Matches TRAQSIconBtn.
+            color = c.surface.copy(alpha = 0.90f),
+            border = BorderStroke(1.dp, c.controlHairline),
         ) {
             Text(
                 "TODAY",

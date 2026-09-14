@@ -30,6 +30,12 @@ import androidx.navigation.NavHostController
 import com.matrixsystems.traqs.models.Message
 import com.matrixsystems.traqs.services.AppState
 import com.matrixsystems.traqs.ui.theme.parseColor
+import com.matrixsystems.traqs.ui.theme.TCard
+import com.matrixsystems.traqs.ui.theme.TRadius
+import com.matrixsystems.traqs.ui.theme.tabPillBottomInset
+import com.matrixsystems.traqs.ui.theme.TIcons
+import com.matrixsystems.traqs.ui.theme.frostedCard
+import com.matrixsystems.traqs.ui.theme.glassSurfaceTint
 import com.matrixsystems.traqs.ui.theme.traQSColors
 import java.util.UUID
 
@@ -42,7 +48,12 @@ enum class ChatFilter(val label: String) {
 fun MessagesScreen(
     appState: AppState,
     navController: NavHostController? = null,
-    onAskTRAQS: () -> Unit = {}
+    onAskTRAQS: () -> Unit = {},
+    // Raised while a thread is open so the shell can drop the floating tab bar.
+    // A thread has a composer pinned to the bottom of the screen, and the bar
+    // floats straight over it — you cannot type under a nav pill. iOS solves it
+    // the same way (AppNav.hideTabBar).
+    onThreadOpenChanged: (Boolean) -> Unit = {},
 ) {
     val c = traQSColors
     val messages by appState.messages.collectAsState()
@@ -113,6 +124,10 @@ fun MessagesScreen(
         )
     }
 
+    LaunchedEffect(selectedThreadKey) { onThreadOpenChanged(selectedThreadKey != null) }
+    // Leaving the tab with a thread open would otherwise strand the bar hidden.
+    DisposableEffect(Unit) { onDispose { onThreadOpenChanged(false) } }
+
     if (selectedThreadKey != null) {
         val thread = messages.filter { it.threadKey == selectedThreadKey }
         val threadMsg = thread.firstOrNull()
@@ -129,11 +144,11 @@ fun MessagesScreen(
         )
     } else {
         Scaffold(
-            containerColor = c.bg,
+            containerColor = Color.Transparent,
             topBar = {
                 TRAQSHeader {
-                    TRAQSIconBtn(icon = Icons.Default.Search, contentDescription = "Search") { /* search inline below */ }
-                    TRAQSIconBtn(icon = Icons.Default.Add, contentDescription = "New conversation", iconColor = c.accent) { /* TODO: new DM/group */ }
+                    TRAQSIconBtn(icon = TIcons.Search, contentDescription = "Search") { /* search inline below */ }
+                    TRAQSIconBtn(icon = TIcons.Plus, contentDescription = "New conversation", iconColor = c.accent) { /* TODO: new DM/group */ }
                 }
             }
         ) { padding ->
@@ -148,10 +163,11 @@ fun MessagesScreen(
                 }
             } else {
                 LazyColumn(
-                    modifier = Modifier.fillMaxSize().background(c.bg),
-                    contentPadding = PaddingValues(top = 8.dp, bottom = 16.dp),
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(top = 8.dp, bottom = tabPillBottomInset),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+item { PageTitle("Messages") }
                     item { ChatFilterPills(selected = filter, onSelect = { filter = it }) }
                     items(threads, key = { it.key }) { (threadKey, msgs) ->
                         val lastMsg = msgs.maxByOrNull { it.timestamp }
@@ -185,7 +201,7 @@ private fun ChatFilterPills(selected: ChatFilter, onSelect: (ChatFilter) -> Unit
             val on = selected == f
             Surface(
                 onClick = { onSelect(f) },
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(TRadius.md),
                 color = if (on) c.accent else c.surface,
                 border = BorderStroke(1.dp, if (on) c.accent else c.border)
             ) {
@@ -214,14 +230,12 @@ fun ThreadRow(
     val c = traQSColors
     val authorColor = lastMessage?.authorColor?.let { try { parseColor(it) } catch (_: Exception) { c.accent } } ?: c.accent
 
-    Card(
+    TCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = c.card),
-        border = BorderStroke(1.dp, c.border)
+        radius = TRadius.lg,
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -288,16 +302,19 @@ fun ThreadView(
     }
 
     Scaffold(
-        containerColor = c.bg,
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = { Text(title, fontWeight = FontWeight.Bold, color = c.text, maxLines = 1) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, "Back", tint = c.accent)
+                        Icon(TIcons.ArrowLeft, "Back", tint = c.accent)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = c.surface)
+                // Transparent: the nav graph paints ONE page canvas and every screen
+                // floats on it. An opaque bar here cut a white slab across the
+                // top of that canvas on every pushed screen.
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         },
         bottomBar = {
@@ -305,7 +322,7 @@ fun ThreadView(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(c.surface)
+                        .background(c.surface.copy(alpha = glassSurfaceTint))
                         .padding(12.dp)
                         .navigationBarsPadding(),
                     verticalAlignment = Alignment.CenterVertically,
@@ -324,7 +341,7 @@ fun ThreadView(
                             focusedBorderColor = c.accent,
                             unfocusedBorderColor = c.border
                         ),
-                        shape = RoundedCornerShape(20.dp),
+                        shape = RoundedCornerShape(TRadius.md),
                         singleLine = true
                     )
                     IconButton(
@@ -351,7 +368,7 @@ fun ThreadView(
                         },
                         enabled = inputText.isNotBlank()
                     ) {
-                        Icon(Icons.Default.Send, "Send", tint = if (inputText.isNotBlank()) c.accent else c.muted)
+                        Icon(TIcons.Send, "Send", tint = if (inputText.isNotBlank()) c.accent else c.muted)
                     }
                 }
             }
@@ -359,7 +376,7 @@ fun ThreadView(
     ) { padding ->
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().padding(padding).background(c.bg),
+            modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {

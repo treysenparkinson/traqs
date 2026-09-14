@@ -3,6 +3,12 @@ package com.matrixsystems.traqs.services
 object AppConfig {
     const val NETLIFY_BASE = "https://traqs.netlify.app/.netlify/functions/"
 
+    // Mirrors ENFORCE_CLOCK_JOB_DEPENDENCY in timeclock.js and
+    // AppConfig.enforceClockJobDependency on iOS: the "must be clocked in to
+    // work a job" / "can't clock out while on a job" rules. DISABLED — flip all
+    // three together to re-enable.
+    const val ENFORCE_CLOCK_JOB_DEPENDENCY = false
+
     object Auth0 {
         const val DOMAIN = "matrixpci.us.auth0.com"
         const val CLIENT_ID = "xnuXY9QAr8VaB7so8DfBHydUgTgKbGtt"

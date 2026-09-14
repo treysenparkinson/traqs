@@ -23,6 +23,9 @@ import com.matrixsystems.traqs.models.*
 import com.matrixsystems.traqs.services.AppState
 import com.matrixsystems.traqs.ui.navigation.Screen
 import com.matrixsystems.traqs.ui.theme.parseColor
+import com.matrixsystems.traqs.ui.theme.TCard
+import com.matrixsystems.traqs.ui.theme.TRadius
+import com.matrixsystems.traqs.ui.theme.TIcons
 import com.matrixsystems.traqs.ui.theme.traQSColors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -40,7 +43,7 @@ fun JobDetailScreen(
     val jobColor = try { parseColor(liveJob.color) } catch (_: Exception) { c.accent }
 
     Scaffold(
-        containerColor = c.bg,
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = {
@@ -51,15 +54,18 @@ fun JobDetailScreen(
                 },
                 navigationIcon = {
                     IconButton(onClick = { navController.popBackStack() }) {
-                        Icon(Icons.Default.ArrowBack, "Back", tint = c.accent)
+                        Icon(TIcons.ArrowLeft, "Back", tint = c.accent)
                     }
                 },
                 actions = {
                     IconButton(onClick = { navController.navigate(Screen.JobEdit.createRoute(liveJob.id)) }) {
-                        Icon(Icons.Default.Edit, "Edit", tint = c.accent)
+                        Icon(TIcons.Edit, "Edit", tint = c.accent)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = c.surface)
+                // Transparent: the nav graph paints ONE page canvas and every screen
+                // floats on it. An opaque bar here cut a white slab across the
+                // top of that canvas on every pushed screen.
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         }
     ) { padding ->
@@ -67,16 +73,14 @@ fun JobDetailScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(c.bg),
+                ,
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // Header card
             item {
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = c.card),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, c.border)
+                TCard(
+                    radius = TRadius.lg,
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(
@@ -129,8 +133,8 @@ fun DetailChip(label: String, value: String) {
     val c = traQSColors
     Column(
         modifier = Modifier
-            .background(c.surface, RoundedCornerShape(8.dp))
-            .border(1.dp, c.border, RoundedCornerShape(8.dp))
+            .background(c.surface, RoundedCornerShape(TRadius.xs))
+            .border(1.dp, c.border, RoundedCornerShape(TRadius.xs))
             .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
         Text(label, fontSize = 10.sp, color = c.muted)
@@ -153,8 +157,8 @@ fun PersonChip(person: com.matrixsystems.traqs.models.Person) {
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .background(c.card, RoundedCornerShape(8.dp))
-            .border(1.dp, c.border, RoundedCornerShape(8.dp))
+            .background(c.card, RoundedCornerShape(TRadius.xs))
+            .border(1.dp, c.border, RoundedCornerShape(TRadius.xs))
             .padding(10.dp)
     ) {
         Box(
@@ -180,11 +184,9 @@ fun PanelCard(panel: Panel, job: TRAQSJob, appState: AppState) {
     val currentPerson = appState.currentPerson
     val eng = panel.engineering
 
-    Card(
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = c.card),
-        border = androidx.compose.foundation.BorderStroke(1.dp, c.border),
-        modifier = Modifier.fillMaxWidth()
+    TCard(
+        modifier = Modifier.fillMaxWidth(),
+        radius = TRadius.lg,
     ) {
         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             // Panel header — tappable to expand
@@ -200,7 +202,7 @@ fun PanelCard(panel: Panel, job: TRAQSJob, appState: AppState) {
                     StatusBadge(panel.status)
                     if (panel.subs.isNotEmpty() || eng != null) {
                         Icon(
-                            if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            if (expanded) TIcons.ChevronUp else TIcons.ChevronDown,
                             null, tint = c.muted, modifier = Modifier.size(18.dp)
                         )
                     }
@@ -230,7 +232,10 @@ fun PanelCard(panel: Panel, job: TRAQSJob, appState: AppState) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(label, fontSize = 12.sp, color = c.text)
                                 if (signOff != null) {
-                                    Text("✓ ${signOff.byName} · ${signOff.at.take(10)}", fontSize = 10.sp, color = c.statusFinished)
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Icon(TIcons.Check, null, tint = c.statusFinished, modifier = Modifier.size(10.dp))
+                                        Text("${signOff.byName} · ${signOff.at.take(10)}", fontSize = 10.sp, color = c.statusFinished)
+                                    }
                                 }
                             }
                             if (signOff == null && currentPerson != null && (currentPerson.isAdmin || currentPerson.isEngineer == true)) {
@@ -264,8 +269,8 @@ fun PanelCard(panel: Panel, job: TRAQSJob, appState: AppState) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(c.bg, RoundedCornerShape(6.dp))
-                                .border(1.dp, c.border, RoundedCornerShape(6.dp))
+                                .background(c.bg, RoundedCornerShape(TRadius.xs))
+                                .border(1.dp, c.border, RoundedCornerShape(TRadius.xs))
                                 .padding(8.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically

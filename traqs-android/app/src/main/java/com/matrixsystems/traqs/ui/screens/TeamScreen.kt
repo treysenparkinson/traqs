@@ -27,6 +27,9 @@ import com.matrixsystems.traqs.models.Person
 import com.matrixsystems.traqs.models.TimeOffEntry
 import com.matrixsystems.traqs.services.AppState
 import com.matrixsystems.traqs.ui.theme.parseColor
+import com.matrixsystems.traqs.ui.theme.TCard
+import com.matrixsystems.traqs.ui.theme.TRadius
+import com.matrixsystems.traqs.ui.theme.TIcons
 import com.matrixsystems.traqs.ui.theme.traQSColors
 import java.util.UUID
 
@@ -53,29 +56,33 @@ fun TeamScreen(appState: AppState, onBack: () -> Unit) {
     }
 
     Scaffold(
-        containerColor = c.bg,
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
-                title = { Text("Team", fontWeight = FontWeight.Bold, color = c.text) },
+                title = { },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, "Back", tint = c.accent)
+                        Icon(TIcons.ArrowLeft, "Back", tint = c.accent)
                     }
                 },
                 actions = {
                     IconButton(onClick = { showNewPerson = true }) {
-                        Icon(Icons.Default.PersonAdd, "Add Person", tint = c.accent)
+                        Icon(TIcons.UserPlus, "Add Person", tint = c.accent)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = c.surface)
+                // Transparent: the nav graph paints ONE page canvas and every screen
+                // floats on it. An opaque bar here cut a white slab across the
+                // top of that canvas on every pushed screen.
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         }
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding).background(c.bg),
+            modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+item { PageTitle("Team") }
             items(people, key = { "${it.id}_${it.name}" }) { person ->
                 PersonRow(
                     person = person,
@@ -110,12 +117,10 @@ fun PersonRow(person: Person, opCount: Int, onClick: () -> Unit) {
     val c = traQSColors
     val personColor = try { parseColor(person.color) } catch (_: Exception) { c.accent }
 
-    Card(
+    TCard(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = c.card),
-        border = androidx.compose.foundation.BorderStroke(1.dp, c.border)
+        radius = TRadius.lg,
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -136,11 +141,11 @@ fun PersonRow(person: Person, opCount: Int, onClick: () -> Unit) {
                     Text(person.name, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = c.text)
                     if (person.isAdmin) {
                         Text("Admin", fontSize = 10.sp, color = c.accent,
-                            modifier = Modifier.background(c.accent.copy(alpha = 0.15f), RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 2.dp))
+                            modifier = Modifier.background(c.accent.copy(alpha = 0.15f), RoundedCornerShape(TRadius.xs)).padding(horizontal = 5.dp, vertical = 2.dp))
                     }
                     if (person.isTeamLead == true) {
                         Text("Lead", fontSize = 10.sp, color = Color(0xFFF59E0B),
-                            modifier = Modifier.background(Color(0xFFF59E0B).copy(alpha = 0.15f), RoundedCornerShape(4.dp)).padding(horizontal = 5.dp, vertical = 2.dp))
+                            modifier = Modifier.background(Color(0xFFF59E0B).copy(alpha = 0.15f), RoundedCornerShape(TRadius.xs)).padding(horizontal = 5.dp, vertical = 2.dp))
                     }
                 }
                 Text(person.role, fontSize = 12.sp, color = c.muted)
@@ -197,7 +202,7 @@ fun PersonDetailSheet(person: Person, appState: AppState, onEdit: () -> Unit, on
                         }
                     }
                     IconButton(onClick = onEdit) {
-                        Icon(Icons.Default.Edit, "Edit", tint = c.accent)
+                        Icon(TIcons.Edit, "Edit", tint = c.accent)
                     }
                 }
             }
@@ -205,9 +210,9 @@ fun PersonDetailSheet(person: Person, appState: AppState, onEdit: () -> Unit, on
             // Stats row
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatCard("Active", "$activeTasks", Icons.Default.PlayCircle, Modifier.weight(1f), c.statusInProgress)
-                    StatCard("Pending", "$pendingTasks", Icons.Default.Pending, Modifier.weight(1f), c.statusPending)
-                    StatCard("Cap", "${person.cap}h", Icons.Default.AccessTime, Modifier.weight(1f))
+                    StatCard("Active", "$activeTasks", TIcons.PlayCircle, Modifier.weight(1f), c.statusInProgress)
+                    StatCard("Pending", "$pendingTasks", TIcons.Clock, Modifier.weight(1f), c.statusPending)
+                    StatCard("Cap", "${person.cap}h", TIcons.Clock, Modifier.weight(1f))
                 }
             }
 
@@ -216,15 +221,15 @@ fun PersonDetailSheet(person: Person, appState: AppState, onEdit: () -> Unit, on
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (person.isAdmin) {
                         Text("Admin", fontSize = 11.sp, color = c.accent,
-                            modifier = Modifier.background(c.accent.copy(alpha = 0.15f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 4.dp))
+                            modifier = Modifier.background(c.accent.copy(alpha = 0.15f), RoundedCornerShape(TRadius.xs)).padding(horizontal = 8.dp, vertical = 4.dp))
                     }
                     if (person.isEngineer == true) {
                         Text("Engineer", fontSize = 11.sp, color = Color(0xFF22C55E),
-                            modifier = Modifier.background(Color(0xFF22C55E).copy(alpha = 0.15f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 4.dp))
+                            modifier = Modifier.background(Color(0xFF22C55E).copy(alpha = 0.15f), RoundedCornerShape(TRadius.xs)).padding(horizontal = 8.dp, vertical = 4.dp))
                     }
                     if (person.isTeamLead == true) {
                         Text("Team Lead", fontSize = 11.sp, color = Color(0xFFF59E0B),
-                            modifier = Modifier.background(Color(0xFFF59E0B).copy(alpha = 0.15f), RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 4.dp))
+                            modifier = Modifier.background(Color(0xFFF59E0B).copy(alpha = 0.15f), RoundedCornerShape(TRadius.xs)).padding(horizontal = 8.dp, vertical = 4.dp))
                     }
                 }
             }
@@ -237,8 +242,8 @@ fun PersonDetailSheet(person: Person, appState: AppState, onEdit: () -> Unit, on
                         person.timeOff.forEach { to ->
                             Row(
                                 modifier = Modifier.fillMaxWidth()
-                                    .background(c.card, RoundedCornerShape(8.dp))
-                                    .border(1.dp, c.border, RoundedCornerShape(8.dp))
+                                    .background(c.card, RoundedCornerShape(TRadius.xs))
+                                    .border(1.dp, c.border, RoundedCornerShape(TRadius.xs))
                                     .padding(10.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
@@ -258,8 +263,8 @@ fun PersonDetailSheet(person: Person, appState: AppState, onEdit: () -> Unit, on
                 items(assignedJobs) { job ->
                     Row(
                         modifier = Modifier.fillMaxWidth()
-                            .background(c.card, RoundedCornerShape(8.dp))
-                            .border(1.dp, c.border, RoundedCornerShape(8.dp))
+                            .background(c.card, RoundedCornerShape(TRadius.xs))
+                            .border(1.dp, c.border, RoundedCornerShape(TRadius.xs))
                             .padding(10.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
@@ -387,7 +392,7 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (isSelected) {
-                                    Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                    Icon(TIcons.Check, null, tint = Color.White, modifier = Modifier.size(16.dp))
                                 }
                             }
                         }
@@ -407,14 +412,14 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
                             onClick = { if (cap > 1.0) cap = (cap - 0.5).coerceAtLeast(1.0) },
                             enabled = cap > 1.0
                         ) {
-                            Icon(Icons.Default.Remove, null, tint = if (cap > 1.0) c.accent else c.muted)
+                            Icon(TIcons.Minus, null, tint = if (cap > 1.0) c.accent else c.muted)
                         }
                         Text("${cap}h", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = c.text)
                         IconButton(
                             onClick = { if (cap < 16.0) cap = (cap + 0.5).coerceAtMost(16.0) },
                             enabled = cap < 16.0
                         ) {
-                            Icon(Icons.Default.Add, null, tint = if (cap < 16.0) c.accent else c.muted)
+                            Icon(TIcons.Plus, null, tint = if (cap < 16.0) c.accent else c.muted)
                         }
                     }
                 }
@@ -431,7 +436,7 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
                         Text("Time Off", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = c.text)
                         IconButton(onClick = { showAddTimeOff = !showAddTimeOff }) {
                             Icon(
-                                if (showAddTimeOff) Icons.Default.Close else Icons.Default.Add,
+                                if (showAddTimeOff) TIcons.Close else TIcons.Plus,
                                 null, tint = c.accent, modifier = Modifier.size(20.dp)
                             )
                         }
@@ -440,8 +445,8 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(c.bg, RoundedCornerShape(8.dp))
-                                .border(1.dp, c.border, RoundedCornerShape(8.dp))
+                                .background(c.bg, RoundedCornerShape(TRadius.xs))
+                                .border(1.dp, c.border, RoundedCornerShape(TRadius.xs))
                                 .padding(start = 10.dp, top = 6.dp, bottom = 6.dp, end = 4.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
@@ -457,15 +462,15 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
                                 onClick = { timeOffEntries = timeOffEntries - entry },
                                 modifier = Modifier.size(32.dp)
                             ) {
-                                Icon(Icons.Default.Close, null, tint = c.danger, modifier = Modifier.size(14.dp))
+                                Icon(TIcons.Close, null, tint = c.danger, modifier = Modifier.size(14.dp))
                             }
                         }
                     }
                     if (showAddTimeOff) {
                         Column(
                             modifier = Modifier
-                                .background(c.bg, RoundedCornerShape(8.dp))
-                                .border(1.dp, c.border, RoundedCornerShape(8.dp))
+                                .background(c.bg, RoundedCornerShape(TRadius.xs))
+                                .border(1.dp, c.border, RoundedCornerShape(TRadius.xs))
                                 .padding(10.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
@@ -493,7 +498,7 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
                                 },
                                 enabled = newToStart.isNotBlank() && newToEnd.isNotBlank(),
                                 modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(8.dp),
+                                shape = RoundedCornerShape(TRadius.xs),
                                 colors = ButtonDefaults.buttonColors(containerColor = c.accent)
                             ) {
                                 Text("Add Entry", fontWeight = FontWeight.Bold, fontSize = 13.sp)
@@ -563,8 +568,8 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(c.surface, RoundedCornerShape(10.dp))
-                            .border(1.dp, c.border, RoundedCornerShape(10.dp))
+                            .background(c.surface, RoundedCornerShape(TRadius.xs))
+                            .border(1.dp, c.border, RoundedCornerShape(TRadius.xs))
                             .padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
@@ -572,7 +577,7 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(Icons.Default.Lock, null, tint = c.muted, modifier = Modifier.size(16.dp))
+                            Icon(TIcons.Lock, null, tint = c.muted, modifier = Modifier.size(16.dp))
                             Column {
                                 Text("Clock-In PIN", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = c.text)
                                 Text("4-digit PIN for clocking in and out", fontSize = 11.sp, color = c.muted)
@@ -592,7 +597,7 @@ fun PersonEditSheet(person: Person?, appState: AppState, onDismiss: () -> Unit) 
                                 trailingIcon = {
                                     IconButton(onClick = { pinVisible = !pinVisible }) {
                                         Icon(
-                                            if (pinVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                            if (pinVisible) TIcons.EyeOff else TIcons.Eye,
                                             null, tint = c.muted, modifier = Modifier.size(18.dp)
                                         )
                                     }

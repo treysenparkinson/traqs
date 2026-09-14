@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.sp
 import com.matrixsystems.traqs.services.ApiService
 import com.matrixsystems.traqs.services.AppState
 import com.matrixsystems.traqs.services.AuthManager
+import com.matrixsystems.traqs.ui.theme.TRadius
 import com.matrixsystems.traqs.ui.theme.traQSColors
 import kotlinx.coroutines.launch
 
@@ -107,8 +108,8 @@ fun OrgCodeScreen(
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .border(1.dp, c.border, RoundedCornerShape(12.dp)),
-                    shape = RoundedCornerShape(12.dp)
+                        .border(1.dp, c.border, RoundedCornerShape(TRadius.xs)),
+                    shape = RoundedCornerShape(TRadius.xs)
                 )
 
                 error?.let {
@@ -121,7 +122,7 @@ fun OrgCodeScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(56.dp),
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(TRadius.sm),
                     colors = ButtonDefaults.buttonColors(containerColor = c.accent)
                 ) {
                     if (isChecking) {

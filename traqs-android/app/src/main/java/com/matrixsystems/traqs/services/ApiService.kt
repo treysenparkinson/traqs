@@ -179,6 +179,38 @@ class ApiService(private val token: String, private val orgCode: String) {
         api.timeclockAction(mapOf("action" to "breakClear", "personId" to personId))
     }
 
+    // MARK: - Pay Clock (Bearer; PIN only when the person has one set)
+    //
+    // The payroll clock, distinct from the job clock above: this is the shift a
+    // worker is PAID for. The server gates clock-IN on orgSettings.iosPayClockEnabled
+    // and refuses salaried people; clock-OUT is deliberately never gated so a
+    // mid-shift settings change can't strand an open shift.
+    //
+    // `pin` is sent only when the person has a PIN set — the server auto-accepts
+    // when they have none, since the Bearer token already proves who they are.
+    suspend fun payClockIn(personId: Int, pin: String? = null) {
+        val body = linkedMapOf<String, Any>("action" to "payClockIn", "personId" to personId)
+        pin?.let { body["pin"] = it }
+        api.timeclockAction(body)
+    }
+
+    suspend fun payClockOut(personId: Int, pin: String? = null) {
+        val body = linkedMapOf<String, Any>("action" to "payClockOut", "personId" to personId)
+        pin?.let { body["pin"] = it }
+        api.timeclockAction(body)
+    }
+
+    // MARK: - Pay Lunch (Bearer, no PIN) — pauses the PAID clock, and the job
+    // clock with it. The pause/resume of activeJobClock happens server-side in
+    // the same write as the lunch event, so the client sends nothing extra.
+    suspend fun payLunchStart(personId: Int) {
+        api.timeclockAction(mapOf("action" to "payLunchStart", "personId" to personId))
+    }
+
+    suspend fun payLunchEnd(personId: Int) {
+        api.timeclockAction(mapOf("action" to "payLunchEnd", "personId" to personId))
+    }
+
     companion object {
         suspend fun lookupOrg(code: String): OrgInfo = withContext(Dispatchers.IO) {
             val client = OkHttpClient.Builder()

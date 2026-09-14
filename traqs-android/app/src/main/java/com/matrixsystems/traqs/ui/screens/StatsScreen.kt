@@ -12,7 +12,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.AdminPanelSettings
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,6 +31,11 @@ import androidx.compose.ui.unit.sp
 import com.matrixsystems.traqs.models.JobStatus
 import com.matrixsystems.traqs.models.TRAQSJob
 import com.matrixsystems.traqs.services.AppState
+import com.matrixsystems.traqs.ui.theme.TCard
+import com.matrixsystems.traqs.ui.theme.TRadius
+import com.matrixsystems.traqs.ui.theme.tabPillBottomInset
+import com.matrixsystems.traqs.ui.theme.TTrack
+import com.matrixsystems.traqs.ui.theme.TIcons
 import com.matrixsystems.traqs.ui.theme.traQSColors
 import kotlin.math.max
 import kotlin.math.min
@@ -48,25 +56,57 @@ enum class StatsPeriod(val label: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun StatsScreen(appState: AppState) {
+fun StatsScreen(
+    appState: AppState,
+    // Analytics doubles as the app's "more" surface, the way iOS MoreView does:
+    // Schedule, Admin and Settings were rows on the side drawer this tab bar
+    // replaced, and they need somewhere to live that is one tap from anywhere.
+    onOpenAdmin: () -> Unit = {},
+    onOpenTeam: () -> Unit = {},
+    onOpenClients: () -> Unit = {},
+    onOpenAnalytics: () -> Unit = {},
+) {
     val c = traQSColors
     val jobs by appState.jobs.collectAsState()
     val people by appState.people.collectAsState()
     val orgSettings by appState.orgSettings.collectAsState()
     val isAdmin = appState.currentPerson?.isAdmin == true
+    val currentPersonId = appState.currentPersonId
     var period by remember { mutableStateOf(StatsPeriod.THIS_WEEK) }
 
+    // Whose numbers these are. null = the whole org.
+    //
+    // Everyone can see their OWN stats — this page used to be admin-only, which
+    // left a worker with no way to see how their week was going. An admin gets
+    // the picker and starts on Everyone, because the org view is what they open
+    // this page for; a non-admin is pinned to themselves and never sees it.
+    var scopeId by remember(isAdmin, currentPersonId) {
+        mutableStateOf(if (isAdmin) null else currentPersonId)
+    }
+    var scopeMenuOpen by remember { mutableStateOf(false) }
+
+    val scopedJobs = remember(jobs, scopeId) {
+        val id = scopeId ?: return@remember jobs
+        jobs.filter { job -> personOnJob(job, id) }
+    }
+    val scopeLabel = when (val id = scopeId) {
+        null -> "Everyone"
+        currentPersonId -> "You"
+        else -> people.firstOrNull { it.id == id }?.name ?: "—"
+    }
+
     Scaffold(
-        containerColor = c.bg,
+        containerColor = Color.Transparent,
         topBar = {
             TRAQSHeader {
                 // iOS Stats period chip: PillBtn(compact) — capsule surface, hair stroke, raised shadow.
                 Surface(
                     onClick = { period = period.next() },
-                    shape = RoundedCornerShape(20.dp),
-                    color = c.surface,
-                    border = BorderStroke(1.dp, c.border),
-                    shadowElevation = 1.dp,
+                    shape = RoundedCornerShape(TRadius.md),
+                    // Near-solid, not the card tint: a button has to read as an opaque
+                    // object ON the glass, not as more glass. Matches TRAQSIconBtn.
+                    color = c.surface.copy(alpha = 0.90f),
+                    border = BorderStroke(1.dp, c.controlHairline),
                 ) {
                     Row(
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
@@ -74,33 +114,90 @@ fun StatsScreen(appState: AppState) {
                         horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         Text(period.label, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.text, letterSpacing = 0.6.sp)
-                        Icon(Icons.Default.ExpandMore, null, tint = c.muted, modifier = Modifier.size(11.dp))
+                        Icon(TIcons.ChevronDown, null, tint = c.muted, modifier = Modifier.size(11.dp))
                     }
+                }
+                if (isAdmin) {
+                    TRAQSIconBtn(
+                        icon = TIcons.Shield,
+                        contentDescription = "Admin",
+                        onClick = onOpenAdmin
+                    )
                 }
             }
         }
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding).background(c.bg),
-            contentPadding = PaddingValues(bottom = 24.dp),
+            modifier = Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(bottom = tabPillBottomInset),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            if (!isAdmin) {
-                item { NonAdminEmpty() }
-            } else {
-                item { Spacer(Modifier.height(4.dp)) }
+            item { PageTitle("Analytics", subtitle = scopeLabel) }
+
+            // The scope picker, admins only. A non-admin has exactly one scope,
+            // so a control that cannot change anything would just be furniture.
+            if (isAdmin) {
                 item {
-                    KpiGrid(
-                        jobs = jobs,
-                        peopleCount = people.count { !it.isAdmin },
-                        hpd = orgSettings.hpd,
-                        workDays = orgSettings.workDays.size,
-                    )
+                    Box(modifier = Modifier.padding(start = 16.dp, bottom = 4.dp)) {
+                        TCard(radius = TRadius.md, rim = false, onClick = { scopeMenuOpen = true }) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(scopeLabel, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = c.text)
+                                Icon(TIcons.ChevronDown, null, tint = c.muted, modifier = Modifier.size(12.dp))
+                            }
+                        }
+                        DropdownMenu(
+                            expanded = scopeMenuOpen,
+                            onDismissRequest = { scopeMenuOpen = false },
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Everyone") },
+                                onClick = { scopeId = null; scopeMenuOpen = false }
+                            )
+                            people.sortedBy { it.name }.forEach { p ->
+                                DropdownMenuItem(
+                                    text = { Text(if (p.id == currentPersonId) "${p.name} (you)" else p.name) },
+                                    onClick = { scopeId = p.id; scopeMenuOpen = false }
+                                )
+                            }
+                        }
+                    }
                 }
-                item { SectionTitle("Hours billed", action = "14 DAYS") }
-                item { HeroTrendCard(jobs = jobs) }
-                item { SectionTitle("Job mix", action = null) }
-                item { JobMixCard(jobs = jobs) }
+            }
+
+            item {
+                KpiGrid(
+                    jobs = scopedJobs,
+                    // One person's capacity when scoped to a person, the org's
+                    // otherwise — utilisation against the whole org's hours is
+                    // meaningless for a single worker.
+                    peopleCount = if (scopeId == null) people.count { !it.isAdmin } else 1,
+                    hpd = orgSettings.hpd,
+                    workDays = orgSettings.workDays.size,
+                )
+            }
+            item { SectionTitle("Hours billed", action = "14 DAYS") }
+            item { HeroTrendCard(jobs = scopedJobs) }
+            item { SectionTitle("Job mix", action = null) }
+            item { JobMixCard(jobs = scopedJobs) }
+
+            // The "more" surface, the way iOS MoreView is. These screens were
+            // rows on the side drawer the tab bar replaced; without a home here
+            // they are built, routed and unreachable.
+            item { SectionTitle("More", action = null) }
+            item {
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    MoreRow(TIcons.Team, "Team", onOpenTeam)
+                    MoreRow(TIcons.Briefcase, "Clients", onOpenClients)
+                    MoreRow(TIcons.Analytics, "Detailed analytics", onOpenAnalytics)
+                    if (isAdmin) MoreRow(TIcons.Shield, "Admin", onOpenAdmin)
+                }
             }
         }
     }
@@ -113,13 +210,36 @@ private fun SectionTitle(title: String, action: String?) {
         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(title.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = 1.4.sp)
+        Text(title.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = TTrack.section)
         Spacer(Modifier.weight(1f))
         if (action != null) {
             Text(action, fontSize = 11.sp, color = c.muted)
         }
     }
 }
+
+@Composable
+private fun MoreRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, onClick: () -> Unit) {
+    val c = traQSColors
+    TCard(modifier = Modifier.fillMaxWidth(), radius = TRadius.lg, rim = false, onClick = onClick) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(icon, null, tint = c.accent, modifier = Modifier.size(17.dp))
+            Text(label, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = c.text, modifier = Modifier.weight(1f))
+            Icon(TIcons.ChevronRight, null, tint = c.muted, modifier = Modifier.size(14.dp))
+        }
+    }
+}
+
+// Is this person scheduled anywhere on this job — at job, panel or op level?
+// Same containment test the Hours page uses for "my" jobs.
+private fun personOnJob(job: TRAQSJob, personId: Int): Boolean =
+    job.team.contains(personId) || job.subs.any { panel ->
+        panel.team.contains(personId) || panel.subs.any { op -> op.team.contains(personId) }
+    }
 
 // MARK: - KPI Grid
 
@@ -191,24 +311,22 @@ private fun KpiCard(
     color: Color,
 ) {
     val c = traQSColors
-    Card(
+    TCard(
         modifier = modifier,
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = c.card),
-        border = BorderStroke(1.dp, c.border)
+        radius = TRadius.lg,
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            Text(label.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = 1.2.sp)
+            Text(label.uppercase(), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = TTrack.section)
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(value, fontSize = 30.sp, fontWeight = FontWeight.Bold, color = c.text)
                 Text(sub, fontSize = 11.sp, color = c.muted, modifier = Modifier.padding(bottom = 6.dp))
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Icon(
-                    if (up) Icons.Default.ArrowUpward else Icons.Default.ArrowDownward,
+                    if (up) TIcons.ArrowUp else TIcons.ArrowDown,
                     null, tint = color, modifier = Modifier.size(11.dp)
                 )
                 Text(delta, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = color)
@@ -231,11 +349,9 @@ private fun HeroTrendCard(jobs: List<TRAQSJob>) {
     }
     val total = points.sum().toInt()
 
-    Card(
+    TCard(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = c.card),
-        border = BorderStroke(1.dp, c.border)
+        radius = TRadius.lg,
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(14.dp),
@@ -253,8 +369,8 @@ private fun HeroTrendCard(jobs: List<TRAQSJob>) {
                     fontWeight = FontWeight.Bold,
                     color = c.accent,
                     modifier = Modifier
-                        .background(c.accent.copy(alpha = 0.10f), RoundedCornerShape(12.dp))
-                        .border(1.dp, c.accent.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .background(c.accent.copy(alpha = 0.10f), RoundedCornerShape(TRadius.xs))
+                        .border(1.dp, c.accent.copy(alpha = 0.5f), RoundedCornerShape(TRadius.xs))
                         .padding(horizontal = 8.dp, vertical = 3.dp)
                 )
             }
@@ -321,11 +437,9 @@ private fun JobMixCard(jobs: List<TRAQSJob>) {
         Triple(k, ((v.toDouble() / total) * 100).toInt(), palette[k] ?: c.muted)
     }.sortedByDescending { it.second }
 
-    Card(
+    TCard(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = c.card),
-        border = BorderStroke(1.dp, c.border)
+        radius = TRadius.lg,
     ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(14.dp),
@@ -339,7 +453,7 @@ private fun JobMixCard(jobs: List<TRAQSJob>) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(14.dp)
-                        .clip(RoundedCornerShape(7.dp))
+                        .clip(RoundedCornerShape(TRadius.xs))
                 ) {
                     mix.forEach { (_, pct, col) ->
                         Box(
@@ -392,7 +506,7 @@ private fun NonAdminEmpty() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Icon(Icons.Default.BarChart, null, tint = c.border, modifier = Modifier.size(44.dp))
+        Icon(TIcons.Analytics, null, tint = c.border, modifier = Modifier.size(44.dp))
         Text("Stats are admin-only", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = c.text)
         Text("Check back when you're a dispatcher.", fontSize = 13.sp, color = c.muted)
     }

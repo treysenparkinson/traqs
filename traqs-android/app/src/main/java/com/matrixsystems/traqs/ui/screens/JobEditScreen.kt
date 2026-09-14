@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.sp
 import com.matrixsystems.traqs.models.*
 import com.matrixsystems.traqs.services.AppState
 import com.matrixsystems.traqs.ui.theme.parseColor
+import com.matrixsystems.traqs.ui.theme.TRadius
+import com.matrixsystems.traqs.ui.theme.TIcons
 import com.matrixsystems.traqs.ui.theme.traQSColors
 import java.util.UUID
 
@@ -60,13 +62,13 @@ fun JobEditScreen(
     var clientExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
-        containerColor = c.bg,
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = { Text(if (isNew) "New Job" else "Edit Job", fontWeight = FontWeight.Bold, color = c.text) },
                 navigationIcon = {
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.Close, "Close", tint = c.muted)
+                        Icon(TIcons.Close, "Close", tint = c.muted)
                     }
                 },
                 actions = {
@@ -98,7 +100,10 @@ fun JobEditScreen(
                         Text("Save", color = c.accent, fontWeight = FontWeight.Bold)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = c.surface)
+                // Transparent: the nav graph paints ONE page canvas and every screen
+                // floats on it. An opaque bar here cut a white slab across the
+                // top of that canvas on every pushed screen.
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         }
     ) { padding ->
@@ -106,7 +111,7 @@ fun JobEditScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .background(c.bg),
+                ,
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -149,7 +154,7 @@ fun JobEditScreen(
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(statusExpanded) },
                             modifier = Modifier.fillMaxWidth().menuAnchor(),
                             colors = editFieldColors(c),
-                            shape = RoundedCornerShape(10.dp)
+                            shape = RoundedCornerShape(TRadius.xs)
                         )
                         ExposedDropdownMenu(expanded = statusExpanded, onDismissRequest = { statusExpanded = false }) {
                             JobStatus.entries.forEach {
@@ -175,7 +180,7 @@ fun JobEditScreen(
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(priorityExpanded) },
                             modifier = Modifier.fillMaxWidth().menuAnchor(),
                             colors = editFieldColors(c),
-                            shape = RoundedCornerShape(10.dp)
+                            shape = RoundedCornerShape(TRadius.xs)
                         )
                         ExposedDropdownMenu(expanded = priorityExpanded, onDismissRequest = { priorityExpanded = false }) {
                             Priority.entries.forEach {
@@ -201,7 +206,7 @@ fun JobEditScreen(
                             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(clientExpanded) },
                             modifier = Modifier.fillMaxWidth().menuAnchor(),
                             colors = editFieldColors(c),
-                            shape = RoundedCornerShape(10.dp)
+                            shape = RoundedCornerShape(TRadius.xs)
                         )
                         ExposedDropdownMenu(expanded = clientExpanded, onDismissRequest = { clientExpanded = false }) {
                             DropdownMenuItem(text = { Text("None") }, onClick = { selectedClientId = null; clientExpanded = false })
@@ -234,7 +239,7 @@ fun JobEditScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 if (isSelected) {
-                                    Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                    Icon(TIcons.Check, null, tint = Color.White, modifier = Modifier.size(16.dp))
                                 }
                             }
                         }
@@ -253,9 +258,9 @@ fun JobEditScreen(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .clip(RoundedCornerShape(TRadius.xs))
                                     .background(if (isAssigned) c.accent.copy(alpha = 0.08f) else c.surface)
-                                    .border(1.dp, if (isAssigned) c.accent.copy(alpha = 0.4f) else c.border, RoundedCornerShape(8.dp))
+                                    .border(1.dp, if (isAssigned) c.accent.copy(alpha = 0.4f) else c.border, RoundedCornerShape(TRadius.xs))
                                     .clickable {
                                         selectedTeam = if (isAssigned) selectedTeam - person.id
                                         else selectedTeam + person.id
@@ -275,7 +280,7 @@ fun JobEditScreen(
                                     if (person.role.isNotEmpty()) Text(person.role, fontSize = 11.sp, color = c.muted)
                                 }
                                 if (isAssigned) {
-                                    Icon(Icons.Default.CheckCircle, null, tint = c.accent, modifier = Modifier.size(18.dp))
+                                    Icon(TIcons.CheckCircle, null, tint = c.accent, modifier = Modifier.size(18.dp))
                                 }
                             }
                         }
@@ -291,7 +296,7 @@ fun JobEditScreen(
                         onValueChange = { notes = it },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 80.dp),
                         colors = editFieldColors(c),
-                        shape = RoundedCornerShape(10.dp),
+                        shape = RoundedCornerShape(TRadius.xs),
                         minLines = 3
                     )
                 }
@@ -311,7 +316,7 @@ fun EditField(label: String, value: String, onChange: (String) -> Unit) {
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             colors = editFieldColors(c),
-            shape = RoundedCornerShape(10.dp)
+            shape = RoundedCornerShape(TRadius.xs)
         )
     }
 }

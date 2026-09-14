@@ -23,6 +23,9 @@ import androidx.navigation.NavHostController
 import com.matrixsystems.traqs.models.Client
 import com.matrixsystems.traqs.services.AppState
 import com.matrixsystems.traqs.ui.theme.parseColor
+import com.matrixsystems.traqs.ui.theme.TCard
+import com.matrixsystems.traqs.ui.theme.TRadius
+import com.matrixsystems.traqs.ui.theme.TIcons
 import com.matrixsystems.traqs.ui.theme.traQSColors
 import java.util.UUID
 import androidx.compose.foundation.rememberScrollState
@@ -57,7 +60,7 @@ fun ClientsScreen(
     }
 
     Scaffold(
-        containerColor = c.bg,
+        containerColor = Color.Transparent,
         topBar = { TRAQSHeader() }
     ) { padding ->
         PullToRefreshBox(
@@ -66,20 +69,21 @@ fun ClientsScreen(
             modifier = Modifier.fillMaxSize().padding(padding)
         ) {
         LazyColumn(
-            modifier = Modifier.fillMaxSize().background(c.bg),
+            modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+item { PageTitle("Clients") }
             item {
-                PageActionBar(title = "Clients", onAskTRAQS = onAskTRAQS) {
+                PageActionBar(title = "", onAskTRAQS = onAskTRAQS) {
                     Button(
                         onClick = { showNewClient = true },
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                         modifier = Modifier.height(34.dp),
-                        shape = RoundedCornerShape(8.dp),
+                        shape = RoundedCornerShape(TRadius.xs),
                         colors = ButtonDefaults.buttonColors(containerColor = c.accent)
                     ) {
-                        Icon(Icons.Default.Add, null, modifier = Modifier.size(14.dp))
+                        Icon(TIcons.Plus, null, modifier = Modifier.size(14.dp))
                         Spacer(Modifier.width(4.dp))
                         Text("New Client", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                     }
@@ -90,7 +94,7 @@ fun ClientsScreen(
                     value = searchText,
                     onValueChange = { searchText = it },
                     placeholder = { Text("Search clients…", color = c.muted) },
-                    leadingIcon = { Icon(Icons.Default.Search, null, tint = c.muted) },
+                    leadingIcon = { Icon(TIcons.Search, null, tint = c.muted) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -101,7 +105,7 @@ fun ClientsScreen(
                         focusedBorderColor = c.accent,
                         unfocusedBorderColor = c.border
                     ),
-                    shape = RoundedCornerShape(10.dp)
+                    shape = RoundedCornerShape(TRadius.xs)
                 )
             }
 
@@ -140,12 +144,10 @@ fun ClientRow(client: Client, onClick: () -> Unit, modifier: Modifier = Modifier
     val c = traQSColors
     val clientColor = try { parseColor(client.color) } catch (_: Exception) { c.accent }
 
-    Card(
+    TCard(
         onClick = onClick,
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = c.card),
-        border = androidx.compose.foundation.BorderStroke(1.dp, c.border)
+        radius = TRadius.lg,
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -166,7 +168,7 @@ fun ClientRow(client: Client, onClick: () -> Unit, modifier: Modifier = Modifier
                 if (client.contact.isNotEmpty()) Text(client.contact, fontSize = 12.sp, color = c.muted)
                 if (client.email.isNotEmpty()) Text(client.email, fontSize = 11.sp, color = c.muted)
             }
-            Icon(Icons.Default.ChevronRight, null, tint = c.muted)
+            Icon(TIcons.ChevronRight, null, tint = c.muted)
         }
     }
 }
@@ -247,7 +249,7 @@ fun ClientEditSheet(client: Client?, appState: AppState, onDismiss: () -> Unit) 
                             contentAlignment = Alignment.Center
                         ) {
                             if (isSelected) {
-                                Icon(Icons.Default.Check, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                Icon(TIcons.Check, null, tint = Color.White, modifier = Modifier.size(16.dp))
                             }
                         }
                     }
@@ -290,33 +292,31 @@ fun ClientDetailSheet(client: Client, appState: AppState, onEdit: () -> Unit, on
                     Text(client.name, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = c.text)
                 }
                 IconButton(onClick = onEdit) {
-                    Icon(Icons.Default.Edit, "Edit", tint = c.accent)
+                    Icon(TIcons.Edit, "Edit", tint = c.accent)
                 }
             }
 
             // Contact info
             if (client.contact.isNotEmpty() || client.email.isNotEmpty() || client.phone.isNotEmpty()) {
-                Card(
-                    shape = RoundedCornerShape(10.dp),
-                    colors = CardDefaults.cardColors(containerColor = c.card),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, c.border)
+                TCard(
+                    radius = TRadius.lg,
                 ) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (client.contact.isNotEmpty()) {
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Person, null, tint = c.accent, modifier = Modifier.size(16.dp))
+                                Icon(TIcons.User, null, tint = c.accent, modifier = Modifier.size(16.dp))
                                 Text(client.contact, fontSize = 13.sp, color = c.text)
                             }
                         }
                         if (client.email.isNotEmpty()) {
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Email, null, tint = c.accent, modifier = Modifier.size(16.dp))
+                                Icon(TIcons.Mail, null, tint = c.accent, modifier = Modifier.size(16.dp))
                                 Text(client.email, fontSize = 13.sp, color = c.text)
                             }
                         }
                         if (client.phone.isNotEmpty()) {
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Phone, null, tint = c.accent, modifier = Modifier.size(16.dp))
+                                Icon(TIcons.Phone, null, tint = c.accent, modifier = Modifier.size(16.dp))
                                 Text(client.phone, fontSize = 13.sp, color = c.text)
                             }
                         }
@@ -339,8 +339,8 @@ fun ClientDetailSheet(client: Client, appState: AppState, onEdit: () -> Unit, on
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(c.card, RoundedCornerShape(8.dp))
-                            .border(1.dp, c.border, RoundedCornerShape(8.dp))
+                            .background(c.card, RoundedCornerShape(TRadius.xs))
+                            .border(1.dp, c.border, RoundedCornerShape(TRadius.xs))
                             .padding(10.dp),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically

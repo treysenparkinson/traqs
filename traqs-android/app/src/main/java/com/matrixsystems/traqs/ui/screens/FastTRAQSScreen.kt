@@ -17,6 +17,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.matrixsystems.traqs.models.*
 import com.matrixsystems.traqs.services.AppState
+import com.matrixsystems.traqs.ui.theme.TCard
+import com.matrixsystems.traqs.ui.theme.TRadius
+import com.matrixsystems.traqs.ui.theme.TIcons
+import com.matrixsystems.traqs.ui.theme.frostedCard
+import com.matrixsystems.traqs.ui.theme.glassSurfaceTint
 import com.matrixsystems.traqs.ui.theme.traQSColors
 import java.text.SimpleDateFormat
 import java.util.*
@@ -56,20 +61,20 @@ fun FastTRAQSScreen(appState: AppState, onDismiss: () -> Unit) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(c.surface)
+                    .background(c.surface.copy(alpha = glassSurfaceTint))
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text("⚡", fontSize = 20.sp)
+                    Icon(TIcons.Spark, null, tint = c.accent, modifier = Modifier.size(20.dp))
                     Column {
                         Text("Fast TRAQS", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = c.text)
                         Text(person?.name ?: "Not signed in", fontSize = 12.sp, color = c.muted)
                     }
                 }
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, "Close", tint = c.muted)
+                    Icon(TIcons.Close, "Close", tint = c.muted)
                 }
             }
 
@@ -82,7 +87,7 @@ fun FastTRAQSScreen(appState: AppState, onDismiss: () -> Unit) {
             } else if (myOps.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Default.CheckCircle, null, tint = c.statusFinished, modifier = Modifier.size(48.dp))
+                        Icon(TIcons.CheckCircle, null, tint = c.statusFinished, modifier = Modifier.size(48.dp))
                         Text("All caught up!", fontWeight = FontWeight.Bold, color = c.text)
                         Text("No active tasks assigned to you", color = c.muted, fontSize = 13.sp)
                     }
@@ -127,11 +132,9 @@ fun FastTRAQSOpCard(
 ) {
     val c = traQSColors
 
-    Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = c.card),
-        border = androidx.compose.foundation.BorderStroke(1.dp, c.border),
-        modifier = Modifier.fillMaxWidth()
+    TCard(
+        modifier = Modifier.fillMaxWidth(),
+        radius = TRadius.lg,
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -155,9 +158,9 @@ fun FastTRAQSOpCard(
             ) {
                 Icon(
                     when {
-                        isFinished -> Icons.Default.CheckCircle
-                        isInProgress -> Icons.Default.PlayCircle
-                        else -> Icons.Default.RadioButtonUnchecked
+                        isFinished -> TIcons.CheckCircle
+                        isInProgress -> TIcons.PlayCircle
+                        else -> TIcons.Circle
                     },
                     null,
                     tint = when {

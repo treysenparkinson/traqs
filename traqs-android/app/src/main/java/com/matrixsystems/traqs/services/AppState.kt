@@ -4,7 +4,9 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.matrixsystems.traqs.models.ActiveBreak
+import com.matrixsystems.traqs.models.ActiveClockIn
 import com.matrixsystems.traqs.models.ActiveJobClock
+import com.matrixsystems.traqs.models.ClockEvent
 import com.matrixsystems.traqs.models.Client
 import com.matrixsystems.traqs.models.ChatGroup
 import com.matrixsystems.traqs.models.EngStep
@@ -33,8 +35,57 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 import java.text.SimpleDateFormat
 import java.util.*
+
+// The three live clock fields on the signed-in person, captured before a fetch
+// overwrites `people` so an optimistic punch made moments ago survives it. The
+// PAY clock belongs here as much as the other two: without it, clocking in and
+// then hitting a refresh inside the grace window snapped the CTA back to
+// "Clock In" until the server caught up.
+private data class ClockSnapshot(
+    val personId: Int,
+    val jobClock: ActiveJobClock?,
+    val activeBreak: ActiveBreak?,
+    val payClock: ActiveClockIn?,
+)
+
+// Derived from the person's shift clock (activeClockIn plus its lunch/break
+// events). Mirrors iOS ShiftStatus in Services/NavigationTypes.
+enum class ShiftStatus(val label: String) {
+    OFFLINE("Offline"),
+    CLOCKED_IN("Clocked in"),
+    LUNCH("Lunch"),
+    ON_BREAK("Break");
+
+    val dot: Boolean get() = this != OFFLINE
+}
+
+// Lunch milliseconds inside a shift's events. An open lunch is closed at `endMs`
+// so someone still on lunch has that stretch excluded too. Breaks are PAID and
+// deliberately absent — a 9h clocked window minus a 60min lunch is the 8h paid
+// day. Mirrors pausedMsFromEvents in timeclock.js.
+internal fun startOfDayMs(ms: Long): Long = Calendar.getInstance().apply {
+    timeInMillis = ms
+    set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+    set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+}.timeInMillis
+
+internal fun lunchPausedMs(events: List<ClockEvent>, endMs: Long): Long {
+    if (events.isEmpty()) return 0L
+    var paused = 0L
+    var lunchOpen: Long? = null
+    for (ev in events) {
+        val t = parseFlexibleISO(ev.ts) ?: continue
+        when (ev.type) {
+            "lunchStart" -> lunchOpen = t
+            "lunchEnd" -> lunchOpen?.let { paused += maxOf(0L, t - it); lunchOpen = null }
+        }
+    }
+    lunchOpen?.let { paused += maxOf(0L, endMs - it) }
+    return paused
+}
 
 sealed class SaveStatus {
     object Idle : SaveStatus()
@@ -179,6 +230,18 @@ class AppState(private val context: Context) : ViewModel() {
             _isLoading.value = true
             _errorMessage.value = null
             try {
+                // supervisorScope, NOT the plain coroutineScope this `launch`
+                // gives us. These six run concurrently, and under a regular scope
+                // the FIRST one to fail cancels its siblings and propagates
+                // straight to the parent job — past the try/catch below, which
+                // only ever sees whichever await() is next in line. An expired
+                // token makes all six 401 at once, so the app died on launch with
+                // an uncaught HttpException instead of showing a load error.
+                //
+                // Under a supervisor, a failed child is inert until awaited: the
+                // await() that throws is caught here, and the failures nobody
+                // awaits are dropped rather than crashing the process.
+                supervisorScope {
                 val j = async { currentApi.fetchJobs() }
                 val p = async { currentApi.fetchPeople() }
                 val c = async { currentApi.fetchClients() }
@@ -189,18 +252,19 @@ class AppState(private val context: Context) : ViewModel() {
                 // Capture optimistic clock state BEFORE overwriting people so a
                 // fresh fetch can't blank out a clock change the user just made.
                 // 12s grace window matches iOS clockChangeAt.
-                val snap: Triple<Int, ActiveJobClock?, ActiveBreak?>? = run {
+                val snap: ClockSnapshot? = run {
                     val pid = currentPersonId ?: return@run null
                     if (System.currentTimeMillis() - clockChangeAt >= 12_000) return@run null
                     val cur = _people.value.firstOrNull { it.id == pid } ?: return@run null
-                    Triple(pid, cur.activeJobClock, cur.activeBreak)
+                    ClockSnapshot(pid, cur.activeJobClock, cur.activeBreak, cur.activeClockIn)
                 }
                 val freshPeople = p.await()
                 _people.value = if (snap != null) {
                     freshPeople.map { person ->
-                        if (person.id == snap.first) person.copy(
-                            activeJobClock = snap.second,
-                            activeBreak = snap.third
+                        if (person.id == snap.personId) person.copy(
+                            activeJobClock = snap.jobClock,
+                            activeBreak = snap.activeBreak,
+                            activeClockIn = snap.payClock
                         ) else person
                     }
                 } else freshPeople
@@ -210,6 +274,7 @@ class AppState(private val context: Context) : ViewModel() {
                 _groups.value = g.await()
                 s.await()?.let { _orgSettings.value = it }
                 autoMatchPerson()
+                }
             } catch (e: Exception) {
                 _errorMessage.value = e.message
             }
@@ -367,6 +432,26 @@ class AppState(private val context: Context) : ViewModel() {
             }
         }
     }
+
+    // Unread messages grouped by sender, most first — for Home's Messages card.
+    //
+    // Derived from the same count watermark the badge uses, because that is all
+    // this app has: there are no read receipts on Android yet (iOS reads
+    // `message-reads`). So "unread" means the tail of the list past the last
+    // count we saw, which is right while messages only ever get appended and
+    // wrong the moment one is deleted. Good enough for a card that names who is
+    // waiting on you; replace it when read receipts land.
+    val unreadSenders: List<Triple<Int, String, Int>>
+        get() {
+            val seen = msgPrefs.getInt("last_seen_msg_count", 0)
+            val fresh = _messages.value.drop(seen)
+            if (fresh.isEmpty()) return emptyList()
+            return fresh
+                .filter { it.authorId != currentPersonId }
+                .groupBy { it.authorId }
+                .map { (id, msgs) -> Triple(id, msgs.first().authorName, msgs.size) }
+                .sortedByDescending { it.third }
+        }
 
     fun markMessagesRead() {
         val count = _messages.value.size
@@ -550,6 +635,257 @@ class AppState(private val context: Context) : ViewModel() {
     }
 
     fun clearClockError() { _clockError.value = null }
+
+    // MARK: - Pay Clock (Bearer) — the PAYROLL shift, distinct from the job clock
+    //
+    // The job clock above measures work against a job; this measures the shift a
+    // worker is paid for. The two are independent except at lunch, where the
+    // server pauses the job clock for the duration (applyLunchJobPause in
+    // timeclock.js) so job cost is not charged for unpaid time.
+
+    // The open pay shift, read straight off `people` so the optimistic tap and
+    // the server's truth reach every reader through one field.
+    val myActiveClockIn: ActiveClockIn? get() = currentPerson?.activeClockIn
+    val isClockedInForPay: Boolean get() = myActiveClockIn != null
+
+    // True while the current shift is on lunch — its last lunch event is a start.
+    val payOnLunch: Boolean get() = myActiveClockIn?.onLunch == true
+
+    // Pay-clock hours credited to TODAY: completed punches that started today,
+    // plus the live shift if it started today. A shift that crosses midnight is
+    // credited to the day it STARTED, matching iOS hoursToday.
+    fun hoursToday(now: Long = System.currentTimeMillis()): Double {
+        val dayStart = startOfDayMs(now)
+        val dayEnd = dayStart + 86_400_000L
+        val completed = _timeclockEntries.value.fold(0.0) { acc, e ->
+            if (e.eventType != null || e.clockIn == null || e.clockOut == null) return@fold acc
+            val t = parseFlexibleISO(e.clockIn) ?: return@fold acc
+            if (t in dayStart until dayEnd) acc + (e.hours ?: 0.0) else acc
+        }
+        val liveStart = myActiveClockIn?.clockIn?.let { parseFlexibleISO(it) }
+        val live = if (liveStart != null && liveStart in dayStart until dayEnd) liveShiftHours(now) else 0.0
+        return completed + live
+    }
+
+    // What the signed-in person's shift is doing right now. Mirrors iOS
+    // AppState.myShiftStatus; Home and the Time Clock both render it.
+    val myShiftStatus: ShiftStatus
+        get() = when {
+            myActiveClockIn == null -> ShiftStatus.OFFLINE
+            payOnLunch -> ShiftStatus.LUNCH
+            isOnBreak -> ShiftStatus.ON_BREAK
+            else -> ShiftStatus.CLOCKED_IN
+        }
+
+    // Live hours on the OPEN pay shift, net of lunch — the number the server
+    // will write when the punch closes (hoursElapsedMinusPauses in timeclock.js).
+    //
+    // Lives HERE, not on a screen, so there is ONE pay-hours implementation:
+    // Home's shift hero and the Time Clock hero have to agree to the second, and
+    // they cannot if each carries its own copy.
+    fun liveShiftHours(now: Long = System.currentTimeMillis()): Double {
+        val clock = myActiveClockIn ?: return 0.0
+        val start = parseFlexibleISO(clock.clockIn) ?: return 0.0
+        val net = (now - start) - lunchPausedMs(clock.events, now)
+        return maxOf(0.0, net / 1000.0 / 3600.0)
+    }
+
+    // Worker permission gate. ABSENT means granted; only an explicit false
+    // denies, matching the server's canClockIn(). Guards the IN direction only —
+    // revoking access mid-shift must never strand someone on the clock.
+    val canClockInOut: Boolean get() = currentPerson?.canClockInOut != false
+
+    // Whether the pay clock CTA appears at all: the org opted in, the person is
+    // hourly, and they hold clock-in permission. Mirrors iOS showPayClock.
+    val showPayClock: Boolean
+        get() = _orgSettings.value.iosPayClockEnabled &&
+                !(currentPerson?.isSalary ?: false) &&
+                canClockInOut
+
+    // Clock-out is blocked while a job runs only when the dependency is
+    // enforced — it is off, matching AppConfig on iOS and timeclock.js.
+    val clockOutBlockedByJob: Boolean
+        get() = AppConfig.ENFORCE_CLOCK_JOB_DEPENDENCY && currentPerson?.activeJobClock != null
+
+    private val _isPayClocking = MutableStateFlow(false)
+    val isPayClocking: StateFlow<Boolean> = _isPayClocking.asStateFlow()
+
+    // Re-entrancy guard for the lunch toggle. Deliberately NOT _isPayClocking:
+    // nothing renders this one, so Lunch, Break and Clock Out stay live while the
+    // lunch request finishes behind the optimistic flip.
+    private var lunchInFlight = false
+
+    // Drop the 12s optimistic-clock grace window so the NEXT loadAll() keeps the
+    // server's clock fields instead of restoring the local snapshot over them.
+    //
+    // Needed wherever the server has just confirmed a change whose full effect
+    // is only known server-side. A lunch punch is the case that forces it: the
+    // same write that records the event also pauses activeJobClock, and the
+    // local snapshot has no pause in it — so without this the fetch we make to
+    // GET that pause would throw it straight back out again, and the job timer
+    // would keep ticking through lunch for up to 12 seconds.
+    private fun dropClockGrace() { clockChangeAt = 0L }
+
+    // A fresh formatter per call — SimpleDateFormat is not thread-safe and these
+    // run from coroutines.
+    private fun isoNow(): String =
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+            .apply { timeZone = TimeZone.getTimeZone("UTC") }.format(Date())
+
+    // HTTP status behind a Retrofit failure, or null for a transport error. The
+    // pay clock has to tell 400 / 401 / 403 / 409 apart, which the older clock
+    // paths cannot do with their message.contains("409") check.
+    private fun httpStatus(e: Exception): Int? = (e as? retrofit2.HttpException)?.code()
+
+    // The server's own words for a failure — err() bodies are {"error": "…"}.
+    // Worth reading: a 403 here is one of three different refusals (feature off,
+    // salaried, no permission) and only the body says which.
+    private fun serverMessage(e: Exception): String? = try {
+        (e as? retrofit2.HttpException)?.response()?.errorBody()?.string()
+            ?.let { Gson().fromJson(it, Map::class.java)?.get("error") as? String }
+            ?.takeIf { it.isNotBlank() }
+    } catch (_: Exception) { null }
+
+    // Clock IN for pay. Optimistic — the CTA flips on this frame and the server
+    // reconciles behind it. `onResult` reports whether it stuck, so a PIN dialog
+    // can stay open on failure.
+    fun payClockIn(pin: String? = null, onResult: (Boolean) -> Unit = {}) {
+        val currentApi = api ?: return onResult(false)
+        val personId = currentPersonId ?: return onResult(false)
+        if (_isPayClocking.value) return onResult(false)
+        if (!canClockInOut) {
+            _clockError.value = "Your account does not have clock-in access"
+            return onResult(false)
+        }
+        val previous = myActiveClockIn
+        _isPayClocking.value = true
+        setLocalPersonMutation(personId) {
+            it.copy(activeClockIn = ActiveClockIn(clockIn = isoNow(), source = "android-app"))
+        }
+        viewModelScope.launch {
+            try {
+                currentApi.payClockIn(personId, pin)
+                refreshTimeclock(personId)
+                onResult(true)
+            } catch (e: Exception) {
+                if (httpStatus(e) == 409) {
+                    // Already clocked in elsewhere (kiosk, another device). The
+                    // shift is real, so keep it and pull the server's version —
+                    // which means letting that version through, not the optimistic
+                    // one we just invented.
+                    dropClockGrace()
+                    loadAll()
+                    onResult(true)
+                } else {
+                    setLocalPersonMutation(personId) { it.copy(activeClockIn = previous) }
+                    _clockError.value = when (httpStatus(e)) {
+                        // A 401 carrying a PIN means the PIN was wrong, not that
+                        // the session died — say the useful thing.
+                        401 -> if (pin != null) "Invalid PIN. Please try again."
+                               else "Your session expired. Sign in again."
+                        400 -> serverMessage(e) ?: "PIN required."
+                        403 -> serverMessage(e) ?: "Clock-in is not available for your account."
+                        else -> "Failed to clock in: " + (serverMessage(e) ?: e.message ?: "unknown error")
+                    }
+                    onResult(false)
+                }
+            } finally {
+                _isPayClocking.value = false
+            }
+        }
+    }
+
+    // Clock OUT for pay. Optimistic clear; 409 means the server already has the
+    // shift closed, which is the state we were asking for anyway.
+    fun payClockOut(pin: String? = null, onResult: (Boolean) -> Unit = {}) {
+        val currentApi = api ?: return onResult(false)
+        val personId = currentPersonId ?: return onResult(false)
+        if (_isPayClocking.value) return onResult(false)
+        if (clockOutBlockedByJob) {
+            _clockError.value = "Log out of your job before clocking out."
+            return onResult(false)
+        }
+        val previous = myActiveClockIn
+        _isPayClocking.value = true
+        setLocalPersonMutation(personId) { it.copy(activeClockIn = null) }
+        viewModelScope.launch {
+            try {
+                currentApi.payClockOut(personId, pin)
+                // The finished punch exists now — refresh the history so the
+                // pay-period total includes it.
+                refreshTimeclock(personId)
+                onResult(true)
+            } catch (e: Exception) {
+                if (httpStatus(e) == 409) {
+                    dropClockGrace()
+                    loadAll()
+                    refreshTimeclock(personId)
+                    onResult(true)
+                } else {
+                    setLocalPersonMutation(personId) { it.copy(activeClockIn = previous) }
+                    _clockError.value = when (httpStatus(e)) {
+                        401 -> if (pin != null) "Invalid PIN. Please try again."
+                               else "Your session expired. Sign in again."
+                        400 -> serverMessage(e) ?: "PIN required."
+                        else -> "Failed to clock out: " + (serverMessage(e) ?: e.message ?: "unknown error")
+                    }
+                    onResult(false)
+                }
+            } finally {
+                _isPayClocking.value = false
+            }
+        }
+    }
+
+    // Start or end lunch on the open pay shift. Returns as soon as the LOCAL
+    // state is right; the request goes out behind it, so the Lunch pill flips on
+    // the first tap instead of waiting a round trip. A failure reverts the
+    // optimistic event — that revert IS the error report.
+    //
+    // The job clock pauses and resumes with lunch, but the server does that in
+    // the same write, so there is nothing to mirror here: the paused
+    // activeJobClock arrives with the refresh below, and the elapsed maths
+    // already honours pausedAt.
+    fun payLunchToggle() {
+        val currentApi = api ?: return
+        val personId = currentPersonId ?: return
+        if (lunchInFlight) return
+        val clock = myActiveClockIn ?: return
+        val starting = !clock.onLunch
+        lunchInFlight = true
+        val event = ClockEvent(type = if (starting) "lunchStart" else "lunchEnd", ts = isoNow())
+        setLocalPersonMutation(personId) { p ->
+            p.activeClockIn?.let { p.copy(activeClockIn = it.copy(events = it.events + event)) } ?: p
+        }
+        viewModelScope.launch {
+            try {
+                if (starting) currentApi.payLunchStart(personId) else currentApi.payLunchEnd(personId)
+                // Pull the job clock's new paused/resumed state — the lunch punch
+                // changed it server-side and nothing local reflects that yet. The
+                // server is now strictly ahead of us, so its copy has to win.
+                dropClockGrace()
+                loadAll()
+            } catch (e: Exception) {
+                if (httpStatus(e) == 409) {
+                    dropClockGrace()
+                    loadAll()   // server already in the target state — align, no error
+                } else {
+                    setLocalPersonMutation(personId) { p ->
+                        p.activeClockIn?.let { ac ->
+                            val i = ac.events.indexOfLast { it.type == event.type }
+                            if (i < 0) p
+                            else p.copy(activeClockIn = ac.copy(
+                                events = ac.events.toMutableList().apply { removeAt(i) }))
+                        } ?: p
+                    }
+                    _clockError.value = "Failed to " + (if (starting) "start" else "end") + " lunch: " +
+                        (serverMessage(e) ?: e.message ?: "unknown error")
+                }
+            } finally {
+                lunchInFlight = false
+            }
+        }
+    }
 
     // MARK: - Break (lightweight status; job clock keeps running)
 

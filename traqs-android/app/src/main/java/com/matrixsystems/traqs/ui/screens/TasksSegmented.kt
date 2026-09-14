@@ -19,6 +19,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.matrixsystems.traqs.ui.theme.TRadius
+import com.matrixsystems.traqs.ui.theme.TTrack
+import com.matrixsystems.traqs.ui.theme.frostedCard
+import com.matrixsystems.traqs.ui.theme.glassSurfaceTint
 import com.matrixsystems.traqs.ui.theme.traQSColors
 import java.text.SimpleDateFormat
 import java.util.*
@@ -67,9 +71,9 @@ fun WeekStrip(
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(10.dp))
+                    .clip(RoundedCornerShape(TRadius.xs))
                     .background(if (isSel) c.accent.copy(alpha = 0.14f) else c.surface)
-                    .border(1.dp, borderColor, RoundedCornerShape(10.dp))
+                    .border(1.dp, borderColor, RoundedCornerShape(TRadius.xs))
                     .then(if (workDay) Modifier.clickable { onPick(d) } else Modifier)
                     .alpha(if (workDay) 1f else 0.38f)
                     .padding(vertical = 8.dp),
@@ -145,9 +149,7 @@ fun MonthCalendar(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(c.surface)
-            .border(1.dp, c.border, RoundedCornerShape(14.dp))
+            .frostedCard(radius = TRadius.lg, rim = false)
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
@@ -203,9 +205,9 @@ private fun DayCell(
     Column(
         modifier = modifier
             .height(34.dp)
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(TRadius.xs))
             .background(if (isSel) c.accent.copy(alpha = 0.16f) else Color.Transparent)
-            .border(1.dp, borderColor, RoundedCornerShape(8.dp))
+            .border(1.dp, borderColor, RoundedCornerShape(TRadius.xs))
             .clickable { onPick(day) },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
@@ -241,14 +243,12 @@ fun YearHeatmap(year: Int, countFor: (Date) -> Int) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(c.surface)
-            .border(1.dp, c.border, RoundedCornerShape(14.dp))
+            .frostedCard(radius = TRadius.lg, rim = false)
             .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("$year · jobs by day", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = 1.2.sp)
+            Text("$year · jobs by day", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = TTrack.section)
             Spacer(Modifier.weight(1f))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text("less", fontSize = 10.sp, color = c.muted)
@@ -368,9 +368,9 @@ fun <T : Any> SlidingPillSegmented(
 
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(TRadius.md))
             .background(c.surface)
-            .border(1.dp, c.border, RoundedCornerShape(20.dp))
+            .border(1.dp, c.border, RoundedCornerShape(TRadius.md))
             .padding(3.dp)
     ) {
         // Sliding pill — drawn behind the labels
@@ -380,7 +380,7 @@ fun <T : Any> SlidingPillSegmented(
                     .offset(x = pillX, y = pillY)
                     .width(pillW)
                     .height(pillH)
-                    .clip(RoundedCornerShape(18.dp))
+                    .clip(RoundedCornerShape(TRadius.md))
                     .background(c.accent)
             )
         }
@@ -393,7 +393,7 @@ fun <T : Any> SlidingPillSegmented(
                         .onGloballyPositioned { coords ->
                             bounds[opt] = coords.boundsInParent()
                         }
-                        .clip(RoundedCornerShape(18.dp))
+                        .clip(RoundedCornerShape(TRadius.md))
                         .clickable { onSelect(opt) }
                         .padding(horizontal = 14.dp, vertical = 6.dp),
                     contentAlignment = Alignment.Center

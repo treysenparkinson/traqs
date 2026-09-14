@@ -37,13 +37,15 @@ class ThemeSettings(private val context: Context) : ViewModel() {
             "#8b5cf6", // Violet
         )
 
-        // Background presets — exactly 4 neutrals, same IDs as iOS so any
-        // saved server-side accent/bg setting interoperates.
+        // Background presets — ONE light and ONE dark. Grey (10) and Black (12)
+        // were retired: Grey sat close enough to White that the frosted surfaces
+        // could not separate from it, and Black crushed the specular rim's
+        // bottom lip into the page. The IDs are left unused rather than
+        // renumbered so a saved server-side setting from another client still
+        // resolves — anything not in this list falls back to White below.
         val BG_PRESETS = listOf(
             BgPreset(100, "White",    "#F4F6FA", "#FFFFFF", "#FFFFFF", "#E6E8EE", "#0B0B0C", "#6E6E73", true),
-            BgPreset(10,  "Grey",     "#E5E7EB", "#F3F4F6", "#FFFFFF", "#D1D5DB", "#111827", "#6B7280", true),
             BgPreset(11,  "Charcoal", "#1F1F1F", "#2A2A2A", "#333333", "#3F3F3F", "#E8E8E8", "#9CA3AF", false),
-            BgPreset(12,  "Black",    "#000000", "#0A0A0A", "#141414", "#1F1F1F", "#F5F5F5", "#6B7280", false),
         )
 
         const val DEFAULT_BG_PRESET_ID = 100

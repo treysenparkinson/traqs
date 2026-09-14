@@ -134,10 +134,25 @@ data class JobRef(
     val opId: String = ""
 )
 
+// One lunch/break punch inside an open pay shift. The server appends these to
+// activeClockIn.events; net-of-lunch pay hours are computed from them at
+// clock-out. A lunchStart also pauses the job clock server-side.
+data class ClockEvent(
+    val type: String = "",   // "lunchStart" | "lunchEnd" | "breakStart" | "breakEnd"
+    val ts: String = ""      // ISO8601
+)
+
 data class ActiveClockIn(
     val clockIn: String = "",
-    val jobRefs: List<JobRef> = emptyList()
-)
+    val jobRefs: List<JobRef> = emptyList(),
+    val events: List<ClockEvent> = emptyList(),
+    val source: String? = null   // "kiosk" | "ios-app" | "android-app"
+) {
+    // True when the last lunch event on this shift is a start — i.e. the worker
+    // is on lunch right now. Mirrors iOS AppState.payOnLunch.
+    val onLunch: Boolean
+        get() = events.lastOrNull { it.type == "lunchStart" || it.type == "lunchEnd" }?.type == "lunchStart"
+}
 
 // Single in-progress job per person — separate from the payroll clock.
 // Set by the job-card "Log Time" / "Stop" buttons; bearer-auth, no PIN.
@@ -231,9 +246,22 @@ data class Person(
     val activeClockIn: ActiveClockIn? = null,
     val activeJobClock: ActiveJobClock? = null,
     val activeBreak: ActiveBreak? = null,
-    val pin: String? = null
+    val pin: String? = null,
+    // Optional profile picture as a data: URL / base64, same shape as iOS
+    // Person.image. Rendered by Avatar; absent falls back to initials.
+    val image: String? = null,
+    // The server strips `pin` from people.json for everyone but admins and sends
+    // this flag instead, so `pin` is the WRONG field to test for "is this person
+    // PIN-gated" — for an ordinary worker it is always null. Read hasPin.
+    val hasPin: Boolean? = null,
+    // "hourly" (default) | "salary" — salaried people never punch the pay clock.
+    val payType: String? = null,
+    // Per-person worker permission set on the desktop. ABSENT means granted —
+    // only an explicit false denies, mirroring the server's canClockIn().
+    val canClockInOut: Boolean? = null
 ) {
     val isAdmin: Boolean get() = userRole == "admin"
+    val isSalary: Boolean get() = (payType ?: "hourly").lowercase() == "salary"
 }
 
 // MARK: - Client
@@ -321,9 +349,32 @@ data class OrgSettings(
     val trackBreaks: Boolean = false,
     val payPeriodType: String = "biweekly",
     val payPeriodStart: String? = null,
+    // Soft cap of pay-clock hours per pay period; anything over reads as overtime.
+    val payPeriodHourCap: Double = 80.0,
+    // Admin opt-in for the in-app pay clock-in/out CTA. Default off — the server
+    // refuses payClockIn unless this is true, so the UI must not offer it either.
+    val iosPayClockEnabled: Boolean = false,
     val breaks: List<OrgBreak> = listOf(OrgBreak("10:00", 15)),
     val lunch: OrgBreak = OrgBreak("12:00", 30)
 ) {
+    // PAID hours in a standard day: the scheduled shift block minus the unpaid
+    // lunch, breaks left in because they are paid.
+    //
+    // NOT `hpd` — that is a scheduling capacity number that ignores lunch, so a
+    // 07:00–16:00 shop with a 1h lunch reads 9 there but should target 8 here.
+    val paidHoursPerDay: Double
+        get() {
+            fun minutes(t: String): Int? {
+                val p = t.split(":").mapNotNull { it.toIntOrNull() }
+                return if (p.size == 2) p[0] * 60 + p[1] else null
+            }
+            val s = minutes(workStart) ?: return 8.0
+            val e = minutes(workEnd) ?: return 8.0
+            if (e <= s) return 8.0
+            val paid = (e - s) - maxOf(0, lunch.durationMinutes)
+            return if (paid > 0) paid / 60.0 else 8.0
+        }
+
     companion object {
         val DEFAULT = OrgSettings()
     }

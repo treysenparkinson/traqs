@@ -23,6 +23,10 @@ import androidx.compose.ui.unit.sp
 import com.matrixsystems.traqs.models.JobStatus
 import com.matrixsystems.traqs.models.Priority
 import com.matrixsystems.traqs.services.AppState
+import com.matrixsystems.traqs.ui.theme.TCard
+import com.matrixsystems.traqs.ui.theme.TRadius
+import com.matrixsystems.traqs.ui.theme.TIcons
+import com.matrixsystems.traqs.ui.theme.TTrack
 import com.matrixsystems.traqs.ui.theme.traQSColors
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -59,59 +63,61 @@ fun AnalyticsScreen(appState: AppState, onBack: () -> Unit) {
     }
 
     Scaffold(
-        containerColor = c.bg,
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
-                title = { Text("Analytics", fontWeight = FontWeight.Bold, color = c.text) },
+                title = { },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, "Back", tint = c.accent)
+                        Icon(TIcons.ArrowLeft, "Back", tint = c.accent)
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = c.surface)
+                // Transparent: the nav graph paints ONE page canvas and every screen
+                // floats on it. An opaque bar here cut a white slab across the
+                // top of that canvas on every pushed screen.
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
             )
         }
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding).background(c.bg),
+            modifier = Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
+item { PageTitle("Analytics") }
             // Summary cards
             item {
-                Text("Overview", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = c.text)
+                Text("OVERVIEW", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = TTrack.section)
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCard("Jobs", "$totalJobs", Icons.Default.Work, Modifier.weight(1f))
-                    StatCard("Active", "$activeJobs", Icons.Default.PlayCircle, Modifier.weight(1f), c.statusInProgress)
-                    StatCard("Done", "$finishedJobs", Icons.Default.CheckCircle, Modifier.weight(1f), c.statusFinished)
+                    StatCard("Jobs", "$totalJobs", TIcons.Briefcase, Modifier.weight(1f))
+                    StatCard("Active", "$activeJobs", TIcons.PlayCircle, Modifier.weight(1f), c.statusInProgress)
+                    StatCard("Done", "$finishedJobs", TIcons.CheckCircle, Modifier.weight(1f), c.statusFinished)
                 }
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCard("Panels", "$totalPanels", Icons.Default.Layers, Modifier.weight(1f))
-                    StatCard("Operations", "$totalOps", Icons.Default.List, Modifier.weight(1f))
-                    StatCard("Team", "${people.size}", Icons.Default.People, Modifier.weight(1f))
+                    StatCard("Panels", "$totalPanels", TIcons.Layers, Modifier.weight(1f))
+                    StatCard("Operations", "$totalOps", TIcons.Jobs, Modifier.weight(1f))
+                    StatCard("Team", "${people.size}", TIcons.Team, Modifier.weight(1f))
                 }
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatCard("Complete", "$completionPct%", Icons.Default.CheckCircle, Modifier.weight(1f), c.statusFinished)
-                    StatCard("Eng Queue", "$engQueueCount", Icons.Default.Build, Modifier.weight(1f), c.statusPending)
+                    StatCard("Complete", "$completionPct%", TIcons.CheckCircle, Modifier.weight(1f), c.statusFinished)
+                    StatCard("Eng Queue", "$engQueueCount", TIcons.Tool, Modifier.weight(1f), c.statusPending)
                     Spacer(Modifier.weight(1f))
                 }
             }
 
             // Status breakdown
             item {
-                Text("By Status", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = c.text, modifier = Modifier.padding(top = 4.dp))
+                Text("BY STATUS", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = TTrack.section, modifier = Modifier.padding(top = 4.dp))
             }
             item {
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = c.card),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, c.border)
+                TCard(
+                    radius = TRadius.lg,
                 ) {
                     Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         statusCounts.forEach { (status, count) ->
@@ -147,13 +153,11 @@ fun AnalyticsScreen(appState: AppState, onBack: () -> Unit) {
 
             // By Priority — donut chart
             item {
-                Text("By Priority", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = c.text, modifier = Modifier.padding(top = 4.dp))
+                Text("BY PRIORITY", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = TTrack.section, modifier = Modifier.padding(top = 4.dp))
             }
             item {
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = c.card),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, c.border)
+                TCard(
+                    radius = TRadius.lg,
                 ) {
                     Row(
                         modifier = Modifier.padding(16.dp),
@@ -222,14 +226,12 @@ fun AnalyticsScreen(appState: AppState, onBack: () -> Unit) {
             // Team workload
             if (personWorkload.isNotEmpty()) {
                 item {
-                    Text("Team Workload", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = c.text, modifier = Modifier.padding(top = 4.dp))
+                    Text("TEAM WORKLOAD", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.muted, letterSpacing = TTrack.section, modifier = Modifier.padding(top = 4.dp))
                 }
                 item {
                     val maxOps = personWorkload.maxOfOrNull { it.second }.takeIf { (it ?: 0) > 0 } ?: 1
-                    Card(
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = c.card),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, c.border)
+                    TCard(
+                        radius = TRadius.lg,
                     ) {
                         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             personWorkload.forEach { (person, total, active) ->
@@ -276,11 +278,9 @@ fun StatCard(
     color: androidx.compose.ui.graphics.Color = traQSColors.accent
 ) {
     val c = traQSColors
-    Card(
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = c.card),
-        border = androidx.compose.foundation.BorderStroke(1.dp, c.border),
-        modifier = modifier
+    TCard(
+        modifier = modifier,
+        radius = TRadius.lg,
     ) {
         Column(
             modifier = Modifier.padding(12.dp),

@@ -28,6 +28,11 @@ import com.matrixsystems.traqs.models.Person
 import com.matrixsystems.traqs.services.AppState
 import com.matrixsystems.traqs.services.parseFlexibleISO
 import com.matrixsystems.traqs.ui.theme.parseColor
+import com.matrixsystems.traqs.ui.theme.TCard
+import com.matrixsystems.traqs.ui.theme.TRadius
+import com.matrixsystems.traqs.ui.theme.frostedCard
+import com.matrixsystems.traqs.ui.theme.TIcons
+import com.matrixsystems.traqs.ui.theme.TTrack
 import com.matrixsystems.traqs.ui.theme.traQSColors
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -70,30 +75,35 @@ fun AdminScreen(appState: AppState, onBack: () -> Unit) {
         while (true) { now = System.currentTimeMillis(); delay(1000) }
     }
 
-    Scaffold(containerColor = c.bg) { padding ->
+    Scaffold(containerColor = Color.Transparent) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .statusBarsPadding()
-                .background(c.bg),
+                ,
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {
-            // Top bar: back button (iOS AdminView style)
+            // Back sits ABOVE the title, as on every other pushed screen.
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    TRAQSIconBtn(icon = Icons.Default.ChevronLeft, contentDescription = "Back", onClick = onBack)
+                    TRAQSIconBtn(icon = TIcons.ChevronLeft, contentDescription = "Back", onClick = onBack)
                 }
             }
 
-            // Title block
+            // ONE heading, not two. "Live status" used to be a second 30pt title
+            // directly under the page title, which read as the screen changing
+            // its mind about what it is called; the timestamp is what actually
+            // qualifies the page, so it became the subtitle.
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("Live status", fontSize = 30.sp, fontWeight = FontWeight.Bold, color = c.text)
-                    val df = SimpleDateFormat("EEE · MMM d · h:mm a", Locale.US)
-                    Text("${df.format(Date(now))} · auto-refresh", fontSize = 13.sp, color = c.muted)
-                }
+                val df = SimpleDateFormat("EEE · MMM d · h:mm a", Locale.US)
+                PageTitle(
+                    "Live status",
+                    subtitle = "${df.format(Date(now))} · auto-refresh",
+                    size = 44.sp,
+                    tracking = (-2).sp,
+                )
             }
 
             // Stat tiles
@@ -118,7 +128,7 @@ fun AdminScreen(appState: AppState, onBack: () -> Unit) {
                             val on = filter == f
                             Surface(
                                 onClick = { filter = f },
-                                shape = RoundedCornerShape(20.dp),
+                                shape = RoundedCornerShape(TRadius.md),
                                 color = if (on) c.accent else c.surface,
                                 border = BorderStroke(1.dp, if (on) Color.Transparent else c.border)
                             ) {
@@ -216,9 +226,7 @@ private fun RowScope.StatTile(label: String, count: Int, color: Color) {
     Column(
         modifier = Modifier
             .weight(1f)
-            .clip(RoundedCornerShape(10.dp))
-            .background(c.surface)
-            .border(1.dp, c.border, RoundedCornerShape(10.dp))
+            .frostedCard(radius = TRadius.lg, rim = false)
             .padding(horizontal = 4.dp, vertical = 10.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(2.dp)
@@ -235,9 +243,16 @@ private fun AdminSectionHeader(title: String, count: Int) {
         modifier = Modifier.padding(top = 6.dp),
         verticalAlignment = Alignment.Bottom
     ) {
-        Text(title, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = c.text)
+        // The app's section-header treatment — uppercase, tracked, muted. At
+        // 22pt sentence case these read as page titles and competed with the
+        // real one at the top of the screen.
+        Text(
+            title.uppercase(),
+            fontSize = 11.sp, fontWeight = FontWeight.Bold,
+            color = c.muted, letterSpacing = TTrack.section,
+        )
         Spacer(Modifier.weight(1f))
-        Text("$count", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = c.muted)
+        Text("$count", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.muted)
     }
 }
 
@@ -277,9 +292,7 @@ private fun OnJobCard(person: Person, jobTitle: String?, now: Long) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(c.surface)
-            .border(1.dp, c.border, RoundedCornerShape(10.dp))
+            .frostedCard(radius = TRadius.lg, rim = false)
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -323,9 +336,7 @@ private fun OnBreakCard(person: Person, now: Long) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(c.surface)
-            .border(1.dp, c.border, RoundedCornerShape(10.dp))
+            .frostedCard(radius = TRadius.lg, rim = false)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -337,7 +348,7 @@ private fun OnBreakCard(person: Person, now: Long) {
                 if (person.role.isNotEmpty()) Text(person.role, fontSize = 11.sp, color = c.muted)
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                Icon(Icons.Default.Coffee, null, tint = statusColor, modifier = Modifier.size(11.dp))
+                Icon(TIcons.Coffee, null, tint = statusColor, modifier = Modifier.size(11.dp))
                 Text(breakLabel, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = statusColor)
             }
         }
@@ -351,9 +362,7 @@ private fun OnLunchCard(person: Person, sinceISO: String?, now: Long) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(c.surface)
-            .border(1.dp, c.border, RoundedCornerShape(10.dp))
+            .frostedCard(radius = TRadius.lg, rim = false)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -365,7 +374,7 @@ private fun OnLunchCard(person: Person, sinceISO: String?, now: Long) {
                 if (person.role.isNotEmpty()) Text(person.role, fontSize = 11.sp, color = c.muted)
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                Icon(Icons.Default.Restaurant, null, tint = statusColor, modifier = Modifier.size(11.dp))
+                Icon(TIcons.Coffee, null, tint = statusColor, modifier = Modifier.size(11.dp))
                 Text("${elapsedSince(sinceISO, now)} on lunch", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = statusColor)
             }
         }
@@ -378,9 +387,7 @@ private fun IdleOfflineCard(person: Person, label: String) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(c.surface)
-            .border(1.dp, c.border, RoundedCornerShape(10.dp))
+            .frostedCard(radius = TRadius.lg, rim = false)
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)

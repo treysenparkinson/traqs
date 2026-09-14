@@ -13,12 +13,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -30,6 +32,9 @@ import com.matrixsystems.traqs.models.JobStatus
 import com.matrixsystems.traqs.models.Priority
 import com.matrixsystems.traqs.ui.theme.TRAQSColors
 import com.matrixsystems.traqs.ui.theme.parseColor
+import com.matrixsystems.traqs.ui.theme.glassControl
+import com.matrixsystems.traqs.ui.theme.TRadius
+import com.matrixsystems.traqs.ui.theme.TIcons
 import com.matrixsystems.traqs.ui.theme.traQSColors
 import java.text.SimpleDateFormat
 import java.util.*
@@ -44,7 +49,7 @@ fun StatusBadge(status: JobStatus) {
         fontWeight = FontWeight.Bold,
         color = color,
         modifier = Modifier
-            .background(color.copy(alpha = 0.13f), RoundedCornerShape(6.dp))
+            .background(color.copy(alpha = 0.13f), RoundedCornerShape(TRadius.xs))
             .padding(horizontal = 7.dp, vertical = 3.dp)
     )
 }
@@ -71,7 +76,7 @@ fun FilterChip(
     val c = traQSColors
     Button(
         onClick = onClick,
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(TRadius.md),
         colors = ButtonDefaults.buttonColors(
             containerColor = if (isSelected) color.copy(alpha = 0.15f) else c.surface,
             contentColor = if (isSelected) color else c.text.copy(alpha = 0.6f)
@@ -92,7 +97,7 @@ fun SaveStatusBanner(saveStatus: com.matrixsystems.traqs.services.SaveStatus) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .background(c.surface.copy(alpha = 0.9f), RoundedCornerShape(20.dp))
+                    .background(c.surface.copy(alpha = 0.9f), RoundedCornerShape(TRadius.md))
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
                 CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color.White, strokeWidth = 2.dp)
@@ -104,10 +109,10 @@ fun SaveStatusBanner(saveStatus: com.matrixsystems.traqs.services.SaveStatus) {
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
-                    .background(c.surface.copy(alpha = 0.9f), RoundedCornerShape(20.dp))
+                    .background(c.surface.copy(alpha = 0.9f), RoundedCornerShape(TRadius.md))
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) {
-                Text("✓", fontSize = 12.sp, color = c.statusFinished)
+                Icon(TIcons.Check, null, tint = c.statusFinished, modifier = Modifier.size(12.dp))
                 Text("Saved", fontSize = 12.sp, color = c.text)
             }
         }
@@ -139,8 +144,17 @@ fun Priority.toColor(c: TRAQSColors): Color = when (this) {
     Priority.HIGH -> c.priHigh
 }
 
-// Image logo — picks white or blue version based on app theme (not just system dark mode)
-// Pass a full modifier (e.g. fillMaxWidth + aspectRatio) to control size, or rely on default height
+// The brand wordmark. Same art the iOS app ships
+// (traqs-wordmark-bold-ink / -paper, 2348x1200) so the two platforms are
+// literally the same mark, not two renderings of it.
+//
+// `size` is the rendered HEIGHT; the frame is DEFINITE in both axes on purpose.
+// Constrained on height alone the image has no minimum intrinsic width, so it is
+// the first thing a tight header row compresses — and since the ratio is
+// preserved, losing width also loses height. That is how one wider header
+// control silently shrinks the logo on every page.
+private const val WORDMARK_ASPECT = 2348f / 1200f
+
 @Composable
 fun TRAQSLogo(height: Dp = 28.dp, modifier: Modifier = Modifier, useDefaultSize: Boolean = true) {
     val c = traQSColors
@@ -149,8 +163,152 @@ fun TRAQSLogo(height: Dp = 28.dp, modifier: Modifier = Modifier, useDefaultSize:
         painter = painterResource(logoRes),
         contentDescription = "TRAQS",
         contentScale = ContentScale.Fit,
-        modifier = if (useDefaultSize) modifier.height(height) else modifier
+        modifier = if (useDefaultSize) modifier.height(height).width(height * WORDMARK_ASPECT) else modifier
     )
+}
+
+// Which view the Jobs tab is showing. iOS calls this AppNav.jobsMode; the Jobs
+// tab subsumed the old Schedule tab there, and the header toggle is how you get
+// between them.
+enum class JobsMode { LIST, GANTT }
+
+// The Jobs header's view toggle. Names the CURRENT view rather than the one the
+// tap leads to — the two glyphs alone did not say which way the tap would go.
+//
+// FIXED width, sized for the wider label: the Jobs header is deliberately stable
+// across a mode flip, so the pill must not change width when the label does.
+@Composable
+fun JobsViewToggle(mode: JobsMode, onToggle: (JobsMode) -> Unit) {
+    val c = traQSColors
+    val isList = mode == JobsMode.LIST
+    Box(
+        modifier = Modifier
+            .width(76.dp)
+            .height(38.dp)
+            .glassControl()
+            .clickable { onToggle(if (isList) JobsMode.GANTT else JobsMode.LIST) },
+        contentAlignment = Alignment.Center
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(
+                if (isList) TIcons.Jobs else TIcons.Calendar,
+                contentDescription = null,
+                tint = c.text,
+                modifier = Modifier.size(13.dp)
+            )
+            Text(
+                if (isList) "List" else "Plan",
+                fontSize = 11.sp, fontWeight = FontWeight.Bold, color = c.text,
+            )
+        }
+    }
+}
+
+// A person's avatar: their profile photo if they have one, else their initials
+// on their own colour. Mirrors iOS Avatar.
+//
+// `image` is a data: URL / base64 blob carried on the person record — the same
+// shape iOS decodes — so there is no network fetch here and no image library to
+// pull in. A malformed blob falls through to initials rather than showing a
+// broken box.
+@Composable
+fun Avatar(person: com.matrixsystems.traqs.models.Person?, size: Dp = 38.dp) {
+    val c = traQSColors
+    val bg = remember(person?.color) {
+        runCatching { parseColor(person?.color ?: "#7c3aed") }.getOrDefault(Color(0xFF7C3AED))
+    }
+    val bitmap = remember(person?.image) { decodeAvatar(person?.image) }
+
+    Box(
+        modifier = Modifier.size(size).clip(CircleShape).background(bg),
+        contentAlignment = Alignment.Center
+    ) {
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap,
+                contentDescription = person?.name,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.size(size).clip(CircleShape)
+            )
+        } else {
+            val initials = (person?.name ?: "")
+                .split(" ").filter { it.isNotBlank() }.take(2)
+                .mapNotNull { it.firstOrNull()?.uppercaseChar() }
+                .joinToString("")
+            Text(
+                initials.ifEmpty { "?" },
+                fontSize = (size.value * 0.36f).sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+            )
+        }
+    }
+}
+
+private fun decodeAvatar(data: String?): androidx.compose.ui.graphics.ImageBitmap? {
+    if (data.isNullOrBlank()) return null
+    return runCatching {
+        // Accept both a bare base64 payload and a full data: URL.
+        val payload = data.substringAfter("base64,", data)
+        val bytes = android.util.Base64.decode(payload, android.util.Base64.DEFAULT)
+        android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            ?.asImageBitmap()
+    }.getOrNull()
+}
+
+// The TRAQS "bars" mark — four stacked bars, the third one the accent. Drawn in
+// Compose rather than shipped as a raster so it follows the customizer's accent
+// and the light/dark preset, exactly as iOS TRAQSBarsMark does.
+@Composable
+fun TRAQSBarsMark(size: Dp) {
+    val c = traQSColors
+    // Bar widths as a fraction of the mark's full width, top to bottom, measured
+    // from the original artwork. The third (full-width) bar is the accent bar.
+    val widths = listOf(0.554f, 0.788f, 1.0f, 0.451f)
+    val accentIndex = 2
+    val aspect = 184f / 150f
+    val fullWidth = size * aspect
+    val barH = size * (27f / 150f)
+    val gap = size * (14f / 150f)
+
+    Column(
+        modifier = Modifier.width(fullWidth).height(size),
+        verticalArrangement = Arrangement.spacedBy(gap)
+    ) {
+        widths.forEachIndexed { i, w ->
+            Box(
+                Modifier
+                    .width(fullWidth * w)
+                    .height(barH)
+                    .clip(RoundedCornerShape(barH * 0.32f))
+                    .background(if (i == accentIndex) c.accent else c.muted)
+            )
+        }
+    }
+}
+
+// The "traqs=" lockup: the wordmark with the bars mark riding after it like a
+// trailing equals sign. Parametric so the hand-tuned alignment (measured at
+// wordmark height 64) scales cleanly to any header size.
+//
+// The pull-left is NEGATIVE SPACING, not an offset. An offset is visual only, so
+// the lockup would claim ~14dp of layout width at its right edge that it never
+// draws into — phantom width taken straight out of the header's budget for its
+// trailing controls.
+@Composable
+fun TRAQSHeaderLogo(size: Dp = 44.dp) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(-size * (15f / 64f)),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TRAQSLogo(height = size)
+        Box(Modifier.offset(y = -size * (1f / 64f))) {
+            TRAQSBarsMark(size = size * (21f / 64f))
+        }
+    }
 }
 
 // Fallback text logo kept for places where an image won't fit
@@ -167,53 +325,36 @@ fun TRAQSLogoText(fontSize: Int = 24) {
     )
 }
 
-// Provided at the root by MainScreen so any header in the tree can toggle the drawer.
-val LocalDrawerToggle = staticCompositionLocalOf<() -> Unit> { {} }
-
-// iOS-style sticky header: hamburger + wordmark on the left, trailing actions on the right.
-// Mirrors TRAQSNavHeader from iOS — no center title; the tab tells the user where they are.
+// The app's one header: wordmark on the left, trailing actions on the right.
+// Mirrors iOS GlassHeader — no centre title, because the tab bar already says
+// where you are, and no hamburger, because there is no longer a drawer to open.
+//
+// TRANSPARENT, deliberately. The shell paints one PageBackground behind every
+// tab and the header floats on it; an opaque fill here cut a flat band across
+// the top of the liquid canvas.
 @Composable
 fun TRAQSHeader(actions: @Composable RowScope.() -> Unit = {}) {
     val c = traQSColors
-    val toggle = LocalDrawerToggle.current
-    Surface(
-        color = c.bg,
-        shadowElevation = 0.dp,
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
+            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
+        TRAQSHeaderLogo(size = 56.dp)
+        Spacer(Modifier.weight(1f))
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 20.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            // Hamburger
-            IconButton(onClick = toggle, modifier = Modifier.size(44.dp)) {
-                Icon(Icons.Default.Menu, "Menu", tint = c.text, modifier = Modifier.size(26.dp))
-            }
-            // Wordmark — directly right of hamburger, NOT centered
-            val logoRes = if (c.isLight) R.drawable.traqs_logo else R.drawable.traqs_logo_white
-            Image(
-                painter = painterResource(logoRes),
-                contentDescription = "TRAQS",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.height(58.dp)
-            )
-            Spacer(Modifier.weight(1f))
-            // Trailing actions
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) { actions() }
-        }
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) { actions() }
     }
 }
 
-// iOS-style header icon button: circle, surface fill, hairline border, raised shadow.
-// Mirrors `IconBtn` in Primitives.swift (white-surface circular button with shadow).
+// The header control: a round key in the app's glass language. Mirrors iOS
+// HeaderGlassPill — near-solid rather than translucent, because a button has to
+// read as an opaque object ON the glass, not as more glass.
 @Composable
 fun TRAQSIconBtn(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -224,18 +365,14 @@ fun TRAQSIconBtn(
 ) {
     val c = traQSColors
     val tint = iconColor ?: if (enabled) c.text else c.muted
-    Surface(
-        onClick = onClick,
-        enabled = enabled,
-        shape = CircleShape,
-        color = c.surface,
-        border = BorderStroke(1.dp, c.border),
-        shadowElevation = 1.dp,
-        modifier = Modifier.size(36.dp)
+    Box(
+        modifier = Modifier
+            .size(38.dp)
+            .glassControl()
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(icon, contentDescription, tint = tint, modifier = Modifier.size(18.dp))
-        }
+        Icon(icon, contentDescription, tint = tint, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -258,11 +395,11 @@ fun PageActionBar(
             onClick = onAskTRAQS,
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
             modifier = Modifier.height(34.dp).align(Alignment.CenterStart),
-            shape = RoundedCornerShape(8.dp),
+            shape = RoundedCornerShape(TRadius.xs),
             border = BorderStroke(1.dp, c.accent.copy(alpha = 0.5f)),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = c.accent)
         ) {
-            Icon(Icons.Default.AutoAwesome, null, modifier = Modifier.size(14.dp))
+            Icon(TIcons.Spark, null, modifier = Modifier.size(14.dp))
             Spacer(Modifier.width(4.dp))
             Text("Ask TRAQS", fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
