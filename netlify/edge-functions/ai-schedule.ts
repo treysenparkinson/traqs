@@ -12,7 +12,14 @@
 import { jwtVerify, createRemoteJWKSet } from "https://esm.sh/jose@5.9.6";
 
 const ANTHROPIC_API = "https://api.anthropic.com/v1/messages";
-const DEFAULT_MODEL = "claude-sonnet-4-20250514";
+// Claude Opus 5. The previous pin, `claude-sonnet-4-20250514`, was retired and
+// the API now answers it with 404 not_found_error — which surfaced to users as
+// "AI not responding", because the !upstream.ok branch below deliberately
+// returns a generic message rather than the upstream body.
+//
+// Do NOT re-pin a dated snapshot here. The retirement of a dated ID is exactly
+// what broke this; the unsuffixed alias keeps working across point releases.
+const DEFAULT_MODEL = "claude-opus-5";
 
 const AUTH0_DOMAIN = Netlify.env.get("AUTH0_DOMAIN");
 const AUTH0_AUDIENCE = Netlify.env.get("AUTH0_AUDIENCE");
@@ -137,9 +144,10 @@ export default async (req: Request): Promise<Response> => {
     return jsonResp(req, 413, { error: "Request too large" });
   }
 
-  // Cap output tokens. With the output-128k beta header below, Sonnet 4 supports up to 128K.
-  // Real-world Fast TRAQS extractions of full Excel schedules often need >8K output tokens
-  // (the old default), which is why the user was hitting stop_reason: "max_tokens".
+  // Cap output tokens. Opus 5 allows up to 128K natively — no beta header — and
+  // 64K is comfortably inside that. Real-world Fast TRAQS extractions of full
+  // Excel schedules often need well over the 8K that used to be the default,
+  // which is what produced stop_reason: "max_tokens" truncations.
   const MAX_OUTPUT = 64000;
   const anthropicBody = {
     model: DEFAULT_MODEL,
@@ -159,8 +167,10 @@ export default async (req: Request): Promise<Response> => {
         "Content-Type": "application/json",
         "x-api-key": ANTHROPIC_API_KEY!,
         "anthropic-version": "2023-06-01",
-        // Extended output (Sonnet 4): allows max_tokens up to 128K instead of 8K.
-        "anthropic-beta": "output-128k-2025-02-19",
+        // No anthropic-beta header. The old `output-128k-2025-02-19` flag was
+        // how Sonnet 4 reached past an 8K output cap; on Opus 5 the large
+        // output ceiling is native, so carrying a stale beta only adds a flag
+        // that can be retired out from under us the way the model ID was.
       },
       body: JSON.stringify(anthropicBody),
     });
@@ -172,9 +182,20 @@ export default async (req: Request): Promise<Response> => {
   if (!upstream.ok) {
     const text = await upstream.text();
     console.error("Anthropic API error:", upstream.status, text);
-    // Don't reflect the upstream body to the client — it can carry request
-    // metadata / quota detail. Log it server-side, return a generic message.
-    return jsonResp(req, upstream.status, { error: "AI request failed" });
+    // Still don't reflect the upstream body — it can carry request metadata and
+    // quota detail. But say which CLASS of failure it was.
+    //
+    // A flat "AI request failed" is what made the retired-model outage so hard
+    // to place: every cause looked identical from the client, so a server-side
+    // misconfiguration was indistinguishable from the user being rate limited.
+    // These strings name the category and leak nothing.
+    const message =
+      upstream.status === 404 ? "AI is misconfigured on the server (unknown model). Contact an admin."
+      : upstream.status === 401 || upstream.status === 403 ? "AI credentials were rejected. Contact an admin."
+      : upstream.status === 429 ? "Anthropic is rate limiting this workspace — try again shortly."
+      : upstream.status >= 500 ? "The AI service is temporarily unavailable — try again shortly."
+      : "AI request failed";
+    return jsonResp(req, upstream.status, { error: message });
   }
 
   // ── Pipe the SSE body straight back to the client ──────────────────────
