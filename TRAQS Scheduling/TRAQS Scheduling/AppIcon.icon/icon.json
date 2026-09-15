@@ -2,52 +2,43 @@
   "fill-specializations" : [
     {
       "value" : {
-        "linear-gradient" : [
-          "display-p3:0.97847,1.00000,0.98759,1.00000",
-          "display-p3:0.85849,0.98789,1.00000,1.00000"
-        ],
+        "automatic-gradient" : "extended-gray:1.00000,1.00000",
         "orientation" : {
           "start" : {
             "x" : 0.5,
-            "y" : 0
+            "y" : 1
           },
           "stop" : {
             "x" : 0.5,
-            "y" : 0.7
+            "y" : 0.3
           }
         }
       }
     },
     {
       "appearance" : "dark",
-      "value" : {
-        "linear-gradient" : [
-          "display-p3:0.05526,0.05526,0.05526,1.00000",
-          "display-p3:0.17750,0.25591,0.27759,1.00000"
-        ],
-        "orientation" : {
-          "start" : {
-            "x" : 0.5,
-            "y" : 0
-          },
-          "stop" : {
-            "x" : 0.5,
-            "y" : 0.7
-          }
-        }
-      }
+      "value" : "system-dark"
     }
   ],
   "groups" : [
     {
       "layers" : [
         {
-          "blend-mode" : "normal",
-          "fill" : "automatic",
-          "image-name" : "traqs-bars.png",
-          "name" : "traqs-bars",
+          "glass" : true,
+          "hidden" : false,
+          "image-name" : "traqs-bars-candy-v2.png",
+          "name" : "traqs-bars-candy-v2",
+          "opacity-specializations" : [
+            {
+              "value" : 1
+            },
+            {
+              "appearance" : "dark",
+              "value" : 1
+            }
+          ],
           "position" : {
-            "scale" : 0.5,
+            "scale" : 0.48,
             "translation-in-points" : [
               0,
               0
