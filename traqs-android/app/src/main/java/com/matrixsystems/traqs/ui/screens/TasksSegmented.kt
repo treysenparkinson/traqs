@@ -7,6 +7,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import com.matrixsystems.traqs.ui.theme.TIcons
+import com.matrixsystems.traqs.ui.theme.TTypo
+import com.matrixsystems.traqs.ui.theme.ambientFloat
+import com.matrixsystems.traqs.ui.theme.glassControl
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,21 +31,77 @@ import com.matrixsystems.traqs.ui.theme.traQSColors
 import java.text.SimpleDateFormat
 import java.util.*
 
-// Today / Week / Month / Year segmented control — matches iOS TasksView.JobsSegment.
+// The Jobs list's date range — matches iOS TasksView.JobsSegment.
 
 enum class JobsSegment(val label: String) { TODAY("Today"), WEEK("Week"), MONTH("Month"), YEAR("Year") }
 
-// Content-sized segmented control with iOS-style sliding pill.
-// Each segment captures its measured bounds; a single capsule slides to
-// the selected segment via animateDpAsState (spring).
+/**
+ * The range picker: a 62dp circular FAB showing today's date, whose tap opens a
+ * menu of the four ranges with the current one checked.
+ *
+ * This replaces the four-up segmented control. It's the iOS `dateRangeFab` in
+ * JobsHubView, and the reasoning carries over: the segment bar spent a whole row
+ * of the page permanently restating a choice you change rarely, and the range it
+ * named was the one thing on screen you could already see from the list itself.
+ */
 @Composable
-fun JobsSegmentedControl(selected: JobsSegment, onSelect: (JobsSegment) -> Unit) {
-    SlidingPillSegmented(
-        options = JobsSegment.entries,
-        selected = selected,
-        label = { it.label },
-        onSelect = onSelect,
-    )
+fun DateRangeFab(
+    selected: JobsSegment,
+    onSelect: (JobsSegment) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val c = traQSColors
+    var open by remember { mutableStateOf(false) }
+    val now = Date()
+    Box(modifier = modifier) {
+        Column(
+            modifier = Modifier
+                .size(62.dp)
+                // The app's own floating-control treatment, not a hand-rolled
+                // circle: it floats over the list like the nav pill does, so it
+                // carries the same ambient lift and glass.
+                .ambientFloat(CircleShape)
+                .glassControl(CircleShape)
+                .clickable { open = true },
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                SimpleDateFormat("MMM", Locale.US).format(now).uppercase(),
+                style = TTypo.xxs(11.sp), letterSpacing = TTrack.status, color = c.muted
+            )
+            Text(
+                SimpleDateFormat("d", Locale.US).format(now),
+                style = TTypo.h3(22.sp), color = c.text
+            )
+        }
+        DropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            containerColor = c.card
+        ) {
+            JobsSegment.entries.forEach { opt ->
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            opt.label,
+                            color = if (opt == selected) c.accent else c.text,
+                            fontWeight = if (opt == selected) FontWeight.Bold else FontWeight.Normal
+                        )
+                    },
+                    trailingIcon = {
+                        if (opt == selected) {
+                            Icon(
+                                TIcons.Check,
+                                null, tint = c.accent, modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    },
+                    onClick = { onSelect(opt); open = false }
+                )
+            }
+        }
+    }
 }
 
 // MARK: - Week strip

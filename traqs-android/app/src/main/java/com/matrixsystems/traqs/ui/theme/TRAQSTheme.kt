@@ -68,6 +68,13 @@ data class TRAQSColors(
     val muted: Color,
     val accent: Color,
     val isLight: Boolean = true,
+    /// Frosted Glass (Customize). Off flattens cards and panels to opaque
+    /// surfaces with a plain hairline; buttons, the nav pill and prompts keep
+    /// their glass either way, same as iOS.
+    val frosted: Boolean = true,
+    /// Liquid Motion (Customize). Off swaps the drifting wash for the static
+    /// ambient canvas. See `PageBackground`.
+    val liquid: Boolean = true,
     // Brand-locked semantic colors — match iOS T.* values exactly.
     val danger: Color = Color(0xFFEF4444),           // T.red / T.danger
     val eng: Color = Color(0xFFA78BFA),              // T.eng (lavender)
@@ -177,7 +184,11 @@ fun parseColor(hex: String): Color {
     } catch (_: Exception) { Color.Gray }
 }
 
-fun BgPreset.toTRAQSColors(accent: String): TRAQSColors {
+fun BgPreset.toTRAQSColors(
+    accent: String,
+    frosted: Boolean = true,
+    liquid: Boolean = true,
+): TRAQSColors {
     // statusInProgress should mirror the accent (matches iOS T.statusInProgress).
     val accentColor = parseColor(accent)
     val end = deriveGradientEnd(accentColor)
@@ -190,6 +201,8 @@ fun BgPreset.toTRAQSColors(accent: String): TRAQSColors {
         muted = parseColor(muted),
         accent = accentColor,
         isLight = isLight,
+        frosted = frosted,
+        liquid = liquid,
         statusInProgress = accentColor,
         gradStart = accentColor,
         gradEnd = end,
@@ -226,9 +239,11 @@ fun TRAQSTheme(
 ) {
     val accentHex by themeSettings.accent.collectAsState()
     val bgPresetId by themeSettings.bgPresetId.collectAsState()
+    val frosted by themeSettings.frostedGlass.collectAsState()
+    val liquid by themeSettings.liquidBackground.collectAsState()
 
     val preset = ThemeSettings.BG_PRESETS.firstOrNull { it.id == bgPresetId } ?: ThemeSettings.BG_PRESETS[0]
-    val traQSColors = preset.toTRAQSColors(accentHex)
+    val traQSColors = preset.toTRAQSColors(accentHex, frosted, liquid)
 
     val colorScheme = if (preset.isLight) {
         lightColorScheme(

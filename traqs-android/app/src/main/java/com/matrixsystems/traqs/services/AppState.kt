@@ -459,9 +459,108 @@ class AppState(private val context: Context) : ViewModel() {
         _unreadCount.value = 0
     }
 
+    // MARK: - Per-thread read cursor
+    //
+    // iOS keeps a server-backed `threadReadAt` map; Android has no sync service
+    // yet, so this is the local half of it — enough for the inbox badge to mean
+    // "messages since you last opened this thread" instead of "how many messages
+    // exist", which is what the row used to count.
+
+    private val _threadReadAt = MutableStateFlow(loadThreadReadAt())
+    val threadReadAt: StateFlow<Map<String, String>> = _threadReadAt.asStateFlow()
+
+    private fun loadThreadReadAt(): Map<String, String> =
+        runCatching {
+            val raw = msgPrefs.getString("thread_read_at", null) ?: return emptyMap()
+            @Suppress("UNCHECKED_CAST")
+            Gson().fromJson(raw, Map::class.java) as Map<String, String>
+        }.getOrDefault(emptyMap())
+
+    /// Move this thread's cursor to its newest message.
+    fun markThreadRead(threadKey: String) {
+        val newest = _messages.value
+            .filter { it.threadKey == threadKey }
+            .maxOfOrNull { it.timestamp } ?: return
+        if (_threadReadAt.value[threadKey] == newest) return
+        val updated = _threadReadAt.value + (threadKey to newest)
+        _threadReadAt.value = updated
+        msgPrefs.edit().putString("thread_read_at", Gson().toJson(updated)).apply()
+    }
+
+    /// Messages in `threadKey` that arrived after the cursor and aren't mine.
+    /// A thread never seen before counts as fully unread, matching iOS.
+    fun unreadCount(threadKey: String, messages: List<Message>): Int {
+        val cursor = _threadReadAt.value[threadKey]
+        return messages.count { it.authorId != currentPersonId && (cursor == null || it.timestamp > cursor) }
+    }
+
     fun deleteThread(threadKey: String) {
         _messages.value = _messages.value.filter { it.threadKey != threadKey }
         viewModelScope.launch { runCatching { api?.deleteThread(threadKey) } }
+    }
+
+    // MARK: - Chat groups
+    //
+    // Mirrors iOS AppState.createGroup / updateGroup. Both are optimistic: the
+    // local array updates first so the inbox and thread header reflect the change
+    // immediately, and the whole-array save runs after.
+
+    /// Create a group and hand it back so navigation can target the real thread.
+    /// Returns null only if there's no API session.
+    suspend fun createGroup(name: String, memberIds: List<Int>): ChatGroup? {
+        val api = api ?: return null
+        val trimmed = name.trim()
+        // Reuse an existing same-named group instead of creating a duplicate — but
+        // only when a name was actually given. Unnamed groups all share the empty
+        // name, so an unconditional check would fold every one of them into
+        // whichever was created first.
+        if (trimmed.isNotEmpty()) {
+            _groups.value.firstOrNull { it.name == trimmed }?.let { return it }
+        }
+        // Stamp the creator, matching what the desktop writes — it's what decides
+        // who may later rename the group.
+        val group = ChatGroup(
+            id = UUID.randomUUID().toString(),
+            name = trimmed,
+            memberIds = memberIds,
+            createdBy = currentPersonId?.toString(),
+            createdAt = isoNow()
+        )
+        val updated = _groups.value + group
+        _groups.value = updated
+        runCatching { api.saveGroups(updated) }
+            .onFailure { _errorMessage.value = "Failed to create group: ${it.message}" }
+        return group
+    }
+
+    /// Rename a group and/or REPLACE its roster (so it can remove people too).
+    /// `name` may be empty, which means "title it after its members" — clearing the
+    /// field is a supported edit, not a no-op.
+    suspend fun updateGroup(id: String, name: String, memberIds: List<Int>) {
+        val api = api ?: return
+        val idx = _groups.value.indexOfFirst { it.id == id }
+        if (idx < 0) return
+        if (memberIds.isEmpty()) return   // a group with nobody in it isn't one
+        val current = _groups.value[idx]
+        val trimmed = name.trim()
+        val renaming = current.name != trimmed
+        val rosterChanged = current.memberIds.toSet() != memberIds.toSet()
+        // Renaming and changing the roster are creator/admin actions.
+        if ((renaming || rosterChanged) && !canAdministerGroup(current)) return
+        val updated = _groups.value.toMutableList()
+        updated[idx] = current.copy(name = trimmed, memberIds = memberIds)
+        _groups.value = updated
+        runCatching { api.saveGroups(updated) }
+            .onFailure { _errorMessage.value = "Failed to update group: ${it.message}" }
+    }
+
+    /// Only the creator or an org admin may rename a group or change its roster.
+    /// A group with no recorded creator (pre-dating the field) stays open to its
+    /// members, which is how those threads behaved before.
+    fun canAdministerGroup(group: ChatGroup): Boolean {
+        if (currentPerson?.isAdmin == true) return true
+        val owner = group.createdBy?.takeIf { it.isNotBlank() } ?: return true
+        return owner == currentPersonId?.toString()
     }
 
     // MARK: - Undo / Redo

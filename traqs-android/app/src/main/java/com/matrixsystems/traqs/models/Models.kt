@@ -308,8 +308,44 @@ data class Message(
 data class ChatGroup(
     val id: String = "",
     val name: String = "",
-    val memberIds: List<Int> = emptyList()
-)
+    val memberIds: List<Int> = emptyList(),
+    // Who created the group, and when. The desktop writes both on every group it
+    // creates, and saveGroups is a whole-array replace the server stores verbatim
+    // (no field-level merge) — so a group edited from a client that doesn't decode
+    // these comes back with its creator stripped. Carried here so the round-trip is
+    // lossless AND so "only the creator or an admin may rename" has something to
+    // check. String, not Int: person ids are mixed string/number across the web app
+    // and Gson coerces a JSON number into a String losslessly, where the app's
+    // SafeIntDeserializer would flatten a string id to 0.
+    val createdBy: String? = null,
+    val createdAt: String? = null
+) {
+    /// What to show for this group ANYWHERE — thread list, thread header, pickers.
+    /// Naming is optional and the web has historically created groups with no
+    /// `name` at all, so reading `name` directly renders blank for most groups and
+    /// callers that fell back to the thread key showed a raw UUID.
+    fun displayName(people: List<Person>, myId: Int?): String {
+        val trimmed = name.trim()
+        if (trimmed.isNotEmpty()) return trimmed
+        return memberNamesLine(memberIds, people, myId)
+    }
+
+    companion object {
+        /// "Alice, Bob, Carol +4" — first names, in `memberIds` order, viewer
+        /// excluded. Order follows memberIds rather than being sorted so a group's
+        /// title stays put instead of reshuffling when somebody is renamed. Capped
+        /// at three because the untruncated line runs wider than a thread row.
+        fun memberNamesLine(memberIds: List<Int>, people: List<Person>, myId: Int?): String {
+            val names = memberIds
+                .filter { it != myId }
+                .mapNotNull { id -> people.firstOrNull { it.id == id }?.name?.split(" ")?.firstOrNull() }
+                .filter { it.isNotBlank() }
+            if (names.isEmpty()) return "Group"
+            if (names.size <= 3) return names.joinToString(", ")
+            return names.take(3).joinToString(", ") + " +${names.size - 3}"
+        }
+    }
+}
 
 // MARK: - Notification Payload
 

@@ -220,21 +220,10 @@ fun JobsScreen(
                         }
                     }
 
-                    // Segmented control
-                    item {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            JobsSegmentedControl(
-                                selected = segment,
-                                onSelect = {
-                                    segment = it
-                                    selectedDate = Date(startOfToday())
-                                }
-                            )
-                        }
-                    }
+                    // No segmented control. The range is chosen from the calendar
+                    // FAB at the bottom-right instead — see `DateRangeFab` — which
+                    // is what iOS does now: the four-up segment bar spent a whole
+                    // row of the page restating a choice you change rarely.
 
                     // Per-segment picker (week strip / month calendar / year heatmap).
                     // Today has no picker — it just renders the range body below.
@@ -289,8 +278,25 @@ fun JobsScreen(
                         appState = appState,
                         onOpen = { jobId -> navController.navigate(Screen.JobDetail.createRoute(jobId)) }
                     )
+                    // Clear the FAB so the last card is still reachable.
+                    // Clear the range FAB, which floats above the list.
+                    item { Spacer(Modifier.height(80.dp)) }
                 }
             }
+
+            // Range picker, bottom-right. Shows today's date and opens a menu of
+            // the four ranges with the current one checked.
+            DateRangeFab(
+                selected = segment,
+                onSelect = {
+                    segment = it
+                    selectedDate = Date(startOfToday())
+                },
+                // Sits ABOVE the floating tab pill, not behind it.
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 20.dp, bottom = tabPillBottomInset - 20.dp)
+            )
         }
     }
 

@@ -81,14 +81,19 @@ fun Modifier.flatHairline(shape: Shape, width: Dp = 1.dp): Modifier =
 //
 // `rim = false` for rows in a long list — the glass bevel is for cards, and at
 // row scale it reads as a bright wire tracing every item.
+// `c.frosted` is the Customize > Frosted Glass toggle. Off, a card goes fully
+// opaque and drops the specular rim for a plain hairline — the flat surface iOS
+// describes as "*Off flattens cards and panels". It is read HERE, in the one
+// place the glass recipe is defined, so the toggle reaches every card-shaped
+// thing in the app without a per-screen sweep.
 @Composable
 fun Modifier.frostedCard(radius: Dp = TRadius.hero, rim: Boolean = true): Modifier {
     val c = traQSColors
     val shape = RoundedCornerShape(radius)
     return this
         .clip(shape)
-        .background(c.surface.copy(alpha = glassSurfaceTint), shape)
-        .then(if (rim) Modifier.specularRim(shape) else Modifier.flatHairline(shape))
+        .background(c.surface.copy(alpha = if (c.frosted) glassSurfaceTint else 1f), shape)
+        .then(if (rim && c.frosted) Modifier.specularRim(shape) else Modifier.flatHairline(shape))
 }
 
 // Same treatment, fully pill-shaped.
@@ -98,8 +103,8 @@ fun Modifier.frostedPill(rim: Boolean = true): Modifier {
     val shape = CircleShape
     return this
         .clip(shape)
-        .background(c.surface.copy(alpha = glassSurfaceTint), shape)
-        .then(if (rim) Modifier.specularRim(shape) else Modifier.flatHairline(shape))
+        .background(c.surface.copy(alpha = if (c.frosted) glassSurfaceTint else 1f), shape)
+        .then(if (rim && c.frosted) Modifier.specularRim(shape) else Modifier.flatHairline(shape))
 }
 
 // The heavier frost for a modal. Thinner tint than a card (see
@@ -112,8 +117,8 @@ fun Modifier.glassPanel(radius: Dp = TRadius.lg): Modifier {
     return this
         .shadow(TElevation.ambient, shape, clip = false)
         .clip(shape)
-        .background(c.surface.copy(alpha = modalSurfaceTint), shape)
-        .then(Modifier.specularRim(shape))
+        .background(c.surface.copy(alpha = if (c.frosted) modalSurfaceTint else 1f), shape)
+        .then(if (c.frosted) Modifier.specularRim(shape) else Modifier.flatHairline(shape))
 }
 
 // Ambient float — for hero surfaces and the nav pill. Kept off `frostedCard`

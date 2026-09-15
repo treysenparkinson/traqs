@@ -19,7 +19,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -173,7 +175,26 @@ fun PageTitle(
     ) {
         Text(
             title,
-            style = TTypo.wordmark(size),
+            style = TTypo.wordmark(size).copy(
+                // Two things were padding the top of every page title, and
+                // together they read as a heavy forehead above the words:
+                //
+                //  · `includeFontPadding` — a legacy Android metric that adds
+                //    the font's full ascent/descent ABOVE the cap height. On a
+                //    56sp display face that is a lot of nothing.
+                //  · the default line height, which at this size reserves
+                //    leading for a second line the title never has.
+                //
+                // SwiftUI does neither, which is why the same 56pt title sits
+                // tight under the header on iOS. `lineHeight = size` trims it to
+                // the glyphs; `Trim.Both` removes what's left at both ends.
+                platformStyle = PlatformTextStyle(includeFontPadding = false),
+                lineHeight = size,
+                lineHeightStyle = LineHeightStyle(
+                    alignment = LineHeightStyle.Alignment.Center,
+                    trim = LineHeightStyle.Trim.Both
+                )
+            ),
             letterSpacing = tracking,
             color = c.text,
         )
@@ -182,7 +203,10 @@ fun PageTitle(
 }
 
 // Space above a page title, under the header. Matches iOS pageTitleTopInset.
-val pageTitleTopInset = 6.dp
+// Space above a page title, under the header. Zero: the header now trims its
+// own bottom padding to the wordmark glyph (see TRAQSHeader), so any inset here
+// is added on top of margin the art already carries.
+val pageTitleTopInset = 0.dp
 
 // ── Today's date + week strip ──────────────────────────────────────────────
 

@@ -77,11 +77,12 @@ fun AdminScreen(appState: AppState, onBack: () -> Unit) {
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         LazyColumn(
+            // Scaffold's `padding` already carries the status-bar inset on a
+            // screen with no topBar — see the note in SettingsScreen. Applying
+            // `.statusBarsPadding()` on top of it inset the page twice.
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .statusBarsPadding()
-                ,
+                .padding(padding),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp)
         ) {

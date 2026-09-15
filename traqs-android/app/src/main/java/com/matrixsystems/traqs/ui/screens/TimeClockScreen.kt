@@ -279,38 +279,20 @@ fun TimeClockScreen(
     // PIN gate for clock in/out. The server verifies the PIN, so a wrong one
     // comes back 401 and lands in clockError; the dialog stays open on failure
     // rather than dismissing and losing the attempt.
+    // The app's own pad, not a Material dialog with a text field — see
+    // ClockPinPad. It owns the whole action: keypad → spinner → tick, all in the
+    // one panel, and it closes itself only once that has played. A wrong PIN
+    // springs it back to entry with an error rather than dismissing and losing
+    // the attempt.
     pinFor?.let { direction ->
         val clockingIn = direction == "in"
-        AlertDialog(
-            onDismissRequest = { if (!isPayClocking) pinFor = null },
-            title = { Text(if (clockingIn) "Enter your PIN to clock in" else "Enter your PIN to clock out", color = c.text) },
-            text = {
-                OutlinedTextField(
-                    value = pinText,
-                    onValueChange = { entry -> pinText = entry.filter { it.isDigit() }.take(8) },
-                    singleLine = true,
-                    label = { Text("PIN") },
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = pinText.isNotEmpty() && !isPayClocking,
-                    onClick = {
-                        val entered = pinText
-                        val done: (Boolean) -> Unit = { ok -> if (ok) { pinFor = null; pinText = "" } }
-                        if (clockingIn) appState.payClockIn(entered, done)
-                        else appState.payClockOut(entered, done)
-                    }
-                ) { Text(if (clockingIn) "Clock In" else "Clock Out", color = c.accent) }
-            },
-            dismissButton = {
-                TextButton(enabled = !isPayClocking, onClick = { pinFor = null }) {
-                    Text("Cancel", color = c.muted)
-                }
-            },
-            containerColor = c.card
+        ClockPinPad(
+            title = if (clockingIn) "Clock In" else "Clock Out",
+            onClose = { pinFor = null; pinText = "" },
+            onSubmit = { entered, done ->
+                if (clockingIn) appState.payClockIn(entered, done)
+                else appState.payClockOut(entered, done)
+            }
         )
     }
 

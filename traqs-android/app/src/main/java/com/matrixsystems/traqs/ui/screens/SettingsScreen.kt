@@ -65,11 +65,13 @@ fun SettingsScreen(
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         LazyColumn(
+            // NO `.statusBarsPadding()` here. Scaffold's own `padding` already
+            // carries the status-bar inset when the screen has no topBar, so
+            // adding it again inset the page TWICE and left ~80dp of dead space
+            // above the close button on every pushed screen that did it.
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .statusBarsPadding()
-                ,
+                .padding(padding),
             contentPadding = PaddingValues(bottom = 32.dp)
         ) {
             // Close sits on its own row above the title, not beside it: PageTitle

@@ -160,6 +160,16 @@ object TIcons {
     val ArrowDown: ImageVector = feather("arrowDown", "M12 5v14", "M19 12 L12 19 L5 12")
 
     val Check: ImageVector = feather("check", "M20 6 L9 17 L4 12")
+
+    // Backspace (feather "delete"). NOT an arrow: on the PIN pad this rubs out
+    // the last digit, and a plain left arrow beside the pad's cancel X read as a
+    // second way to go back rather than as an edit key.
+    val Backspace: ImageVector = feather(
+        "backspace",
+        "M21 4H8l-7 8 7 8h13a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2z",
+        "M18 9l-6 6",
+        "M12 9l6 6"
+    )
     val CheckCircle: ImageVector = feather(
         "checkCircle",
         "M22 11.08V12a10 10 0 1 1-5.93-9.14",

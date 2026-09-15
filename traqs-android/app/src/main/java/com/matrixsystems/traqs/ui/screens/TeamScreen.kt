@@ -58,23 +58,14 @@ fun TeamScreen(appState: AppState, onBack: () -> Unit) {
     Scaffold(
         containerColor = Color.Transparent,
         topBar = {
-            TopAppBar(
-                title = { },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(TIcons.ArrowLeft, "Back", tint = c.accent)
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showNewPerson = true }) {
-                        Icon(TIcons.UserPlus, "Add Person", tint = c.accent)
-                    }
-                },
-                // Transparent: the nav graph paints ONE page canvas and every screen
-                // floats on it. An opaque bar here cut a white slab across the
-                // top of that canvas on every pushed screen.
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
-            )
+            TRAQSPageBar(onBack = onBack) {
+                TRAQSIconBtn(
+                    icon = TIcons.UserPlus,
+                    contentDescription = "Add Person",
+                    iconColor = c.accent,
+                    onClick = { showNewPerson = true }
+                )
+            }
         }
     ) { padding ->
         LazyColumn(

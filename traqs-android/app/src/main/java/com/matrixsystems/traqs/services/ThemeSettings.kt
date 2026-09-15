@@ -54,6 +54,8 @@ class ThemeSettings(private val context: Context) : ViewModel() {
         private const val PREFS_NAME = "traqs_theme_prefs"
         private const val KEY_ACCENT = "accent"
         private const val KEY_BG_PRESET = "bg_preset"
+        private const val KEY_FROSTED = "frosted_glass"
+        private const val KEY_LIQUID = "liquid_background"
     }
 
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -72,6 +74,33 @@ class ThemeSettings(private val context: Context) : ViewModel() {
 
     val currentBgPreset: BgPreset get() = BG_PRESETS.firstOrNull { it.id == _bgPresetId.value } ?: BG_PRESETS[0]
 
+    // Frosted Glass — mirrors the iOS Customize toggle. On, cards and panels are
+    // the translucent glass the design system draws over the liquid background;
+    // off, they flatten to opaque surfaces with a plain hairline. Buttons, the
+    // nav pill and prompts stay glass either way, same as iOS. Default ON.
+    private val _frostedGlass = MutableStateFlow(prefs.getBoolean(KEY_FROSTED, true))
+    val frostedGlass: StateFlow<Boolean> = _frostedGlass.asStateFlow()
+
+    // Liquid Motion — mirrors the iOS Customize toggle. On, the page canvas is
+    // the drifting two-blob wash; off, it is the static ambient canvas (the same
+    // ground with one soft glow in the upper right). Default ON.
+    //
+    // It is a real setting, not just taste: the wash runs two infinite
+    // animations for as long as the app is open, and somebody on a long shift
+    // may simply not want that.
+    private val _liquidBackground = MutableStateFlow(prefs.getBoolean(KEY_LIQUID, true))
+    val liquidBackground: StateFlow<Boolean> = _liquidBackground.asStateFlow()
+
+    fun setLiquidBackground(on: Boolean) {
+        _liquidBackground.value = on
+        prefs.edit().putBoolean(KEY_LIQUID, on).apply()
+    }
+
+    fun setFrostedGlass(on: Boolean) {
+        _frostedGlass.value = on
+        prefs.edit().putBoolean(KEY_FROSTED, on).apply()
+    }
+
     val isLightTheme: Boolean get() = currentBgPreset.isLight
 
     fun setAccent(hex: String) {
@@ -87,5 +116,7 @@ class ThemeSettings(private val context: Context) : ViewModel() {
     fun reset() {
         setAccent(DEFAULT_ACCENT)
         setBgPreset(DEFAULT_BG_PRESET_ID)
+        setFrostedGlass(true)
+        setLiquidBackground(true)
     }
 }

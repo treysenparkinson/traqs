@@ -89,10 +89,24 @@ fun StatsScreen(
         val id = scopeId ?: return@remember jobs
         jobs.filter { job -> personOnJob(job, id) }
     }
+    // The picker's own label — "Everyone" / "You" / a name.
     val scopeLabel = when (val id = scopeId) {
         null -> "Everyone"
         currentPersonId -> "You"
         else -> people.firstOrNull { it.id == id }?.name ?: "—"
+    }
+    // The page SUBTITLE, which is a different sentence from the picker's label.
+    // It used to be `scopeLabel`, so the word "Everyone" appeared twice within
+    // 40dp — once under the title and again in the pill right below it. Mirrors
+    // iOS AnalyticsView.subtitleText.
+    val scopeSubtitle = when (val id = scopeId) {
+        null -> if (isAdmin) "Team overview" else "Your stats"
+        currentPersonId -> "Your stats"
+        else -> {
+            val first = people.firstOrNull { it.id == id }?.name
+                ?.split(" ")?.firstOrNull().orEmpty()
+            if (first.isEmpty()) "Stats" else "$first's stats"
+        }
     }
 
     Scaffold(
@@ -132,7 +146,9 @@ fun StatsScreen(
             contentPadding = PaddingValues(bottom = tabPillBottomInset),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            item { PageTitle("Analytics", subtitle = scopeLabel) }
+            // "Stats", not "Analytics" — the page is titled Stats on iOS, and
+            // the tab that leads here is icon-only on both platforms.
+            item { PageTitle("Stats", subtitle = scopeSubtitle) }
 
             // The scope picker, admins only. A non-admin has exactly one scope,
             // so a control that cannot change anything would just be furniture.

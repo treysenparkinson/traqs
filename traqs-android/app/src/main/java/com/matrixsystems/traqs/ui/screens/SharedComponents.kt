@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -299,8 +300,9 @@ fun TRAQSBarsMark(size: Dp) {
 // draws into — phantom width taken straight out of the header's budget for its
 // trailing controls.
 @Composable
-fun TRAQSHeaderLogo(size: Dp = 44.dp) {
+fun TRAQSHeaderLogo(size: Dp = 44.dp, modifier: Modifier = Modifier) {
     Row(
+        modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(-size * (15f / 64f)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -335,15 +337,67 @@ fun TRAQSLogoText(fontSize: Int = 24) {
 @Composable
 fun TRAQSHeader(actions: @Composable RowScope.() -> Unit = {}) {
     val c = traQSColors
+    val logoSize = 56.dp
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding()
-            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 12.dp),
+            // Bottom padding is 2, not 12, and that is not a typo. The wordmark
+            // art carries its own transparent margin VERTICALLY as well as on
+            // the left, so a 56dp logo box holds roughly 15dp of nothing under
+            // the glyph. Twelve more on top of that is what left every page
+            // looking like it had a heavy forehead above its title.
+            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 2.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        TRAQSHeaderLogo(size = 56.dp)
+        // Pulled left by the wordmark's own transparent margin, so the visible
+        // "t" lands on the same 16dp gutter every PageTitle uses — otherwise the
+        // header reads as indented against the title right below it.
+        //
+        // MEASURED from the PNG's alpha bounding box (the same 2348x1200 asset
+        // iOS ships): the glyph starts at x=331, i.e. 14.1% of the width. The
+        // 2dp back is the optical nudge iOS applies for the same reason — a big
+        // title glyph carries its own side bearing, so a lockup set to the exact
+        // gutter reads a touch too far left.
+        TRAQSHeaderLogo(
+            size = logoSize,
+            modifier = Modifier.offset(x = -(logoSize * WORDMARK_ASPECT * 0.141f - 2.dp))
+        )
+        Spacer(Modifier.weight(1f))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) { actions() }
+    }
+}
+
+// The header for a PUSHED screen — back button on the left, optional actions on
+// the right, and the page's own `PageTitle` underneath it.
+//
+// This exists because those screens used Material3's `TopAppBar`, which reserves
+// a fixed 64dp row plus the status-bar inset to hold one small chevron. With the
+// title living below it in a `PageTitle`, that bar was 64dp of nothing — the
+// "big forehead" every pushed page carried. This row is the same height as the
+// tab pages' own header (38dp control + 12 top + 2 bottom), so a pushed screen
+// and a tab now start their content on the same line, and the back control is
+// the app's glass key rather than a bare Material icon button.
+@Composable
+fun TRAQSPageBar(
+    onBack: () -> Unit,
+    backIcon: androidx.compose.ui.graphics.vector.ImageVector = TIcons.ArrowLeft,
+    backDescription: String = "Back",
+    actions: @Composable RowScope.() -> Unit = {},
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        TRAQSIconBtn(icon = backIcon, contentDescription = backDescription, onClick = onBack)
         Spacer(Modifier.weight(1f))
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),

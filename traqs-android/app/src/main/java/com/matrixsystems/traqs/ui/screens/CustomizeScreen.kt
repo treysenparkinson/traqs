@@ -25,6 +25,8 @@ import com.matrixsystems.traqs.ui.theme.parseColor
 import com.matrixsystems.traqs.ui.theme.TRadius
 import com.matrixsystems.traqs.ui.theme.TIcons
 import com.matrixsystems.traqs.ui.theme.TTrack
+import com.matrixsystems.traqs.ui.theme.TTypo
+import com.matrixsystems.traqs.ui.theme.frostedCard
 import com.matrixsystems.traqs.ui.theme.traQSColors
 import androidx.compose.foundation.border
 
@@ -34,27 +36,17 @@ fun CustomizeScreen(themeSettings: ThemeSettings, onBack: () -> Unit) {
     val c = traQSColors
     val currentAccent by themeSettings.accent.collectAsState()
     val currentBgId by themeSettings.bgPresetId.collectAsState()
+    val frosted by themeSettings.frostedGlass.collectAsState()
+    val liquid by themeSettings.liquidBackground.collectAsState()
 
     Scaffold(
         containerColor = Color.Transparent,
         topBar = {
-            TopAppBar(
-                title = { },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(TIcons.ArrowLeft, "Back", tint = c.accent)
-                    }
-                },
-                actions = {
-                    TextButton(onClick = { themeSettings.reset() }) {
-                        Text("Reset", color = c.muted)
-                    }
-                },
-                // Transparent: the nav graph paints ONE page canvas and every screen
-                // floats on it. An opaque bar here cut a white slab across the
-                // top of that canvas on every pushed screen.
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent)
-            )
+            TRAQSPageBar(onBack = onBack) {
+                TextButton(onClick = { themeSettings.reset() }) {
+                    Text("Reset", color = c.muted)
+                }
+            }
         }
     ) { padding ->
         LazyColumn(
@@ -188,8 +180,60 @@ item { PageTitle("Customize", subtitle = "Make TRAQS your own") }
                             }
                         }
                     }
+
+                    // Both toggles live in THIS card, not one of their own: each
+                    // layers over whichever background preset is picked rather
+                    // than replacing it, so they belong with the presets. Same
+                    // reasoning, and the same order, as iOS CustomizeView.
+                    ToggleRow(
+                        title = "Liquid Motion",
+                        subtitle = "*Off swaps the drifting wash for a still canvas",
+                        checked = liquid,
+                        onChange = { themeSettings.setLiquidBackground(it) }
+                    )
+                    ToggleRow(
+                        title = "Frosted Glass",
+                        subtitle = "*Off flattens cards and panels; buttons, nav bar and prompts stay glass",
+                        checked = frosted,
+                        onChange = { themeSettings.setFrostedGlass(it) }
+                    )
                 }
             }
         }
+    }
+}
+
+/** A labelled switch on a card. Mirrors the iOS Customize `ToggleRow`. */
+@Composable
+private fun ToggleRow(
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onChange: (Boolean) -> Unit,
+) {
+    val c = traQSColors
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .frostedCard(radius = TRadius.md, rim = false)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = TTypo.smBold(14.sp), color = c.text)
+            Text(subtitle, style = TTypo.xs(11.sp), color = c.muted)
+        }
+        Spacer(Modifier.width(12.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = c.onAccent,
+                checkedTrackColor = c.accent,
+                uncheckedTrackColor = c.surface,
+                uncheckedBorderColor = c.border
+            )
+        )
     }
 }
