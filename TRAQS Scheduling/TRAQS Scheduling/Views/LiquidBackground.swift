@@ -323,7 +323,7 @@ struct LiquidBackground: View {
     private func a(_ base: Double) -> Double { min(0.92, base * thickness) }
 
     private var specs: [BlobSpec] {
-        if let palette, palette.count > 1 { return paletteSpecs(palette) }
+        if let palette, !palette.isEmpty { return paletteSpecs(palette) }
         // `activeAccent`, not `accent` — under stagger the wash on each page is
         // that page's tab colour.
         let base = color ?? theme.activeAccent
@@ -398,6 +398,12 @@ struct LiquidBackground: View {
     /// completely and the wash stops reading as shapes on a background. So this
     /// restores the FOUR-CORNER arrangement the original aurora spec had,
     /// before it was collapsed to the accent pair, with smaller blobs.
+    ///
+    /// Called for any NON-EMPTY palette, including a single entry — one colour
+    /// explicitly supplied still gets its own blob rather than being silently
+    /// discarded in favour of the derived pair. An empty palette is the one
+    /// case read as "none supplied," and `specs` falls through to the pair
+    /// for it instead of calling this with nothing to draw.
     private func paletteSpecs(_ palette: [String]) -> [BlobSpec] {
         let hues = palette.map { LiquidColor.vivid($0, saturation) }
 
