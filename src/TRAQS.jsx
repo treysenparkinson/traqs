@@ -15415,8 +15415,13 @@ ${jobsCtx || "No jobs found."}`;
                         // freeze moment instead of tracking real "now".
                         const liveNow = jc.frozenAtMs ? new Date(jc.frozenAtMs) : new Date();
                         const liveNowH = liveNow.getHours() + liveNow.getMinutes() / 60;
-                        const visS = Math.max(rawS, HS), visE = Math.min(liveNowH, HE);
-                        if (visE <= visS) return null;
+                        const elapsedStart = Math.max(rawS, HS), elapsedEnd = Math.min(liveNowH, HE);
+                        if (elapsedEnd <= elapsedStart) return null;
+                        // Always flush to the left edge of today's column — duration (matching
+                        // the reservoir's drain rate) sets the width, not the actual clock-in
+                        // time of day.
+                        const durH = Math.min(elapsedEnd - elapsedStart, NH);
+                        const visS = HS, visE = HS + durH;
                         // Same color as the scheduled bar for this op — the live bar and the
                         // reservoir are the same job, just the actively-worked portion vs the
                         // leftover planned portion. Solid fill, same treatment as a normal bar;
@@ -17162,11 +17167,14 @@ ${jobsCtx || "No jobs found."}`;
                   const nowHLive = nowDate.getHours() + nowDate.getMinutes() / 60;
                   const ciDate = new Date(jc.clockIn);
                   const rawSH = toDS(ciDate) === TD ? (ciDate.getHours() + ciDate.getMinutes() / 60) : workStartH;
-                  const visSH = Math.max(rawSH, workStartH), visEH = Math.min(nowHLive, workEndH);
-                  if (visEH <= visSH) return null;
+                  const elapsedStartH = Math.max(rawSH, workStartH), elapsedEndH = Math.min(nowHLive, workEndH);
+                  if (elapsedEndH <= elapsedStartH) return null;
                   const oneDayWLive = 1 / nDaysLive * 100;
-                  const leftPct = dayIdx / nDaysLive * 100 + ((visSH - workStartH) / totalWorkH) * oneDayWLive;
-                  const widthPct = ((visEH - visSH) / totalWorkH) * oneDayWLive;
+                  // Always flush to the left edge of today's column — duration (matching the
+                  // reservoir's drain rate) sets the width, not the actual clock-in time of day.
+                  const durHLive = Math.min(elapsedEndH - elapsedStartH, totalWorkH);
+                  const leftPct = dayIdx / nDaysLive * 100;
+                  const widthPct = (durHLive / totalWorkH) * oneDayWLive;
                   // Same color as the scheduled bar for this op — the live bar and the
                   // reservoir are the same job, just the actively-worked portion vs the
                   // leftover planned portion. Solid fill, same treatment as a normal bar; no
