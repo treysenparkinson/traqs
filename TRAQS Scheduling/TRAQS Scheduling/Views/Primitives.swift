@@ -1039,9 +1039,11 @@ struct PageBackground: View {
             // fast they're driven the field keeps re-mixing rather than visibly
             // looping.
             //
-            // Blob hues come from theme.accent by default, with companion and
-            // tertiary tones derived inside LiquidBackground — all three stay in
-            // the accent's own warm/cool family, so the wash can't clash with it.
+            // On the SHIPPED accent the hues are the app icon's four colours.
+            // On any other accent they come from theme.accent, with companion
+            // and tertiary tones derived inside LiquidBackground — those stay
+            // in the accent's own warm/cool family, so the wash can't clash
+            // with a colour the user chose. Same rule as the bars mark.
             LiquidBackground(base: AmbientCanvas.ground(light: themeSettings.isLightTheme),
                              opacity: LiquidTuning.pageOpacity,
                              thickness: LiquidTuning.thickness,

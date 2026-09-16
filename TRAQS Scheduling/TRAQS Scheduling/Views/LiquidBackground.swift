@@ -348,8 +348,23 @@ struct LiquidBackground: View {
 
     private var specs: [BlobSpec] {
         if let palette, !palette.isEmpty { return paletteSpecs(palette) }
-        // `accent`, not `accent` — under stagger the wash on each page is
-        // that page's tab colour.
+
+        // On the SHIPPED accent the wash is the icon's four colours, the same
+        // way the bars mark is the icon's four bars — the app's own background
+        // should be made of the app's own palette.
+        //
+        // Only when the caller named no `color` of its own: a call site that
+        // passes one is asking for that hue specifically, and overriding it
+        // here would ignore it.
+        //
+        // On any other accent this falls through to the derived pair below,
+        // which is the point — someone who turned the app purple should not
+        // get a coral-and-green wash behind it. Same rule as
+        // `LogoPalette.bars(for:)`, deliberately.
+        if color == nil, LogoPalette.isDefaultAccent(theme.accent) {
+            return paletteSpecs(LogoPalette.ordered)
+        }
+
         let base = color ?? theme.accent
         // Two blobs, so two hues. `primaryWeighted` picks the partner: the
         // deeper tertiary for body behind page content, the lighter companion
