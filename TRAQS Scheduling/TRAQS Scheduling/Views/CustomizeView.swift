@@ -4,7 +4,6 @@ struct CustomizeView: View {
     @Environment(ThemeSettings.self) private var theme
     @Environment(\.dismiss) private var dismiss
 
-    @State private var customAccentColor: Color = Color(hex: "#3d7fff")
     @State private var didSave = false
 
     private var presets: [BgPreset] { ThemeSettings.bgPresets }
@@ -44,20 +43,24 @@ struct CustomizeView: View {
                                         // Picking a colour is what leaves stagger.
                                         theme.setAccentMode(.solid)
                                         theme.setAccent(hex)
-                                        customAccentColor = Color(hex: hex)
                                     }
                                 }
 
-                                // Custom color picker
-                                ColorPicker("", selection: $customAccentColor, supportsOpacity: false)
+                                // Custom color picker. Binds straight to the theme rather
+                                // than mirroring into a local @State: a mirrored @State has
+                                // to be seeded on `.onAppear` (see below), and that seed
+                                // write fires `.onChange` too — indistinguishable from a
+                                // real user pick — which used to call `setAccentMode(.solid)`
+                                // and silently knock a stagger user out of stagger the
+                                // instant they opened this screen.
+                                ColorPicker("", selection: Binding(
+                                    get: { Color(hex: theme.accent) },          // the saved SOLID choice, per spec
+                                    set: { theme.setAccentMode(.solid); theme.setAccent($0.hexString) }
+                                ), supportsOpacity: false)
                                     .labelsHidden()
                                     .frame(width: 36, height: 36)
                                     .clipShape(Circle())
                                     .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1.5))
-                                    .onChange(of: customAccentColor) { _, newColor in
-                                        theme.setAccentMode(.solid)
-                                        theme.setAccent(newColor.hexString)
-                                    }
                             }
                         }
                         .padding(16)
@@ -124,10 +127,10 @@ struct CustomizeView: View {
         .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
         .toolbarColorScheme(theme.isLightTheme ? .light : .dark, for: .navigationBar)
         .onAppear {
-            // `accent`, deliberately NOT `activeAccent` — the picker should
-            // open on the colour the user saved, not on whichever tab's colour
-            // happens to be live behind the customizer.
-            customAccentColor = Color(hex: theme.accent)
+            // The picker reads `theme.accent` directly now (see the ColorPicker
+            // binding above), deliberately NOT `activeAccent` — it should open on
+            // the colour the user saved, not on whichever tab's colour happens to
+            // be live behind the customizer.
             theme.beginPreview()
         }
         .onDisappear {
