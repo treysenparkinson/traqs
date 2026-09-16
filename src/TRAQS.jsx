@@ -2945,9 +2945,55 @@ Extraction rules:
   useEffect(() => {
     const anyActive = people.some(p => p.activeJobClock?.clockIn);
     if (!anyActive) return;
-    const iv = setInterval(() => setProgressTick(t => (t + 1) | 0), 30000);
+    const iv = setInterval(() => {
+      setProgressTick(t => (t + 1) | 0);
+      // Phase 3 day-boundary-cross: piggyback on this same tick (no second interval) — if the
+      // real calendar day has moved past a clocked-in worker's last drain checkpoint, persist
+      // the drain + cascade for the portion of the session that happened before midnight.
+      const todayDS = toDS(new Date());
+      setPeople(prevPeople => {
+        // Frozen sessions (Phase 4, pending finish request) are excluded — the cascade is
+        // suspended until admin approves or denies.
+        const due = prevPeople.filter(p => p.activeJobClock?.clockIn && !p.activeJobClock.frozenAtMs && p.activeJobClock.drainCheckpoint && toDS(new Date(p.activeJobClock.drainCheckpoint)) !== todayDS);
+        if (due.length === 0) return prevPeople;
+        setTasks(prevTasks => {
+          let updated = prevTasks;
+          due.forEach(p => { updated = runClockCascade(updated, p.activeJobClock, p.id, Date.now(), p.activeJobClock.sessionId, p.name, false); });
+          saveTasks(updated, getToken, orgCode).catch(console.warn);
+          return updated;
+        });
+        const nowIso = new Date().toISOString();
+        return prevPeople.map(p => due.includes(p) ? { ...p, activeJobClock: { ...p.activeJobClock, drainCheckpoint: nowIso } } : p);
+      });
+    }, 30000);
     return () => clearInterval(iv);
   }, [people]);
+  // Phase 4: freeze the live bar the moment a finish request appears on the session's op.
+  // There is no web-side "submit" action to hook (the request is set by the iOS app or a
+  // Netlify function, never from code in this file) — reacting to the flag itself is the only
+  // available hook, and it's equivalent in practice since approve/reject also only happen here,
+  // so this effect necessarily observes the flag before a human could act on it.
+  useEffect(() => {
+    const active = people.filter(p => p.activeJobClock?.clockIn && !p.activeJobClock.frozenAtMs);
+    if (active.length === 0) return;
+    const toFreeze = active.filter(p => findOp(tasks, p.activeJobClock.opId)?.pendingFinish);
+    if (toFreeze.length === 0) return;
+    const nowMs = Date.now();
+    setTasks(prevTasks => {
+      let updated = prevTasks;
+      toFreeze.forEach(p => {
+        const jc = p.activeJobClock;
+        updated = runClockCascade(updated, jc, p.id, nowMs, jc.sessionId, p.name, false);
+        updated = updated.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, subs: (panel.subs || []).map(op => {
+          if (op.id !== jc.opId) return op;
+          return { ...op, pendingSession: { sessionId: jc.sessionId, clockIn: jc.clockIn, frozenAtMs: nowMs, reservoirOpId: jc.reservoirOpId, sessionSnapshot: jc.sessionSnapshot || [] } };
+        }) })) }));
+      });
+      saveTasks(updated, getToken, orgCode).catch(console.warn);
+      return updated;
+    });
+    setPeople(pp => pp.map(p => toFreeze.includes(p) ? { ...p, activeJobClock: { ...p.activeJobClock, frozenAtMs: nowMs } } : p));
+  }, [tasks, people]);
   // Logged + estimate for a single op. Live timer is added in for the worker currently clocked in.
   // Logged is capped at the estimate so an op can't push aggregate progress past 100%.
   const _opHoursPair = (op) => {
@@ -4907,18 +4953,183 @@ Extraction rules:
   };
 
   // Apply pushes + move log entries to task list
-  const applyPushes = (taskList, pushes, movedBy) => {
+  // sessionId: optional — when present (worker clock-in session), stamped onto every
+  // moveLog entry this call creates. Admin drag callers omit it, entries are unchanged.
+  // newStartHour/newEndHour: optional, hour-precision companion to newStart/newEnd (Phase 3
+  // clock-in cascade). Admin-drag pushes never set these, so that path writes start/end only,
+  // exactly as before.
+  const applyPushes = (taskList, pushes, movedBy, sessionId) => {
     let result = JSON.parse(JSON.stringify(taskList));
     for (const p of pushes) {
       result = result.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, subs: (panel.subs || []).map(op => {
         if (op.id === p.opId) {
-          const logEntry = { fromStart: op.start, fromEnd: op.end, toStart: p.newStart, toEnd: p.newEnd, date: TD, movedBy, reason: p.reason || "Pushed by schedule conflict" };
-          return { ...op, start: p.newStart, end: p.newEnd, moveLog: [...(op.moveLog || []), logEntry] };
+          const logEntry = { fromStart: op.start, fromEnd: op.end, toStart: p.newStart, toEnd: p.newEnd, date: TD, movedBy, reason: p.reason || "Pushed by schedule conflict", ...(sessionId ? { sessionId } : {}) };
+          return { ...op, start: p.newStart, end: p.newEnd, ...("newStartHour" in p ? { startHour: p.newStartHour } : {}), ...("newEndHour" in p ? { endHour: p.newEndHour } : {}), moveLog: [...(op.moveLog || []), logEntry] };
         }
         return op;
       }) })) }));
     }
     return recalcBounds(result, movedBy);
+  };
+
+  // ─── Phase 3: clock-in-driven schedule adaptation (teleport + drain + cascade) ───────────
+  const findOp = (taskList, opId) => {
+    for (const job of taskList) {
+      for (const panel of (job.subs || [])) {
+        const op = (panel.subs || []).find(o => o.id === opId);
+        if (op) return op;
+      }
+    }
+    return null;
+  };
+  // Hour-aware time range for an op, used only by the clock-in cascade below (not admin drag).
+  // Same-day ops resolve to their actual startHour/endHour; multi-day ops span full work days —
+  // hour precision only applies within a single day, matching the locked decision that
+  // day-crossing is a coarser event.
+  const hourTs = (ds, h) => new Date(ds + "T00:00:00").getTime() + h * 3600000;
+  const opHourRange = (op) => {
+    const sH = op.startHour ?? workStartH;
+    if (op.start === op.end) {
+      const eH = op.endHour ?? Math.min(sH + (op.hpd || productiveHoursPerDay), workEndH);
+      return [hourTs(op.start, sH), hourTs(op.end, eH)];
+    }
+    return [hourTs(op.start, workStartH), hourTs(op.end, workEndH)];
+  };
+  // Hour-aware cascade push computation for the clock-in trigger. Unlike previewPush
+  // (interactive drag, day-level, aborts entirely on a locked collision), this does a PARTIAL
+  // push: everything up to a locked op moves, the locked op and everything downstream stays and
+  // the collision is left visible on the schedule (no dashboard, no alert — by design).
+  const computeCascadePushes = (taskList, personId, excludeOpId, footprintStartMs, footprintEndMs) => {
+    const allOps = [];
+    taskList.forEach(job => {
+      (job.subs || []).forEach(panel => {
+        (panel.subs || []).forEach(op => {
+          if (op.id !== excludeOpId && (op.team || []).includes(personId) && op.status !== "Finished") {
+            allOps.push({ op, panel, job, range: opHourRange(op) });
+          }
+        });
+      });
+    });
+    let toPush = allOps.filter(a => a.range[0] < footprintEndMs && a.range[1] > footprintStartMs);
+    if (toPush.length === 0) return { pushes: [] };
+    toPush.sort((a, b) => a.range[0] - b.range[0]);
+    let cursorMs = footprintEndMs;
+    const pushes = [];
+    while (toPush.length > 0) {
+      const item = toPush.shift();
+      if (isOpLocked(item.op)) break; // partial push — stop, leave this + downstream in place
+      const durationMs = Math.max(0, item.range[1] - item.range[0]);
+      const newStartDS = toDS(new Date(cursorMs));
+      const newStartH = (cursorMs - hourTs(newStartDS, 0)) / 3600000;
+      const sameDay = item.op.start === item.op.end;
+      let push, pushedStartMs, pushedEndMs;
+      if (sameDay && newStartH + durationMs / 3600000 <= workEndH) {
+        push = { opId: item.op.id, newStart: newStartDS, newEnd: newStartDS, newStartHour: newStartH, newEndHour: newStartH + durationMs / 3600000, reason: "Pushed by clock-in" };
+        pushedStartMs = cursorMs; pushedEndMs = cursorMs + durationMs;
+      } else {
+        const spanBD = Math.max(0, diffBD(item.op.start, item.op.end));
+        const fbStartDS = newStartH <= workStartH ? newStartDS : addBD(newStartDS, 1);
+        const fbEndDS = addBD(fbStartDS, spanBD);
+        const fbStartH = sameDay ? workStartH : null;
+        const fbEndH = sameDay ? Math.min(workStartH + durationMs / 3600000, workEndH) : null;
+        push = { opId: item.op.id, newStart: fbStartDS, newEnd: fbEndDS, newStartHour: fbStartH, newEndHour: fbEndH, reason: "Pushed by clock-in" };
+        pushedStartMs = hourTs(fbStartDS, fbStartH ?? workStartH);
+        pushedEndMs = sameDay ? hourTs(fbEndDS, fbEndH) : hourTs(fbEndDS, workEndH);
+      }
+      pushes.push(push);
+      cursorMs = pushedEndMs;
+      const nextOverlaps = allOps.filter(a =>
+        a.op.id !== item.op.id && !toPush.includes(a) && !pushes.find(p2 => p2.opId === a.op.id) &&
+        a.range[0] < pushedEndMs && a.range[1] > pushedStartMs
+      );
+      nextOverlaps.forEach(n => toPush.push(n));
+    }
+    return { pushes };
+  };
+  // Single choke point for the clock-in-driven adaptation: teleport the reservoir op into
+  // alignment with "now" at clock-in, drain it as time is worked, and cascade anything it now
+  // overlaps on the same person's row. Called at clock-in, day-boundary-cross, and clock-out —
+  // never per-minute; between these events the Phase 2 live bar interpolates purely render-side.
+  const runClockCascade = (taskList, jc, personId, nowMs, sessionId, movedByName, isInitial) => {
+    const ciDate = new Date(jc.clockIn);
+    const ciHour = ciDate.getHours() + ciDate.getMinutes() / 60;
+    let result = taskList;
+    let reservoirRange = null; // [startMs, endMs] the reservoir now occupies today, if same-day
+    if (jc.reservoirOpId) {
+      result = result.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, subs: (panel.subs || []).map(op => {
+        if (op.id !== jc.reservoirOpId) return op;
+        if (op.start === TD) {
+          const curSH = op.startHour ?? workStartH;
+          const curEH = op.endHour ?? Math.min(curSH + (op.hpd || productiveHoursPerDay), workEndH);
+          let newSH, newEH;
+          if (isInitial) {
+            // Teleport: one-time jump to "now", preserving the op's original duration —
+            // trims an already-covering block, or pulls a later-today block back to now.
+            const duration = Math.max(0, curEH - curSH);
+            newSH = ciHour; newEH = Math.min(ciHour + duration, workEndH);
+          } else {
+            const elapsedH = Math.max(0, (nowMs - new Date(jc.drainCheckpoint).getTime()) / 3600000);
+            newSH = Math.min(curEH, curSH + elapsedH); newEH = curEH;
+          }
+          reservoirRange = [hourTs(op.start, newSH), hourTs(op.start, newEH)];
+          if (newSH === curSH && newEH === curEH) return op;
+          const logEntry = { fromStart: op.start, fromEnd: op.end, toStart: op.start, toEnd: op.end, fromStartHour: curSH, toStartHour: newSH, fromEndHour: curEH, toEndHour: newEH, date: TD, movedBy: movedByName, reason: isInitial ? "Teleported to clock-in" : "Drained by clock-in session", sessionId };
+          return { ...op, startHour: newSH, endHour: newEH, moveLog: [...(op.moveLog || []), logEntry] };
+        }
+        // Future-day reservoir: drain reduces total remaining work (hpd) rather than sliding
+        // the start date across business-day gaps — a scope call, see Phase 3 notes. No
+        // same-day occupied span to fold into the cascade footprint below.
+        const elapsedH = isInitial ? 0 : Math.max(0, (nowMs - new Date(jc.drainCheckpoint).getTime()) / 3600000);
+        if (elapsedH <= 0) return op;
+        const curHpd = op.hpd || productiveHoursPerDay;
+        const newHpd = Math.max(0, curHpd - elapsedH);
+        const logEntry = { fromStart: op.start, fromEnd: op.end, toStart: op.start, toEnd: op.end, fromHpd: curHpd, toHpd: newHpd, date: TD, movedBy: movedByName, reason: "Drained by clock-in session", sessionId };
+        return { ...op, hpd: newHpd, moveLog: [...(op.moveLog || []), logEntry] };
+      }) })) }));
+    }
+    // Cascade footprint = union of the live bar's span and the reservoir's own occupied span
+    // (if it just teleported onto today) — a teleported reservoir can itself now overlap other
+    // ops even before the live bar has grown to reach them.
+    const liveBarStartMs = ciDate.getTime();
+    const liveBarEndMs = isInitial ? liveBarStartMs + 60000 : nowMs;
+    const footprintStartMs = reservoirRange ? Math.min(reservoirRange[0], liveBarStartMs) : liveBarStartMs;
+    const footprintEndMs = reservoirRange ? Math.max(reservoirRange[1], liveBarEndMs) : liveBarEndMs;
+    const { pushes } = computeCascadePushes(result, personId, jc.reservoirOpId || null, footprintStartMs, footprintEndMs);
+    if (pushes.length) result = applyPushes(result, pushes, movedByName, sessionId);
+    return result;
+  };
+  // Phase 4: snapshot every unfinished op on the clocking-in worker's row (within ~2 weeks
+  // forward) so a later deny can restore exactly what the cascade is about to touch. Overshoot
+  // is fine — restoring an op the session never moved is a no-op.
+  const buildSessionSnapshot = (taskList, personId, clockInDS) => {
+    const horizon = addBD(clockInDS, 14);
+    const snap = [];
+    taskList.forEach(job => (job.subs || []).forEach(panel => (panel.subs || []).forEach(op => {
+      if (op.status === "Finished") return;
+      if (!(op.team || []).includes(personId)) return;
+      if (!op.start || op.start > horizon) return;
+      snap.push({ opId: op.id, start: op.start, end: op.end, startHour: op.startHour ?? null, endHour: op.endHour ?? null, hpd: op.hpd ?? null });
+    })));
+    return snap;
+  };
+  // Phase 4: revert a session's movements. For each snapshotted op, only restore it if its most
+  // recent moveLog entry belongs to THIS session — if an admin dragged it again afterward (no
+  // sessionId, or a different one), that drag wins and the op is left alone. An op the session
+  // never touched already matches its snapshot, so skipping it is a no-op with the right result.
+  const revertSession = (taskList, session, movedByName) => {
+    let result = taskList;
+    (session.sessionSnapshot || []).forEach(snap => {
+      result = result.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, subs: (panel.subs || []).map(op => {
+        if (op.id !== snap.opId) return op;
+        const lastLog = (op.moveLog || [])[(op.moveLog || []).length - 1];
+        if (!lastLog || lastLog.sessionId !== session.sessionId) return op;
+        const unchanged = op.start === snap.start && op.end === snap.end && op.startHour === snap.startHour && op.endHour === snap.endHour && op.hpd === snap.hpd;
+        if (unchanged) return op;
+        const logEntry = { fromStart: op.start, fromEnd: op.end, toStart: snap.start, toEnd: snap.end, fromStartHour: op.startHour ?? null, toStartHour: snap.startHour, fromEndHour: op.endHour ?? null, toEndHour: snap.endHour, fromHpd: op.hpd ?? null, toHpd: snap.hpd, date: TD, movedBy: movedByName, reason: "Reverted (finish request denied)", sessionId: session.sessionId, reverted: true };
+        return { ...op, start: snap.start, end: snap.end, startHour: snap.startHour, endHour: snap.endHour, hpd: snap.hpd, moveLog: [...(op.moveLog || []), logEntry] };
+      }) })) }));
+    });
+    return recalcBounds(result, movedByName);
   };
 
   // Swap-first optimizer — shared by edit form + right-click "Edit Schedule" modal
@@ -9875,6 +10086,37 @@ ${jobsCtx || "No jobs found."}`;
                       {pOff && <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
                         <span style={{fontSize:12,color:offColor,fontWeight:600,background:T.surface+"cc",padding:"2px 8px",borderRadius:4}}>{offType}{offR?` · ${offR}`:""}</span>
                       </div>}
+                      {/* Live active bar — clock-in to now, render-only (Phase 2), no data writes */}
+                      {!pOff && isToday && p.activeJobClock?.clockIn && (() => {
+                        const jc = p.activeJobClock;
+                        const ciDate = new Date(jc.clockIn);
+                        const rawS = toDS(ciDate) === TD ? (ciDate.getHours() + ciDate.getMinutes() / 60) : 0;
+                        // Frozen (Phase 4, pending finish request) stops the bar growing past the
+                        // freeze moment instead of tracking real "now".
+                        const liveNow = jc.frozenAtMs ? new Date(jc.frozenAtMs) : new Date();
+                        const liveNowH = liveNow.getHours() + liveNow.getMinutes() / 60;
+                        const visS = Math.max(rawS, HS), visE = Math.min(liveNowH, HE);
+                        if (visE <= visS) return null;
+                        return <div key="live-bar" style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:"linear-gradient(90deg,#16a34a,#22c55e)",border:"2px solid #22c55e",boxShadow:"0 0 14px rgba(34,197,94,0.5)","--glow-color":"#22c55e99",animation:"pulseGlow 2s ease-in-out infinite",display:"flex",alignItems:"center",gap:6,padding:"0 10px",overflow:"hidden",zIndex:15,pointerEvents:"none"}}>
+                          <div style={{width:7,height:7,borderRadius:"50%",background:"#fff",flexShrink:0,boxShadow:"0 0 4px #fff"}}/>
+                          <span style={{fontSize:9,fontWeight:800,color:"#fff",letterSpacing:"0.05em",flexShrink:0}}>LIVE</span>
+                          <span style={{fontSize:10,fontWeight:600,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{jc.opTitle||jc.jobTitle||"—"} · {p.name.split(" ")[0]}</span>
+                        </div>;
+                      })()}
+                      {/* Reservoir drain mask (Phase 3) — visually shrinks the reservoir op's bar
+                          in real time from its left edge, interpolated from drainCheckpoint.
+                          Render-only: the persisted footprint only updates at write events. */}
+                      {isToday && p.activeJobClock?.reservoirOpId && (() => {
+                        const jc = p.activeJobClock;
+                        const bp = barPositions.find(x => x.bar.id === jc.reservoirOpId);
+                        if (!bp) return null;
+                        const effNowMs = jc.frozenAtMs || Date.now();
+                        const drainH = Math.max(0, (effNowMs - new Date(jc.drainCheckpoint).getTime()) / 3600000);
+                        if (drainH <= 0) return null;
+                        const visS = Math.max(bp.rawS, HS), visE = Math.min(Math.min(bp.rawE, bp.rawS + drainH), HE);
+                        if (visE <= visS) return null;
+                        return <div key="drain-mask" style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:"repeating-linear-gradient(135deg, rgba(0,0,0,0.28), rgba(0,0,0,0.28) 6px, rgba(0,0,0,0.14) 6px, rgba(0,0,0,0.14) 12px)",zIndex:14,pointerEvents:"none"}}/>;
+                      })()}
                       {isToday && nowH>=HS && nowH<=HE && <div style={{position:"absolute",top:0,bottom:0,left:`${(nowH-HS)/NH*100}%`,width:2,background:T.accent+"bb",zIndex:12,pointerEvents:"none"}}/>}
                     </div>
                   </div>;
@@ -11290,6 +11532,55 @@ ${jobsCtx || "No jobs found."}`;
                     </div>;
                   })];
                 })}
+                {/* Live active bar — clock-in to now, render-only (Phase 2), no data writes */}
+                {(() => {
+                  const jc = p.activeJobClock;
+                  if (!jc?.clockIn) return null;
+                  const dayIdx = days.indexOf(TD);
+                  if (dayIdx < 0) return null;
+                  const nDaysLive = days.length;
+                  // Frozen (Phase 4, pending finish request) stops the bar growing past the
+                  // freeze moment instead of tracking real "now".
+                  const nowDate = jc.frozenAtMs ? new Date(jc.frozenAtMs) : new Date();
+                  const nowHLive = nowDate.getHours() + nowDate.getMinutes() / 60;
+                  const ciDate = new Date(jc.clockIn);
+                  const rawSH = toDS(ciDate) === TD ? (ciDate.getHours() + ciDate.getMinutes() / 60) : workStartH;
+                  const visSH = Math.max(rawSH, workStartH), visEH = Math.min(nowHLive, workEndH);
+                  if (visEH <= visSH) return null;
+                  const oneDayWLive = 1 / nDaysLive * 100;
+                  const leftPct = dayIdx / nDaysLive * 100 + ((visSH - workStartH) / totalWorkH) * oneDayWLive;
+                  const widthPct = ((visEH - visSH) / totalWorkH) * oneDayWLive;
+                  return <div key="live-bar" style={{ position: "absolute", top: 4, left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: "linear-gradient(90deg,#16a34a,#22c55e)", border: "2px solid #22c55e", boxShadow: "0 0 14px rgba(34,197,94,0.5)", "--glow-color": "#22c55e99", animation: "pulseGlow 2s ease-in-out infinite", display: "flex", alignItems: "center", gap: 6, padding: "0 10px", overflow: "hidden", zIndex: 15, pointerEvents: "none" }}>
+                    <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#fff", flexShrink: 0, boxShadow: "0 0 4px #fff" }} />
+                    <span style={{ fontSize: 9, fontWeight: 800, color: "#fff", letterSpacing: "0.05em", flexShrink: 0 }}>LIVE</span>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{jc.opTitle || jc.jobTitle || "—"} · {p.name.split(" ")[0]}</span>
+                  </div>;
+                })()}
+                {/* Reservoir drain mask (Phase 3) — visually shrinks the reservoir op's own bar
+                    from its left edge in real time, interpolated from drainCheckpoint. Approximates
+                    against the op's first day/segment only — see Phase 3 scope notes for multi-day
+                    reservoirs. Render-only: the persisted footprint only updates at write events. */}
+                {(() => {
+                  const jc = p.activeJobClock;
+                  if (!jc?.reservoirOpId) return null;
+                  const rBar = bars.find(b => b.id === jc.reservoirOpId);
+                  if (!rBar?.task) return null;
+                  const op = rBar.task;
+                  const dayIdx2 = days.indexOf(op.start);
+                  if (dayIdx2 < 0) return null;
+                  const effNowMs2 = jc.frozenAtMs || Date.now();
+                  const drainH = Math.max(0, (effNowMs2 - new Date(jc.drainCheckpoint).getTime()) / 3600000);
+                  if (drainH <= 0) return null;
+                  const nDays3 = days.length;
+                  const oneDayW3 = 1 / nDays3 * 100;
+                  const opSH = op.startHour ?? workStartH;
+                  const opEH = op.start === op.end ? (op.endHour ?? Math.min(opSH + (op.hpd || productiveHoursPerDay), workEndH)) : workEndH;
+                  const maskEndH = Math.min(opEH, opSH + drainH);
+                  if (maskEndH <= opSH) return null;
+                  const leftPct2 = dayIdx2 / nDays3 * 100 + ((opSH - workStartH) / totalWorkH) * oneDayW3;
+                  const widthPct2 = ((maskEndH - opSH) / totalWorkH) * oneDayW3;
+                  return <div key="drain-mask" style={{ position: "absolute", top: 4, left: `calc(${leftPct2}% + 2px)`, width: `calc(${widthPct2}% - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: "repeating-linear-gradient(135deg, rgba(0,0,0,0.28), rgba(0,0,0,0.28) 6px, rgba(0,0,0,0.14) 6px, rgba(0,0,0,0.14) 12px)", zIndex: 14, pointerEvents: "none" }} />;
+                })()}
               </div>
             </div>;
           })}
@@ -12427,17 +12718,21 @@ ${jobsCtx || "No jobs found."}`;
                 jobTitle: meta.job.title, panelTitle: meta.panel.title, opTitle: meta.op.title,
               }, getToken, orgCode);
               if (jres?.ok) {
+                const sessionId = `sess_${loggedInUser.id}_${jres.clockIn}`;
+                const reservoirOpId = (meta.op.team || []).includes(loggedInUser.id) ? firstRef.opId : null;
+                const sessionSnapshot = buildSessionSnapshot(tasks, loggedInUser.id, toDS(new Date(jres.clockIn)));
                 setPeople(pp => pp.map(p => p.id === loggedInUser.id ? {
                   ...p,
                   activeJobClock: {
                     clockIn: jres.clockIn,
+                    sessionId, reservoirOpId, drainCheckpoint: jres.clockIn, sessionSnapshot,
                     jobId: firstRef.jobId, panelId: firstRef.panelId, opId: firstRef.opId,
                     jobTitle: meta.job.title, panelTitle: meta.panel.title, opTitle: meta.op.title,
                     totalPausedMs: 0, pausedAt: null,
                   },
                 } : p));
                 setTasks(prev => {
-                  const updated = prev.map(job => {
+                  let updated = prev.map(job => {
                     if (job.id !== firstRef.jobId) return job;
                     return {
                       ...job,
@@ -12452,6 +12747,8 @@ ${jobsCtx || "No jobs found."}`;
                       }),
                     };
                   });
+                  const jc = { clockIn: jres.clockIn, sessionId, reservoirOpId, drainCheckpoint: jres.clockIn };
+                  updated = runClockCascade(updated, jc, loggedInUser.id, new Date(jres.clockIn).getTime(), sessionId, loggedInUser.name, true);
                   saveTasks(updated, getToken, orgCode).catch(console.warn);
                   return updated;
                 });
@@ -12571,13 +12868,32 @@ ${jobsCtx || "No jobs found."}`;
 
     const approveFinish = (job, panel, op) => {
       const loggedHours = timeclock.filter(e => e.jobRefs?.some(r => r.opId === op.id)).reduce((s, e) => s + (e.hours||0), 0);
-      const updated = { ...op, status: "Finished", pendingFinish: false, actualHours: Math.round(loggedHours*100)/100 };
+      const session = op.pendingSession;
+      let updated = { ...op, status: "Finished", pendingFinish: false, actualHours: Math.round(loggedHours*100)/100, pendingSession: undefined };
+      if (session) {
+        // Commit the live bar as the finished block's real footprint — clockIn to frozenAtMs.
+        // Cascade positions from the session are already persisted (Phase 3 writes); nothing
+        // else to do for those. A same-day session gets exact hour precision; a session frozen
+        // on a later calendar day falls back to end-of-day on the clock-in date (scope call —
+        // matches the Phase 3 precedent of not modeling multi-day single blocks).
+        const ciDate = new Date(session.clockIn);
+        const frozenDate = new Date(session.frozenAtMs);
+        const sameDay = toDS(ciDate) === toDS(frozenDate);
+        const startHour = ciDate.getHours() + ciDate.getMinutes() / 60;
+        const endHour = sameDay ? (frozenDate.getHours() + frozenDate.getMinutes() / 60) : workEndH;
+        updated = { ...updated, start: toDS(ciDate), end: toDS(ciDate), startHour, endHour };
+      }
       const newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : updated) }) });
-      setTasks(newTasks); saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+      const finalTasks = session ? recalcBounds(newTasks, loggedInUser?.name || "Admin") : newTasks;
+      setTasks(finalTasks); saveTasks(finalTasks, getToken, orgCode).catch(console.warn);
+      if (session) setPeople(pp => pp.map(p => p.activeJobClock?.sessionId === session.sessionId ? { ...p, activeJobClock: null } : p));
     };
     const rejectFinish = (job, panel, op) => {
-      const newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : { ...o, pendingFinish: false }) }) });
+      const session = op.pendingSession;
+      let newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : { ...o, pendingFinish: false, pendingSession: undefined }) }) });
+      if (session) newTasks = revertSession(newTasks, session, loggedInUser?.name || "Admin");
       setTasks(newTasks); saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+      if (session) setPeople(pp => pp.map(p => p.activeJobClock?.sessionId === session.sessionId ? { ...p, activeJobClock: null } : p));
     };
 
     // ── Shared numpad component ───────────────────────────────────────────────
@@ -12898,9 +13214,13 @@ ${jobsCtx || "No jobs found."}`;
       try {
         const res = await jobClockInAction({ personId: loggedInUser.id, jobId, panelId, opId, jobTitle, panelTitle, opTitle }, getToken, orgCode);
         if (res.ok) {
-          setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: { clockIn: res.clockIn, jobId, panelId, opId, jobTitle, panelTitle, opTitle, totalPausedMs: 0, pausedAt: null } } : p));
+          const reservoirOp = findOp(tasks, opId);
+          const reservoirOpId = reservoirOp && (reservoirOp.team || []).includes(loggedInUser.id) ? opId : null;
+          const sessionId = `sess_${loggedInUser.id}_${res.clockIn}`;
+          const sessionSnapshot = buildSessionSnapshot(tasks, loggedInUser.id, toDS(new Date(res.clockIn)));
+          setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: { clockIn: res.clockIn, sessionId, reservoirOpId, drainCheckpoint: res.clockIn, sessionSnapshot, jobId, panelId, opId, jobTitle, panelTitle, opTitle, totalPausedMs: 0, pausedAt: null } } : p));
           setTasks(prev => {
-            const updatedTasks = prev.map(job => {
+            let updatedTasks = prev.map(job => {
               if (job.id !== jobId) return job;
               return {
                 ...job,
@@ -12918,6 +13238,8 @@ ${jobsCtx || "No jobs found."}`;
                 }),
               };
             });
+            const jc = { clockIn: res.clockIn, sessionId, reservoirOpId, drainCheckpoint: res.clockIn };
+            updatedTasks = runClockCascade(updatedTasks, jc, loggedInUser.id, new Date(res.clockIn).getTime(), sessionId, loggedInUser.name, true);
             saveTasks(updatedTasks, getToken, orgCode).catch(console.warn);
             return updatedTasks;
           });
@@ -12963,18 +13285,24 @@ ${jobsCtx || "No jobs found."}`;
         if (res.ok) {
           // Server calculates net hours (subtracts totalPausedMs) — use directly
           setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: null } : p));
-          if (res.hours > 0 && jc) {
-            const newTasks = tasks.map(job => {
-              if (job.id !== jc.jobId) return job;
-              const newJobHours = Math.round(((job.loggedHours || 0) + res.hours) * 100) / 100;
-              const newSubs = jc.opId ? (job.subs || []).map(panel => {
-                if (panel.id !== jc.panelId) return panel;
-                return { ...panel, subs: (panel.subs || []).map(op => op.id !== jc.opId ? op : { ...op, loggedHours: Math.round(((op.loggedHours || 0) + res.hours) * 100) / 100 }) };
-              }) : job.subs;
-              return { ...job, loggedHours: newJobHours, subs: newSubs };
-            });
-            setTasks(newTasks);
-            saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+          if (jc) {
+            // Final cascade write: drain the reservoir to its clock-out position and cascade
+            // any op the session's full growth now overlaps. Does NOT convert the live bar to
+            // a finished scheduled block — that's Phase 4's approve step.
+            let finalTasks = runClockCascade(tasks, jc, loggedInUser.id, Date.now(), jc.sessionId, loggedInUser.name, false);
+            if (res.hours > 0) {
+              finalTasks = finalTasks.map(job => {
+                if (job.id !== jc.jobId) return job;
+                const newJobHours = Math.round(((job.loggedHours || 0) + res.hours) * 100) / 100;
+                const newSubs = jc.opId ? (job.subs || []).map(panel => {
+                  if (panel.id !== jc.panelId) return panel;
+                  return { ...panel, subs: (panel.subs || []).map(op => op.id !== jc.opId ? op : { ...op, loggedHours: Math.round(((op.loggedHours || 0) + res.hours) * 100) / 100 }) };
+                }) : job.subs;
+                return { ...job, loggedHours: newJobHours, subs: newSubs };
+              });
+            }
+            setTasks(finalTasks);
+            saveTasks(finalTasks, getToken, orgCode).catch(console.warn);
           }
           // Prompt to photograph the panel just finished (phones only). The job
           // clock knows the exact panel, so no guessing. Skippable — runs after
