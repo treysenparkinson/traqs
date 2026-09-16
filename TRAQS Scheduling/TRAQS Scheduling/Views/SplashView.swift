@@ -9,8 +9,11 @@ import SwiftUI
 //
 // Two departures from the design file, both requested:
 //   • The four hardcoded aurora blobs are replaced by the app's own LIQUID
-//     background — the same wash the web offers under background customization
-//     — so the splash is tinted by whatever accent the user picked.
+//     background — the same wash the web offers under background customization.
+//     It ran on the user's accent at first, a single hue in a two-blob pair.
+//     Since the icon became a four-colour mark it runs on LogoPalette instead,
+//     one blob per colour: four again, as the design had them, but the brand's
+//     own four rather than hardcoded ones.
 //   • No printhead dot and no pulse rings. The previous splash printed the mark
 //     with a travelling dot that popped and pulsed away; the aurora resolve
 //     replaces that entirely.
@@ -37,13 +40,20 @@ struct SplashView: View {
     /// `cubic-bezier(.22,.61,.36,1)` — the design's resolve curve.
     private let resolve = Animation.timingCurve(0.22, 0.61, 0.36, 1, duration: 1.00)
 
-    /// Which wordmark reads on this splash. The mark sits on the LIQUID WASH,
-    /// which is the accent colour — not on the theme's page background — so the
-    /// choice follows the accent's own luminance: a dark accent (the brand
-    /// blues) gets the white mark, a light one (amber, cyan) gets black.
-    /// Uses the app's shared contrast rule so the threshold lives in one place.
+    /// Which wordmark reads on this splash.
+    ///
+    /// This used to ask the ACCENT's luminance, because the wash was the accent
+    /// and the mark sits on the wash. With four colours there is no single
+    /// accent to ask, and the honest answer differs per blob: amber #F4B61E
+    /// wants a black mark, green #1E8D6F wants white, and on a drifting wash
+    /// they are adjacent — no fixed choice is right against the wash itself.
+    ///
+    /// So it follows the THEME instead. The blobs sit at partial alpha over the
+    /// theme's own radial ground (near-white or near-black), and the mark
+    /// resolves with a light pool of its own behind it, so the ground is what
+    /// actually decides legibility. The theme is stable; the wash is not.
     private var markOnLightBackground: Bool {
-        Color(hex: theme.accent).readableText == .black
+        theme.isLightTheme
     }
 
     var body: some View {
@@ -70,7 +80,8 @@ struct SplashView: View {
             // them was tried and the splash lost its punch — a full-bleed, heavier
             // wash is what reads in 2.4s, where the page needs to stay quiet
             // behind content all day.
-            LiquidBackground(thickness: 1.6, energy: 3.4, saturation: 0.45)
+            LiquidBackground(palette: LogoPalette.ordered,
+                             thickness: 1.6, energy: 3.4, saturation: 0.45)
                 .ignoresSafeArea()
                 .opacity(poolIn ? 1 : 0)
 
