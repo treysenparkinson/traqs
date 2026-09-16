@@ -245,6 +245,18 @@ struct LiquidBackground: View {
     /// Primary blob hue. Defaults to the customization accent, which is what
     /// `liquidColor` maps to on this platform.
     var color: String? = nil
+    /// An explicit multi-hue palette — one blob per entry — replacing the
+    /// two-hue pair derived from `color`.
+    ///
+    /// The pair derives its partner through `LiquidColor.companion`/`tertiary`
+    /// precisely because it has ONE hue to work from. A palette already is the
+    /// ladder, so nothing is derived: each entry is pushed toward full colour
+    /// by `saturation` and used as given.
+    ///
+    /// Declared here, directly after `color`, because the memberwise init takes
+    /// its parameter order from declaration order and SplashView calls
+    /// `LiquidBackground(palette:thickness:energy:saturation:)`.
+    var palette: [String]? = nil
     /// Painted behind the blobs so the wash works on any ground.
     var base: AnyShapeStyle? = nil
     /// Strength of the WASH — the blob layer only. `base` is deliberately outside
@@ -311,7 +323,10 @@ struct LiquidBackground: View {
     private func a(_ base: Double) -> Double { min(0.92, base * thickness) }
 
     private var specs: [BlobSpec] {
-        let base = color ?? theme.accent
+        if let palette, palette.count > 1 { return paletteSpecs(palette) }
+        // `activeAccent`, not `accent` — under stagger the wash on each page is
+        // that page's tab colour.
+        let base = color ?? theme.activeAccent
         // Two blobs, so two hues. `primaryWeighted` picks the partner: the
         // deeper tertiary for body behind page content, the lighter companion
         // otherwise. (The nine-blob version cycled all three down the ladder
@@ -372,6 +387,65 @@ struct LiquidBackground: View {
                 alpha: a(alphas[i]),
                 stops: paths[i],
                 duration: durations[i]
+            )
+        }
+    }
+
+    /// One blob per colour.
+    ///
+    /// The pair's composition — two shapes on a diagonal, each wider than the
+    /// canvas — does not extend to four: at that size they cover the ground
+    /// completely and the wash stops reading as shapes on a background. So this
+    /// restores the FOUR-CORNER arrangement the original aurora spec had,
+    /// before it was collapsed to the accent pair, with smaller blobs.
+    private func paletteSpecs(_ palette: [String]) -> [BlobSpec] {
+        let hues = palette.map { LiquidColor.vivid($0, saturation) }
+
+        // Coprime, and spread wider than the pair's 23/29 — four shapes on
+        // close periods drift back into phase often enough to read as a pulse.
+        let durations: [Double] = [23, 29, 31, 37]
+
+        // Lower than the pair's [0.58, 0.50]. Two blobs carry the colour alone
+        // and so hold more pigment; four at that density stack toward grey
+        // wherever they overlap, which on four DIFFERENT hues is worse than on
+        // two related ones.
+        let alphas: [Double] = [0.42, 0.38, 0.38, 0.34]
+
+        // Four trajectories, no two alike — a shared path would make two blobs
+        // visibly track each other.
+        let paths: [[LiquidStop]] = [LiquidPath.a,
+                                     LiquidPath.reversed(LiquidPath.b),
+                                     LiquidPath.b,
+                                     LiquidPath.reversed(LiquidPath.a)]
+
+        // Smaller than the pair (0.85/0.60 against 1.05/0.72): four of these
+        // span the canvas between them where four full-size ones would drown it.
+        let w = 0.85 * scale
+        let h = 0.60 * scale
+
+        // Two up, two down, alternating edges. Anchored as fractions of the
+        // blob's OWN height for the same reason the pair is — so `scale`
+        // shrinks the group without pulling it apart.
+        let corners: [(leading: Double?, trailing: Double?, top: Double)] = [
+            (-0.14, nil,   -h * 0.18),
+            (nil,   -0.14, -h * 0.05),
+            (-0.10, nil,   1 - h * 0.80),
+            (nil,   -0.10, 1 - h * 0.95),
+        ]
+
+        return hues.indices.map { i in
+            let corner = corners[i % corners.count]
+            return BlobSpec(
+                id: i,
+                w: w,
+                h: h,
+                leading:  corner.leading,
+                trailing: corner.trailing,
+                top:      corner.top,
+                hex:      hues[i],
+                alpha:    a(alphas[i % alphas.count]),
+                stops:    paths[i % paths.count],
+                duration: durations[i % durations.count]
             )
         }
     }
