@@ -127,6 +127,26 @@ export async function saveOrgSettings(settings, getToken, orgCode) {
   return res.json();
 }
 
+// ─── User Settings (per-account appearance + personal view prefs) ─────────────
+// Keyed server-side by the signed-in user's email, so the same account carries
+// its theme/colors/background/layout to every machine.
+export async function fetchUserSettings(getToken, orgCode) {
+  const res = await fetch(`${BASE}/user-settings`, { headers: await authReadHeaders(getToken, orgCode) });
+  if (!res.ok) throw new Error(`fetchUserSettings failed: ${res.status}`);
+  return res.json(); // returns {} if the user has no saved settings yet
+}
+
+export async function saveUserSettings(settings, getToken, orgCode) {
+  const headers = await authHeaders(getToken, orgCode);
+  const res = await fetch(`${BASE}/user-settings`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(settings),
+  });
+  if (!res.ok) throw new Error(`saveUserSettings failed: ${res.status}`);
+  return res.json();
+}
+
 // ─── Org ─────────────────────────────────────────────────────────────────────
 export async function fetchOrgConfig(code) {
   const res = await fetch(`${BASE}/org?code=${encodeURIComponent(code)}`);
@@ -243,6 +263,25 @@ export async function markThreadReadServer(threadKey, at, getToken, orgCode) {
     body: JSON.stringify({ threadKey, ...(at ? { at } : {}) }),
   });
   if (!res.ok) throw new Error(`markThreadReadServer failed: ${res.status}`);
+  return res.json();
+}
+
+// Advance MANY read cursors in one request — the "Mark all read" path.
+//
+// Deliberately not a loop of `markThreadReadServer`: the endpoint is a
+// read-modify-write of a single S3 object, so N parallel single POSTs lose all
+// but the last one's cursor. `entries` is [{ threadKey, at }, ...]; the server
+// applies them monotonically in one write and skips any thread the caller can
+// no longer see.
+export async function markThreadsReadServer(entries, getToken, orgCode) {
+  if (!entries?.length) return { ok: true, advanced: [] };
+  const headers = await authHeaders(getToken, orgCode);
+  const res = await fetch(`${BASE}/message-reads`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ entries }),
+  });
+  if (!res.ok) throw new Error(`markThreadsReadServer failed: ${res.status}`);
   return res.json();
 }
 
@@ -483,6 +522,25 @@ export const fetchTimeclock = async (getToken, orgCode) => {
   return res.json();
 };
 
+// Job-clock session rows — the authoritative record of production time, and what
+// the schedule's grey worked-stripe is drawn from.
+//
+// The app used to hydrate these from IndexedDB only, so a cold profile or a
+// stalled sync cursor left the array empty; the stripe then silently fell back
+// to the cumulative loggedHours counter on each task and under-reported.
+//
+// Scoped like the payroll GET: admins get the whole org, everyone else gets
+// their own rows. That asymmetry is why the counter is still consulted as a
+// floor — a non-admin cannot see co-workers' sessions and would otherwise draw a
+// stripe covering only their own share of the work.
+export const fetchProductionHours = async (getToken, orgCode) => {
+  const res = await fetch(`${BASE}/timeclock?dataset=productionhours`, {
+    headers: await authReadHeaders(getToken, orgCode),
+  });
+  if (!res.ok) throw new Error(`fetchProductionHours failed: ${res.status}`);
+  return res.json();
+};
+
 export const clockInAction = (payload, orgCode) =>
   fetch(`${BASE}/timeclock`, {
     method: "POST",
@@ -547,6 +605,79 @@ export const adminEditActiveClockInAction = async (payload, getToken, orgCode) =
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
     body: JSON.stringify({ action: "adminEditActiveClockIn", ...payload }),
+  }).then(r => r.json());
+};
+
+// Edit an individual lunch/break punch's time on a completed shift (admin only).
+// `payload`: { eventId, timestamp }. The backend re-derives the owning shift's
+// net hours. Returns { ok, event, entries } — `entries` are the recomputed punches.
+export const adminEditEventAction = async (payload, getToken, orgCode) => {
+  const token = await getToken();
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
+    body: JSON.stringify({ action: "adminEditEvent", ...payload }),
+  }).then(r => r.json());
+};
+
+// Add a lunch/break punch someone forgot, to a completed shift (admin only).
+// `payload`: { personId, eventType, timestamp } — eventType ∈ lunchStart|lunchEnd|breakStart|breakEnd.
+export const adminAddEventAction = async (payload, getToken, orgCode) => {
+  const token = await getToken();
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
+    body: JSON.stringify({ action: "adminAddEvent", ...payload }),
+  }).then(r => r.json());
+};
+
+// Delete a stray lunch/break punch from a completed shift (admin only).
+// `payload`: { eventId }. Returns { ok, eventId, entries }.
+export const adminDeleteEventAction = async (payload, getToken, orgCode) => {
+  const token = await getToken();
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
+    body: JSON.stringify({ action: "adminDeleteEvent", ...payload }),
+  }).then(r => r.json());
+};
+
+// Delete an entire past shift (admin only). Tombstones the punch and every
+// lunch/break row inside its window, so the deletion propagates to every device
+// through /sync instead of lingering in their caches. payload: { entryId }
+export const adminDeleteEntryAction = async (payload, getToken, orgCode) => {
+  const token = await getToken();
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
+    body: JSON.stringify({ action: "adminDeleteEntry", ...payload }),
+  }).then(r => r.json());
+};
+
+// Undo a clock-out: removes the punch and restores the session to the person's
+// activeClockIn with its original clock-in time, for when someone hit Clock Out
+// meaning Start Lunch. Lunch/break rows are left in place — the punch that
+// eventually closes the session re-adopts them. payload: { entryId }
+export const adminReopenEntryAction = async (payload, getToken, orgCode) => {
+  const token = await getToken();
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
+    body: JSON.stringify({ action: "adminReopenEntry", ...payload }),
+  }).then(r => r.json());
+};
+
+// Credit production hours to a person for work that was never job-clocked, so a
+// manual "Set Worked Hours" correction doesn't sink their efficiency (production
+// ÷ pay). `hours` is the op's TOTAL worked figure; the server writes only the
+// difference from real clock sessions and keeps one manual row per op.
+// payload: { personId, jobId, panelId, opId, hours, date, jobTitle, panelTitle, opTitle }
+export const adminJobHoursAction = async (payload, getToken, orgCode) => {
+  const token = await getToken();
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
+    body: JSON.stringify({ action: "adminJobHours", ...payload }),
   }).then(r => r.json());
 };
 

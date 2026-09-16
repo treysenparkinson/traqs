@@ -126,3 +126,20 @@ export async function unsubscribePush(getToken, orgCode) {
     console.warn("unsubscribePush failed:", e);
   }
 }
+
+/**
+ * Tell the service worker which thread is on screen, so it can skip a toast for a
+ * conversation the user is already reading. Pass null when leaving a thread.
+ *
+ * The worker can't see page state and the push arrives out of band, so this is the
+ * only way it can know. Re-sent periodically by the caller: the worker holds this
+ * in memory and expires it, so a heartbeat that stops (tab closed, app navigated
+ * away) lets notifications resume rather than silencing them indefinitely.
+ */
+export function setActiveThread(threadKey) {
+  try {
+    navigator.serviceWorker?.controller?.postMessage({ type: "tq-active-thread", threadKey: threadKey || null });
+  } catch {
+    /* No controller yet, or push unsupported — the worker fails safe and shows the toast. */
+  }
+}

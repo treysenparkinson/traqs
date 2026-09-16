@@ -41,18 +41,17 @@ struct AdminView: View {
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             VStack(spacing: 0) {
                 // Sticky header
                 HStack(spacing: 12) {
                     Button { dismiss() } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(Color(hex: T.ink))
-                            .frame(width: 34, height: 34)
-                            .background(Circle().fill(Color(hex: T.surface)))
-                            .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
+                        HeaderGlassCircle {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(Color(hex: T.ink))
+                        }
                     }
                     .buttonStyle(.plain)
                     Spacer()
@@ -282,6 +281,9 @@ private struct StatTile: View {
                 .lineLimit(1)
         }
         .frame(maxWidth: .infinity)
+        // Deliberately below T.insetMd: the content is centred in a full-width
+        // tile, so it never comes near the corner arc, and a wider inset only
+        // costs the label width it needs before minimumScaleFactor shrinks it.
         .padding(.horizontal, 4)
         .padding(.vertical, 12)
         .frostedCard(radius: T.cornerMd)
@@ -391,12 +393,7 @@ private struct PersonAvatar: View {
     let person: Person
     var statusColor: Color = .clear
 
-    private var initials: String {
-        person.name.split(separator: " ")
-            .prefix(2)
-            .map { String($0.prefix(1)).uppercased() }
-            .joined()
-    }
+    private var initials: String { Initials.from(person) }
 
     var body: some View {
         Avatar(initials: initials,
@@ -458,7 +455,7 @@ private struct OnJobCard: View {
                     .padding(.top, 2)
             }
         }
-        .padding(12)
+        .padding(T.insetMd)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frostedCard(radius: T.cornerMd)
     }
@@ -490,7 +487,7 @@ private struct OnBreakCard: View {
                                sinceISO: person.activeBreak?.startedAt)
             }
         }
-        .padding(12)
+        .padding(T.insetMd)
         .frostedCard(radius: T.cornerMd)
     }
 }
@@ -520,7 +517,7 @@ private struct OnLunchCard: View {
                 ProductionPill(label: "Lunch", kind: .amber, sinceISO: sinceISO)
             }
         }
-        .padding(12)
+        .padding(T.insetMd)
         .frostedCard(radius: T.cornerMd)
     }
 }
@@ -561,7 +558,7 @@ private struct IdleOrOfflineCard: View {
                 }
             }
         }
-        .padding(12)
+        .padding(T.insetMd)
         .frostedCard(radius: T.cornerMd)
     }
 }

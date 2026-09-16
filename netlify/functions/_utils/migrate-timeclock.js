@@ -20,6 +20,7 @@
 // used here for the archive-then-delete step.
 
 import { readJson, writeJson, copyObject, deleteObject } from "./s3.js";
+import { stampArray } from "./timestamps.js";
 
 // Merge legacy rows into the existing target array, keyed by id. Target rows
 // WIN on id collision. Rows lacking `source` get `defaultSource` — but event
@@ -88,13 +89,17 @@ export async function migrateTimeclock(orgCode) {
   // such a concurrent punch could be clobbered to a single read→write gap, and
   // union-by-id keeps those newer target rows (target wins on id collision).
   // Still: run this migration off-hours / with nobody clocked in to be safest.
+  // stampArray gives the merged rows a lastModifiedAt (only new/changed ones vs
+  // the fresh target). Legacy rows predate stamping and carry none, so WITHOUT
+  // this `changedSince` treats them as "always include" and /sync re-sends every
+  // migrated payroll row on every delta forever, defeating delta-sync.
   const freshPay = await readJson(payKey);
-  const mergedPay = unionById(freshPay, legacyPayArr, "kiosk");
+  const mergedPay = stampArray(unionById(freshPay, legacyPayArr, "kiosk"), freshPay);
   const payCount = mergedPay.length;
   await writeJson(payKey, mergedPay);
 
   const freshProd = await readJson(prodKey);
-  const mergedProd = unionById(freshProd, legacyProdArr, "kiosk");
+  const mergedProd = stampArray(unionById(freshProd, legacyProdArr, "kiosk"), freshProd);
   const prodCount = mergedProd.length;
   await writeJson(prodKey, mergedProd);
 

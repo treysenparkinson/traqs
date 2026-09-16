@@ -56,13 +56,38 @@ enum T {
     static let priHigh   = "#EF4444"
 
     // ── Corner radii (revamp: rounder, softer everywhere) ───────────────────
-    static let cornerXs: CGFloat = 7
-    static let cornerSm: CGFloat = 10    // chips, small pills
-    static let cornerMd: CGFloat = 16    // body cards, list rows
-    static let cornerLg: CGFloat = 20    // hero cards, large surfaces
-    static let cornerXl: CGFloat = 24    // very large surfaces
+    //
+    // Rounded up across the board so every surface matches the clock PIN pad,
+    // which set the house radius. The whole scale moved together rather than
+    // one token at a time — a card at 22 next to a chip still at 10 reads as a
+    // mistake, where both moving reads as the app's shape.
+    //
+    // Two tokens deliberately did NOT move: `cornerBlock` (the schedule
+    // timeline's bars are near-square per spec, and rounding them costs
+    // readable width on short blocks) and `cornerPill` (already fully round).
+    static let cornerXs: CGFloat = 10    // was 7
+    static let cornerSm: CGFloat = 14    // was 10 — chips, small pills
+    static let cornerMd: CGFloat = 22    // was 16 — body cards, list rows
+    static let cornerLg: CGFloat = 28    // was 20 — hero cards, large surfaces
+    static let cornerXl: CGFloat = 34    // was 24 — very large surfaces
     static let cornerPill: CGFloat = 9999
     static let cornerBlock: CGFloat = 3  // schedule-timeline bars — nearly square per spec
+
+    // ── Content insets, paired to the radii above ──────────────────────────
+    //
+    // A rounded corner eats into the box: on a 42pt corner the shape's left
+    // edge is still 9pt inboard at the height of the first line of text, so a
+    // 16pt inset leaves only 7pt of real clearance and a 12pt inset actually
+    // collides with the arc. These are the insets that keep text clear —
+    // roughly 0.55 × radius, which lands ~20pt of clearance at every step.
+    //
+    // Use these instead of a literal whenever the padding is insetting content
+    // inside one of these shapes. That way the two move together the next time
+    // the radius scale changes, rather than the padding silently going stale.
+    static let insetSm:   CGFloat = 10   // pairs with cornerSm   (14)
+    static let insetMd:   CGFloat = 14   // pairs with cornerMd   (22)
+    static let insetLg:   CGFloat = 18   // pairs with cornerLg   (28)
+    static let insetHero: CGFloat = 24   // pairs with cornerHero (42)
 
     // ── Shadow recipes ─────────────────────────────────────────────────────
     static let raisedShadowOpacity: Double  = 0.06
@@ -95,15 +120,115 @@ enum T {
     static let pillGreenBg  = "#D8F2DE"; static let pillGreenFg  = "#2F9E54"
     static let pillNeutralBg = "#ECEDF2"; static let pillNeutralFg = "#8A8A95"
 
+    // ── Neutral control fills ──
+    // For a control sitting ON a card: a keypad key, an unfilled PIN dot, a
+    // disabled button. Ink at low alpha rather than a fixed grey, which means it
+    // darkens a light surface and lightens a dark one, and it reads whether the
+    // card behind it is frosted glass or solid.
+    //
+    // Do NOT use progressTrack for these. That's a chart-track token and it's
+    // deliberately near-white on light presets, so anything using it as a control
+    // fill disappears into a white card.
+    static var controlFill: Color { Color(hex: ink).opacity(0.10) }
+    /// For small marks that need to carry at a glance — unfilled PIN dots.
+    static var controlFillStrong: Color { Color(hex: ink).opacity(0.20) }
+    /// Hairline around a control fill; gives the shape an edge on glass.
+    static var controlHairline: Color { Color(hex: ink).opacity(0.07) }
+
+    /// Whether the active background preset is a dark one. Derived from the
+    /// ink, which the preset writes (`applyBgToT`): light presets set a near
+    /// black ink, dark presets a near white one. Lets the `T.*` helpers below
+    /// adapt without needing a view context to read ThemeSettings.
+    static var isDarkTheme: Bool { Color(hex: ink).perceivedBrightness > 140 }
+
+    /// Fill for a RECESSED area — a dropzone, an attachment well, an input
+    /// trough — that should read as sunk INTO the surface it sits on. So it is
+    /// always darker than that surface: a soft indigo tint on light presets,
+    /// and genuinely dark on dark ones.
+    ///
+    /// This used to be a flat `pillIndigoBg` at 0.6. That token is a `static
+    /// let` light lavender with no preset awareness, so on a dark theme the
+    /// end-job attachment box came out as a pale slab floating on a dark card —
+    /// lighter than everything around it, which is the opposite of recessed.
+    static var wellFill: Color {
+        isDarkTheme ? Color.black.opacity(0.30)
+                    : Color(hex: pillIndigoBg).opacity(0.6)
+    }
+
+    // ── Frosted glass on/off ──
+    // Mirrors ThemeSettings.frostedGlass — see there for exactly what it covers
+    // and the three things it deliberately doesn't. Lives on T because the glass
+    // helpers include `Shape.glassFill()`, a Shape extension: it has no view
+    // context, so it can't read @Environment. Views that need to RE-RENDER when
+    // this flips still have to observe `theme.frostedGlass`; see FrostedCard,
+    // SBox and GlassSurface.
+    //
+    // Reaches the app's own SURFACES *and* its chrome: cards, page boxes,
+    // message bubbles, list rows, the rim on them, the floating nav pill and the
+    // prompting popups. BUTTONS are the one exception — every `.glassEffect`
+    // control (header pills, keypad keys, glass CTAs) stays native Liquid Glass,
+    // because a flat app with native glass buttons is a coherent look and a flat
+    // app whose buttons went flat too just looks unfinished.
+    static var glassEnabled: Bool = true
+
     // ── Progress track + presence dots ──
-    static let progressTrack = "#E6E8EF"
+    // `var`, not `let`: the track is preset-driven (see BgPreset.track and
+    // applyBgToT). A single mid-grey couldn't work for both — on frosted glass it
+    // read as a dirty smudge over a light surface and vanished into a dark one.
+    static var progressTrack = "#F7F9FD"
     static let presenceWork  = "#3B82F6"
     static let presenceBreak = "#F5A623"
     static let presenceIdle  = "#9AA0AC"
 
     // ── New radius + glassy highlight stroke ──
-    static let cornerHero: CGFloat = 30            // hero / large frosted cards (matches the Jobs cards)
+    static let cornerHero: CGFloat = 42            // was 30 — hero / large frosted cards
     static let highlightStroke = "#FFFFFF"         // used at low alpha as a white→clear top edge
+
+    // ── Specular rim (the app-wide glass edge) ─────────────────────────────
+    //
+    // The Apple "glass bubble" edge: a bright glare along the TOP lip, the
+    // sides falling away to almost nothing, a shadowed underside, and then the
+    // bottom lip lighting up again as light bounces back through the material.
+    // Top and bottom both lit is what makes a surface read as a bubble of glass
+    // rather than a rectangle with a highlight on it — it's the single detail
+    // that separates Apple's Liquid Glass from a plain bevel.
+    //
+    // Drawn as ONE vertical stroke gradient (`.top` → `.bottom`), so the whole
+    // top arc of a rounded rect glows and the whole bottom arc glows, with the
+    // straight left/right runs dimmest in between. An earlier version ran the
+    // gradient diagonally (top-left → bottom-right), which lit one corner and
+    // shadowed the opposite one — a single hard light source, not a lens.
+    //
+    // Normal blending, deliberately: no `.plusLighter`, so no compositing
+    // group, so this is cheap enough for surfaces that render per-row down long
+    // lists. (`.plusLighter` was tried first. Being additive, on the light
+    // presets the white stroke clamped straight to white and the rim was
+    // invisible on everything except Charcoal.)
+    //
+    // THE dials for the whole app's glass edge, top of the stroke to the
+    // bottom.
+    //
+    // `var`, and PRESET-DRIVEN (see ThemeSettings.applyRimToT) — one set of
+    // numbers could not serve both families. A white glare has nothing to do
+    // against a near-white card, so on the light presets the lips need to run
+    // brighter and the side band needs to be a real grey rather than the faint
+    // `T.border` hairline, which is what made the glass hard to see on white.
+    static var rimTop:  Double  = 0.50   // glare along the top lip
+    static var rimBot:  Double  = 0.37   // the bottom lip, light bouncing back up
+    /// The band down the LEFT AND RIGHT edges — a colour, not an alpha, because
+    /// it has to be darker than the surface on both families and there's no one
+    /// opacity of black that manages it.
+    ///
+    /// This is the contrast that makes the lips read as lips. With the faint
+    /// `T.border` here instead, a card's sides all but vanished and the glare
+    /// looked painted on rather than caught. Each preset pushes AWAY from its
+    /// surface — a definite grey on White, a near-black groove on Charcoal —
+    /// the same trick `progressTrack` uses, and for the same reason.
+    static var rimSide: String  = "#3A3A42"
+    /// How quickly each lip gives way to the side band, as a fraction of the
+    /// stroke's height. Small: a lip is a lip, not a fade over half the card.
+    static var rimLip:  Double  = 0.18
+    static var rimWidth: CGFloat = 1.0
 
     // ── CTA glow shadow (accompanies every gradient pill) ──
     static var ctaGlowColor   = "#7B5BE8"          // mirrors accent end for custom accents

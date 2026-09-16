@@ -192,9 +192,7 @@ private func prettyDate(_ ymd: String) -> String {
     return f.string(from: d)
 }
 
-private func avatarInitials(_ name: String) -> String {
-    name.split(separator: " ").prefix(2).compactMap { $0.first }.map(String.init).joined().uppercased()
-}
+private func avatarInitials(_ name: String) -> String { Initials.from(name) }
 
 private func rangeLabel(_ r: AvailabilityResult) -> String {
     guard let s = r.start, let e = r.doneBy else { return "" }
@@ -257,32 +255,54 @@ struct AvailabilityCheckButton: View {
     @Binding var isPresented: Bool
 
     var body: some View {
+        // The glass circle morphs into a native menu carrying one row, "Check
+        // for availability"; tapping that row opens the popup. That morph is
+        // the system's own Liquid Glass behaviour on a `Menu` — left exactly as
+        // it was. Only the write is wrapped, because the popup owns its whole
+        // entrance and a transaction here would animate the page underneath it
+        // (see ModalPop). It does NOT touch the menu's own dismissal.
         Menu {
             Button {
-                isPresented = true
+                withTransaction(.noAnimation) { isPresented = true }
             } label: {
                 Label("Check for availability", systemImage: "clock.arrow.circlepath")
             }
         } label: {
-            Image(systemName: "clock.arrow.circlepath")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(Color(hex: T.accent))
-                .padding(9)
-                .glassEffect(.regular.interactive(), in: Circle())
+            HeaderGlassCircle {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color(hex: T.accent))
+            }
         }
         .buttonStyle(.plain)
     }
 }
 
-// MARK: - Sheet
+// MARK: - Popup
+//
+// A TRAQS popup, not a `.sheet`. It was a detented system sheet wrapped in its
+// own NavigationStack with a "Done" toolbar button — a whole second screen for
+// what is a single question with a single answer. Now it's the house modal: the
+// shared frosted panel, the shared spring entrance (ModalPop), and the Liquid
+// Glass X at the top-left in place of Done.
+//
+// The trigger is unchanged — see `AvailabilityCheckButton` above.
 
-struct AvailabilityCheckSheet: View {
+struct AvailabilityCheckPopup: View {
     @Environment(AppState.self) private var appState
-    @Environment(\.dismiss) private var dismiss
+    /// Called on cancel — the popup runs its own exit animation first, so the
+    /// page must NOT tear it down itself.
+    let onClose: () -> Void
+    /// Drives the shared modal entrance/exit — see ModalPop.
+    @State private var appear = false
 
     @State private var fromDate = Calendar.current.startOfDay(for: Date())
     @State private var toDate = Calendar.current.date(byAdding: .day, value: 14, to: Date()) ?? Date()
     @State private var hoursText = ""
+    /// The hours field's keyboard is a `.numberPad` — it has no Return key, so
+    /// the ways out are the Done on the pad, tapping off the field, or tapping
+    /// outside the panel.
+    @FocusState private var hoursFocused: Bool
     @State private var departments: Set<String> = []   // empty = any department
     @State private var deptPickerOpen = false
     @State private var selectedAlt: AvailAlternative?   // a tapped fallback option
@@ -339,27 +359,79 @@ struct AvailabilityCheckSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                Color(hex: T.bg).ignoresSafeArea()
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        header
-                        if let r = result { resultCard(r) } else { inputForm }
-                    }
-                    .padding(20)
-                }
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                        .foregroundStyle(Color(hex: T.accent))
-                }
-            }
+        ZStack {
+            // Tapping out closes — this is a read-only check, so there's
+            // nothing in flight to protect. While the keyboard is up, though, a
+            // tap outside means "done typing", not "throw away what I typed",
+            // so the first tap only puts the keyboard away.
+            ModalScrim { if hoursFocused { hoursFocused = false } else { close() } }
+
+            card.modalPop(appear)
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Unlike the time-off popup, this one does NOT collapse around its
+        // field — the whole form stays on screen while the pad is up, and the
+        // pad carries its own Done. Ordinary keyboard avoidance is all it
+        // needs: the panel lifts intact, and `HugScroll` scrolls it if the
+        // remaining height won't hold it. Sides and bottom of the container are
+        // ignored so the card keeps the full width; the top inset stays, so it
+        // can't reach the Dynamic Island. See "Popups that hold a text field"
+        // in Primitives.swift.
+        .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+        .onAppear { withAnimation(modalPopAnimation) { appear = true } }
+    }
+
+    private var card: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            header
+
+            // Sized to whatever is showing, scrolling ONLY if it can't fit —
+            // which matters here because the popup swaps a compact form for a
+            // result card with alternatives and an AI summary in place.
+            //
+            // `HugScroll`, NOT `ViewThatFits`: the hours field is in here, and
+            // a ViewThatFits flips branches the moment the keyboard changes the
+            // offered height, which rebuilds the field and drops its focus.
+            // See "Popups that hold a text field" in Primitives.swift.
+            HugScroll { panelContent }
+        }
+        .padding(T.insetHero)
+        // Headroom for the cancel X — the same 46pt every other popup reserves.
+        .padding(.top, 46)
+        .frame(maxWidth: 400)
+        // Tapping the panel's own face puts the keyboard away. Behind the
+        // content, so it can't steal the field's own focus tap.
+        .tapToDismissKeyboard { hoursFocused = false }
+        .glassPanel()
+        // Close, anchored INSIDE the card's top-left. Replaces the "Done"
+        // toolbar button the NavigationStack used to supply.
+        .overlay(alignment: .topLeading) {
+            Button { close() } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .frame(width: 36, height: 36)
+                    .glassEffect(.regular.interactive(), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(18)
+        }
+        .padding(.horizontal, 20)
+        // Room top and bottom so a long result can't run to the screen edges;
+        // the ScrollView above takes up the slack.
+        .padding(.vertical, 40)
+    }
+
+    /// The form or the result — whichever the popup is showing.
+    private var panelContent: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            if let r = result { resultCard(r) } else { inputForm }
+        }
+    }
+
+    /// Animates out first, THEN lets the page remove us — the shared modal exit.
+    private func close() {
+        modalPopDismiss({ appear = $0 }) { onClose() }
     }
 
     // Header
@@ -395,10 +467,37 @@ struct AvailabilityCheckSheet: View {
                         .foregroundStyle(Color(hex: T.ink))
                     Spacer()
                     TextField("e.g. 40", text: $hoursText)
-                        .keyboardType(.decimalPad)
+                        .keyboardType(.numberPad)
+                        .focused($hoursFocused)
                         .multilineTextAlignment(.trailing)
                         .font(TTypo.bodyBold(16))
                         .frame(width: 90)
+                        // A whole number, and ONLY a number. The pad alone
+                        // doesn't guarantee it — paste, dictation and a
+                        // hardware keyboard all reach this field — so anything
+                        // that isn't a digit is dropped as it's typed. `hours`
+                        // parses this, and a rejected character must never
+                        // silently become 0.
+                        .onChange(of: hoursText) { _, new in
+                            let clean = new.filter(\.isNumber)
+                            if clean != new { hoursText = clean }
+                        }
+                        // The number pad has no Return key, so it needs a Done
+                        // of its own. It rides on the pad — iOS puts an input
+                        // accessory across the pad's top edge, right-aligned
+                        // here, since the pad's own keys can't be replaced.
+                        //
+                        // Safe to hang off the field itself: `HugScroll` builds
+                        // its content once, unlike the `ViewThatFits` that used
+                        // to sit here and would have declared this twice.
+                        .toolbar {
+                            ToolbarItemGroup(placement: .keyboard) {
+                                Spacer()
+                                Button("Done") { hoursFocused = false }
+                                    .font(TTypo.bodyBold(16))
+                                    .foregroundStyle(Color(hex: T.accent))
+                            }
+                        }
                 }
             }
 
@@ -453,14 +552,28 @@ struct AvailabilityCheckSheet: View {
             }
 
             Button {
+                hoursFocused = false
                 runCheck()
             } label: {
-                Text("Find soonest")
+                let enabled = hours > 0
+                let label = Text("Find soonest")
                     .font(TTypo.bodyBold(16))
-                    .foregroundStyle(T.onGradient)
+                    .foregroundStyle(enabled ? glassCTALabel() : T.onGradient)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 15)
-                    .background(Capsule().fill(hours > 0 ? AnyShapeStyle(T.brandGradient()) : AnyShapeStyle(Color(hex: T.muted).opacity(0.4))))
+
+                Group {
+                    if enabled {
+                        // The shared tinted-glass CTA — the one action this
+                        // popup exists to run.
+                        label.glassCTA()
+                    } else {
+                        // Muted grey while there are no hours to check, so
+                        // "nothing to do yet" reads as unavailable rather than
+                        // as merely faint glass.
+                        label.background(Capsule().fill(Color(hex: T.muted).opacity(0.4)))
+                    }
+                }
             }
             .buttonStyle(.plain)
             .disabled(!(hours > 0))
@@ -480,8 +593,7 @@ struct AvailabilityCheckSheet: View {
                     .font(TTypo.sm(14)).foregroundStyle(Color(hex: T.ink))
                     .padding(14)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.surface)))
-                    .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.border)))
+                    .glassSurface(in: RoundedRectangle(cornerRadius: T.cornerMd), rim: true)
             }
 
             Button {
@@ -590,10 +702,9 @@ struct AvailabilityCheckSheet: View {
                                         .font(.system(size: 12, weight: .semibold))
                                         .foregroundStyle(Color(hex: T.muted))
                                 }
-                                .padding(12)
+                                .padding(T.insetMd)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.surface)))
-                                .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.border)))
+                                .glassSurface(in: RoundedRectangle(cornerRadius: T.cornerMd), rim: true)
                             }
                             .buttonStyle(.plain)
                         }
@@ -646,15 +757,13 @@ struct AvailabilityCheckSheet: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.surface)))
-        .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.border)))
+        .glassSurface(in: RoundedRectangle(cornerRadius: T.cornerMd), rim: true)
     }
 
     private func fieldCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
         VStack(spacing: 10) { content() }
             .padding(14)
-            .background(RoundedRectangle(cornerRadius: T.cornerMd).fill(Color(hex: T.surface)))
-            .overlay(RoundedRectangle(cornerRadius: T.cornerMd).stroke(Color(hex: T.border)))
+            .glassSurface(in: RoundedRectangle(cornerRadius: T.cornerMd), rim: true)
     }
 
     // Compute + AI
@@ -721,9 +830,7 @@ private struct FlowChips: View {
         }
     }
 
-    private func initials(_ name: String) -> String {
-        name.split(separator: " ").prefix(2).compactMap { $0.first }.map(String.init).joined().uppercased()
-    }
+    private func initials(_ name: String) -> String { Initials.from(name) }
 }
 
 /// Minimal wrapping HStack (chips flow onto new lines when they run out of width).

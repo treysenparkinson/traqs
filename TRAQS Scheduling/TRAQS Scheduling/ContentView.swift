@@ -17,16 +17,19 @@ struct RootView: View {
     var body: some View {
         ZStack(alignment: .top) {
             Group {
-                if !auth.isAuthenticated {
-                    LoginView()
+                // Org FIRST, sign-in second — the order the web's AuthGate uses.
+                // It ran the other way round here, which meant a person could be
+                // signed in before the app knew which organization they were
+                // signing in to. WelcomeView covers both stages and carries its
+                // own load-up.
+                if appState.orgCode.isEmpty || !auth.isAuthenticated {
+                    WelcomeView(autoLinkError: lookupError)
                 } else if lookupInFlight {
                     OrgLinkingView()
                 } else if lookupMatches.count > 1 && appState.orgCode.isEmpty {
                     OrgPickerView(matches: lookupMatches) { pick in
                         applyOrg(code: pick.code)
                     }
-                } else if appState.orgCode.isEmpty {
-                    OrgCodeView(noticeEmail: auth.userEmail, autoLinkError: lookupError)
                 } else {
                     MainTabView()
                         .task { await appState.loadAll() }
@@ -58,7 +61,7 @@ struct RootView: View {
         // the main UIHostingController (so the keyboard can't displace it). Zero
         // size, non-interactive; the window itself only appears while a thread is
         // open (driven by appState.activeMessageThread).
-        .background(OverlayWindowInstaller(appState: appState))
+        .background(OverlayWindowInstaller(appState: appState, theme: themeSettings))
         // Pin the scene's windows to the theme's interface style so presented
         // sheets/covers inherit it instead of following the device's Dark Mode
         // (which made `.primary` text render white on our light sheet bg). Reads
@@ -176,8 +179,8 @@ private struct OrgPickerView: View {
                             }
                             .padding()
                             .background(Color(hex: T.surface))
-                            .cornerRadius(12)
-                            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color(hex: T.border), lineWidth: 1))
+                            .cornerRadius(T.cornerSm)
+                            .overlay(RoundedRectangle(cornerRadius: T.cornerSm).stroke(Color(hex: T.border), lineWidth: 1))
                         }
                         .buttonStyle(.plain)
                     }
@@ -234,7 +237,7 @@ private struct ErrorBanner: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)
                 .background(Color.red.opacity(0.92))
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: T.cornerSm, style: .continuous))
                 .shadow(color: .black.opacity(0.18), radius: 8, y: 2)
                 .padding(.horizontal, 12)
                 .padding(.top, 8)

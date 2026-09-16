@@ -6,12 +6,39 @@ import SwiftUI
 // the heading helpers inherit the same monospaced-digit treatment so totals
 // and durations always column-align in cards and lists).
 
-enum TFontName: String {
+enum TFontName: String, CaseIterable {
     case regular   = "DMSans-Regular"
     case medium    = "DMSans-Medium"
     case semibold  = "DMSans-SemiBold"
     case bold      = "DMSans-Bold"
     case extrabold = "DMSans-ExtraBold"
+}
+
+extension TFontName {
+    /// The face a web `fontWeight` resolves to.
+    ///
+    /// The web app styles by number and the apps ship five named files, so this is
+    /// the translation — in ONE place, because two copies would drift and the
+    /// symptom (type a half-weight off) is nearly invisible.
+    ///
+    /// Ranges rather than exact matches so an unlisted weight lands on its nearest
+    /// shipped neighbour instead of falling through to a default that happens to be
+    /// Regular.
+    ///
+    /// 300 (Light) is loaded by the web but not shipped here; it approximates to
+    /// Regular. Add `DMSans-Light` the moment a ported screen actually uses it —
+    /// see `WebFontWeightTests`.
+    static func face(forWebWeight w: Int) -> TFontName {
+        switch w {
+        case ..<450: return .regular      // 300 (approximated), 400
+        case ..<550: return .medium       // 500
+        case ..<650: return .semibold     // 600
+        case ..<750: return .bold         // 700
+        default:     return .extrabold    // 800, and 900 — which the browser
+                                          // clamps here too, since it never
+                                          // loads a 900 face
+        }
+    }
 }
 
 enum TTypo {

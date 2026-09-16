@@ -14,6 +14,15 @@ struct BgPreset: Identifiable {
     let border: String
     let text: String
     let muted: String
+    /// Unfilled part of a progress ring or bar. Per-preset rather than one fixed
+    /// grey: on glass, a mid-grey track reads as a dirty smudge on a light
+    /// surface and disappears entirely on a dark one.
+    ///
+    /// Each preset pushes AWAY from mid-grey, toward its own extreme — near-white
+    /// on White, near-black on Charcoal. On Charcoal that puts the track *below*
+    /// the surface value, so it reads as a recessed groove rather than a raised
+    /// grey band.
+    let track: String
     let isLight: Bool
 }
 
@@ -39,30 +48,111 @@ final class ThemeSettings {
     static let bgPresets: [BgPreset] = [
         BgPreset(id: 100, name: "White",
                  bg: "#F4F6FA", surface: "#FFFFFF", card: "#FFFFFF", border: "#E6E8EE",
-                 text: "#0B0B0C", muted: "#6E6E73", isLight: true),
-        BgPreset(id: 10,  name: "Grey",
-                 bg: "#E5E7EB", surface: "#F3F4F6", card: "#FFFFFF", border: "#D1D5DB",
-                 text: "#111827", muted: "#6B7280", isLight: true),
+                 text: "#0B0B0C", muted: "#6E6E73", track: "#F7F9FD", isLight: true),
         BgPreset(id: 11,  name: "Charcoal",
                  bg: "#1F1F1F", surface: "#2A2A2A", card: "#333333", border: "#3F3F3F",
-                 text: "#E8E8E8", muted: "#9CA3AF", isLight: false),
-        BgPreset(id: 12,  name: "Black",
-                 bg: "#000000", surface: "#0A0A0A", card: "#141414", border: "#1F1F1F",
-                 text: "#F5F5F5", muted: "#6B7280", isLight: false),
+                 text: "#E8E8E8", muted: "#9CA3AF", track: "#202023", isLight: false),
     ]
 
     static let defaultBgPresetId: Int = 100
     static let defaultAccent: String = "#3B82F6"
+    /// The shipped default. New installs land on the icon's palette; users who
+    /// have already saved an accent keep it — see `AccentResolver.mode`.
+    static let defaultAccentMode: AccentMode = .logoStagger
+    /// On by default — the liquid wash IS the intended look of the app; the
+    /// static canvas is the opt-out.
+    static let defaultLiquidBackground: Bool = true
+    /// Likewise for glass: on is the intended look, solid is the opt-out.
+    static let defaultFrostedGlass: Bool = true
 
     var accent: String = ThemeSettings.defaultAccent
+
+    /// Whether the live accent comes from `accent` or from the selected tab.
+    var accentMode: AccentMode = ThemeSettings.defaultAccentMode
+
+    /// The tab the stagger reads from. NOT persisted — `TabHost` pushes it on
+    /// appear and on every change, so it is rebuilt each launch. Defaults to
+    /// `.home` to match `AppNav.selected`'s own default, so the first frame is
+    /// already the right colour rather than flashing and correcting.
+    var activeTab: TTab = .home
+
+    /// What actually feeds the `T.*` tokens.
+    ///
+    /// `accent` above keeps its original meaning — the user's saved SOLID
+    /// choice — and stagger never writes it. That is what lets someone flip to
+    /// the logo palette, flip back, and land on the colour they picked.
+    ///
+    /// Read `activeTab` ONLY under stagger. Reading it unconditionally (as a
+    /// call argument to `AccentResolver.activeAccent`) would register an
+    /// `@Observable` dependency on `activeTab` at all ~19 observation sites
+    /// (`FrostedCard`, `GlassSurface`, `GlassPanel`, `FrostedPill`,
+    /// `GradientCTA`, `GlassCTA`, `TaskCardV1`, `TRAQSTabBar`, …) in BOTH
+    /// modes, and `setActiveTab` writes `activeTab` on every tab change in
+    /// `.solid` too. Observation doesn't value-diff — it just invalidates —
+    /// so every `.solid` user (i.e. everyone who predates this branch) would
+    /// get every one of those views, `FrostedCard` per job row included,
+    /// re-evaluated on every tab change for a value that never moved.
+    var activeAccent: String {
+        guard accentMode == .logoStagger else { return accent }
+        return AccentResolver.activeAccent(mode: accentMode, solidAccent: accent, tab: activeTab)
+    }
+
     var bgPresetId: Int = ThemeSettings.defaultBgPresetId
+    /// Whether pages render the drifting liquid wash (`PageBackground`) instead
+    /// of the static ambient canvas. Unlike accent/preset this feeds no T.*
+    /// token — views read it directly — so it has no `applyToT` counterpart.
+    var liquidBackground: Bool = ThemeSettings.defaultLiquidBackground
+    /// Whether the app's own SURFACES are frosted glass or flat 2D.
+    ///
+    /// Off flattens what TRAQS draws: job cards, page boxes, message bubbles,
+    /// list rows, the wells inside popups, the sync pill — all to opaque
+    /// `T.surface` — and collapses the specular rim on them to a flat hairline.
+    /// (`glassFill`, `GlassSurface`, `specularRim`.)
+    ///
+    /// It ALSO flattens the app's modals — every prompting popup (`GlassPanel`:
+    /// the PIN pad, the break/lunch banner, the end-job photo prompt, the
+    /// start-job, availability and time-off confirms). Off means flat,
+    /// everywhere TRAQS paints.
+    ///
+    /// It does NOT reach three things, each for its own reason:
+    ///
+    ///  • BUTTONS. Header pills, menu buttons, the keypad keys and every glass
+    ///    CTA are Apple's material, not ours. A flat app with native glass
+    ///    controls is a coherent look; one whose buttons went flat too just
+    ///    looks unfinished. (`GlassControl`, `GlassCircleButton`, `GlassCTA`.)
+    ///
+    ///  • THE NAV PILL (`NavPillMaterial`). It used to flatten, back when it was
+    ///    a hand-rolled `.ultraThinMaterial` — TRAQS painting its own glass on
+    ///    chrome, which the switch rightly governed. It is native
+    ///    `.glassEffect` now, the same material as the buttons above and as the
+    ///    highlighter riding on it, so it keeps it on the same terms.
+    ///
+    ///  • THE TWO MASKED PLATES — the Messages thread header
+    ///    (`OverlayWindowController`) and the composer bar under it. Both are a
+    ///    blur MASKED to fade out along one edge, and an opaque fill under that
+    ///    mask is a solid slab dissolving into nothing, which reads as a
+    ///    rendering fault rather than as a design.
+    ///
+    /// It governed page CONTENT only at first, which left the rim on everything —
+    /// a lit bevel being the most obviously glassy thing left once the blur is
+    /// gone. Then it briefly reached the native controls too, which looked
+    /// unfinished. This is the line that landed: everything TRAQS draws, nothing
+    /// Apple draws.
+    ///
+    /// Mirrored into T.glassEnabled because the glass helpers include a Shape
+    /// extension, which has no view context and so can't read @Environment.
+    var frostedGlass: Bool = ThemeSettings.defaultFrostedGlass
     var version: Int = 0
 
     // Last *saved* theme, captured when the customizer opens (`beginPreview`).
-    // Live edits change `accent`/`bgPresetId` for an immediate preview without
-    // persisting; Save commits them, backing out reverts to these snapshots.
+    // Live edits change `accent`/`bgPresetId`/`liquidBackground` for an immediate
+    // preview without persisting; Save commits them, backing out reverts to
+    // these snapshots.
     private var savedAccent: String = ThemeSettings.defaultAccent
+    private var savedAccentMode: AccentMode = ThemeSettings.defaultAccentMode
     private var savedBgPresetId: Int = ThemeSettings.defaultBgPresetId
+    private var savedLiquidBackground: Bool = ThemeSettings.defaultLiquidBackground
+    private var savedFrostedGlass: Bool = ThemeSettings.defaultFrostedGlass
 
     var currentBgPreset: BgPreset {
         ThemeSettings.bgPresets.first(where: { $0.id == bgPresetId }) ?? ThemeSettings.bgPresets[0]
@@ -71,7 +161,14 @@ final class ThemeSettings {
     var isLightTheme: Bool { currentBgPreset.isLight }
 
     init() {
-        accent = UserDefaults.standard.string(forKey: "themeAccent") ?? ThemeSettings.defaultAccent
+        // Read the raw object BEFORE defaulting `accent` — whether the key
+        // EXISTS is the signal `AccentResolver.mode` needs, and `??` erases it.
+        let storedAccent = UserDefaults.standard.object(forKey: "themeAccent") as? String
+        accent = storedAccent ?? ThemeSettings.defaultAccent
+        accentMode = AccentResolver.mode(
+            storedMode: UserDefaults.standard.object(forKey: "themeAccentMode") as? String,
+            hasSavedAccent: storedAccent != nil
+        )
         // Any preset id that isn't one of the four current neutrals falls
         // back to White. Covers existing users who were on the older
         // tinted presets (Midnight, Navy, Slate, Forest, Frost, Pearl,
@@ -82,8 +179,18 @@ final class ThemeSettings {
         } else {
             bgPresetId = ThemeSettings.defaultBgPresetId
         }
+        // `object(forKey:) as? Bool`, NOT `bool(forKey:)` — the latter returns
+        // false for a key that was never written, which would silently ship the
+        // liquid wash OFF for every existing user.
+        liquidBackground = (UserDefaults.standard.object(forKey: "themeLiquidBackground") as? Bool)
+            ?? ThemeSettings.defaultLiquidBackground
+        frostedGlass = (UserDefaults.standard.object(forKey: "themeFrostedGlass") as? Bool)
+            ?? ThemeSettings.defaultFrostedGlass
         savedAccent = accent
+        savedAccentMode = accentMode
         savedBgPresetId = bgPresetId
+        savedLiquidBackground = liquidBackground
+        savedFrostedGlass = frostedGlass
         applyToT()
     }
 
@@ -96,14 +203,57 @@ final class ThemeSettings {
     }
 
     /// Live preview only (see `setAccent`). Persists on `commitChanges()`.
+    func setAccentMode(_ mode: AccentMode) {
+        accentMode = mode
+        applyAccentToT()
+    }
+
+    /// Nav pushes the selected tab in; the theme never observes `AppNav`.
+    ///
+    /// Not a preview setter and not persisted — this is live navigation state,
+    /// so it takes effect immediately and is not part of the Save/Cancel pair.
+    /// In `.solid` it stores the tab and stops: `activeAccent` only reads
+    /// `activeTab` under stagger (see above), so nothing the tokens read has
+    /// changed, and repainting would be pure work.
+    ///
+    /// No `withAnimation` here: `T` is plain `static var`s, not `@Observable`
+    /// or `Animatable`, so wrapping `applyAccentToT()` in a transaction has
+    /// nothing to attach to — the only observable mutation is `activeTab`
+    /// above, one line earlier and outside any transaction. The caller
+    /// (`TabHost`'s `.onChange(of: appNav.selected)`) wraps the call to
+    /// `setActiveTab` itself in `withAnimation` instead, so the transaction
+    /// covers the mutation that actually invalidates views.
+    func setActiveTab(_ tab: TTab) {
+        guard activeTab != tab else { return }
+        activeTab = tab
+        guard accentMode == .logoStagger else { return }
+        applyAccentToT()
+    }
+
+    /// Live preview only (see `setAccent`). Persists on `commitChanges()`.
     func setBgPreset(_ id: Int) {
         bgPresetId = id
         applyBgToT(currentBgPreset)
     }
 
+    /// Live preview only (see `setAccent`). Persists on `commitChanges()`. No
+    /// `applyToT` call — this flag isn't part of the token table.
+    func setLiquidBackground(_ on: Bool) {
+        liquidBackground = on
+    }
+
+    /// Live preview only (see `setAccent`). Persists on `commitChanges()`.
+    func setFrostedGlass(_ on: Bool) {
+        frostedGlass = on
+        applyGlassToT()
+    }
+
     func reset() {
         setAccent(ThemeSettings.defaultAccent)
+        setAccentMode(ThemeSettings.defaultAccentMode)
         setBgPreset(ThemeSettings.defaultBgPresetId)
+        setLiquidBackground(ThemeSettings.defaultLiquidBackground)
+        setFrostedGlass(ThemeSettings.defaultFrostedGlass)
         commitChanges()
     }
 
@@ -111,14 +261,20 @@ final class ThemeSettings {
     /// un-saved exit can be reverted.
     func beginPreview() {
         savedAccent = accent
+        savedAccentMode = accentMode
         savedBgPresetId = bgPresetId
+        savedLiquidBackground = liquidBackground
+        savedFrostedGlass = frostedGlass
     }
 
     /// Revert a live preview back to the last saved theme (customizer closed
     /// without Save).
     func cancelPreview() {
         accent = savedAccent
+        accentMode = savedAccentMode
         bgPresetId = savedBgPresetId
+        liquidBackground = savedLiquidBackground
+        frostedGlass = savedFrostedGlass
         applyToT()
     }
 
@@ -126,30 +282,42 @@ final class ThemeSettings {
     /// so the whole app re-renders with the new T.* values.
     func commitChanges() {
         UserDefaults.standard.set(accent, forKey: "themeAccent")
+        UserDefaults.standard.set(accentMode.rawValue, forKey: "themeAccentMode")
         UserDefaults.standard.set(bgPresetId, forKey: "themeBgPreset")
+        UserDefaults.standard.set(liquidBackground, forKey: "themeLiquidBackground")
+        UserDefaults.standard.set(frostedGlass, forKey: "themeFrostedGlass")
         savedAccent = accent
+        savedAccentMode = accentMode
         savedBgPresetId = bgPresetId
+        savedLiquidBackground = liquidBackground
+        savedFrostedGlass = frostedGlass
         version += 1
     }
 
     private func applyToT() {
         applyAccentToT()
         applyBgToT(currentBgPreset)
+        applyGlassToT()
+    }
+
+    private func applyGlassToT() {
+        T.glassEnabled = frostedGlass
     }
 
     /// Set `T.accent` AND the derived signature-gradient stops + glow tints so the
     /// whole gradient system stays coherent with whatever accent is chosen.
-    /// Default accent → the wireframe indigo→magenta brand pair; any custom accent
-    /// keeps its own start and derives an intentional end (hue +40°, +8% brightness).
+    /// EVERY accent — including the default — yields a SAME-HUE two-stop gradient
+    /// (the chosen color → a deeper shade of it), so buttons/CTAs are always a
+    /// gradient of the exact color chosen, never an off-hue end that reads as a
+    /// completely different color.
     private func applyAccentToT() {
-        T.accent = accent
-        if accent.caseInsensitiveCompare(ThemeSettings.defaultAccent) == .orderedSame {
-            T.accentGradientStart = T.brandGradStartDefault
-            T.accentGradientEnd   = T.brandGradEndDefault
-        } else {
-            T.accentGradientStart = accent
-            T.accentGradientEnd   = ThemeSettings.derivedEnd(from: accent)
-        }
+        // `activeAccent`, not `accent` — in stagger the live colour comes from
+        // the tab. Everything below is unchanged and still derives from a
+        // SINGLE hue, so the same-hue gradient rule holds per-colour.
+        let live = activeAccent
+        T.accent = live
+        T.accentGradientStart = live
+        T.accentGradientEnd   = ThemeSettings.derivedEnd(from: live)
         T.glowBlob     = T.accentGradientEnd
         T.ctaGlowColor = T.accentGradientStart
     }
@@ -157,18 +325,74 @@ final class ThemeSettings {
     private func applyBgToT(_ p: BgPreset) {
         T.bg = p.bg; T.surface = p.surface; T.card = p.card; T.border = p.border
         T.text = p.text; T.muted = p.muted
+        T.progressTrack = p.track
+        applyRimToT(isLight: p.isLight)
     }
 
-    /// Derive a gradient end-stop from a custom accent: rotate hue +40° and lift
-    /// brightness ~8% so a single-color accent still yields an intentional two-stop
-    /// gradient. iOS-only (UIColor HSB); returns the input unchanged if conversion fails.
+    /// The glass edge, tuned per preset family — see the `T.rim*` block.
+    ///
+    /// Same shape both ways: white glare across the top lip, a darker band down
+    /// the sides for contrast, the bottom lip lit again. What changes is how
+    /// hard each has to work — the light family needs more from the lips than
+    /// the dark one, because a white glare has less to do against a near-white
+    /// card.
+    ///
+    /// These are the WEB's numbers, not iOS's own. The web draws the same edge
+    /// from one helper (`_edge` in TRAQS.jsx, feeding `--tq-surface-edge`) and
+    /// its four dials are the source of truth for both clients, so a card reads
+    /// the same on a phone as it does on the desktop beside it.
+    ///
+    /// iOS was still on the values the web moved AWAY from — 0.95/0.80 light and
+    /// 0.70/0.50 dark. Near-full white on both lips drew a bright chalk line
+    /// around every control, and with a page full of pills and cards the screen
+    /// read as outlined rather than as glass catching light. A lip suggests a lit
+    /// top edge; it is not the border.
+    ///
+    /// The side bands came up as the lips came down, so the edge still separates
+    /// a control from its background once the white is doing less of that work:
+    ///
+    ///   * light `#A6ADB9` → `#C2C8D1`. Still a definite grey — a groove darker
+    ///     than a near-white card — just no longer competing with the lips.
+    ///   * dark `#151515` → `#3A3A42`. The near-black band read as a gap punched
+    ///     THROUGH the panel rather than an edge catching light, and it fought
+    ///     the white above and below it. Grey sits between the two: a defined
+    ///     side, no black seam. Solid, not a white alpha — these surfaces are
+    ///     translucent, so an alpha edge takes its value from whatever is behind
+    ///     the panel and drifts as the page scrolls under it.
+    ///
+    /// `rimWidth` follows the web's 1px ring; 1.4/1.2 was part of the same
+    /// heaviness. `rimLip` is geometry rather than lightness and is unchanged —
+    /// the web draws its lips as two hard 1px insets and its ring separately,
+    /// while iOS runs all three as one vertical stroke gradient, so the lip
+    /// fraction has no web counterpart to match.
+    private func applyRimToT(isLight: Bool) {
+        if isLight {
+            T.rimTop   = 0.70
+            T.rimBot   = 0.55
+            T.rimSide  = "#C2C8D1"
+            T.rimLip   = 0.20
+            T.rimWidth = 1.0
+        } else {
+            T.rimTop   = 0.50
+            T.rimBot   = 0.37
+            T.rimSide  = "#3A3A42"
+            T.rimLip   = 0.18
+            T.rimWidth = 1.0
+        }
+    }
+
+    /// Derive a gradient end-stop from the chosen accent: KEEP the hue (no
+    /// rotation — that produced an off-hue end that read as a different color),
+    /// deepen it into a richer shade (a little more saturation, ~22% less
+    /// brightness) so a single color still yields a coherent same-hue two-stop
+    /// gradient. iOS-only (UIColor HSB); returns the input unchanged on failure.
     static func derivedEnd(from hex: String) -> String {
         #if canImport(UIKit)
         let ui = UIColor(Color(hex: hex))
         var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
         guard ui.getHue(&h, saturation: &s, brightness: &b, alpha: &a) else { return hex }
-        h = (h + 40.0 / 360.0).truncatingRemainder(dividingBy: 1.0)
-        b = min(1.0, b + 0.08)
+        s = min(1.0, s + 0.10)
+        b = max(0.0, b - 0.22)
         return Color(UIColor(hue: h, saturation: s, brightness: b, alpha: 1)).toHex() ?? hex
         #else
         return hex

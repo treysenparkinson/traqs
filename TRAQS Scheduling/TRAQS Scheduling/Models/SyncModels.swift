@@ -122,17 +122,56 @@ protocol SyncRecord: PersistentModel {
     var deletedAt: Date? { get set }
     var payload: Data { get set }
     init(id: String, lastModifiedAt: Date?, deletedAt: Date?, payload: Data)
+
+    /// A predicate matching the named rows, built against the CONCRETE type.
+    ///
+    /// This deliberately cannot live in a protocol extension, and that is the
+    /// whole point of it being a requirement. Written generically —
+    /// `#Predicate<Self> { ids.contains($0.id) }` — `$0.id` compiles to the
+    /// SyncRecord protocol-witness keypath. SwiftData resolves a predicate's
+    /// keypaths against the ones the `@Model` macro registered on the concrete
+    /// class, the witness is not among them, and the fetch TRAPS at runtime:
+    ///
+    ///     Fatal error: Couldn't find \SyncedPerson.<computed … (String)> on
+    ///     SyncedPerson with fields [id, lastModifiedAt, deletedAt, payload]
+    ///
+    /// It traps rather than failing to compile, and only on the branch that
+    /// builds a predicate at all (`LocalCache.applyBatch`, small batches), so a
+    /// first sync — one big batch — sails past it and the crash lands on the
+    /// NEXT launch, once the cache is warm and the delta is small.
+    ///
+    /// Each conformance therefore spells the predicate out, where `$0.id` is the
+    /// stored property itself and the keypath is the registered one.
+    static func withIDs(_ ids: [String]) -> Predicate<Self>
 }
 
-extension SyncedJob: SyncRecord {}
-extension SyncedPerson: SyncRecord {}
-extension SyncedClient: SyncRecord {}
-extension SyncedMessage: SyncRecord {}
-extension SyncedGroup: SyncRecord {}
-extension SyncedTimeclockEntry: SyncRecord {}
-extension SyncedProductionHours: SyncRecord {}
-extension SyncedOrgConfig: SyncRecord {}
-extension SyncedSettings: SyncRecord {}
+extension SyncedJob: SyncRecord {
+    static func withIDs(_ ids: [String]) -> Predicate<SyncedJob> { #Predicate { ids.contains($0.id) } }
+}
+extension SyncedPerson: SyncRecord {
+    static func withIDs(_ ids: [String]) -> Predicate<SyncedPerson> { #Predicate { ids.contains($0.id) } }
+}
+extension SyncedClient: SyncRecord {
+    static func withIDs(_ ids: [String]) -> Predicate<SyncedClient> { #Predicate { ids.contains($0.id) } }
+}
+extension SyncedMessage: SyncRecord {
+    static func withIDs(_ ids: [String]) -> Predicate<SyncedMessage> { #Predicate { ids.contains($0.id) } }
+}
+extension SyncedGroup: SyncRecord {
+    static func withIDs(_ ids: [String]) -> Predicate<SyncedGroup> { #Predicate { ids.contains($0.id) } }
+}
+extension SyncedTimeclockEntry: SyncRecord {
+    static func withIDs(_ ids: [String]) -> Predicate<SyncedTimeclockEntry> { #Predicate { ids.contains($0.id) } }
+}
+extension SyncedProductionHours: SyncRecord {
+    static func withIDs(_ ids: [String]) -> Predicate<SyncedProductionHours> { #Predicate { ids.contains($0.id) } }
+}
+extension SyncedOrgConfig: SyncRecord {
+    static func withIDs(_ ids: [String]) -> Predicate<SyncedOrgConfig> { #Predicate { ids.contains($0.id) } }
+}
+extension SyncedSettings: SyncRecord {
+    static func withIDs(_ ids: [String]) -> Predicate<SyncedSettings> { #Predicate { ids.contains($0.id) } }
+}
 
 // Delta-sync cursor. Single row keyed "sync-cursor".
 @Model final class Meta {

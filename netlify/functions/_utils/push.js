@@ -35,11 +35,26 @@ function creds() {
 }
 
 // Keep only ids that belong to a person with a registered push subscription.
-function registeredIdsFrom(people, personIds) {
+// Targets are addressed by OneSignal external_id (= personId), but only for people
+// whose roster record has a pushToken — that's the "this person has registered a
+// device at least once" gate.
+//
+// A person missing pushToken is dropped SILENTLY, which is a prime suspect when a
+// notification lands on desktop but not on a phone: web push is a separate
+// mechanism with its own subscriptions, so it keeps working while the native push
+// is skipped here. Log the skips so that shows up instead of looking like a
+// delivery failure.
+function registeredIdsFrom(people, personIds, label = "push") {
   const want = new Set((personIds || []).map(String));
   const out = new Set();
+  const skipped = [];
   for (const p of people || []) {
-    if (p && p.pushToken && want.has(String(p.id))) out.add(String(p.id));
+    if (!p || !want.has(String(p.id))) continue;
+    if (p.pushToken) out.add(String(p.id));
+    else skipped.push(String(p.id));
+  }
+  if (skipped.length) {
+    console.warn(`[push:${label}] skipped ${skipped.length} recipient(s) with no pushToken (no native push for them): ${skipped.join(",")}`);
   }
   return [...out];
 }
@@ -53,6 +68,16 @@ async function postOneSignal(appId, apiKey, body, label) {
     });
     const parsed = await res.json().catch(() => ({}));
     if (!res.ok) console.error(`OneSignal error (${label}):`, res.status, parsed);
+    // A 200 is NOT proof of delivery. OneSignal answers 200 with an `errors` body
+    // for things like "All included players are not subscribed" — i.e. the alias
+    // matched nobody with a live subscription. That was invisible here, so a phone
+    // silently receiving nothing looked identical to a successful send.
+    else if (parsed?.errors) {
+      console.error(`OneSignal 200-with-errors (${label}):`, JSON.stringify(parsed.errors),
+                    `recipients=${parsed?.recipients ?? "?"}`);
+    } else if (parsed?.recipients === 0) {
+      console.warn(`[push:${label}] OneSignal accepted the request but matched 0 recipients — external_ids not registered on any subscribed device.`);
+    }
     return res.ok ? parsed : null;
   } catch (e) {
     console.error(`OneSignal request failed (${label}):`, e?.message || e);
@@ -75,7 +100,7 @@ async function postOneSignal(appId, apiKey, body, label) {
 export async function sendVisiblePush(orgCode, people, personIds, { heading, content, data = {}, label = "visible" }) {
   const c = creds();
   if (!c) return;
-  const ids = registeredIdsFrom(people, personIds);
+  const ids = registeredIdsFrom(people, personIds, label);
   if (ids.length === 0) return;
   await postOneSignal(c.appId, c.apiKey, {
     include_aliases: { external_id: ids },

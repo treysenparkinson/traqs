@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "rimraf dist && netlify dev",
-    "build": "vite build",
+    "build": "node scripts/check-function-imports.mjs && vite build",
     "preview": "vite preview",
     "cap:android": "npm run build && cap sync android && cap open android",
-    "cap:ios": "npm run build && cap sync ios && cap open ios"
+    "cap:ios": "npm run build && cap sync ios && cap open ios",
+    "check:functions": "node scripts/check-function-imports.mjs"
   },
   "dependencies": {
     "@auth0/auth0-react": "^2.2.4",

@@ -1,4 +1,5 @@
 import { requireOrgMember } from "./_utils/auth.js";
+import { can } from "./_utils/can.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { sendWebPush } from "./_utils/webpush.js";
@@ -264,7 +265,7 @@ export async function handler(event) {
     return json(200, { request: record });
   }
 
-  // ── PATCH: approve / deny / cancel a request ─────────────────────────────────
+  // ── PATCH: approve / deny / reopen / cancel a request ────────────────────────
   if (event.httpMethod === "PATCH") {
     let body;
     try {
@@ -277,7 +278,7 @@ export async function handler(event) {
     const action = String(body.action || "").toLowerCase();
     const reason = String(body.reason || "").trim();
     if (!id) return err(400, "Missing request id");
-    if (!["approve", "deny", "cancel", "edit"].includes(action)) return err(400, "Unknown action");
+    if (!["approve", "deny", "reopen", "cancel", "edit"].includes(action)) return err(400, "Unknown action");
     if (reason.length > 500) return err(400, "reason too long");
 
     let requests;
@@ -297,9 +298,12 @@ export async function handler(event) {
       people = [];
     }
 
-    // Authorization: approve/deny are admin-only; cancel is the owner or an admin.
-    if (action === "approve" || action === "deny") {
-      if (!isAdmin) return err(403, "Admin only");
+    // Authorization: approve/deny take the approveTimeOff toggle; cancel is the
+    // owner withdrawing their own request (or an admin), which is not an approval.
+    if (action === "approve" || action === "deny" || action === "reopen") {
+      if (!can(member, "approveTimeOff")) {
+        return err(403, "Your account does not have permission to approve & deny time-off requests");
+      }
     } else if (action === "cancel") {
       if (!isAdmin && String(reqRec.personId) !== String(meId)) return err(403, "Not your request");
     }
@@ -464,6 +468,66 @@ export async function handler(event) {
         { event: "denied", requestId: reqRec.id }
       );
       await publishChange(orgCode, "timeoff", { ids: [reqRec.id] });
+      await sendSilentPush(orgCode, { entity: "people", people, excludePersonId: meId });
+      return json(200, { request: requests[idx] });
+    }
+
+    // ── reopen: undo a decision, putting the request back in the queue ─────────
+    // The approver changed their mind. This is NOT "cancel": the request stays
+    // alive and returns to pending, so the requester keeps their place and the
+    // admins get it back in their queue rather than having to be asked again.
+    //
+    // Only a DECIDED request can reopen. A cancelled one was withdrawn by its
+    // owner and is not the approver's to revive; a pending one has nothing to
+    // undo, and letting it through would clear a decision that isn't there.
+    if (action === "reopen") {
+      if (reqRec.status !== "approved" && reqRec.status !== "denied") {
+        return err(400, "Only an approved or denied request can be reopened");
+      }
+      const undoingApproval = reqRec.status === "approved";
+
+      requests[idx] = {
+        ...reqRec,
+        status: "pending",
+        decidedBy: null,
+        decidedByName: null,
+        decidedAt: null,
+        denialReason: null,
+      };
+
+      // Undoing an APPROVAL has to pull the entry back out of person.timeOff,
+      // exactly as cancel does — otherwise the day stays blocked on the
+      // schedule and in the accountant export for a request that is, once
+      // more, undecided.
+      if (undoingApproval) {
+        const pIdx = people.findIndex((p) => String(p.id) === String(reqRec.personId));
+        if (pIdx !== -1 && Array.isArray(people[pIdx].timeOff)) {
+          people[pIdx] = {
+            ...people[pIdx],
+            timeOff: people[pIdx].timeOff.filter((t) => t.reqId !== reqRec.id),
+            lastModifiedAt: nowIso(),
+          };
+        }
+      }
+
+      try {
+        await writeJson(reqKey, requests);
+        if (undoingApproval) await writeJson(peopleKey, people);
+      } catch {
+        return err(500, "Failed to reopen request");
+      }
+
+      await pushTo(
+        orgCode,
+        people,
+        [reqRec.personId],
+        "Time Off Reopened",
+        `Your ${reqRec.type} for ${fmtRange(reqRec.start, reqRec.end)} is pending again.`,
+        { event: "reopened", requestId: reqRec.id }
+      );
+      await publishChange(orgCode, "timeoff", { ids: [reqRec.id] });
+      // people.json only moved when an approval was undone.
+      if (undoingApproval) await publishChange(orgCode, "people", { ids: [String(reqRec.personId)] });
       await sendSilentPush(orgCode, { entity: "people", people, excludePersonId: meId });
       return json(200, { request: requests[idx] });
     }

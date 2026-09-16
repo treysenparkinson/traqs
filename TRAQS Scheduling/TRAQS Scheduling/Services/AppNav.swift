@@ -1,5 +1,12 @@
 import SwiftUI
+// Push notifications are iOS-only for now: OneSignal ships no macOS SDK, so the
+// Mac app — which compiles this same file — has to build without it. Guarded
+// rather than split into a protocol: the iOS path stays exactly as it was, and a
+// Mac build simply has no push registration, which is correct until there is a
+// macOS push story to write.
+#if canImport(OneSignalFramework)
 import OneSignalFramework
+#endif
 
 // MARK: - Jobs tab view mode
 // The Jobs tab merges the old Jobs (list) and Schedule (gantt) pages into one.
@@ -19,12 +26,87 @@ enum JobsViewMode: Hashable {
 @MainActor
 final class AppNav {
     var selected: TTab = .home
-    var isMenuOpen: Bool = false
+
+    /// Hides the custom frosted tab bar (e.g. while inside a message thread).
+    /// Driven by the owning tab; MainTabView animates the bar out/in.
+    var hideTabBar: Bool = false
+
+    /// Set while a modal presented in its OWN window (a .fullScreenCover) is up,
+    /// so MainTabView can blur the whole page — nav bar included — behind it.
+    /// A modal can't blur the page from inside a separate presentation, so the
+    /// blur has to be driven from out here. See the note above `ModalScrim`.
+    var modalBlur: Bool = false
+
+    /// Set while an IN-HIERARCHY modal (the lunch/break shout, the PIN pads, the
+    /// availability check) is up. Such a modal lives inside the page, so it
+    /// blurs its own content with `.modalPageBlur` and can't use `modalBlur` —
+    /// that would blur the modal along with everything else. What it CAN'T reach
+    /// from in there is the app chrome: the glass header and the nav pill are
+    /// both siblings of the page out in MainTabView. This blurs those to match.
+    ///
+    /// Every page that applies `.modalPageBlur` for an in-hierarchy popup must
+    /// drive this from the SAME condition, or the logo and the header buttons
+    /// stay sharp over a blurred page.
+    var blurChrome: Bool = false
+
+    /// The chrome — glass header + nav pill — is blurred by EITHER kind of
+    /// modal: a `.fullScreenCover` (which drives `modalBlur`) or an in-hierarchy
+    /// popup (`blurChrome`). One flag so the chrome is blurred exactly once; the
+    /// header sits outside the page's blur layer precisely so it can't be
+    /// blurred twice. See `ShellBlur` in MainTabView.
+    var chromeBlurred: Bool { modalBlur || blurChrome }
+
+    /// Break banner shown on the Jobs page — set by TaskCardV1's break button,
+    /// consumed by JobsHubView which hosts the same frosted-glass popup as the
+    /// time clock page. Kept here so the card (deep in a ScrollView) can signal
+    /// the page-level overlay without threading closures.
+    var jobsBreakBanner: ClockActionBannerKind?
 
     /// Which view the merged Jobs tab shows — list (TasksView) or gantt (GanttView).
     /// Persists across tab switches; reset to `.list` for job deep links so the
     /// list view's deep-link consumer can resolve the tapped job (see below).
     var jobsMode: JobsViewMode = .list
+
+    // MARK: - Header state
+    //
+    // The state behind the app-wide header controls, held here rather than in the
+    // pages because the CONTROLS live here — see HeaderControls.swift. A page
+    // reads and writes these exactly as it used to read its own @State; the only
+    // difference is that the header can reach them too.
+    //
+    // This is the cost the morph charges. The controls have to be concrete views
+    // the host builds itself, and a host can't reach into five pages' private
+    // @State, so the state that drives them comes out here.
+
+    // Jobs
+    var jobsSearchOpen = false
+    var jobsSearchText = ""
+    var showAvailability = false
+
+    // Messages
+    var chatSearchOpen = false
+    var chatSearchText = ""
+    var chatFilter: ChatFilter = .all
+    var chatSelectMode = false
+    var chatSelectedKeys: Set<String> = []
+    var showNewMessage = false
+    var showDeleteThreads = false
+
+    // Account menu + Admin, opened from the header and presented by the shell.
+    var showAdmin = false
+    /// The header's Log out row. AuthManager isn't reachable from AppNav, so the
+    /// shell — which has it — consumes this and calls logout().
+    var logoutRequested = false
+    var showCustomize = false
+    var showProfile = false
+
+    // Analytics
+    var statsWorkerId: String? = nil
+    var statsWeekAnchor: Date = Date()
+    /// Week vs pay period. Here rather than in MoreView because the header's
+    /// calendar menu lists weeks or pay periods depending on it, and that menu
+    /// is drawn by HeaderControlsHost, outside the page.
+    var statsRange: StatsRange = .week
 
     // MARK: - Push deep links
     //
@@ -41,7 +123,6 @@ final class AppNav {
     // `openTimeOffPage` instead, which MainTabView presents as a cover.
     enum DeepLink: Equatable {
         case job(number: String)        // open that job's detail
-        case approvals(number: String)  // step/ready push → open the Approval Queue
                                          // (carries jobNumber so non-approvers fall
                                          // back to the job detail)
         case thread(key: String)        // open that chat thread
@@ -64,18 +145,14 @@ final class AppNav {
             pendingDeepLink = .thread(key: key)
         } else if let number = Self.stringValue(data["jobNumber"]), !number.isEmpty {
             selected = .jobs
-            // The job/approvals deep-link consumers live in the list view, so make
-            // sure the merged Jobs tab is showing the list (not gantt) for it.
+            // The job deep-link consumer lives in the list view, so make sure the
+            // merged Jobs tab is showing the list (not gantt) for it.
             jobsMode = .list
-            // Engineering sign-off pushes (step/ready) route to the Approval Queue
-            // for approvers; JobsHubView falls back to the job detail otherwise.
-            // Everything else (new_job/assigned) opens the job detail directly.
-            let type = data["type"] as? String
-            if type == "step" || type == "ready" {
-                pendingDeepLink = .approvals(number: number)
-            } else {
-                pendingDeepLink = .job(number: number)
-            }
+            // Every job-bearing push lands on the job's detail now. Engineering
+            // sign-off pushes (step/ready) used to route approvers to the
+            // Approval Queue instead; with that screen gone there is nothing
+            // left for the distinction to select, so it is not made.
+            pendingDeepLink = .job(number: number)
         } else if let requestId = Self.stringValue(data["requestId"]), !requestId.isEmpty {
             // Time Off is its own nav page now (not the Hours tab): present it
             // as a cover instead of routing to a tab. The list shows the user's
@@ -98,15 +175,54 @@ final class AppNav {
     // Registered once at launch and retained for the app's lifetime. OneSignal
     // (v5) caches a cold-start click and replays it the instant a listener is
     // added, so this also covers "tapped while the app was killed".
+    #if canImport(OneSignalFramework)
     private var clickHandler: PushClickHandler?
+    /// Held so OneSignal's listener isn't deallocated (it holds only a weak ref).
+    private var foregroundHandler: PushForegroundHandler?
+    #endif
 
-    func registerPushHandlers() {
+    /// - Parameter activeThreadKey: the thread the user is currently reading, if
+    ///   any. Used to suppress a push for a conversation that's already on screen.
+    func registerPushHandlers(activeThreadKey: @escaping () -> String? = { nil }) {
+        #if canImport(OneSignalFramework)
         guard clickHandler == nil else { return }
         let handler = PushClickHandler { [weak self] data in
             self?.handleNotification(data)
         }
         clickHandler = handler
         OneSignal.Notifications.addClickListener(handler)
+
+        // Only a CLICK listener was registered before, so nothing stood between an
+        // incoming push and the banner while the app was open — a message push
+        // interrupted you in the very thread you were reading it in.
+        let foreground = PushForegroundHandler(activeThreadKey: activeThreadKey)
+        foregroundHandler = foreground
+        OneSignal.Notifications.addForegroundLifecycleListener(foreground)
+        #endif
+    }
+}
+
+#if canImport(OneSignalFramework)
+
+/// Suppresses the banner for a message push whose thread is already open.
+///
+/// Foreground-only by construction: this listener is never invoked when the app is
+/// backgrounded, so a push you genuinely need still arrives. It also only ever
+/// suppresses when the thread keys MATCH — a push for any other conversation
+/// displays normally, even while you're reading a different one.
+final class PushForegroundHandler: NSObject, OSNotificationLifecycleListener {
+    private let activeThreadKey: () -> String?
+    init(activeThreadKey: @escaping () -> String?) { self.activeThreadKey = activeThreadKey }
+
+    func onWillDisplay(event: OSNotificationWillDisplayEvent) {
+        let data = event.notification.additionalData ?? [:]
+        guard let pushThread = data["threadKey"] as? String else { return }   // not a message push
+        // activeThreadKey reads @MainActor state; hop, decide, and preventDefault
+        // synchronously is not possible from a hop, so read it via the closure the
+        // caller supplied (it captures MainActor-isolated state and is only ever
+        // invoked from here, where OneSignal calls us on the main queue).
+        guard let open = activeThreadKey(), open == pushThread else { return }
+        event.preventDefault()
     }
 }
 
@@ -125,3 +241,4 @@ final class PushClickHandler: NSObject, OSNotificationClickListener {
         Task { @MainActor in handler(data) }
     }
 }
+#endif

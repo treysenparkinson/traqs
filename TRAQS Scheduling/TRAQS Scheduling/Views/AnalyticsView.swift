@@ -113,7 +113,7 @@ struct AnalyticsView: View {
                 }
                 Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold)).foregroundStyle(Color(hex: T.muted))
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, T.insetMd)
             .padding(.vertical, 8)
             .frostedCard(radius: T.cornerMd)
         }
@@ -121,7 +121,7 @@ struct AnalyticsView: View {
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             VStack(spacing: 0) {
                 TRAQSNavHeader()
@@ -244,7 +244,7 @@ struct AnalyticsView: View {
                     }
                 }
             }
-            .padding(18)
+            .padding(T.insetHero)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frostedCard(radius: T.cornerHero)
             .padding(.horizontal, 16)
@@ -275,7 +275,7 @@ struct AnalyticsView: View {
                 .chartYAxis(.hidden)
                 .frame(height: 180)
             }
-            .padding(18)
+            .padding(T.insetHero)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frostedCard(radius: T.cornerHero)
             .padding(.horizontal, 16)
@@ -307,7 +307,7 @@ struct AnalyticsView: View {
             }
             .frame(height: CGFloat(data.count * 44))
         }
-        .padding(18)
+        .padding(T.insetHero)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frostedCard(radius: T.cornerHero)
         .padding(.horizontal, 16)

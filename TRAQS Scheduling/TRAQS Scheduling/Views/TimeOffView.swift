@@ -16,18 +16,17 @@ struct TimeOffView: View {
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             VStack(spacing: 0) {
                 // Sticky header — chevron.left back button (matches AdminView).
                 HStack(spacing: 12) {
                     Button { dismiss() } label: {
-                        Image(systemName: "chevron.left")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundStyle(Color(hex: T.ink))
-                            .frame(width: 34, height: 34)
-                            .background(Circle().fill(Color(hex: T.surface)))
-                            .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
+                        HeaderGlassCircle {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundStyle(Color(hex: T.ink))
+                        }
                     }
                     .buttonStyle(.plain)
                     Spacer()
@@ -43,8 +42,16 @@ struct TimeOffView: View {
                             .padding(.bottom, 10)
 
                         VStack(spacing: 12) {
-                            GradientCTA(disabled: false, dimmed: false, fullWidth: true,
-                                        verticalPadding: 13, action: { showTimeOffSheet = true }) {
+                            // The popup owns its whole entrance (see ModalPop),
+                            // so the write that presents it must not animate.
+                            GradientCTA(glass: true,
+                                        disabled: false, dimmed: false, fullWidth: true,
+                                        verticalPadding: 13,
+                                        action: {
+                                            withTransaction(.noAnimation) {
+                                                showTimeOffSheet = true
+                                            }
+                                        }) {
                                 HStack(spacing: 7) {
                                     Image(systemName: "calendar.badge.plus")
                                     Text("REQUEST TIME OFF").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
@@ -67,7 +74,7 @@ struct TimeOffView: View {
                                     TimeOffRequestCard(request: req, onCancel: {
                                         Task { await appState.cancelTimeOff(id: req.id) }
                                     }, onEdit: {
-                                        editingRequest = req
+                                        withTransaction(.noAnimation) { editingRequest = req }
                                     })
                                 }
                             }
@@ -84,19 +91,32 @@ struct TimeOffView: View {
                 .topFadeMask()
                 .refreshable { await appState.refreshTimeOffRequests() }
             }
+            // Blur the PAGE, not the wash behind it and not the popup on top —
+            // an in-hierarchy modal has to blur its own backdrop, since there's
+            // no presentation boundary doing it (see `modalPageBlur`).
+            .modalPageBlur(popupShown)
+
+            // The popups. `.transition(.identity)` and no `.animation` on the
+            // flags: each one owns its entrance and exit, and anything the
+            // presenter animates plays underneath it as a glitch (see ModalPop).
+            if showTimeOffSheet {
+                RequestTimeOffOverlay {
+                    withTransaction(.noAnimation) { showTimeOffSheet = false }
+                }
+                .transition(.identity)
+            }
+            if let req = editingRequest {
+                RequestTimeOffOverlay(editing: req) {
+                    withTransaction(.noAnimation) { editingRequest = nil }
+                }
+                .transition(.identity)
+            }
         }
         .task { await appState.refreshTimeOffRequests() }
-        .sheet(isPresented: $showTimeOffSheet) {
-            RequestTimeOffSheet()
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-        }
-        .sheet(item: $editingRequest) { req in
-            RequestTimeOffSheet(editing: req)
-                .presentationDetents([.large])
-                .presentationDragIndicator(.visible)
-        }
     }
+
+    /// True while either popup is up — drives the page blur behind it.
+    private var popupShown: Bool { showTimeOffSheet || editingRequest != nil }
 
     private var myId: String? { appState.currentPersonId }
 
@@ -154,7 +174,13 @@ private struct TimeOffRequestCard: View {
         }
     }
     private var rangeLabel: String {
+        // Stored dates are pure "yyyy-MM-dd" calendar days. ISO8601DateFormatter
+        // parses them at UTC midnight, so the output formatter MUST also be UTC —
+        // otherwise a device in a negative-offset zone (all of the US) renders the
+        // day BEFORE (e.g. "2026-07-04" → "Jul 3"), showing requesters and
+        // approvers a date one day off from the real request.
         let out = DateFormatter(); out.dateFormat = "MMM d"
+        out.timeZone = TimeZone(identifier: "UTC")
         let inF = ISO8601DateFormatter(); inF.formatOptions = [.withFullDate]
         let sL = inF.date(from: request.start).map(out.string(from:)) ?? request.start
         let eL = inF.date(from: request.end).map(out.string(from:)) ?? request.end
@@ -231,7 +257,13 @@ private struct TimeOffApprovalCard: View {
 
     private var typeColor: Color { request.type == "UTO" ? Color(hex: "#F59E0B") : Color(hex: "#10B981") }
     private var rangeLabel: String {
+        // Stored dates are pure "yyyy-MM-dd" calendar days. ISO8601DateFormatter
+        // parses them at UTC midnight, so the output formatter MUST also be UTC —
+        // otherwise a device in a negative-offset zone (all of the US) renders the
+        // day BEFORE (e.g. "2026-07-04" → "Jul 3"), showing requesters and
+        // approvers a date one day off from the real request.
         let out = DateFormatter(); out.dateFormat = "MMM d"
+        out.timeZone = TimeZone(identifier: "UTC")
         let inF = ISO8601DateFormatter(); inF.formatOptions = [.withFullDate]
         let sL = inF.date(from: request.start).map(out.string(from:)) ?? request.start
         let eL = inF.date(from: request.end).map(out.string(from:)) ?? request.end
@@ -285,12 +317,12 @@ private struct TimeOffApprovalCard: View {
                         Button { denying = false; reason = "" } label: {
                             Text("Cancel").font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
                                 .frame(maxWidth: .infinity).padding(.vertical, 11)
-                                .background(RoundedRectangle(cornerRadius: T.cornerSm).stroke(Color(hex: T.hair), lineWidth: 1))
+                                .glassControl(in: Capsule())
                         }.buttonStyle(.plain).disabled(busy)
                         Button { decide("deny") } label: {
                             Text(busy ? "Saving…" : "Confirm Deny").font(TTypo.smBold(14)).foregroundStyle(T.onColor("#ef4444"))
-                                .frame(maxWidth: .infinity).padding(.vertical, 11)
-                                .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#ef4444")))
+                                .frame(maxWidth: .infinity).padding(.vertical, 13)
+                                .glassCTA(tint: Color(hex: "#ef4444"))
                         }.buttonStyle(.plain).disabled(busy)
                     }
                 }
@@ -298,13 +330,13 @@ private struct TimeOffApprovalCard: View {
                 HStack(spacing: 10) {
                     Button { denying = true } label: {
                         Text("Deny").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#ef4444"))
-                            .frame(maxWidth: .infinity).padding(.vertical, 12)
-                            .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#ef4444")))
+                            .frame(maxWidth: .infinity).padding(.vertical, 14)
+                            .glassCTA(tint: Color(hex: "#ef4444"))
                     }.buttonStyle(.plain).disabled(busy)
                     Button { decide("approve") } label: {
                         Text(busy ? "Saving…" : "Approve").font(TTypo.smBold(15)).foregroundStyle(T.onColor("#10b981"))
-                            .frame(maxWidth: .infinity).padding(.vertical, 12)
-                            .background(RoundedRectangle(cornerRadius: T.cornerSm).fill(Color(hex: "#10b981")))
+                            .frame(maxWidth: .infinity).padding(.vertical, 14)
+                            .glassCTA(tint: Color(hex: "#10b981"))
                     }.buttonStyle(.plain).disabled(busy)
                 }
             }
@@ -343,27 +375,53 @@ private struct TimeOffEmptyState: View {
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
-        .padding(22)
+        .padding(T.insetHero)
         .frostedCard()
     }
 }
 
-// MARK: - Request Time Off sheet (date range + PTO/UTO + note)
+// MARK: - Request Time Off popup (date range + PTO/UTO + note)
+//
+// A TRAQS popup, not a `.sheet`. It was a full-height system sheet with a drag
+// indicator and a grey X floated in the corner — the last place in the app
+// where submitting something arrived as an Apple tray instead of as a piece of
+// the app's own glass. Now it's the house modal: the shared frosted panel, the
+// shared spring entrance (ModalPop), the Liquid Glass X at the top-left, and a
+// glass CTA carrying the submit.
+//
+// Presented as an in-hierarchy overlay rather than a cover, because this is a
+// whole page and not a row in a scrolling list — so it can blur the page behind
+// it directly (`modalPageBlur`) instead of going through appNav.
+//
+// Every field the sheet had is still here: PTO/UTO, the start and end dates,
+// and the optional reason. The point of the popup is that it collects them.
 
-private struct RequestTimeOffSheet: View {
+private struct RequestTimeOffOverlay: View {
     @Environment(AppState.self) private var appState
-    @Environment(\.dismiss) private var dismiss
+    /// Observed so the submit spinner re-tints when the frosted-glass toggle
+    /// flips — `glassCTALabel` reads a global SwiftUI can't track.
+    @Environment(ThemeSettings.self) private var theme
 
-    /// When set, the sheet edits this request instead of creating a new one.
+    /// When set, edits this request instead of creating a new one.
     var editing: TimeOffRequest? = nil
+    /// Called on cancel AND after a successful submit — the overlay runs its
+    /// own exit animation first, so the page must NOT tear it down itself.
+    let onClose: () -> Void
 
     @State private var type = "PTO"
     @State private var start = Date()
     @State private var end = Date()
     @State private var note = ""
+    /// The note is a vertical-axis field, so Return types a newline rather than
+    /// dismissing — the ways out are the Done on the keyboard, tapping off the
+    /// field, or tapping outside the panel.
+    @FocusState private var noteFocused: Bool
     @State private var submitting = false
     @State private var error: String?
     @State private var didPrefill = false
+    /// Drives the shared modal entrance/exit — see ModalPop. This view owns
+    /// both; the page presenting it must not animate.
+    @State private var appear = false
 
     private var isEditing: Bool { editing != nil }
 
@@ -380,87 +438,172 @@ private struct RequestTimeOffSheet: View {
     }
 
     var body: some View {
-        ZStack {
-            Color(hex: T.bg).ignoresSafeArea()
-
-            VStack(alignment: .leading, spacing: 18) {
-                HStack {
-                    Text(isEditing ? "Edit Time Off" : "Request Time Off")
-                        .font(TTypo.h3(20))
-                        .foregroundStyle(Color(hex: T.ink))
-                    Spacer()
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundStyle(Color(hex: T.muted))
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.top, 18)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("TYPE")
-                        .font(TTypo.xsBold(11)).tLabel(tracking: 1.4)
-                        .foregroundStyle(Color(hex: T.muted))
-                    Picker("", selection: $type) {
-                        Text("PTO · paid").tag("PTO")
-                        Text("UTO · unpaid").tag("UTO")
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                VStack(spacing: 4) {
-                    DatePicker(selection: $start, displayedComponents: .date) {
-                        Text("Start").font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
-                    }
-                    .tint(Color(hex: T.accentGradientStart))
-                    SLine()
-                    DatePicker(selection: $end, in: start..., displayedComponents: .date) {
-                        Text("End").font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
-                    }
-                    .tint(Color(hex: T.accentGradientStart))
-                }
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .frostedCard(radius: T.cornerMd)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("NOTE (OPTIONAL)")
-                        .font(TTypo.xsBold(11)).tLabel(tracking: 1.4)
-                        .foregroundStyle(Color(hex: T.muted))
-                    TextField("Reason…", text: $note, axis: .vertical)
-                        .lineLimit(1...3)
-                        .font(TTypo.sm(14))
-                        .foregroundStyle(Color(hex: T.ink))
-                        .padding(12)
-                        .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).fill(Color(hex: T.surface)))
-                        .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
-                }
-
-                if let error {
-                    Text(error)
-                        .font(TTypo.xs(12))
-                        .foregroundStyle(Color(hex: "#DC2626"))
-                }
-
-                Spacer()
-
-                GradientCTA(disabled: submitting || !validRange,
-                            dimmed: submitting || !validRange,
-                            fullWidth: true, verticalPadding: 14, action: submit) {
-                    HStack(spacing: 7) {
-                        if submitting {
-                            ProgressView().progressViewStyle(.circular).tint(T.onGradient).scaleEffect(0.7)
-                        }
-                        Text(submitting ? (isEditing ? "SAVING…" : "SUBMITTING…")
-                                        : (isEditing ? "SAVE CHANGES" : "SUBMIT REQUEST"))
-                            .font(TTypo.smBold(14)).tLabel(tracking: 0.8)
-                    }
-                }
-                .padding(.bottom, 18)
+        _ = theme.frostedGlass; _ = theme.activeAccent
+        return ZStack {
+            // Tapping out cancels — nothing has happened yet, the request only
+            // goes out from the CTA. Blocked mid-submit. While the keyboard is
+            // up, a tap outside means "done typing", not "throw the form away",
+            // so the first tap only puts the keyboard away.
+            ModalScrim {
+                guard !submitting else { return }
+                if noteFocused { noteFocused = false } else { close() }
             }
-            .padding(.horizontal, 20)
+
+            card.modalPop(appear)
         }
-        .onAppear(perform: prefillIfNeeded)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // The panel does NOT collapse around its field — the whole form stays
+        // on screen while the keyboard is up, and the keyboard carries its own
+        // Done. Ordinary keyboard avoidance is all it needs: the panel lifts
+        // intact, and `HugScroll` scrolls it if the remaining height won't hold
+        // it. Sides and bottom of the container are ignored so the card keeps
+        // the full width; the top inset stays, so it can't reach the Dynamic
+        // Island. See "Popups that hold a text field" in Primitives.swift.
+        .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+        .onAppear {
+            prefillIfNeeded()
+            withAnimation(modalPopAnimation) { appear = true }
+        }
+    }
+
+    // MARK: Card
+
+    private var card: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Text(isEditing ? "Edit Time Off" : "Request Time Off")
+                .font(TTypo.h3(20))
+                .foregroundStyle(Color(hex: T.ink))
+
+            // Sized to the form, scrolling ONLY if it can't fit, so the popup
+            // is exactly as tall as its content.
+            //
+            // `HugScroll`, NOT `ViewThatFits`: the note field is in here, and a
+            // ViewThatFits flips branches the moment the keyboard changes the
+            // offered height, which rebuilds the field and drops its focus.
+            // See "Popups that hold a text field" in Primitives.swift.
+            HugScroll { formFields }
+
+            // The submit. Deliberately large and full-width — it's what the
+            // popup exists for, and the only lit thing on the panel.
+            GradientCTA(glass: true,
+                        disabled: submitting || !validRange,
+                        dimmed: submitting || !validRange,
+                        fullWidth: true, verticalPadding: 17, action: submit) {
+                HStack(spacing: 8) {
+                    if submitting {
+                        ProgressView().progressViewStyle(.circular)
+                            .tint(glassCTALabel())
+                            .scaleEffect(0.8)
+                    }
+                    Text(submitting ? (isEditing ? "SAVING…" : "SUBMITTING…")
+                                    : (isEditing ? "SAVE CHANGES" : "SUBMIT REQUEST"))
+                        .font(TTypo.smBold(15)).tLabel(tracking: 0.8)
+                }
+            }
+        }
+        .padding(T.insetHero)
+        // Headroom for the cancel X — the same 46pt every other popup reserves,
+        // so the title clears a 36pt button inset 18pt from a 46pt corner.
+        .padding(.top, 46)
+        .frame(maxWidth: 380)
+        // Tapping the panel's own face puts the keyboard away. Behind the
+        // content, so it can't steal the note field's own focus tap.
+        .tapToDismissKeyboard { noteFocused = false }
+        .glassPanel()
+        // Cancel, anchored INSIDE the card's top-left (attached after the glass
+        // but before the outer padding, so it sits on the card rather than
+        // floating out in the backdrop). Same placement as the PIN pad's X.
+        .overlay(alignment: .topLeading) {
+            Button { if !submitting { close() } } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .frame(width: 36, height: 36)
+                    .glassEffect(.regular.interactive(), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(18)
+        }
+        .padding(.horizontal, 24)
+        // Room top and bottom so a tall form can't reach the screen edges; the
+        // HugScroll above starts scrolling before it gets there.
+        .padding(.vertical, 40)
+    }
+
+    /// The form itself.
+    private var formFields: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("TYPE")
+                    .font(TTypo.xsBold(11)).tLabel(tracking: 1.4)
+                    .foregroundStyle(Color(hex: T.muted))
+                Picker("", selection: $type) {
+                    Text("PTO · paid").tag("PTO")
+                    Text("UTO · unpaid").tag("UTO")
+                }
+                .pickerStyle(.segmented)
+            }
+
+            VStack(spacing: 4) {
+                DatePicker(selection: $start, displayedComponents: .date) {
+                    Text("Start").font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
+                }
+                .tint(Color(hex: T.accentGradientStart))
+                SLine()
+                DatePicker(selection: $end, in: start..., displayedComponents: .date) {
+                    Text("End").font(TTypo.smBold(14)).foregroundStyle(Color(hex: T.ink))
+                }
+                .tint(Color(hex: T.accentGradientStart))
+            }
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            // A well INSIDE the glass panel, so the two date rows read as one
+            // grouped control rather than as loose text on the popup's face.
+            .glassSurface(in: RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous),
+                          rim: true)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("NOTE (OPTIONAL)")
+                    .font(TTypo.xsBold(11)).tLabel(tracking: 1.4)
+                    .foregroundStyle(Color(hex: T.muted))
+                TextField("Reason…", text: $note, axis: .vertical)
+                    .focused($noteFocused)
+                    .lineLimit(1...3)
+                    .font(TTypo.sm(14))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .padding(12)
+                    // Native glass, matching the message composer's field — an
+                    // input on a glass panel shouldn't be the one flat opaque
+                    // box on it.
+                    .glassControl(in: RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous),
+                                  interactive: false)
+                    // This field is vertical-axis, so Return types a newline and
+                    // can't dismiss — it needs a Done of its own, riding on the
+                    // keyboard's accessory bar, right-aligned.
+                    //
+                    // Safe to hang off the field itself: `HugScroll` builds its
+                    // content once, unlike the `ViewThatFits` that used to sit
+                    // here and would have declared this twice.
+                    .toolbar {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button("Done") { noteFocused = false }
+                                .font(TTypo.bodyBold(16))
+                                .foregroundStyle(Color(hex: T.accent))
+                        }
+                    }
+            }
+
+            if let error {
+                Text(error)
+                    .font(TTypo.xs(12))
+                    .foregroundStyle(Color(hex: "#DC2626"))
+            }
+        }
+    }
+
+    /// Animates out first, THEN lets the page remove us — the shared modal exit.
+    private func close() {
+        modalPopDismiss({ appear = $0 }) { onClose() }
     }
 
     /// Seed the fields from the request being edited (once).
@@ -475,6 +618,7 @@ private struct RequestTimeOffSheet: View {
 
     private func submit() {
         guard !submitting, validRange else { return }
+        noteFocused = false
         submitting = true
         error = nil
         let s = Self.ymd.string(from: start)
@@ -488,7 +632,7 @@ private struct RequestTimeOffSheet: View {
                     try await appState.submitTimeOff(type: type, start: s, end: e, note: n)
                 }
                 submitting = false
-                dismiss()
+                close()
             } catch {
                 self.error = (error as? APIError)?.errorDescription ?? error.localizedDescription
                 submitting = false

@@ -34,7 +34,7 @@ struct ScheduleJobSheet: View {
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             VStack(spacing: 0) {
                 topBar
@@ -78,12 +78,11 @@ struct ScheduleJobSheet: View {
             }
             Spacer()
             Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color(hex: T.muted))
-                    .frame(width: 32, height: 32)
-                    .background(Circle().fill(Color(hex: T.surface)))
-                    .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1))
+                HeaderGlassCircle {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color(hex: T.muted))
+                }
             }
             .buttonStyle(.plain)
         }
@@ -211,7 +210,7 @@ struct ScheduleJobSheet: View {
             Spacer(minLength: 8)
             Text("\(oPct)%")
                 .font(TTypo.monoBold(11))
-                .foregroundStyle(Color(hex: T.muted))
+                .foregroundStyle(Color(hex: appState.isPctOverdue(oPct) ? T.amber : T.muted))
                 .tnum()
         }
         .padding(.vertical, 7)

@@ -1,6 +1,6 @@
 import { readJson, listOrgCodes } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
-import { validateToken } from "./_utils/auth.js";
+import { validateToken, emailForToken } from "./_utils/auth.js";
 import { filterLive } from "./_utils/entities.js";
 
 // Resolve which organization(s) the AUTHENTICATED user belongs to. Used by
@@ -26,21 +26,15 @@ export async function handler(event) {
   // Derive the email from the validated token, not from caller input.
   // Previously this trusted the email query param, which let an
   // authenticated user enumerate which orgs ANY email belonged to.
-  let email = (payload.email || payload["https://traqs.matrixsystems.com/email"] || "").toLowerCase().trim();
-  if (!email) {
-    const authHeader = event.headers?.authorization || event.headers?.Authorization || "";
-    const domain = process.env.AUTH0_DOMAIN;
-    if (authHeader && domain) {
-      try {
-        const res = await fetch(`https://${domain}/userinfo`, { headers: { Authorization: authHeader } });
-        if (res.ok) {
-          const body = await res.json();
-          email = String(body?.email || "").toLowerCase().trim();
-        }
-      } catch {}
-    }
+  //
+  // Uses the shared `emailForToken` (claim → in-memory cache → durable S3
+  // cache → /userinfo) rather than a bare /userinfo call, so a rate-limited
+  // Auth0 can't fail login-time org resolution with a misleading 401.
+  const { email, transient } = await emailForToken(event, payload);
+  if (!email || !email.includes("@")) {
+    if (transient) return err(503, "Identity provider temporarily unavailable — please retry");
+    return err(401, "Could not resolve user email from token");
   }
-  if (!email || !email.includes("@")) return err(401, "Could not resolve user email from token");
   const emailDomain = email.split("@")[1];
 
   let codes;

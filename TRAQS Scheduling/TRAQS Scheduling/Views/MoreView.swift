@@ -18,52 +18,81 @@ private let isoFormatter: ISO8601DateFormatter = ISO8601DateFormatter()
 
 struct MoreView: View {
     @Environment(AppState.self) private var appState
+    @Environment(AppNav.self) private var appNav
     /// Any day within the week being shown; defaults to the current week. The
     /// calendar button in the header repoints this to jump to another week.
-    @State private var weekAnchor: Date = Date()
+    /// In AppNav because the menu that drives it is drawn by
+    /// HeaderControlsHost — see HeaderControls.swift.
+    private var weekAnchor: Date { appNav.statsWeekAnchor }
+    /// Which window every time-scoped number on this page is measured over.
+    /// In AppNav, not page `@State`: the toggle that sets it is in the page, but
+    /// the header's calendar menu READS it to decide whether to list weeks or
+    /// pay periods — and that menu is drawn outside the page.
+    private var range: StatsRange { appNav.statsRange }
     @State private var overHoursExpanded = false
     /// Drives the STOP affordance on the live "Past Jobs" running-clock card.
     @State private var isStopping = false
     /// Admin-only: pick a worker to view THEIR personal stats. nil = the org
     /// dashboard (admins) / your own stats (everyone else).
-    @State private var selectedWorkerId: String? = nil
+    private var selectedWorkerId: String? { appNav.statsWorkerId }
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             VStack(spacing: 0) {
                 // Sticky header. Calendar jumps weeks; the person button (admins)
                 // picks a worker to view their personal stats.
-                TRAQSNavHeader {
-                    if appState.isAdmin { workerMenu }
-                    weekMenu
-                }
-                .overlay(alignment: .center) {
-                    if let name = selectedWorkerName {
-                        Text("\(name)'s Stats")
-                            .font(TTypo.smBold(15))
-                            .foregroundStyle(Color(hex: T.ink))
-                            .lineLimit(1)
-                            .padding(.horizontal, 60)   // keep clear of the edge buttons
-                            .allowsHitTesting(false)
-                    }
-                }
+                // Logo and row height only — the controls are published to
+                // HeaderControlsHost (registered at the bottom of this view) so
+                // their glass can morph across a tab switch.
+                // No header here — the shell owns the one persistent
+                // GlassHeader (§2). The spacer reserves its height.
+                //
+                // The selected worker's name used to ride ON this row, centred
+                // between the wordmark and the header buttons. There is no room
+                // for it there: the wordmark starts at 16pt and the person/week
+                // cluster plus the solo Admin button eat the right half, so
+                // anything but a very short first name ran under the buttons and
+                // was clipped. It's a subtitle under the page title now — see
+                // `statsTitle`.
+                Color.clear.frame(height: GlassHeader.height)
 
                 ScrollView {
                     VStack(spacing: 0) {
                         if appState.isAdmin && selectedWorkerId == nil {
                             statsTitle
                                 .padding(.top, pageTitleTopInset)
+                                .padding(.bottom, 12)
+                            rangeToggle
                                 .padding(.bottom, 16)
 
-                            statGrid
-                                .padding(.horizontal, 16)
-
-                            EfficiencyCard(percent: "\(efficiencyPercent(for: nil))%", days: efficiencyDays(for: nil),
-                                           info: "Job hours logged ÷ pay hours for the week across everyone (e.g. 30 logged of 40 paid = 75%). The bars show each day's pay hours (left) vs job hours (right); the number above each day is the difference.")
-                                .padding(.horizontal, 16)
-                                .padding(.top, 16)
+                            // Ticks every 5s so the stat grid (Idle) + Efficiency
+                            // graph grow live while anyone is clocked in.
+                            //
+                            // Utilization and Task Switching are computed HERE,
+                            // outside the closure: they're weekly aggregates that
+                            // don't depend on `now`, and each is a full walk of
+                            // the job tree / job sessions. Inside the closure they
+                            // re-ran every 5 seconds for no reason. Captured
+                            // values refresh on real data changes instead.
+                            let utilization = utilizationPercent
+                            let switching = taskSwitchingCount
+                            PausableTimeline(tab: .stats, interval: 5) { date in
+                                // ONE walk of the week, shared by Idle and
+                                // Efficiency — this used to run three times.
+                                let days = efficiencyDays(for: nil, now: date)
+                                VStack(spacing: 16) {
+                                    statGrid(utilization: utilization,
+                                             switching: switching,
+                                             idle: idleHours(from: days))
+                                        .padding(.horizontal, 16)
+                                    EfficiencyCard(percent: "\(efficiencyPercent(from: days))%",
+                                                   days: days,
+                                                   info: "Job hours logged ÷ working hours for \(rangeNoun) across everyone, where working hours = paid time minus paid breaks. Breaks are excluded so taking them can't cap anyone below 100%. The bars show each day's pay hours (left) vs job hours (right); the number above each day is job hours against working time.")
+                                        .padding(.horizontal, 16)
+                                }
+                            }
 
                             // Over-hours tab pinned at the bottom; tapping it
                             // drops its list down beneath it at the page's end.
@@ -84,16 +113,23 @@ struct MoreView: View {
                             // admin picked from the person button.
                             statsTitle
                                 .padding(.top, pageTitleTopInset)
+                                .padding(.bottom, 12)
+                            rangeToggle
                                 .padding(.bottom, 16)
                             personalStatGrid(for: pid)
                                 .padding(.horizontal, 16)
                                 .padding(.bottom, 8)
 
-                            // This person's own efficiency for the selected week.
-                            EfficiencyCard(percent: "\(efficiencyPercent(for: pid))%", days: efficiencyDays(for: pid),
-                                           info: "Job hours logged ÷ pay hours for the week (e.g. 30 logged of 40 paid = 75%). The bars show each day's pay hours (left) vs job hours (right); the number above each day is the difference.")
-                                .padding(.horizontal, 16)
-                                .padding(.top, 16)
+                            // This person's own efficiency for the selected week —
+                            // ticks every 5s so it grows live while they're clocked in.
+                            PausableTimeline(tab: .stats, interval: 5) { date in
+                                let days = efficiencyDays(for: pid, now: date)   // once, not twice
+                                EfficiencyCard(percent: "\(efficiencyPercent(from: days))%",
+                                               days: days,
+                                               info: "Job hours logged ÷ working hours for \(rangeNoun), where working hours = paid time minus paid breaks. Breaks are excluded so taking them can't cap you below 100%. The bars show each day's pay hours (left) vs job hours (right); the number above each day is job hours against working time.")
+                                    .padding(.horizontal, 16)
+                                    .padding(.top, 16)
+                            }
                         }
 
                         // ── Past Jobs (this user's own job-clock history) ──
@@ -107,8 +143,8 @@ struct MoreView: View {
                             // this card — not MoreView's whole (admin-heavy) body.
                             // Only when viewing yourself — STOP acts on the current
                             // user, so we don't show it for an admin-selected worker.
-                            TimelineView(.periodic(from: .now, by: 1)) { context in
-                                RunningEntryCard(jobClock: active, now: context.date,
+                            PausableTimeline(tab: .stats, interval: 1) { date in
+                                RunningEntryCard(jobClock: active, now: date,
                                                  isStopping: isStopping,
                                                  onStop: {
                                                      guard !isStopping else { return }
@@ -123,13 +159,19 @@ struct MoreView: View {
                             .padding(.bottom, 4)
                         }
 
-                        VStack(spacing: 12) {
+                        // Evaluate the session pipeline ONCE (each of these
+                        // properties re-filters + re-sorts the whole jobSessions
+                        // array; they were hit 3× per render).
+                        let sessions = jobSessionsInPeriod
+                        let groups = jobSessionGroups
+                        // Lazy: only on-screen day-group cards build.
+                        LazyVStack(spacing: 12) {
                             JobHoursSummaryRow(periodHours: jobPeriodHours,
-                                               sessions: jobSessionsInPeriod.count)
-                            ForEach(jobSessionGroups) { group in
+                                               sessions: sessions.count)
+                            ForEach(groups) { group in
                                 EntryGroupCard(group: group)
                             }
-                            if jobSessionsInPeriod.isEmpty && activeJobClock == nil {
+                            if sessions.isEmpty && activeJobClock == nil {
                                 HoursEmptyState()
                             }
                         }
@@ -149,44 +191,90 @@ struct MoreView: View {
         // Whole-org pay-clock + job-session history (heavy) so the team stats
         // cover everyone. Lifetime data → changing the selected week just
         // re-filters locally, no refetch.
-        .task {
-            await appState.refreshJobSessions(personId: appState.currentPersonId)
-            // Own pay hours so a non-admin's personal Efficiency has data (admins
-            // overwrite with the whole-org pull below).
-            await appState.refreshTimeclock(personId: appState.currentPersonId)
-            guard appState.isAdmin else { return }
-            await appState.refreshTimeclock(personId: nil)
-            await appState.refreshJobSessions(personId: nil)
-        }
+        // Refresh on open — timeclock + job sessions pulled CONCURRENTLY (one
+        // combined update, not four staggered spurts). The data is also warmed
+        // in the background by loadAll, so it's usually already populated here.
+        .task { appState.warmStatsData() }
+        // "admin" is shared with nothing else today, but the WEEK menu is the
+        // control this tab always has — it keeps its own id so it is the anchor
+        // the rest merge out of on the way to another tab.
     }
 
-    // MARK: Title (Stats + selected week in accent)
+    // MARK: Title (Analytics + selected week in accent)
+
+    /// Week / Pay Period, centred under the title. Everything time-scoped on the
+    /// page follows it — see `statsInterval`.
+    private var rangeToggle: some View {
+        HStack {
+            Spacer()
+            GlassSegmented(
+                options: StatsRange.allCases,
+                labels: Dictionary(uniqueKeysWithValues: StatsRange.allCases.map { ($0, $0.label) }),
+                selection: Bindable(appNav).statsRange)
+                .frame(width: 260)
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+    }
 
     private var statsTitle: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Text("Stats")
-                .font(.custom(TFontName.extrabold.rawValue, size: 56))
-                .tracking(-4)
-                .foregroundStyle(Color(hex: T.ink))
-            Spacer(minLength: 8)
-            Text(weekLabel)
-                .font(TTypo.smBold(15))
-                .foregroundStyle(Color(hex: T.accent))
-                .tnum()
+        // ONE leading-aligned column, and that is what puts the subtitle's first
+        // letter under the title's "A": both rows are laid out from the same
+        // edge, and the 16pt gutter is paid once by the VStack rather than by
+        // each row. Don't pad the rows individually — that's how the two drift.
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .center, spacing: 10) {
+                Text("Analytics")
+                    .font(.custom(TFontName.extrabold.rawValue, size: 56))
+                    .tracking(-4)
+                    .foregroundStyle(Color(hex: T.ink))
+                    // "Analytics" is nearly twice the width of the old "Stats" and
+                    // shares this row with the week range, so it shrinks to fit on
+                    // narrower phones rather than truncating or pushing the week off.
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Spacer(minLength: 8)
+                // FIXED width, and that is the whole point. "Analytics" shrinks
+                // to fit (`minimumScaleFactor`), so it resolves to whatever
+                // space is left after this label — and a pay period's range
+                // ("Aug 31 – Sep 13") is wider than a week's ("Sep 1–5"). The
+                // title therefore changed SIZE when the toggle flipped. Holding
+                // this column constant means the title is handed identical
+                // space in both modes and cannot move.
+                Text(rangeLabel)
+                    .font(TTypo.smBold(15))
+                    .foregroundStyle(Color(hex: T.accent))
+                    .tnum()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .frame(width: 116, alignment: .trailing)
+            }
+
+            // Whose numbers these are — only when an admin has picked someone
+            // other than "Everyone". Muted and small: it qualifies the title, it
+            // isn't a second title. Down here it has the full page width, where
+            // on the header row it was clipped by the buttons.
+            if let name = selectedWorkerName {
+                Text("\(name)'s Analytics")
+                    .font(TTypo.smBold(13))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
         }
         .padding(.horizontal, 16)
     }
 
     /// The selected week's date range, e.g. "Jun 30 – Jul 6" (or "Jul 1–7"
     /// when the week stays within one month).
-    private var weekLabel: String {
+    private var rangeLabel: String {
         let cal = Calendar.current
-        guard let interval = cal.dateInterval(of: .weekOfYear, for: weekAnchor) else { return "" }
+        let interval = statsInterval
         let start = interval.start
         let last = cal.date(byAdding: .day, value: -1, to: interval.end) ?? interval.end
-        let mdd = DateFormatter(); mdd.dateFormat = "MMM d"
+        let mdd = DateFormatter.display("MMM d")
         if cal.isDate(start, equalTo: last, toGranularity: .month) {
-            let dOnly = DateFormatter(); dOnly.dateFormat = "d"
+            let dOnly = DateFormatter.display("d")
             return "\(mdd.string(from: start))–\(dOnly.string(from: last))"
         }
         return "\(mdd.string(from: start)) – \(mdd.string(from: last))"
@@ -194,10 +282,49 @@ struct MoreView: View {
 
     // MARK: Utilization (team average of each worker's assigned ÷ capacity)
 
+    /// Monday–Sunday, matching the desktop's analytics week. `.weekOfYear` would
+    /// start Sunday under en_US and split Sunday's hours across platforms.
     private var weekInterval: DateInterval {
-        Calendar.current.dateInterval(of: .weekOfYear, for: weekAnchor)
-            ?? DateInterval(start: weekAnchor, duration: 7 * 86_400)
+        StatsMath.weekInterval(containing: weekAnchor, calendar: Calendar.current)
     }
+
+    /// The window EVERY time-scoped number on this page is measured over — the
+    /// selected week, or the pay period containing it.
+    ///
+    /// Half-open like `weekInterval` (`end` is the first instant AFTER the
+    /// window), because every comparison on this page is already written
+    /// `d >= start && d < end`. `payPeriodWindow` reports its `end` as the last
+    /// DAY instead, so it is converted here rather than at each call site —
+    /// getting that wrong silently drops the final day of every pay period.
+    private var statsInterval: DateInterval {
+        switch range {
+        case .week:
+            return weekInterval
+        case .payPeriod:
+            let w = appState.payPeriodWindow(now: weekAnchor)
+            return StatsMath.payPeriodInterval(start: w.start, endInclusive: w.end,
+                                               calendar: Calendar.current)
+        }
+    }
+
+    /// Schedulable hours in a window — org hours-per-day × the WORK days it
+    /// actually contains.
+    ///
+    /// Utilization used to divide by a hardcoded one-week capacity
+    /// (`hpd × workDays.count`). Over a two-week pay period that denominator is
+    /// half what it should be, so everyone would have read ~200% utilization.
+    /// Counting the window's own work days gives the identical answer for a
+    /// full week and the right one for any other span.
+    private func capacityHours(in interval: DateInterval) -> Double {
+        let s = appState.orgSettings
+        let days = StatsMath.workDayCount(in: interval, workDays: Set(s.workDays),
+                                          calendar: Calendar.current)
+        return max(1.0, s.hpd * Double(days))
+    }
+
+    /// "this week" / "this pay period" — so a stat box's explanation matches the
+    /// window its number is actually measured over.
+    private var rangeNoun: String { range == .week ? "this week" : "this pay period" }
 
     /// Team-average utilization for the selected week: each worker's assigned
     /// job hours ÷ their weekly capacity (org hpd × workdays), capped at 100%,
@@ -206,13 +333,34 @@ struct MoreView: View {
     /// NOTE: if `hpd` turns out to mean hours-PER-DAY rather than a task total,
     /// only `taskEstHours` needs to change (× business-day span).
     private var utilizationPercent: Int {
-        let s = appState.orgSettings
-        let capacity = max(1.0, s.hpd * Double(max(1, s.workDays.count)))
+        let capacity = capacityHours(in: statsInterval)
         let workers = appState.people.filter { !$0.isAdmin }
         guard !workers.isEmpty else { return 0 }
-        let week = weekInterval
+        let week = statsInterval
+
+        // Walk the job tree ONCE, accumulating hours per person, rather than
+        // re-walking every job → panel → op for each worker. Was
+        // O(workers × tasks) — with ~20 workers that re-parsed and re-tested the
+        // same tasks 20 times per render, on a view that ticks every 1–5s.
+        var hoursByPerson: [String: Double] = [:]
+        for job in appState.jobs {
+            for panel in job.subs {
+                if panel.subs.isEmpty {
+                    guard taskOverlaps(panel.start, panel.end, week) else { continue }
+                    let h = taskEstHours(panel.hpd)
+                    for pid in panel.team { hoursByPerson[pid, default: 0] += h }
+                } else {
+                    for op in panel.subs {
+                        guard taskOverlaps(op.start, op.end, week) else { continue }
+                        let h = taskEstHours(op.hpd)
+                        for pid in op.team { hoursByPerson[pid, default: 0] += h }
+                    }
+                }
+            }
+        }
+
         let avg = workers.reduce(0.0) { acc, p in
-            acc + min(100.0, assignedHours(personId: p.id, in: week) / capacity * 100.0)
+            acc + min(100.0, (hoursByPerson[p.id] ?? 0) / capacity * 100.0)
         } / Double(workers.count)
         return Int(avg.rounded())
     }
@@ -249,17 +397,24 @@ struct MoreView: View {
 
     // MARK: Small stat boxes (Utilization wired; rest are placeholders)
 
-    private var statGrid: some View {
+    /// Takes its numbers ALREADY COMPUTED rather than deriving them itself.
+    ///
+    /// This sits inside a 5s timeline. When it computed `utilizationPercent` and
+    /// `taskSwitchingCount` internally, those full job-tree / job-session walks
+    /// re-ran every 5 seconds — even though both are WEEKLY aggregates that
+    /// don't depend on `now` at all. The caller now evaluates them once per body
+    /// evaluation (i.e. on real data changes) and the tick only refreshes Idle.
+    private func statGrid(utilization: Int, switching: Int, idle: Double) -> some View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
                             GridItem(.flexible(), spacing: 12)], spacing: 12) {
-            StatBox(label: "Utilization", value: "\(utilizationPercent)%",
-                    info: "Share of the team's scheduled capacity that's booked with work this week. Each worker's assigned job hours ÷ their weekly capacity (hours-per-day × workdays), capped at 100%, then averaged across the team.")
-            StatBox(label: "Task Switching", value: "\(taskSwitchingCount)", caption: "jobs touched this week",
-                    info: "How many distinct jobs the team touched this week. A job clocked out of and back into still counts once.")
+            StatBox(label: "Utilization", value: "\(utilization)%",
+                    info: "Share of the team's scheduled capacity that's booked with work \(rangeNoun). Each worker's assigned job hours ÷ their capacity over that window (hours-per-day × its work days), capped at 100%, then averaged across the team.")
+            StatBox(label: "Task Switching", value: "\(switching)",
+                    info: "How many distinct jobs the team touched \(rangeNoun). A job clocked out of and back into still counts once.")
             StatBox(label: "Reworks", value: "—",
                     info: "Rework hits: when a completed job sent to buyoff is brought back because a task was done wrong, the person who did that task takes one rework hit — one per hit. Not tracked yet (awaiting the rework button).")
-            StatBox(label: "Idle Time", value: fmtIdle(idleHours), caption: "clocked in, off jobs",
-                    info: "Paid clocked-in time not logged onto any job this week — pay hours minus job hours.")
+            StatBox(label: "Idle Time", value: fmtIdle(idle),
+                    info: "Paid clocked-in time not logged onto any job \(rangeNoun) — pay hours minus job hours.")
         }
     }
 
@@ -285,79 +440,15 @@ struct MoreView: View {
 
     /// Liquid-glass person button → native menu of workers (admins). "Everyone"
     /// returns to the org dashboard; the current selection is checked.
-    private var workerMenu: some View {
-        Menu {
-            Picker("Worker", selection: $selectedWorkerId) {
-                Text("Everyone").tag(String?.none)
-                ForEach(appState.people.sorted { $0.name < $1.name }) { p in
-                    Text(p.name).tag(String?.some(p.id))
-                }
-            }
-        } label: {
-            glassHeaderIcon(.person)
-        }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
-        // Own shadow tied to the button so it doesn't drop out for a frame when
-        // the menu dismisses (the system glass shadow briefly disappears there).
-        .shadow(color: .black.opacity(0.12), radius: 5, x: 0, y: 3)
-    }
-
-    /// Liquid-glass calendar button → native menu of recent weeks; picking one
-    /// repoints the stats week. The current week is checked.
-    private var weekMenu: some View {
-        Menu {
-            ForEach(weekStarts, id: \.self) { start in
-                Button { weekAnchor = start } label: {
-                    if sameWeek(start, weekAnchor) {
-                        Label(weekLabel(start), systemImage: "checkmark")
-                    } else {
-                        Text(weekLabel(start))
-                    }
-                }
-            }
-        } label: {
-            glassHeaderIcon(.cal)
-        }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
-        .shadow(color: .black.opacity(0.12), radius: 5, x: 0, y: 3)
-    }
-
-    /// The menu label glyph. The native `.glass` button style (on the Menu)
-    /// supplies the circular glass chrome and morphs it into the dropdown, so the
-    /// button itself becomes the menu (no separate placeholder circle).
-    private func glassHeaderIcon(_ icon: TIcon) -> some View {
-        TIconView(icon: icon, size: 18, color: Color(hex: T.ink))
-            .frame(width: 22, height: 22)
-    }
-
-    /// Start-of-week dates for the last 8 weeks (this week first).
-    private var weekStarts: [Date] {
-        let cal = Calendar.current
-        guard let thisStart = cal.dateInterval(of: .weekOfYear, for: Date())?.start else { return [] }
-        return (0..<8).compactMap { cal.date(byAdding: .day, value: -7 * $0, to: thisStart) }
-    }
-    private func weekLabel(_ start: Date) -> String {
-        let cal = Calendar.current
-        let end = cal.date(byAdding: .day, value: 6, to: start) ?? start
-        let f = DateFormatter(); f.dateFormat = "MMM d"
-        let range = "\(f.string(from: start)) – \(f.string(from: end))"
-        return sameWeek(start, Date()) ? "This week · \(range)" : range
-    }
-    private func sameWeek(_ a: Date, _ b: Date) -> Bool {
-        Calendar.current.isDate(a, equalTo: b, toGranularity: .weekOfYear)
-    }
-
     /// Operations a person is assigned to (leaf ops across all jobs).
     private func ops(for personId: String) -> [Operation] {
         appState.jobs.flatMap { $0.subs }.flatMap { $0.subs }.filter { $0.team.contains(personId) }
     }
     /// A person's utilization for the selected week (assigned ÷ capacity).
     private func utilizationPercent(for personId: String) -> Int {
-        let s = appState.orgSettings
-        let capacity = max(1.0, s.hpd * Double(max(1, s.workDays.count)))
-        return Int(min(100.0, assignedHours(personId: personId, in: weekInterval) / capacity * 100.0).rounded())
+        let interval = statsInterval
+        return Int(min(100.0, assignedHours(personId: personId, in: interval)
+                              / capacityHours(in: interval) * 100.0).rounded())
     }
     @ViewBuilder
     private func personalStatGrid(for personId: String) -> some View {
@@ -365,13 +456,13 @@ struct MoreView: View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
                             GridItem(.flexible(), spacing: 12)], spacing: 12) {
             StatBox(label: "Utilization", value: "\(utilizationPercent(for: personId))%",
-                    info: "Share of scheduled capacity booked with work this week — assigned job hours ÷ weekly capacity (hours-per-day × workdays), capped at 100%.")
+                    info: "Share of scheduled capacity booked with work \(rangeNoun) — assigned job hours ÷ capacity over that window (hours-per-day × its work days), capped at 100%.")
             StatBox(label: "Jobs Done", value: "\(pOps.filter { $0.status == .finished }.count)",
-                    info: "Operations they're assigned to that are finished.")
+                    info: "Operations they're assigned to that are finished. A running total — not scoped to the selected week or pay period, since an op carries no completion date.")
             StatBox(label: "In Progress", value: "\(pOps.filter { $0.status == .inProgress }.count)",
-                    info: "Operations they're assigned to that are currently in progress.")
-            StatBox(label: "Hours", value: String(format: "%.1fh", jobPeriodHours), caption: "this pay period",
-                    info: "Job hours logged this pay period.")
+                    info: "Operations they're assigned to that are currently in progress. A snapshot of right now — not scoped to the selected week or pay period.")
+            StatBox(label: "Hours", value: String(format: "%.1fh", jobHours(for: personId, in: statsInterval)),
+                    info: "Job hours logged \(rangeNoun).")
         }
     }
 
@@ -433,54 +524,170 @@ private extension MoreView {
     func dayOf(_ iso: String?, _ dateStr: String?) -> Date? {
         if let iso, let d = Date.fromFlexibleISO8601(iso) { return d }
         if let dateStr, !dateStr.isEmpty {
-            let f = ISO8601DateFormatter(); f.formatOptions = [.withFullDate]
-            return f.date(from: dateStr)
+            return Self.isoDateOnly.date(from: dateStr)   // cached; was allocated per call
         }
         return nil
     }
+    static let isoDateOnly: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withFullDate]; return f
+    }()
+
+    /// Hours currently accruing from OPEN clocks, attributed to the calendar day
+    /// the clock started. Pay = elapsed of an open pay shift minus LUNCH — the
+    /// same basis a finalised punch uses (`pausedMsFromEvents` server-side).
+    /// Breaks are deliberately NOT subtracted here: they are paid time, so they
+    /// stay in pay and come out of production only. Job = elapsed of an open job
+    /// clock, minus paused time (which now includes both lunch and breaks).
+    /// Break hours are NOT returned — see the note inside.
+    /// `personId` nil = everyone (team view). This is what makes the graph grow
+    /// live while someone is clocked in.
+    func liveAccrual(for personId: String?, now: Date) -> [(day: Date, pay: Double, job: Double)] {
+        var out: [(day: Date, pay: Double, job: Double)] = []
+        for p in appState.people where personId == nil || p.id == personId {
+            if let c = p.activeClockIn, !c.clockIn.isEmpty, let s = Date.fromFlexibleISO8601(c.clockIn) {
+                var ms = now.timeIntervalSince(s) * 1000
+                var lunchOpen: Date? = nil
+                for ev in c.events.sorted(by: { $0.ts < $1.ts }) {
+                    guard let t = Date.fromFlexibleISO8601(ev.ts) else { continue }
+                    if ev.type == "lunchStart" {
+                        lunchOpen = t
+                    } else if ev.type == "lunchEnd", let open = lunchOpen {
+                        ms -= max(0, t.timeIntervalSince(open) * 1000)
+                        lunchOpen = nil
+                    }
+                }
+                // Still on lunch: close the open range at `now`, as the server does at clock-out.
+                if let open = lunchOpen { ms -= max(0, now.timeIntervalSince(open) * 1000) }
+                // Break time is deliberately NOT computed here. It came from
+                // `activeClockIn.events`, which only the admin-correction path
+                // (adminBreakStart/End) ever writes — so a worker's own break was
+                // missed, while an admin-entered one was counted twice: once here
+                // and again from the payhours rows. StatsMath.breakHoursByDay now
+                // owns break time outright, open ranges included.
+                out.append((s, max(0, ms / 1000 / 3600), 0))
+            }
+            if let jc = p.activeJobClock, !jc.clockIn.isEmpty, let s = Date.fromFlexibleISO8601(jc.clockIn) {
+                var ms = now.timeIntervalSince(s) * 1000
+                ms -= (jc.totalPausedMs ?? 0)
+                if let pa = jc.pausedAt, let ps = Date.fromFlexibleISO8601(pa) {
+                    ms -= now.timeIntervalSince(ps) * 1000
+                }
+                out.append((s, 0, max(0, ms / 1000 / 3600)))
+            }
+        }
+        return out
+    }
 
     /// The seven days of the selected week with pay + job hours. `personId` nil =
-    /// everyone (team efficiency); otherwise that person's own efficiency.
-    func efficiencyDays(for personId: String?) -> [EffDay] {
+    /// everyone (team efficiency); otherwise that person's own efficiency. `now`
+    /// drives the LIVE portion: open clocks add their elapsed to their start day,
+    /// so passing a ticking `now` grows the bars in real time.
+    func efficiencyDays(for personId: String?, now: Date = Date()) -> [EffDay] {
         let cal = Calendar.current
-        let week = weekInterval
+        let week = statsInterval
         let dows = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
         let pays = payEntries(for: personId)
         let sessions = appState.jobSessions.filter { personId == nil || $0.personId == personId }
+        let live = liveAccrual(for: personId, now: now)
+        // Bucket by start-of-day in ONE pass (was: 7× reduce over all rows, each
+        // re-parsing every row's date — O(7·N) date parses per call, ×3 per render).
+        var payByDay: [Date: Double] = [:]
+        for e in pays {
+            guard let ed = dayOf(e.clockIn, e.date) else { continue }
+            payByDay[cal.startOfDay(for: ed), default: 0] += (e.hours ?? 0)
+        }
+        var jobByDay: [Date: Double] = [:]
+        for s in sessions {
+            guard let sd = dayOf(s.clockIn, s.date) else { continue }
+            jobByDay[cal.startOfDay(for: sd), default: 0] += (s.hours ?? 0)
+        }
+        // Paid break time per day, paired from the breakStart/breakEnd event rows
+        // — actual records only, never an assumed 30min. Pairing happens PER
+        // PERSON inside StatsMath: on the org view these rows cover the whole
+        // shop, and a single shared cursor lost most of the break time whenever
+        // two people were on break at once.
+        // A break still running is closed at `now` inside StatsMath, so an open
+        // break leaves the denominator immediately instead of only once the
+        // worker ends it.
+        let breakByDay = StatsMath.breakHoursByDay(
+            appState.timeclockEntries
+                .filter { (personId == nil || $0.personId == personId)
+                    && ($0.eventType == "breakStart" || $0.eventType == "breakEnd") }
+                .compactMap { e -> StatsMath.BreakRow? in
+                    guard let ts = e.timestamp, let d = Date.fromFlexibleISO8601(ts) else { return nil }
+                    return StatsMath.BreakRow(personId: e.personId, type: e.eventType ?? "", t: d)
+                },
+            now: now,
+            calendar: cal)
+        // Walk the WINDOW rather than a fixed seven days: a pay period is 14
+        // (or 15–16, semi-monthly), and hardcoding 7 silently reported a
+        // fortnight's efficiency from its first week alone.
         var out: [EffDay] = []
-        for offset in 0..<7 {
-            guard let day = cal.date(byAdding: .day, value: offset, to: week.start) else { continue }
-            let pay = pays.reduce(0.0) { acc, e in
-                guard let ed = dayOf(e.clockIn, e.date) else { return acc }
-                return cal.isDate(ed, inSameDayAs: day) ? acc + (e.hours ?? 0) : acc
-            }
-            let job = sessions.reduce(0.0) { acc, s in
-                guard let sd = dayOf(s.clockIn, s.date) else { return acc }
-                return cal.isDate(sd, inSameDayAs: day) ? acc + (s.hours ?? 0) : acc
+        var day = cal.startOfDay(for: week.start)
+        while day < week.end {
+            let key = day
+            var pay = payByDay[key] ?? 0
+            var job = jobByDay[key] ?? 0
+            let brk = breakByDay[key] ?? 0
+            for a in live where cal.isDate(a.day, inSameDayAs: day) {
+                pay += a.pay
+                job += a.job
             }
             let label = dows[cal.component(.weekday, from: day) - 1]
-            out.append(EffDay(label: label, pay: pay, job: job))
+            out.append(EffDay(date: key, label: label, pay: pay, job: job, breakHours: brk))
+            guard let next = cal.date(byAdding: .day, value: 1, to: day) else { break }
+            day = next
         }
         return out
     }
 
     /// Efficiency = week job hours ÷ week pay hours (e.g. 30 logged of 40 paid = 75%).
-    func efficiencyPercent(for personId: String?) -> Int {
-        let days = efficiencyDays(for: personId)
-        let totalPay = days.reduce(0.0) { $0 + $1.pay }
-        let totalJob = days.reduce(0.0) { $0 + $1.job }
-        guard totalPay > 0 else { return 0 }
-        return Int((totalJob / totalPay * 100).rounded())
+    func efficiencyPercent(for personId: String?, now: Date = Date()) -> Int {
+        efficiencyPercent(from: efficiencyDays(for: personId, now: now))
     }
 
-    /// Idle time = paid clocked-in hours NOT logged onto a job for the week
-    /// (everyone) — the complement of Efficiency. Uses gross pay hours (lunch/
-    /// break not subtracted — same basis as Efficiency).
-    var idleHours: Double {
-        let days = efficiencyDays(for: nil)
-        let pay = days.reduce(0.0) { $0 + $1.pay }
+    /// Idle time = WORKING hours not logged onto a job for the week (everyone) —
+    /// the complement of Efficiency, and measured against the same denominator.
+    ///
+    /// Pay is net of LUNCH but includes breaks (breaks are paid); production is
+    /// net of lunch AND breaks. Working time takes the breaks back out, so a
+    /// worker who takes their full breaks and logs everything else reads 0 idle,
+    /// not the 0.5h/day their 2x15m would otherwise show. Any idle above 0 is
+    /// unexpected downtime. Live via `now`.
+    func idleHours(now: Date = Date()) -> Double {
+        idleHours(from: efficiencyDays(for: nil, now: now))
+    }
+
+    /// Derive from an ALREADY-COMPUTED week so callers that also need the days
+    /// (or the efficiency percentage) don't walk every pay entry and job session
+    /// a second and third time — `efficiencyDays` used to run 3× per tick.
+    func idleHours(from days: [EffDay]) -> Double {
+        let working = days.reduce(0.0) { $0 + $1.workingHours }
         let job = days.reduce(0.0) { $0 + $1.job }
-        return max(0, pay - job)
+        return max(0, working - job)
+    }
+
+    /// Same, for the efficiency percentage.
+    func efficiencyPercent(from days: [EffDay]) -> Int {
+        let working = days.reduce(0.0) { $0 + $1.workingHours }
+        let totalJob = days.reduce(0.0) { $0 + $1.job }
+        // Denominator <= 0 means no clocked time, or malformed data recording more
+        // break than pay. Either way there is no working time to be a fraction of.
+        guard working > 0 else {
+            let totalPay = days.reduce(0.0) { $0 + $1.pay }
+            let totalBreak = days.reduce(0.0) { $0 + $1.breakHours }
+            if totalPay > 0 && totalBreak > totalPay {
+                print("[stats] break time (\(totalBreak)h) exceeds pay (\(totalPay)h) — efficiency reported as 0")
+            }
+            return 0
+        }
+        return Int((totalJob / working * 100).rounded())
+    }
+
+    /// Paid break time across the period. Not surfaced yet; kept so a future
+    /// "of your paid time, X was breaks" line needs no recomputation.
+    func breakHours(from days: [EffDay]) -> Double {
+        days.reduce(0.0) { $0 + $1.breakHours }
     }
 
     /// "3h 12m" — idle rounded to the minute.
@@ -493,7 +700,7 @@ private extension MoreView {
     /// clocked out of and back into still counts once). Team-wide for now.
     var taskSwitchingCount: Int {
         let cal = Calendar.current
-        let week = weekInterval
+        let week = statsInterval
         var jobIds = Set<String>()
         for s in appState.jobSessions where !s.jobId.isEmpty {
             guard let d = dayOf(s.clockIn, s.date) else { continue }
@@ -541,12 +748,37 @@ private extension MoreView {
         jobSessionsInPeriod.reduce(0.0) { $0 + ($1.hours ?? 0) } + liveJobHours
     }
 
+    /// Job hours for one person over an ARBITRARY window — the Hours stat box,
+    /// which follows the page's Week / Pay Period toggle.
+    ///
+    /// Deliberately not reusing `jobSessionsInPeriod`: that is pinned to the org
+    /// pay period because the Past Jobs log underneath it is, by design. Two
+    /// different questions, so two windows — the box was reading the pay period
+    /// in Week mode, which put a fortnight's hours beside a week's utilization.
+    func jobHours(for personId: String, in interval: DateInterval) -> Double {
+        var total = 0.0
+        for s in appState.jobSessions where s.personId == personId {
+            guard let d = isoDay(s.clockIn) ?? parseISO(s.date ?? "") else { continue }
+            if d >= interval.start && d < interval.end { total += (s.hours ?? 0) }
+        }
+        // A running clock counts only if the window it started in is the one
+        // being shown.
+        if isViewingSelf || statsPersonId == personId,
+           let jc = activeJobClock, let st = Date.fromFlexibleISO8601(jc.clockIn),
+           st >= interval.start, st < interval.end {
+            total += liveJobHours
+        }
+        return total
+    }
+
     /// Job sessions grouped by day for the dated log.
     var jobSessionGroups: [EntryGroup] {
         let cal = Calendar.current
-        let df = DateFormatter(); df.dateFormat = "EEE · MMM d"
+        let df = DateFormatter.display("EEE · MMM d")
         let groups = Dictionary(grouping: jobSessionsInPeriod) { s -> Date in
-            cal.startOfDay(for: isoDay(s.clockIn) ?? Date())
+            // Fall back to the session's `date` (as jobSessionsInPeriod does) before
+            // today, so a session with a nil clockIn isn't misfiled under today.
+            cal.startOfDay(for: isoDay(s.clockIn) ?? parseISO(s.date ?? "") ?? Date())
         }
         return groups.keys.sorted(by: >).map { day in
             let items = (groups[day] ?? []).map { s -> TimeEntry in
@@ -603,10 +835,18 @@ private struct StatBox: View {
                 Spacer(minLength: 2)
                 if !info.isEmpty { InfoButton(text: info) }
             }
+            // One line, always. A pay period's values are longer than a week's
+            // ("3h 12m" → "27h 45m"), and at 30pt in a half-width card the
+            // longer one wrapped to two lines — which grew the card, because
+            // its height was a MINIMUM. Both are pinned now: the text stays on
+            // its line (shrinking only if it truly cannot fit) and the card is
+            // a fixed height, so flipping the toggle moves nothing.
             Text(value)
                 .font(.custom(TFontName.bold.rawValue, size: 30))
                 .foregroundStyle(Color(hex: T.ink))
                 .tnum()
+                .lineLimit(1)
+                .minimumScaleFactor(0.55)
             if let caption {
                 Text(caption)
                     .font(TTypo.xs(10))
@@ -615,7 +855,7 @@ private struct StatBox: View {
             }
         }
         .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 96, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 96, maxHeight: 96, alignment: .leading)
         .frostedCard(radius: T.cornerMd)
     }
 }
@@ -720,7 +960,7 @@ private struct OverHoursList: View {
                 ForEach(jobs) { OverHoursRow(job: $0) }
             }
         }
-        .frostedCard(radius: T.cornerMd)
+        .frostedCard(radius: T.cornerMd, rim: false)   // a list, not a card to look at
     }
 }
 
@@ -757,12 +997,34 @@ private struct OverHoursRow: View {
 // MARK: - Efficiency (parent % + weekly pay-vs-job bars)
 
 struct EffDay: Identifiable {
-    var id: String { label }
+    /// Keyed by DATE, not by `label`. A pay period contains two Mondays, and a
+    /// day-name id makes them collide — SwiftUI silently drops the duplicate, so
+    /// a 14-day chart rendered 7 bars.
+    var id: Date { date }
+    let date: Date
     let label: String
     let pay: Double
     let job: Double
-    /// Daily difference shown above the bars (job − pay).
-    var diff: Double { job - pay }
+    /// Paid break time for the day, from actual breakStart/breakEnd records — no
+    /// assumed 30min. Excluded from the efficiency denominator because breaks are
+    /// mandatory paid downtime a worker cannot convert into production; counting
+    /// them would cap everyone at ~93.75% for following the rules. Kept as its own
+    /// field so "of your paid time, X was breaks" is available to future UI.
+    let breakHours: Double
+
+    /// Time the worker could actually have been producing: paid time minus the
+    /// breaks they were required to take. Clamped at 0 — malformed data can
+    /// record more break than pay.
+    var workingHours: Double { max(0, pay - breakHours) }
+
+    /// Daily difference shown above the bars: production against working time,
+    /// so a day spent entirely on jobs reads 0 rather than minus the break.
+    var diff: Double { job - workingHours }
+
+    /// Day-of-month, for the second label line on a multi-week chart. Over a
+    /// pay period "Mon" appears twice and the date is the only thing that tells
+    /// the two apart.
+    var dayNumber: String { "\(Calendar.current.component(.day, from: date))" }
 }
 
 private struct EfficiencyCard: View {
@@ -793,7 +1055,7 @@ private struct EfficiencyCard: View {
                 Spacer()
             }
         }
-        .padding(18)
+        .padding(T.insetHero)
         .frame(maxWidth: .infinity, alignment: .leading)
         .frostedCard(radius: T.cornerHero)
     }
@@ -809,33 +1071,80 @@ private struct EfficiencyCard: View {
 private struct WeeklyBars: View {
     let days: [EffDay]
     private let barsHeight: CGFloat = 96
-    private let maxValue: Double = 9   // a full workday ≈ a full bar (matches Hours)
+
+    /// Above this many days the chart wraps onto a second row. A pay period is
+    /// 14 days (15–16 semi-monthly), and squeezing that into one row leaves each
+    /// column too narrow to carry a pair of bars, a signed difference and a
+    /// label. Split, each bar keeps roughly the width it has in week view.
+    private static let maxPerRow = 7
+
+    /// One row per week, first row taking the larger half on an odd count.
+    private var rows: [[EffDay]] { StatsMath.chartRows(days, maxPerRow: Self.maxPerRow) }
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            ForEach(days) { d in
-                VStack(spacing: 6) {
-                    Text(String(format: "%+.2f", d.diff))
-                        .font(TTypo.mono(9))
-                        .foregroundStyle(d.diff < 0 ? Color(hex: T.red) : Color(hex: T.green))
-                        .tnum()
-                    HStack(alignment: .bottom, spacing: 3) {
-                        bar(value: d.pay, base: Color(hex: T.accentGradientStart))
-                        bar(value: d.job, base: Color(hex: T.accentGradientEnd))
+        // Scale to the tallest bar in THIS dataset. A fixed per-person ceiling
+        // (this was 9h, "a full workday ≈ a full bar") pegged every bar on the
+        // org dashboard, where each bar sums the whole shop — 15 workers put
+        // ~120h/day against a 9h ceiling, so all fourteen bars drew full height
+        // and the chart carried no information. Computed once here rather than
+        // per bar: the view sits inside a 5s timeline.
+        //
+        // Computed across EVERY row, never per row: two rows scaled to their own
+        // maxima would draw a quiet week exactly as tall as a busy one, which is
+        // the one comparison a two-week chart exists to make.
+        let maxValue = StatsMath.barMax(days.flatMap { [$0.pay, $0.job] })
+        let split = rows
+        VStack(spacing: 18) {
+            ForEach(Array(split.enumerated()), id: \.offset) { _, row in
+                HStack(alignment: .bottom, spacing: 8) {
+                    ForEach(row) { d in
+                        dayColumn(d, max: maxValue, showDate: split.count > 1)
                     }
-                    .frame(height: barsHeight)
-                    Text(d.label)
-                        .font(TTypo.xs(11))
-                        .foregroundStyle(Color(hex: T.muted))
+                    // Pad a short final row so its bars keep the same width as
+                    // the row above instead of stretching to fill.
+                    if row.count < (split.first?.count ?? row.count) {
+                        ForEach(row.count..<(split.first?.count ?? row.count), id: \.self) { _ in
+                            Color.clear.frame(maxWidth: .infinity)
+                        }
+                    }
                 }
-                .frame(maxWidth: .infinity)
             }
         }
     }
 
+    private func dayColumn(_ d: EffDay, max maxValue: Double, showDate: Bool) -> some View {
+        VStack(spacing: 6) {
+            Text(String(format: "%+.2f", d.diff))
+                .font(TTypo.mono(9))
+                .foregroundStyle(d.diff < 0 ? Color(hex: T.red) : Color(hex: T.green))
+                .tnum()
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            HStack(alignment: .bottom, spacing: 3) {
+                bar(value: d.pay, max: maxValue, base: Color(hex: T.accentGradientStart))
+                bar(value: d.job, max: maxValue, base: Color(hex: T.accentGradientEnd))
+            }
+            .frame(height: barsHeight)
+            VStack(spacing: 1) {
+                Text(d.label)
+                    .font(TTypo.xs(11))
+                    .foregroundStyle(Color(hex: T.muted))
+                // Only on the wrapped chart: across a pay period "Mon" appears
+                // twice, and the date is the only thing separating them.
+                if showDate {
+                    Text(d.dayNumber)
+                        .font(TTypo.xsBold(11))
+                        .foregroundStyle(Color(hex: T.ink))
+                        .tnum()
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
     /// One bar, styled like the Hours-page day bars: rounded, vertical-gradient
     /// fill grown from the bottom, with a short muted stub when there's no data.
-    private func bar(value: Double, base: Color) -> some View {
+    private func bar(value: Double, max maxValue: Double, base: Color) -> some View {
         VStack(spacing: 0) {
             Spacer(minLength: 0)
             RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -855,7 +1164,7 @@ private struct NonAdminEmpty: View {
     var body: some View {
         VStack(spacing: 12) {
             TIconView(icon: .stats, size: 44, color: Color(hex: T.hair))
-            Text("Stats are admin-only")
+            Text("Analytics are admin-only")
                 .font(TTypo.h3(18))
                 .foregroundStyle(Color(hex: T.ink))
             Text("Check back when you're a dispatcher.")
@@ -947,7 +1256,7 @@ private struct RunningEntryCard: View {
             }
             .fixedSize()
         }
-        .padding(14)
+        .padding(T.insetHero)
         .frostedCard()
     }
 }
@@ -988,7 +1297,7 @@ private struct EntryGroupCard: View {
                     }
                 }
             }
-            .frostedCard(radius: T.cornerMd)
+            .frostedCard(radius: T.cornerMd, rim: false)   // a list, not a card to look at
         }
     }
 }
@@ -997,7 +1306,7 @@ private struct EntryRow: View {
     let entry: TimeEntry
 
     private var timeRange: String {
-        let f = DateFormatter(); f.dateFormat = "HH:mm"
+        let f = DateFormatter.display("HH:mm")
         let s = f.string(from: entry.start)
         let e = entry.end.map(f.string(from:)) ?? "live"
         return "\(s) – \(e)"
@@ -1042,7 +1351,7 @@ private struct HoursEmptyState: View {
                 .foregroundStyle(Color(hex: T.muted))
         }
         .frame(maxWidth: .infinity)
-        .padding(22)
+        .padding(T.insetHero)
         .frostedCard()
     }
 }

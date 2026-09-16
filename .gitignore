@@ -18,5 +18,18 @@ ios/
 Thumbs.db
 *.local
 
+# Xcode per-user state — window layout, open tabs, scroll positions, personal
+# scheme ordering. Rewritten on almost every Xcode session, binary, and can't
+# merge, so it only ever showed up as noise in commits.
+# NOTE: xcshareddata/ is deliberately NOT ignored — it holds Package.resolved
+# (SPM version pins) and any schemes shared with the team.
+xcuserdata/
+*.xcuserstate
+
 # Netlify
 .netlify/
+
+# macOS native shell build output
+TRAQS MacBook Native/.build/
+TRAQS MacBook Native/*.xcodeproj/project.xcworkspace/
+TRAQS MacBook Native/*.xcodeproj/xcuserdata/

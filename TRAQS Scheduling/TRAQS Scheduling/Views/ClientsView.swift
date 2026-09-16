@@ -29,7 +29,7 @@ struct ClientsView: View {
     var body: some View {
         NavigationSplitView {
             ZStack {
-                AmbientBackground()
+                PageBackground()
 
                 VStack(spacing: 0) {
                     // Persistent header — search slides in below it; add lives in the trailing slot.
@@ -41,7 +41,9 @@ struct ClientsView: View {
                             }
                             if showSearch { searchFocused = true }
                         }
-                        IconBtn(icon: .plus, size: 18) { showAddClient = true }
+                        if appState.can(.manageClients) {
+                            IconBtn(icon: .plus, size: 18) { showAddClient = true }
+                        }
                     }
                     .background(Color(hex: T.bg))
 
@@ -82,7 +84,7 @@ struct ClientsView: View {
                 ClientDetailView(client: client)
             } else {
                 ZStack {
-                    AmbientBackground()
+                    PageBackground()
                     ContentUnavailableView("Select a Client", systemImage: "building.2", description: Text("Choose a client to view details."))
                 }
             }
@@ -115,7 +117,7 @@ struct ClientRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Avatar(initials: String(client.name.prefix(1)).uppercased(),
+            Avatar(initials: Initials.from(client.name),
                    size: 44,
                    gradient: true)
 
@@ -162,14 +164,14 @@ struct ClientDetailView: View {
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     // ── Header (hero) card ──
                     VStack(alignment: .leading, spacing: 14) {
                         HStack(spacing: 16) {
-                            Avatar(initials: String(client.name.prefix(1)).uppercased(),
+                            Avatar(initials: Initials.from(client.name),
                                    size: 64,
                                    gradient: true)
                             VStack(alignment: .leading, spacing: 4) {
@@ -194,7 +196,7 @@ struct ClientDetailView: View {
                             }
                         }
                     }
-                    .padding(18)
+                    .padding(T.insetHero)
                     .frostedCard(radius: T.cornerHero)
 
                     // ── Contact info ──
@@ -265,9 +267,11 @@ struct ClientDetailView: View {
         .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Edit") { showEdit = true }
-                    .foregroundColor(Color(hex: T.accent))
+            if appState.can(.manageClients) {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Edit") { showEdit = true }
+                        .foregroundColor(Color(hex: T.accent))
+                }
             }
         }
         .sheet(isPresented: $showEdit) {

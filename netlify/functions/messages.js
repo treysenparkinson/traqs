@@ -1,4 +1,4 @@
-import { validateToken } from "./_utils/auth.js";
+import { validateToken, emailForToken } from "./_utils/auth.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
@@ -12,42 +12,17 @@ function makeId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
-// Cache /userinfo results by the JWT `sub` so warm function containers
-// don't re-fetch on every request. Auth0 access tokens for custom APIs
-// don't include the email claim by default — only `sub`, `iss`, `aud`,
-// `exp`, `iat` — so we have to hit /userinfo (which is bound to the
-// token itself, no spoofing risk) to get the user's email.
-const userinfoCache = new Map();
-
-async function emailForToken(event, payload) {
-  if (payload?.email) return String(payload.email).toLowerCase().trim();
-  const sub = payload?.sub;
-  if (sub && userinfoCache.has(sub)) return userinfoCache.get(sub);
-
-  const authHeader = event.headers?.authorization || event.headers?.Authorization || "";
-  if (!authHeader.startsWith("Bearer ")) return null;
-  const domain = process.env.AUTH0_DOMAIN;
-  if (!domain) return null;
-
-  try {
-    const res = await fetch(`https://${domain}/userinfo`, {
-      headers: { Authorization: authHeader },
-    });
-    if (!res.ok) return null;
-    const body = await res.json();
-    const email = String(body?.email || "").toLowerCase().trim();
-    if (sub && email) userinfoCache.set(sub, email);
-    return email || null;
-  } catch {
-    return null;
-  }
-}
-
 // Resolve the authenticated viewer to their personId. Returns
 // `{ error, message }` for token/auth failures, `{ viewerId: null }`
 // when the auth succeeded but the email isn't tied to any Person in
 // this org (the response then filters to an empty list rather than
 // 500ing, and avoids leaking org membership to outsiders).
+//
+// Email resolution uses the shared `emailForToken` from _utils/auth.js. This
+// file used to carry its own copy with an unbounded, never-expiring cache and
+// no rate-limit handling — so message reads/writes kept hitting Auth0
+// /userinfo and 401ing even after the shared path was hardened. One
+// implementation, one place to fix.
 async function resolveViewerId(event, people) {
   let payload;
   try {
@@ -55,8 +30,12 @@ async function resolveViewerId(event, people) {
   } catch (e) {
     return { error: 401, message: e.message };
   }
-  const email = await emailForToken(event, payload);
-  if (!email) return { error: 401, message: "Could not resolve user email" };
+  const { email, transient } = await emailForToken(event, payload);
+  if (!email) {
+    // Auth0 rate-limited or down — retryable, not an auth failure.
+    if (transient) return { error: 503, message: "Identity provider temporarily unavailable — please retry" };
+    return { error: 401, message: "Could not resolve user email" };
+  }
   const me = (people || []).find(p => String(p.email || "").toLowerCase().trim() === email);
   if (!me?.id) return { viewerId: null };
   return { viewerId: String(me.id) };
@@ -154,6 +133,79 @@ function recipientsForThread(threadKey, jobs, groups) {
   return Array.from(ids);
 }
 
+// Human name for a thread, used as the push HEADING on everything that is not
+// a DM.
+//
+// Every thread type used to push with `heading: authorName`, so a group
+// message was indistinguishable from a direct message on the lock screen —
+// "Trey" with no hint of which conversation it belonged to. Groups, job,
+// panel and op threads now lead with the CONVERSATION and put the author in
+// front of the text ("Shop Floor" / "Trey: heading out"), which is the
+// convention every other group messenger uses. DMs are left alone: there the
+// author IS the thread.
+//
+// Returns null when the thread has no name worth showing (an unknown id, a
+// deleted group) — the caller then falls back to the old author heading rather
+// than pushing something like "group:".
+function threadDisplayName(threadKey, jobs, groups) {
+  if (!threadKey) return null;
+
+  const clean = v => {
+    const s = (v == null ? "" : String(v)).trim();
+    return s || null;
+  };
+
+  if (threadKey.startsWith("group:")) {
+    const ref = threadKey.slice(6);
+    const g = (groups || []).find(g => String(g.name) === ref || String(g.id) === ref);
+    // The key often IS the group name, so fall back to the ref itself when the
+    // group record has been renamed or removed.
+    return clean(g?.name) || clean(ref);
+  }
+
+  // job / panel / op all resolve through the owning job, so the heading always
+  // carries enough to locate the conversation: "#1042 · Wire" beats "Wire".
+  const jobLabel = j => {
+    const num = clean(j?.jobNumber);
+    const title = clean(j?.title);
+    if (num && title) return `#${num} ${title}`;
+    return num ? `#${num}` : title;
+  };
+
+  if (threadKey.startsWith("job:")) {
+    const j = (jobs || []).find(j => String(j.id) === threadKey.slice(4));
+    return j ? jobLabel(j) : null;
+  }
+
+  if (threadKey.startsWith("panel:")) {
+    const panelId = threadKey.slice(6);
+    for (const j of (jobs || [])) {
+      const p = (j.subs || []).find(p => String(p.id) === panelId);
+      if (p) {
+        const parts = [jobLabel(j), clean(p.title)].filter(Boolean);
+        return parts.length ? parts.join(" · ") : null;
+      }
+    }
+    return null;
+  }
+
+  if (threadKey.startsWith("op:")) {
+    const opId = threadKey.slice(3);
+    for (const j of (jobs || [])) {
+      for (const p of (j.subs || [])) {
+        const o = (p.subs || []).find(o => String(o.id) === opId);
+        if (o) {
+          const parts = [jobLabel(j), clean(o.title) || clean(p.title)].filter(Boolean);
+          return parts.length ? parts.join(" · ") : null;
+        }
+      }
+    }
+    return null;
+  }
+
+  return null;   // dm: — the author is the thread
+}
+
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
 
@@ -221,8 +273,17 @@ export async function handler(event) {
       if (!viewerId || viewerId !== String(authorId)) return err(403, "Author does not match authenticated user");
       if (!canViewThread(threadKey, viewerId, jobs, groups)) return err(403, "Not a participant in this thread");
 
+      // Client-supplied id. The web client mints the id before it posts so its
+      // optimistic bubble and this server copy share one identity — the bubble
+      // then stays mounted and only its delivery status flips Sending→Sent,
+      // instead of being torn down and re-added (which rendered as a momentary
+      // duplicate). Honoured only when it's a sane token that isn't already
+      // taken; anything else (older clients, collisions) gets a server id.
+      const wantId = typeof body?.id === "string" ? body.id.trim() : "";
+      const idOk = /^[A-Za-z0-9_-]{1,64}$/.test(wantId) && !existing.some(m => String(m.id) === wantId);
+
       const newMsg = {
-        id: makeId(),
+        id: idOk ? wantId : makeId(),
         threadKey,
         scope: scope || "job",
         jobId: jobId || null,
@@ -252,11 +313,22 @@ export async function handler(event) {
       const targetIds = recipientsForThread(threadKey, jobs, groups)
         .filter(id => id !== String(authorId));
 
+      // Notification wording. On a group / job / panel / op thread the heading
+      // is the CONVERSATION and the author is prefixed to the body, so the
+      // lock screen answers "who texted, and where" — the two of them used to
+      // be indistinguishable from a DM. On a DM the author IS the thread, so
+      // nothing changes there.
+      const who = authorName || "New message";
+      const said = text?.trim() || "Sent an attachment";
+      const threadName = threadDisplayName(threadKey, jobs, groups);
+      const pushHeading = threadName || who;
+      const pushBody = threadName ? `${authorName || "Someone"}: ${said}` : said;
+
       // Web push → desktop browsers (works whether or not a tab is open).
       // Awaited so it completes before the serverless function freezes on return.
       await sendWebPush(orgCodeFromHeader(event), targetIds, {
-        title: authorName || "New message",
-        body: text?.trim() || "Sent an attachment",
+        title: pushHeading,
+        body: pushBody,
         data: { kind: "message", threadKey, scope },
       }).catch(() => {});
 
@@ -269,8 +341,8 @@ export async function handler(event) {
       const orgCode = orgCodeFromHeader(event);
       const senderId = String(authorId);
       await sendVisiblePush(orgCode, people, targetIds, {
-        heading: authorName || "New message",
-        content: text?.trim() || "Sent an attachment",
+        heading: pushHeading,
+        content: pushBody,
         data: { threadKey, scope },
         label: "message",
       });

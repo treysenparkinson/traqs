@@ -9,25 +9,22 @@ import Combine
 struct HomeView: View {
     @Environment(AppState.self) private var appState
     @Environment(AppNav.self) private var appNav
-    @State private var now = Date()
-    private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             VStack(spacing: 0) {
-                TRAQSNavHeader {
-                    // Profile: name on the left, avatar on the right.
-                    HStack(spacing: 8) {
-                        Text(personName)
-                            .font(TTypo.smBold(14))
-                            .foregroundStyle(Color(hex: T.ink))
-                            .lineLimit(1)
-                        Avatar(initials: initials, size: 34, gradient: true,
-                               imageData: appState.currentPerson?.image)
-                    }
-                }
+                // No header here — the shell owns the one persistent GlassHeader
+                // (§2). The spacer reserves its height so the scroll view's FRAME
+                // starts below the header, which is what actually stops content
+                // riding up over the wordmark and the header controls. Insetting
+                // the scroll CONTENT instead (`.safeAreaPadding(.top)`) left the
+                // frame spanning to the top of the screen, so rows scrolled under
+                // the glass — fine while `topFadeMask` still faded them out, and
+                // plainly wrong once it became a no-op. Every other tab reserves
+                // the header this way; Analytics is the reference.
+                Color.clear.frame(height: GlassHeader.height)
 
                 ScrollView {
                     VStack(alignment: .leading, spacing: 0) {
@@ -38,14 +35,25 @@ struct HomeView: View {
                             .padding(.top, pageTitleTopInset)
                             .padding(.bottom, 10)
 
-                        // Today's date + this week (today highlighted).
-                        TodayDateCard(now: now)
-                            .padding(.horizontal, 16)
+                        // Today's date + this week (today highlighted). Only has
+                        // to change at midnight, so it ticks once a minute.
+                        LiveClock(every: 60, tab: .home) { now in
+                            TodayDateCard(now: now)
+                        }
+                        .padding(.horizontal, 16)
 
-                        // Today's hours + new messages — two square cards side by side.
+                        // Live shift status + new messages — two square cards side
+                        // by side. The shift card took over the slot Today's hours
+                        // used to hold; the full-width status bar that used to sit
+                        // under this row is gone, since it said the same thing.
+                        // Today's hours still lives on the Time Clock page.
                         HStack(spacing: 12) {
-                            HoursTodayHero(hoursToday: appState.hoursToday(now: now),
-                                           dayPct: dayPct)
+                            LiveClock(every: 1, tab: .home) { now in
+                                ShiftStatusHero(status: appState.myShiftStatus,
+                                                liveHours: appState.liveShiftHours(now: now)) {
+                                    withAnimation(.easeInOut(duration: 0.22)) { appNav.selected = .hours }
+                                }
+                            }
                             NewMessagesCard(senders: unreadBySender) {
                                 withAnimation(.easeInOut(duration: 0.22)) { appNav.selected = .chat }
                             }
@@ -53,21 +61,17 @@ struct HomeView: View {
                         .padding(.horizontal, 16)
                         .padding(.top, 14)
 
-                        // Live shift status (clocked in / lunch / break + elapsed).
-                        ClockStatusCard(status: appState.myShiftStatus,
-                                        liveHours: appState.liveShiftHours(now: now))
-                            .padding(.horizontal, 16)
-                            .padding(.top, 14)
-
-                        // Suggested job for the day.
-                        TSectionTitle(title: "Suggested for today")
+                        // Today's job. The section header above this is gone — the
+                        // card titles itself, matching the two square cards above.
                         if let s = suggested {
                             SuggestedJobCard(task: s, isActive: isActive(s), onJump: jumpToJobs)
                                 .padding(.horizontal, 16)
+                                .padding(.top, 14)
                                 .padding(.bottom, 28)
                         } else {
                             HomeEmpty(text: "Nothing scheduled for today.")
                                 .padding(.horizontal, 16)
+                                .padding(.top, 14)
                                 .padding(.bottom, 28)
                         }
                     }
@@ -77,7 +81,6 @@ struct HomeView: View {
                 .topFadeMask()
                 .refreshable { await reload() }
             }
-            .onReceive(ticker) { now = $0 }
             // Home is the landing tab; pull the pay-clock entries + settings the
             // hero needs (jobs/people come from the app-level loadAll).
             .task {
@@ -102,33 +105,18 @@ struct HomeView: View {
         firstName.isEmpty ? "Hello" : "Hello, \(firstName)"
     }
 
-    private var initials: String {
-        let parts = (appState.currentPerson?.name ?? "—")
-            .split(separator: " ")
-            .prefix(2)
-            .map { String($0.prefix(1)).uppercased() }
-        return parts.joined()
-    }
-
     /// Unread messages grouped by sender (person name + count), most first.
-    /// Mirrors AppState.totalUnreadMessages but keeps the per-author breakdown.
+    /// Reads AppState's cache — this used to be a duplicate O(messages) scan
+    /// recomputed on every HomeView render (and the 1s ticker made that every
+    /// second). The scan now runs once per data change, shared with the nav
+    /// bar's badge count.
     private var unreadBySender: [(id: String, name: String, count: Int)] {
-        guard let myId = appState.currentPersonId else { return [] }
-        var counts: [String: (name: String, count: Int)] = [:]
-        for (key, msgs) in Dictionary(grouping: appState.messages, by: { $0.threadKey }) {
-            let readAt = appState.threadReadAt[key].flatMap { Date.fromFlexibleISO8601($0) } ?? .distantPast
-            for m in msgs where m.authorId != myId {
-                if (Date.fromFlexibleISO8601(m.timestamp) ?? .distantPast) > readAt {
-                    let prev = counts[m.authorId]
-                    counts[m.authorId] = (name: m.authorName, count: (prev?.count ?? 0) + 1)
-                }
-            }
-        }
-        return counts.map { (id: $0.key, name: $0.value.name, count: $0.value.count) }
-            .sorted { $0.count > $1.count }
+        appState.unreadSenders
     }
 
-    private var today: [TaskAssignment] { appState.todayTasks(now: now) }
+    /// "Today" only rolls over at midnight, so this reads the clock directly
+    /// instead of riding a per-second ticker that invalidated the whole body.
+    private var today: [TaskAssignment] { appState.todayTasks(now: Date()) }
 
     /// Active job if clocked in, else the next "up next" task today, else the first.
     private var suggested: TaskAssignment? {
@@ -139,13 +127,6 @@ struct HomeView: View {
 
     private func isActive(_ task: TaskAssignment) -> Bool {
         appState.myActiveJobClock != nil && appState.activeTaskAssignment?.id == task.id
-    }
-
-    /// Today's hours toward the daily target (drives the ring).
-    private var dayPct: Double {
-        let hpd = appState.orgSettings.hpd
-        guard hpd > 0 else { return 0 }
-        return min(100, appState.hoursToday(now: now) / hpd * 100)
     }
 
     // MARK: - Actions
@@ -178,7 +159,7 @@ private struct TodayDateCard: View {
     }
 
     private var dateLine: String {
-        let f = DateFormatter(); f.dateFormat = "MMMM d, yyyy"
+        let f = DateFormatter.display("MMMM d, yyyy")
         return f.string(from: now).uppercased()
     }
 
@@ -191,15 +172,14 @@ private struct TodayDateCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text("TODAY'S DATE")
-                    .font(TTypo.xsBold(11))
-                    .tLabel(tracking: 1.4)
-                    .foregroundStyle(Color(hex: T.muted))
-                Text(dateLine)
-                    .font(.custom(TFontName.bold.rawValue, size: 22))
-                    .foregroundStyle(Color(hex: T.ink))
-            }
+            // No "TODAY'S DATE" label above this — the date and the week strip
+            // under it say what the card is. Leading-aligned like every other
+            // card's heading, set by an explicit frame rather than the VStack's
+            // alignment so the week strip below is unaffected either way.
+            Text(dateLine)
+                .font(.custom(TFontName.bold.rawValue, size: 22))
+                .foregroundStyle(Color(hex: T.ink))
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             HStack(spacing: 6) {
                 ForEach(weekDays, id: \.self) { d in
@@ -227,43 +207,61 @@ private struct TodayDateCard: View {
                 }
             }
         }
-        .padding(16)
+        .padding(T.insetHero)
         .frostedCard()
     }
 }
 
-// MARK: - Hours today hero
+// MARK: - Live shift hero (square, left of Messages)
 
-private struct HoursTodayHero: View {
-    let hoursToday: Double
-    let dayPct: Double
+// Replaces the old Today's-hours ring in this slot AND the full-width status bar
+// that used to sit below it: same square footprint, but the live elapsed timer
+// is the hero and the status pill sits under it.
+private struct ShiftStatusHero: View {
+    let status: ShiftStatus
+    let liveHours: Double
+    /// Taps jump to the Time Clock tab, where the shift can actually be acted on.
+    let onOpen: () -> Void
+
+    private var elapsed: String {
+        let secs = max(0, Int(liveHours * 3600))
+        return String(format: "%d:%02d:%02d", secs / 3600, (secs % 3600) / 60, secs % 60)
+    }
 
     var body: some View {
-        VStack(spacing: 10) {
-            Text("Today's hours")
-                .font(.custom(TFontName.bold.rawValue, size: 15))
-                .foregroundStyle(Color(hex: T.ink))
-                .frame(maxWidth: .infinity)
-            Spacer(minLength: 0)
-            ZStack {
-                GradientRing(pct: dayPct, lineWidth: 10)
-                    .frame(width: 96, height: 96)
-                VStack(spacing: 0) {
-                    Text(String(format: "%.1f", hoursToday))
-                        .font(.custom(TFontName.bold.rawValue, size: 28))
-                        .foregroundStyle(Color(hex: T.ink))
-                        .tnum()
-                    Text("h today")
-                        .font(TTypo.xs(10))
-                        .foregroundStyle(Color(hex: T.muted))
-                }
+        Button(action: onOpen) {
+            VStack(spacing: 10) {
+                // Title sits at the box's leading edge like every other card's.
+                // The clock and pill below stay centred — that's the VStack's own
+                // alignment, which this frame deliberately overrides only here.
+                Text("This shift")
+                    .font(.custom(TFontName.bold.rawValue, size: 15))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Spacer(minLength: 0)
+
+                // The running clock — the whole point of the card, so it carries
+                // the space the icon chip used to take. Placeholder dashes when
+                // off the clock keep the card the same height whether or not a
+                // shift is open.
+                Text(status == .offline ? "--:--:--" : elapsed)
+                    .font(TTypo.monoBold(30))
+                    .foregroundStyle(Color(hex: status == .offline ? T.muted : T.ink))
+                    .tnum()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+
+                TagPill(label: status.label, kind: status.kind, dot: status.dot)
+
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(T.insetHero)
+            .frostedCard()
+            .aspectRatio(1, contentMode: .fit)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(16)
-        .frostedCard()
-        .aspectRatio(1, contentMode: .fit)
+        .buttonStyle(.plain)
     }
 }
 
@@ -279,17 +277,26 @@ private struct NewMessagesCard: View {
                 Text("Messages")
                     .font(.custom(TFontName.bold.rawValue, size: 15))
                     .foregroundStyle(Color(hex: T.ink))
-                    .frame(maxWidth: .infinity, alignment: .center)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 if senders.isEmpty {
                     Spacer(minLength: 0)
-                    HStack(spacing: 7) {
+                    // Tick and label stay on ONE line, side by side. This card is
+                    // a square roughly 166–174pt wide on most phones, so once the
+                    // content inset went to T.insetHero there was only ~120pt of
+                    // room here — the label wrapped and the row read as stacked.
+                    // The tick is sized down and the label is allowed to shrink
+                    // rather than wrap, which holds the layout on a 375pt screen.
+                    HStack(spacing: 6) {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 18, weight: .bold))
+                            .font(.system(size: 15, weight: .bold))
                             .foregroundStyle(Color(hex: T.green))
+                            .layoutPriority(1)
                         Text("No new messages!")
                             .font(TTypo.sm(13))
                             .foregroundStyle(Color(hex: T.muted))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
                     }
                     .frame(maxWidth: .infinity)
                     Spacer(minLength: 0)
@@ -321,47 +328,11 @@ private struct NewMessagesCard: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(16)
+            .padding(T.insetHero)
             .frostedCard()
             .aspectRatio(1, contentMode: .fit)
         }
         .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Live shift status
-
-private struct ClockStatusCard: View {
-    let status: ShiftStatus
-    let liveHours: Double
-
-    private var elapsed: String {
-        let secs = max(0, Int(liveHours * 3600))
-        return String(format: "%d:%02d:%02d", secs / 3600, (secs % 3600) / 60, secs % 60)
-    }
-
-    var body: some View {
-        HStack(spacing: 12) {
-            IconChip(icon: .hours,
-                     color: Color(hex: status == .offline ? T.muted : T.accentGradientStart))
-            VStack(alignment: .leading, spacing: 4) {
-                Text(status == .offline ? "Not clocked in" : "This shift")
-                    .font(TTypo.smBold(14))
-                    .foregroundStyle(Color(hex: T.ink))
-                HStack(spacing: 8) {
-                    TagPill(label: status.label, kind: status.kind, dot: status.dot)
-                    if status != .offline {
-                        Text(elapsed)
-                            .font(TTypo.monoBold(13))
-                            .foregroundStyle(Color(hex: T.ink))
-                            .tnum()
-                    }
-                }
-            }
-            Spacer(minLength: 8)
-        }
-        .padding(14)
-        .frostedCard()
     }
 }
 
@@ -373,18 +344,23 @@ private struct SuggestedJobCard: View {
     let onJump: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(spacing: 12) {
+            // Task pills and job name both start at the leading edge, matching the
+            // other Home cards. The CTA below stays full-width.
             HStack(spacing: 8) {
                 TagPill(label: task.title.uppercased(), kind: .indigo)
                 TagPill(label: isActive ? "Active" : "Up next",
                         kind: isActive ? .indigo : .green, dot: isActive)
-                Spacer(minLength: 0)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
             Text(task.job.title.isEmpty ? task.title : task.job.title)
                 .font(.custom(TFontName.bold.rawValue, size: 20))
                 .foregroundStyle(Color(hex: T.ink))
                 .lineLimit(1)
-            GradientCTA(verticalPadding: 12, action: onJump) {
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            GradientCTA(glass: true, verticalPadding: 12, action: onJump) {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.forward")
                     Text(isActive ? "Go to your job" : "Jump to job")
@@ -392,7 +368,7 @@ private struct SuggestedJobCard: View {
                 }
             }
         }
-        .padding(16)
+        .padding(T.insetHero)
         .frostedCard()
     }
 }

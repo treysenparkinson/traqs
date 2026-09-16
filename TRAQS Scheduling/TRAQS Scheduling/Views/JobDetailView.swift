@@ -1,7 +1,26 @@
 import SwiftUI
 
+// MARK: - Job detail — the pushed screen. NO LONGER REACHABLE.
+//
+// A job's details open as a read-only popup now (JobDetailPopup), so nothing
+// navigates here any more: the `navigationDestination(for: Job.self)` that fed
+// it is gone from JobsHubView (and from the Approval Queue, now removed).
+//
+// Kept rather than deleted, on purpose. This file holds the ONLY iOS
+// implementation of several things the popup deliberately dropped — Edit
+// (JobEditView), Delete, per-panel and per-op Reschedule (RescheduleSheet), the
+// op-level team picker, the engineering sign-off buttons (EngStepButton, with
+// its Undo), and Request Finish, which is the only caller anywhere of
+// `timeclockFinishRequest`. Re-attaching any of them means wiring a destination
+// back up, not writing them again.
+//
+// `progressFill` also lives here and IS still used — ScheduleJobSheet and
+// JobDetailPopup both call it. Moving or deleting this file has to take that
+// with it.
+
 struct JobDetailView: View {
     @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
     /// Frozen snapshot pushed onto the NavigationStack path — seed/fallback only.
     private let seedJob: Job
     /// When set (e.g. arrived via a Schedule block), highlight + auto-expand this panel.
@@ -27,6 +46,11 @@ struct JobDetailView: View {
 
     var client: Client? { appState.client(for: job) }
 
+    /// May the current user edit or delete this job? Mirrors JobEditView.canEditDeps.
+    private var canManageJob: Bool {
+        appState.can(.editJobs)
+    }
+
     /// Department tag styling for this job, mapped to a bright revamp pill kind.
     private var dept: (label: String, kind: TagKind) {
         let key = (job.jobType ?? "").lowercased()
@@ -41,7 +65,7 @@ struct JobDetailView: View {
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             ScrollViewReader { proxy in
             ScrollView {
@@ -52,7 +76,7 @@ struct JobDetailView: View {
                         HStack(spacing: 10) {
                             TagPill(label: dept.label, kind: dept.kind)
                             Spacer()
-                            StatusBadge(status: job.status)
+                            JobStatusBadge(job: job)
                         }
 
                         Text(job.title)
@@ -86,7 +110,7 @@ struct JobDetailView: View {
                         }
                         .padding(.top, 2)
                     }
-                    .padding(18)
+                    .padding(T.insetHero)
                     .frostedCard(radius: T.cornerHero)
 
                     // Info grid
@@ -142,15 +166,20 @@ struct JobDetailView: View {
         #endif
         .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
+        // Editing/deleting a job is admin (or explicit editJobs permission) only —
+        // same gate JobEditView uses for its dependency editor. Without this any
+        // worker could delete any job from its detail screen.
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Edit") { showEdit = true }
-                    .foregroundColor(Color(hex: T.accentGradientStart))
-            }
-            ToolbarItem {
-                Button(role: .destructive) { showDeleteConfirm = true } label: {
-                    Image(systemName: "trash")
-                        .foregroundColor(Color(hex: T.red))
+            if canManageJob {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Edit") { showEdit = true }
+                        .foregroundColor(Color(hex: T.accentGradientStart))
+                }
+                ToolbarItem {
+                    Button(role: .destructive) { showDeleteConfirm = true } label: {
+                        Image(systemName: "trash")
+                            .foregroundColor(Color(hex: T.red))
+                    }
                 }
             }
         }
@@ -160,6 +189,10 @@ struct JobDetailView: View {
         .confirmationDialog("Delete \(job.title)?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
             Button("Delete Job", role: .destructive) {
                 appState.deleteJob(id: job.id)
+                // Pop back — the job is gone, so this screen would otherwise sit
+                // on a stale seedJob fallback with a live Edit button that could
+                // resurrect the deleted job on Save.
+                dismiss()
             }
         }
     }
@@ -220,7 +253,7 @@ struct InfoCell: View {
             }
             Spacer()
         }
-        .padding(12)
+        .padding(T.insetMd)
         .frostedCard(radius: T.cornerMd)
     }
 }
@@ -238,6 +271,7 @@ struct PanelCard: View {
     var highlightOpId: String? = nil
 
     @State private var isExpanded = false
+    @State private var showReschedule = false
 
     var eng: Engineering? { panel.engineering }
 
@@ -301,6 +335,11 @@ struct PanelCard: View {
                 if appState.currentPerson?.isEngineer == true || appState.currentPerson?.isAdmin == true {
                     EngSignOffRow(job: job, panel: panel)
                 }
+                // End-of-job photos uploaded via PanelPhotoSheet.
+                if !panel.attachments.isEmpty {
+                    SLine()
+                    PanelAttachmentGallery(attachments: panel.attachments)
+                }
             }
         }
         .background(
@@ -312,8 +351,7 @@ struct PanelCard: View {
             RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).strokeBorder(
                 highlighted
                     ? AnyShapeStyle(Color(hex: T.sky))
-                    : AnyShapeStyle(LinearGradient(colors: [Color(hex: T.highlightStroke).opacity(0.55), .clear],
-                                                   startPoint: .top, endPoint: .bottom)),
+                    : AnyShapeStyle(Color(hex: T.border)),
                 lineWidth: highlighted ? 1.5 : 1)
         )
         .compositingGroup()
@@ -322,6 +360,19 @@ struct PanelCard: View {
                 x: 0, y: highlighted ? T.skyShadowY : T.ambientShadowY)
         .onAppear {
             if highlighted { isExpanded = true }
+        }
+        // Long-press the panel card to move the whole panel. Tapping the card
+        // already toggles expansion, so a press is the free gesture here.
+        .contextMenu {
+            if appState.can(.moveJobs) {
+                Button { showReschedule = true } label: {
+                    Label("Reschedule panel", systemImage: "calendar")
+                }
+            }
+        }
+        .sheet(isPresented: $showReschedule) {
+            RescheduleSheet(title: panel.title, jobId: job.id, unitId: panel.id,
+                            currentStart: panel.start, currentEnd: panel.end)
         }
     }
 
@@ -336,9 +387,27 @@ struct PanelCard: View {
 
 struct OperationRow: View {
     @Environment(AppState.self) private var appState
+    @State private var showTeamPicker = false
+    @State private var showReschedule = false
     let op: Operation
     let job: Job
     let panel: Panel
+
+    /// Reassign this op's crew.
+    ///
+    /// Deliberately NOT wrapped in performOptimistic. Job writes already carry
+    /// their own optimistic rollback: updateJobs snapshots into rollbackSnapshot
+    /// and persistJobs restores it if the save fails (AppState persistJobs catch).
+    /// performOptimistic wants a throwing serverCall to await, but job saves are
+    /// debounced and non-throwing — wrapping this would add a second, racing
+    /// rollback on top of the one that already works.
+    private func assignTeam(_ ids: Set<String>) {
+        var next = job
+        guard let pi = next.subs.firstIndex(where: { $0.id == panel.id }),
+              let oi = next.subs[pi].subs.firstIndex(where: { $0.id == op.id }) else { return }
+        next.subs[pi].subs[oi].team = Array(ids)
+        appState.updateJob(next)
+    }
     var highlighted: Bool = false
 
     private var allOps: [Operation] { job.subs.flatMap { $0.subs } }
@@ -384,20 +453,43 @@ struct OperationRow: View {
                     }
                     // Op-level hours-weighted progress (logged ÷ est.hpd).
                     let oPct = appState.opPct(op)
+                    let oOver = appState.isPctOverdue(oPct)
                     HStack(spacing: 6) {
-                        Bar(pct: Double(oPct), height: 5, gradient: T.brandGradient())
+                        Bar(pct: Double(oPct), height: 5,
+                            fill: Color(hex: T.amber),
+                            gradient: oOver ? nil : T.brandGradient())
                             .frame(maxWidth: 100)
                         Text("\(oPct)%")
                             .font(TTypo.monoBold(10)).tnum()
-                            .foregroundStyle(Color(hex: T.accentGradientStart))
+                            .foregroundStyle(Color(hex: oOver ? T.amber : T.accentGradientStart))
                     }
                     .padding(.top, 2)
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 6) {
-                    Text(op.team.compactMap { appState.person(id: $0)?.name }.joined(separator: ", "))
-                        .font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted))
-                        .lineLimit(1)
+                    // There is no op-level detail screen, so the crew line on the
+                    // card doubles as the editor when the user may reassign.
+                    if appState.can(.reassign) {
+                        Button { showTeamPicker = true } label: {
+                            HStack(spacing: 4) {
+                                Text(op.team.isEmpty
+                                     ? "Assign"
+                                     : op.team.compactMap { appState.person(id: $0)?.name }.joined(separator: ", "))
+                                    .font(TTypo.xs(11))
+                                    .foregroundStyle(Color(hex: op.team.isEmpty ? T.accent : T.muted))
+                                    .lineLimit(1)
+                                Image(systemName: "pencil")
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundStyle(Color(hex: T.muted))
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Text(op.team.compactMap { appState.person(id: $0)?.name }.joined(separator: ", "))
+                            .font(TTypo.xs(11)).foregroundStyle(Color(hex: T.muted))
+                            .lineLimit(1)
+                    }
                     if appState.clockedInPersonId != nil && op.pendingFinish != true {
                         Button {
                             Task {
@@ -429,6 +521,24 @@ struct OperationRow: View {
             }
         }
         .opacity(depsBlocked ? 0.55 : 1.0)
+        .sheet(isPresented: $showTeamPicker) {
+            TeamPicker(title: op.title, initial: op.team) { picked in
+                assignTeam(picked)
+            }
+        }
+        // Long-press to reschedule — an explicit button would crowd a row that
+        // already carries status, hours, crew and a clock action.
+        .contextMenu {
+            if appState.can(.moveJobs) {
+                Button { showReschedule = true } label: {
+                    Label("Reschedule", systemImage: "calendar")
+                }
+            }
+        }
+        .sheet(isPresented: $showReschedule) {
+            RescheduleSheet(title: op.title, jobId: job.id, unitId: op.id,
+                            currentStart: op.start, currentEnd: op.end)
+        }
     }
 }
 

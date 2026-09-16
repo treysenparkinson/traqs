@@ -9,6 +9,24 @@ extension KeyedDecodingContainer {
         return String(try decode(Int.self, forKey: key))
     }
 
+    /// Optional sibling of `decodeFlexID`: nil when the key is absent, null, or
+    /// holds neither a String nor an Int.
+    ///
+    /// Its absence is why every OPTIONAL id in this file was written as
+    /// `try? decodeIfPresent(String.self, …)`, which looks tolerant and is not:
+    /// a numeric id doesn't decode as a String, it THROWS, and the `try?` turns
+    /// that into a silent nil. The field then reads as "no such id" rather than
+    /// as the id it plainly is — see `Message.jobId`, where it cost the chat's
+    /// Approve/Deny buttons.
+    ///
+    /// Strictly more permissive than the strict decode it replaces: everything
+    /// that decoded before still decodes, plus Ints.
+    func decodeFlexIDIfPresent(forKey key: Key) -> String? {
+        if let s = try? decode(String.self, forKey: key) { return s }
+        if let i = try? decode(Int.self, forKey: key) { return String(i) }
+        return nil
+    }
+
     /// Decodes an array where each element may be String or Int, returning [String].
     func decodeFlexIDs(forKey key: Key) -> [String] {
         if let arr = try? decode([String].self, forKey: key) { return arr }
@@ -98,16 +116,47 @@ struct Operation: Codable, Identifiable, Equatable {
     var moveLog: [MoveLogEntry]?
     var pid: String?
     var pendingFinish: Bool?
+    /// Completion requests raised against THIS op.
+    ///
+    /// The web writes `finishRequest`/`finishRequests` onto the item that was
+    /// actually requested, at whatever depth it sits (`addFinishReq` in
+    /// TRAQS.jsx matches `item.id === itemId` recursively). Modelling them only
+    /// on `Job` meant every task-level request was invisible to iOS — the chat
+    /// card could not learn it was pending, so it offered no Approve/Deny and no
+    /// Undo — AND was silently STRIPPED whenever iOS saved the job, since
+    /// Codable's synthesised encode only writes what the struct models.
+    var finishRequest: FinishRequestStamp?
+    var finishRequests: [FinishRequestEntry]?
     /// Hours logged against this operation — written by the desktop's
     /// `jobClockOut` handler each time someone stops their timer on this op.
     var loggedHours: Double?
 
+    /// Everything the web writes on an op that this struct does not name —
+    /// `color`, `qty`, `startHour`/`endHour`, `requiredDepartment`,
+    /// `requiredRole`, `depsMode`, `placedSubs`. See `JSONExtras`: without it
+    /// they are destroyed the first time Swift saves the job.
+    var extras = JSONExtras()
+
+    /// Spelled out because `extras` must NOT be one of them — it is written by
+    /// hand in `encode(to:)` and would otherwise appear on the wire as a nested
+    /// `"extras"` object. `CaseIterable` gives `encode` the key set to exclude
+    /// when capturing, so adding a property here can never silently start
+    /// double-writing it.
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case id, title, start, end, status, pri, team, hpd, notes, deps
+        case locked, moveLog, pid, pendingFinish
+        case finishRequest, finishRequests, loggedHours
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        id     = try c.decode(String.self, forKey: .id)
-        title  = try c.decode(String.self, forKey: .title)
-        start  = try c.decode(String.self, forKey: .start)
-        end    = try c.decode(String.self, forKey: .end)
+        extras = JSONExtras(from: decoder, known: Self.knownKeys)
+        // Lenient: flex-decode the id and default title/start/end so one malformed
+        // op can't throw and drop ALL sibling ops (subs is decoded via try?).
+        id     = (try? c.decodeFlexID(forKey: .id)) ?? ""
+        title  = (try? c.decode(String.self, forKey: .title)) ?? ""
+        start  = (try? c.decode(String.self, forKey: .start)) ?? ""
+        end    = (try? c.decode(String.self, forKey: .end)) ?? ""
         status = (try? c.decode(JobStatus.self, forKey: .status)) ?? .notStarted
         pri    = (try? c.decode(Priority.self, forKey: .pri)) ?? .medium
         team   = c.decodeFlexIDs(forKey: .team)
@@ -116,10 +165,42 @@ struct Operation: Codable, Identifiable, Equatable {
         deps   = (try? c.decode([String].self, forKey: .deps)) ?? []
         locked       = try? c.decodeIfPresent(Bool.self, forKey: .locked)
         moveLog      = try? c.decodeIfPresent([MoveLogEntry].self, forKey: .moveLog)
-        pid          = try? c.decodeIfPresent(String.self, forKey: .pid)
+        pid          = c.decodeFlexIDIfPresent(forKey: .pid)
         pendingFinish = try? c.decodeIfPresent(Bool.self, forKey: .pendingFinish)
+        finishRequest  = try? c.decodeIfPresent(FinishRequestStamp.self, forKey: .finishRequest)
+        finishRequests = try? c.decodeIfPresent([FinishRequestEntry].self, forKey: .finishRequests)
         loggedHours  = try? c.decodeIfPresent(Double.self, forKey: .loggedHours)
     }
+
+    /// Written by hand rather than synthesised, so the captured keys can go out
+    /// with the modelled ones. `extras` FIRST — see `JSONExtras.encode`.
+    func encode(to encoder: Encoder) throws {
+        try extras.encode(to: encoder)
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(title, forKey: .title)
+        try c.encode(start, forKey: .start)
+        try c.encode(end, forKey: .end)
+        try c.encode(status, forKey: .status)
+        try c.encode(pri, forKey: .pri)
+        try c.encode(team, forKey: .team)
+        try c.encode(hpd, forKey: .hpd)
+        try c.encode(notes, forKey: .notes)
+        try c.encode(deps, forKey: .deps)
+        // `encodeIfPresent` throughout for the optionals: writing an explicit
+        // null where the web wrote nothing is a change to the record, and
+        // `pendingFinish: null` reads as "not pending" to some of its checks and
+        // as "present" to others.
+        try c.encodeIfPresent(locked, forKey: .locked)
+        try c.encodeIfPresent(moveLog, forKey: .moveLog)
+        try c.encodeIfPresent(pid, forKey: .pid)
+        try c.encodeIfPresent(pendingFinish, forKey: .pendingFinish)
+        try c.encodeIfPresent(finishRequest, forKey: .finishRequest)
+        try c.encodeIfPresent(finishRequests, forKey: .finishRequests)
+        try c.encodeIfPresent(loggedHours, forKey: .loggedHours)
+    }
+
+    static var knownKeys: Set<String> { Set(CodingKeys.allCases.map(\.rawValue)) }
 
     static func == (lhs: Operation, rhs: Operation) -> Bool { lhs.id == rhs.id }
 }
@@ -155,10 +236,10 @@ struct PanelAttachment: Codable, Identifiable, Equatable {
         filename       = (try? c.decode(String.self, forKey: .filename)) ?? ""
         mimeType       = try? c.decodeIfPresent(String.self, forKey: .mimeType)
         size           = try? c.decodeIfPresent(Int.self, forKey: .size)
-        uploadedById   = try? c.decodeIfPresent(String.self, forKey: .uploadedById)
+        uploadedById   = c.decodeFlexIDIfPresent(forKey: .uploadedById)
         uploadedByName = try? c.decodeIfPresent(String.self, forKey: .uploadedByName)
         uploadedAt     = try? c.decodeIfPresent(String.self, forKey: .uploadedAt)
-        opId           = try? c.decodeIfPresent(String.self, forKey: .opId)
+        opId           = c.decodeFlexIDIfPresent(forKey: .opId)
     }
 }
 
@@ -180,13 +261,37 @@ struct Panel: Codable, Identifiable, Equatable {
     /// Photos / files attached to this panel (e.g. the clock-out photo of the
     /// finished panel). Mirrors the web app's `panel.attachments`.
     var attachments: [PanelAttachment] = []
+    /// Completion requests raised against THIS panel — see `Operation.finishRequests`
+    /// for why they have to be modelled here and not only on `Job`.
+    var pendingFinish: Bool?
+    var finishRequest: FinishRequestStamp?
+    var finishRequests: [FinishRequestEntry]?
+
+    /// The twelve fields the web writes on a panel that this struct does not
+    /// name, and the reason `JSONExtras` exists at all: `apprChain`, `signOffs`,
+    /// `apprLog` and `apprComments` — the whole approval system — plus
+    /// `depsMode`, `requiredDepartment`, `color`, `qty`, `startHour`, `endHour`,
+    /// `dateOverridden` and `moveLog`.
+    ///
+    /// Every one of them used to be destroyed the first time anyone edited a cell
+    /// in the Mac or iOS app.
+    var extras = JSONExtras()
+
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case id, title, start, end, status, pri, team, hpd, notes, deps
+        case engineering, subs, attachments
+        case pendingFinish, finishRequest, finishRequests
+    }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        id          = try c.decode(String.self, forKey: .id)
-        title       = try c.decode(String.self, forKey: .title)
-        start       = try c.decode(String.self, forKey: .start)
-        end         = try c.decode(String.self, forKey: .end)
+        extras = JSONExtras(from: decoder, known: Self.knownKeys)
+        // Lenient: flex-decode id, default title/start/end so one malformed panel
+        // can't drop every sibling panel on the job (subs decoded via try?).
+        id          = (try? c.decodeFlexID(forKey: .id)) ?? ""
+        title       = (try? c.decode(String.self, forKey: .title)) ?? ""
+        start       = (try? c.decode(String.self, forKey: .start)) ?? ""
+        end         = (try? c.decode(String.self, forKey: .end)) ?? ""
         status      = (try? c.decode(JobStatus.self, forKey: .status)) ?? .notStarted
         pri         = (try? c.decode(Priority.self, forKey: .pri)) ?? .medium
         team        = c.decodeFlexIDs(forKey: .team)
@@ -196,7 +301,33 @@ struct Panel: Codable, Identifiable, Equatable {
         engineering = try? c.decodeIfPresent(Engineering.self, forKey: .engineering)
         subs        = (try? c.decode([Operation].self, forKey: .subs)) ?? []
         attachments = (try? c.decode([PanelAttachment].self, forKey: .attachments)) ?? []
+        pendingFinish  = try? c.decodeIfPresent(Bool.self, forKey: .pendingFinish)
+        finishRequest  = try? c.decodeIfPresent(FinishRequestStamp.self, forKey: .finishRequest)
+        finishRequests = try? c.decodeIfPresent([FinishRequestEntry].self, forKey: .finishRequests)
     }
+
+    func encode(to encoder: Encoder) throws {
+        try extras.encode(to: encoder)
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(title, forKey: .title)
+        try c.encode(start, forKey: .start)
+        try c.encode(end, forKey: .end)
+        try c.encode(status, forKey: .status)
+        try c.encode(pri, forKey: .pri)
+        try c.encode(team, forKey: .team)
+        try c.encode(hpd, forKey: .hpd)
+        try c.encode(notes, forKey: .notes)
+        try c.encode(deps, forKey: .deps)
+        try c.encode(subs, forKey: .subs)
+        try c.encode(attachments, forKey: .attachments)
+        try c.encodeIfPresent(engineering, forKey: .engineering)
+        try c.encodeIfPresent(pendingFinish, forKey: .pendingFinish)
+        try c.encodeIfPresent(finishRequest, forKey: .finishRequest)
+        try c.encodeIfPresent(finishRequests, forKey: .finishRequests)
+    }
+
+    static var knownKeys: Set<String> { Set(CodingKeys.allCases.map(\.rawValue)) }
 
     static func == (lhs: Panel, rhs: Panel) -> Bool { lhs.id == rhs.id }
 }
@@ -210,6 +341,18 @@ struct FinishRequestStamp: Codable, Equatable {
     var by: String
     var byName: String
     var at: String
+    init(requestId: String, by: String, byName: String, at: String) {
+        self.requestId = requestId; self.by = by; self.byName = byName; self.at = at
+    }
+    // Defensive decode: `by` can be a numeric person id. Decoded via try? on Job,
+    // so a strict throw silently lost the pending finish stamp.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        requestId = (try? c.decode(String.self, forKey: .requestId)) ?? ""
+        by        = (try? c.decodeFlexID(forKey: .by)) ?? ""
+        byName    = (try? c.decode(String.self, forKey: .byName)) ?? ""
+        at        = (try? c.decode(String.self, forKey: .at)) ?? ""
+    }
 }
 
 /// One entry in a job's `finishRequests` history (mirrors the web shape). Status:
@@ -224,6 +367,27 @@ struct FinishRequestEntry: Codable, Equatable, Identifiable {
     var resolvedByName: String?
     var resolvedAt: String?
     var declineReason: String?
+    init(id: String, by: String, byName: String, at: String, status: String,
+         resolvedBy: String? = nil, resolvedByName: String? = nil,
+         resolvedAt: String? = nil, declineReason: String? = nil) {
+        self.id = id; self.by = by; self.byName = byName; self.at = at; self.status = status
+        self.resolvedBy = resolvedBy; self.resolvedByName = resolvedByName
+        self.resolvedAt = resolvedAt; self.declineReason = declineReason
+    }
+    // Defensive decode: id/by may be numeric, and a missing `status` shouldn't
+    // drop the whole finish-request history (decoded via try? [FinishRequestEntry]).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id             = (try? c.decodeFlexID(forKey: .id)) ?? ""
+        by             = (try? c.decodeFlexID(forKey: .by)) ?? ""
+        byName         = (try? c.decode(String.self, forKey: .byName)) ?? ""
+        at             = (try? c.decode(String.self, forKey: .at)) ?? ""
+        status         = (try? c.decode(String.self, forKey: .status)) ?? "pending"
+        resolvedBy     = try? c.decodeIfPresent(String.self, forKey: .resolvedBy)
+        resolvedByName = try? c.decodeIfPresent(String.self, forKey: .resolvedByName)
+        resolvedAt     = try? c.decodeIfPresent(String.self, forKey: .resolvedAt)
+        declineReason  = try? c.decodeIfPresent(String.self, forKey: .declineReason)
+    }
 }
 
 // MARK: - Job (Level 0)
@@ -253,12 +417,28 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
     var finishRequest: FinishRequestStamp?
     var finishRequests: [FinishRequestEntry]?
 
+    /// What the web writes on a job that this struct does not name —
+    /// `requiredDepartment`, `createdAt`, `scheduledLater`, `customOps`, and
+    /// CRITICALLY the custom-column values, which are stored under dynamic
+    /// `_cc_<uuid>` keys that no static struct can describe. See `JSONExtras`.
+    var extras = JSONExtras()
+
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case id, title, jobNumber, poNumber, start, end, dueDate
+        case status, pri, team, color, hpd, notes, clientId, deps, subs
+        case moveLog, jobType, loggedHours, projectManagerId
+        case finishRequest, finishRequests
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        id        = try c.decode(String.self, forKey: .id)
-        title     = try c.decode(String.self, forKey: .title)
-        start     = try c.decode(String.self, forKey: .start)
-        end       = try c.decode(String.self, forKey: .end)
+        extras = JSONExtras(from: decoder, known: Self.knownKeys)
+        // Lenient: flex-decode id, default title/start/end so one malformed job
+        // can't abort the whole [Job] decode (which would blank every job).
+        id        = (try? c.decodeFlexID(forKey: .id)) ?? ""
+        title     = (try? c.decode(String.self, forKey: .title)) ?? ""
+        start     = (try? c.decode(String.self, forKey: .start)) ?? ""
+        end       = (try? c.decode(String.self, forKey: .end)) ?? ""
         status    = (try? c.decode(JobStatus.self, forKey: .status)) ?? .notStarted
         pri       = (try? c.decode(Priority.self, forKey: .pri)) ?? .medium
         team      = c.decodeFlexIDs(forKey: .team)
@@ -267,10 +447,10 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
         notes     = (try? c.decode(String.self, forKey: .notes)) ?? ""
         deps      = (try? c.decode([String].self, forKey: .deps)) ?? []
         subs      = (try? c.decode([Panel].self, forKey: .subs)) ?? []
-        jobNumber = try? c.decodeIfPresent(String.self, forKey: .jobNumber)
+        jobNumber = c.decodeFlexIDIfPresent(forKey: .jobNumber)
         poNumber  = try? c.decodeIfPresent(String.self, forKey: .poNumber)
         dueDate   = try? c.decodeIfPresent(String.self, forKey: .dueDate)
-        clientId  = try? c.decodeIfPresent(String.self, forKey: .clientId)
+        clientId  = c.decodeFlexIDIfPresent(forKey: .clientId)
         moveLog   = try? c.decodeIfPresent([MoveLogEntry].self, forKey: .moveLog)
         jobType   = try? c.decodeIfPresent(String.self, forKey: .jobType)
         loggedHours = try? c.decodeIfPresent(Double.self, forKey: .loggedHours)
@@ -297,6 +477,35 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
         self.finishRequest = finishRequest; self.finishRequests = finishRequests
     }
 
+    func encode(to encoder: Encoder) throws {
+        try extras.encode(to: encoder)
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(title, forKey: .title)
+        try c.encode(start, forKey: .start)
+        try c.encode(end, forKey: .end)
+        try c.encode(status, forKey: .status)
+        try c.encode(pri, forKey: .pri)
+        try c.encode(team, forKey: .team)
+        try c.encode(color, forKey: .color)
+        try c.encode(hpd, forKey: .hpd)
+        try c.encode(notes, forKey: .notes)
+        try c.encode(deps, forKey: .deps)
+        try c.encode(subs, forKey: .subs)
+        try c.encodeIfPresent(jobNumber, forKey: .jobNumber)
+        try c.encodeIfPresent(poNumber, forKey: .poNumber)
+        try c.encodeIfPresent(dueDate, forKey: .dueDate)
+        try c.encodeIfPresent(clientId, forKey: .clientId)
+        try c.encodeIfPresent(moveLog, forKey: .moveLog)
+        try c.encodeIfPresent(jobType, forKey: .jobType)
+        try c.encodeIfPresent(loggedHours, forKey: .loggedHours)
+        try c.encodeIfPresent(projectManagerId, forKey: .projectManagerId)
+        try c.encodeIfPresent(finishRequest, forKey: .finishRequest)
+        try c.encodeIfPresent(finishRequests, forKey: .finishRequests)
+    }
+
+    static var knownKeys: Set<String> { Set(CodingKeys.allCases.map(\.rawValue)) }
+
     static func == (lhs: Job, rhs: Job) -> Bool { lhs.id == rhs.id }
 
     var displayNumber: String {
@@ -306,26 +515,60 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
 
 // MARK: - Admin Permissions
 
+/// The granular admin toggles, mirroring the web's `adminPerms` object.
+///
+/// A missing key decodes to `false`, which is what makes an admin created with
+/// an empty `{}` hold no permissions until toggles are switched on. A *nil*
+/// AdminPerms on Person is different and means UNRESTRICTED — see `Person.can`.
+///
+/// `lockJobs` was removed: it had no lock UI on any surface and no call sites,
+/// so it was retired rather than left as a switch that gated nothing. An older
+/// payload carrying the key simply decodes without it.
 struct AdminPerms: Codable, Equatable {
     var editJobs: Bool
     var moveJobs: Bool
     var reassign: Bool
-    var lockJobs: Bool
     var manageTeam: Bool
     var manageClients: Bool
     var undoHistory: Bool
     var orgSettings: Bool
+    var approveCompletions: Bool
+    var approveTimeOff: Bool
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         editJobs      = (try? c.decode(Bool.self, forKey: .editJobs)) ?? false
         moveJobs      = (try? c.decode(Bool.self, forKey: .moveJobs)) ?? false
         reassign      = (try? c.decode(Bool.self, forKey: .reassign)) ?? false
-        lockJobs      = (try? c.decode(Bool.self, forKey: .lockJobs)) ?? false
         manageTeam    = (try? c.decode(Bool.self, forKey: .manageTeam)) ?? false
         manageClients = (try? c.decode(Bool.self, forKey: .manageClients)) ?? false
         undoHistory   = (try? c.decode(Bool.self, forKey: .undoHistory)) ?? false
         orgSettings   = (try? c.decode(Bool.self, forKey: .orgSettings)) ?? false
+        // Added after granular perms shipped and previously ungated, so a record
+        // without the key must still be GRANTED — default true, not false.
+        approveCompletions = (try? c.decode(Bool.self, forKey: .approveCompletions)) ?? true
+        approveTimeOff     = (try? c.decode(Bool.self, forKey: .approveTimeOff)) ?? true
+    }
+
+    /// Key-path lookup so `can(.editJobs)` reads the same as the web's
+    /// `can("editJobs")` rather than needing a switch at every call site.
+    enum Key: String, CaseIterable {
+        case editJobs, moveJobs, reassign, manageTeam, manageClients, undoHistory, orgSettings
+        case approveCompletions, approveTimeOff
+    }
+
+    subscript(key: Key) -> Bool {
+        switch key {
+        case .editJobs:      return editJobs
+        case .moveJobs:      return moveJobs
+        case .reassign:      return reassign
+        case .manageTeam:    return manageTeam
+        case .manageClients: return manageClients
+        case .undoHistory:   return undoHistory
+        case .orgSettings:   return orgSettings
+        case .approveCompletions: return approveCompletions
+        case .approveTimeOff:     return approveTimeOff
+        }
     }
 }
 
@@ -337,6 +580,18 @@ struct TimeOffEntry: Codable, Identifiable {
     var end: String
     var type: String   // "PTO" | "UTO"
     var reason: String?
+    init(start: String, end: String, type: String, reason: String? = nil) {
+        self.start = start; self.end = end; self.type = type; self.reason = reason
+    }
+    // Defensive decode so one malformed entry can't drop a person's whole timeOff
+    // array (decoded via try? [TimeOffEntry] on Person).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        start  = (try? c.decode(String.self, forKey: .start)) ?? ""
+        end    = (try? c.decode(String.self, forKey: .end)) ?? ""
+        type   = (try? c.decode(String.self, forKey: .type)) ?? "PTO"
+        reason = try? c.decodeIfPresent(String.self, forKey: .reason)
+    }
 }
 
 // MARK: - Time Clock
@@ -344,11 +599,30 @@ struct TimeOffEntry: Codable, Identifiable {
 struct ClockEvent: Codable, Equatable {
     var type: String   // "lunchStart" | "lunchEnd" | "breakStart" | "breakEnd"
     var ts: String     // ISO8601
+    init(type: String, ts: String) { self.type = type; self.ts = ts }
+    // Defensive decode so one malformed event can't drop the whole events array
+    // (decoded via try? [ClockEvent] inside ActiveClockIn).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        type = (try? c.decode(String.self, forKey: .type)) ?? ""
+        ts   = (try? c.decode(String.self, forKey: .ts)) ?? ""
+    }
 }
 
 struct JobRef: Codable, Equatable {
     var jobId: String
     var jobName: String
+    init(jobId: String, jobName: String) { self.jobId = jobId; self.jobName = jobName }
+    // Defensive decode: the web stores some ids as Int. A strict `String` decode
+    // would throw, and because JobRef is decoded inside `[JobRef]` (try? → nil),
+    // one numeric jobId silently emptied a clocked-in worker's ENTIRE job list
+    // (and could null out the whole ActiveClockIn). Flex-decode the id + default
+    // the name so a single odd element never drops the rest.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        jobId   = (try? c.decodeFlexID(forKey: .jobId)) ?? ""
+        jobName = (try? c.decode(String.self, forKey: .jobName)) ?? ""
+    }
 }
 
 struct ActiveClockIn: Codable, Equatable {
@@ -557,13 +831,19 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
     var id: String
     var name: String
     var role: String
+    /// `secondaryDepartment` — the backup department this person can cover.
+    ///
+    /// Read for scheduling: `personDeptMatch` ranks a primary match above a
+    /// secondary one and offers both, so a department's backup crew is
+    /// schedulable when its own people are busy. Separate from `role`, which
+    /// carries the PRIMARY department (see its decode below).
+    var secondaryDepartment: String
     var email: String
     var cap: Double
     var color: String
     var userRole: String
     var adminPerms: AdminPerms?
     var isEngineer: Bool?
-    var isTeamLead: Bool?
     var autoSchedule: Bool?   // iOS toggle: false = excluded from AI scheduling
     var noAutoSchedule: Bool? // desktop's canonical flag: true = excluded (inverse of autoSchedule)
     var teamNumber: Int?
@@ -587,6 +867,27 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
     var canSignOff: Bool?
 
     var isAdmin: Bool { userRole == "admin" }
+
+    /// Granular permission check — the SAME rule the web applies:
+    ///
+    ///     isAdmin && (adminPerms == nil || adminPerms[key] == true)
+    ///
+    /// This used to be `isAdmin || adminPerms?.editJobs == true` at two call
+    /// sites, which is OR, not AND: every admin passed no matter which toggles
+    /// were off, and only editJobs was ever consulted. Restricting an admin on
+    /// the web changed nothing here.
+    ///
+    /// A nil `adminPerms` means unrestricted, covering legacy admins created
+    /// before the toggles existed. Matches the server's can() in _utils/can.js.
+    func can(_ key: AdminPerms.Key) -> Bool {
+        guard isAdmin else { return false }
+        guard let perms = adminPerms else { return true }
+        return perms[key]
+    }
+
+    /// Sign-off / approval rights. Independent of the admin toggles: a non-admin
+    /// with canSignOff, or an engineer, may approve work.
+    var canApproveWork: Bool { isAdmin || canSignOff == true || isEngineer == true }
     /// Salaried employees don't punch a clock (Hours page + clock-in are hidden).
     var isSalary: Bool { (payType ?? "hourly").lowercased() == "salary" }
     /// Eligible for auto-scheduling / availability checks. Honors BOTH conventions:
@@ -605,6 +906,11 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         let dept = (try? decoder.container(keyedBy: PersonRawKey.self))
             .flatMap { try? $0.decode(String.self, forKey: PersonRawKey("department")) } ?? ""
         role     = dept.isEmpty ? legacyRole : dept
+        // Same raw-key read as `department` above, and for the same reason: it
+        // is not in the legacy shape, so it has no synthesized key to decode
+        // from on an older record.
+        secondaryDepartment = (try? decoder.container(keyedBy: PersonRawKey.self))
+            .flatMap { try? $0.decode(String.self, forKey: PersonRawKey("secondaryDepartment")) } ?? ""
         email    = (try? c.decode(String.self, forKey: .email)) ?? ""
         cap      = (try? c.decode(Double.self, forKey: .cap)) ?? 8.0
         color    = (try? c.decode(String.self, forKey: .color)) ?? "#7c3aed"
@@ -612,7 +918,6 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
         timeOff  = (try? c.decode([TimeOffEntry].self, forKey: .timeOff)) ?? []
         adminPerms    = try? c.decodeIfPresent(AdminPerms.self, forKey: .adminPerms)
         isEngineer    = try? c.decodeIfPresent(Bool.self, forKey: .isEngineer)
-        isTeamLead    = try? c.decodeIfPresent(Bool.self, forKey: .isTeamLead)
         autoSchedule  = try? c.decodeIfPresent(Bool.self, forKey: .autoSchedule)
         noAutoSchedule = try? c.decodeIfPresent(Bool.self, forKey: .noAutoSchedule)
         teamNumber    = try? c.decodeIfPresent(Int.self, forKey: .teamNumber)
@@ -629,9 +934,10 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
     }
 
     // Explicit memberwise init (needed because init(from:) in struct body suppresses synthesis)
-    init(id: String, name: String, role: String, email: String, cap: Double,
+    init(id: String, name: String, role: String, secondaryDepartment: String = "",
+         email: String, cap: Double,
          color: String, userRole: String, adminPerms: AdminPerms? = nil,
-         isEngineer: Bool? = nil, isTeamLead: Bool? = nil,
+         isEngineer: Bool? = nil,
          autoSchedule: Bool? = nil, noAutoSchedule: Bool? = nil, teamNumber: Int? = nil,
          timeOff: [TimeOffEntry] = [], pushToken: String? = nil,
          activeClockIn: ActiveClockIn? = nil,
@@ -640,10 +946,12 @@ struct Person: Codable, Identifiable, Equatable, Hashable {
          hasPin: Bool? = nil,
          payType: String? = nil, phone: String? = nil, image: String? = nil,
          canClockInOut: Bool? = nil, canSignOff: Bool? = nil) {
-        self.id = id; self.name = name; self.role = role; self.email = email
+        self.id = id; self.name = name; self.role = role
+        self.secondaryDepartment = secondaryDepartment
+        self.email = email
         self.cap = cap; self.color = color; self.userRole = userRole
         self.adminPerms = adminPerms; self.isEngineer = isEngineer
-        self.isTeamLead = isTeamLead; self.autoSchedule = autoSchedule
+        self.autoSchedule = autoSchedule
         self.noAutoSchedule = noAutoSchedule
         self.teamNumber = teamNumber; self.timeOff = timeOff; self.pushToken = pushToken
         self.activeClockIn = activeClockIn
@@ -670,6 +978,26 @@ struct Client: Codable, Identifiable, Equatable, Hashable {
     var color: String
     var notes: String
 
+    init(id: String, name: String, contact: String, email: String,
+         phone: String, color: String, notes: String) {
+        self.id = id; self.name = name; self.contact = contact; self.email = email
+        self.phone = phone; self.color = color; self.notes = notes
+    }
+    // Defensive decode: JS routinely omits empty/undefined fields when
+    // serializing, and ids can arrive as Int. Strict synthesized Codable threw on
+    // the first missing key (e.g. a client with no phone/notes), which failed the
+    // ENTIRE clients list decode. Default every field + flex-decode the id.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id      = (try? c.decodeFlexID(forKey: .id)) ?? ""
+        name    = (try? c.decode(String.self, forKey: .name)) ?? ""
+        contact = (try? c.decode(String.self, forKey: .contact)) ?? ""
+        email   = (try? c.decode(String.self, forKey: .email)) ?? ""
+        phone   = (try? c.decode(String.self, forKey: .phone)) ?? ""
+        color   = (try? c.decode(String.self, forKey: .color)) ?? "#7c3aed"
+        notes   = (try? c.decode(String.self, forKey: .notes)) ?? ""
+    }
+
     static func == (lhs: Client, rhs: Client) -> Bool { lhs.id == rhs.id }
 }
 
@@ -681,6 +1009,18 @@ struct Attachment: Codable, Identifiable, Equatable {
     var filename: String
     var mimeType: String
     var size: Int
+    init(key: String, filename: String, mimeType: String, size: Int) {
+        self.key = key; self.filename = filename; self.mimeType = mimeType; self.size = size
+    }
+    // Defensive decode so a null/omitted `size` (or missing field) can't drop the
+    // whole `attachments` array on a message (decoded via try? [Attachment]).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        key      = (try? c.decode(String.self, forKey: .key)) ?? ""
+        filename = (try? c.decode(String.self, forKey: .filename)) ?? ""
+        mimeType = (try? c.decode(String.self, forKey: .mimeType)) ?? "application/octet-stream"
+        size     = (try? c.decode(Int.self, forKey: .size)) ?? 0
+    }
 }
 
 // MARK: - Message
@@ -734,9 +1074,20 @@ struct Message: Codable, Identifiable, Equatable {
         id             = try c.decode(String.self, forKey: .id)
         threadKey      = (try? c.decode(String.self, forKey: .threadKey)) ?? ""
         scope          = (try? c.decode(String.self, forKey: .scope)) ?? "job"
-        jobId          = try? c.decodeIfPresent(String.self, forKey: .jobId)
-        panelId        = try? c.decodeIfPresent(String.self, forKey: .panelId)
-        opId           = try? c.decodeIfPresent(String.self, forKey: .opId)
+        // Flex-decoded, and this is load-bearing. The web writes these
+        // straight off the job/panel/op (`jobId: parentJob.id` in TRAQS.jsx,
+        // `jobId, panelId, opId` in timeclock.js) WITHOUT the `String(…)` it
+        // applies to authorId, so a numeric job id arrives as a number. Decoded
+        // strictly, jobId came back nil, `jobs.first { $0.id == message.jobId }`
+        // never matched, and CompletionRequestBubble could not know the request
+        // was pending — so it rendered no Approve/Deny at all.
+        //
+        // panelId/opId matter for the same reason once level-by-level: they pick
+        // the SCOPE of the decision, so a numeric panelId silently downgraded a
+        // task-level approval into a job-level one.
+        jobId          = c.decodeFlexIDIfPresent(forKey: .jobId)
+        panelId        = c.decodeFlexIDIfPresent(forKey: .panelId)
+        opId           = c.decodeFlexIDIfPresent(forKey: .opId)
         text           = (try? c.decode(String.self, forKey: .text)) ?? ""
         authorId       = (try? c.decodeFlexID(forKey: .authorId)) ?? ""
         authorName     = (try? c.decode(String.self, forKey: .authorName)) ?? ""
@@ -745,13 +1096,13 @@ struct Message: Codable, Identifiable, Equatable {
         attachments    = (try? c.decode([Attachment].self, forKey: .attachments)) ?? []
         timestamp      = (try? c.decode(String.self, forKey: .timestamp)) ?? ""
         type             = try? c.decodeIfPresent(String.self, forKey: .type)
-        timeOffRequestId = try? c.decodeIfPresent(String.self, forKey: .timeOffRequestId)
+        timeOffRequestId = c.decodeFlexIDIfPresent(forKey: .timeOffRequestId)
         toType           = try? c.decodeIfPresent(String.self, forKey: .toType)
         toStart          = try? c.decodeIfPresent(String.self, forKey: .toStart)
         toEnd            = try? c.decodeIfPresent(String.self, forKey: .toEnd)
         toNote           = try? c.decodeIfPresent(String.self, forKey: .toNote)
         toPersonName     = try? c.decodeIfPresent(String.self, forKey: .toPersonName)
-        finishRequestId  = try? c.decodeIfPresent(String.self, forKey: .finishRequestId)
+        finishRequestId  = c.decodeFlexIDIfPresent(forKey: .finishRequestId)
     }
 }
 
@@ -761,9 +1112,19 @@ struct ChatGroup: Codable, Identifiable, Equatable {
     var id: String
     var name: String
     var memberIds: [String]
+    /// Who created the group. The desktop writes this (and createdAt) on every
+    /// group it creates, but iOS did not decode either — and since saveGroups is
+    /// a whole-array replace that the server stores verbatim (no field-level
+    /// merge), any group edited from iOS came back with the creator stripped.
+    /// Carried here so the round-trip is lossless AND so "only the creator or an
+    /// admin may rename/delete" has something to check.
+    var createdBy: String?
+    var createdAt: String?
 
-    init(id: String, name: String, memberIds: [String]) {
+    init(id: String, name: String, memberIds: [String],
+         createdBy: String? = nil, createdAt: String? = nil) {
         self.id = id; self.name = name; self.memberIds = memberIds
+        self.createdBy = createdBy; self.createdAt = createdAt
     }
 
     init(from decoder: Decoder) throws {
@@ -771,6 +1132,45 @@ struct ChatGroup: Codable, Identifiable, Equatable {
         id        = (try? c.decodeFlexID(forKey: .id)) ?? ""
         name      = (try? c.decode(String.self, forKey: .name)) ?? ""
         memberIds = c.decodeFlexIDs(forKey: .memberIds)
+        // Flex-decoded: person ids are mixed String/Int across the web app.
+        createdBy = (try? c.decodeFlexID(forKey: .createdBy))
+        createdAt = try? c.decodeIfPresent(String.self, forKey: .createdAt)
+    }
+}
+
+extension ChatGroup {
+    /// What to show for this group, ANYWHERE — thread list, thread header, pickers.
+    ///
+    /// Naming is optional and the web has historically created groups with no
+    /// `name` at all, so `name` decodes to "" far more often than not. Reading
+    /// `.name` directly is therefore a bug: it renders blank for most groups, and
+    /// callers that fell back to the thread key ended up showing a raw UUID.
+    /// Always come through here.
+    func displayName(people: [Person], myId: String?) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return trimmed }
+        return ChatGroup.memberNamesLine(memberIds: memberIds, people: people, myId: myId)
+    }
+
+    /// "Alice, Bob, Carol +4" — first names, in `memberIds` order, viewer excluded.
+    ///
+    /// Order follows memberIds rather than being sorted, so a group's title stays
+    /// put instead of reshuffling when somebody is renamed. `+N` counts the
+    /// remaining OTHERS (the viewer is dropped before counting), so a group of you
+    /// plus three shows three names and no suffix.
+    ///
+    /// Capped at three because the untruncated line runs wider than a thread row
+    /// and gets clipped mid-name, at which point groups stop being tellable apart.
+    static func memberNamesLine(memberIds: [String], people: [Person], myId: String?) -> String {
+        let names = memberIds
+            .filter { $0 != myId }
+            .compactMap { id in
+                people.first(where: { $0.id == id })?.name
+                    .split(separator: " ").first.map(String.init)
+            }
+        guard !names.isEmpty else { return "Group" }
+        if names.count <= 3 { return names.joined(separator: ", ") }
+        return names.prefix(3).joined(separator: ", ") + " +\(names.count - 3)"
     }
 }
 
@@ -834,6 +1234,21 @@ struct OrgSettings: Codable, Equatable {
     var lunch: OrgBreak
     var orgLogo: String?                  // org logo PNG (data URL) set on desktop; shown on the mobile sidebar
 
+    /// `orgSettings.customCols` (TRAQS.jsx:4902) — the Jobs grid's user-added
+    /// columns. ORG-WIDE, unlike column order/width/renames, which the web keeps
+    /// in localStorage per device.
+    var customCols: [JobsCustomColumn] = []
+
+    /// Everything else the web keeps in org settings and Swift does not model —
+    /// `conditions` (conditional formatting), `statusOpts`, `priOpts`,
+    /// `signOffTemplates`, and whatever comes next.
+    ///
+    /// Nothing writes org settings from Swift TODAY, so none of it is at risk
+    /// yet. It is here because the moment the Mac app saves a column, it would
+    /// be — and that is exactly how the job models lost their approval chains.
+    /// See `JSONExtras`.
+    var extras = JSONExtras()
+
     static var `default`: OrgSettings {
         OrgSettings(
             hpd: 8.0,
@@ -879,9 +1294,23 @@ struct OrgSettings: Codable, Equatable {
         self.orgLogo = orgLogo
     }
 
+    /// Explicit, and `extras` is NOT among them — see `Panel.CodingKeys`. Adding
+    /// a stored property means adding it here AND to `encode(to:)`.
+    enum CodingKeys: String, CodingKey, CaseIterable {
+        case hpd, workStart, workEnd, workDays, holidays, roles
+        case approvalQueueLabel, approvalSteps, approverLabel
+        case payDates, payMode, payAnchor, trackLunch, trackBreaks
+        case payPeriodType, payPeriodStart, payPeriodHourCap, iosPayClockEnabled
+        case breaks, lunch, orgLogo, customCols
+    }
+
+    static var knownKeys: Set<String> { Set(CodingKeys.allCases.map(\.rawValue)) }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = OrgSettings.default
+        extras             = JSONExtras(from: decoder, known: Self.knownKeys)
+        customCols         = (try? c.decode([JobsCustomColumn].self, forKey: .customCols)) ?? []
         hpd                = (try? c.decode(Double.self,    forKey: .hpd))                ?? d.hpd
         workStart          = (try? c.decode(String.self,    forKey: .workStart))          ?? d.workStart
         workEnd            = (try? c.decode(String.self,    forKey: .workEnd))            ?? d.workEnd
@@ -905,6 +1334,33 @@ struct OrgSettings: Codable, Equatable {
         orgLogo            = try? c.decodeIfPresent(String.self, forKey: .orgLogo)
     }
 
+    func encode(to encoder: Encoder) throws {
+        try extras.encode(to: encoder)
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(hpd, forKey: .hpd)
+        try c.encode(workStart, forKey: .workStart)
+        try c.encode(workEnd, forKey: .workEnd)
+        try c.encode(workDays, forKey: .workDays)
+        try c.encode(holidays, forKey: .holidays)
+        try c.encode(roles, forKey: .roles)
+        try c.encode(approvalQueueLabel, forKey: .approvalQueueLabel)
+        try c.encode(approvalSteps, forKey: .approvalSteps)
+        try c.encode(approverLabel, forKey: .approverLabel)
+        try c.encode(payDates, forKey: .payDates)
+        try c.encode(payMode, forKey: .payMode)
+        try c.encode(trackLunch, forKey: .trackLunch)
+        try c.encode(trackBreaks, forKey: .trackBreaks)
+        try c.encode(payPeriodType, forKey: .payPeriodType)
+        try c.encode(payPeriodHourCap, forKey: .payPeriodHourCap)
+        try c.encode(iosPayClockEnabled, forKey: .iosPayClockEnabled)
+        try c.encode(breaks, forKey: .breaks)
+        try c.encode(lunch, forKey: .lunch)
+        try c.encode(customCols, forKey: .customCols)
+        try c.encodeIfPresent(payAnchor, forKey: .payAnchor)
+        try c.encodeIfPresent(payPeriodStart, forKey: .payPeriodStart)
+        try c.encodeIfPresent(orgLogo, forKey: .orgLogo)
+    }
+
     /// Productive hours per day = (workEnd - workStart) - lunch - breaks.
     var productiveHoursPerDay: Double {
         func parseT(_ t: String) -> Int {
@@ -916,6 +1372,25 @@ struct OrgSettings: Codable, Equatable {
         let lunchMin = lunch.durationMinutes
         let breakMin = breaks.reduce(0) { $0 + $1.durationMinutes }
         return max(1, Double(block - lunchMin - breakMin) / 60)
+    }
+
+    /// Paid hours in a standard day = the scheduled shift block minus the
+    /// UNPAID lunch. Breaks are paid — the pay clock keeps running through them
+    /// — so unlike `productiveHoursPerDay` they are NOT subtracted here.
+    ///
+    /// This is the denominator for "hours clocked today". Deliberately not
+    /// `hpd`: that's a job-scheduling capacity figure (how many hours of work a
+    /// day absorbs) and takes no account of lunch, so a 07:00–16:00 shop with a
+    /// 1h lunch has hpd 9 but only 8 paid hours.
+    var paidHoursPerDay: Double {
+        func minutes(_ t: String) -> Int? {
+            let parts = t.split(separator: ":").compactMap { Int($0) }
+            guard parts.count == 2 else { return nil }
+            return parts[0] * 60 + parts[1]
+        }
+        guard let start = minutes(workStart), let end = minutes(workEnd), end > start else { return 8 }
+        let paid = (end - start) - max(0, lunch.durationMinutes)
+        return paid > 0 ? Double(paid) / 60 : 8
     }
 
     /// `workStart` parsed as decimal hours (e.g. "07:30" → 7.5).
@@ -955,4 +1430,74 @@ struct NotifyPayload: Codable {
     // dropped by JSONEncoder, so older payloads stay byte-identical.
     var approvedByName: String? = nil
     var requestedByName: String? = nil
+}
+
+// MARK: - Building a panel or an operation
+//
+// Neither has a memberwise initialiser — both define `init(from:)` in the struct
+// body, which suppresses synthesis — so anything that CREATES one (the New Job
+// form) needs a way in that is not the decoder.
+//
+// Deliberately minimal. Dates are EMPTY, not today: a panel created by the "Save
+// for Later" path has not been scheduled, and seeding it with today's date is
+// what would make an unscheduled job look scheduled. The web strips exactly these
+// fields for the same reason (`stripDT`, TRAQS.jsx:22801).
+
+extension Panel {
+    static func empty(id: String = UUID().uuidString, title: String,
+                      hpd: Double = 7.5) -> Panel {
+        var panel = Panel(fromEmptyWith: id, title: title, hpd: hpd)
+        panel.subs = []
+        return panel
+    }
+
+    /// The real work. Separate so `empty` reads as a factory rather than as an
+    /// initialiser that happens to take every field.
+    private init(fromEmptyWith id: String, title: String, hpd: Double) {
+        self.id = id
+        self.title = title
+        self.start = ""
+        self.end = ""
+        self.status = .notStarted
+        self.pri = .medium
+        self.team = []
+        self.hpd = hpd
+        self.notes = ""
+        self.deps = []
+        self.engineering = nil
+        self.subs = []
+        self.attachments = []
+        self.pendingFinish = nil
+        self.finishRequest = nil
+        self.finishRequests = nil
+        self.extras = JSONExtras()
+    }
+}
+
+extension Operation {
+    static func empty(id: String = UUID().uuidString, title: String,
+                      hpd: Double = 7.5) -> Operation {
+        Operation(fromEmptyWith: id, title: title, hpd: hpd)
+    }
+
+    private init(fromEmptyWith id: String, title: String, hpd: Double) {
+        self.id = id
+        self.title = title
+        self.start = ""
+        self.end = ""
+        self.status = .notStarted
+        self.pri = .medium
+        self.team = []
+        self.hpd = hpd
+        self.notes = ""
+        self.deps = []
+        self.locked = nil
+        self.moveLog = nil
+        self.pid = nil
+        self.pendingFinish = nil
+        self.finishRequest = nil
+        self.finishRequests = nil
+        self.loggedHours = nil
+        self.extras = JSONExtras()
+    }
 }

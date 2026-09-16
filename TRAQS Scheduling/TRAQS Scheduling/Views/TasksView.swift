@@ -42,22 +42,90 @@ struct TasksView: View {
         let _ = appState.jobs.count
         return ScrollView {
             VStack(spacing: 0) {
-                // ("Jobs" title is rendered statically by JobsHubView above.)
+                // The "Jobs" title scrolls WITH the list — same placement Home and
+                // Analytics use for theirs. It used to be pinned by JobsHubView.
+                JobsHeaderBar()
+                    .padding(.top, pageTitleTopInset)
+                    .padding(.bottom, 6)
 
-                // The job being worked on right now sits at the top as a pinned
-                // hero; excluded from the lists below so it isn't shown twice.
-                if let activeTask {
-                    NavigationLink(value: activeTask.job) {
-                        TaskCardV1(task: activeTask, onOpen: { onOpenJob(activeTask.job) })
+                // TODAY — the specific tasks SCHEDULED for you today (per the web
+                // scheduler) pinned at the very top of the page, as your individual
+                // task cards (not the parent job). Per-user: each person sees their
+                // own today schedule.
+                if !myTodayTasks.isEmpty {
+                    sectionHeader("Today").padding(.horizontal, 16).padding(.top, 4)
+                    cardStack(myTodayTasks)
+                        .padding(.top, 12)     // breathing room below the "Today" header
+                        .padding(.bottom, 14)
+                }
+
+                // IN PROGRESS — the header sits ABOVE the job you're clocked
+                // into, then that job's card, then any other in-progress work.
+                //
+                // This whole group used to live down in `rangeContent`, below
+                // Overdue and Today, while the clocked-into card was pinned up
+                // here on its own. Clocking in therefore lifted the card out of
+                // the section and above its own header, and the now-empty
+                // section collapsed underneath — which is what read as the card
+                // sliding up the page. It has one home now, and the header
+                // above it never moves.
+                //
+                // Hoisting it is safe because the bucket was never range-bound:
+                // In Progress is "started, any date, until complete", so it read
+                // the same in every segment.
+                if !workingTasks.isEmpty || !inProgressTasks.isEmpty || !inProgressJobs.isEmpty {
+                  VStack(spacing: 0) {
+                    sectionHeader("In Progress")
+                        .padding(.horizontal, 16)
+                        .padding(.top, myTodayTasks.isEmpty ? 4 : 0)
+                    // Each stack is guarded: an empty VStack still renders, and
+                    // its `.padding(.top, 12)` would leave a dead gap under the
+                    // header whenever that particular list happened to be empty.
+                    if !workingTasks.isEmpty {
+                        VStack(spacing: 12) {
+                            ForEach(workingTasks) { task in
+                                // A Button, NOT a NavigationLink. Nothing pushes a
+                                // Job any more — the detail is a popup — so a link
+                                // here appended to a path with no destination and
+                                // the tap did nothing at all.
+                                Button { onOpenJob(task.job) } label: {
+                                    TaskCardV1(task: task, onOpen: { onOpenJob(task.job) })
+                                }
+                                .zoomSource(id: task.job.id)
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 12)
+                        // No directional transition. The card lands under a
+                        // header that was already there, so there is nothing for
+                        // it to travel from; the list below still closes its gap
+                        // on the shared 0.42s curve.
+                        .transition(.identity)
+                        .zIndex(1)
                     }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 14)
-                    // Slide UP into the hero slot when a job is logged into
-                    // (and slide back down on clock-out); the list below closes
-                    // the gap in the same ease-in-out beat.
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .zIndex(1)
+                    if !inProgressTasks.isEmpty {
+                        cardStack(inProgressTasks).padding(.top, 12)
+                    }
+                    if !inProgressJobs.isEmpty {
+                        jobCardStack(inProgressJobs).padding(.top, 12)
+                    }
+                  }
+                  // On the group, not on the `if` — a ViewBuilder condition
+                  // isn't a view and can't take modifiers, and putting it on a
+                  // Group outside the `if` would reserve the gap even with no
+                  // in-progress work at all.
+                  .padding(.bottom, 14)
+                  // The WHOLE section fades in when it first appears — header,
+                  // card and all — rather than snapping into existence the
+                  // instant a job starts. Its own curve, faster than the 0.42s
+                  // reorder below: this is an arrival, not a reshuffle, and the
+                  // list closing up underneath it is what wants the slower ease.
+                  //
+                  // Only the section's own insertion. The `.transition(.identity)`
+                  // on the working-task stack above still governs a card landing
+                  // in a section that was ALREADY there — see the note on it.
+                  .transition(.opacity.animation(.easeOut(duration: 0.22)))
                 }
 
                 // Cross-faded content per segment (range chosen via the title FAB).
@@ -74,10 +142,11 @@ struct TasksView: View {
             }
             .padding(.top, 2)
             .padding(.bottom, 96)   // clear the bottom-right calendar FAB
-            // Smooth slow→fast→slow reorder when the active job changes (pinned
-            // to the top). Keyed on the active task so logging in/out animates
-            // instead of hard-clipping into place.
-            .animation(.easeInOut(duration: 0.42), value: activeTaskId)
+            // Smooth slow→fast→slow reorder when the set of worked-on jobs changes
+            // (pinned to the top). Keyed on the working set so a clock-in/out
+            // animates the card up/down instead of hard-clipping into place.
+            //
+            .animation(.easeInOut(duration: 0.42), value: workingJobIds)
         }
         .scrollIndicators(.visible)
         .topFadeMask()   // app-wide soft fading header
@@ -105,6 +174,57 @@ struct TasksView: View {
         return TaskAssignment(job: job, panel: panel, op: op)
     }
     private var activeTaskId: String? { activeTask?.id }
+
+    /// The card pinned up top for a job I'm actively clocked into (with its live
+    /// timer). ONLY my own — other people's live jobs (e.g. Caleb's) belong in
+    /// the lists below, not pinned to the top of my page.
+    private var workingTasks: [TaskAssignment] {
+        activeTask.map { [$0] } ?? []
+    }
+
+    /// The job id I'm actively clocked into — the only "working" job pinned up
+    /// top, so only it is excluded from the lists below. Other people's active
+    /// jobs are NOT excluded and appear normally in All Jobs.
+    private var workingJobIds: Set<String> {
+        guard let jid = appState.myActiveJobClock?.jobId, !jid.isEmpty else { return [] }
+        return [jid]
+    }
+
+    /// The specific TASKS I'm assigned to (op or panel level) that are SCHEDULED
+    /// for TODAY — pinned at the top of the page as individual task cards, NOT the
+    /// whole parent job with all its panels. Own-active and being-worked tasks are
+    /// shown in the being-worked section instead; finished tasks are dropped.
+    private var myTodayTasks: [TaskAssignment] {
+        let todayStart = cal.startOfDay(for: Date())
+        let tomorrow = cal.date(byAdding: .day, value: 1, to: todayStart) ?? todayStart
+        // Excluded by TASK id, not job id. The hero section above pins only the
+        // one task you're clocked into (`workingTasks`), so excluding the whole
+        // job hid every SIBLING task on it — clock into one op of a job and your
+        // other ops on that same job vanished from the page entirely.
+        return myTasks
+            .filter { $0.status != .finished && $0.id != activeTaskId }
+            .filter { t in
+                guard let s = t.startDate, let e = t.endDate else { return false }
+                return s < tomorrow && e >= todayStart   // the task's own dates cover today
+            }
+            .sorted { ($0.startDate ?? .distantPast) < ($1.startDate ?? .distantPast) }
+    }
+    private var myTodayTaskIds: Set<String> { Set(myTodayTasks.map { $0.id }) }
+
+    /// In-progress work OTHER than the job I'm clocked into — that one is
+    /// pinned first in the same section (see `workingTasks`).
+    ///
+    /// Range-independent by design: In Progress means "started, any date, until
+    /// complete", which is why this could be hoisted out of `rangeContent`
+    /// without changing what any segment shows.
+    private var inProgressTasks: [TaskAssignment] {
+        myActiveTasks.filter { $0.status == .inProgress }
+    }
+
+    /// The job-level equivalent — a job assigned to me as a whole, in progress.
+    private var inProgressJobs: [Job] {
+        myJobLevelJobs.filter { $0.status == .inProgress }
+    }
 
     // ── Today: original card stack ─────────────────────────────────────────
 
@@ -203,16 +323,24 @@ struct TasksView: View {
 
     /// Centered, black section divider — flanked by hairlines so YOUR TASKS and
     /// ALL JOBS read as two clearly separated groups.
-    private func sectionHeader(_ title: String) -> some View {
-        HStack(spacing: 12) {
-            Rectangle().fill(Color(hex: T.hair)).frame(height: 1)
-            Text(title)
-                .font(TTypo.xsBold(12))
-                .foregroundStyle(Color(hex: T.ink))
-                .tLabel(tracking: 1.6)
-                .fixedSize()
-            Rectangle().fill(Color(hex: T.hair)).frame(height: 1)
-        }
+    /// Just the label — no rules either side of it.
+    ///
+    /// These were centred between two hairlines. On a page that is otherwise a
+    /// column of cards all starting at the leading edge, that put a horizontal
+    /// line above and below every group, which chopped the list into boxes and
+    /// fought the cards' own edges. The label alone is enough to say where a
+    /// section starts, so it now reads as a heading rather than as a divider
+    /// with a word in it. Same reasoning as the rule removed from inside the
+    /// job cards.
+    ///
+    /// Centred, as it was when the rules framed it — the label keeps its place
+    /// in the column, it just no longer has lines running out of it.
+    private func sectionHeader(_ title: String, tint: String? = nil) -> some View {
+        Text(title)
+            .font(TTypo.xsBold(12))
+            .foregroundStyle(Color(hex: tint ?? T.ink))
+            .tLabel(tracking: 1.6)
+            .frame(maxWidth: .infinity, alignment: .center)
     }
 
     /// The body shared by every segment: the user's own scheduled work
@@ -223,41 +351,74 @@ struct TasksView: View {
     @ViewBuilder
     private func rangeContent(_ range: Range<Date>, label: String) -> some View {
         // Your assigned, non-finished work — grouped so nothing ever vanishes:
+        //   • Overdue: unstarted and its end date already passed
         //   • Today: scheduled to overlap the window
-        //   • In Progress: started (any date, until complete)
-        //   • Upcoming: assigned but not in the window and not started
+        //   • Upcoming: assigned, unstarted, and still ahead of the window
+        // (In Progress is rendered above all of this, at page level.)
         // Then every OTHER non-finished job as a collapsible "All Jobs" card.
+        //
+        // Overdue is split OUT of Upcoming: that bucket was "doesn't overlap the
+        // window", which silently filed weeks-old unstarted work above genuinely
+        // future work and called it upcoming.
         let mine = myActiveTasks
-        let inProgress = mine.filter { $0.status == .inProgress }
+        // In Progress is rendered at PAGE level now, above the job being
+        // worked — see the body. Only the not-started split is needed here.
         let notStarted = mine.filter { $0.status != .inProgress }
         let today = notStarted.filter { overlapsRange($0, range) }
-        let upcoming = notStarted.filter { !overlapsRange($0, range) }
+        let outsideRange = notStarted.filter { !overlapsRange($0, range) }
+        let overdue = outsideRange.filter { isPast($0, range) }
+        let upcoming = outsideRange.filter { !isPast($0, range) }
+        // Job-level ("owner") assignments — bucketed by the JOB's own status/dates
+        // and shown alongside your panel/op tasks in the same Overdue/Today/
+        // In Progress/Upcoming sections so a job assigned to you at the job level
+        // appears.
+        let jobLevel = myJobLevelJobs
+        let jobRest = jobLevel.filter { $0.status != .inProgress }
+        let jobToday = jobRest.filter { jobOverlapsRange($0, range) }
+        let jobOutside = jobRest.filter { !jobOverlapsRange($0, range) }
+        let jobOverdue = jobOutside.filter { jobIsPast($0, range) }
+        let jobUpcoming = jobOutside.filter { !jobIsPast($0, range) }
         let others = allJobsList
         return VStack(spacing: 16) {
-            if mine.isEmpty && others.isEmpty {
+            if mine.isEmpty && jobLevel.isEmpty && others.isEmpty {
                 VStack(spacing: 6) {
                     NoJobsPlaceholder(text: "No jobs scheduled")
                     diagnosticLine
                 }
                 .padding(.horizontal, 16).padding(.top, 8)
             }
-            if !today.isEmpty {
+            if !overdue.isEmpty || !jobOverdue.isEmpty {
+                sectionHeader("Overdue", tint: T.amber).padding(.horizontal, 16)
+                cardStack(overdue)
+                jobCardStack(jobOverdue)
+            }
+            if !today.isEmpty || !jobToday.isEmpty {
                 sectionHeader(windowLabel).padding(.horizontal, 16)
                 cardStack(today)
+                jobCardStack(jobToday)
             }
-            if !inProgress.isEmpty {
-                sectionHeader("In Progress").padding(.horizontal, 16)
-                cardStack(inProgress)
-            }
-            if !upcoming.isEmpty {
+            // The IN PROGRESS header stays while a job is being worked, even
+            // though that job's card has moved up to the hero slot and its
+            // bucket here is empty. The work IS in progress — the card moving
+            // doesn't change that.
+            //
+            // It also fixes the clock-in jump. Letting the section vanish
+            // collapsed the whole page by a header's height at the same moment
+            // the card was being pinned above, and those two together are what
+            // read as the card sliding up: it wasn't only moving, everything
+            // under it was moving too.
+            if !upcoming.isEmpty || !jobUpcoming.isEmpty {
                 sectionHeader("Upcoming").padding(.horizontal, 16)
                 cardStack(upcoming)
+                jobCardStack(jobUpcoming)
             }
             if !others.isEmpty {
                 sectionHeader("All Jobs").padding(.horizontal, 16)
-                VStack(spacing: 12) {
+                // Lazy: only on-screen job cards build (each is an SBox with a
+                // shadow/offscreen pass). "All Jobs" can be the whole org's job list.
+                LazyVStack(spacing: 12) {
                     ForEach(others) { job in
-                        AllJobsCard(job: job, panels: panelsFor(job))
+                        AllJobsCard(job: job, panels: panelsFor(job), onOpenJob: onOpenJob)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -272,6 +433,7 @@ struct TasksView: View {
         return appState.jobs.filter { job in
             if job.status == .finished { return false }
             if isMineJob(job) { return false }
+            if workingJobIds.contains(job.id) { return false }   // shown up top instead
             if !q.isEmpty {
                 let hay = (job.title + " " + (job.jobNumber ?? "")).lowercased()
                 if !hay.contains(q) { return false }
@@ -299,11 +461,12 @@ struct TasksView: View {
 
     @ViewBuilder
     private func cardStack(_ items: [TaskAssignment]) -> some View {
-        VStack(spacing: 12) {
+        LazyVStack(spacing: 12) {
             ForEach(items) { task in
-                NavigationLink(value: task.job) {
+                Button { onOpenJob(task.job) } label: {
                     TaskCardV1(task: task, onOpen: { onOpenJob(task.job) })
                 }
+                .zoomSource(id: task.job.id)
                 .buttonStyle(.plain)
             }
         }
@@ -374,6 +537,53 @@ struct TasksView: View {
             || job.subs.contains { p in p.team.contains(me) || p.subs.contains { $0.team.contains(me) } }
     }
 
+    /// Jobs assigned to the current user at the JOB level (on `job.team`) but not
+    /// on any specific panel/op. The desktop surfaces these as "your" jobs, but
+    /// `myTasks` (panel/op only) skips them AND `isMineJob` excludes them from ALL
+    /// JOBS — so a job assigned to you at the job level was invisible on iOS. We
+    /// render these as job cards inside YOUR TASKS. Jobs already shown up top as
+    /// being-worked, and completed jobs, are excluded.
+    private var myJobLevelJobs: [Job] {
+        guard let me = appState.currentPersonId else { return [] }
+        let working = workingJobIds
+        let q = searchText.lowercased()
+        return appState.jobs.filter { job in
+            if job.status == .finished { return false }
+            if working.contains(job.id) { return false }
+            guard job.team.contains(me) else { return false }
+            let onPanelOrOp = job.subs.contains { p in
+                p.team.contains(me) || p.subs.contains { $0.team.contains(me) }
+            }
+            if onPanelOrOp { return false }          // already surfaced via myTasks
+            if !q.isEmpty {
+                let hay = (job.title + " " + (job.jobNumber ?? "")).lowercased()
+                if !hay.contains(q) { return false }
+            }
+            return true
+        }
+        .sorted { ($0.start.asDate ?? .distantPast) < ($1.start.asDate ?? .distantPast) }
+    }
+
+    /// Does a JOB's own [start, end] overlap the window? (job-level scheduling —
+    /// used to bucket job-level assignments into Today vs Upcoming.)
+    private func jobOverlapsRange(_ job: Job, _ range: Range<Date>) -> Bool {
+        guard let s = job.start.asDate, let e = job.end.asDate else { return false }
+        return s < range.upperBound && e >= range.lowerBound
+    }
+
+    /// Renders job-level assignments (owner jobs) as collapsible job cards.
+    @ViewBuilder
+    private func jobCardStack(_ jobs: [Job]) -> some View {
+        if !jobs.isEmpty {
+            VStack(spacing: 12) {
+                ForEach(jobs) { job in
+                    AllJobsCard(job: job, panels: panelsFor(job), onOpenJob: onOpenJob)
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+
     /// The visible date window for the current segment. Day = just today;
     /// Week = the work-week around the selected date; Month / Year = the
     /// calendar month or year containing it. The whole list (YOUR TASKS +
@@ -414,14 +624,34 @@ struct TasksView: View {
     /// date — the date grouping happens in rangeContent so a rescheduled job
     /// moves between sections instead of vanishing.
     private var myActiveTasks: [TaskAssignment] {
-        myTasks
-            .filter { $0.status != .finished && $0.id != activeTaskId }
+        // Tasks shown up top are excluded here so they don't also appear in the
+        // In Progress / Upcoming sections below — by TASK id only. Excluding by
+        // JOB id (the old `workingJobIds` arm) over-excluded: only the single
+        // active task is pinned above, so every other task you're assigned on
+        // that job disappeared from the page for as long as you stayed clocked in.
+        let excludeTasks = myTodayTaskIds
+        return myTasks
+            .filter { $0.status != .finished && $0.id != activeTaskId
+                && !excludeTasks.contains($0.id) }
             .sorted { ($0.startDate ?? .distantPast) < ($1.startDate ?? .distantPast) }
     }
 
     private func overlapsRange(_ t: TaskAssignment, _ range: Range<Date>) -> Bool {
         guard let s = t.startDate, let e = t.endDate else { return false }
         return s < range.upperBound && e >= range.lowerBound
+    }
+
+    /// Finished its scheduled window before this range began — i.e. overdue.
+    /// Undated work is NOT overdue: with no end date there's nothing to have
+    /// missed, so it stays in Upcoming rather than being accused of lateness.
+    private func isPast(_ t: TaskAssignment, _ range: Range<Date>) -> Bool {
+        guard let e = t.endDate else { return false }
+        return e < range.lowerBound
+    }
+
+    private func jobIsPast(_ job: Job, _ range: Range<Date>) -> Bool {
+        guard let e = job.end.asDate else { return false }
+        return e < range.lowerBound
     }
 
     /// Parent jobs the user is NOT assigned to that have at least one panel
@@ -578,6 +808,10 @@ struct TasksView: View {
 private struct DayGroupedTaskList: View {
     let days: [Date]
     let tasksByDay: [Date: [TaskAssignment]]
+    /// Opens a card's job detail popup. Defaulted because this view currently
+    /// has NO call sites — it is left over from the day-grouped Week/Month list
+    /// and nothing builds it any more.
+    var onOpenJob: (Job) -> Void = { _ in }
     private let cal = Calendar.current
 
     var body: some View {
@@ -589,9 +823,10 @@ private struct DayGroupedTaskList: View {
                     DayHeader(day: day, count: dayTasks.count)
                     VStack(spacing: 12) {
                         ForEach(dayTasks) { task in
-                            NavigationLink(value: task.job) {
+                            Button { onOpenJob(task.job) } label: {
                                 TaskCardV1(task: task)
                             }
+                            .zoomSource(id: task.job.id)
                             .buttonStyle(.plain)
                         }
                     }
@@ -742,9 +977,8 @@ private struct MonthCalendar: View {
                 }
             }
         }
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).fill(Color(hex: T.surface)))
-        .overlay(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
+        .padding(T.insetLg)
+        .glassSurface(in: RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous), rim: true)
         .shadow(color: Color.black.opacity(T.raisedShadowOpacity),
                 radius: T.raisedShadowRadius, x: 0, y: T.raisedShadowY)
     }
@@ -881,9 +1115,8 @@ private struct YearHeatmap: View {
                 }
             }
         }
-        .padding(14)
-        .background(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).fill(Color(hex: T.surface)))
-        .overlay(RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
+        .padding(T.insetLg)
+        .glassSurface(in: RoundedRectangle(cornerRadius: T.cornerLg, style: .continuous), rim: true)
         .shadow(color: Color.black.opacity(T.raisedShadowOpacity),
                 radius: T.raisedShadowRadius, x: 0, y: T.raisedShadowY)
     }
@@ -950,23 +1183,7 @@ struct JobsHeaderBar: View {
 // One scheduled task — the canonical unit of work shown in the Jobs list.
 // `op == nil` means the user is on `panel.team` but no specific op.
 
-struct TaskAssignment: Identifiable {
-    let job: Job
-    let panel: Panel
-    let op: Operation?
-    /// Whether the current user is actually scheduled to this work. Defaults to
-    /// true so existing "my tasks" call sites are unchanged; the ALL JOBS section
-    /// passes `false` for jobs the user isn't assigned to.
-    var isMine: Bool = true
-
-    var id: String { "\(job.id)/\(panel.id)/\(op?.id ?? "panel")" }
-
-    var title: String { op?.title.isEmpty == false ? op!.title : panel.title }
-    var status: JobStatus { op?.status ?? panel.status }
-    var hpd: Double { op?.hpd ?? panel.hpd }
-    var startDate: Date? { (op?.start ?? panel.start).asDate }
-    var endDate: Date? { (op?.end ?? panel.end).asDate }
-}
+// `TaskAssignment` lives in Services/NavigationTypes — AppState returns it.
 
 // MARK: - TaskCardV1
 // Task-prominent card. Top row carries the task's department tag + job ID +
@@ -976,9 +1193,13 @@ struct TaskAssignment: Identifiable {
 // (ScheduleJobSheet) can reuse it as the log-time hero.
 struct TaskCardV1: View {
     @Environment(AppState.self) private var appState
+    @Environment(AppNav.self) private var appNav
+    /// Observed so the BREAK button's label re-colours when the frosted-glass
+    /// toggle flips — `T.ink` reads a global SwiftUI can't track.
+    @Environment(ThemeSettings.self) private var theme
     let task: TaskAssignment
     /// Menu "Information" action — open the job's detail (default no-op for the
-    /// dead AllJobsCard call site, which still wraps the card in a NavigationLink).
+    /// AllJobsCard call site, whose cards open the job detail popup instead).
     var onOpen: () -> Void = {}
     /// Request Completion send-feedback phase: 0 idle · 1 sending · 2 sent.
     @State private var reqPhase = 0
@@ -986,8 +1207,7 @@ struct TaskCardV1: View {
     @State private var showClockInRequired = false
     @State private var isStopping = false
     @State private var isStarting = false
-    @State private var isBreakBusy = false
-    @State private var showBreakConfirm = false
+    @State private var breakBusy = false
     /// Set when the worker taps STOP — drives the end-job photo overlay, which
     /// attaches the photo and THEN clocks out. Presented as a fullScreenCover
     /// (with a clear background) so it fades in over the jobs list rather than
@@ -1124,7 +1344,10 @@ struct TaskCardV1: View {
         // Keep the rectangular "square" card footprint but round the corners
         // a lot more so it reads as a soft rounded-square, not a boxy panel.
         // Uses the shared hero radius so every page's cards match.
-        SBox(size: .lg, radius: T.cornerHero, active: isActive, frosted: true, liveSheen: task.isMine) {
+        // No liveSheen: the accent glow it added to "your" cards fought the liquid
+        // wash showing through the glass, reading as a smudge rather than a cue.
+        _ = theme.frostedGlass; _ = theme.activeAccent
+        return SBox(size: .lg, radius: T.cornerHero, active: isActive, frosted: true) {
             VStack(alignment: .leading, spacing: 0) {
                 // Top row: bright type + status pills ···· date · chevron
                 HStack(spacing: 6) {
@@ -1137,23 +1360,38 @@ struct TaskCardV1: View {
                     Spacer(minLength: 6)
                     // 3-dot Liquid-Glass menu (replaces the old date + chevron).
                     Menu {
-                        Button { onOpen() } label: { Label("Job Details", systemImage: "info.circle") }
+                        // Hopped off the menu's dismissal, deliberately. A Menu
+                        // item's action is performed by UIKit WHILE it animates
+                        // the menu away, so the cover was presented inside that
+                        // animation block and slid up from the bottom no matter
+                        // what transaction the write carried — the card tap,
+                        // which has no menu around it, faded in correctly the
+                        // whole time. One main-actor hop lets the dismissal
+                        // finish first, and the popup runs its own entrance.
+                        Button { Task { @MainActor in onOpen() } } label: {
+                            Label("Job Details", systemImage: "info.circle")
+                        }
                         Divider()
                         Button { requestCompletion() } label: { Label("Request Completion", systemImage: "checkmark.seal") }
                     } label: {
-                        Image(systemName: "ellipsis")
-                            .font(.system(size: 15, weight: .bold))
-                            .foregroundStyle(Color(hex: T.muted))
-                            .frame(width: 30, height: 30)
-                            .glassEffect(.regular.interactive(), in: Circle())
-                            .contentShape(Circle())
+                        // Glass, and the same size as every header control. This is
+                        // the one PER-ROW glass button in the app: it was flattened
+                        // once because it cost one offscreen glass pass per task row
+                        // down the list, and it's back by request. If All Jobs
+                        // scrolling degrades, this is the first thing to re-flatten.
+                        HeaderGlassCircle {
+                            Image(systemName: "ellipsis")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(Color(hex: T.muted))
+                        }
+                        .contentShape(Circle())
                     }
                     .buttonStyle(.plain)
                 }
 
                 // Headline: customer / job name (big, like the wireframe).
                 Text(headline)
-                    .font(.custom(TFontName.bold.rawValue, size: 22))
+                    .font(.custom(TFontName.bold.rawValue, size: 20))
                     .foregroundStyle(Color(hex: T.ink))
                     .lineLimit(1)
                     .padding(.top, 10)
@@ -1161,57 +1399,74 @@ struct TaskCardV1: View {
                 // Sub-line: the specific task (+ panel).
                 if !subline.isEmpty {
                     Text(subline)
-                        .font(TTypo.sm(13))
+                        .font(TTypo.sm(12))
                         .foregroundStyle(Color(hex: T.muted))
                         .lineLimit(1)
-                        .padding(.top, 1)
+                        .padding(.top, 2)
                 }
 
-                // Soft divider: a hairline that fades out toward the right so
-                // it reads as a gentle separator melting away from the title,
-                // instead of a hard full-width rule. Same height + spacing as
-                // the old SLine, so nothing else shifts.
-                LinearGradient(
-                    colors: [Color(hex: T.hair), Color(hex: T.hair).opacity(0)],
-                    startPoint: .leading, endPoint: .trailing)
-                    .frame(height: 1)
-                    .padding(.vertical, 12)
-
-                if isActive { activeRow } else { queuedRow }
+                // No rule between the title block and the progress block —
+                // white space does the separating. A hairline across a card
+                // this small cut it into two panels and added a hard horizontal
+                // to fight the glass rim; the gap alone groups the title with
+                // its subline and reads calmer.
+                Group {
+                    if isActive { activeRow } else { queuedRow }
+                }
+                .padding(.top, 18)
             }
-            .padding(16)
+            // Generous, and deliberately more than it looks like it needs: the
+            // card's corner radius is T.cornerHero (42), so a tight inset leaves
+            // the top-left pill and the progress bar's ends riding the curve.
+            // The inset has to clear the corner, not the straight edge.
+            .padding(.horizontal, 22)
+            .padding(.vertical, 20)
         }
         .animation(.easeInOut(duration: 0.2), value: isActive)
         .animation(.easeInOut(duration: 0.25), value: isStarting)
         .animation(.easeInOut(duration: 0.25), value: isStopping)
-        .sheet(isPresented: $showLogConfirm) {
-            LogTimeConfirmSheet(task: task,
-                                deptLabel: dept.label,
-                                deptColor: dept.color,
-                                customer: clientName,
-                                onConfirm: {
-                                    // Set isStarting BEFORE the sheet
-                                    // dismisses so the queued row's button
-                                    // immediately shows STARTING… instead
-                                    // of LOG TIME. Without this, the user
-                                    // saw a frozen LOG TIME button and
-                                    // tapped it repeatedly — which is how
-                                    // they triggered the 409 "already
-                                    // clocked in" race.
-                                    isStarting = true
-                                    Task {
-                                        await appState.jobClockIn(
-                                            jobId: task.job.id,
-                                            panelId: task.panel.id,
-                                            opId: task.op?.id,
-                                            jobTitle: task.job.title,
-                                            panelTitle: task.panel.title,
-                                            opTitle: task.op?.title)
-                                        isStarting = false
-                                    }
-                                })
-                .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
+        .fullScreenCover(isPresented: $showLogConfirm) {
+            StartJobOverlay(task: task,
+                            deptLabel: dept.label,
+                            deptColor: dept.color,
+                            customer: clientName) { start in
+                // Dismiss with animations off again so the cover doesn't slide
+                // back down. On CANCEL the overlay has already sprung itself
+                // out; on START it hands off immediately and this IS its exit —
+                // see `StartJobOverlay.close(start:)` for why.
+                withTransaction(Transaction.noAnimation) { showLogConfirm = false }
+                appNav.modalBlur = false
+                guard start else { return }
+                // Set isStarting BEFORE the clock-in goes out so the queued
+                // row's button immediately shows STARTING… instead of Start.
+                // Without this, the user saw a frozen Start button and tapped
+                // it repeatedly — which is how they triggered the 409 "already
+                // clocked in" race.
+                isStarting = true
+                // Two-phase, and the split is the point: `beginJobClockIn` is
+                // SYNCHRONOUS, so the optimistic job clock — which is what the In
+                // Progress section keys off — lands on THIS frame, the same one
+                // the popup left on. Wrapping the whole thing in `Task` instead
+                // cost a main-actor hop before anything moved. The network half
+                // only reconciles afterwards.
+                guard let attempt = appState.beginJobClockIn(
+                        jobId: task.job.id,
+                        panelId: task.panel.id,
+                        opId: task.op?.id,
+                        jobTitle: task.job.title,
+                        panelTitle: task.panel.title,
+                        opTitle: task.op?.title) else {
+                    isStarting = false   // refused (not clocked in) — error is set
+                    return
+                }
+                Task {
+                    await appState.completeJobClockIn(attempt)
+                    isStarting = false
+                }
+            }
+            // Failsafe: if this card is torn down while the popup is up, the
+            // onClose above never runs and the whole app would stay blurred.
+            .onDisappear { appNav.modalBlur = false }
         }
         .alert("Clock in first", isPresented: $showClockInRequired) {
             Button("OK", role: .cancel) {}
@@ -1223,7 +1478,10 @@ struct TaskCardV1: View {
                 // Dismiss by clearing the item binding (reliable), then clock
                 // out on the app-level state — which outlives this card view,
                 // so the job still ends even if the card re-renders away.
-                endJobTarget = nil
+                // Animations off again so it doesn't slide back down; the
+                // overlay has already faded itself out by this point.
+                withTransaction(Transaction.noAnimation) { endJobTarget = nil }
+                appNav.modalBlur = false
                 if clockOut {
                     // Drive the STOP button's "STOPPING…" spinner while the
                     // clock-out is in flight (set after the overlay closes so
@@ -1235,29 +1493,17 @@ struct TaskCardV1: View {
                     }
                 }
             }
-        }
-        .alert(appState.myActiveBreak != nil ? "End your break?" : "Start a break?",
-               isPresented: $showBreakConfirm) {
-            Button("Cancel", role: .cancel) {}
-            Button(appState.myActiveBreak != nil ? "End Break" : "Start Break") {
-                guard !isBreakBusy else { return }
-                isBreakBusy = true
-                Task {
-                    if appState.myActiveBreak != nil { await appState.endBreak() }
-                    else { await appState.startBreak() }
-                    isBreakBusy = false
-                }
-            }
-        } message: {
-            Text(appState.myActiveBreak != nil
-                 ? "You'll go back to working on the job."
-                 : "Your job timer keeps running while you're on break.")
+            // Failsafe: if this card is torn down while the prompt is up, the
+            // onClose above never runs and the whole app would stay blurred.
+            .onDisappear { appNav.modalBlur = false }
         }
         // Request Completion send feedback — Sending… then an animated Sent ✓.
         .overlay {
             if reqPhase != 0 {
                 ZStack {
-                    RoundedRectangle(cornerRadius: T.cornerHero).fill(.ultraThinMaterial)
+                    Color.clear
+                        .glassSurface(in: RoundedRectangle(cornerRadius: T.cornerHero, style: .continuous),
+                                      tint: 0)
                     VStack(spacing: 10) {
                         if reqPhase == 1 {
                             ProgressView().controlSize(.large)
@@ -1303,12 +1549,12 @@ struct TaskCardV1: View {
                 HStack(spacing: 5) {
                     Circle().fill(Color(hex: onBreak ? T.amber : T.sky)).frame(width: 7, height: 7)
                     Text(onBreak ? "ON BREAK" : "TRACKING")
-                        .font(TTypo.xsBold(11))
+                        .font(TTypo.xsBold(10))
                         .foregroundStyle(Color(hex: onBreak ? T.amber : T.sky))
                         .tLabel(tracking: 1.0)
                     if onBreak, let brk = appState.myActiveBreak {
-                        TimelineView(.periodic(from: .now, by: 1)) { ctx in
-                            Text(breakCountdown(brk, at: ctx.date))
+                        PausableTimeline(tab: .jobs, interval: 1) { date in
+                            Text(breakCountdown(brk, at: date))
                                 .font(TTypo.monoBold(11))
                                 .foregroundStyle(Color(hex: T.amber))
                                 .tnum()
@@ -1316,63 +1562,103 @@ struct TaskCardV1: View {
                     }
                 }
                 Spacer()
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    Text("\(elapsedLabel(at: context.date)) · \(Int(pct))%")
-                        .font(TTypo.monoBold(13))
-                        .foregroundStyle(Color(hex: T.sky))
+                PausableTimeline(tab: .jobs, interval: 1) { date in
+                    Text("\(elapsedLabel(at: date)) · \(Int(pct))%")
+                        .font(TTypo.monoBold(12))
+                        .foregroundStyle(Color(hex: appState.isPctOverdue(Int(pct)) ? T.amber : T.sky))
                         .tnum()
                 }
             }
 
-            // Progress
-            Bar(pct: pct, height: 7, gradient: T.brandGradient())
+            // Progress — amber when on break or past the estimate, brand gradient otherwise
+            Bar(pct: pct, height: 6,
+                fill: Color(hex: T.amber),
+                gradient: (onBreak || appState.isPctOverdue(Int(pct))) ? nil : T.brandGradient())
 
-            // Break + Stop, side by side under the bar. Each opens a
-            // confirmation to guard against accidental taps.
-            HStack(spacing: 8) {
-                Button { showBreakConfirm = true } label: {
-                    HStack(spacing: 6) {
-                        if isBreakBusy {
-                            ProgressView().progressViewStyle(.circular).tint(T.onColor(T.amber)).scaleEffect(0.7)
-                        } else {
-                            Image(systemName: onBreak ? "play.fill" : "pause.fill")
-                            Text(onBreak ? "END BREAK" : "BREAK").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
+            // Break + STOP side by side
+            HStack(spacing: 10) {
+                Button {
+                    guard !breakBusy else { return }
+                    let starting = !onBreak
+                    breakBusy = true
+                    Task {
+                        let ok = starting ? await appState.startBreak()
+                                          : await appState.endBreak()
+                        breakBusy = false
+                        if ok {
+                            // No animation here: the banner runs its own
+                            // entrance (see ModalPop), and an ambient curve on
+                            // this write plays underneath it — which is what
+                            // made the break/lunch popup arrive differently
+                            // from the end-job attachment prompt below.
+                            withTransaction(.noAnimation) {
+                                appNav.jobsBreakBanner = starting ? .breakStarted : .breakEnded
+                                appNav.blurChrome = true
+                            }
                         }
                     }
-                    .foregroundStyle(T.onColor(T.amber))
+                } label: {
+                    // PLAIN glass and ink, matching Break on the Hours page.
+                    // It was the accent-tinted CTA, which put it in a dead heat
+                    // with STOP beside it — the two read as equal calls to
+                    // action when only one of them ends the job. Untinted, the
+                    // row has one primary and one secondary.
+                    //
+                    // `glassControl`, not `glassCTA`: `glassCTA(tint: nil)`
+                    // means "use the accent", not "use no tint".
+                    let breakLabel = Color(hex: T.ink)
+                    HStack(spacing: 6) {
+                        if breakBusy {
+                            ProgressView().progressViewStyle(.circular)
+                                .tint(breakLabel).scaleEffect(0.7)
+                        } else {
+                            Image(systemName: onBreak ? "play.circle.fill" : "cup.and.saucer.fill")
+                                .font(.system(size: 14, weight: .semibold))
+                        }
+                        Text(onBreak ? "END BREAK" : "BREAK")
+                            .font(TTypo.xsBold(13)).tLabel(tracking: 0.8)
+                    }
+                    .foregroundStyle(breakLabel)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(Capsule().fill(Color(hex: T.amber)))
-                    .shadow(color: Color(hex: T.amber).opacity(T.skyShadowOpacity),
-                            radius: T.skyShadowRadius, x: 0, y: T.skyShadowY)
+                    .padding(.vertical, 12)
+                    .glassControl(in: Capsule())
                 }
                 .buttonStyle(.plain)
-                .disabled(isBreakBusy || isStopping)
+                .disabled(breakBusy)
+                .opacity(breakBusy ? 0.6 : 1)
 
-                // STOP → opens the end-job photo step (which performs the actual
-                // clock-out). Restyled to the signature gradient CTA; the action,
-                // STOPPING… spinner, and mutual lockout are unchanged.
-                GradientCTA(disabled: isStopping || isBreakBusy,
-                            dimmed: false,
-                            verticalPadding: 10,
-                            action: {
+            GradientCTA(glass: true,
+                        disabled: isStopping,
+                        dimmed: false,
+                        verticalPadding: 12,
+                        action: {
+                            // Blur the page (and nav bar) behind the prompt. The
+                            // cover is its own presentation so it can't do this
+                            // itself; MainTabView watches this flag.
+                            appNav.modalBlur = true
+                            // Present with animations disabled so the cover
+                            // doesn't slide up from the bottom — the overlay
+                            // fades and scales in at the centre under its own
+                            // steam instead (EndJobPhotoOverlay.onAppear).
+                            withTransaction(Transaction.noAnimation) {
                                 endJobTarget = PanelPhotoTarget(
                                     jobId: task.job.id,
                                     panelId: task.panel.id,
                                     panelTitle: task.panel.title,
                                     opId: task.op?.id)
-                            }) {
-                    HStack(spacing: 6) {
-                        if isStopping {
-                            ProgressView().progressViewStyle(.circular).tint(T.onGradient).scaleEffect(0.7)
-                            Text("STOPPING…").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
-                        } else {
-                            Image(systemName: "stop.fill")
-                            Text("STOP").font(TTypo.xsBold(12)).tLabel(tracking: 0.8)
-                        }
+                            }
+                        }) {
+                HStack(spacing: 6) {
+                    if isStopping {
+                        ProgressView().progressViewStyle(.circular).tint(T.onGradient).scaleEffect(0.7)
+                        Text("STOPPING…").font(TTypo.xsBold(13)).tLabel(tracking: 0.8)
+                    } else {
+                        Image(systemName: "stop.fill")
+                        Text("STOP").font(TTypo.xsBold(13)).tLabel(tracking: 0.8)
                     }
                 }
             }
+            } // HStack (Break + STOP)
         }
     }
 
@@ -1401,17 +1687,19 @@ struct TaskCardV1: View {
                         TIconView(icon: .pin, size: 11,
                                   color: Color(hex: busyByOther ? T.statusInProgress : T.muted))
                         Text(busyByOther ? "IN PROGRESS" : (isStarting ? "STARTING…" : "PROGRESS"))
-                            .font(TTypo.xsBold(11))
+                            .font(TTypo.xsBold(10))
                             .foregroundStyle(Color(hex: busyByOther ? T.statusInProgress : T.muted))
                             .tLabel(tracking: 1.0)
                     }
                     Spacer()
                     Text("\(Int(pct))%")
-                        .font(TTypo.monoBold(13))
-                        .foregroundStyle(Color(hex: T.muted))
+                        .font(TTypo.monoBold(12))
+                        .foregroundStyle(Color(hex: appState.isPctOverdue(Int(pct)) ? T.amber : T.muted))
                         .tnum()
                 }
-                Bar(pct: pct, height: 7, fill: busyByOther ? Color(hex: T.statusInProgress) : dept.color)
+                Bar(pct: pct, height: 6,
+                    fill: appState.isPctOverdue(Int(pct)) ? Color(hex: T.amber)
+                          : busyByOther ? Color(hex: T.statusInProgress) : dept.color)
             }
             if busyByOther {
                 // Someone else is clocked into this work — block logging and
@@ -1427,12 +1715,25 @@ struct TaskCardV1: View {
                 .opacity(0.55)
             } else {
                 // Purple-gradient "Start" CTA. Action / race-guard unchanged.
-                GradientCTA(disabled: isStarting, dimmed: false, fullWidth: false,
+                GradientCTA(glass: true,
+                            disabled: isStarting, dimmed: false, fullWidth: false,
                             verticalPadding: 9, action: {
                                 guard !isStarting else { return }
                                 // You can only work on a job while clocked in.
-                                if appState.canWorkOnJobs { showLogConfirm = true }
-                                else { showClockInRequired = true }
+                                guard appState.canWorkOnJobs else {
+                                    showClockInRequired = true
+                                    return
+                                }
+                                // Blur the page (and nav bar) behind the popup.
+                                // The cover is its own presentation so it can't
+                                // do this itself; MainTabView watches the flag.
+                                appNav.modalBlur = true
+                                // Animations off, so the cover doesn't slide up
+                                // from the bottom — StartJobOverlay fades and
+                                // scales in at the centre under its own steam.
+                                withTransaction(Transaction.noAnimation) {
+                                    showLogConfirm = true
+                                }
                             }) {
                     HStack(spacing: 6) {
                         if isStarting {
@@ -1440,10 +1741,10 @@ struct TaskCardV1: View {
                                 .progressViewStyle(.circular)
                                 .tint(T.onGradient)
                                 .scaleEffect(0.7)
-                            Text("Starting…").font(TTypo.smBold(14))
+                            Text("Starting…").font(TTypo.smBold(13))
                         } else {
                             Image(systemName: "play.fill")
-                            Text("Start").font(TTypo.smBold(14))
+                            Text("Start").font(TTypo.smBold(13))
                         }
                     }
                 }
@@ -1464,13 +1765,10 @@ private struct AllJobsCard: View {
     @Environment(AppState.self) private var appState
     let job: Job
     let panels: [TaskAssignment]
+    /// Opens a panel's job detail. Passed down from TasksView — these cards sit
+    /// several views deep, and the popup is presented all the way up in the hub.
+    var onOpenJob: (Job) -> Void = { _ in }
     @State private var isExpanded = false
-
-    private var clientName: String? {
-        guard let cid = job.clientId else { return nil }
-        let n = appState.clients.first(where: { $0.id == cid })?.name
-        return (n?.isEmpty == false) ? n : nil
-    }
 
     var body: some View {
         VStack(spacing: 12) {
@@ -1482,42 +1780,38 @@ private struct AllJobsCard: View {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                SBox(size: .md) {
+                // rim: false — this is a browseable list of thin rows, and a lit
+                // edge on every one reads as noise. The glass rim is kept for
+                // the TaskCardV1 cards revealed on expand, which are the ones
+                // carrying the START / BREAK / STOP actions.
+                // A pill, and the job NAME only — no job number, client or
+                // panel count under it. Those three read as a second line of
+                // small grey text on every row, which turned a browseable list
+                // into a wall to scan; the name is what you're looking for, and
+                // everything else is one tap away on expand.
+                //
+                // Dropping the sub-line is also what lets this be a pill: a
+                // fully-round corner needs a single-line row to sit in, or the
+                // curve eats into the text block's corners.
+                SBox(size: .pill, rim: false) {
                     HStack(spacing: 10) {
                         Circle().fill(Color(hex: job.color)).frame(width: 7, height: 7)
 
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(job.title)
-                                .font(TTypo.smBold(14))
-                                .foregroundStyle(Color(hex: T.ink))
-                                .lineLimit(1)
-
-                            HStack(spacing: 6) {
-                                if let n = job.jobNumber, !n.isEmpty {
-                                    Text("#\(n)")
-                                        .font(TTypo.mono(10))
-                                        .foregroundStyle(Color(hex: T.muted))
-                                        .tnum()
-                                }
-                                if let c = clientName {
-                                    Text(c)
-                                        .font(TTypo.xs(11))
-                                        .foregroundStyle(Color(hex: T.muted))
-                                        .lineLimit(1)
-                                }
-                                Text("· \(panels.count) panel\(panels.count == 1 ? "" : "s")")
-                                    .font(TTypo.xs(11))
-                                    .foregroundStyle(Color(hex: T.muted))
-                            }
-                        }
+                        Text(job.title)
+                            .font(TTypo.smBold(14))
+                            .foregroundStyle(Color(hex: T.ink))
+                            .lineLimit(1)
 
                         Spacer()
                         Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(Color(hex: T.muted))
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 11)
+                    // Wider horizontally than the rounded-rect version was: a
+                    // pill's ends curve away from the content, so the dot and
+                    // the chevron need more room to clear them.
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
                 }
             }
             .buttonStyle(.plain)
@@ -1528,9 +1822,10 @@ private struct AllJobsCard: View {
                     NoJobsPlaceholder(text: "No panels scheduled")
                 } else {
                     ForEach(panels) { task in
-                        NavigationLink(value: task.job) {
+                        Button { onOpenJob(task.job) } label: {
                             TaskCardV1(task: task)
                         }
+                        .zoomSource(id: task.job.id)
                         .buttonStyle(.plain)
                     }
                 }
@@ -1555,28 +1850,48 @@ private struct EndOfDayPlaceholder: View {
     }
 }
 
-// MARK: - LogTimeConfirmSheet
-// Modal that pops up when the user taps LOG TIME on a task card. Shows what
-// they're about to start tracking and how much time has already been logged.
+// MARK: - StartJobOverlay
+// The "you're about to start tracking this" confirmation, shown when the user
+// taps Start on a task card.
+//
+// A TRAQS popup, NOT a `.sheet`. It used to be a half-height system sheet with
+// a drag indicator and a CANCEL pill, which made starting a job the one action
+// in the app that arrived as an Apple tray rather than as a piece of the app's
+// own glass. Now it's the house modal: the shared frosted panel, the shared
+// spring entrance (ModalPop), the Liquid Glass X at the top-left, and the
+// glowing gradient CTA at the bottom carrying the confirm.
+//
+// Presented from the card as a `.fullScreenCover` with a CLEAR background —
+// the same trick EndJobPhotoOverlay uses. A plain `.overlay` can't work here:
+// these cards live in a scrolling list, so the popup would be clipped to the
+// scroll view and would scroll with the row it came from.
+//
+// All of the information the sheet showed is still here — the point of the
+// modal is that the worker confirms what they're about to clock into.
 
-private struct LogTimeConfirmSheet: View {
-    @Environment(\.dismiss) private var dismiss
+private struct StartJobOverlay: View {
     @Environment(AppState.self) private var appState
+    /// Observed so a live Customize preset/accent change re-tints the glass —
+    /// the T.* globals it reads aren't observable on their own. Same reason
+    /// GlassPanel and FrostedCard touch the theme.
+    @Environment(ThemeSettings.self) private var theme
     let task: TaskAssignment
     let deptLabel: String
     let deptColor: Color
     let customer: String?
-    let onConfirm: () -> Void
+    /// `true` = Start (the caller does the clock-in), `false` = cancelled. The
+    /// caller also tears the cover down here — same contract as
+    /// EndJobPhotoOverlay, and for the same reason: the work has to outlive
+    /// this view, which is removed the moment the job's state changes.
+    let onClose: (_ start: Bool) -> Void
 
-    private var loggedOnOp: Double {
-        task.op?.loggedHours ?? 0
-    }
-    private var loggedOnJob: Double {
-        task.job.loggedHours ?? 0
-    }
-    private var estimate: Double {
-        max(task.hpd, 0.5)
-    }
+    /// Drives the shared modal entrance/exit — see ModalPop. This view owns
+    /// both; the presenting card must not animate.
+    @State private var appear = false
+
+    private var loggedOnOp: Double { task.op?.loggedHours ?? 0 }
+    private var loggedOnJob: Double { task.job.loggedHours ?? 0 }
+    private var estimate: Double { max(task.hpd, 0.5) }
     /// Hours-weighted percent for the task (op if specific, otherwise the panel).
     private var taskPct: Int {
         task.op.map { appState.opPct($0) } ?? appState.panelPct(task.panel)
@@ -1592,91 +1907,127 @@ private struct LogTimeConfirmSheet: View {
     }
 
     var body: some View {
-        ZStack {
-            AmbientBackground()
+        // Touch the theme so a live Customize change re-tints the panel.
+        _ = theme.bgPresetId; _ = theme.activeAccent
+        return ZStack {
+            // Invisible tap-catcher. The page behind is blurred by MainTabView
+            // via appNav.modalBlur — this cover is its own presentation, so it
+            // can't blur the page itself (see the note above ModalScrim).
+            // Tapping out cancels: nothing has happened yet, the clock-in only
+            // fires from the CTA.
+            ModalScrim { close(start: false) }
 
-            VStack(alignment: .leading, spacing: 0) {
-                Spacer().frame(height: 24)
-
-                // Summary card
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(spacing: 10) {
-                        JobTypeTag(label: deptLabel, color: deptColor)
-                        if let n = task.job.jobNumber, !n.isEmpty {
-                            Text("#\(n)")
-                                .font(TTypo.mono(11))
-                                .foregroundStyle(Color(hex: T.muted))
-                                .tnum()
-                        }
-                        Spacer()
-                        StatusBadge(status: task.status)
-                    }
-                    Text(task.title)
-                        .font(.custom(TFontName.bold.rawValue, size: 20))
-                        .foregroundStyle(Color(hex: T.ink))
-                    if let customer, !customer.isEmpty {
-                        Text(customer)
-                            .font(TTypo.sm(13))
-                            .foregroundStyle(Color(hex: T.muted))
-                    }
-                    if !task.job.title.isEmpty, task.job.title != customer {
-                        Text(task.job.title)
-                            .font(TTypo.sm(13))
-                            .foregroundStyle(Color(hex: T.muted))
-                    }
-
-                    SLine().padding(.vertical, 4)
-
-                    metricRow("This task",
-                              String(format: "%.2f h · %d%%", loggedOnOp, taskPct),
-                              sub: String(format: "of %.1f h/day est.", estimate))
-                    metricRow("This job",
-                              String(format: "%.2f h · %d%%", loggedOnJob, jobPct),
-                              sub: nil)
-                    if !task.panel.title.isEmpty {
-                        metricRow("Panel",  task.panel.title, sub: nil)
-                    }
-                    if !dateRange.isEmpty {
-                        metricRow("Window", dateRange, sub: nil)
-                    }
-                }
-                .padding(18)
-                .frostedCard(radius: T.cornerHero)
-                .padding(.horizontal, 24)
-
-                Spacer(minLength: 0)
-
-                // Actions
-                HStack(spacing: 10) {
-                    Button { dismiss() } label: {
-                        Text("CANCEL")
-                            .font(TTypo.xsBold(13))
-                            .tLabel(tracking: 0.8)
-                            .foregroundStyle(Color(hex: T.ink))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(Capsule().fill(Color(hex: T.surface)))
-                            .overlay(Capsule().stroke(Color(hex: T.hair), lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-
-                    GradientCTA(verticalPadding: 14, action: {
-                        onConfirm()
-                        dismiss()
-                    }) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "play.fill")
-                            Text("START TIMER")
-                                .font(TTypo.xsBold(13))
-                                .tLabel(tracking: 0.8)
-                        }
-                    }
-                }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 28)
-                .padding(.top, 18)
-            }
+            card.modalPop(appear)
         }
+        .presentationBackground(.clear)   // let the jobs screen show through
+        // The cover is presented with animations disabled (see the card's Start
+        // action), so this spring is the ONLY entrance animation.
+        .onAppear { withAnimation(modalPopAnimation) { appear = true } }
+    }
+
+    // MARK: Card
+
+    private var card: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                JobTypeTag(label: deptLabel, color: deptColor)
+                if let n = task.job.jobNumber, !n.isEmpty {
+                    Text("#\(n)")
+                        .font(TTypo.mono(11))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .tnum()
+                }
+                Spacer()
+                StatusBadge(status: task.status)
+            }
+
+            Text(task.title)
+                .font(.custom(TFontName.bold.rawValue, size: 20))
+                .foregroundStyle(Color(hex: T.ink))
+            if let customer, !customer.isEmpty {
+                Text(customer)
+                    .font(TTypo.sm(13))
+                    .foregroundStyle(Color(hex: T.muted))
+            }
+            if !task.job.title.isEmpty, task.job.title != customer {
+                Text(task.job.title)
+                    .font(TTypo.sm(13))
+                    .foregroundStyle(Color(hex: T.muted))
+            }
+
+            // No rule between the heading and the numbers — white space groups
+            // them, matching the task cards this opens from.
+            VStack(alignment: .leading, spacing: 10) {
+                metricRow("This task",
+                          String(format: "%.2f h · %d%%", loggedOnOp, taskPct),
+                          sub: String(format: "of %.1f h/day est.", estimate))
+                metricRow("This job",
+                          String(format: "%.2f h · %d%%", loggedOnJob, jobPct),
+                          sub: nil)
+                if !task.panel.title.isEmpty {
+                    metricRow("Panel",  task.panel.title, sub: nil)
+                }
+                if !dateRange.isEmpty {
+                    metricRow("Window", dateRange, sub: nil)
+                }
+            }
+            .padding(.top, 14)
+
+            // The confirm. Full width at the bottom, carrying the gradient and
+            // its glow — the one lit thing on the panel, so what the modal is
+            // FOR is never in question.
+            GradientCTA(glass: true, verticalPadding: 14, action: { close(start: true) }) {
+                HStack(spacing: 7) {
+                    Image(systemName: "play.fill")
+                    Text("Start Job")
+                }
+                .font(TTypo.bodyBold(15))
+            }
+            .padding(.top, 18)
+        }
+        .padding(T.insetHero)
+        // Headroom for the cancel X — the same 46pt the end-job prompt reserves,
+        // so the first row clears a 36pt button inset 18pt from a 46pt corner.
+        .padding(.top, 46)
+        .frame(maxWidth: 340)
+        .glassPanel()
+        // Cancel, anchored INSIDE the card's top-left (attached after the glass
+        // but before the outer padding, so it sits on the card rather than
+        // floating out in the backdrop). Same placement as the PIN pad's X.
+        .overlay(alignment: .topLeading) {
+            Button { close(start: false) } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .frame(width: 36, height: 36)
+                    .glassEffect(.regular.interactive(), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(18)
+        }
+        .padding(.horizontal, 32)
+    }
+
+    /// CANCEL animates out first, then lets the card remove us — the shared
+    /// modal exit. START does NOT: it hands off on the same frame it was tapped.
+    ///
+    /// Two reasons, and the second is the load-bearing one:
+    ///
+    ///  1. LATENCY. The shared exit costs `modalPopExitNanos` (180ms) before the
+    ///     caller even hears about the tap, and the clock-in — and with it the In
+    ///     Progress section appearing — could not begin until after that. Start
+    ///     now reads as instant; the section fades in where this panel was.
+    ///
+    ///  2. The clock-in lands OPTIMISTICALLY (see `AppState.jobClockIn`), which
+    ///     moves this task out of Today and into the In Progress hero slot — a
+    ///     different ForEach, so the presenting card is torn down and takes this
+    ///     cover with it. Animating out across that teardown means the system
+    ///     dismissing a presentation mid-flight, which brings back the very
+    ///     slide-down every modal here goes out of its way to avoid. Handing off
+    ///     first lets the caller tear the cover down deliberately, unanimated.
+    private func close(start: Bool) {
+        guard !start else { onClose(true); return }
+        modalPopDismiss({ appear = $0 }) { onClose(false) }
     }
 
     @ViewBuilder
@@ -1723,14 +2074,10 @@ struct JobRow: View {
                 }
             }
             Spacer()
-            Text(job.status.rawValue)
-                .font(TTypo.xs(11))
-                .foregroundStyle(Color(hex: T.muted))
-                .tLabel(tracking: 0.8)
+            JobStatusBadge(job: job)
         }
         .padding(.horizontal, 14).padding(.vertical, 12)
-        .background(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).fill(Color(hex: T.surface)))
-        .overlay(RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous).stroke(Color(hex: T.hair), lineWidth: 1))
+        .glassSurface(in: RoundedRectangle(cornerRadius: T.cornerMd, style: .continuous), rim: true)
     }
 }
 
@@ -1745,6 +2092,54 @@ struct StatusBadge: View {
             .background(Capsule().fill(status.color.opacity(0.13)))
             .overlay(Capsule().stroke(status.color.opacity(0.3), lineWidth: 1))
             .foregroundStyle(status.color)
+    }
+}
+
+/// StatusBadge that changes a JOB's status in place.
+///
+/// Tap cycles Pending → In Progress → Finished → Pending. A status outside that
+/// loop (Not Started, On Hold) enters it at the head rather than guessing an
+/// intent — long-press opens the full picker for anything non-linear.
+///
+/// Deliberately a wrapper rather than making StatusBadge itself tappable:
+/// the badge is shared with panel and op rows (JobDetailView, ScheduleJobSheet,
+/// TeamView), and cycling a panel's status is not the same action.
+struct JobStatusBadge: View {
+    @Environment(AppState.self) private var appState
+    let job: Job
+    @State private var showPicker = false
+
+    private static let cycle: [JobStatus] = [.pending, .inProgress, .finished]
+
+    private var mayEdit: Bool { appState.can(.editJobs) }
+
+    private func next(after s: JobStatus) -> JobStatus {
+        guard let i = Self.cycle.firstIndex(of: s) else { return Self.cycle[0] }
+        return Self.cycle[(i + 1) % Self.cycle.count]
+    }
+
+    /// Job writes carry their own rollback (updateJobs → rollbackSnapshot,
+    /// restored by persistJobs on failure), so this doesn't wrap performOptimistic
+    /// — see the note on OperationRow.assignTeam.
+    private func apply(_ s: JobStatus) {
+        guard s != job.status else { return }
+        var next = job
+        next.status = s
+        appState.updateJob(next)
+    }
+
+    var body: some View {
+        StatusBadge(status: job.status)
+            .contentShape(Capsule())
+            .opacity(mayEdit ? 1 : 0.9)
+            .onTapGesture { if mayEdit { apply(next(after: job.status)) } }
+            .onLongPressGesture { if mayEdit { showPicker = true } }
+            .confirmationDialog("Set status", isPresented: $showPicker, titleVisibility: .visible) {
+                ForEach(JobStatus.allCases, id: \.self) { s in
+                    Button(s.rawValue) { apply(s) }
+                }
+                Button("Cancel", role: .cancel) { }
+            }
     }
 }
 

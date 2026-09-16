@@ -1,7 +1,7 @@
 import SwiftUI
 
 // MARK: - TeamView · TRAQS Revamp
-// Frosted team roster matched to the Team wireframe: AmbientBackground canvas,
+// Frosted team roster matched to the Team wireframe: PageBackground canvas,
 // TRAQSNavHeader + PageTitle, a presence filter chip row (All / On job / Break /
 // Idle), and frosted rows with gradient avatars (+ presence dot) and a bright
 // status TagPill. STYLING ONLY — every @State, binding, action closure, sheet,
@@ -130,12 +130,12 @@ struct TeamView: View {
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             VStack(spacing: 0) {
                 // Sticky revamp header (wordmark + optional add action).
                 TRAQSNavHeader {
-                    if appState.isAdmin {
+                    if appState.can(.manageTeam) {
                         IconBtn(icon: .plus, size: 18) { showAddPerson = true }
                     }
                 }
@@ -165,7 +165,7 @@ struct TeamView: View {
                             ForEach(filteredPeople) { person in
                                 PersonRow(person: person)
                                     .contextMenu {
-                                        if appState.isAdmin {
+                                        if appState.can(.manageTeam) {
                                             Button { personToEdit = person } label: {
                                                 Label("Edit", systemImage: "pencil")
                                             }
@@ -229,10 +229,7 @@ struct PersonRow: View {
         return all.filter { $0.team.contains(person.id) && $0.status != .finished }.count
     }
 
-    private func initials(_ name: String) -> String {
-        let parts = name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
-        return parts.isEmpty ? "?" : parts.joined()
-    }
+    private func initials(_ name: String) -> String { Initials.from(name) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -385,14 +382,11 @@ struct PersonDetailView: View {
         .sorted { $0.op.start < $1.op.start }
     }
 
-    private func initials(_ name: String) -> String {
-        let parts = name.split(separator: " ").prefix(2).map { String($0.prefix(1)).uppercased() }
-        return parts.isEmpty ? "?" : parts.joined()
-    }
+    private func initials(_ name: String) -> String { Initials.from(name) }
 
     var body: some View {
         ZStack {
-            AmbientBackground()
+            PageBackground()
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
@@ -455,7 +449,7 @@ struct PersonDetailView: View {
                                 Spacer()
                                 StatusBadge(status: item.op.status)
                             }
-                            .padding(12)
+                            .padding(T.insetMd)
                             .frostedCard(radius: T.cornerMd)
                         }
                     }
@@ -470,7 +464,7 @@ struct PersonDetailView: View {
         .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbar {
-            if appState.isAdmin {
+            if appState.can(.manageTeam) {
                 ToolbarItem(placement: .primaryAction) {
                     Button("Edit") { showEdit = true }
                         .foregroundColor(Color(hex: T.accent))
@@ -514,7 +508,6 @@ struct PersonEditView: View {
     @State private var cap: Double = 8.0
     @State private var userRole = "user"
     @State private var isEngineer = false
-    @State private var isTeamLead = false
     @State private var color = "#7c3aed"
     @State private var showSuccess = false
 
@@ -535,7 +528,6 @@ struct PersonEditView: View {
                     }
                     Stepper("Capacity: \(Int(cap))h/day", value: $cap, in: 1...16, step: 0.5)
                     Toggle("Is Engineer", isOn: $isEngineer)
-                    Toggle("Is Team Lead", isOn: $isTeamLead)
                 }
                 Section("Color") {
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -588,24 +580,27 @@ struct PersonEditView: View {
         name = p.name; role = p.role; email = p.email
         cap = p.cap; userRole = p.userRole
         isEngineer = p.isEngineer ?? false
-        isTeamLead = p.isTeamLead ?? false
         color = p.color
     }
 
     private func save() {
-        let updated = Person(
-            id: person?.id ?? "p" + UUID().uuidString.prefix(8).lowercased(),
-            name: name.trimmingCharacters(in: .whitespaces),
-            role: role, email: email, cap: cap,
-            color: color, userRole: userRole,
-            adminPerms: person?.adminPerms,
-            isEngineer: isEngineer,
-            isTeamLead: isTeamLead,
-            autoSchedule: person?.autoSchedule,
-            teamNumber: person?.teamNumber,
-            timeOff: person?.timeOff ?? [],
-            pushToken: person?.pushToken
-        )
+        // Start from the EXISTING person and mutate only the edited fields, so
+        // fields this editor doesn't surface — payType, phone, image,
+        // canClockInOut, canSignOff, noAutoSchedule, hasPin, and the live clock
+        // state — are preserved. Rebuilding via the memberwise init dropped them
+        // to nil, and updatePeople POSTs the whole array (a full-record overwrite
+        // the server honors for everything except role/clock), so a single edit
+        // silently flipped salaried workers to hourly and reset permissions.
+        var updated = person ?? Person(id: "p" + UUID().uuidString.prefix(8).lowercased(),
+                                       name: "", role: "", email: "", cap: cap,
+                                       color: color, userRole: userRole)
+        updated.name = name.trimmingCharacters(in: .whitespaces)
+        updated.role = role
+        updated.email = email
+        updated.cap = cap
+        updated.color = color
+        updated.userRole = userRole
+        updated.isEngineer = isEngineer
         var list = appState.people
         if let i = list.firstIndex(where: { $0.id == updated.id }) {
             list[i] = updated

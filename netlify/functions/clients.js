@@ -1,4 +1,5 @@
 import { requireOrgMember } from "./_utils/auth.js";
+import { requirePerm } from "./_utils/can.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
@@ -27,9 +28,14 @@ export async function handler(event) {
   }
 
   if (event.httpMethod === "POST") {
-    try { await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+    let member;
+    try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+    // Was membership-only: any worker could rewrite the client list. The Clients
+    // page hides its buttons behind can("manageClients"), and now so does the API.
+    try { requirePerm(member, "manageClients"); } catch (e) { return err(e.statusCode, e.message); }
     try {
-      const clients = JSON.parse(event.body);
+      let clients;
+      try { clients = JSON.parse(event.body); } catch { return err(400, "Invalid JSON"); }
       if (!Array.isArray(clients)) return err(400, "Body must be an array");
 
       // Read the current version once. It serves double duty: the empty-overwrite

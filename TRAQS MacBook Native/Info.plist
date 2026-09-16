@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Deliberately at the PROJECT root, not inside "TRAQS MacBook Native/".
+	     That directory is a PBXFileSystemSynchronizedRootGroup, which picks up
+	     everything in it — so a plist in there gets copied into the bundle as a
+	     resource as well as being consumed as the Info.plist, which Xcode warns
+	     about. Out here it is only ever the latter.
+
+	     macOS's equivalent of iOS's UIAppFonts, and the reason this file exists
+	     at all: ATSApplicationFontsPath is NOT one of the keys Xcode maps from an
+	     INFOPLIST_KEY_* build setting, so it cannot be declared that way. It has
+	     to come from a real plist.
+
+	     GENERATE_INFOPLIST_FILE stays YES — Xcode merges the keys it generates
+	     (bundle name, principal class, copyright, etc.) into this file rather
+	     than replacing it, so this only has to carry what generation can't.
+
+	     "." is the bundle's resource root, where the Fonts synchronized group
+	     lands the five DM Sans faces. -->
+	<key>ATSApplicationFontsPath</key>
+	<string>.</string>
+</dict>
+</plist>

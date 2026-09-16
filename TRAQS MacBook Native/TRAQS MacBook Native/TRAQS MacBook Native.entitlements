@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Sandboxed, so this can go to TestFlight / the Mac App Store later
+	     without re-architecting. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!-- The web view has to reach traqs.app, Auth0, Ably and S3. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<!-- Pointing the app at http://localhost:8888 (the Netlify dev server) is a
+	     LOOPBACK SERVER connection, which the sandbox treats separately from
+	     outbound client traffic. Without this the "Local dev server" target
+	     fails to connect and nothing says why. -->
+	<key>com.apple.security.network.server</key>
+	<true/>
+	<!-- The XLSX export writes into ~/Downloads. -->
+	<key>com.apple.security.files.downloads.read-write</key>
+	<true/>
+</dict>
+</plist>

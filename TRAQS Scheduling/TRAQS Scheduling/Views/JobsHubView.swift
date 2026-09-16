@@ -14,58 +14,61 @@ struct JobsHubView: View {
 
     // Navigation + chrome state, lifted here so it survives a list↔gantt swap.
     @State private var path: [Job] = []
-    @State private var showApprovals = false
-    @State private var showAvailability = false
-    @State private var showSearch = false
-    @State private var searchText = ""
+    /// The job whose read-only detail popup is open. Tapping a card no longer
+    /// PUSHES — a job's details are something you check and dismiss, and pushing
+    /// meant losing your scroll position in the list to do it.
+    ///
+    /// Drives a `.fullScreenCover`, NOT an in-hierarchy overlay. The shell's
+    /// glass header and the floating nav pill are drawn by MainTabView on top of
+    /// every page, so a popup living inside this page renders UNDER both. A
+    /// cover is its own presentation, above the lot. (An in-hierarchy popup can
+    /// still BLUR the chrome — see `appNav.blurChrome` — but it cannot get on
+    /// top of it, and this one is full-height.)
+    @State private var detailTarget: JobDetailTarget?
+    /// Shared with the job cards (via the environment). The zoom morph belonged
+    /// to the pushed detail screen; the cards still publish their source ids, so
+    /// re-attaching a pushed destination later needs no change on their side.
+    @Namespace private var zoomNS
+    /// Header-driven state lives in AppNav: these controls are drawn by
+    /// HeaderControlsHost, above the TabView, and a host can't reach a page's
+    /// private @State. See HeaderControls.swift. The page reads and writes them
+    /// exactly as it did its own @State.
+    private var showAvailability: Bool {
+        get { appNav.showAvailability } nonmutating set { appNav.showAvailability = newValue }
+    }
+    private var showSearch: Bool {
+        get { appNav.jobsSearchOpen } nonmutating set { appNav.jobsSearchOpen = newValue }
+    }
+    private var searchText: String {
+        get { appNav.jobsSearchText } nonmutating set { appNav.jobsSearchText = newValue }
+    }
+    /// Focus stays HERE — a @FocusState belongs to the view owning the field.
+    /// The hoisted button only flips `jobsSearchOpen`; this page takes focus.
     @FocusState private var searchFocused: Bool
     @State private var jobsSegment: TasksView.JobsSegment = .today   // list range (Today/Week/Month/Year)
 
     var body: some View {
         NavigationStack(path: $path) {
             ZStack {
-                AmbientBackground()
+                PageBackground()
+                // Hand the zoom namespace to the cards, which sit several views
+                // deep in TasksView's sections — see `zoomSource(id:)`.
 
                 VStack(spacing: 0) {
+                    // ↓ modalPageBlur applied at the closing brace below so the
+                    //   break banner can blur the page content underneath it.
                     // Persistent header. The leading trailing-button is mode
                     // specific (search in list, jump-to-date in gantt); the
                     // view toggle and add button are shared.
-                    TRAQSNavHeader {
-                        // Search is list-only (the gantt view has its own date
-                        // controls in its body), but the button stays MOUNTED in
-                        // both modes and just fades its opacity. Conditionally
-                        // inserting/removing it made the icon pop out of the
-                        // header layout the instant you switched — reading as a
-                        // glitchy jump. Keeping the fixed-size slot and fading it
-                        // (non-interactive in gantt) keeps the header dead-stable.
-                        IconBtn(icon: .search, size: 18) {
-                            withAnimation(.easeInOut(duration: 0.18)) {
-                                showSearch.toggle()
-                                if !showSearch { searchText = "" }
-                            }
-                            if showSearch { searchFocused = true }
-                        }
-                        .opacity(appNav.jobsMode == .list ? 1 : 0)
-                        .allowsHitTesting(appNav.jobsMode == .list)
-                        .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
-
-                        JobsViewToggleButton()
-                        // Approval Queue entry — replaces the old create-job "+".
-                        // Only approvers (admin || canSignOff) see it; a badge shows
-                        // how many panels are awaiting a sign-off step.
-                        if appState.canViewApprovalQueue {
-                            approvalQueueButton
-                        }
-                        // Availability quick-check — admin only, at the far right,
-                        // set off from the other controls by a hairline divider.
-                        if appState.currentPerson?.isAdmin == true {
-                            Rectangle()
-                                .fill(Color(hex: T.muted).opacity(0.5))
-                                .frame(width: 1, height: 22)
-                                .padding(.horizontal, 2)
-                            AvailabilityCheckButton(isPresented: $showAvailability)
-                        }
-                    }
+                    // Logo and row height only. The trailing controls are
+                    // published to HeaderControlsHost (registered at the bottom
+                    // of this view) so their glass can morph into the next tab's
+                    // instead of being torn down with the page.
+                    // No header here — the shell owns the one persistent GlassHeader
+                    // (§2). The spacer reserves its height so content starts below it and
+                    // still SCROLLS UNDER it, which is what gives the glass something live
+                    // to refract (§8 — glass over a static background renders flat).
+                    Color.clear.frame(height: GlassHeader.height)
 
                     // (The "Jobs" title now scrolls inside the list content —
                     // see TasksView — so the header is just the buttons and
@@ -73,7 +76,7 @@ struct JobsHubView: View {
 
                     // Search field — slides in under the header, list mode only.
                     if appNav.jobsMode == .list && showSearch {
-                        SearchBar(text: $searchText,
+                        SearchBar(text: Bindable(appNav).jobsSearchText,
                                   placeholder: "Search jobs, customers…",
                                   focused: $searchFocused,
                                   onCancel: {
@@ -87,48 +90,113 @@ struct JobsHubView: View {
                             .transition(.move(edge: .top).combined(with: .opacity))
                     }
 
-                    // Static "Jobs" title — rendered once HERE (not inside the
-                    // swapped list/gantt views) so it sits in the exact same
-                    // place across both modes with zero shift.
-                    JobsHeaderBar()
-                        .padding(.top, pageTitleTopInset)
-                        .padding(.bottom, 6)
+                    // The "Jobs" title is NOT here any more — it scrolls with the
+                    // content, the way Home's and Analytics' titles do, so the only
+                    // thing fixed to the top of the page is the shell's header.
+                    // Both modes render it through the same `JobsHeaderBar`, so
+                    // list and gantt can't drift into different title treatments;
+                    // what they no longer share is its scroll offset, which is the
+                    // price of having it scroll at all.
 
-                    // Content area with a floating liquid-glass calendar FAB
-                    // (bottom-right). Tapping it opens a native menu of ranges.
-                    ZStack(alignment: .topTrailing) {
-                        // Both views stay mounted and crossfade via opacity, keyed
-                        // on jobsMode. A switch + per-branch .transition here could
-                        // leave the outgoing view stuck on rapid toggles; opacity
-                        // is glitch-free and also preserves each view's scroll state.
-                        ZStack {
-                            TasksView(searchText: searchText, segment: $jobsSegment, onOpenJob: { path.append($0) })
-                                .opacity(appNav.jobsMode == .list ? 1 : 0)
-                                .allowsHitTesting(appNav.jobsMode == .list)
-                            GanttView()
-                                .opacity(appNav.jobsMode == .gantt ? 1 : 0)
-                                .allowsHitTesting(appNav.jobsMode == .gantt)
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
-
-                        dateRangeFab
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                            .padding(.trailing, 20)
-                            .padding(.bottom, 26)
+                    // Content — list/gantt crossfade. Both views stay mounted and
+                    // crossfade via opacity, keyed on jobsMode (a switch + per-branch
+                    // .transition could leave the outgoing view stuck on rapid
+                    // toggles; opacity is glitch-free and preserves scroll state).
+                    ZStack {
+                        TasksView(searchText: searchText, segment: $jobsSegment, onOpenJob: { openDetail($0) })
                             .opacity(appNav.jobsMode == .list ? 1 : 0)
                             .allowsHitTesting(appNav.jobsMode == .list)
-                            .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
+                        GanttView()
+                            .opacity(appNav.jobsMode == .gantt ? 1 : 0)
+                            .allowsHitTesting(appNav.jobsMode == .gantt)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .animation(.easeInOut(duration: 0.22), value: appNav.jobsMode)
                 }
-                .fullScreenCover(isPresented: $showApprovals) { ApprovalQueueView(isPresented: $showApprovals) }
-                // Availability quick-check sheet — presented from this stable
-                // container (not the opacity-animated FAB) so it reliably shows.
-                .sheet(isPresented: $showAvailability) { AvailabilityCheckSheet() }
+                // Read-only job details, over everything — see `detailTarget`.
+                // NO `.navigationTransition(.zoom(...))`. A zoom presentation
+                // shrinks the PRESENTER to fly the card up, which pulled the
+                // whole page in, showed the window surface as a white border
+                // around it, and snapped back on landing. The popup springs up
+                // on its own instead (ModalPop) and the page stays put.
+                .fullScreenCover(item: $detailTarget) { target in
+                    JobDetailPopup(seedJob: target.job,
+                                   highlightPanelId: target.panelId,
+                                   highlightOpId: target.opId) {
+                        // BOTH writes inside, for the reason in `openDetail`.
+                        withTransaction(.noAnimation) {
+                            detailTarget = nil
+                            appNav.modalBlur = false
+                        }
+                    }
+                }
+                .modalPageBlur(appNav.jobsBreakBanner != nil || showAvailability)
+                // Blur the CHROME from the same condition. `.modalPageBlur`
+                // above reaches only this page's content; the glass header is a
+                // sibling of the page out in MainTabView, so without this the
+                // TRAQS wordmark and the header buttons stayed sharp over a
+                // blurred page. (The break banner sets `blurChrome` at its own
+                // call site too — this covers the availability popup and acts as
+                // the failsafe for both.)
+                .onChange(of: appNav.jobsBreakBanner != nil || showAvailability) { _, up in
+                    appNav.blurChrome = up
+                }
+                // Slide the bottom nav pill out while the availability popup is
+                // up, and back in when it closes — MainTabView owns the spring
+                // (see its `.animation(value: appNav.hideTabBar)`), so this is a
+                // plain write. Same handling the clock PIN pads get.
+                //
+                // The popup is tall and centred; unlike the break shout, which
+                // is small enough that the bar can just blur behind it, this one
+                // reaches the bottom edge and the bar would sit on top of it.
+                .onChange(of: showAvailability) { _, shown in
+                    appNav.hideTabBar = shown
+                }
+                // Failsafe: leaving the page with the popup somehow still up
+                // would otherwise strand the bar off-screen for every tab.
+                .onDisappear {
+                    appNav.hideTabBar = false
+                    appNav.blurChrome = false
+                }
+
+                // Break started / ended banner — same frosted-glass popup as the
+                // time clock page, and the same entrance as every other modal.
+                if let kind = appNav.jobsBreakBanner {
+                    ClockActionBanner(kind: kind) {
+                        withTransaction(.noAnimation) {
+                            appNav.jobsBreakBanner = nil
+                            appNav.blurChrome = false
+                        }
+                    }
+                    .id(kind)
+                    // The banner animates itself in and out — see ModalPop.
+                    .transition(.identity)
+                    .zIndex(20)
+                }
+
+                // Availability quick-check — the house popup, in-hierarchy, so
+                // it can blur the page behind it directly. Rendered from this
+                // stable container (not the opacity-animated FAB) so it
+                // reliably shows, which is why the old sheet lived here too.
+                if showAvailability {
+                    AvailabilityCheckPopup {
+                        withTransaction(.noAnimation) { showAvailability = false }
+                    }
+                    // Owns its own entrance and exit — see ModalPop.
+                    .transition(.identity)
+                    .zIndex(20)
+                }
             }
-            .navigationDestination(for: Job.self) { JobDetailView(job: $0) }
+            // Reserve space INSIDE the NavigationStack so content ends at the top
+            // of the floating nav pill (an outer inset is absorbed here).
+            .safeAreaInset(edge: .bottom) {
+                Color.clear.frame(height: appNav.hideTabBar ? 0 : tabPillBottomInset)
+            }
+            // No `navigationDestination(for: Job.self)` any more — a job's detail
+            // is a popup (see `detailJob`), not a screen. `path` stays for other
+            // pushes and so a deep link has somewhere to land.
             .toolbar(.hidden, for: .navigationBar)
+            .environment(\.zoomNamespace, zoomNS)
             .task {
                 appState.foregroundSync()   // pull the latest jobs on open
                 await appState.refreshOrgSettings()
@@ -140,25 +208,15 @@ struct JobsHubView: View {
             // cold-start load brings the job in.
             .onChange(of: appNav.pendingDeepLink, initial: true) { _, _ in consumeJobDeepLink() }
             .onChange(of: appState.jobs.count) { _, _ in consumeJobDeepLink() }
+            // The hoisted search button only flips the flag; taking focus is
+            // still this page's job (see `searchFocused`).
+            .onChange(of: showSearch) { _, open in if open { searchFocused = true } }
         }
-    }
-
-    /// The Approval Queue entry button with a pending-count badge.
-    private var approvalQueueButton: some View {
-        ZStack(alignment: .topTrailing) {
-            IconBtn(icon: .select, size: 18) { showApprovals = true }
-            if appState.pendingApprovalCount > 0 {
-                Text("\(appState.pendingApprovalCount)")
-                    .font(TTypo.xsBold(11))
-                    .tnum()
-                    .foregroundStyle(T.onGradient)
-                    .padding(.horizontal, 5)
-                    .frame(minWidth: 18, minHeight: 18)
-                    .background(Capsule().fill(T.brandGradient()))
-                    .offset(x: 5, y: -5)
-                    .allowsHitTesting(false)
-            }
-        }
+        // Header controls, drawn by HeaderControlsHost above the TabView.
+        //
+        // "search" is deliberately the SAME id Messages uses: it is the same
+        // control meaning the same thing, so its glass flows straight across
+        // that tab switch instead of one dissolving while the other grows.
     }
 
     /// Liquid-glass calendar FAB (same 62pt footprint) whose tap opens a native
@@ -182,8 +240,7 @@ struct JobsHubView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
+        .glassCircleButton()
         .frame(width: 62, height: 62)
     }
 
@@ -194,31 +251,36 @@ struct JobsHubView: View {
         let f = DateFormatter(); f.dateFormat = "d"; return f.string(from: Date())
     }
 
-    /// Resolve a pending Jobs-tab deep link:
-    /// - `.job` → push that job's detail.
-    /// - `.approvals` → open the Approval Queue for approvers; otherwise fall back
-    ///   to the job detail (so a non-approver who taps a step/ready push still
-    ///   lands somewhere useful).
-    /// Leaves a `.job`/fallback link pending (to retry) when the job isn't loaded
-    /// yet; the `.approvals`→queue path needs no job lookup so it resolves at once.
-    private func consumeJobDeepLink() {
-        switch appNav.pendingDeepLink {
-        case let .job(number):
-            guard let job = appState.jobs.first(where: { $0.jobNumber == number }) else { return }
-            path = [job]
-            appNav.pendingDeepLink = nil
-        case let .approvals(number):
-            if appState.canViewApprovalQueue {
-                showApprovals = true
-                appNav.pendingDeepLink = nil
-            } else {
-                // Not an approver → behave like a job deep link.
-                guard let job = appState.jobs.first(where: { $0.jobNumber == number }) else { return }
-                path = [job]
-                appNav.pendingDeepLink = nil
-            }
-        default:
-            return
+    /// Open a job's read-only detail popup.
+    ///
+    /// `modalBlur` is what blurs the page, the glass header AND the nav pill —
+    /// MainTabView applies it to all three as one layer. The cover is a separate
+    /// presentation, so it stays sharp on top of that.
+    ///
+    /// Presented WITHOUT animation, like every other modal here: the popup fades
+    /// and scales up from the centre on its own (ModalPop), and the cover's
+    /// default slide-up-from-the-bottom would play underneath it.
+    ///
+    /// BOTH writes go inside the transaction, and that is load-bearing. With the
+    /// blur set outside it, SwiftUI batched the two changes into ONE update pass
+    /// and that pass took the transaction in effect at the FIRST change — the
+    /// default, animated one. `disablesAnimations` never reached the cover and
+    /// it slid up regardless. The blur still eases, because ShellBlur carries
+    /// its own `.animation(_:value:)`, which outranks the transaction.
+    private func openDetail(_ job: Job) {
+        withTransaction(.noAnimation) {
+            appNav.modalBlur = true
+            detailTarget = JobDetailTarget(job: job)
         }
+    }
+
+    /// Resolve a pending Jobs-tab deep link: `.job` opens that job's detail
+    /// popup. Left PENDING when the job isn't loaded yet, so the `jobs.count`
+    /// watcher can retry once a cold-start load brings it in.
+    private func consumeJobDeepLink() {
+        guard case let .job(number) = appNav.pendingDeepLink else { return }
+        guard let job = appState.jobs.first(where: { $0.jobNumber == number }) else { return }
+        openDetail(job)
+        appNav.pendingDeepLink = nil
     }
 }

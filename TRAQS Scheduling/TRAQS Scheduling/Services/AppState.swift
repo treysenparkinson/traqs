@@ -1,7 +1,14 @@
 import Foundation
 import Combine
 import SwiftUI
+// Push notifications are iOS-only for now: OneSignal ships no macOS SDK, so the
+// Mac app — which compiles this same file — has to build without it. Guarded
+// rather than split into a protocol: the iOS path stays exactly as it was, and a
+// Mac build simply has no push registration, which is correct until there is a
+// macOS push story to write.
+#if canImport(OneSignalFramework)
 import OneSignalFramework
+#endif
 import SwiftData
 import Network
 
@@ -36,11 +43,17 @@ class AppState {
     /// Non-nil while a message thread is open. The overlay header window observes
     /// this to show/hide and to render the current thread's back button.
     var activeMessageThread: ThreadContext? = nil
-    /// True while a full-screen attachment viewer is presented. The overlay header
-    /// window sits above the app's normal window level, so it would otherwise
-    /// float over the viewer and cover QuickLook's Done button — the controller
-    /// hides the header while this is set, and restores it on dismiss.
-    var attachmentViewerPresented = false
+    /// True while ANY modal owns the screen above an open thread.
+    ///
+    /// The overlay header lives in its own UIWindow one level ABOVE the app's, so
+    /// nothing presented normally can cover it: the header keeps floating over the
+    /// modal, and its back button still pops the navigation stack underneath. The
+    /// controller hides the header while this is set, and restores it on dismiss.
+    ///
+    /// This started life as `attachmentViewerPresented`, gating only QuickLook —
+    /// which is why the add-people picker inherited exactly the same bug the flag
+    /// existed to fix. Every modal presented from inside a thread must set it.
+    var threadModalPresented = false
     /// Members popover open/close. Shared here (not @State) because the toggle
     /// comes from the header in the overlay WINDOW, while the popover renders in
     /// ThreadDetailView's own (main-window) view tree.
@@ -52,10 +65,30 @@ class AppState {
 
     var matchEmail: String? = nil  // set from AuthManager after login
     // MARK: - Core Data
-    var jobs: [Job] = []
-    var people: [Person] = []
-    var clients: [Client] = []
-    var messages: [Message] = []
+    // `didSet` on each, feeding one counter. It is what lets the Jobs grid know
+    // its derived indices are still good WITHOUT comparing anything — see
+    // `dataRevision` and `jobsCellIndices(for:)`.
+    //
+    // On the property rather than at each call site deliberately: `jobs` is
+    // assigned from the sync path, the cache rehydrate, undo, redo and logout as
+    // well as from edits, and a counter bumped by hand would be wrong the first
+    // time somebody added a sixth.
+    var jobs: [Job] = [] { didSet { dataRevision &+= 1 } }
+    var people: [Person] = [] { didSet { dataRevision &+= 1 } }
+    var clients: [Client] = [] { didSet { dataRevision &+= 1 } }
+
+    /// The Jobs grid's derived data, and the revision it was built at. Not
+    /// observed — they are a cache, and a cell reading one must not become an
+    /// observer of it. See `jobsCellIndices()`.
+    @ObservationIgnored var cachedCellIndices: JobsCellIndices?
+    @ObservationIgnored var cachedCellIndicesRevision: Int = -1
+
+    /// Bumped whenever anything the Jobs grid derives from changes.
+    ///
+    /// `&+`, so it wraps rather than traps after a few billion edits. Only ever
+    /// compared for equality, so wrapping is harmless.
+    private(set) var dataRevision: Int = 0
+    var messages: [Message] = [] { didSet { recomputeUnread() } }
     var groups: [ChatGroup] = []
     /// Server-side read receipts: `[threadKey: [personId: ISO "read up to"]]`.
     /// Drives the Sent/Read status under my own message bubbles. Refreshed
@@ -69,13 +102,52 @@ class AppState {
     /// jobsessions.json. Loaded on demand via `refreshJobSessions()` for the
     /// Hours page's JOB HOURS section.
     var jobSessions: [JobSession] = []
+    /// Job-clock session rows from the always-synced "productionhours" entity —
+    /// the same data as `jobSessions`, but hydrated from the local cache on every
+    /// rehydrate instead of on demand, because hours-weighted PROGRESS depends on
+    /// it and progress is on screen everywhere.
+    ///
+    /// Distinct from `jobSessions` on purpose: that array is scoped to whatever
+    /// the Hours page last asked for (one person, one pay period), which is the
+    /// wrong set to derive a job's progress from.
+    ///
+    /// Mirrors the web's `productionHours` state. Assign via
+    /// `applyProductionHours` so the rollup stays in step.
+    private(set) var productionHours: [JobSession] = []
+    /// `productionHours` totalled per op / panel / job. Cached rather than
+    /// recomputed because `opHoursPair` is called once per op per render — deriving
+    /// this inside it would make progress O(ops × sessions).
+    ///
+    /// Bumps `dataRevision`: the Jobs grid's percentages and displayed statuses
+    /// are computed from `max(loggedHours, producedFor(op))`, so production hours
+    /// arriving must invalidate the cached indices. Missing this would have shown
+    /// stale percentages until the next edit — the exact failure a cache with an
+    /// incomplete key produces, and the reason this is on the property rather
+    /// than remembered at a call site.
+    private(set) var producedScopes: StatsMath.ProducedScopes = .empty {
+        didSet { dataRevision &+= 1 }
+    }
+
+    /// Set the production-hours rows and refresh their rollup together.
+    func applyProductionHours(_ rows: [JobSession]) {
+        productionHours = rows
+        producedScopes = StatsMath.producedHoursByScope(rows)
+    }
+
+    /// Job-clock hours recorded against one op, matched at its own scope.
+    ///
+    /// This is the number `loggedHours` is supposed to agree with and sometimes
+    /// doesn't — see `opHoursPair`.
+    func producedFor(op: Operation) -> Double {
+        producedScopes.byOp[op.id] ?? 0
+    }
     /// This person's time-off requests (PTO/UTO) with approval status. Loaded
     /// on the Hours page via `refreshTimeOffRequests()`. The member endpoint
     /// returns only the caller's own requests.
     var timeOffRequests: [TimeOffRequest] = []
     /// Org-level settings (hpd, workStart/End, lunch, breaks, payPeriod, …).
     /// Synced from the web; falls back to `OrgSettings.default` until first fetch.
-    var orgSettings: OrgSettings = .default
+    var orgSettings: OrgSettings = .default { didSet { dataRevision &+= 1 } }
 
     // MARK: - UI State
     var isLoading = false
@@ -140,6 +212,13 @@ class AppState {
     var payClockInSource: String?
     var isPayClocking = false          // in-flight guard for the CTA spinner
     var clockActionLabel: String? = nil   // non-nil drives the full-screen TRAQS loading overlay ("Clocking In…"/"Clocking Out…")
+    /// The clock action succeeded and the overlay is holding its checkmark.
+    var clockActionDone: Bool = false
+    /// Re-entrancy guards for the actions that no longer hold `isPayClocking`.
+    /// Deliberately NOT rendered anywhere: `isPayClocking` dims three buttons,
+    /// which is exactly the wait these two exist to avoid.
+    private var lunchInFlight = false
+    private var breakInFlight = false
 
     // MARK: - Auth / Org
     /// Persisted so a flaky people-fetch can't briefly blank out the
@@ -150,6 +229,7 @@ class AppState {
             if let id = currentPersonId, !id.isEmpty {
                 UserDefaults.standard.set(id, forKey: "traqs_currentPersonId")
             }
+            recomputeUnread()   // "mine vs theirs" depends on who I am
         }
     }
     var orgCode: String = KeychainHelper.load(forKey: KeychainHelper.orgCodeKey) ?? ""
@@ -176,6 +256,28 @@ class AppState {
     private var isForeground = true
     private var api: APIService?
 
+    /// POST the org settings object.
+    ///
+    /// Here rather than in the extension for the same reason `sendNotify` is:
+    /// `api` is private to this file. Unlike `sendNotify` this one THROWS —
+    /// the caller rolls the local copy back on failure, so it has to know.
+    func persistOrgSettings(_ settings: OrgSettings) async throws {
+        guard let api else { throw URLError(.notConnectedToInternet) }
+        try await api.saveOrgSettings(settings)
+    }
+
+    /// Fire one push, best-effort.
+    ///
+    /// Exists so the notify side-effects can live in an EXTENSION — `api` is
+    /// private to this file, and the alternative was either widening it or
+    /// keeping every notifying method in a file that is already three thousand
+    /// lines. Swallows its error like every other notify here: a push that does
+    /// not land must not make the write that triggered it look like it failed.
+    func sendNotify(_ payload: NotifyPayload) async {
+        guard let api else { return }
+        try? await api.sendNotification(payload)
+    }
+
     // Live sync (Phase 4): SwiftData cache + Ably realtime — the primary refresh
     // path. loadAll() is now reserved for cold launch, pull-to-refresh, and the
     // stale-foreground safety net; a degraded-only poll covers Ably outages.
@@ -195,6 +297,25 @@ class AppState {
     }
 
     // MARK: - Setup
+
+    /// Remember an org code BEFORE the user has signed in.
+    ///
+    /// The launch flow resolves the org first and authenticates second (matching
+    /// the web's AuthGate), so there is a window where we know the org but have
+    /// no token — and `configure` can't run without one, since it builds the API
+    /// service and starts realtime. This persists the code alone; `configure`
+    /// then picks it up from `orgCode` the moment Auth0 returns.
+    func rememberOrg(code: String) {
+        orgCode = code
+        _ = KeychainHelper.save(code, forKey: KeychainHelper.orgCodeKey)
+    }
+
+    /// "Switch organization" — drop the remembered code and go back to asking.
+    func forgetOrg() {
+        orgCode = ""
+        configuredOrgCode = nil
+        KeychainHelper.delete(forKey: KeychainHelper.orgCodeKey)
+    }
 
     func configure(auth: AuthManager, orgCode: String) {
         AppState.shared = self   // expose to the silent-push background handler
@@ -232,8 +353,7 @@ class AppState {
                                    onReconnect: { [weak self] in self?.onRealtimeChange() },
                                    onStatus: { [weak self] s in self?.setRealtimeStatus(s) },
                                    onTimeoff: { [weak self] in Task { await self?.refreshTimeOffRequests() } },
-                                   onReads: { [weak self] in Task { await self?.refreshReadReceipts() } })
-        }
+                                   onReads: { [weak self] in Task { await self?.refreshReadReceipts() } })        }
 
         updateDegradedPoll()   // starts the fallback poll until Ably connects
         Task { await loadAll() }
@@ -252,6 +372,8 @@ class AppState {
     // exact live lists + empty-guard (a momentarily-empty cache slice must not
     // blank populated state). timeclock/jobSessions/timeOffRequests + orgConfig
     // keep their existing on-demand paths and are not applied here.
+    // productionHours IS applied: unlike jobSessions it isn't a page's on-demand
+    // dataset but an input to progress, which renders on every jobs screen.
     private func rehydrateFromCache() {
         guard let cache = localCache else { return }
         let dec = JSONDecoder()
@@ -261,6 +383,10 @@ class AppState {
         let m = cache.readAll(SyncedMessage.self).compactMap { try? dec.decode(Message.self, from: $0.payload) }
         let g = cache.readAll(SyncedGroup.self).compactMap { try? dec.decode(ChatGroup.self, from: $0.payload) }
         let s = cache.readAll(SyncedSettings.self).first.flatMap { try? dec.decode(OrgSettings.self, from: $0.payload) }
+        // SyncService has been writing this slice to the cache since productionhours
+        // became a synced entity; nothing ever read it back. Hours-weighted progress
+        // needs it, so hydrate it here alongside the rest.
+        let ph = cache.readAll(SyncedProductionHours.self).compactMap { try? dec.decode(JobSession.self, from: $0.payload) }
         // Assign directly on the main actor, and ONLY when the entity's content
         // actually changed. @Observable fires on EVERY assignment regardless of
         // value, so re-assigning an unchanged array churns observers — and each
@@ -290,6 +416,7 @@ class AppState {
             if m != messages, !m.isEmpty || messages.isEmpty { messages = m }
             if g != groups, !g.isEmpty || groups.isEmpty { groups = g }
             if let s, s != orgSettings { orgSettings = s }
+            if !ph.isEmpty || productionHours.isEmpty { applyProductionHours(ph) }
             autoMatchPerson()
         }
         // Pick up a pay clock-in/out that landed via realtime (e.g. a kiosk
@@ -333,6 +460,10 @@ class AppState {
     /// reconcile even when Ably is degraded or was suspended in the background.
     func foregroundSync() {
         onRealtimeChange()
+        // Reads are their own object, not part of the delta sync — a thread read
+        // on another device while this one was backgrounded is only visible
+        // once we pull the cursor map.
+        Task { @MainActor in await refreshReadReceipts() }
     }
 
     /// Awaitable background delta-sync for silent ("content-available") pushes.
@@ -369,11 +500,25 @@ class AppState {
     /// re-runs configure()).
     func clearForLogout() {
         teardownRealtime()
+        // Stop the foreground degraded poll (and any pending job save) FIRST. They
+        // hold the still-valid session token, so a tick firing after we clear the
+        // cache would fullResync and repopulate the just-emptied arrays with the
+        // previous account's data behind the login screen. isForeground=false also
+        // stops updateDegradedPoll from restarting it.
+        isForeground = false
+        degradedPollTask?.cancel(); degradedPollTask = nil
+        staleForegroundTask?.cancel(); staleForegroundTask = nil
+        saveTask?.cancel(); saveTask = nil
         currentPersonId = nil
         UserDefaults.standard.removeObject(forKey: "traqs_currentPersonId")
         localCache?.clearAll()
         jobs = []; people = []; clients = []; messages = []; groups = []
         configuredOrgCode = nil
+        // The confirmation belongs to the person who just logged out. Leaving it
+        // set would make `writePushToken` skip the next account's registration on
+        // this device — the same device, the same OneSignal subscription id, a
+        // different person record to write it to.
+        confirmedPushToken = nil
     }
 
     // MARK: - Sync status & optimistic UI (Phase 6)
@@ -510,6 +655,10 @@ class AppState {
     /// fresh sync arrived do we fall back to a heavy loadAll.
     func handleForeground() {
         isForeground = true
+        // Cheap and idempotent: writePushToken no-ops when the roster already has
+        // this id. It's here so a device whose registration never landed heals on
+        // the next open instead of staying pushless for the session.
+        registerPushTokenIfNeeded()
         foregroundSync()          // immediate deltaSync + rehydrate
         updateDegradedPoll()      // start the fallback poll if realtime is down
         let last = syncService?.lastSuccessfulSyncAt
@@ -584,16 +733,21 @@ class AppState {
             // the race where the user taps START TIMER mid-fetch — by the
             // time we get the people response, the local mutation has
             // already happened and we can preserve it.
-            let snap: (personId: String, clock: ActiveJobClock?, brk: ActiveBreak?)? = {
+            let snap: (personId: String, clock: ActiveJobClock?, brk: ActiveBreak?, payClock: ActiveClockIn?)? = {
                 guard let last = clockChangeAt, Date().timeIntervalSince(last) < 12,
                       let p = currentPerson else { return nil }
-                return (p.id, p.activeJobClock, p.activeBreak)
+                return (p.id, p.activeJobClock, p.activeBreak, p.activeClockIn)
             }()
             withoutAnimation {
                 people = r
                 if let snap, let idx = people.firstIndex(where: { $0.id == snap.personId }) {
                     people[idx].activeJobClock = snap.clock
                     people[idx].activeBreak = snap.brk
+                    // Preserve the optimistic PAY clock too — the Home shift card
+                    // reads currentPerson.activeClockIn directly, so without this a
+                    // pull-to-refresh right after Clock In reverted the card to
+                    // "offline" with a dead timer until the next rehydrate.
+                    people[idx].activeClockIn = snap.payClock
                 }
             }
         }
@@ -626,11 +780,28 @@ class AppState {
         // canonical activeClockIn — grace-guarded so a very recent optimistic
         // pay tap still wins.
         reconcilePayClock()
+
+        // Warm the Stats datasets in the background (concurrently) so the Stats
+        // tab is already populated by the time it's opened — no on-open wait.
+        warmStatsData()
+
+        // Adopt read cursors set on OTHER devices. This used to happen only
+        // from the Ably "reads" signal and from inside an open thread, so a
+        // cold launch (or any stretch where realtime was degraded) painted the
+        // unread badge from this device's local cursor alone — messages already
+        // read on the desktop kept counting here until Messages was opened.
+        // Cheap: a small map, one request.
+        Task { @MainActor in await refreshReadReceipts() }
     }
 
     // MARK: - Jobs
 
-    func updateJobs(_ newJobs: [Job], pushUndo: Bool = true) {
+    /// `changedIDs` names the jobs that actually differ, so the local cache
+    /// rewrites those rows and not the whole table. nil means "I don't know" and
+    /// falls back to caching everything — correct, and what the bulk paths
+    /// (delete, undo) want anyway. See `cacheJobsLocally`.
+    func updateJobs(_ newJobs: [Job], pushUndo: Bool = true,
+                    changedIDs: Set<String>? = nil) {
         if pushUndo {
             undoStack.append(jobs)
             if undoStack.count > maxUndoSize { undoStack.removeFirst() }
@@ -642,7 +813,54 @@ class AppState {
         // into one save (adversarial #5) and share this one snapshot.
         if rollbackSnapshot == nil { rollbackSnapshot = jobs }
         jobs = newJobs
+        // Mirror the edit into the cache IMMEDIATELY, before the debounced save.
+        // Otherwise a concurrent inbound Ably delta (which writes the cache and
+        // rehydrates `jobs` from it) reads the PRE-edit copy of these jobs and
+        // silently reverts the in-flight edit — then persistJobs saves the
+        // reverted array, losing the change permanently. The completion-request
+        // flows already guard this per-job via cacheJobLocally; do the same here
+        // for every general edit path (drag/schedule, sign-off, panel photo, …).
+        TQPerf.measure("cacheJobsLocally",
+                       changedIDs.map { "\($0.count) changed" } ?? "ALL \(newJobs.count)") {
+            cacheJobsLocally(newJobs, changedIDs: changedIDs)
+        }
         scheduleSave()
+    }
+
+    /// Batch variant of `cacheJobLocally` — writes the whole edited jobs array
+    /// through to the SwiftData cache in one pass. `applyBatch` skips no-op
+    /// rewrites (unchanged payloads), so re-caching the full array on each rapid
+    /// edit is cheap on the write side, and a later server delta (different
+    /// `lastModifiedAt`) still overwrites these entries normally.
+    /// Mirror an edit into the local cache before the debounced save.
+    ///
+    /// ONLY the jobs that changed. This used to hand `applyBatch` every job on
+    /// every edit, and that was the reason a cell edit took seconds to appear:
+    ///
+    ///   * it encoded the WHOLE dataset — 46 ms of JSON for 200 jobs, measured,
+    ///     with a fresh `JSONEncoder` allocated per job on top; and
+    ///   * it stamped `lastModifiedAt: now` on every one of them, which defeats
+    ///     the no-op skip inside `applyBatch`. That skip exists for exactly this
+    ///     reason — its own comment says "SwiftData writes run on the main actor,
+    ///     so rewriting the entire delta every sync stalls the UI" — and a fresh
+    ///     stamp on every job makes `inLM == curLM` false for every job, so one
+    ///     status pick rewrote and re-saved every row in the table, on the main
+    ///     actor, before the frame could draw.
+    ///
+    /// Passing nil for `changedIDs` keeps the old behaviour, which is what a bulk
+    /// delete or an undo actually wants: those replace the array wholesale.
+    private func cacheJobsLocally(_ jobs: [Job], changedIDs: Set<String>? = nil) {
+        guard let cache = localCache else { return }
+        let now = Date()
+        // One encoder for the batch, not one per job.
+        let encoder = JSONEncoder()
+        let subject = changedIDs.map { ids in jobs.filter { ids.contains($0.id) } } ?? jobs
+        let incoming: [LocalCache.Incoming] = subject.compactMap { job in
+            guard let data = try? encoder.encode(job) else { return nil }
+            return LocalCache.Incoming(id: job.id, lastModifiedAt: now, deletedAt: nil, payload: data)
+        }
+        guard !incoming.isEmpty else { return }
+        _ = cache.applyBatch(SyncedJob.self, incoming)
     }
 
     func updateJob(_ job: Job, sendNotification: Bool = false, clientName: String? = nil) {
@@ -653,7 +871,9 @@ class AppState {
         } else {
             updated.append(job)
         }
-        updateJobs(updated)
+        // ONE job changed, and saying so is what keeps the cache write off the
+        // whole table — see `cacheJobsLocally`. Every grid cell edit lands here.
+        updateJobs(updated, changedIDs: [job.id])
 
         guard sendNotification else { return }
         Task {
@@ -688,7 +908,7 @@ class AppState {
     func signOff(jobId: String, panelId: String, step: EngStep, personId: String, personName: String) {
         guard var job = jobs.first(where: { $0.id == jobId }),
               let pi = job.subs.firstIndex(where: { $0.id == panelId }) else { return }
-        let signOff = EngineeringSignOff(by: personId, byName: personName, at: ISO8601DateFormatter().string(from: Date()))
+        let signOff = EngineeringSignOff(by: personId, byName: personName, at: Date.isoPlainString(Date()))
         var panel = job.subs[pi]
         var eng = panel.engineering ?? Engineering()
         switch step {
@@ -787,46 +1007,240 @@ class AppState {
     /// never notified observers, so the badge only ever cleared by luck on the
     /// next unrelated re-render.
     var threadReadAt: [String: String] = (UserDefaults.standard.dictionary(forKey: "traqs_threadReadAt") as? [String: String]) ?? [:] {
-        didSet { UserDefaults.standard.set(threadReadAt, forKey: readStateKey) }
+        didSet {
+            UserDefaults.standard.set(threadReadAt, forKey: readStateKey)
+            recomputeUnread()
+        }
     }
 
-    func markThreadRead(_ threadKey: String) {
-        threadReadAt[threadKey] = Date.nowISO()
+    /// Newest message timestamp in a thread, on the SERVER's clock.
+    func newestTimestamp(in threadKey: String) -> String? {
+        var newest: String?
+        for m in messages where m.threadKey == threadKey {
+            if newest == nil || isoGreater(m.timestamp, than: newest!) { newest = m.timestamp }
+        }
+        return newest
     }
 
+    /// Mark a thread read locally, returning the timestamp stamped so the caller
+    /// can send the SAME value to the server.
+    ///
+    /// Stamps the newest message's timestamp, NOT `Date.nowISO()`. Unread is
+    /// computed by comparing server message timestamps against this cursor, so a
+    /// device-clock value put the two on different clocks: a device running even
+    /// slightly behind the server left every freshly-arrived message comparing as
+    /// newer than the cursor, which is why a thread kept counting unread while you
+    /// were sitting in it. It also broke sync the other way — a device-now cursor
+    /// can be AHEAD of the true server cursor, and `refreshReadReceipts` only
+    /// adopts the server's value when it's greater, so reads from another device
+    /// were silently discarded.
+    ///
+    /// Monotonic: never moves a cursor backwards.
+    @discardableResult
+    func markThreadRead(_ threadKey: String) -> String {
+        let at = newestTimestamp(in: threadKey) ?? Date.nowISO()
+        let current = threadReadAt[threadKey] ?? ""
+        if isoGreater(at, than: current) { threadReadAt[threadKey] = at }
+        return threadReadAt[threadKey] ?? at
+    }
+
+    /// Mark every thread read — locally AND on the server.
+    ///
+    /// The server half is the point. Read state is only "read once, read
+    /// everywhere" if every path that clears it publishes its cursor; a
+    /// local-only mark-all leaves the other devices counting the same messages
+    /// forever, with no way to ever catch up (the web's Mark all read had
+    /// exactly this bug). Sent as ONE batched request because the endpoint
+    /// rewrites a single object — parallel single posts lose cursors.
     func markAllThreadsRead() {
-        let nowISO = Date.nowISO()
-        // Compute unique threadKeys from current messages, then stamp each.
+        // Per-thread newest timestamp rather than one device-now stamp for all —
+        // same clock-mismatch reasoning as markThreadRead.
         var map = threadReadAt
-        for k in Set(messages.map { $0.threadKey }) { map[k] = nowISO }
+        var advanced: [APIService.ReadReceipt] = []
+        for k in Set(messages.map { $0.threadKey }) {
+            let at = newestTimestamp(in: k) ?? Date.nowISO()
+            if isoGreater(at, than: map[k] ?? "") {
+                map[k] = at
+                advanced.append(APIService.ReadReceipt(threadKey: k, at: at))
+            }
+        }
+        guard !advanced.isEmpty else { return }
         threadReadAt = map
+
+        // Mirror into the local receipt map so the sender-side "Read" state and
+        // the inbox agree before the round trip lands.
+        if let myId = currentPersonId {
+            var receipts = readReceipts
+            for e in advanced {
+                var cursors = receipts[e.threadKey] ?? [:]
+                cursors[myId] = e.at
+                receipts[e.threadKey] = cursors
+            }
+            withoutAnimation { readReceipts = receipts }
+        }
+        let payload = advanced
+        Task { @MainActor in
+            guard let api = self.api else { return }
+            try? await api.postReadReceipts(payload)
+        }
     }
 
     /// Total unread text messages across every thread I'm in — any message newer
     /// than the thread's last-read stamp that I didn't send. `messages` is already
     /// ACL-filtered server-side, so iterating it only counts threads I can see.
     /// Drives the Messages-tab count and the sidebar notification dot.
-    var totalUnreadMessages: Int {
-        guard let myId = currentPersonId else { return 0 }
-        var total = 0
-        for (key, msgs) in Dictionary(grouping: messages, by: { $0.threadKey }) {
-            let readAt = threadReadAt[key].flatMap { Date.fromFlexibleISO8601($0) } ?? .distantPast
-            for m in msgs where m.authorId != myId {
-                if (Date.fromFlexibleISO8601(m.timestamp) ?? .distantPast) > readAt { total += 1 }
-            }
+    /// O(1) read of the cached count. The scan behind it runs only when
+    /// `messages` / `threadReadAt` / `currentPersonId` change — see
+    /// `recomputeUnread()`. It used to be computed inline here, which meant a
+    /// full O(messages) pass (with two ISO8601 parses per message) on EVERY
+    /// evaluation of MainTabView's body — i.e. on every nav-bar tap.
+    var totalUnreadMessages: Int { unreadTotalCache }
+
+    /// Unread grouped by sender, most first. Same cache, same single pass —
+    /// HomeView used to recompute this independently on every render.
+    var unreadSenders: [(id: String, name: String, count: Int)] { unreadSendersCache }
+
+    private(set) var unreadTotalCache: Int = 0
+    private(set) var unreadSendersCache: [(id: String, name: String, count: Int)] = []
+
+    /// Memoised `timestamp` parses, keyed by message id. ISO8601 parsing is the
+    /// bulk of the unread scan's cost (measured 15–24ms per recompute on device
+    /// for ~340 messages), and a sync replaces the whole `messages` array even
+    /// though nearly every element is unchanged — so without this we re-parse
+    /// hundreds of identical strings on every incoming message.
+    ///
+    /// `@ObservationIgnored` matters: this is a private cache, and letting it
+    /// participate in observation would invalidate views on every recompute.
+    @ObservationIgnored private var timestampCache: [String: Date] = [:]
+
+    /// Memoised ISO8601 parses keyed by the string itself.
+    ///
+    /// The pay-clock reducers walk every completed entry and parse its `clockIn`
+    /// on each call — and they're called twice a second by Home's live hours
+    /// plus TimeClock's ticker, always over the SAME immutable strings. ISO8601
+    /// parsing is ICU-backed; Time Profiler on device put it at the top of the
+    /// main thread. Parsing each distinct string once collapses that to a
+    /// dictionary hit. (Stored here in the class body — extensions can't hold
+    /// stored properties.)
+    @ObservationIgnored fileprivate var isoParseCache: [String: Date] = [:]
+
+    private func parsedTimestamp(id: String, iso: String) -> Date {
+        if let hit = timestampCache[id] { return hit }
+        let parsed = Date.fromFlexibleISO8601(iso) ?? .distantPast
+        timestampCache[id] = parsed
+        return parsed
+    }
+
+    /// Single pass over `messages` producing BOTH the total and the per-sender
+    /// breakdown. Each thread's read cursor is parsed once and memoised rather
+    /// than re-parsed per message, and there's no `Dictionary(grouping:)`
+    /// allocation — the grouping fell out of the same loop.
+    func recomputeUnread() {
+        guard let myId = currentPersonId else {
+            unreadTotalCache = 0
+            unreadSendersCache = []
+            return
         }
-        return total
+        // Drop memoised parses for messages that no longer exist, so the cache
+        // can't grow without bound across a long session.
+        if timestampCache.count > messages.count * 2 {
+            timestampCache.removeAll(keepingCapacity: true)
+        }
+
+        var total = 0
+        var counts: [String: (name: String, count: Int)] = [:]
+        var readCursor: [String: Date] = [:]   // threadKey → parsed last-read
+
+        for m in messages where m.authorId != myId {
+            let readAt: Date
+            if let cached = readCursor[m.threadKey] {
+                readAt = cached
+            } else {
+                readAt = threadReadAt[m.threadKey].flatMap { Date.fromFlexibleISO8601($0) } ?? .distantPast
+                readCursor[m.threadKey] = readAt
+            }
+            guard parsedTimestamp(id: m.id, iso: m.timestamp) > readAt else { continue }
+            total += 1
+            counts[m.authorId] = (name: m.authorName, count: (counts[m.authorId]?.count ?? 0) + 1)
+        }
+
+        unreadTotalCache = total
+        unreadSendersCache = counts
+            .map { (id: $0.key, name: $0.value.name, count: $0.value.count) }
+            .sorted { $0.count > $1.count }
     }
     /// Whether there's anything unread worth surfacing (sidebar pulsing dot).
     var hasUnreadNotifications: Bool { totalUnreadMessages > 0 }
 
     // MARK: - Approval queue
 
-    /// Who may open the Approval Queue — mirrors desktop's
-    /// `canSeeApprovalQueue = admin || canSignOff`.
+    /// Who may approve work — mirrors desktop's
+    /// `canSeeApprovalQueue = admin || canSignOff`. Includes engineers: the
+    /// approval content IS the engineering sign-off chain.
+    ///
+    /// iOS no longer has an Approval Queue screen; this survives because the
+    /// macOS shell still gates on it (NativeShell.canSeeApprovals). Keep the
+    /// name — it is the same permission the desktop asks about.
     var canViewApprovalQueue: Bool {
         guard let p = currentPerson else { return false }
-        return p.isAdmin || p.canSignOff == true
+        return p.isAdmin || p.canSignOff == true || p.isEngineer == true
+    }
+
+    /// Finish requests this user may act on — anyone who can approve work.
+    ///
+    /// Walks the WHOLE tree, not just the job. `finishRequests` used to be
+    /// modelled on Job alone, which is why this said the sub-unit "isn't
+    /// recoverable from the model" — it now lives on Panel and Operation too, so
+    /// a request raised against one op is both findable and actionable at the
+    /// level it was raised.
+    struct PendingFinish: Identifiable {
+        let job: Job
+        let request: FinishRequestEntry
+        /// nil/nil = the whole job. Passed straight to approve/deny so the
+        /// decision resolves the same item the request sits on.
+        var panelId: String? = nil
+        var opId: String? = nil
+        /// "Panel › Op", or empty for a job-level request.
+        var contextLabel: String = ""
+        var id: String { request.id }
+    }
+
+    /// Admin-gated, NOT canApproveWork. approveJobCompletion and
+    /// denyJobCompletion both guard on `me.isAdmin`, so listing these for a
+    /// canSignOff/isEngineer user would render buttons that silently do nothing.
+    /// Visibility is matched to what the mutation actually permits; widening it
+    /// means widening those two methods first, which is a security decision
+    /// rather than a queue one.
+    var pendingFinishRequests: [PendingFinish] {
+        guard can(.approveCompletions) else { return [] }
+        var out: [PendingFinish] = []
+        for job in jobs {
+            for r in job.finishRequests ?? [] where r.status == "pending" {
+                out.append(PendingFinish(job: job, request: r))
+            }
+            for panel in job.subs {
+                for r in panel.finishRequests ?? [] where r.status == "pending" {
+                    out.append(PendingFinish(job: job, request: r, panelId: panel.id,
+                                             contextLabel: panel.title))
+                }
+                for op in panel.subs {
+                    for r in op.finishRequests ?? [] where r.status == "pending" {
+                        out.append(PendingFinish(job: job, request: r, panelId: panel.id,
+                                                 opId: op.id,
+                                                 contextLabel: "\(panel.title) › \(op.title)"))
+                    }
+                }
+            }
+        }
+        return out.sorted { $0.request.at > $1.request.at }
+    }
+
+    /// Time-off awaiting a decision. Admin-only, matching timeoff.js, which
+    /// rejects a non-admin decision with 403 regardless of what the UI shows.
+    var pendingTimeOffRequests: [TimeOffRequest] {
+        guard can(.approveTimeOff) else { return [] }
+        return timeOffRequests.filter { $0.status == "pending" }
+            .sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") }
     }
 
     /// Count of panels awaiting an engineering sign-off step — drives the Jobs-tab
@@ -834,7 +1248,9 @@ class AppState {
     /// isn't fully signed off. Computed from `jobs` (@Observable), so it stays live
     /// via delta-sync and updates instantly after an optimistic signOff.
     var pendingApprovalCount: Int {
-        var n = 0
+        // Includes finish requests and time-off now that the queue lists them, so
+        // the badge matches what opening it actually shows.
+        var n = pendingFinishRequests.count + pendingTimeOffRequests.count
         for job in jobs {
             for panel in job.subs {
                 guard let eng = panel.engineering else { continue }
@@ -847,6 +1263,9 @@ class AppState {
     /// Update the current user's editable profile (name/email/phone/color/image),
     /// optimistically then via the granular people PATCH. Returns success.
     @discardableResult
+    // Not performOptimistic: this RETURNS Bool and the caller decides what to
+    // say about a failure. The helper returns Void and raises its own toast, so
+    // migrating would both drop the result and add a second error surface.
     func updateMyProfile(name: String, email: String, phone: String, color: String, image: String?) async -> Bool {
         guard let api, let personId = currentPersonId else { return false }
         let prev = people
@@ -901,18 +1320,18 @@ class AppState {
         guard let me = currentPerson, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
         let members = Array(Set(people.filter { $0.isAdmin }.map(\.id) + [me.id]))
         guard let created = await createGroup(name: "Completion Requests", memberIds: members) else { return }
-        await addGroupMembers(groupName: "Completion Requests", add: members)   // ensure new admins/requester are in
+        await addGroupMembers(groupRef: "Completion Requests", add: members)   // ensure new admins/requester are in
         let group = groups.first(where: { $0.id == created.id }) ?? created
 
         let reqId = UUID().uuidString
         let now = Date.nowISO()
-        var job = jobs[idx]
-        job.finishRequest = FinishRequestStamp(requestId: reqId, by: me.id, byName: me.name, at: now)
-        var reqs = job.finishRequests ?? []
-        reqs.append(FinishRequestEntry(id: reqId, by: me.id, byName: me.name, at: now,
+        let entry = FinishRequestEntry(id: reqId, by: me.id, byName: me.name, at: now,
                                        status: "pending", resolvedBy: nil, resolvedByName: nil,
-                                       resolvedAt: nil, declineReason: nil))
-        job.finishRequests = reqs
+                                       resolvedAt: nil, declineReason: nil)
+        // Stamps the job itself — panelId/opId are nil. Routed through the same
+        // rule as the task-level path so both write the shape `target` reads.
+        guard let job = CompletionRequestRules.addPendingRequest(
+            to: jobs[idx], panelId: nil, opId: nil, entry: entry) else { return }
         updateJob(job)
         cacheJobLocally(job)
 
@@ -934,17 +1353,24 @@ class AppState {
         guard let me = currentPerson, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
         let members = Array(Set(people.filter { $0.isAdmin }.map(\.id) + [me.id]))
         guard let created = await createGroup(name: "Completion Requests", memberIds: members) else { return }
-        await addGroupMembers(groupName: "Completion Requests", add: members)
+        await addGroupMembers(groupRef: "Completion Requests", add: members)
         let group = groups.first(where: { $0.id == created.id }) ?? created
 
         let reqId = UUID().uuidString
         let now = Date.nowISO()
-        var job = jobs[idx]
-        var reqs = job.finishRequests ?? []
-        reqs.append(FinishRequestEntry(id: reqId, by: me.id, byName: me.name, at: now,
+        let entry = FinishRequestEntry(id: reqId, by: me.id, byName: me.name, at: now,
                                        status: "pending", resolvedBy: nil, resolvedByName: nil,
-                                       resolvedAt: nil, declineReason: nil))
-        job.finishRequests = reqs
+                                       resolvedAt: nil, declineReason: nil)
+        // Onto the PANEL/OP that was requested — not the job. The message below
+        // carries panelId/opId, and that is what the request card resolves the
+        // status through, so an entry parked on the job left the card unable to
+        // learn the request was pending: no Approve, no Deny, on iOS only. See
+        // `CompletionRequestRules.addPendingRequest`.
+        //
+        // A panel/op that isn't in the tree aborts the whole request rather than
+        // posting a message nothing can answer.
+        guard let job = CompletionRequestRules.addPendingRequest(
+            to: jobs[idx], panelId: panelId, opId: opId, entry: entry) else { return }
         updateJob(job)
         cacheJobLocally(job)
 
@@ -963,10 +1389,63 @@ class AppState {
     /// Admin approves a completion request.
     /// When panelId/opId are nil: finishes the whole job tree.
     /// When panelId is set: finishes only the specific panel (or op if opId is also set).
-    func approveJobCompletion(jobId: String, panelId: String? = nil, opId: String? = nil, requestId: String) async {
-        guard let me = currentPerson, me.isAdmin, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
+    /// Returns whether the decision was actually applied. `false` means it was
+    /// refused — no permission, the job isn't loaded, or the request is already
+    /// resolved — and the caller should say so rather than leave the buttons
+    /// sitting there as if nothing happened.
+
+    // MARK: Completion requests — reading and writing the RIGHT item
+
+    /// The entries for a request, from the item it was raised against: sub-op,
+    /// else panel, else the job. See `CompletionRequestRules.target` — a
+    /// task-level request does not live on the job, so approve/deny/undo used to
+    /// look it up on `job.finishRequests`, find nothing, and refuse.
+    private func finishEntries(_ job: Job, _ panelId: String?, _ opId: String?) -> [FinishRequestEntry]? {
+        CompletionRequestRules.target(job: job, panelId: panelId, opId: opId).entries
+    }
+
+    /// Write resolved entries back to that same item, and clear the pending
+    /// stamp/flag the web clears alongside them.
+    private func applyFinishEntries(_ job: inout Job, _ panelId: String?, _ opId: String?,
+                                    _ entries: [FinishRequestEntry]) {
+        guard let panelId else {
+            job.finishRequest = nil
+            job.finishRequests = entries
+            return
+        }
+        job.subs = job.subs.map { p in
+            guard p.id == panelId else { return p }
+            var p = p
+            guard let opId else {
+                p.finishRequest = nil
+                p.pendingFinish = false
+                p.finishRequests = entries
+                return p
+            }
+            p.subs = p.subs.map { o in
+                guard o.id == opId else { return o }
+                var o = o
+                o.finishRequest = nil
+                o.pendingFinish = false
+                o.finishRequests = entries
+                return o
+            }
+            return p
+        }
+    }
+
+    @discardableResult
+    func approveJobCompletion(jobId: String, panelId: String? = nil, opId: String? = nil, requestId: String) async -> Bool {
+        guard can(.approveCompletions), let me = currentPerson, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return false }
         let now = Date.nowISO()
         var job = jobs[idx]
+        // Refuse BEFORE touching job/panel status: re-approving an already
+        // resolved request would re-finish the tree and re-fire the resolution
+        // notification. See CompletionRequestRules.
+        guard let resolved = CompletionRequestRules.applyDecision(
+            to: finishEntries(job, panelId, opId), requestId: requestId, newStatus: "approved",
+            allowedFrom: ["pending"], resolvedBy: me.id, resolvedByName: me.name, resolvedAt: now)
+        else { return false }
         if let panelId {
             job.subs = job.subs.map { p in
                 guard p.id == panelId else { return p }
@@ -990,39 +1469,44 @@ class AppState {
                 return p
             }
         }
-        job.finishRequest = nil
-        job.finishRequests = (job.finishRequests ?? []).map { e in
-            guard e.id == requestId else { return e }
-            var e = e; e.status = "approved"; e.resolvedBy = me.id; e.resolvedByName = me.name; e.resolvedAt = now
-            return e
-        }
+        applyFinishEntries(&job, panelId, opId, resolved)
         updateJob(job)
         cacheJobLocally(job)
         await notifyCompletionResolution(job: job, requestId: requestId, outcome: "approved")
+        return true
     }
 
     /// Admin denies a completion request → the item stays active/overdue.
-    func denyJobCompletion(jobId: String, panelId: String? = nil, opId: String? = nil, requestId: String) async {
-        guard let me = currentPerson, me.isAdmin, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
+    /// Returns whether the decision was applied — see `approveJobCompletion`.
+    @discardableResult
+    func denyJobCompletion(jobId: String, panelId: String? = nil, opId: String? = nil, requestId: String) async -> Bool {
+        guard can(.approveCompletions), let me = currentPerson, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return false }
         let now = Date.nowISO()
         var job = jobs[idx]
-        job.finishRequest = nil
-        job.finishRequests = (job.finishRequests ?? []).map { e in
-            guard e.id == requestId else { return e }
-            var e = e; e.status = "declined"; e.resolvedBy = me.id; e.resolvedByName = me.name; e.resolvedAt = now
-            return e
-        }
+        guard let resolved = CompletionRequestRules.applyDecision(
+            to: finishEntries(job, panelId, opId), requestId: requestId, newStatus: "declined",
+            allowedFrom: ["pending"], resolvedBy: me.id, resolvedByName: me.name, resolvedAt: now)
+        else { return false }
+        applyFinishEntries(&job, panelId, opId, resolved)
         updateJob(job)
         cacheJobLocally(job)
         await notifyCompletionResolution(job: job, requestId: requestId, outcome: "declined")
+        return true
     }
 
     /// Admin undoes an approved completion.
     /// When panelId/opId are nil: reopens the whole job tree.
     /// When panelId is set: reopens only the specific panel (or op).
-    func undoJobCompletion(jobId: String, panelId: String? = nil, opId: String? = nil, requestId: String) async {
-        guard let me = currentPerson, me.isAdmin, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
+    /// Returns whether the undo was applied — only an APPROVED request can be
+    /// reopened, so a repeated press is a no-op rather than a second reopen.
+    @discardableResult
+    func undoJobCompletion(jobId: String, panelId: String? = nil, opId: String? = nil, requestId: String) async -> Bool {
+        guard let me = currentPerson, me.isAdmin, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return false }
         var job = jobs[idx]
+        guard let reopened = CompletionRequestRules.applyDecision(
+            to: finishEntries(job, panelId, opId), requestId: requestId, newStatus: "pending",
+            allowedFrom: ["approved"], resolvedBy: nil, resolvedByName: nil, resolvedAt: nil)
+        else { return false }
         if let panelId {
             job.subs = job.subs.map { p in
                 guard p.id == panelId else { return p }
@@ -1047,13 +1531,31 @@ class AppState {
                 return p
             }
         }
-        job.finishRequests = (job.finishRequests ?? []).map { e in
-            guard e.id == requestId else { return e }
-            var e = e; e.status = "pending"; e.resolvedBy = nil; e.resolvedByName = nil; e.resolvedAt = nil
-            return e
-        }
-        if panelId == nil, let entry = job.finishRequests?.first(where: { $0.id == requestId }) {
-            job.finishRequest = FinishRequestStamp(requestId: entry.id, by: entry.by, byName: entry.byName, at: entry.at)
+        applyFinishEntries(&job, panelId, opId, reopened)
+        // Re-arm the pending stamp on whichever item the request belongs to, so
+        // the reopened request reads as pending again to the web, which checks
+        // the stamp as well as the row.
+        if let entry = reopened.first(where: { $0.id == requestId }) {
+            let stamp = FinishRequestStamp(requestId: entry.id, by: entry.by,
+                                           byName: entry.byName, at: entry.at)
+            if let panelId {
+                job.subs = job.subs.map { p in
+                    guard p.id == panelId else { return p }
+                    var p = p
+                    if let opId {
+                        p.subs = p.subs.map { o in
+                            guard o.id == opId else { return o }
+                            var o = o; o.finishRequest = stamp; o.pendingFinish = true; return o
+                        }
+                    } else {
+                        p.finishRequest = stamp
+                        p.pendingFinish = true
+                    }
+                    return p
+                }
+            } else {
+                job.finishRequest = stamp
+            }
         }
         // If the whole job is in the past (overdue), pull it forward so it lands
         // back on the current schedule — a reopened past-dated job is otherwise
@@ -1095,6 +1597,7 @@ class AppState {
         updateJob(job)
         cacheJobLocally(job)
         await notifyCompletionResolution(job: job, requestId: requestId, outcome: "reopened")
+        return true
     }
 
     /// Push (not a chat message) telling the requester their completion request was
@@ -1119,6 +1622,9 @@ class AppState {
     // MARK: - Messages
 
     // Returns the server-assigned message ID so callers can track ownership.
+    // Not performOptimistic: this rethrows so the composer can keep the pending
+    // attachment for retry. The helper swallows the error into a rollback, which
+    // would silently discard what the user was trying to send.
     func sendMessageThrowing(_ message: Message) async throws -> String {
         messages.append(message)   // optimistic: bubble appears instantly
         guard let api else { return message.id }
@@ -1127,6 +1633,13 @@ class AppState {
             // Swap the optimistic local message for the canonical server message.
             if let i = messages.firstIndex(where: { $0.id == message.id }) {
                 messages[i] = serverMsg
+            } else if !messages.contains(where: { $0.id == serverMsg.id }) {
+                // A concurrent refresh (applyServerMessages does `messages = r`)
+                // dropped the optimistic bubble before the POST returned, so the
+                // swap-by-id found nothing. Re-insert the canonical message so it
+                // doesn't vanish until the next poll — guarded against the case
+                // where that refresh already carried the stored message.
+                messages.append(serverMsg)
             }
             return serverMsg.id
         } catch {
@@ -1164,6 +1677,15 @@ class AppState {
 
     /// Pull the read-cursor map for every thread I'm in. Cheap (a small map);
     /// called while a thread is open and on the realtime "reads" signal.
+    /// Compare two ISO8601 read-cursor timestamps as instants, tolerating one
+    /// side having fractional seconds and the other not (a lexicographic compare
+    /// gets that wrong: "…01.500Z" sorts BEFORE "…01Z"). Falls back to string
+    /// order only when a value is empty/unparseable.
+    private func isoGreater(_ a: String, than b: String) -> Bool {
+        if let da = Date.fromFlexibleISO8601(a), let db = Date.fromFlexibleISO8601(b) { return da > db }
+        return a > b
+    }
+
     func refreshReadReceipts() async {
         guard let api else { return }
         if let map = try? await api.fetchReadReceipts() {
@@ -1175,7 +1697,7 @@ class AppState {
                     for (threadKey, cursors) in map {
                         if let serverAt = cursors[myId] {
                             let localAt = threadReadAt[threadKey] ?? ""
-                            if serverAt > localAt { threadReadAt[threadKey] = serverAt }
+                            if isoGreater(serverAt, than: localAt) { threadReadAt[threadKey] = serverAt }
                         }
                     }
                 }
@@ -1190,7 +1712,7 @@ class AppState {
         guard let api, let myId = currentPersonId else { return }
         var map = readReceipts
         var cursors = map[threadKey] ?? [:]
-        if let prev = cursors[myId], prev >= at { /* already read this far */ }
+        if let prev = cursors[myId], !isoGreater(at, than: prev) { /* already read this far (at <= prev) */ }
         else {
             cursors[myId] = at
             map[threadKey] = cursors
@@ -1212,10 +1734,36 @@ class AppState {
 
     /// Pull the timestamped job-clock sessions (per-person) for the Hours
     /// page's JOB HOURS section. Same scoping as `refreshTimeclock`.
-    func refreshJobSessions(personId: String? = nil) async {
+    ///
+    /// `seedProgress` also feeds the rows to `productionHours`, the input to
+    /// hours-weighted progress. Only the warm pull sets it: that one asks for the
+    /// widest set this user is allowed (the server scopes non-admins to self), and
+    /// the Hours page's narrower per-person refreshes must not overwrite it — one
+    /// person's slice is the wrong basis for a whole job's progress.
+    func refreshJobSessions(personId: String? = nil, seedProgress: Bool = false) async {
         guard let api else { return }
         if let sessions = try? await api.fetchJobSessions(personId: personId) {
-            withoutAnimation { jobSessions = sessions }
+            withoutAnimation {
+                jobSessions = sessions
+                if seedProgress, !sessions.isEmpty || productionHours.isEmpty {
+                    applyProductionHours(sessions)
+                }
+            }
+        }
+    }
+
+    /// Warm the Stats-page datasets (timeclock + job sessions) so the Stats tab
+    /// is instant. Fire-and-forget: the two pulls write DIFFERENT arrays, so they
+    /// run CONCURRENTLY (one combined settle instead of staggered spurts). Scope
+    /// is org-wide for admins (a superset that also covers their own history),
+    /// else just this person. Called in the background from loadAll and again on
+    /// the Stats tab's appear.
+    func warmStatsData() {
+        let scope: String? = isAdmin ? nil : currentPersonId
+        Task { @MainActor in
+            async let tc: Void = refreshTimeclock(personId: scope)
+            async let js: Void = refreshJobSessions(personId: scope, seedProgress: true)
+            _ = await (tc, js)
         }
     }
 
@@ -1280,6 +1828,27 @@ class AppState {
         }
     }
 
+    /// Undo a time-off decision — the request goes back to pending.
+    ///
+    /// NOT `cancel`. Cancel is the requester withdrawing; this is the approver
+    /// changing their mind, so the request stays alive and returns to the queue.
+    /// Undoing an approval also pulls the entry back out of `person.timeOff`
+    /// server-side, which is why this refreshes the requests AND leaves the
+    /// people delta-sync to the change the server publishes.
+    @discardableResult
+    func reopenTimeOff(id: String) async -> Bool {
+        guard let api else { return false }
+        do {
+            _ = try await api.decideTimeOff(id: id, action: "reopen")
+            await refreshTimeOffRequests()
+            return true
+        } catch {
+            await refreshTimeOffRequests()
+            clockError = "Couldn't reopen the request: \(error.localizedDescription)"
+            return false
+        }
+    }
+
     /// Pull just the org settings. Views like the Schedule and Tasks
     /// tabs call this on appear so changes the admin makes on the
     /// Netlify desktop (workdays, holidays, hpd, etc.) show up
@@ -1299,14 +1868,24 @@ class AppState {
     /// the web app (`group:${group.id}`) — keying by name diverged from web, so a
     /// group chat created on one platform never converged with the other.
     @discardableResult
+    /// `name` is OPTIONAL — pass "" for an unnamed group, which then takes its
+    /// title from its members via `ChatGroup.displayName`.
     func createGroup(name: String, memberIds: [String]) async -> ChatGroup? {
         guard let api else { return nil }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        // Reuse an existing same-named group instead of creating a duplicate —
-        // and hand its id back so navigation targets the real thread.
-        if let existing = groups.first(where: { $0.name == trimmed }) { return existing }
-        let group = ChatGroup(id: UUID().uuidString, name: trimmed, memberIds: memberIds)
+        // Reuse an existing same-named group instead of creating a duplicate — and
+        // hand its id back so navigation targets the real thread.
+        //
+        // Only when a name was actually given. Unnamed groups all share the empty
+        // name, so an unconditional check would fold every one of them into
+        // whichever was created first.
+        if !trimmed.isEmpty, let existing = groups.first(where: { $0.name == trimmed }) {
+            return existing
+        }
+        // Stamp the creator, matching what the desktop writes — it's what decides
+        // who may later rename or delete the group.
+        let group = ChatGroup(id: UUID().uuidString, name: trimmed, memberIds: memberIds,
+                              createdBy: currentPersonId, createdAt: Date.nowISO())
         // Optimistic local update so the inbox surfaces the new group
         // immediately. The server save runs in the background.
         var updated = groups
@@ -1324,9 +1903,186 @@ class AppState {
     /// the thread's participant list reflects it immediately; the server save
     /// runs in the background. No-op if the group is missing or everyone named
     /// is already a member.
-    func addGroupMembers(groupName: String, add ids: [String]) async {
+    /// Rename a group and/or replace its roster. `name` may be empty, which means
+    /// "title it after its members" (see `ChatGroup.displayName`) — clearing the
+    /// field is a supported edit, not a no-op.
+    ///
+    /// Unlike `addGroupMembers` this SETS the roster, so it can remove people too.
+    /// Optimistic local update; the server save runs after.
+    func updateGroup(id: String, name: String, memberIds: [String]) async {
         guard let api else { return }
-        guard let idx = groups.firstIndex(where: { $0.name == groupName || $0.id == groupName }) else { return }
+        guard let idx = groups.firstIndex(where: { $0.id == id }) else { return }
+        guard !memberIds.isEmpty else { return }   // a group with nobody in it isn't one
+        // Was ungated: anyone in a group could rename it and remove anybody else.
+        // Renaming and changing the roster are now creator/admin actions; the one
+        // change a plain member may make is dropping THEMSELVES (leaving), which
+        // removeGroupMember handles.
+        let current = groups[idx]
+        let renaming = current.name != name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rosterChanged = Set(current.memberIds) != Set(memberIds)
+        if (renaming || rosterChanged) && !canAdministerGroup(current) { return }
+        var updated = groups
+        updated[idx].name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        updated[idx].memberIds = memberIds
+        groups = updated
+        do {
+            try await api.saveGroups(updated)
+        } catch {
+            errorMessage = "Failed to update group: \(error.localizedDescription)"
+        }
+    }
+
+    /// `groupRef` is an id OR a name. Callers with a thread key pass the id (thread
+    /// keys are keyed by id); the "Completion Requests" system group is looked up
+    /// by its well-known name. Named `groupRef` rather than `groupName` because a
+    /// name is no longer guaranteed to exist or to be unique.
+    // MARK: Rescheduling
+
+    private static let ymdFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(secondsFromGMT: 0)
+        return f
+    }()
+
+    static func ymd(_ d: Date) -> String { ymdFormatter.string(from: d) }
+
+    private static func shift(_ ymdString: String, byDays days: Int) -> String {
+        guard days != 0, let d = ScheduleDateParser.parse(ymdString) else { return ymdString }
+        return ymd(Calendar.current.date(byAdding: .day, value: days, to: d) ?? d)
+    }
+
+    /// Ops that depend on `unitId`, transitively. Visited-set guarded: `deps` is
+    /// user-authored and nothing stops A→B→A, which would otherwise spin here.
+    private func dependentOpIds(of unitId: String, in job: Job) -> Set<String> {
+        var out: Set<String> = []
+        var frontier: [String] = [unitId]
+        while let current = frontier.popLast() {
+            for panel in job.subs {
+                for op in panel.subs where op.deps.contains(current) {
+                    if out.insert(op.id).inserted { frontier.append(op.id) }
+                }
+            }
+        }
+        return out
+    }
+
+    /// True when anything in this job depends on the unit — drives whether the
+    /// reschedule sheet offers the "push dependents" toggle at all.
+    func hasDependents(unitId: String, jobId: String) -> Bool {
+        guard let job = jobs.first(where: { $0.id == jobId }) else { return false }
+        return !dependentOpIds(of: unitId, in: job).isEmpty
+    }
+
+    /// Move an op or panel to a new date range, optionally sliding everything
+    /// downstream by the same delta.
+    ///
+    /// Delta is measured from the unit's OLD start, so dragging the end alone
+    /// (delta 0) resizes without disturbing dependents — matching what the
+    /// desktop does when you resize rather than move a bar.
+    ///
+    /// Not performOptimistic: job writes already roll back through
+    /// rollbackSnapshot (see persistJobs), and the helper wants a throwing
+    /// serverCall while job saves are debounced and non-throwing.
+    func rescheduleUnit(jobId: String, unitId: String,
+                        newStart: String, newEnd: String,
+                        pushDependents: Bool) {
+        guard can(.moveJobs) else { return }
+        guard let ji = jobs.firstIndex(where: { $0.id == jobId }) else { return }
+        var job = jobs[ji]
+
+        let oldStart: String? = {
+            if let p = job.subs.first(where: { $0.id == unitId }) { return p.start }
+            for p in job.subs { if let o = p.subs.first(where: { $0.id == unitId }) { return o.start } }
+            return nil
+        }()
+        guard let previousStart = oldStart,
+              let from = ScheduleDateParser.parse(previousStart),
+              let to = ScheduleDateParser.parse(newStart) else { return }
+        let delta = Calendar.current.dateComponents([.day], from: from, to: to).day ?? 0
+
+        let dependents = (pushDependents && delta != 0) ? dependentOpIds(of: unitId, in: job) : []
+
+        for pi in job.subs.indices {
+            if job.subs[pi].id == unitId {
+                job.subs[pi].start = newStart
+                job.subs[pi].end = newEnd
+            }
+            for oi in job.subs[pi].subs.indices {
+                let op = job.subs[pi].subs[oi]
+                if op.id == unitId {
+                    job.subs[pi].subs[oi].start = newStart
+                    job.subs[pi].subs[oi].end = newEnd
+                } else if dependents.contains(op.id) {
+                    job.subs[pi].subs[oi].start = Self.shift(op.start, byDays: delta)
+                    job.subs[pi].subs[oi].end = Self.shift(op.end, byDays: delta)
+                }
+            }
+        }
+        updateJob(job)
+    }
+
+    // MARK: Group management
+    //
+    // All three go through saveGroups, which is a whole-array replace. Each keeps
+    // the optimistic-then-persist shape the surrounding group calls already use:
+    // update `groups` immediately, save in the background, restore on failure.
+    // Not performOptimistic — these need the pre-edit array captured before the
+    // mutation, which the helper's closure signature can express but which would
+    // read worse than the local snapshot the neighbouring methods already use.
+
+    /// May this person rename or delete the group? Creator or admin. Groups
+    /// created before createdBy was carried have no creator, so admins are the
+    /// only ones who can administer them — deliberately strict rather than
+    /// letting anyone rename an unowned group.
+    func canAdministerGroup(_ group: ChatGroup) -> Bool {
+        if isAdmin { return true }
+        guard let owner = group.createdBy, let me = currentPersonId else { return false }
+        return owner == me
+    }
+
+    /// Remove a member. Anyone may remove THEMSELVES (leave); removing someone
+    /// else takes creator or admin rights.
+    func removeGroupMember(groupId: String, personId: String) async {
+        guard let api else { return }
+        guard let idx = groups.firstIndex(where: { $0.id == groupId }) else { return }
+        let isSelf = personId == currentPersonId
+        guard isSelf || canAdministerGroup(groups[idx]) else { return }
+        await performOptimistic({
+            let previous = self.groups
+            var updated = self.groups
+            updated[idx].memberIds.removeAll { $0 == personId }
+            self.groups = updated
+            return { self.groups = previous }
+        }, serverCall: {
+            try await api.saveGroups(self.groups)
+        })
+    }
+
+    /// Delete a group outright. `force=1` on the save is deliberate: deleting
+    /// your only group legitimately posts an empty array, which the endpoint's
+    /// empty-overwrite guard would otherwise refuse with a 409.
+    func deleteGroup(id: String) async {
+        guard let api else { return }
+        guard let idx = groups.firstIndex(where: { $0.id == id }),
+              canAdministerGroup(groups[idx]) else { return }
+        let wasLast = groups.count == 1
+        await performOptimistic({
+            let previous = self.groups
+            self.groups = self.groups.filter { $0.id != id }
+            return { self.groups = previous }
+        }, serverCall: {
+            try await api.saveGroups(self.groups, force: wasLast)
+        })
+    }
+
+    // Not performOptimistic: this deliberately does NOT roll back — the added
+    // members stay put and the next deltaSync reconciles. Migrating would change
+    // that to a revert, which is a behaviour change, not a consolidation.
+    func addGroupMembers(groupRef: String, add ids: [String]) async {
+        guard let api else { return }
+        guard let idx = groups.firstIndex(where: { $0.id == groupRef || $0.name == groupRef }) else { return }
         let newIds = ids.filter { !groups[idx].memberIds.contains($0) }
         guard !newIds.isEmpty else { return }
         var updated = groups
@@ -1345,34 +2101,35 @@ class AppState {
         guard let api else { return }
         // Optimistic local removal so the inbox doesn't keep showing the
         // thread while the network call is in flight.
-        let snapshot = messages
-        messages.removeAll { $0.threadKey == threadKey }
-        do {
+        await performOptimistic({
+            let snapshot = self.messages
+            self.messages.removeAll { $0.threadKey == threadKey }
+            return { self.messages = snapshot }
+        }, serverCall: {
             try await api.deleteThread(threadKey: threadKey)
-        } catch {
-            messages = snapshot   // restore on failure
-            errorMessage = "Failed to delete thread: \(error.localizedDescription)"
-        }
+        })
     }
 
     // MARK: - Undo / Redo
 
+    // Rolling the schedule back is a schedule change like any other, so it takes
+    // the undoHistory toggle. Previously ungated on both surfaces.
     func undo() {
-        guard !undoStack.isEmpty else { return }
+        guard can(.undoHistory), !undoStack.isEmpty else { return }
         redoStack.append(jobs)
         jobs = undoStack.removeLast()
         scheduleSave()
     }
 
     func redo() {
-        guard !redoStack.isEmpty else { return }
+        guard can(.undoHistory), !redoStack.isEmpty else { return }
         undoStack.append(jobs)
         jobs = redoStack.removeLast()
         scheduleSave()
     }
 
-    var canUndo: Bool { !undoStack.isEmpty }
-    var canRedo: Bool { !redoStack.isEmpty }
+    var canUndo: Bool { can(.undoHistory) && !undoStack.isEmpty }
+    var canRedo: Bool { can(.undoHistory) && !redoStack.isEmpty }
 
     // MARK: - Auto-save
 
@@ -1420,28 +2177,87 @@ class AppState {
     // ran. Poll the SDK for up to ~10s post-login since the subscription ID
     // isn't always ready immediately after init.
     private var pushRegisterTask: Task<Void, Never>?
+    #if canImport(OneSignalFramework)
+    private var pushSubObserver: PushSubscriptionObserver?
+    #endif
 
+    /// Write this device's OneSignal subscription id to the roster, which is what
+    /// actually opts it into native pushes — the server skips anyone whose record
+    /// has no `pushToken`.
+    ///
+    /// Two ways this used to fail permanently and silently, both of which look like
+    /// "notifications sometimes don't arrive on my phone" while desktop web push
+    /// (separate subscriptions) keeps working:
+    ///
+    ///  1. The poll gave up after 10s. If APNs registration was slow, the user was
+    ///     still on the permission prompt, or the network was poor, the id simply
+    ///     wasn't there yet — and nothing ever tried again for the whole session.
+    ///  2. `writePushToken` needs the person in `people`. At first login the roster
+    ///     often hasn't loaded when the id resolves, so the write was skipped and,
+    ///     again, never retried.
+    ///
+    /// So the poll now waits for BOTH the id and the roster entry, logs if it still
+    /// gives up, an observer catches an id that arrives later or changes (reinstall,
+    /// token rotation), and `handleForeground` retries each time the app is opened.
     func registerPushTokenIfNeeded() {
+        #if canImport(OneSignalFramework)
+        observePushSubscription()
         pushRegisterTask?.cancel()
         pushRegisterTask = Task { [weak self] in
             guard let self else { return }
             for _ in 0..<20 {
                 if Task.isCancelled { return }
                 let id = OneSignal.User.pushSubscription.id
-                if let id, !id.isEmpty {
+                let rosterReady = self.currentPersonId.map { pid in
+                    self.people.contains(where: { $0.id == pid })
+                } ?? false
+                if let id, !id.isEmpty, rosterReady {
                     await self.writePushToken(id)
                     return
                 }
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }
+            if !Task.isCancelled {
+                // Not fatal — the observer and the next foreground both retry — but
+                // say so, because until it lands this device gets no native push.
+                print("[onesignal] pushToken NOT registered after 10s (subscriptionId=\(OneSignal.User.pushSubscription.id ?? "nil"), personId=\(self.currentPersonId ?? "nil"), peopleLoaded=\(!self.people.isEmpty)). Will retry on subscription change / next foreground.")
+            }
         }
+        #endif
     }
+
+    /// Catch a subscription id that shows up after the poll window, or changes later
+    /// (reinstall, restored backup, APNs token rotation). Without this, a device
+    /// whose id changed keeps a stale token in the roster and silently stops
+    /// receiving pushes.
+    private func observePushSubscription() {
+        #if canImport(OneSignalFramework)
+        guard pushSubObserver == nil else { return }
+        let obs = PushSubscriptionObserver { [weak self] id in
+            guard let self, let id, !id.isEmpty else { return }
+            Task { @MainActor in await self.writePushToken(id) }
+        }
+        pushSubObserver = obs
+        OneSignal.User.pushSubscription.addObserver(obs)
+        #endif
+    }
+
+    /// The token this session has CONFIRMED the server accepted. The skip below
+    /// reads this and not `people[idx].pushToken`, because the roster is a local
+    /// belief about the server, not evidence of a write to it — and the two came
+    /// apart routinely: a full-roster POST from another client used to drop the
+    /// token server-side (see serverOwnedPersonFields in people.js) while this
+    /// device still held its own optimistic copy. The skip then fired on every
+    /// retry — foreground, observer, poll — and the phone sat unreachable with a
+    /// roster that said otherwise. One confirmed write per launch is cheap; a
+    /// silently unregistered device is not.
+    private var confirmedPushToken: String?
 
     private func writePushToken(_ token: String) async {
         guard let api,
               let personId = currentPersonId,
               let idx = people.firstIndex(where: { $0.id == personId }),
-              people[idx].pushToken != token else { return }
+              confirmedPushToken != token else { return }
         var updated = people
         updated[idx].pushToken = token
         people = updated
@@ -1453,14 +2269,23 @@ class AppState {
         // land in people.json. Without this fallback, the chat
         // notifications break the moment the iOS client races ahead of
         // the Netlify deploy.
+        //
+        // The fallback only ever reaches a deploy old enough to lack PATCH, and
+        // such a deploy still accepts `pushToken` through the roster — so it
+        // remains the right thing to do there. On a current server the field is
+        // pinned to its stored value and the POST would write nothing, which is
+        // fine: there PATCH succeeds, and PATCH is tried first.
         do {
             try await api.patchPerson(personId: personId, fields: ["pushToken": token])
+            confirmedPushToken = token
         } catch APIError.httpError(405), APIError.httpError(404) {
-            try? await api.savePeople(updated)
+            if (try? await api.savePeople(updated)) != nil { confirmedPushToken = token }
         } catch {
             // Any other error: also fall back, since we'd rather have
             // push working with the legacy race than not working at all.
-            try? await api.savePeople(updated)
+            // `confirmedPushToken` stays put on failure, so the next
+            // foreground/observer retry tries again instead of skipping.
+            if (try? await api.savePeople(updated)) != nil { confirmedPushToken = token }
         }
     }
 
@@ -1486,6 +2311,17 @@ class AppState {
     }
 
     // MARK: - Time Clock Methods
+    //
+    // None of the clock mutations use performOptimistic, and that is deliberate.
+    // Every one of them has a 409 branch that does real work — deltaSyncNow,
+    // persistClockChangeToCache, reconcilePayClock — because a 409 here means
+    // "the server is already in the state you asked for", which is a success to
+    // align to, not a failure to undo.
+    //
+    // performOptimistic has a single catch that rolls back and raises a toast.
+    // Routing these through it would turn every benign 409 into a visible error
+    // and a reverted clock state, which is a payroll bug. They stay hand-rolled
+    // until the helper can express "this error is fine, reconcile instead".
 
     func timeclockIdentify(pin: String) async {
         guard let api else { return }
@@ -1527,7 +2363,7 @@ class AppState {
 
     func timeclockSendEvent(action: String) async {
         guard let api, let personId = clockedInPersonId, let pin = clockedInPin else { return }
-        let event = ClockEvent(type: action, ts: ISO8601DateFormatter().string(from: Date()))
+        let event = ClockEvent(type: action, ts: Date.isoPlainString(Date()))
         activeClockIn?.events.append(event)
         try? await api.timeclockEvent(action: action, personId: personId, pin: pin)
         // Server publishes the change → delta-sync reconciles. loadAll removed.
@@ -1606,13 +2442,42 @@ class AppState {
         clockChangeAt = Date()
     }
 
-    func jobClockIn(jobId: String, panelId: String? = nil, opId: String? = nil,
-                    jobTitle: String? = nil, panelTitle: String? = nil, opTitle: String? = nil) async {
-        guard let api, let personId = currentPersonId else { return }
+    /// One in-flight job clock-in: who, what, and the clock the optimistic write
+    /// replaced. Produced by `beginJobClockIn` (synchronous) and consumed by
+    /// `completeJobClockIn` (the network half) — see `beginJobClockIn` for why
+    /// the two are separate.
+    struct JobClockAttempt {
+        let personId: String
+        let jobId: String
+        let panelId: String?
+        let opId: String?
+        let jobTitle: String?
+        let panelTitle: String?
+        let opTitle: String?
+        /// What to put back if the request fails.
+        let previousClock: ActiveJobClock?
+    }
+
+    /// The SYNCHRONOUS half of a job clock-in: the permission check plus the
+    /// optimistic write, both on the caller's own frame. Returns the attempt to
+    /// hand to `completeJobClockIn`, or nil when there's nothing to send (the
+    /// error, if any, is already set).
+    ///
+    /// Split out of `jobClockIn` for latency. `Task { await jobClockIn(…) }`
+    /// costs a main-actor hop before the optimistic write lands, so the In
+    /// Progress section arrived a frame AFTER the tap rather than on it — and
+    /// that frame sat on top of the popup teardown the tap had already paid for.
+    /// Called straight from the button, the section is on screen before the
+    /// request has been built. Mirrors `markJobClockedOutLocally`, which exists
+    /// for exactly the same reason on the STOP side.
+    func beginJobClockIn(jobId: String, panelId: String? = nil, opId: String? = nil,
+                         jobTitle: String? = nil, panelTitle: String? = nil,
+                         opTitle: String? = nil) -> JobClockAttempt? {
+        guard api != nil, let personId = currentPersonId else { return nil }
         // You can only work on a job while clocked in (server enforces this too).
         guard canWorkOnJobs else {
             clockError = "You must clock in before working on a job."
-            return
+            return nil
         }
 
         // Optimistically set the active job clock BEFORE the network round-trip
@@ -1621,15 +2486,40 @@ class AppState {
         // means we're already in (= success), and a genuine failure reverts.
         let previousClock = people.first(where: { $0.id == personId })?.activeJobClock
         let optimistic = ActiveJobClock(
-            clockIn: ISO8601DateFormatter().string(from: Date()),
+            clockIn: Date.isoPlainString(Date()),
             jobId: jobId, panelId: panelId, opId: opId,
             jobTitle: jobTitle, panelTitle: panelTitle, opTitle: opTitle
         )
         setLocalJobClock(personId: personId, optimistic)
 
+        return JobClockAttempt(personId: personId, jobId: jobId, panelId: panelId, opId: opId,
+                               jobTitle: jobTitle, panelTitle: panelTitle, opTitle: opTitle,
+                               previousClock: previousClock)
+    }
+
+    /// Kept as the one-call form for callers that don't need the write to land on
+    /// their own frame. The two halves below are the same code path.
+    func jobClockIn(jobId: String, panelId: String? = nil, opId: String? = nil,
+                    jobTitle: String? = nil, panelTitle: String? = nil, opTitle: String? = nil) async {
+        guard let attempt = beginJobClockIn(jobId: jobId, panelId: panelId, opId: opId,
+                                            jobTitle: jobTitle, panelTitle: panelTitle,
+                                            opTitle: opTitle) else { return }
+        await completeJobClockIn(attempt)
+    }
+
+    /// The NETWORK half — see `beginJobClockIn`. The optimistic clock is already
+    /// on screen by the time this runs; this either reconciles it with the server
+    /// or puts back `attempt.previousClock`.
+    func completeJobClockIn(_ attempt: JobClockAttempt) async {
+        guard let api else { return }
+        let personId = attempt.personId
+        let previousClock = attempt.previousClock
+
         do {
-            try await api.jobClockIn(personId: personId, jobId: jobId, panelId: panelId, opId: opId,
-                                     jobTitle: jobTitle, panelTitle: panelTitle, opTitle: opTitle)
+            try await api.jobClockIn(personId: personId, jobId: attempt.jobId,
+                                     panelId: attempt.panelId, opId: attempt.opId,
+                                     jobTitle: attempt.jobTitle, panelTitle: attempt.panelTitle,
+                                     opTitle: attempt.opTitle)
 
             // Refresh jobs (op status → "In Progress" lands here) and
             // pick up the server's canonical clockIn timestamp via the
@@ -1710,7 +2600,7 @@ class AppState {
               let idx = people.firstIndex(where: { $0.id == personId }) else { return }
         var newPeople = people
         newPeople[idx].activeClockIn = ActiveClockIn(
-            clockIn: ISO8601DateFormatter().string(from: start),
+            clockIn: Date.isoPlainString(start),
             jobRefs: [], events: [], source: "ios-app")
         people = newPeople
         clockChangeAt = Date()
@@ -1784,7 +2674,14 @@ class AppState {
     /// is already correct from loadAll(), and this only refreshes the cache so
     /// the NEXT launch paints the right state.
     private func persistClockChangeToCache() async {
-        _ = await runDeltaSync()
+        let didWrite = await runDeltaSync()
+        // deltaSync coalesces: if a concurrent Ably-driven change (another user's
+        // job/message edit) piggybacked on THIS run, its writes landed in the
+        // cache but no one rehydrated them — they'd stay invisible until the next
+        // poll. Rehydrate when anything was written. Our own pay-clock flags are
+        // grace-guarded (reconcilePayClock bails for 12s after clockChangeAt), so
+        // re-reading our person from cache can't flip the CTA back.
+        if didWrite { deferRehydrate() }
     }
 
     /// Clock the current user IN for pay from iOS. Optimistic: flips the CTA
@@ -1794,14 +2691,18 @@ class AppState {
     /// it (and auto-accepts when they have none). A wrong PIN comes back as 401
     /// and reverts the optimistic flip with an "Invalid PIN" error.
     @discardableResult
-    func payClockIn(pin: String? = nil) async -> Bool {
+    /// - Parameter showsOverlay: whether to raise the full-screen "Clocking In…"
+    ///   card. The PIN pad passes `false` — it runs the same spinner and
+    ///   checkmark inside its own panel, and two of them on screen at once was
+    ///   the pad sitting dimmed behind a loading card that had covered it.
+    func payClockIn(pin: String? = nil, showsOverlay: Bool = true) async -> Bool {
         guard let api, let personId = currentPersonId, !isPayClocking else { return false }
         guard canClockInOut else { return false }   // worker permission gate
         let prevActive = payClockInActive, prevStart = payClockInStart, prevSource = payClockInSource
         let prevClock = currentPerson?.activeClockIn
         isPayClocking = true
-        clockActionLabel = "Clocking In…"
-        defer { isPayClocking = false; clockActionLabel = nil }
+        if showsOverlay { clockActionLabel = "Clocking In…" }
+        defer { isPayClocking = false; clockActionLabel = nil; clockActionDone = false }
         // Optimistic — flip the flags AND the canonical activeClockIn field on the
         // same frame so every reader (TimeClockView's flag-based CTA and the Home
         // card's field-based status/timer) shows clocked-in instantly instead of
@@ -1846,29 +2747,41 @@ class AppState {
             clockError = "Failed to clock in for pay: \(error.localizedDescription)"
             return false
         }
+        // Hold the checkmark long enough to be read. The `defer` above clears
+        // both flags, so the overlay comes down on its own once this returns.
+        if showsOverlay {
+            clockActionDone = true
+            try? await Task.sleep(nanoseconds: 750_000_000)
+        }
         return true
     }
 
     /// Clock the current user OUT for pay from iOS. Optimistic clear; 409 =
     /// already clocked out (align to server); 401 = revert.
-    func payClockOut() async {
-        guard let api, let personId = currentPersonId, !isPayClocking else { return }
-        guard canClockInOut else { return }   // worker permission gate
+    /// `pin` is passed through when the person has a PIN set; the server verifies
+    /// it (and auto-accepts when they have none), so a stray tap on the
+    /// full-width Clock Out button can't end a shift. Returns whether the
+    /// clock-out went through — the PIN pad stays open on `false`.
+    @discardableResult
+    /// - Parameter showsOverlay: see `payClockIn(pin:showsOverlay:)`.
+    func payClockOut(pin: String? = nil, showsOverlay: Bool = true) async -> Bool {
+        guard let api, let personId = currentPersonId, !isPayClocking else { return false }
+        guard canClockInOut else { return false }   // worker permission gate
         // Must log out of the current job before clocking out (server enforces too).
         guard !clockOutBlockedByJob else {
             clockError = "Log out of your job before clocking out."
-            return
+            return false
         }
         let prevActive = payClockInActive, prevStart = payClockInStart, prevSource = payClockInSource
         isPayClocking = true
-        clockActionLabel = "Clocking Out…"
-        defer { isPayClocking = false; clockActionLabel = nil }
+        if showsOverlay { clockActionLabel = "Clocking Out…" }
+        defer { isPayClocking = false; clockActionLabel = nil; clockActionDone = false }
         payClockInActive = false
         payClockInStart = nil
         payClockInSource = nil
         clockChangeAt = Date()
         do {
-            try await api.payClockOut(personId: personId)
+            try await api.payClockOut(personId: personId, pin: pin)
             // Clear the canonical in-memory activeClockIn too — not just the
             // payClockIn* flags — so the Home screen's shift card (which reads
             // currentPerson.activeClockIn directly) flips to clocked-out instead
@@ -1889,12 +2802,29 @@ class AppState {
         } catch APIError.httpError(401) {
             payClockInActive = prevActive; payClockInStart = prevStart; payClockInSource = prevSource
             clockChangeAt = Date()
-            clockError = APIError.httpError(401).localizedDescription
+            // A 401 on a PIN-carrying clock-out means the PIN was wrong, not that
+            // the session expired — same distinction payClockIn makes.
+            clockError = pin != nil ? "Invalid PIN. Please try again."
+                                    : APIError.httpError(401).localizedDescription
+            return false
+        } catch APIError.httpError(400) {
+            payClockInActive = prevActive; payClockInStart = prevStart; payClockInSource = prevSource
+            clockChangeAt = Date()
+            clockError = "PIN required."
+            return false
         } catch {
             payClockInActive = prevActive; payClockInStart = prevStart; payClockInSource = prevSource
             clockChangeAt = Date()
             clockError = "Failed to clock out for pay: \(error.localizedDescription)"
+            return false
         }
+        // Hold the checkmark long enough to be read. The `defer` above clears
+        // both flags, so the overlay comes down on its own once this returns.
+        if showsOverlay {
+            clockActionDone = true
+            try? await Task.sleep(nanoseconds: 750_000_000)
+        }
+        return true
     }
 
     // MARK: - Pay Lunch (Bearer) — pauses the pay clock for lunch
@@ -1934,26 +2864,43 @@ class AppState {
 
     /// Toggle lunch on the pay shift. Optimistically appends the event, calls the
     /// server, then reconciles. 409 = server already in that state (align, no error).
-    func payLunchToggle() async {
-        guard let api, let personId = currentPersonId, !isPayClocking else { return }
+    /// Returns whether the toggle stuck, so the caller can show the big
+    /// LUNCH STARTED / LUNCH ENDED banner only when it actually happened.
+    @discardableResult
+    /// Toggle lunch. Returns as soon as the LOCAL state is correct; the request
+    /// goes out behind it.
+    ///
+    /// This used to hold `isPayClocking` for the whole round trip, which dimmed
+    /// and disabled Lunch, Break AND Clock Out together until the server
+    /// answered — a wait of a second or more for a state the optimistic
+    /// `appendLocalClockEvent` below had already made true on this device. The
+    /// re-entrancy guard is now `lunchInFlight`, which nothing renders, so the
+    /// buttons stay live while the request finishes.
+    func payLunchToggle() async -> Bool {
+        guard let api, let personId = currentPersonId, !lunchInFlight else { return false }
         let starting = !payOnLunch
-        isPayClocking = true
-        defer { isPayClocking = false }
+        lunchInFlight = true
         let evt = ClockEvent(type: starting ? "lunchStart" : "lunchEnd",
-                             ts: ISO8601DateFormatter().string(from: Date()))
-        appendLocalClockEvent(personId: personId, evt)
-        do {
-            if starting { try await api.payLunchStart(personId: personId) }
-            else        { try await api.payLunchEnd(personId: personId) }
-            // Optimistic event already appended; server publishes "people" → delta-sync.
-        } catch APIError.httpError(409) {
-            await deltaSyncNow()            // server already in the target state
-            reconcilePayClock(force: true)
-        } catch {
-            removeLastLocalClockEvent(personId: personId, type: evt.type)   // revert
-            clockChangeAt = Date()
-            clockError = "Failed to \(starting ? "start" : "end") lunch: \(error.localizedDescription)"
+                             ts: Date.isoPlainString(Date()))
+        appendLocalClockEvent(personId: personId, evt)   // the screen is correct from here
+        Task {
+            defer { lunchInFlight = false }
+            do {
+                if starting { try await api.payLunchStart(personId: personId) }
+                else        { try await api.payLunchEnd(personId: personId) }
+                // Optimistic event already appended; server publishes "people" → delta-sync.
+            } catch APIError.httpError(409) {
+                await deltaSyncNow()            // server already in the target state
+                reconcilePayClock(force: true)
+            } catch {
+                // The revert is the failure report. It lands a beat after the
+                // banner, which is the price of not waiting for the server.
+                removeLastLocalClockEvent(personId: personId, type: evt.type)
+                clockChangeAt = Date()
+                clockError = "Failed to \(starting ? "start" : "end") lunch: \(error.localizedDescription)"
+            }
         }
+        return true
     }
 
     // MARK: - Panel attachments
@@ -1970,7 +2917,7 @@ class AppState {
             throw APIError.unknown(NSError(domain: "TRAQS", code: 0,
                 userInfo: [NSLocalizedDescriptionKey: "Service unavailable — try again."]))
         }
-        let result = try await api.uploadAttachment(filename: filename, mimeType: mimeType, data: data)
+        let result = try await api.uploadAttachment(filename: filename, mimeType: mimeType, data: data, context: "jobFinish")
         let meta = PanelAttachment(
             key: result.key,
             filename: result.filename,
@@ -1978,7 +2925,7 @@ class AppState {
             size: result.size,
             uploadedById: currentPersonId,
             uploadedByName: currentPerson?.name,
-            uploadedAt: ISO8601DateFormatter().string(from: Date()),
+            uploadedAt: Date.isoPlainString(Date()),
             opId: opId
         )
         // Re-find the job at append time — jobs may have refreshed since the
@@ -1998,7 +2945,7 @@ class AppState {
             throw APIError.unknown(NSError(domain: "TRAQS", code: 0,
                 userInfo: [NSLocalizedDescriptionKey: "Service unavailable — try again."]))
         }
-        let r = try await api.uploadAttachment(filename: filename, mimeType: mimeType, data: data)
+        let r = try await api.uploadAttachment(filename: filename, mimeType: mimeType, data: data, context: "message")
         return Attachment(key: r.key, filename: r.filename, mimeType: r.mimeType, size: r.size)
     }
 
@@ -2029,41 +2976,62 @@ class AppState {
     }
 
     /// Start a break using the configured break length. Job clock is left
-    /// running. Schedules the local "ending soon" reminder.
-    func startBreak() async {
-        guard let api, let personId = currentPersonId else { return }
+    /// running. Schedules the local "ending soon" reminder. Returns whether it
+    /// stuck, so the caller can show the BREAK STARTED banner only on success.
+    @discardableResult
+    /// Start a break. Returns as soon as the LOCAL state is correct.
+    ///
+    /// The caller used to await the request AND a full `refreshJobsQuietly()` —
+    /// an entire `fetchJobs()` of the job tree — before releasing its button and
+    /// raising the banner. Nothing on the Hours screen needs the job tree to
+    /// render a break, so that refetch is fire-and-forget now and the round trip
+    /// runs behind the UI.
+    func startBreak() async -> Bool {
+        guard let api, let personId = currentPersonId, !breakInFlight else { return false }
         let minutes = orgSettings.breaks.first?.durationMinutes ?? 15
-        let optimistic = ActiveBreak(startedAt: ISO8601DateFormatter().string(from: Date()),
+        let optimistic = ActiveBreak(startedAt: Date.isoPlainString(Date()),
                                      durationMinutes: minutes)
-        setLocalBreak(personId: personId, optimistic)
+        breakInFlight = true
+        setLocalBreak(personId: personId, optimistic)   // the screen is correct from here
         BreakReminder.schedule(durationMinutes: minutes)
-        do {
-            try await api.breakBegin(personId: personId, durationMinutes: minutes)
-            await refreshJobsQuietly()
-        } catch APIError.httpError(409) {
-            await refreshJobsQuietly()   // already on break server-side — fine
-        } catch {
-            setLocalBreak(personId: personId, nil)   // revert
-            BreakReminder.cancel()
-            clockError = error.localizedDescription
+        Task {
+            defer { breakInFlight = false }
+            do {
+                try await api.breakBegin(personId: personId, durationMinutes: minutes)
+                await refreshJobsQuietly()
+            } catch APIError.httpError(409) {
+                await refreshJobsQuietly()   // already on break server-side — fine
+            } catch {
+                setLocalBreak(personId: personId, nil)   // revert
+                BreakReminder.cancel()
+                clockError = error.localizedDescription
+            }
         }
+        return true
     }
 
     /// End the break. The ONLY way a break ends — there is no auto-expiry.
-    func endBreak() async {
-        guard let api, let personId = currentPersonId else { return }
+    /// Returns as soon as the local state is correct; see `startBreak`.
+    @discardableResult
+    func endBreak() async -> Bool {
+        guard let api, let personId = currentPersonId, !breakInFlight else { return false }
         let previous = myActiveBreak
-        setLocalBreak(personId: personId, nil)
+        breakInFlight = true
+        setLocalBreak(personId: personId, nil)   // the screen is correct from here
         BreakReminder.cancel()
-        do {
-            try await api.breakEnd(personId: personId)
-            await refreshJobsQuietly()
-        } catch APIError.httpError(409) {
-            await refreshJobsQuietly()   // already cleared server-side — fine
-        } catch {
-            setLocalBreak(personId: personId, previous)   // revert
-            clockError = error.localizedDescription
+        Task {
+            defer { breakInFlight = false }
+            do {
+                try await api.breakEnd(personId: personId)
+                await refreshJobsQuietly()
+            } catch APIError.httpError(409) {
+                await refreshJobsQuietly()   // already cleared server-side — fine
+            } catch {
+                setLocalBreak(personId: personId, previous)   // revert
+                clockError = error.localizedDescription
+            }
         }
+        return true
     }
 
     func clearClockSession() {
@@ -2113,6 +3081,15 @@ class AppState {
 
     var isAdmin: Bool     { currentPerson?.isAdmin ?? false }
     var isEngineer: Bool  { isAdmin || (currentPerson?.isEngineer ?? false) }
+
+    /// Granular permission check — same rule as the web and the server:
+    /// `isAdmin && (adminPerms == nil || adminPerms[key] == true)`.
+    /// The old call sites used OR, so every admin passed regardless of toggles.
+    func can(_ key: AdminPerms.Key) -> Bool { currentPerson?.can(key) ?? false }
+
+    /// Sign-off / approval rights — admins, approvers and engineers. Deliberately
+    /// separate from the admin toggles: a non-admin can hold this.
+    var canApproveWork: Bool { currentPerson?.canApproveWork ?? false }
     /// Worker permission: may the current person clock in/out? Opt-out default.
     var canClockInOut: Bool { currentPerson?.canClockInOut ?? true }
 
@@ -2160,15 +3137,22 @@ class AppState {
     // time for any worker currently clocked into the op so the bar creeps forward
     // between server polls.
 
-    /// Returns (logged, est) for a single op. Logged is capped at est so an op
-    /// can't push aggregate progress past 100%.
+    /// Returns (logged, est) for a single op. Logged is NOT capped at est — an op
+    /// worked past its estimate keeps counting so the panel and job rolling it up
+    /// read overdue too.
+    ///
+    /// Status does not feed progress; hours do, and progress feeds status. Finished
+    /// is the single exception: completion pins the pair to the full estimate so a
+    /// job closed under budget still reads 100%. pendingFinish used to pin to 99% of
+    /// estimate and no longer does — a completion awaiting approval reports the hours
+    /// actually worked.
     func opHoursPair(_ op: Operation) -> (logged: Double, est: Double) {
         // Fall back to the org's default workday length when an op didn't store hpd.
-        let est = max(0.0001, op.hpd > 0 ? op.hpd : orgSettings.hpd)
-        if op.status == .finished { return (est, est) }
-        if op.pendingFinish == true { return (est * 0.99, est) }
-        let base = op.loggedHours ?? 0
-        return (min(est, base + liveElapsedHours(for: op)), est)
+        return HoursCalculator.opHoursPair(status: op.status, hpd: op.hpd,
+                                          loggedHours: op.loggedHours,
+                                          producedHours: producedFor(op: op),
+                                          defaultHpd: orgSettings.hpd,
+                                          liveElapsed: liveElapsedHours(for: op))
     }
 
     /// Live (not-yet-clocked-out) hours for whoever is currently clocked into
@@ -2176,25 +3160,20 @@ class AppState {
     /// server polls. 0 when nobody is on the op's clock.
     private func liveElapsedHours(for op: Operation) -> Double {
         guard let activeP = people.first(where: { $0.activeJobClock?.opId == op.id && !($0.activeJobClock?.clockIn.isEmpty ?? true) }),
-              let jc = activeP.activeJobClock,
-              let started = Date.fromFlexibleISO8601(jc.clockIn) else { return 0 }
-        let elapsedH = Date().timeIntervalSince(started) / 3600
-        let pausedH = (jc.totalPausedMs ?? 0) / 3_600_000
-        return max(0, elapsedH - pausedH)
+              let jc = activeP.activeJobClock else { return 0 }
+        return HoursCalculator.liveElapsedHours(clockIn: jc.clockIn,
+                                                totalPausedMs: jc.totalPausedMs,
+                                                now: Date())
     }
 
+    /// Uncapped: 130 means 30% past the estimate and still open. Only Finished pins
+    /// to 100. The old floors for In Progress (5) and On Hold (2) are gone — they were
+    /// status dictating progress, and made an op with no hours against it look started.
     func opPct(_ op: Operation) -> Int {
         if op.status == .finished { return 100 }
-        if op.pendingFinish == true { return 99 }
         let h = opHoursPair(op)
-        if h.logged == 0 {
-            switch op.status {
-            case .inProgress: return 5
-            case .onHold:     return 2
-            default:          return 0
-            }
-        }
-        return min(98, Int((h.logged / h.est * 100).rounded()))
+        if h.logged == 0 { return 0 }
+        return Int((h.logged / h.est * 100).rounded())
     }
 
     /// Number of full op-days (fractional) recorded against an op from its
@@ -2207,7 +3186,11 @@ class AppState {
     func opLoggedDays(_ op: Operation) -> Double {
         if op.status == .finished { return .greatestFiniteMagnitude }
         let hpd = max(0.0001, op.hpd > 0 ? op.hpd : orgSettings.hpd)
-        return (op.loggedHours ?? 0) / hpd
+        // Same max() as `opHoursPair` — the stripe and the percentage have to agree.
+        // Reading the counter alone here while the percentage read the session rows
+        // is precisely the disagreement the web hit: one card showing 10.08h of grey
+        // stripe next to a number that said 8.2h.
+        return max(op.loggedHours ?? 0, producedFor(op: op)) / hpd
     }
 
     /// Live (not-yet-clocked-out) hours for an op, attributed to the calendar
@@ -2228,24 +3211,34 @@ class AppState {
     }
 
     /// Panel progress: total logged hours ÷ total estimated hours across child ops.
+    /// Finished pins to 100 at every level, not just the op. Without it a job closed
+    /// while an op sat at 140% would stay amber after completion, and "overdue until
+    /// it's completed" is the point of the ramp. Uncapped otherwise.
     func panelPct(_ panel: Panel) -> Int {
+        if panel.status == .finished { return 100 }
         let ops = panel.subs
-        if ops.isEmpty { return panel.status == .finished ? 100 : 0 }
+        if ops.isEmpty { return 0 }
         var logged = 0.0, est = 0.0
         for op in ops { let h = opHoursPair(op); logged += h.logged; est += h.est }
         if est == 0 { return 0 }
-        return min(100, Int((logged / est * 100).rounded()))
+        return Int((logged / est * 100).rounded())
     }
 
     /// Job progress: total logged hours ÷ total estimated hours across all ops.
     func jobPct(_ job: Job) -> Int {
+        if job.status == .finished { return 100 }
         let ops = job.subs.flatMap { $0.subs }
-        if ops.isEmpty { return job.status == .finished ? 100 : 0 }
+        if ops.isEmpty { return 0 }
         var logged = 0.0, est = 0.0
         for op in ops { let h = opHoursPair(op); logged += h.logged; est += h.est }
         if est == 0 { return 0 }
-        return min(100, Int((logged / est * 100).rounded()))
+        return Int((logged / est * 100).rounded())
     }
+
+    /// Amber once past the estimate — see the web `pctRampColor`. Above 100 the work
+    /// is over estimate and still open; completion pins to exactly 100, so this needs
+    /// no status check to mean "overdue until it's completed".
+    func isPctOverdue(_ pct: Int) -> Bool { pct > 100 }
 }
 
 // MARK: - Engineering Step
@@ -2315,9 +3308,13 @@ extension AppState {
         }
     }
 
+    /// Was building TWO `ISO8601DateFormatter`s per call — and this runs inside a
+    /// `reduce` over every timeclock entry, driven by a 1s ticker. Formatter
+    /// construction loads ICU resource bundles, which Time Profiler showed as
+    /// the single largest main-thread cost in the app. Now delegates to cached
+    /// formatters.
     private static func fullISODate(_ s: String) -> Date? {
-        let f = ISO8601DateFormatter(); f.formatOptions = [.withFullDate]
-        return f.date(from: s) ?? ISO8601DateFormatter().date(from: s)
+        Date.fromISOFullDate(s)
     }
 
     /// Semi-monthly pay period from an explicit day-of-month pair (Swift port of
@@ -2357,6 +3354,14 @@ extension AppState {
     }
 
     /// My completed pay-clock spans (any date).
+    private func parsedISO(_ s: String) -> Date? {
+        if let hit = isoParseCache[s] { return hit }
+        guard let d = Date.fromFlexibleISO8601(s) else { return nil }
+        if isoParseCache.count > 4000 { isoParseCache.removeAll(keepingCapacity: true) }
+        isoParseCache[s] = d
+        return d
+    }
+
     private var myCompletedPayEntries: [TimeclockEntry] {
         timeclockEntries.filter { e in
             e.eventType == nil && e.clockIn != nil && e.clockOut != nil
@@ -2370,7 +3375,7 @@ extension AppState {
         let w = payPeriodWindow(now: now)
         let end = Calendar.current.date(byAdding: .day, value: 1, to: w.end) ?? w.end
         let completed = myCompletedPayEntries.reduce(0.0) { acc, e in
-            guard let d = e.clockIn.flatMap(Date.fromFlexibleISO8601) ?? e.date.flatMap(Self.fullISODate)
+            guard let d = e.clockIn.flatMap(parsedISO) ?? e.date.flatMap(Self.fullISODate)
             else { return acc }
             return (d >= w.start && d < end) ? acc + (e.hours ?? 0) : acc
         }
@@ -2382,12 +3387,12 @@ extension AppState {
     func hoursToday(now: Date) -> Double {
         let cal = Calendar.current
         let completed = myCompletedPayEntries.reduce(0.0) { acc, e in
-            guard let d = e.clockIn.flatMap(Date.fromFlexibleISO8601) else { return acc }
+            guard let d = e.clockIn.flatMap(parsedISO) else { return acc }
             return cal.isDate(d, inSameDayAs: now) ? acc + (e.hours ?? 0) : acc
         }
         var live = 0.0
         if let c = currentPerson?.activeClockIn,
-           let s = Date.fromFlexibleISO8601(c.clockIn),
+           let s = parsedISO(c.clockIn),
            cal.isDate(s, inSameDayAs: now) {
             live = liveShiftHours(now: now)
         }
@@ -2395,31 +3400,24 @@ extension AppState {
     }
 
     /// Live hours for the current pay shift — counts while clocked in, pauses
-    /// for lunch/break (mirrors the server's hoursElapsedMinusPauses).
+    /// for LUNCH only (mirrors the server's hoursElapsedMinusPauses).
     func liveShiftHours(now: Date) -> Double {
-        guard let c = currentPerson?.activeClockIn,
-              let s = Date.fromFlexibleISO8601(c.clockIn) else { return 0 }
-        let totalMs = now.timeIntervalSince(s) * 1000
-        return max(0, (totalMs - Self.payPausedMs(c.events, end: now)) / 3_600_000)
+        guard let c = currentPerson?.activeClockIn else { return 0 }
+        return HoursCalculator.liveShiftHours(clockIn: c.clockIn, events: c.events,
+                                              now: now, parse: parsedISO)
     }
 
-    private static func payPausedMs(_ events: [ClockEvent], end: Date) -> Double {
-        var paused = 0.0
-        var lunchOpen: Date?
-        var breakOpen: Date?
-        for ev in events {
-            guard let t = Date.fromFlexibleISO8601(ev.ts) else { continue }
-            switch ev.type {
-            case "lunchStart": lunchOpen = t
-            case "lunchEnd":   if let l = lunchOpen { paused += max(0, t.timeIntervalSince(l) * 1000); lunchOpen = nil }
-            case "breakStart": breakOpen = t
-            case "breakEnd":   if let b = breakOpen { paused += max(0, t.timeIntervalSince(b) * 1000); breakOpen = nil }
-            default: break
-            }
-        }
-        if let l = lunchOpen { paused += max(0, end.timeIntervalSince(l) * 1000) }
-        if let b = breakOpen { paused += max(0, end.timeIntervalSince(b) * 1000) }
-        return paused
+    /// Unpaid time inside an open pay shift. LUNCH ONLY — breaks are paid, so
+    /// they must NOT be deducted here. Matches the server's `pausedMsFromEvents`
+    /// (see 84295a2: a 9h window minus a 60min lunch is the 8h paid day; a
+    /// worker taking 2x15min breaks would otherwise read 7.5h). Breaks come out
+    /// of PRODUCTION time instead, not pay.
+    ///
+    /// An open lunch is closed at `end`, exactly as the server does at clock-out.
+    /// Delegates to HoursCalculator. Kept as an AppState entry point because
+    /// several call sites already reference AppState.payPausedMs.
+    static func payPausedMs(_ events: [ClockEvent], end: Date) -> Double {
+        HoursCalculator.payPausedMs(events, end: end)
     }
 
     /// Current user's shift status from their time-clock (offline / clocked in
@@ -2479,3 +3477,22 @@ extension AppState {
         return TaskAssignment(job: job, panel: panel, op: op)
     }
 }
+
+/// Bridges OneSignal's push-subscription observer to a closure.
+///
+/// OneSignal requires an object conforming to `OSPushSubscriptionObserver`, and
+/// AppState can't conform directly — it's a `@MainActor @Observable` class while the
+/// callback arrives off-actor — so this thin NSObject adapter hops back to main,
+/// the same pattern PushClickHandler uses for notification taps.
+#if canImport(OneSignalFramework)
+final class PushSubscriptionObserver: NSObject, OSPushSubscriptionObserver {
+    private let onChange: (String?) -> Void
+    init(_ onChange: @escaping (String?) -> Void) { self.onChange = onChange }
+
+    func onPushSubscriptionDidChange(state: OSPushSubscriptionChangedState) {
+        let id = state.current.id
+        let cb = onChange
+        Task { @MainActor in cb(id) }
+    }
+}
+#endif

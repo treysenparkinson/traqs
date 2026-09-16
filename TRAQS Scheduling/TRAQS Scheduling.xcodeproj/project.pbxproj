@@ -425,7 +425,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_ENTITLEMENTS = "TRAQS Scheduling/TRAQS Scheduling.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 51;
+				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = AT8N877SPR;
 				ENABLE_APP_SANDBOX = YES;
@@ -435,7 +435,11 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "TRAQS-Scheduling-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = traqs;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
+				INFOPLIST_KEY_NSCameraUsageDescription = "TRAQS uses the camera so you can attach a photo of a finished panel when you clock out.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "TRAQS saves message photos to your library when you tap Save on an attachment.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "TRAQS lets you attach a photo of a finished panel from your library when you clock out.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -450,7 +454,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
-				MARKETING_VERSION = 1.1.16;
+				MARKETING_VERSION = 1.3.13;
 				PRODUCT_BUNDLE_IDENTIFIER = "TRAQS.TRAQS-Scheduling";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -476,7 +480,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CODE_SIGN_ENTITLEMENTS = "TRAQS Scheduling/TRAQS Scheduling.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 51;
+				CURRENT_PROJECT_VERSION = 1;
 				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = AT8N877SPR;
 				ENABLE_APP_SANDBOX = YES;
@@ -486,7 +490,11 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "TRAQS-Scheduling-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = traqs;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.business";
+				INFOPLIST_KEY_NSCameraUsageDescription = "TRAQS uses the camera so you can attach a photo of a finished panel when you clock out.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "TRAQS saves message photos to your library when you tap Save on an attachment.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "TRAQS lets you attach a photo of a finished panel from your library when you clock out.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -501,7 +509,7 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 26.2;
-				MARKETING_VERSION = 1.1.16;
+				MARKETING_VERSION = 1.3.13;
 				PRODUCT_BUNDLE_IDENTIFIER = "TRAQS.TRAQS-Scheduling";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;

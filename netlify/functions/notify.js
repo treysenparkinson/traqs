@@ -43,6 +43,19 @@ export async function handler(event) {
   const adminIds = people.filter(p => p.userRole === "admin").map(p => String(p.id));
   const teamIds  = (jobTeamIds || []).map(id => String(id));
 
+  // Authorization by type. Only `finish_request` is a regular-worker action
+  // (a worker asking admins to close a job). Everything else represents a
+  // privileged action — engineering sign-off (step/ready), scheduling
+  // (assigned/new_job), completion resolution — so restrict those senders to
+  // admins/engineers/approvers. Without this any member could relay a spoofed
+  // "Ready to Build" / "You've Been Assigned" / "Completion Approved" push,
+  // with attacker-controlled text, to the whole org.
+  const me = people.find(p => String(p.id) === String(member.personId));
+  const privileged = member.isAdmin || me?.isEngineer === true || me?.canSignOff === true;
+  if (type !== "finish_request" && !privileged) {
+    return err(403, "Not authorized to send this notification type");
+  }
+
   // Determine who to target based on notification type.
   //
   // Admin notification policy: admins should ONLY be pinged for approval-queue

@@ -1,4 +1,5 @@
 import { requireOrgMember } from "./_utils/auth.js";
+import { requirePerm } from "./_utils/can.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
@@ -32,9 +33,12 @@ export async function handler(event) {
   if (event.httpMethod === "POST") {
     let member;
     try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
-    if (!member.isAdmin) return err(403, "Only admins can change org settings");
+    // Was a coarse isAdmin check, which meant the orgSettings toggle did nothing
+    // on the server: a restricted admin with it switched off could still POST here.
+    try { requirePerm(member, "orgSettings"); } catch (e) { return err(e.statusCode, e.message); }
     try {
-      const settings = JSON.parse(event.body);
+      let settings;
+      try { settings = JSON.parse(event.body); } catch { return err(400, "Invalid JSON"); }
       if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
         return err(400, "Body must be an object");
       }
