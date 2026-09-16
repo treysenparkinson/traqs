@@ -170,17 +170,15 @@ struct TRAQSNavLogo: View {
     var body: some View { TRAQSWordmark(size: 44) }
 }
 
-// MARK: - TRAQS Bars Mark (native, theme-tracking)
+// MARK: - TRAQS Bars Mark (native)
 // The TRAQS "bars" lockup, drawn in SwiftUI instead of the fixed-color raster
-// (`Image("TRAQSIconBars")`) so it follows the system theme: the accent bar
-// tracks the user's chosen accent, and the three grey bars use the theme's
-// muted ink so they stay legible on light AND dark backgrounds. `size` is the
-// rendered HEIGHT in points; width is derived from the original 184×150 art.
+// (`Image("TRAQSIconBars")`). Each bar takes its colour from `LogoPalette`, so
+// the mark in the header is the same object as the icon on the springboard.
+// `size` is the rendered HEIGHT in points; width is derived from the original
+// 184×150 art.
 //
-// Under `.logoStagger` it drops the grey entirely and draws all four bars in
-// `LogoPalette.ordered`, so the mark in the header is the same object as the
-// icon on the springboard. `widths` and `LogoPalette.ordered` are both
-// top-to-bottom and are indexed together — they must stay in step.
+// `widths` and `LogoPalette.ordered` are both top-to-bottom and are indexed
+// together — they must stay in step.
 struct TRAQSBarsMark: View {
     @Environment(ThemeSettings.self) private var themeSettings
     var size: CGFloat = 22
@@ -188,15 +186,11 @@ struct TRAQSBarsMark: View {
     // Bar widths as a fraction of the mark's full width, top → bottom, measured
     // from the original artwork. The 3rd (full-width) bar is the accent bar.
     private let widths: [CGFloat] = [0.554, 0.788, 1.0, 0.451]
-    private let accentIndex = 2
 
     var body: some View {
-        // Read accentMode / activeAccent / bgPresetId so the mark re-renders
-        // live when the customizer changes any of them.
-        let mode = themeSettings.accentMode
-        let accentColor = Color(hex: themeSettings.activeAccent)
+        // Read bgPresetId so the mark re-renders live when the customizer
+        // changes the light/dark background.
         let _ = themeSettings.bgPresetId
-        let greyColor = Color(hex: T.muted)
 
         let aspect: CGFloat = 184.0 / 150.0
         let fullWidth = size * aspect
@@ -206,12 +200,13 @@ struct TRAQSBarsMark: View {
         VStack(alignment: .leading, spacing: gap) {
             ForEach(widths.indices, id: \.self) { i in
                 RoundedRectangle(cornerRadius: barH * 0.32, style: .continuous)
-                    // In stagger the mark IS the icon: all four bars, in the
-                    // icon's own order. It does not change per tab — the logo
-                    // is the one thing that stays put while the accent moves.
-                    .fill(mode == .logoStagger
-                          ? Color(hex: LogoPalette.ordered[i])
-                          : (i == accentIndex ? accentColor : greyColor))
+                    // The mark IS the icon: all four bars, in the icon's own
+                    // order, whatever the accent is. It used to draw three in
+                    // `T.muted` with one accent bar, from when the icon was
+                    // three greys and a blue; the icon is four colours now and
+                    // a header logo that does not match the springboard one is
+                    // just a second logo.
+                    .fill(Color(hex: LogoPalette.ordered[i]))
                     .frame(width: fullWidth * widths[i], height: barH)
             }
         }

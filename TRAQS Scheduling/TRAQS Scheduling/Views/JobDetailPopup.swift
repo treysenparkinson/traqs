@@ -123,7 +123,7 @@ struct JobDetailPopup: View {
     }
 
     var body: some View {
-        _ = theme.frostedGlass; _ = theme.activeAccent
+        _ = theme.frostedGlass; _ = theme.accent
         // GeometryReader, so the card gets an EXPLICIT height ceiling.
         //
         // `HugScroll` sizes to its content but clamps to whatever it is offered,

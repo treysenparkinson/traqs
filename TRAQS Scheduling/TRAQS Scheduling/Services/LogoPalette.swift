@@ -21,20 +21,4 @@ enum LogoPalette {
     /// this positionally, so the order is the logo's geometry rather than a
     /// convenience — reordering it redraws the mark.
     static let ordered = [coral, amber, sky, green]
-
-    /// Which colour a tab owns under `AccentMode.logoStagger`.
-    ///
-    /// Five tabs, four colours. Home takes the hero: the longest bar is the sky
-    /// one, and Home is the centre tab and the app's resting state. Coral is
-    /// the repeat, on `.jobs` and `.stats` — opposite ends of `tabBarOrder`
-    /// (`[.jobs, .hours, .home, .chat, .stats]`), so the two never sit adjacent.
-    static func accent(for tab: TTab) -> String {
-        switch tab {
-        case .jobs:  return coral
-        case .hours: return amber
-        case .home:  return sky
-        case .chat:  return green
-        case .stats: return coral
-        }
-    }
 }

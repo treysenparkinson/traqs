@@ -294,7 +294,6 @@ private struct HeaderHost: View {
 
 private struct TabHost: View {
     @Environment(AppNav.self) private var appNav
-    @Environment(ThemeSettings.self) private var theme
 
     /// Reserves bottom space so a page's content ends at the TOP of the floating
     /// nav pill. Used by Home/TimeClock/Stats — the tabs without their own
@@ -324,28 +323,6 @@ private struct TabHost: View {
                 .toolbar(.hidden, for: .tabBar)
             MessagesView().tag(TTab.chat)           // reserves pill space inside its own NavigationStack
                 .toolbar(.hidden, for: .tabBar)
-        }
-        // The accent follows the tab in `.logoStagger`. Nav PUSHES; the theme
-        // never observes AppNav, which keeps the Services→Views edge one-way.
-        //
-        // `onAppear` as well as `onChange`: `activeTab` is not persisted, so a
-        // launch restored onto a non-Home tab (a push deep link writes
-        // `appNav.selected` before this view appears) would otherwise render
-        // Home's colour until the first manual tab change.
-        //
-        // The transaction lives HERE, not inside `setActiveTab`: the mutation
-        // that actually invalidates dependent views is `theme.activeTab`, an
-        // `@Observable` property, and that write happens synchronously inside
-        // `setActiveTab`. `T.*` are plain statics with no observable storage,
-        // so a `withAnimation` wrapped around `applyAccentToT()` (as it used
-        // to be, inside `setActiveTab`) had no observable mutation to attach
-        // to and was silently inert — the fills cut hard instead of easing.
-        // Wrapping the call site instead puts the transaction around the one
-        // mutation SwiftUI actually diffs. No animation on first paint —
-        // there is nothing to animate FROM yet.
-        .onAppear { theme.setActiveTab(appNav.selected) }
-        .onChange(of: appNav.selected) { _, tab in
-            withAnimation(.easeInOut(duration: 0.35)) { theme.setActiveTab(tab) }
         }
     }
 }
@@ -471,7 +448,7 @@ struct TRAQSTabBar: View {
         // the frost immediately (T.* tokens aren't observable on their own).
         // frostedGlass too: the fill and rim below read the T.* global, which
         // SwiftUI can't see as a dependency.
-        _ = theme.activeAccent; _ = theme.bgPresetId; _ = theme.frostedGlass
+        _ = theme.accent; _ = theme.bgPresetId; _ = theme.frostedGlass
         let shape = Capsule(style: .continuous)
 
         return ZStack(alignment: .leading) {

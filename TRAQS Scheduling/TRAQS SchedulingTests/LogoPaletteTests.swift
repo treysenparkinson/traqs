@@ -23,30 +23,4 @@ struct LogoPaletteTests {
         #expect(LogoPalette.ordered.count == 4)
         #expect(LogoPalette.ordered[2] == LogoPalette.sky)
     }
-
-    @Test func homeTakesTheHeroColour() {
-        #expect(LogoPalette.accent(for: .home) == LogoPalette.sky)
-    }
-
-    @Test func everyTabResolvesToALogoColour() {
-        for tab in TTab.allCases {
-            #expect(LogoPalette.ordered.contains(LogoPalette.accent(for: tab)))
-        }
-    }
-
-    /// Five tabs, four colours: coral is the one that repeats, and it must land
-    /// on the two tabs at OPPOSITE ends of `tabBarOrder` so they never touch.
-    @Test func coralRepeatsOnlyOnTheOuterTabs() {
-        #expect(LogoPalette.accent(for: .jobs)  == LogoPalette.coral)
-        #expect(LogoPalette.accent(for: .stats) == LogoPalette.coral)
-
-        let all = TTab.allCases.map { LogoPalette.accent(for: $0) }
-        #expect(all.filter { $0 == LogoPalette.coral }.count == 2)
-        #expect(Set(all).count == 4)
-    }
-
-    @Test func theMiddleThreeAreDistinct() {
-        #expect(LogoPalette.accent(for: .hours) == LogoPalette.amber)
-        #expect(LogoPalette.accent(for: .chat)  == LogoPalette.green)
-    }
 }

@@ -324,9 +324,9 @@ struct LiquidBackground: View {
 
     private var specs: [BlobSpec] {
         if let palette, !palette.isEmpty { return paletteSpecs(palette) }
-        // `activeAccent`, not `accent` — under stagger the wash on each page is
+        // `accent`, not `accent` — under stagger the wash on each page is
         // that page's tab colour.
-        let base = color ?? theme.activeAccent
+        let base = color ?? theme.accent
         // Two blobs, so two hues. `primaryWeighted` picks the partner: the
         // deeper tertiary for body behind page content, the lighter companion
         // otherwise. (The nine-blob version cycled all three down the ladder
