@@ -12,10 +12,10 @@ import Foundation
 
 enum LogoPalette {
 
-    static let coral = "#FF826A"   // bar 1 — top, shortest
+    static let coral = "#FF826A"   // bar 1 — top
     static let amber = "#F4B61E"   // bar 2
     static let sky   = "#41C9FA"   // bar 3 — full width, the hero
-    static let green = "#1E8D6F"   // bar 4 — bottom
+    static let green = "#1E8D6F"   // bar 4 — bottom, shortest
 
     /// Top → bottom, exactly as the icon draws them. `TRAQSBarsMark` indexes
     /// this positionally, so the order is the logo's geometry rather than a

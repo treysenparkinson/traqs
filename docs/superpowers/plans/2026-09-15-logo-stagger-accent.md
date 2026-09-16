@@ -165,10 +165,10 @@ import Foundation
 
 enum LogoPalette {
 
-    static let coral = "#FF826A"   // bar 1 — top, shortest
+    static let coral = "#FF826A"   // bar 1 — top
     static let amber = "#F4B61E"   // bar 2
     static let sky   = "#41C9FA"   // bar 3 — full width, the hero
-    static let green = "#1E8D6F"   // bar 4 — bottom
+    static let green = "#1E8D6F"   // bar 4 — bottom, shortest
 
     /// Top → bottom, exactly as the icon draws them. `TRAQSBarsMark` indexes
     /// this positionally, so the order is the logo's geometry rather than a
@@ -895,7 +895,10 @@ Replace those two lines with:
 
 ```swift
     private var specs: [BlobSpec] {
-        if let palette, palette.count > 1 { return paletteSpecs(palette) }
+        // Corrected during review: the spec gave a single-colour palette its
+        // own blob rather than discarding it (commit 3029294), so the guard
+        // is non-emptiness, not count > 1.
+        if let palette, !palette.isEmpty { return paletteSpecs(palette) }
         // `activeAccent`, not `accent` — under stagger the wash on each page is
         // that page's tab colour.
         let base = color ?? theme.activeAccent

@@ -65,10 +65,10 @@ New file `TRAQS Scheduling/TRAQS Scheduling/Services/LogoPalette.swift`.
 
 ```swift
 enum LogoPalette {
-    static let coral = "#FF826A"   // bar 1, top, shortest
+    static let coral = "#FF826A"   // bar 1, top
     static let amber = "#F4B61E"   // bar 2
     static let sky   = "#41C9FA"   // bar 3, full width — the hero
-    static let green = "#1E8D6F"   // bar 4, bottom
+    static let green = "#1E8D6F"   // bar 4, bottom, shortest
     static let ordered = [coral, amber, sky, green]   // top → bottom, as the icon draws them
 }
 ```
@@ -159,9 +159,12 @@ In `.solid`, `setActiveTab` stores the tab and returns without touching `T.*`.
 .stats → LogoPalette.coral   #FF826A     repeat
 ```
 
-Declared as a `TTab` extension beside the tab bar that draws it, following the convention
-stated at the top of `NavigationTypes.swift`: data in the state layer, colours as
-extensions beside their view.
+Amended during review: the plan overrode this on testability grounds and the code
+follows the plan, not this section as originally written. The map lives as
+`LogoPalette.accent(for:)` in `Services/LogoPalette.swift`, not as a `TTab` extension in
+`Views/MainTabView.swift` — a `private` extension inside a View file cannot be reached
+from the test target, and `LogoPaletteTests` covers exactly this table, which fails
+silently (wrong colour, no crash) when it's wrong.
 
 `tabBarOrder` is `[.jobs, .hours, .home, .chat, .stats]`, so the two coral tabs sit at
 opposite ends of the bar and never touch.
@@ -293,10 +296,10 @@ swatches gain breathing room at their existing 36pt.
 
 | File | Change |
 |---|---|
-| `Services/LogoPalette.swift` | new — the four hexes and their order |
+| `Services/LogoPalette.swift` | new — the four hexes and their order, and the `TTab → colour` map (`accent(for:)`) — kept here rather than a `MainTabView` extension so `LogoPaletteTests` can reach it |
 | `Services/ThemeSettings.swift` | `AccentMode`, `activeAccent`, `activeTab`, persistence, `setActiveTab`, preview/commit/reset |
 | `Services/NavigationTypes.swift` | unchanged — `TTab` already lives here |
-| `Views/MainTabView.swift` | the `TTab → colour` map; push `nav.selected` into theme |
+| `Views/MainTabView.swift` | push `nav.selected` into theme |
 | `Views/SharedComponents.swift` | `TRAQSBarsMark` four-colour fill |
 | `Views/LiquidBackground.swift` | `palette` override; four-blob branch; `activeAccent` |
 | `Views/SplashView.swift` | pass the palette; pin mark contrast to the theme |

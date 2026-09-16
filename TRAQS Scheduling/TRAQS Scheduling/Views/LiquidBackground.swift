@@ -407,6 +407,11 @@ struct LiquidBackground: View {
     private func paletteSpecs(_ palette: [String]) -> [BlobSpec] {
         let hues = palette.map { LiquidColor.vivid($0, saturation) }
 
+        // The four tables below (durations, alphas, paths, corners) are tuned
+        // for ≤4 entries — no caller passes more today. Beyond four, `% corners.count`
+        // wraps entry 4 onto the same corner, path, duration AND alpha as entry 0,
+        // so the two would move in exact lockstep.
+
         // Coprime, and spread wider than the pair's 23/29 — four shapes on
         // close periods drift back into phase often enough to read as a pulse.
         let durations: [Double] = [23, 29, 31, 37]

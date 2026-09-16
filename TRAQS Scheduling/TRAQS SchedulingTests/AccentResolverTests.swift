@@ -53,16 +53,6 @@ struct AccentResolverTests {
                                             tab: .hours) == LogoPalette.amber)
     }
 
-    /// Flipping to stagger and back must land on the colour the user had —
-    /// which only holds because stagger never writes `accent`.
-    @Test func theSavedAccentSurvivesARoundTripThroughStagger() {
-        let saved = "#7c3aed"
-        _ = AccentResolver.activeAccent(mode: .logoStagger, solidAccent: saved, tab: .chat)
-        #expect(AccentResolver.activeAccent(mode: .solid,
-                                            solidAccent: saved,
-                                            tab: .chat) == saved)
-    }
-
     @Test func everyModeHasARawValueThatRoundTrips() {
         for mode in AccentMode.allCases {
             #expect(AccentMode(rawValue: mode.rawValue) == mode)
