@@ -274,43 +274,4 @@ extension T {
             colors: [Color(hex: accentGradientStart), Color(hex: accentGradientEnd)],
             startPoint: start, endPoint: end)
     }
-
-    // ── A CTA painted in a ROLE colour rather than the accent ──
-    //
-    // `tint: nil` returns the accent's own values in all three, so a CTA that
-    // asks for no role is byte-for-byte the button it always was. Only a call
-    // site that names a role gets anything different.
-    //
-    // The role gradient runs through `ThemeSettings.derivedEnd(from:)` — the
-    // SAME deepener the accent uses — rather than a second rule of its own.
-    // That function keeps the hue and drops brightness ~22%, and the comment on
-    // it records why: rotating the hue "produced an off-hue end that read as a
-    // different color". An amber button ending in olive would be that bug again,
-    // found twice.
-
-    /// Both stops for a CTA in `tint`, or the brand gradient when `tint` is nil.
-    static func ctaGradient(tint: String?,
-                            start: UnitPoint = .leading,
-                            end: UnitPoint = .trailing) -> LinearGradient {
-        guard let tint else { return brandGradient(start: start, end: end) }
-        return LinearGradient(
-            colors: [Color(hex: tint), Color(hex: ThemeSettings.derivedEnd(from: tint))],
-            startPoint: start, endPoint: end)
-    }
-
-    /// Legible label on FLAT `tint` (the glass case), or on the accent.
-    static func onCTA(tint: String?) -> Color {
-        guard let tint else { return onAccent }
-        return Color(hex: tint).readableText
-    }
-
-    /// Legible label on the `tint` GRADIENT, judged from the average brightness
-    /// of both stops for the same reason `onGradient` is — content can ride
-    /// either end.
-    static func onCTAGradient(tint: String?) -> Color {
-        guard let tint else { return onGradient }
-        let avg = (Color(hex: tint).perceivedBrightness
-                 + Color(hex: ThemeSettings.derivedEnd(from: tint)).perceivedBrightness) / 2
-        return avg > 140 ? .black : .white
-    }
 }

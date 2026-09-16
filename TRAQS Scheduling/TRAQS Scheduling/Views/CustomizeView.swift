@@ -38,7 +38,7 @@ struct CustomizeView: View {
                                 // than mirroring into a local @State: a mirrored @State has
                                 // to be seeded on `.onAppear` (see below), and that seed
                                 // write fires `.onChange` too — indistinguishable from a
-                                // real user pick — which used to call `setAccentMode(.solid)`
+                                // real user pick
                                 // and silently knock a stagger user out of stagger the
                                 // instant they opened this screen.
                                 ColorPicker("", selection: Binding(

@@ -162,6 +162,18 @@ enum LiquidColor {
                         l + (0.55 - l) * amount * 0.6)
     }
 
+    /// Saturation only — `vivid` without its lightness move.
+    ///
+    /// `vivid` raises S *and* drags L toward 0.55, which is right when the wash
+    /// is derived from one accent and wrong for colours that were already
+    /// chosen: it hands back paler, flatter versions of the exact hues the icon
+    /// ships. A palette wants the opposite — the same hues, pushed harder.
+    static func punch(_ hex: String, _ amount: Double) -> String {
+        guard amount > 0 else { return hex }
+        let (h, s, l) = hexToHSL(hex)
+        return hslToHex(h, min(1, s + (1 - s) * amount), l)
+    }
+
     /// A THIRD hue for the wash. `companion` rotates one way from the pick; this
     /// rotates the other, so the three tones straddle the chosen colour instead
     /// of stacking to one side of it. Deeper and more saturated than the other
@@ -417,12 +429,10 @@ struct LiquidBackground: View {
     /// case read as "none supplied," and `specs` falls through to the pair
     /// for it instead of calling this with nothing to draw.
     private func paletteSpecs(_ palette: [String]) -> [BlobSpec] {
-        // NOT `vivid()` here. That pushes saturation up but also drags lightness
-        // toward 0.55, which is right for deriving a wash from ONE accent and
-        // wrong for four colours that were already chosen: it hands back paler,
-        // flatter versions of the exact hues the icon ships. These are brand
-        // values — they go in as they are.
-        let hues = palette
+        // `punch`, not `vivid`. Both raise saturation; only `vivid` also drags
+        // lightness toward 0.55, which is what was washing these out. The hues
+        // stay exactly the icon's, pushed harder.
+        let hues = palette.map { LiquidColor.punch($0, saturation) }
 
         // The four tables below (durations, alphas, paths, corners) are tuned
         // for ≤4 entries — no caller passes more today. Beyond four, `% corners.count`
@@ -451,8 +461,8 @@ struct LiquidBackground: View {
         // there would only dim the colour against near-black, so it keeps the
         // weights the four-blob composition was originally tuned at.
         let alphas: [Double] = theme.isLightTheme
-            ? [0.24, 0.22, 0.22, 0.20]   // × 1.6 → 0.38, 0.35, 0.35, 0.32
-            : [0.42, 0.38, 0.38, 0.34]   // × 1.6 → 0.67, 0.61, 0.61, 0.54
+            ? [0.36, 0.34, 0.34, 0.31]   // × 1.6 → 0.58, 0.54, 0.54, 0.50
+            : [0.50, 0.46, 0.46, 0.42]   // × 1.6 → 0.80, 0.74, 0.74, 0.67
 
         // Four trajectories, no two alike — a shared path would make two blobs
         // visibly track each other.
@@ -461,25 +471,27 @@ struct LiquidBackground: View {
                                      LiquidPath.b,
                                      LiquidPath.reversed(LiquidPath.a)]
 
-        // Smaller again (0.62/0.44, against the pair's 1.05/0.72). Four blobs
-        // only read as four if each one owns ground the others do not: at 0.85
-        // wide they overlapped across most of the screen and alpha-composited
-        // into a single field. These meet at their edges instead of through
-        // their middles.
-        let w = 0.62 * scale
-        let h = 0.44 * scale
+        // 0.95/0.64. This has been tuned from both directions now: 0.85/0.60
+        // overlapped through the middles and averaged into one field, and the
+        // 0.62/0.44 that fixed THAT left most of the screen bare, which is just
+        // the opposite failure. These are big enough to reach every edge and
+        // still meet each other around their rims rather than across their
+        // centres — which is what the low palette blur above is protecting.
+        let w = 0.95 * scale
+        let h = 0.64 * scale
 
         // Two up, two down, alternating edges. Anchored as fractions of the
         // blob's OWN height for the same reason the pair is — so `scale`
         // shrinks the group without pulling it apart.
-        // Pushed further into the corners now the blobs are smaller — they hang
-        // less far off the edges, so they need to start further apart to still
-        // span the canvas without piling up in the middle.
+        // One per quadrant, each hung off its own two edges so colour runs to
+        // the corners instead of stopping short of them. The vertical pair
+        // overlap by design — a seam of bare ground across the waist is the
+        // thing that reads as "not much of it is going around the screen".
         let corners: [(leading: Double?, trailing: Double?, top: Double)] = [
-            (-0.08, nil,   -h * 0.22),
-            (nil,   -0.08, 0.08),
-            (-0.04, nil,   1 - h * 1.05),
-            (nil,   -0.04, 0.46),
+            (-0.22, nil,   -h * 0.30),
+            (nil,   -0.22, -h * 0.10),
+            (-0.18, nil,   1 - h * 0.78),
+            (nil,   -0.18, 1 - h * 0.58),
         ]
 
         return hues.indices.map { i in

@@ -1627,7 +1627,7 @@ struct TaskCardV1: View {
                 .disabled(breakBusy)
                 .opacity(breakBusy ? 0.6 : 1)
 
-            GradientCTA(glass: true, tint: Role.job,
+            GradientCTA(glass: true,
                         disabled: isStopping,
                         dimmed: false,
                         verticalPadding: 12,
@@ -1715,7 +1715,7 @@ struct TaskCardV1: View {
                 .opacity(0.55)
             } else {
                 // Purple-gradient "Start" CTA. Action / race-guard unchanged.
-                GradientCTA(glass: true, tint: Role.job,
+                GradientCTA(glass: true,
                             disabled: isStarting, dimmed: false, fullWidth: false,
                             verticalPadding: 9, action: {
                                 guard !isStarting else { return }
@@ -1976,8 +1976,7 @@ private struct StartJobOverlay: View {
             // The confirm. Full width at the bottom, carrying the gradient and
             // its glow — the one lit thing on the panel, so what the modal is
             // FOR is never in question.
-            GradientCTA(glass: true, tint: Role.job,
-                        verticalPadding: 14, action: { close(start: true) }) {
+            GradientCTA(glass: true, verticalPadding: 14, action: { close(start: true) }) {
                 HStack(spacing: 7) {
                     Image(systemName: "play.fill")
                     Text("Start Job")
