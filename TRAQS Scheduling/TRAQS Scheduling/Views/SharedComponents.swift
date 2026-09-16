@@ -188,8 +188,9 @@ struct TRAQSBarsMark: View {
     private let widths: [CGFloat] = [0.554, 0.788, 1.0, 0.451]
 
     var body: some View {
-        // Read bgPresetId so the mark re-renders live when the customizer
-        // changes the light/dark background.
+        // Read accent AND bgPresetId so the mark re-renders live when the
+        // customizer changes either.
+        let bars = LogoPalette.bars(for: themeSettings.accent)
         let _ = themeSettings.bgPresetId
 
         let aspect: CGFloat = 184.0 / 150.0
@@ -200,13 +201,11 @@ struct TRAQSBarsMark: View {
         VStack(alignment: .leading, spacing: gap) {
             ForEach(widths.indices, id: \.self) { i in
                 RoundedRectangle(cornerRadius: barH * 0.32, style: .continuous)
-                    // The mark IS the icon: all four bars, in the icon's own
-                    // order, whatever the accent is. It used to draw three in
-                    // `T.muted` with one accent bar, from when the icon was
-                    // three greys and a blue; the icon is four colours now and
-                    // a header logo that does not match the springboard one is
-                    // just a second logo.
-                    .fill(Color(hex: LogoPalette.ordered[i]))
+                    // On the shipped accent these ARE the icon's four bars, so
+                    // the header logo and the springboard one are the same
+                    // object. On any other accent they are four shades of that
+                    // accent instead — see `LogoPalette.bars(for:)`.
+                    .fill(Color(hex: bars[i]))
                     .frame(width: fullWidth * widths[i], height: barH)
             }
         }
