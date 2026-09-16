@@ -1167,9 +1167,9 @@ extension View {
     /// gradient otherwise. One place, so a glass CTA and a solid one can never
     /// drift into different capsule shapes or paddings.
     @ViewBuilder
-    func glassOrGradientCapsule(glass: Bool) -> some View {
-        if glass { glassCTA() }
-        else     { background(Capsule().fill(T.brandGradient())) }
+    func glassOrGradientCapsule(glass: Bool, tint: String? = nil) -> some View {
+        if glass { glassCTA(in: Capsule(), tint: tint.map { Color(hex: $0) }) }
+        else     { background(Capsule().fill(T.ctaGradient(tint: tint))) }
     }
 }
 
@@ -1181,6 +1181,14 @@ struct GradientCTA<Label: View>: View {
     /// Opt-in per button, not the default: a screen full of glass CTAs has no
     /// primary action left, so this is for the ONE button a page is about.
     var glass: Bool = false
+    /// A ROLE colour instead of the accent — see `Role`. `nil` is the accent
+    /// and the brand gradient, i.e. "the primary action on this screen".
+    ///
+    /// Everything downstream follows it: the glass tint, both gradient stops,
+    /// the label's black/white pick and the glow. Tinting the paint alone would
+    /// leave a label judged against the accent sitting on a different colour,
+    /// which is how a white label lands on amber.
+    var tint: String? = nil
     var disabled: Bool = false
     var dimmed: Bool = false
     var fullWidth: Bool = true
@@ -1195,14 +1203,14 @@ struct GradientCTA<Label: View>: View {
         // label is judged against THAT, not against the gradient's two stops.
         return Button(action: action) {
             label()
-                .foregroundStyle(glass ? T.onAccent : T.onGradient)
+                .foregroundStyle(glass ? T.onCTA(tint: tint) : T.onCTAGradient(tint: tint))
                 .frame(maxWidth: fullWidth ? .infinity : nil)
                 .padding(.vertical, verticalPadding)
                 .padding(.horizontal, fullWidth ? 0 : 20)
-                .glassOrGradientCapsule(glass: glass)
+                .glassOrGradientCapsule(glass: glass, tint: tint)
                 .opacity(dimmed ? 0.5 : 1)
                 .scaleEffect(pressed && !disabled ? 0.97 : 1)
-                .shadow(color: Color(hex: T.ctaGlowColor)
+                .shadow(color: Color(hex: tint ?? T.ctaGlowColor)
                             .opacity(dimmed ? 0 : (pressed ? T.ctaGlowOpacity * 0.7 : T.ctaGlowOpacity)),
                         radius: T.ctaGlowRadius, x: 0, y: T.ctaGlowY)
         }

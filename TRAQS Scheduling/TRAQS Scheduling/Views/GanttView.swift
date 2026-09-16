@@ -1418,7 +1418,7 @@ private struct DatePickerSheet: View {
                     .frostedCard(radius: T.cornerLg)
                     .padding(.horizontal, 16)
 
-                GradientCTA(action: { dismiss() }) {
+                GradientCTA(tint: Role.calendar, action: { dismiss() }) {
                     Text("DONE")
                         .font(TTypo.xsBold(13))
                         .tLabel(tracking: 0.8)

@@ -121,7 +121,8 @@ struct EndJobPhotoOverlay: View {
             // Restyled to the signature gradient CTA; dims (not greyed) until a
             // photo is attached, stays vivid with the "Ending…" spinner while
             // uploading. Action / disabled gating unchanged.
-            GradientCTA(disabled: !hasPhoto || isWorking,
+            GradientCTA(tint: Role.job,
+                        disabled: !hasPhoto || isWorking,
                         dimmed: !hasPhoto,
                         verticalPadding: 13,
                         action: { endJob(withPhoto: true) }) {

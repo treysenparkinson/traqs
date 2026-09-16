@@ -595,6 +595,7 @@ private struct PayClockControls: View {
                 // accent against the wrong one of those lands on the wrong side
                 // of the black/white flip.
                 GradientCTA(glass: true,
+                            tint: Role.job,
                             disabled: inFlight,
                             dimmed: inFlight,
                             verticalPadding: 14,

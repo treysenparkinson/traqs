@@ -1242,7 +1242,8 @@ private struct RunningEntryCard: View {
                 }
             }
             Spacer(minLength: 8)
-            GradientCTA(disabled: isStopping, dimmed: false, fullWidth: false,
+            GradientCTA(tint: Role.job,
+                        disabled: isStopping, dimmed: false, fullWidth: false,
                         verticalPadding: 8, action: onStop) {
                 HStack(spacing: 5) {
                     if isStopping {
