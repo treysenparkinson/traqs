@@ -5531,27 +5531,54 @@ Extraction rules:
     if (!anyActive) return;
     const iv = setInterval(() => {
       setProgressTick(t => (t + 1) | 0);
-      // Phase 3 day-boundary-cross: piggyback on this same tick (no second interval) — if the
-      // real calendar day has moved past a clocked-in worker's last drain checkpoint, persist
-      // the drain + cascade for the portion of the session that happened before midnight.
-      const todayDS = toDS(new Date());
+      const nowMs = Date.now();
+      const todayDS = toDS(new Date(nowMs));
       setPeople(prevPeople => {
         // Frozen sessions (Phase 4, pending finish request) are excluded — the cascade is
         // suspended until admin approves or denies.
-        const due = prevPeople.filter(p => p.activeJobClock?.clockIn && !p.activeJobClock.frozenAtMs && p.activeJobClock.drainCheckpoint && toDS(new Date(p.activeJobClock.drainCheckpoint)) !== todayDS);
-        if (due.length === 0) return prevPeople;
+        const active = prevPeople.filter(p => p.activeJobClock?.clockIn && !p.activeJobClock.frozenAtMs);
+        if (active.length === 0) return prevPeople;
+        const dayRolled = active.filter(p => p.activeJobClock.drainCheckpoint && toDS(new Date(p.activeJobClock.drainCheckpoint)) !== todayDS);
         setTasks(prevTasks => {
           let updated = prevTasks;
-          due.forEach(p => { updated = runClockCascade(updated, p.activeJobClock, p.id, Date.now(), p.activeJobClock.sessionId, p.name, false); });
-          saveTasks(updated, getToken, orgCode).catch(console.warn);
+          // Bug D / Trigger 2: as each session's live bar grows, check whether it has grown
+          // into an op that wasn't overlapping at clock-in. Read-only computation + idempotent
+          // application — an already-pushed op no longer overlaps, so in the steady state this
+          // is a no-op and only writes at the moment a genuinely NEW overlap appears (not
+          // per-tick, and it never touches reservoir drain, which stays on its own cadence).
+          active.forEach(p => {
+            const jc = p.activeJobClock;
+            const ciMs = new Date(jc.clockIn).getTime();
+            const { pushes } = computeCascadePushes(updated, p.id, jc.reservoirOpId || null, ciMs, nowMs);
+            if (pushes.length) updated = applyPushes(updated, pushes, p.name, jc.sessionId);
+          });
+          // Phase 3 day-boundary-cross: persist drain + cascade for the portion of the session
+          // that happened before midnight.
+          dayRolled.forEach(p => { updated = runClockCascade(updated, p.activeJobClock, p.id, nowMs, p.activeJobClock.sessionId, p.name, false); });
+          if (updated !== prevTasks) saveTasks(updated, getToken, orgCode).catch(console.warn);
           return updated;
         });
-        const nowIso = new Date().toISOString();
-        return prevPeople.map(p => due.includes(p) ? { ...p, activeJobClock: { ...p.activeJobClock, drainCheckpoint: nowIso } } : p);
+        if (dayRolled.length === 0) return prevPeople;
+        const nowIso = new Date(nowMs).toISOString();
+        const nextPeople = prevPeople.map(p => dayRolled.includes(p) ? { ...p, activeJobClock: { ...p.activeJobClock, drainCheckpoint: nowIso } } : p);
+        // drainCheckpoint has no server-side channel either — persist explicitly, same reason
+        // as the clock-in sites.
+        savePeople(nextPeople, getToken, orgCode).catch(console.warn);
+        return nextPeople;
       });
-    }, 30000);
+    }, 5000);
     return () => clearInterval(iv);
   }, [people]);
+  // Bug A fix: an unconditional tick, decoupled from anyone being clocked in, so the "now"
+  // cursor (and any other time-based render) stays live even when nobody is on the job clock —
+  // the tick above is intentionally scoped to active sessions and isn't a substitute for this.
+  // 5s cadence (down from 30s) so live-bar growth and cursor movement are visible during
+  // testing; the Schedule page is a passive view, so the added re-render rate is negligible.
+  const [_scheduleTick, setScheduleTick] = useState(0);
+  useEffect(() => {
+    const iv = setInterval(() => setScheduleTick(t => (t + 1) | 0), 5000);
+    return () => clearInterval(iv);
+  }, []);
   // Phase 4: freeze the live bar the moment a finish request appears on the session's op.
   // There is no web-side "submit" action to hook (the request is set by the iOS app or a
   // Netlify function, never from code in this file) — reacting to the flag itself is the only
@@ -5569,14 +5596,20 @@ Extraction rules:
         const jc = p.activeJobClock;
         updated = runClockCascade(updated, jc, p.id, nowMs, jc.sessionId, p.name, false);
         updated = updated.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, subs: (panel.subs || []).map(op => {
-          if (op.id !== jc.opId) return op;
+          if (String(op.id) !== String(jc.opId)) return op;
           return { ...op, pendingSession: { sessionId: jc.sessionId, clockIn: jc.clockIn, frozenAtMs: nowMs, reservoirOpId: jc.reservoirOpId, sessionSnapshot: jc.sessionSnapshot || [] } };
         }) })) }));
       });
       saveTasks(updated, getToken, orgCode).catch(console.warn);
       return updated;
     });
-    setPeople(pp => pp.map(p => toFreeze.includes(p) ? { ...p, activeJobClock: { ...p.activeJobClock, frozenAtMs: nowMs } } : p));
+    // frozenAtMs has no server-side channel either — persist explicitly, same reason as the
+    // clock-in sites.
+    setPeople(pp => {
+      const next = pp.map(p => toFreeze.includes(p) ? { ...p, activeJobClock: { ...p.activeJobClock, frozenAtMs: nowMs } } : p);
+      savePeople(next, getToken, orgCode).catch(console.warn);
+      return next;
+    });
   }, [tasks, people]);
   // Hours somebody is putting into an op RIGHT NOW, not yet in any counter or
   // session row — both are only written at clock-out, so without this every
@@ -8634,7 +8667,7 @@ Extraction rules:
   const findOp = (taskList, opId) => {
     for (const job of taskList) {
       for (const panel of (job.subs || [])) {
-        const op = (panel.subs || []).find(o => o.id === opId);
+        const op = (panel.subs || []).find(o => String(o.id) === String(opId));
         if (op) return op;
       }
     }
@@ -8662,7 +8695,10 @@ Extraction rules:
     taskList.forEach(job => {
       (job.subs || []).forEach(panel => {
         (panel.subs || []).forEach(op => {
-          if (op.id !== excludeOpId && (op.team || []).includes(personId) && op.status !== "Finished") {
+          // String-coerced: ids in this app aren't guaranteed the same type across sources
+          // (matches the team.includes(String(pp.id)) convention used elsewhere in the file).
+          // Without this, the team check never matches and the candidate list is always empty.
+          if (String(op.id) !== String(excludeOpId) && (op.team || []).includes(String(personId)) && op.status !== "Finished") {
             allOps.push({ op, panel, job, range: opHourRange(op) });
           }
         });
@@ -8697,7 +8733,7 @@ Extraction rules:
       pushes.push(push);
       cursorMs = pushedEndMs;
       const nextOverlaps = allOps.filter(a =>
-        a.op.id !== item.op.id && !toPush.includes(a) && !pushes.find(p2 => p2.opId === a.op.id) &&
+        String(a.op.id) !== String(item.op.id) && !toPush.includes(a) && !pushes.find(p2 => String(p2.opId) === String(a.op.id)) &&
         a.range[0] < pushedEndMs && a.range[1] > pushedStartMs
       );
       nextOverlaps.forEach(n => toPush.push(n));
@@ -8715,16 +8751,24 @@ Extraction rules:
     let reservoirRange = null; // [startMs, endMs] the reservoir now occupies today, if same-day
     if (jc.reservoirOpId) {
       result = result.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, subs: (panel.subs || []).map(op => {
-        if (op.id !== jc.reservoirOpId) return op;
+        if (String(op.id) !== String(jc.reservoirOpId)) return op;
         if (op.start === TD) {
           const curSH = op.startHour ?? workStartH;
           const curEH = op.endHour ?? Math.min(curSH + (op.hpd || productiveHoursPerDay), workEndH);
           let newSH, newEH;
           if (isInitial) {
-            // Teleport: one-time jump to "now", preserving the op's original duration —
-            // trims an already-covering block, or pulls a later-today block back to now.
+            // Teleport, split by whether the block already covers "now":
+            // - Already covering (clockIn falls inside [curSH,curEH]): trim ONLY the left edge
+            //   to clockIn — the historical portion is consumed — and leave the end exactly
+            //   where it was scheduled. Do NOT extend it; that's the bug this replaces.
+            // - Scheduled later today (or its window already fully passed): pull the whole
+            //   block to start at "now", preserving its original duration.
             const duration = Math.max(0, curEH - curSH);
-            newSH = ciHour; newEH = Math.min(ciHour + duration, workEndH);
+            if (ciHour >= curSH && ciHour < curEH) {
+              newSH = ciHour; newEH = curEH;
+            } else {
+              newSH = ciHour; newEH = Math.min(ciHour + duration, workEndH);
+            }
           } else {
             const elapsedH = Math.max(0, (nowMs - new Date(jc.drainCheckpoint).getTime()) / 3600000);
             newSH = Math.min(curEH, curSH + elapsedH); newEH = curEH;
@@ -8764,7 +8808,7 @@ Extraction rules:
     const snap = [];
     taskList.forEach(job => (job.subs || []).forEach(panel => (panel.subs || []).forEach(op => {
       if (op.status === "Finished") return;
-      if (!(op.team || []).includes(personId)) return;
+      if (!(op.team || []).includes(String(personId))) return;
       if (!op.start || op.start > horizon) return;
       snap.push({ opId: op.id, start: op.start, end: op.end, startHour: op.startHour ?? null, endHour: op.endHour ?? null, hpd: op.hpd ?? null });
     })));
@@ -8778,7 +8822,7 @@ Extraction rules:
     let result = taskList;
     (session.sessionSnapshot || []).forEach(snap => {
       result = result.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, subs: (panel.subs || []).map(op => {
-        if (op.id !== snap.opId) return op;
+        if (String(op.id) !== String(snap.opId)) return op;
         const lastLog = (op.moveLog || [])[(op.moveLog || []).length - 1];
         if (!lastLog || lastLog.sessionId !== session.sessionId) return op;
         const unchanged = op.start === snap.start && op.end === snap.end && op.startHour === snap.startHour && op.endHour === snap.endHour && op.hpd === snap.hpd;
@@ -15356,10 +15400,14 @@ ${jobsCtx || "No jobs found."}`;
                         const liveNowH = liveNow.getHours() + liveNow.getMinutes() / 60;
                         const visS = Math.max(rawS, HS), visE = Math.min(liveNowH, HE);
                         if (visE <= visS) return null;
-                        return <div key="live-bar" style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:"linear-gradient(90deg,#16a34a,#22c55e)",border:"2px solid #22c55e",boxShadow:"0 0 14px rgba(34,197,94,0.5)","--glow-color":"#22c55e99",animation:"pulseGlow 2s ease-in-out infinite",display:"flex",alignItems:"center",gap:6,padding:"0 10px",overflow:"hidden",zIndex:15,pointerEvents:"none"}}>
-                          <div style={{width:7,height:7,borderRadius:"50%",background:"#fff",flexShrink:0,boxShadow:"0 0 4px #fff"}}/>
-                          <span style={{fontSize:9,fontWeight:800,color:"#fff",letterSpacing:"0.05em",flexShrink:0}}>LIVE</span>
-                          <span style={{fontSize:10,fontWeight:600,color:"#fff",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{jc.opTitle||jc.jobTitle||"—"} · {p.name.split(" ")[0]}</span>
+                        // Same color as the scheduled bar for this op — the live bar and the
+                        // reservoir are the same job, just the actively-worked portion vs the
+                        // leftover planned portion. Solid fill, same treatment as a normal bar;
+                        // no gradient/glow — "LIVE" text is the only differentiator.
+                        const liveColor = barPositions.find(x => String(x.bar.id) === String(jc.reservoirOpId || jc.opId))?.bar.color || T.accent;
+                        return <div key="live-bar" style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:liveColor,boxShadow:`0 2px 8px ${liveColor}33`,display:"flex",alignItems:"center",gap:6,padding:"0 10px",overflow:"hidden",zIndex:15,pointerEvents:"none"}}>
+                          <span style={{fontSize:9,fontWeight:800,color:accentText(liveColor),letterSpacing:"0.05em",flexShrink:0,opacity:0.85}}>LIVE</span>
+                          <span style={{fontSize:10,fontWeight:600,color:accentText(liveColor),overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{jc.opTitle||jc.jobTitle||"—"} · {p.name.split(" ")[0]}</span>
                         </div>;
                       })()}
                       {/* Reservoir drain mask (Phase 3) — visually shrinks the reservoir op's bar
@@ -17092,10 +17140,14 @@ ${jobsCtx || "No jobs found."}`;
                   const oneDayWLive = 1 / nDaysLive * 100;
                   const leftPct = dayIdx / nDaysLive * 100 + ((visSH - workStartH) / totalWorkH) * oneDayWLive;
                   const widthPct = ((visEH - visSH) / totalWorkH) * oneDayWLive;
-                  return <div key="live-bar" style={{ position: "absolute", top: 4, left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: "linear-gradient(90deg,#16a34a,#22c55e)", border: "2px solid #22c55e", boxShadow: "0 0 14px rgba(34,197,94,0.5)", "--glow-color": "#22c55e99", animation: "pulseGlow 2s ease-in-out infinite", display: "flex", alignItems: "center", gap: 6, padding: "0 10px", overflow: "hidden", zIndex: 15, pointerEvents: "none" }}>
-                    <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#fff", flexShrink: 0, boxShadow: "0 0 4px #fff" }} />
-                    <span style={{ fontSize: 9, fontWeight: 800, color: "#fff", letterSpacing: "0.05em", flexShrink: 0 }}>LIVE</span>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{jc.opTitle || jc.jobTitle || "—"} · {p.name.split(" ")[0]}</span>
+                  // Same color as the scheduled bar for this op — the live bar and the
+                  // reservoir are the same job, just the actively-worked portion vs the
+                  // leftover planned portion. Solid fill, same treatment as a normal bar; no
+                  // gradient/glow — "LIVE" text is the only differentiator.
+                  const liveColor = bars.find(b => String(b.id) === String(jc.reservoirOpId || jc.opId))?.color || T.accent;
+                  return <div key="live-bar" style={{ position: "absolute", top: 4, left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: liveColor, boxShadow: `0 2px 8px ${liveColor}33`, display: "flex", alignItems: "center", gap: 6, padding: "0 10px", overflow: "hidden", zIndex: 15, pointerEvents: "none" }}>
+                    <span style={{ fontSize: 9, fontWeight: 800, color: accentText(liveColor), letterSpacing: "0.05em", flexShrink: 0, opacity: 0.85 }}>LIVE</span>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: accentText(liveColor), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{jc.opTitle || jc.jobTitle || "—"} · {p.name.split(" ")[0]}</span>
                   </div>;
                 })()}
                 {/* Reservoir drain mask (Phase 3) — visually shrinks the reservoir op's own bar
@@ -17126,8 +17178,16 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             </div>;
           })}
-          {/* Today line — faint */}
-          {TD >= tStart && TD <= tEnd && <div style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${lW}px + (100% - ${lW}px) * ${(diffD(tStart, TD) + 0.5) / days.length})`, width: 1, background: T.accent + "33", zIndex: 12, pointerEvents: "none" }} />}
+          {/* Today line — hour-precise (Bug A fix), moves within the day instead of sitting
+              pinned to the column center. Re-evaluates on every render, including the
+              unconditional schedule tick above. */}
+          {TD >= tStart && TD <= tEnd && (() => {
+            const _tlNow = new Date();
+            const _tlH = _tlNow.getHours() + _tlNow.getMinutes() / 60;
+            const _tlFrac = Math.max(0, Math.min(1, (_tlH - workStartH) / totalWorkH));
+            const _tlDayIdx = diffD(tStart, TD);
+            return <div style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${lW}px + (100% - ${lW}px) * ${(_tlDayIdx + _tlFrac) / days.length})`, width: 1, background: T.accent + "33", zIndex: 12, pointerEvents: "none" }} />;
+          })()}
         </div>
       </div>
       </div>}
@@ -18966,18 +19026,25 @@ ${jobsCtx || "No jobs found."}`;
               }, getToken, orgCode);
               if (jres?.ok) {
                 const sessionId = `sess_${loggedInUser.id}_${jres.clockIn}`;
-                const reservoirOpId = (meta.op.team || []).includes(loggedInUser.id) ? firstRef.opId : null;
+                const reservoirOpId = (meta.op.team || []).includes(String(loggedInUser.id)) ? firstRef.opId : null;
                 const sessionSnapshot = buildSessionSnapshot(tasks, loggedInUser.id, toDS(new Date(jres.clockIn)));
-                setPeople(pp => pp.map(p => p.id === loggedInUser.id ? {
-                  ...p,
-                  activeJobClock: {
-                    clockIn: jres.clockIn,
-                    sessionId, reservoirOpId, drainCheckpoint: jres.clockIn, sessionSnapshot,
-                    jobId: firstRef.jobId, panelId: firstRef.panelId, opId: firstRef.opId,
-                    jobTitle: meta.job.title, panelTitle: meta.panel.title, opTitle: meta.op.title,
-                    totalPausedMs: 0, pausedAt: null,
-                  },
-                } : p));
+                // See handleStartJob for why this explicit savePeople is required — the extra
+                // session fields have no server-side channel and get wiped by the next poll
+                // otherwise.
+                setPeople(pp => {
+                  const next = pp.map(p => p.id === loggedInUser.id ? {
+                    ...p,
+                    activeJobClock: {
+                      clockIn: jres.clockIn,
+                      sessionId, reservoirOpId, drainCheckpoint: jres.clockIn, sessionSnapshot,
+                      jobId: firstRef.jobId, panelId: firstRef.panelId, opId: firstRef.opId,
+                      jobTitle: meta.job.title, panelTitle: meta.panel.title, opTitle: meta.op.title,
+                      totalPausedMs: 0, pausedAt: null,
+                    },
+                  } : p);
+                  savePeople(next, getToken, orgCode).catch(console.warn);
+                  return next;
+                });
                 setTasks(prev => {
                   let updated = prev.map(job => {
                     if (job.id !== firstRef.jobId) return job;
@@ -19138,7 +19205,10 @@ ${jobsCtx || "No jobs found."}`;
       const newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : updated) }) });
       const finalTasks = session ? recalcBounds(newTasks, loggedInUser?.name || "Admin") : newTasks;
       setTasks(finalTasks); saveTasks(finalTasks, getToken, orgCode).catch(console.warn);
-      if (session) setPeople(pp => pp.map(p => p.activeJobClock?.sessionId === session.sessionId ? { ...p, activeJobClock: null } : p));
+      // Only relevant if the worker approved-while-still-clocked-in (they may have already
+      // clocked out, in which case the server already nulled this). Needs an explicit
+      // savePeople like the other activeJobClock session-field writes — same reason.
+      if (session) setPeople(pp => { const next = pp.map(p => p.activeJobClock?.sessionId === session.sessionId ? { ...p, activeJobClock: null } : p); savePeople(next, getToken, orgCode).catch(console.warn); return next; });
     };
     const rejectFinish = (job, panel, op) => {
       toast("Completion declined");
@@ -19146,7 +19216,7 @@ ${jobsCtx || "No jobs found."}`;
       let newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : { ...o, pendingFinish: false, pendingSession: undefined }) }) });
       if (session) newTasks = revertSession(newTasks, session, loggedInUser?.name || "Admin");
       setTasks(newTasks); saveTasks(newTasks, getToken, orgCode).catch(console.warn);
-      if (session) setPeople(pp => pp.map(p => p.activeJobClock?.sessionId === session.sessionId ? { ...p, activeJobClock: null } : p));
+      if (session) setPeople(pp => { const next = pp.map(p => p.activeJobClock?.sessionId === session.sessionId ? { ...p, activeJobClock: null } : p); savePeople(next, getToken, orgCode).catch(console.warn); return next; });
     };
 
     // ── Shared numpad component ───────────────────────────────────────────────
@@ -20014,10 +20084,18 @@ ${jobsCtx || "No jobs found."}`;
         if (res.ok) {
           toast("Started on job");
           const reservoirOp = findOp(tasks, opId);
-          const reservoirOpId = reservoirOp && (reservoirOp.team || []).includes(loggedInUser.id) ? opId : null;
+          const reservoirOpId = reservoirOp && (reservoirOp.team || []).includes(String(loggedInUser.id)) ? opId : null;
           const sessionId = `sess_${loggedInUser.id}_${res.clockIn}`;
           const sessionSnapshot = buildSessionSnapshot(tasks, loggedInUser.id, toDS(new Date(res.clockIn)));
-          setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: { clockIn: res.clockIn, sessionId, reservoirOpId, drainCheckpoint: res.clockIn, sessionSnapshot, jobId, panelId, opId, jobTitle, panelTitle, opTitle, totalPausedMs: 0, pausedAt: null } } : p));
+          // sessionId/reservoirOpId/drainCheckpoint/sessionSnapshot are new fields the
+          // timeclock server functions don't know about, so an explicit savePeople is required
+          // here — without it, the next /people poll overwrites local state with the server's
+          // copy (which lacks these fields) and silently wipes the whole clock-in session.
+          setPeople(pp => {
+            const next = pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: { clockIn: res.clockIn, sessionId, reservoirOpId, drainCheckpoint: res.clockIn, sessionSnapshot, jobId, panelId, opId, jobTitle, panelTitle, opTitle, totalPausedMs: 0, pausedAt: null } } : p);
+            savePeople(next, getToken, orgCode).catch(console.warn);
+            return next;
+          });
           setTasks(prev => {
             let updatedTasks = prev.map(job => {
               if (job.id !== jobId) return job;
