@@ -24,9 +24,25 @@ struct CustomizeView: View {
                         SectionLabel("Accent Color")
 
                         VStack(alignment: .leading, spacing: 14) {
-                            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: 14) {
+                            // Five columns, not eight: nine swatches plus the
+                            // picker is ten cells, which fills two rows exactly
+                            // where eight left a ragged row of two.
+                            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 14) {
+
+                                // Leads the row — it is the default.
+                                LogoStaggerSwatch(isSelected: theme.accentMode == .logoStagger) {
+                                    theme.setAccentMode(.logoStagger)
+                                }
+
                                 ForEach(ThemeSettings.accentPresets, id: \.self) { hex in
-                                    AccentSwatch(hex: hex, isSelected: theme.accent == hex) {
+                                    // Selection is mode-aware: while stagger is
+                                    // on, NO solid swatch reads as selected even
+                                    // though `accent` still holds the user's
+                                    // saved colour underneath.
+                                    AccentSwatch(hex: hex,
+                                                 isSelected: theme.accentMode == .solid && theme.accent == hex) {
+                                        // Picking a colour is what leaves stagger.
+                                        theme.setAccentMode(.solid)
                                         theme.setAccent(hex)
                                         customAccentColor = Color(hex: hex)
                                     }
@@ -39,6 +55,7 @@ struct CustomizeView: View {
                                     .clipShape(Circle())
                                     .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1.5))
                                     .onChange(of: customAccentColor) { _, newColor in
+                                        theme.setAccentMode(.solid)
                                         theme.setAccent(newColor.hexString)
                                     }
                             }
@@ -107,6 +124,9 @@ struct CustomizeView: View {
         .toolbarBackground(Color(hex: T.surface), for: .navigationBar)
         .toolbarColorScheme(theme.isLightTheme ? .light : .dark, for: .navigationBar)
         .onAppear {
+            // `accent`, deliberately NOT `activeAccent` — the picker should
+            // open on the colour the user saved, not on whichever tab's colour
+            // happens to be live behind the customizer.
             customAccentColor = Color(hex: theme.accent)
             theme.beginPreview()
         }
@@ -157,6 +177,48 @@ private struct AccentSwatch: View {
                 )
                 .shadow(color: isSelected ? Color(hex: hex).opacity(T.skyShadowOpacity) : .clear,
                         radius: isSelected ? T.skyShadowRadius : 0, x: 0, y: isSelected ? T.skyShadowY : 0)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// The `.logoStagger` swatch: the four icon colours as horizontal stripes inside
+// the same 36pt circle the solid swatches use.
+//
+// Stripes rather than a quartered or conic fill because they echo the bars mark
+// — a quartered circle reads as a generic "multicolour" chip, where stripes say
+// which multicolour. Same order as the mark and the icon.
+private struct LogoStaggerSwatch: View {
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 0) {
+                ForEach(LogoPalette.ordered.indices, id: \.self) { i in
+                    Rectangle().fill(Color(hex: LogoPalette.ordered[i]))
+                }
+            }
+            .frame(width: 36, height: 36)
+            .clipShape(Circle())
+            .overlay(
+                isSelected
+                    // Fixed white with a shadow, not `readableText`: the tick
+                    // lands across all four stripes at once, so there is no one
+                    // background colour to contrast against.
+                    ? Image(systemName: "checkmark")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(.white)
+                        .shadow(color: .black.opacity(0.35), radius: 2, x: 0, y: 1)
+                    : nil
+            )
+            .overlay(
+                Circle()
+                    .stroke(isSelected ? Color.white.opacity(0.6) : Color(hex: T.hair),
+                            lineWidth: isSelected ? 2 : 1)
+            )
+            .shadow(color: isSelected ? Color(hex: LogoPalette.sky).opacity(T.skyShadowOpacity) : .clear,
+                    radius: isSelected ? T.skyShadowRadius : 0, x: 0, y: isSelected ? T.skyShadowY : 0)
         }
         .buttonStyle(.plain)
     }
