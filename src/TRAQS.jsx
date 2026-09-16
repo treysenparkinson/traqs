@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import TRAQS_BARS_STATIC from "./traqs-bars-static.png";
 import TRAQS_BARS_ACCENT from "./traqs-bars-accent.png";
@@ -5560,11 +5560,12 @@ Extraction rules:
         });
         if (dayRolled.length === 0) return prevPeople;
         const nowIso = new Date(nowMs).toISOString();
-        const nextPeople = prevPeople.map(p => dayRolled.includes(p) ? { ...p, activeJobClock: { ...p.activeJobClock, drainCheckpoint: nowIso } } : p);
-        // drainCheckpoint has no server-side channel either — persist explicitly, same reason
-        // as the clock-in sites.
-        savePeople(nextPeople, getToken, orgCode).catch(console.warn);
-        return nextPeople;
+        // updateJobSession is the authorized path for drainCheckpoint — savePeople can't touch
+        // it (activeJobClock is server-owned and pinned on every generic /people POST).
+        dayRolled.forEach(p => {
+          updateJobSessionAction({ personId: p.id, sessionId: p.activeJobClock.sessionId, drainCheckpoint: nowIso }, getToken, orgCode).catch(console.warn);
+        });
+        return prevPeople.map(p => dayRolled.includes(p) ? { ...p, activeJobClock: { ...p.activeJobClock, drainCheckpoint: nowIso } } : p);
       });
     }, 5000);
     return () => clearInterval(iv);
@@ -5603,11 +5604,13 @@ Extraction rules:
       saveTasks(updated, getToken, orgCode).catch(console.warn);
       return updated;
     });
-    // frozenAtMs has no server-side channel either — persist explicitly, same reason as the
-    // clock-in sites.
+    // updateJobSession is the authorized path for frozenAtMs — savePeople can't touch it
+    // (activeJobClock is server-owned and pinned on every generic /people POST).
+    toFreeze.forEach(p => {
+      updateJobSessionAction({ personId: p.id, sessionId: p.activeJobClock.sessionId, frozenAtMs: nowMs }, getToken, orgCode).catch(console.warn);
+    });
     setPeople(pp => {
       const next = pp.map(p => toFreeze.includes(p) ? { ...p, activeJobClock: { ...p.activeJobClock, frozenAtMs: nowMs } } : p);
-      savePeople(next, getToken, orgCode).catch(console.warn);
       return next;
     });
   }, [tasks, people]);
@@ -19019,32 +19022,30 @@ ${jobsCtx || "No jobs found."}`;
           const meta = firstRef ? myTodayOps.find(t => t.op.id === firstRef.opId) : null;
           if (firstRef && meta) {
             try {
+              const optimisticClockIn = new Date().toISOString();
+              const sessionId = `sess_${loggedInUser.id}_${optimisticClockIn}`;
+              const reservoirOpId = (meta.op.team || []).includes(String(loggedInUser.id)) ? firstRef.opId : null;
+              const sessionSnapshot = buildSessionSnapshot(tasks, loggedInUser.id, toDS(new Date(optimisticClockIn)));
               const jres = await jobClockInAction({
                 personId: loggedInUser.id,
                 jobId: firstRef.jobId, panelId: firstRef.panelId, opId: firstRef.opId,
                 jobTitle: meta.job.title, panelTitle: meta.panel.title, opTitle: meta.op.title,
+                sessionId, reservoirOpId, sessionSnapshot,
               }, getToken, orgCode);
               if (jres?.ok) {
-                const sessionId = `sess_${loggedInUser.id}_${jres.clockIn}`;
-                const reservoirOpId = (meta.op.team || []).includes(String(loggedInUser.id)) ? firstRef.opId : null;
-                const sessionSnapshot = buildSessionSnapshot(tasks, loggedInUser.id, toDS(new Date(jres.clockIn)));
-                // See handleStartJob for why this explicit savePeople is required — the extra
-                // session fields have no server-side channel and get wiped by the next poll
-                // otherwise.
-                setPeople(pp => {
-                  const next = pp.map(p => p.id === loggedInUser.id ? {
-                    ...p,
-                    activeJobClock: {
-                      clockIn: jres.clockIn,
-                      sessionId, reservoirOpId, drainCheckpoint: jres.clockIn, sessionSnapshot,
-                      jobId: firstRef.jobId, panelId: firstRef.panelId, opId: firstRef.opId,
-                      jobTitle: meta.job.title, panelTitle: meta.panel.title, opTitle: meta.op.title,
-                      totalPausedMs: 0, pausedAt: null,
-                    },
-                  } : p);
-                  savePeople(next, getToken, orgCode).catch(console.warn);
-                  return next;
-                });
+                // Server persists sessionId/reservoirOpId/drainCheckpoint/sessionSnapshot as
+                // part of jobClockIn itself — see handleStartJob for why no savePeople is
+                // needed (or would work) here.
+                setPeople(pp => pp.map(p => p.id === loggedInUser.id ? {
+                  ...p,
+                  activeJobClock: {
+                    clockIn: jres.clockIn,
+                    sessionId, reservoirOpId, drainCheckpoint: jres.clockIn, sessionSnapshot,
+                    jobId: firstRef.jobId, panelId: firstRef.panelId, opId: firstRef.opId,
+                    jobTitle: meta.job.title, panelTitle: meta.panel.title, opTitle: meta.op.title,
+                    totalPausedMs: 0, pausedAt: null,
+                  },
+                } : p));
                 setTasks(prev => {
                   let updated = prev.map(job => {
                     if (job.id !== firstRef.jobId) return job;
@@ -19205,10 +19206,13 @@ ${jobsCtx || "No jobs found."}`;
       const newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : updated) }) });
       const finalTasks = session ? recalcBounds(newTasks, loggedInUser?.name || "Admin") : newTasks;
       setTasks(finalTasks); saveTasks(finalTasks, getToken, orgCode).catch(console.warn);
-      // Only relevant if the worker approved-while-still-clocked-in (they may have already
-      // clocked out, in which case the server already nulled this). Needs an explicit
-      // savePeople like the other activeJobClock session-field writes — same reason.
-      if (session) setPeople(pp => { const next = pp.map(p => p.activeJobClock?.sessionId === session.sessionId ? { ...p, activeJobClock: null } : p); savePeople(next, getToken, orgCode).catch(console.warn); return next; });
+      // Optimistic-only: clearing activeJobClock entirely isn't something updateJobSession
+      // supports (it only merges drainCheckpoint/frozenAtMs), and savePeople can't touch it
+      // either (server-owned, pinned on every generic POST). If the worker approved-while-
+      // still-clocked-in, this local clear will be overwritten back to "active" by the next
+      // /people poll until they actually clock out via jobClockOut, which nulls it for real.
+      // Usually harmless — the op is already Finished, so there's nothing left to drain/cascade.
+      if (session) setPeople(pp => pp.map(p => p.activeJobClock?.sessionId === session.sessionId ? { ...p, activeJobClock: null } : p));
     };
     const rejectFinish = (job, panel, op) => {
       toast("Completion declined");
@@ -19216,7 +19220,8 @@ ${jobsCtx || "No jobs found."}`;
       let newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : { ...o, pendingFinish: false, pendingSession: undefined }) }) });
       if (session) newTasks = revertSession(newTasks, session, loggedInUser?.name || "Admin");
       setTasks(newTasks); saveTasks(newTasks, getToken, orgCode).catch(console.warn);
-      if (session) setPeople(pp => { const next = pp.map(p => p.activeJobClock?.sessionId === session.sessionId ? { ...p, activeJobClock: null } : p); savePeople(next, getToken, orgCode).catch(console.warn); return next; });
+      // See approveFinish — optimistic-only, same reason.
+      if (session) setPeople(pp => pp.map(p => p.activeJobClock?.sessionId === session.sessionId ? { ...p, activeJobClock: null } : p));
     };
 
     // ── Shared numpad component ───────────────────────────────────────────────
@@ -20080,22 +20085,23 @@ ${jobsCtx || "No jobs found."}`;
     const handleStartJob = async ({ jobId, jobTitle, panelId, panelTitle, opId, opTitle }) => {
       setJobClockLoading(true);
       try {
-        const res = await jobClockInAction({ personId: loggedInUser.id, jobId, panelId, opId, jobTitle, panelTitle, opTitle }, getToken, orgCode);
+        // sessionId is deterministic from personId + the client's own clock-in moment, computed
+        // before the call so it can be sent to the server and used as the reservoir/cascade
+        // sessionId immediately — the server's clockIn timestamp (returned below) becomes the
+        // one of record once the response comes back, but they're the same instant in practice.
+        const optimisticClockIn = new Date().toISOString();
+        const reservoirOp = findOp(tasks, opId);
+        const reservoirOpId = reservoirOp && (reservoirOp.team || []).includes(String(loggedInUser.id)) ? opId : null;
+        const sessionId = `sess_${loggedInUser.id}_${optimisticClockIn}`;
+        const sessionSnapshot = buildSessionSnapshot(tasks, loggedInUser.id, toDS(new Date(optimisticClockIn)));
+        const res = await jobClockInAction({ personId: loggedInUser.id, jobId, panelId, opId, jobTitle, panelTitle, opTitle, sessionId, reservoirOpId, sessionSnapshot }, getToken, orgCode);
         if (res.ok) {
           toast("Started on job");
-          const reservoirOp = findOp(tasks, opId);
-          const reservoirOpId = reservoirOp && (reservoirOp.team || []).includes(String(loggedInUser.id)) ? opId : null;
-          const sessionId = `sess_${loggedInUser.id}_${res.clockIn}`;
-          const sessionSnapshot = buildSessionSnapshot(tasks, loggedInUser.id, toDS(new Date(res.clockIn)));
-          // sessionId/reservoirOpId/drainCheckpoint/sessionSnapshot are new fields the
-          // timeclock server functions don't know about, so an explicit savePeople is required
-          // here — without it, the next /people poll overwrites local state with the server's
-          // copy (which lacks these fields) and silently wipes the whole clock-in session.
-          setPeople(pp => {
-            const next = pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: { clockIn: res.clockIn, sessionId, reservoirOpId, drainCheckpoint: res.clockIn, sessionSnapshot, jobId, panelId, opId, jobTitle, panelTitle, opTitle, totalPausedMs: 0, pausedAt: null } } : p);
-            savePeople(next, getToken, orgCode).catch(console.warn);
-            return next;
-          });
+          // Server now persists sessionId/reservoirOpId/drainCheckpoint/sessionSnapshot as part
+          // of jobClockIn itself (see netlify/functions/timeclock.js) — no separate savePeople
+          // needed, and none would work anyway: activeJobClock is server-owned and pinned on
+          // every generic /people POST specifically to prevent stale-roster overwrites.
+          setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: { clockIn: res.clockIn, sessionId, reservoirOpId, drainCheckpoint: res.clockIn, sessionSnapshot, jobId, panelId, opId, jobTitle, panelTitle, opTitle, totalPausedMs: 0, pausedAt: null } } : p));
           setTasks(prev => {
             let updatedTasks = prev.map(job => {
               if (job.id !== jobId) return job;

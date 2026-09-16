@@ -933,7 +933,7 @@ export async function handler(event) {
       let _jc;
       try { _jc = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
 
-      const { personId: jciPersonId, jobId, panelId, opId, jobTitle, panelTitle, opTitle } = body;
+      const { personId: jciPersonId, jobId, panelId, opId, jobTitle, panelTitle, opTitle, sessionId: jciSessionId, reservoirOpId: jciReservoirOpId, sessionSnapshot: jciSessionSnapshot } = body;
       if (!jciPersonId || !jobId) return err(400, "Missing personId or jobId");
       // Non-admins can only clock themselves into jobs; admins can clock anyone.
       if (!_jc.isAdmin && String(_jc.personId) !== String(jciPersonId)) return err(403, "Can only clock yourself in");
@@ -956,7 +956,24 @@ export async function handler(event) {
       if (jciPerson.activeJobClock) return err(409, "Already clocked into a job");
 
       const jciClockIn = new Date().toISOString();
-      jciPeople[jciIdx] = { ...jciPerson, activeJobClock: { clockIn: jciClockIn, jobId, panelId, opId, jobTitle, panelTitle, opTitle } };
+      // sessionId/reservoirOpId/sessionSnapshot: dynamic-schedule session state. The client is
+      // the only side that knows this context (there's no server-side equivalent to derive it
+      // from), so it's accepted from the request body rather than computed here — unlike
+      // jobId/opId/etc. above, which stay server-authoritative. Only stored when present, so a
+      // client that doesn't send them (an older build, or a non-dynamic-schedule caller) gets
+      // the original 7-field shape unchanged.
+      jciPeople[jciIdx] = {
+        ...jciPerson,
+        activeJobClock: {
+          clockIn: jciClockIn, jobId, panelId, opId, jobTitle, panelTitle, opTitle,
+          // drainCheckpoint's initial value is always clockIn by construction (nothing has
+          // drained yet) — server-derived here rather than trusted from the client, same as
+          // clockIn itself. updateJobSession is the only path that advances it afterward.
+          ...(jciSessionId ? { sessionId: jciSessionId, drainCheckpoint: jciClockIn } : {}),
+          ...(jciReservoirOpId !== undefined ? { reservoirOpId: jciReservoirOpId } : {}),
+          ...(Array.isArray(jciSessionSnapshot) ? { sessionSnapshot: jciSessionSnapshot } : {}),
+        },
+      };
       try { await writeStampedArray(peopleKey, jciPeople); } catch { return err(500, "Failed to save"); }
 
       // Update job and sub-operation status to "In Progress" in tasks.json
@@ -1079,6 +1096,46 @@ export async function handler(event) {
       }
 
       return json(200, { ok: true, hours: jcoHours });
+    }
+
+    // ── Update Job Session (Bearer token, no PIN) ──────────────────────────────
+    // Narrow, surgical write path for the dynamic-schedule session's mid-session fields
+    // (drainCheckpoint, frozenAtMs) — the only two fields that change after clock-in and
+    // before clock-out/finish-decision. Deliberately NOT a general-purpose activeJobClock
+    // patch: it only accepts these two fields, and only when the caller's sessionId matches
+    // what's already stored, so a stale/wrong-session client can't stomp on a newer session
+    // (e.g. the worker clocked out and back in on a different session between this client's
+    // last read and this call landing).
+    if (action === "updateJobSession") {
+      let _ujs;
+      try { _ujs = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+
+      const { personId: ujsPId, sessionId: ujsSessionId, drainCheckpoint: ujsDrainCheckpoint, frozenAtMs: ujsFrozenAtMs } = body;
+      if (!ujsPId) return err(400, "Missing personId");
+      if (!ujsSessionId) return err(400, "Missing sessionId");
+      if (!_ujs.isAdmin && String(_ujs.personId) !== String(ujsPId)) return err(403, "Can only update your own job session");
+
+      let ujsPeople;
+      try { ujsPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
+
+      const ujsIdx = ujsPeople.findIndex(p => String(p.id) === String(ujsPId));
+      if (ujsIdx === -1) return err(404, "Person not found");
+
+      const ujsPerson = ujsPeople[ujsIdx];
+      if (!ujsPerson.activeJobClock) return err(409, "Not clocked into any job");
+      if (ujsPerson.activeJobClock.sessionId !== ujsSessionId) return err(409, "Session mismatch — a newer session is active");
+
+      ujsPeople[ujsIdx] = {
+        ...ujsPerson,
+        activeJobClock: {
+          ...ujsPerson.activeJobClock,
+          ...(ujsDrainCheckpoint !== undefined ? { drainCheckpoint: ujsDrainCheckpoint } : {}),
+          ...(ujsFrozenAtMs !== undefined ? { frozenAtMs: ujsFrozenAtMs } : {}),
+        },
+      };
+      try { await writeStampedArray(peopleKey, ujsPeople); } catch { return err(500, "Failed to save"); }
+
+      return json(200, { ok: true, activeJobClock: ujsPeople[ujsIdx].activeJobClock });
     }
 
     // ── Job Pause (Bearer token, no PIN) ──────────────────────────────────────
