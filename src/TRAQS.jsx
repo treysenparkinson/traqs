@@ -15406,6 +15406,7 @@ ${jobsCtx || "No jobs found."}`;
                         // no gradient/glow — "LIVE" text is the only differentiator.
                         const liveColor = barPositions.find(x => String(x.bar.id) === String(jc.reservoirOpId || jc.opId))?.bar.color || T.accent;
                         return <div key="live-bar" style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:liveColor,boxShadow:`0 2px 8px ${liveColor}33`,display:"flex",alignItems:"center",gap:6,padding:"0 10px",overflow:"hidden",zIndex:15,pointerEvents:"none"}}>
+                          <span className="tq-live-pulse" style={{width:6,height:6,borderRadius:"50%",background:accentText(liveColor),flexShrink:0}}/>
                           <span style={{fontSize:9,fontWeight:800,color:accentText(liveColor),letterSpacing:"0.05em",flexShrink:0,opacity:0.85}}>LIVE</span>
                           <span style={{fontSize:10,fontWeight:600,color:accentText(liveColor),overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{jc.opTitle||jc.jobTitle||"—"} · {p.name.split(" ")[0]}</span>
                         </div>;
@@ -15422,9 +15423,15 @@ ${jobsCtx || "No jobs found."}`;
                         if (drainH <= 0) return null;
                         const visS = Math.max(bp.rawS, HS), visE = Math.min(Math.min(bp.rawE, bp.rawS + drainH), HE);
                         if (visE <= visS) return null;
-                        return <div key="drain-mask" style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:"repeating-linear-gradient(135deg, rgba(0,0,0,0.28), rgba(0,0,0,0.28) 6px, rgba(0,0,0,0.14) 6px, rgba(0,0,0,0.14) 12px)",zIndex:14,pointerEvents:"none"}}/>;
+                        return <div key="drain-mask" style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:WORKED_STRIPE,opacity:0.9,zIndex:14,pointerEvents:"none"}}/>;
                       })()}
-                      {isToday && nowH>=HS && nowH<=HE && <div style={{position:"absolute",top:0,bottom:0,left:`${(nowH-HS)/NH*100}%`,width:2,background:T.accent+"bb",zIndex:12,pointerEvents:"none"}}/>}
+                      {isToday && nowH>=HS && nowH<=HE && (() => {
+                        const _tlPct = (nowH-HS)/NH*100;
+                        return <>
+                          <div key="today-dot" style={{position:"absolute",top:-3,left:`calc(${_tlPct}% - 3px)`,width:6,height:6,borderRadius:"50%",background:T.accent,boxShadow:`0 0 4px ${T.accent}aa`,zIndex:13,pointerEvents:"none"}}/>
+                          <div key="today-line" style={{position:"absolute",top:0,bottom:0,left:`${_tlPct}%`,width:2,background:T.accent+"99",boxShadow:`0 0 6px ${T.accent}44`,zIndex:12,pointerEvents:"none"}}/>
+                        </>;
+                      })()}
                     </div>
                   </div>;
                 })}
@@ -17146,6 +17153,7 @@ ${jobsCtx || "No jobs found."}`;
                   // gradient/glow — "LIVE" text is the only differentiator.
                   const liveColor = bars.find(b => String(b.id) === String(jc.reservoirOpId || jc.opId))?.color || T.accent;
                   return <div key="live-bar" style={{ position: "absolute", top: 4, left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: liveColor, boxShadow: `0 2px 8px ${liveColor}33`, display: "flex", alignItems: "center", gap: 6, padding: "0 10px", overflow: "hidden", zIndex: 15, pointerEvents: "none" }}>
+                    <span className="tq-live-pulse" style={{ width: 6, height: 6, borderRadius: "50%", background: accentText(liveColor), flexShrink: 0 }} />
                     <span style={{ fontSize: 9, fontWeight: 800, color: accentText(liveColor), letterSpacing: "0.05em", flexShrink: 0, opacity: 0.85 }}>LIVE</span>
                     <span style={{ fontSize: 10, fontWeight: 600, color: accentText(liveColor), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{jc.opTitle || jc.jobTitle || "—"} · {p.name.split(" ")[0]}</span>
                   </div>;
@@ -17173,7 +17181,7 @@ ${jobsCtx || "No jobs found."}`;
                   if (maskEndH <= opSH) return null;
                   const leftPct2 = dayIdx2 / nDays3 * 100 + ((opSH - workStartH) / totalWorkH) * oneDayW3;
                   const widthPct2 = ((maskEndH - opSH) / totalWorkH) * oneDayW3;
-                  return <div key="drain-mask" style={{ position: "absolute", top: 4, left: `calc(${leftPct2}% + 2px)`, width: `calc(${widthPct2}% - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: "repeating-linear-gradient(135deg, rgba(0,0,0,0.28), rgba(0,0,0,0.28) 6px, rgba(0,0,0,0.14) 6px, rgba(0,0,0,0.14) 12px)", zIndex: 14, pointerEvents: "none" }} />;
+                  return <div key="drain-mask" style={{ position: "absolute", top: 4, left: `calc(${leftPct2}% + 2px)`, width: `calc(${widthPct2}% - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: WORKED_STRIPE, opacity: 0.9, zIndex: 14, pointerEvents: "none" }} />;
                 })()}
               </div>
             </div>;
@@ -17186,7 +17194,11 @@ ${jobsCtx || "No jobs found."}`;
             const _tlH = _tlNow.getHours() + _tlNow.getMinutes() / 60;
             const _tlFrac = Math.max(0, Math.min(1, (_tlH - workStartH) / totalWorkH));
             const _tlDayIdx = diffD(tStart, TD);
-            return <div style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${lW}px + (100% - ${lW}px) * ${(_tlDayIdx + _tlFrac) / days.length})`, width: 1, background: T.accent + "33", zIndex: 12, pointerEvents: "none" }} />;
+            const _tlLeft = `calc(${lW}px + (100% - ${lW}px) * ${(_tlDayIdx + _tlFrac) / days.length})`;
+            return <>
+              <div key="today-dot" style={{ position: "absolute", top: -3, left: `calc(${_tlLeft} - 3px)`, width: 6, height: 6, borderRadius: "50%", background: T.accent, boxShadow: `0 0 4px ${T.accent}aa`, zIndex: 13, pointerEvents: "none" }} />
+              <div key="today-line" style={{ position: "absolute", top: 0, bottom: 0, left: _tlLeft, width: 2, background: T.accent + "99", boxShadow: `0 0 6px ${T.accent}44`, zIndex: 12, pointerEvents: "none" }} />
+            </>;
           })()}
         </div>
       </div>
