@@ -8676,6 +8676,20 @@ Extraction rules:
     }
     return null;
   };
+  // Same shape as bar.task in getPersonBars — used so the live bar (Phase 2/3) can open/
+  // right-click exactly like a real scheduled bar for the same op, WITHOUT depending on that
+  // op appearing in the clocked-in person's own bars list (which is gated by team membership —
+  // an admin clocked into an op they aren't personally assigned to would otherwise get no click
+  // target and the wrong color, since both come from that per-person bars lookup).
+  const findOpAsBarTask = (taskList, opId) => {
+    for (const job of taskList) {
+      for (const panel of (job.subs || [])) {
+        const op = (panel.subs || []).find(o => String(o.id) === String(opId));
+        if (op) return { ...op, color: elColor(panel.color || "#94a3b8"), isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, panelTitle: panel.title, level: 2 };
+      }
+    }
+    return null;
+  };
   // Hour-aware time range for an op, used only by the clock-in cascade below (not admin drag).
   // Same-day ops resolve to their actual startHour/endHour; multi-day ops span full work days —
   // hour precision only applies within a single day, matching the locked decision that
@@ -15406,9 +15420,19 @@ ${jobsCtx || "No jobs found."}`;
                         // Same color as the scheduled bar for this op — the live bar and the
                         // reservoir are the same job, just the actively-worked portion vs the
                         // leftover planned portion. Solid fill, same treatment as a normal bar;
-                        // no gradient/glow — "LIVE" text is the only differentiator.
-                        const liveColor = barPositions.find(x => String(x.bar.id) === String(jc.reservoirOpId || jc.opId))?.bar.color || T.accent;
-                        return <div key="live-bar" style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:liveColor,boxShadow:`0 2px 8px ${liveColor}33`,display:"flex",alignItems:"center",gap:6,padding:"0 10px",overflow:"hidden",zIndex:15,pointerEvents:"none"}}>
+                        // no gradient/glow — "LIVE" text is the only differentiator. Looked up
+                        // directly from tasks (not this person's bars list), so it works even if
+                        // the clocked-in person isn't formally on the op's team.
+                        const liveBarTask = findOpAsBarTask(tasks, jc.reservoirOpId || jc.opId);
+                        const liveColor = liveBarTask?.color || T.accent;
+                        // This isn't a synthetic new job — it's the SAME op, just live-repositioned
+                        // from clockIn to now. So it opens/right-clicks exactly like the real
+                        // scheduled bar for that op does. Not draggable: its position is computed
+                        // from clockIn/now, not stored data, so dragging it would be meaningless.
+                        return <div key="live-bar"
+                          onClick={() => liveBarTask && openJobDetail(liveBarTask)}
+                          onContextMenu={e => liveBarTask && handleCtx(e, liveBarTask, "team")}
+                          style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:liveColor,boxShadow:`0 2px 8px ${liveColor}33`,display:"flex",alignItems:"center",gap:6,padding:"0 10px",overflow:"hidden",zIndex:15,cursor:liveBarTask?"pointer":"default"}}>
                           <span style={{fontSize:9,fontWeight:800,color:accentText(liveColor),letterSpacing:"0.05em",flexShrink:0,opacity:0.85}}>LIVE</span>
                           <span style={{fontSize:10,fontWeight:600,color:accentText(liveColor),overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{jc.opTitle||jc.jobTitle||"—"} · {p.name.split(" ")[0]}</span>
                         </div>;
@@ -17146,9 +17170,18 @@ ${jobsCtx || "No jobs found."}`;
                   // Same color as the scheduled bar for this op — the live bar and the
                   // reservoir are the same job, just the actively-worked portion vs the
                   // leftover planned portion. Solid fill, same treatment as a normal bar; no
-                  // gradient/glow — "LIVE" text is the only differentiator.
-                  const liveColor = bars.find(b => String(b.id) === String(jc.reservoirOpId || jc.opId))?.color || T.accent;
-                  return <div key="live-bar" style={{ position: "absolute", top: 4, left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: liveColor, boxShadow: `0 2px 8px ${liveColor}33`, display: "flex", alignItems: "center", gap: 6, padding: "0 10px", overflow: "hidden", zIndex: 15, pointerEvents: "none" }}>
+                  // gradient/glow — "LIVE" text is the only differentiator. Looked up directly
+                  // from tasks (not this person's bars list), so it works even if the
+                  // clocked-in person isn't formally on the op's team.
+                  const liveBarTask = findOpAsBarTask(tasks, jc.reservoirOpId || jc.opId);
+                  const liveColor = liveBarTask?.color || T.accent;
+                  // Not a synthetic new job — the SAME op, live-repositioned from clockIn to now.
+                  // Opens/right-clicks exactly like the real scheduled bar for that op. Not
+                  // draggable: its position is computed from clockIn/now, not stored data.
+                  return <div key="live-bar"
+                    onClick={() => liveBarTask && openJobDetail(liveBarTask)}
+                    onContextMenu={e => liveBarTask && handleCtx(e, liveBarTask, "team")}
+                    style={{ position: "absolute", top: 4, left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: liveColor, boxShadow: `0 2px 8px ${liveColor}33`, display: "flex", alignItems: "center", gap: 6, padding: "0 10px", overflow: "hidden", zIndex: 15, cursor: liveBarTask ? "pointer" : "default" }}>
                     <span style={{ fontSize: 9, fontWeight: 800, color: accentText(liveColor), letterSpacing: "0.05em", flexShrink: 0, opacity: 0.85 }}>LIVE</span>
                     <span style={{ fontSize: 10, fontWeight: 600, color: accentText(liveColor), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{jc.opTitle || jc.jobTitle || "—"} · {p.name.split(" ")[0]}</span>
                   </div>;
