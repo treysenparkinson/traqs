@@ -32,8 +32,15 @@ struct BgPreset: Identifiable {
 final class ThemeSettings {
 
     // Accent presets (sky is the canonical TRAQS interactive color)
+    //
+    // The first swatch is the DEFAULT, and it moved with it: #3B82F6 → the
+    // icon's own sky. If the default is not in this row there is no way back to
+    // it once someone picks another colour — `reset()` has no call sites — so
+    // these two must stay in step. Replaced rather than appended: ten cells
+    // (nine swatches + the picker) is what fills the 5-column grid in exactly
+    // two rows. Anyone who had saved #3B82F6 keeps it; it is their stored value.
     static let accentPresets: [String] = [
-        "#3B82F6", // Sky (default) — TRAQS Light
+        LogoPalette.sky, // Sky (default) — sampled from the app icon
         "#7c3aed", // Purple
         "#10b981", // Green
         "#f59e0b", // Amber
@@ -55,10 +62,16 @@ final class ThemeSettings {
     ]
 
     static let defaultBgPresetId: Int = 100
-    static let defaultAccent: String = "#3B82F6"
-    /// The shipped default. New installs land on the icon's palette; users who
-    /// have already saved an accent keep it — see `AccentResolver.mode`.
-    static let defaultAccentMode: AccentMode = .logoStagger
+    /// Referenced from `LogoPalette`, not retyped, so the app's default accent
+    /// and the icon's sky bar cannot drift apart.
+    static let defaultAccent: String = LogoPalette.sky
+    /// The shipped default. Solid: one colour everywhere, the way the app has
+    /// always worked. `.logoStagger` — the icon's four colours distributed one
+    /// per tab — is a choice people make in Customize, not what they land on.
+    ///
+    /// `AccentResolver.mode` reads THIS rather than naming a case itself, so
+    /// moving the default here moves what a fresh install actually launches as.
+    static let defaultAccentMode: AccentMode = .solid
     /// On by default — the liquid wash IS the intended look of the app; the
     /// static canvas is the opt-out.
     static let defaultLiquidBackground: Bool = true
@@ -161,13 +174,11 @@ final class ThemeSettings {
     var isLightTheme: Bool { currentBgPreset.isLight }
 
     init() {
-        // Read the raw object BEFORE defaulting `accent` — whether the key
-        // EXISTS is the signal `AccentResolver.mode` needs, and `??` erases it.
-        let storedAccent = UserDefaults.standard.object(forKey: "themeAccent") as? String
-        accent = storedAccent ?? ThemeSettings.defaultAccent
+        accent = UserDefaults.standard.object(forKey: "themeAccent") as? String
+            ?? ThemeSettings.defaultAccent
         accentMode = AccentResolver.mode(
             storedMode: UserDefaults.standard.object(forKey: "themeAccentMode") as? String,
-            hasSavedAccent: storedAccent != nil
+            fallback: ThemeSettings.defaultAccentMode
         )
         // Any preset id that isn't one of the four current neutrals falls
         // back to White. Covers existing users who were on the older

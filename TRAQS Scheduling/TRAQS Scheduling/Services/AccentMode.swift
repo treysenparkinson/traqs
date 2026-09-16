@@ -24,18 +24,24 @@ enum AccentResolver {
 
     /// Which mode a launch starts in.
     ///
-    /// The middle case is the whole point. `themeAccent` is written by
-    /// `commitChanges()` and nowhere else, so its presence means this user has
-    /// saved a theme at least once and therefore chose an accent; handing them
-    /// the staggered palette would overwrite a real preference. A user with
-    /// neither key has never expressed one, so they get the new default.
+    /// `fallback` is passed in rather than hardcoded, and that is the point: the
+    /// shipped default lives in exactly one place (`ThemeSettings
+    /// .defaultAccentMode`). An earlier version named `.logoStagger` here
+    /// directly, so moving the default would have changed the SETTING without
+    /// changing what a fresh install actually launched as — the two could
+    /// disagree silently.
     ///
-    /// An unrecognised raw value falls through to the same rule as a missing
-    /// key rather than trapping — a downgrade or a corrupted default should
-    /// degrade, not crash.
-    static func mode(storedMode: String?, hasSavedAccent: Bool) -> AccentMode {
+    /// This used to take a `hasSavedAccent` flag too, to keep an existing user
+    /// off the staggered palette while stagger was the default. With `.solid`
+    /// the default again, both arms of that rule returned `.solid` and the flag
+    /// stopped deciding anything, so it is gone: a user with no stored mode gets
+    /// the default, and their saved `accent` is untouched either way.
+    ///
+    /// An unrecognised raw value falls through to `fallback` rather than
+    /// trapping — a downgrade or a corrupted default should degrade, not crash.
+    static func mode(storedMode: String?, fallback: AccentMode) -> AccentMode {
         if let storedMode, let known = AccentMode(rawValue: storedMode) { return known }
-        return hasSavedAccent ? .solid : .logoStagger
+        return fallback
     }
 
     /// The hex that feeds `applyAccentToT()`.

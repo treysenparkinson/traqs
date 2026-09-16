@@ -40,22 +40,6 @@ struct SplashView: View {
     /// `cubic-bezier(.22,.61,.36,1)` — the design's resolve curve.
     private let resolve = Animation.timingCurve(0.22, 0.61, 0.36, 1, duration: 1.00)
 
-    /// Which wordmark reads on this splash.
-    ///
-    /// This used to ask the ACCENT's luminance, because the wash was the accent
-    /// and the mark sits on the wash. With four colours there is no single
-    /// accent to ask, and the honest answer differs per blob: amber #F4B61E
-    /// wants a black mark, green #1E8D6F wants white, and on a drifting wash
-    /// they are adjacent — no fixed choice is right against the wash itself.
-    ///
-    /// So it follows the THEME instead. The blobs sit at partial alpha over the
-    /// theme's own radial ground (near-white or near-black), and the mark
-    /// resolves with a light pool of its own behind it, so the ground is what
-    /// actually decides legibility. The theme is stable; the wash is not.
-    private var markOnLightBackground: Bool {
-        theme.isLightTheme
-    }
-
     var body: some View {
         ZStack {
             // ── Ground ──
@@ -85,16 +69,35 @@ struct SplashView: View {
                 .ignoresSafeArea()
                 .opacity(poolIn ? 1 : 0)
 
-            // ── Soft light pooling behind the mark as it resolves ──
+            // ── Soft pool behind the mark as it resolves ──
+            //
+            // Its JOB CHANGED when the mark went white in both themes. On the
+            // dark ground it is still light GATHERING — an accent-tinted glow
+            // lifting the mark off near-black. On the light ground a pale pool
+            // behind a white mark does nothing at all; what the mark needs there
+            // is something to sit AGAINST, so this is a soft ink scrim instead.
+            //
+            // Deliberately weak and heavily blurred: enough to hold the
+            // letterforms over a pastel wash, not enough to read as a dark patch
+            // on a load-up that is supposed to be white.
             Ellipse()
-                .fill(Color(hex: theme.isLightTheme ? T.accent : T.accentGradientStart)
-                        .opacity(theme.isLightTheme ? 0.10 : 0.22))
+                .fill(Color(hex: theme.isLightTheme ? T.ink : T.accentGradientStart)
+                        .opacity(theme.isLightTheme ? 0.18 : 0.22))
                 .frame(width: 300, height: 150)
                 .blur(radius: 46)
                 .opacity(poolIn ? 1 : 0)
 
             // ── The wordmark, resolving out of the light ──
-            TRAQSWordmark(size: logoSize, onLightBackground: markOnLightBackground)
+            // WHITE in both themes, by request. This was `theme.isLightTheme`
+            // — black on the light ground, white on the dark one — which always
+            // read but made the load-up two different marks. The light-mode wash
+            // was thinned (see `paletteSpecs`) so the white mark has pale colour
+            // to sit on rather than bare white, and the scrim above carries the
+            // letterforms where the wash happens to have drifted away.
+            //
+            // This is the marginal case to eyeball first: white on pale amber
+            // #F4B61E is the thinnest contrast on the screen.
+            TRAQSWordmark(size: logoSize, onLightBackground: false)
                 .opacity(inkIn ? 1 : 0)
                 .blur(radius: inkIn ? 0 : 6)
         }

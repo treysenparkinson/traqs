@@ -420,7 +420,22 @@ struct LiquidBackground: View {
         // and so hold more pigment; four at that density stack toward grey
         // wherever they overlap, which on four DIFFERENT hues is worse than on
         // two related ones.
-        let alphas: [Double] = [0.42, 0.38, 0.38, 0.34]
+        //
+        // And lower again on LIGHT, because the two grounds want opposite things
+        // and only the splash calls this. Remember `a(_:)` multiplies by
+        // `thickness`, and the splash runs 1.6 — so the dark figures below land
+        // at 0.67/0.61/0.61/0.54 on screen. Four blobs that heavy COVER a white
+        // ground, and the load-up stops being white at all; green #1E8D6F is a
+        // genuinely dark colour (rgb 30,141,111) and does most of that damage.
+        // The light figures land at 0.38/0.35/0.35/0.32: still unmistakably the
+        // four brand colours, with white reading between and through them.
+        //
+        // The dark ground has no whiteness to protect and thinning the blobs
+        // there would only dim the colour against near-black, so it keeps the
+        // weights the four-blob composition was originally tuned at.
+        let alphas: [Double] = theme.isLightTheme
+            ? [0.24, 0.22, 0.22, 0.20]   // × 1.6 → 0.38, 0.35, 0.35, 0.32
+            : [0.42, 0.38, 0.38, 0.34]   // × 1.6 → 0.67, 0.61, 0.61, 0.54
 
         // Four trajectories, no two alike — a shared path would make two blobs
         // visibly track each other.

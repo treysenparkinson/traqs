@@ -11,27 +11,26 @@ struct AccentResolverTests {
 
     // MARK: Launch mode
 
-    @Test func freshInstallGetsTheStaggeredPalette() {
-        #expect(AccentResolver.mode(storedMode: nil, hasSavedAccent: false) == .logoStagger)
+    /// The shipped default reaches a fresh install. `fallback` is passed in so
+    /// this cannot drift from `ThemeSettings.defaultAccentMode` — an earlier
+    /// version hardcoded `.logoStagger` in the resolver, which meant moving the
+    /// default would have changed the setting without changing what actually
+    /// launched.
+    @Test func noStoredModeTakesTheFallback() {
+        #expect(AccentResolver.mode(storedMode: nil, fallback: .solid) == .solid)
+        #expect(AccentResolver.mode(storedMode: nil, fallback: .logoStagger) == .logoStagger)
     }
 
-    /// The load-bearing case. `themeAccent` is written by `commitChanges()` and
-    /// nowhere else, so its presence means this user has saved a theme at least
-    /// once — they chose an accent, and it must survive.
-    @Test func existingUserWithASavedAccentStaysSolid() {
-        #expect(AccentResolver.mode(storedMode: nil, hasSavedAccent: true) == .solid)
-    }
-
-    @Test func anExplicitStoredModeWinsOverBothDefaults() {
-        #expect(AccentResolver.mode(storedMode: "solid", hasSavedAccent: false) == .solid)
-        #expect(AccentResolver.mode(storedMode: "logoStagger", hasSavedAccent: true) == .logoStagger)
+    @Test func anExplicitStoredModeWinsOverTheFallback() {
+        #expect(AccentResolver.mode(storedMode: "solid", fallback: .logoStagger) == .solid)
+        #expect(AccentResolver.mode(storedMode: "logoStagger", fallback: .solid) == .logoStagger)
     }
 
     /// A raw value we do not recognise — a downgrade, or a corrupted default —
-    /// must fall through to the same rule as a missing key, not trap.
-    @Test func anUnknownStoredModeFallsBackToTheKeyRule() {
-        #expect(AccentResolver.mode(storedMode: "rainbow", hasSavedAccent: true) == .solid)
-        #expect(AccentResolver.mode(storedMode: "", hasSavedAccent: false) == .logoStagger)
+    /// must fall through to the fallback, not trap.
+    @Test func anUnknownStoredModeTakesTheFallback() {
+        #expect(AccentResolver.mode(storedMode: "rainbow", fallback: .solid) == .solid)
+        #expect(AccentResolver.mode(storedMode: "", fallback: .logoStagger) == .logoStagger)
     }
 
     // MARK: Active accent
