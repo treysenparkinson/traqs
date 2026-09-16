@@ -1132,10 +1132,16 @@ struct GlassCTA<S: InsettableShape>: ViewModifier {
     }
 }
 
-/// The legible label colour for a `glassCTA` of this tint — judged against the
-/// FLAT colour the glass is tinted with, not against a gradient.
+/// The label colour for a `glassCTA`.
+///
+/// White regardless of tint, matching `T.onAccent` — a label on a coloured
+/// button is white whatever the colour underneath it. See the note on
+/// `T.onAccent` for what that costs in contrast.
+///
+/// The `tint` argument is kept so call sites need not change and so the
+/// signature still says what this is about, even though it no longer reads it.
 func glassCTALabel(_ tint: Color? = nil) -> Color {
-    (tint ?? Color(hex: T.accent)).readableText
+    .white
 }
 
 extension View {
