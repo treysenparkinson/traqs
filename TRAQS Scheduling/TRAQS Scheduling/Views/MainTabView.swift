@@ -294,6 +294,7 @@ private struct HeaderHost: View {
 
 private struct TabHost: View {
     @Environment(AppNav.self) private var appNav
+    @Environment(ThemeSettings.self) private var theme
 
     /// Reserves bottom space so a page's content ends at the TOP of the floating
     /// nav pill. Used by Home/TimeClock/Stats — the tabs without their own
@@ -324,6 +325,15 @@ private struct TabHost: View {
             MessagesView().tag(TTab.chat)           // reserves pill space inside its own NavigationStack
                 .toolbar(.hidden, for: .tabBar)
         }
+        // The accent follows the tab in `.logoStagger`. Nav PUSHES; the theme
+        // never observes AppNav, which keeps the Services→Views edge one-way.
+        //
+        // `onAppear` as well as `onChange`: `activeTab` is not persisted, so a
+        // launch restored onto a non-Home tab (a push deep link writes
+        // `appNav.selected` before this view appears) would otherwise render
+        // Home's colour until the first manual tab change.
+        .onAppear { theme.setActiveTab(appNav.selected) }
+        .onChange(of: appNav.selected) { _, tab in theme.setActiveTab(tab) }
     }
 }
 
