@@ -176,6 +176,11 @@ struct TRAQSNavLogo: View {
 // tracks the user's chosen accent, and the three grey bars use the theme's
 // muted ink so they stay legible on light AND dark backgrounds. `size` is the
 // rendered HEIGHT in points; width is derived from the original 184×150 art.
+//
+// Under `.logoStagger` it drops the grey entirely and draws all four bars in
+// `LogoPalette.ordered`, so the mark in the header is the same object as the
+// icon on the springboard. `widths` and `LogoPalette.ordered` are both
+// top-to-bottom and are indexed together — they must stay in step.
 struct TRAQSBarsMark: View {
     @Environment(ThemeSettings.self) private var themeSettings
     var size: CGFloat = 22
@@ -186,9 +191,10 @@ struct TRAQSBarsMark: View {
     private let accentIndex = 2
 
     var body: some View {
-        // Read themeSettings.accent / .bgPresetId so the mark re-renders live
-        // when the customizer changes the accent or the light/dark background.
-        let accentColor = Color(hex: themeSettings.accent)
+        // Read accentMode / activeAccent / bgPresetId so the mark re-renders
+        // live when the customizer changes any of them.
+        let mode = themeSettings.accentMode
+        let accentColor = Color(hex: themeSettings.activeAccent)
         let _ = themeSettings.bgPresetId
         let greyColor = Color(hex: T.muted)
 
@@ -200,7 +206,12 @@ struct TRAQSBarsMark: View {
         VStack(alignment: .leading, spacing: gap) {
             ForEach(widths.indices, id: \.self) { i in
                 RoundedRectangle(cornerRadius: barH * 0.32, style: .continuous)
-                    .fill(i == accentIndex ? accentColor : greyColor)
+                    // In stagger the mark IS the icon: all four bars, in the
+                    // icon's own order. It does not change per tab — the logo
+                    // is the one thing that stays put while the accent moves.
+                    .fill(mode == .logoStagger
+                          ? Color(hex: LogoPalette.ordered[i])
+                          : (i == accentIndex ? accentColor : greyColor))
                     .frame(width: fullWidth * widths[i], height: barH)
             }
         }
