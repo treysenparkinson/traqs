@@ -29,26 +29,30 @@ struct CustomizeView: View {
                             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 14) {
 
                                 ForEach(ThemeSettings.accentPresets, id: \.self) { hex in
-                                    AccentSwatch(hex: hex, isSelected: theme.accent == hex) {
+                                    AccentSwatch(hex: hex,
+                                                 isSelected: theme.accent == hex,
+                                                 caption: hex == ThemeSettings.defaultAccent ? "Default" : nil) {
                                         theme.setAccent(hex)
                                     }
                                 }
 
                                 // Custom color picker. Binds straight to the theme rather
                                 // than mirroring into a local @State: a mirrored @State has
-                                // to be seeded on `.onAppear` (see below), and that seed
-                                // write fires `.onChange` too — indistinguishable from a
-                                // real user pick
-                                // and silently knock a stagger user out of stagger the
-                                // instant they opened this screen.
-                                ColorPicker("", selection: Binding(
-                                    get: { Color(hex: theme.accent) },          // the saved SOLID choice, per spec
-                                    set: { theme.setAccent($0.hexString) }
-                                ), supportsOpacity: false)
-                                    .labelsHidden()
-                                    .frame(width: 36, height: 36)
-                                    .clipShape(Circle())
-                                    .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1.5))
+                                // to be seeded on appear, and that seed write fires
+                                // `.onChange` too — indistinguishable from a real user pick,
+                                // so the screen would act on a choice nobody made the
+                                // instant it opened.
+                                VStack(spacing: 5) {
+                                    ColorPicker("", selection: Binding(
+                                        get: { Color(hex: theme.accent) },      // the saved SOLID choice
+                                        set: { theme.setAccent($0.hexString) }
+                                    ), supportsOpacity: false)
+                                        .labelsHidden()
+                                        .frame(width: 36, height: 36)
+                                        .clipShape(Circle())
+                                        .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1.5))
+                                    captionSlot(nil)
+                                }
                             }
                         }
                         .padding(16)
@@ -148,29 +152,52 @@ private struct SectionLabel: View {
 private struct AccentSwatch: View {
     let hex: String
     let isSelected: Bool
+    /// Shown under the dot. Only the shipped default carries one — but the SLOT
+    /// is reserved on every swatch (see `captionSlot`), so one captioned cell
+    /// cannot make its row taller than the others.
+    var caption: String? = nil
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            Circle()
-                .fill(Color(hex: hex))
-                .frame(width: 36, height: 36)
-                .overlay(
-                    isSelected
-                        ? Image(systemName: "checkmark")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(Color(hex: hex).readableText)
-                        : nil
-                )
-                .overlay(
-                    Circle()
-                        .stroke(isSelected ? Color.white.opacity(0.6) : Color(hex: T.hair), lineWidth: isSelected ? 2 : 1)
-                )
-                .shadow(color: isSelected ? Color(hex: hex).opacity(T.skyShadowOpacity) : .clear,
-                        radius: isSelected ? T.skyShadowRadius : 0, x: 0, y: isSelected ? T.skyShadowY : 0)
+        VStack(spacing: 5) {
+            Button(action: action) {
+                Circle()
+                    .fill(Color(hex: hex))
+                    .frame(width: 36, height: 36)
+                    .overlay(
+                        isSelected
+                            ? Image(systemName: "checkmark")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(Color(hex: hex).readableText)
+                            : nil
+                    )
+                    .overlay(
+                        Circle()
+                            .stroke(isSelected ? Color.white.opacity(0.6) : Color(hex: T.hair), lineWidth: isSelected ? 2 : 1)
+                    )
+                    .shadow(color: isSelected ? Color(hex: hex).opacity(T.skyShadowOpacity) : .clear,
+                            radius: isSelected ? T.skyShadowRadius : 0, x: 0, y: isSelected ? T.skyShadowY : 0)
+            }
+            .buttonStyle(.plain)
+
+            captionSlot(caption)
         }
-        .buttonStyle(.plain)
     }
+}
+
+/// A fixed-height line under a swatch, whether or not it has text.
+///
+/// Reserved rather than conditional: `LazyVGrid` sizes a row to its tallest
+/// cell, so captioning one swatch and not the rest would drop that entire row
+/// lower than the one below it and leave the dots visibly off-grid.
+@ViewBuilder
+private func captionSlot(_ text: String?) -> some View {
+    Text(text?.uppercased() ?? " ")
+        .font(TTypo.xsBold(9))
+        .foregroundStyle(Color(hex: T.muted))
+        .tLabel(tracking: 0.8)
+        .frame(height: 11)
+        .opacity(text == nil ? 0 : 1)
 }
 
 
