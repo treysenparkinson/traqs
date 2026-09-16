@@ -56,6 +56,9 @@ final class ThemeSettings {
 
     static let defaultBgPresetId: Int = 100
     static let defaultAccent: String = "#3B82F6"
+    /// The shipped default. New installs land on the icon's palette; users who
+    /// have already saved an accent keep it — see `AccentResolver.mode`.
+    static let defaultAccentMode: AccentMode = .logoStagger
     /// On by default — the liquid wash IS the intended look of the app; the
     /// static canvas is the opt-out.
     static let defaultLiquidBackground: Bool = true
@@ -63,6 +66,25 @@ final class ThemeSettings {
     static let defaultFrostedGlass: Bool = true
 
     var accent: String = ThemeSettings.defaultAccent
+
+    /// Whether the live accent comes from `accent` or from the selected tab.
+    var accentMode: AccentMode = ThemeSettings.defaultAccentMode
+
+    /// The tab the stagger reads from. NOT persisted — `TabHost` pushes it on
+    /// appear and on every change, so it is rebuilt each launch. Defaults to
+    /// `.home` to match `AppNav.selected`'s own default, so the first frame is
+    /// already the right colour rather than flashing and correcting.
+    var activeTab: TTab = .home
+
+    /// What actually feeds the `T.*` tokens.
+    ///
+    /// `accent` above keeps its original meaning — the user's saved SOLID
+    /// choice — and stagger never writes it. That is what lets someone flip to
+    /// the logo palette, flip back, and land on the colour they picked.
+    var activeAccent: String {
+        AccentResolver.activeAccent(mode: accentMode, solidAccent: accent, tab: activeTab)
+    }
+
     var bgPresetId: Int = ThemeSettings.defaultBgPresetId
     /// Whether pages render the drifting liquid wash (`PageBackground`) instead
     /// of the static ambient canvas. Unlike accent/preset this feeds no T.*
@@ -115,6 +137,7 @@ final class ThemeSettings {
     // preview without persisting; Save commits them, backing out reverts to
     // these snapshots.
     private var savedAccent: String = ThemeSettings.defaultAccent
+    private var savedAccentMode: AccentMode = ThemeSettings.defaultAccentMode
     private var savedBgPresetId: Int = ThemeSettings.defaultBgPresetId
     private var savedLiquidBackground: Bool = ThemeSettings.defaultLiquidBackground
     private var savedFrostedGlass: Bool = ThemeSettings.defaultFrostedGlass
@@ -126,7 +149,14 @@ final class ThemeSettings {
     var isLightTheme: Bool { currentBgPreset.isLight }
 
     init() {
-        accent = UserDefaults.standard.string(forKey: "themeAccent") ?? ThemeSettings.defaultAccent
+        // Read the raw object BEFORE defaulting `accent` — whether the key
+        // EXISTS is the signal `AccentResolver.mode` needs, and `??` erases it.
+        let storedAccent = UserDefaults.standard.object(forKey: "themeAccent") as? String
+        accent = storedAccent ?? ThemeSettings.defaultAccent
+        accentMode = AccentResolver.mode(
+            storedMode: UserDefaults.standard.object(forKey: "themeAccentMode") as? String,
+            hasSavedAccent: storedAccent != nil
+        )
         // Any preset id that isn't one of the four current neutrals falls
         // back to White. Covers existing users who were on the older
         // tinted presets (Midnight, Navy, Slate, Forest, Frost, Pearl,
@@ -145,6 +175,7 @@ final class ThemeSettings {
         frostedGlass = (UserDefaults.standard.object(forKey: "themeFrostedGlass") as? Bool)
             ?? ThemeSettings.defaultFrostedGlass
         savedAccent = accent
+        savedAccentMode = accentMode
         savedBgPresetId = bgPresetId
         savedLiquidBackground = liquidBackground
         savedFrostedGlass = frostedGlass
@@ -157,6 +188,25 @@ final class ThemeSettings {
     func setAccent(_ hex: String) {
         accent = hex
         applyAccentToT()
+    }
+
+    /// Live preview only (see `setAccent`). Persists on `commitChanges()`.
+    func setAccentMode(_ mode: AccentMode) {
+        accentMode = mode
+        applyAccentToT()
+    }
+
+    /// Nav pushes the selected tab in; the theme never observes `AppNav`.
+    ///
+    /// Not a preview setter and not persisted — this is live navigation state,
+    /// so it takes effect immediately and is not part of the Save/Cancel pair.
+    /// In `.solid` it stores the tab and stops: nothing the tokens read has
+    /// changed, so repainting would be pure work.
+    func setActiveTab(_ tab: TTab) {
+        guard activeTab != tab else { return }
+        activeTab = tab
+        guard accentMode == .logoStagger else { return }
+        withAnimation(.easeInOut(duration: 0.35)) { applyAccentToT() }
     }
 
     /// Live preview only (see `setAccent`). Persists on `commitChanges()`.
@@ -179,6 +229,7 @@ final class ThemeSettings {
 
     func reset() {
         setAccent(ThemeSettings.defaultAccent)
+        setAccentMode(ThemeSettings.defaultAccentMode)
         setBgPreset(ThemeSettings.defaultBgPresetId)
         setLiquidBackground(ThemeSettings.defaultLiquidBackground)
         setFrostedGlass(ThemeSettings.defaultFrostedGlass)
@@ -189,6 +240,7 @@ final class ThemeSettings {
     /// un-saved exit can be reverted.
     func beginPreview() {
         savedAccent = accent
+        savedAccentMode = accentMode
         savedBgPresetId = bgPresetId
         savedLiquidBackground = liquidBackground
         savedFrostedGlass = frostedGlass
@@ -198,6 +250,7 @@ final class ThemeSettings {
     /// without Save).
     func cancelPreview() {
         accent = savedAccent
+        accentMode = savedAccentMode
         bgPresetId = savedBgPresetId
         liquidBackground = savedLiquidBackground
         frostedGlass = savedFrostedGlass
@@ -208,10 +261,12 @@ final class ThemeSettings {
     /// so the whole app re-renders with the new T.* values.
     func commitChanges() {
         UserDefaults.standard.set(accent, forKey: "themeAccent")
+        UserDefaults.standard.set(accentMode.rawValue, forKey: "themeAccentMode")
         UserDefaults.standard.set(bgPresetId, forKey: "themeBgPreset")
         UserDefaults.standard.set(liquidBackground, forKey: "themeLiquidBackground")
         UserDefaults.standard.set(frostedGlass, forKey: "themeFrostedGlass")
         savedAccent = accent
+        savedAccentMode = accentMode
         savedBgPresetId = bgPresetId
         savedLiquidBackground = liquidBackground
         savedFrostedGlass = frostedGlass
@@ -235,9 +290,13 @@ final class ThemeSettings {
     /// gradient of the exact color chosen, never an off-hue end that reads as a
     /// completely different color.
     private func applyAccentToT() {
-        T.accent = accent
-        T.accentGradientStart = accent
-        T.accentGradientEnd   = ThemeSettings.derivedEnd(from: accent)
+        // `activeAccent`, not `accent` — in stagger the live colour comes from
+        // the tab. Everything below is unchanged and still derives from a
+        // SINGLE hue, so the same-hue gradient rule holds per-colour.
+        let live = activeAccent
+        T.accent = live
+        T.accentGradientStart = live
+        T.accentGradientEnd   = ThemeSettings.derivedEnd(from: live)
         T.glowBlob     = T.accentGradientEnd
         T.ctaGlowColor = T.accentGradientStart
     }
