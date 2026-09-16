@@ -81,8 +81,20 @@ final class ThemeSettings {
     /// `accent` above keeps its original meaning — the user's saved SOLID
     /// choice — and stagger never writes it. That is what lets someone flip to
     /// the logo palette, flip back, and land on the colour they picked.
+    ///
+    /// Read `activeTab` ONLY under stagger. Reading it unconditionally (as a
+    /// call argument to `AccentResolver.activeAccent`) would register an
+    /// `@Observable` dependency on `activeTab` at all ~19 observation sites
+    /// (`FrostedCard`, `GlassSurface`, `GlassPanel`, `FrostedPill`,
+    /// `GradientCTA`, `GlassCTA`, `TaskCardV1`, `TRAQSTabBar`, …) in BOTH
+    /// modes, and `setActiveTab` writes `activeTab` on every tab change in
+    /// `.solid` too. Observation doesn't value-diff — it just invalidates —
+    /// so every `.solid` user (i.e. everyone who predates this branch) would
+    /// get every one of those views, `FrostedCard` per job row included,
+    /// re-evaluated on every tab change for a value that never moved.
     var activeAccent: String {
-        AccentResolver.activeAccent(mode: accentMode, solidAccent: accent, tab: activeTab)
+        guard accentMode == .logoStagger else { return accent }
+        return AccentResolver.activeAccent(mode: accentMode, solidAccent: accent, tab: activeTab)
     }
 
     var bgPresetId: Int = ThemeSettings.defaultBgPresetId
@@ -200,8 +212,9 @@ final class ThemeSettings {
     ///
     /// Not a preview setter and not persisted — this is live navigation state,
     /// so it takes effect immediately and is not part of the Save/Cancel pair.
-    /// In `.solid` it stores the tab and stops: nothing the tokens read has
-    /// changed, so repainting would be pure work.
+    /// In `.solid` it stores the tab and stops: `activeAccent` only reads
+    /// `activeTab` under stagger (see above), so nothing the tokens read has
+    /// changed, and repainting would be pure work.
     ///
     /// No `withAnimation` here: `T` is plain `static var`s, not `@Observable`
     /// or `Animatable`, so wrapping `applyAccentToT()` in a transaction has
