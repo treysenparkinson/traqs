@@ -202,11 +202,19 @@ final class ThemeSettings {
     /// so it takes effect immediately and is not part of the Save/Cancel pair.
     /// In `.solid` it stores the tab and stops: nothing the tokens read has
     /// changed, so repainting would be pure work.
+    ///
+    /// No `withAnimation` here: `T` is plain `static var`s, not `@Observable`
+    /// or `Animatable`, so wrapping `applyAccentToT()` in a transaction has
+    /// nothing to attach to — the only observable mutation is `activeTab`
+    /// above, one line earlier and outside any transaction. The caller
+    /// (`TabHost`'s `.onChange(of: appNav.selected)`) wraps the call to
+    /// `setActiveTab` itself in `withAnimation` instead, so the transaction
+    /// covers the mutation that actually invalidates views.
     func setActiveTab(_ tab: TTab) {
         guard activeTab != tab else { return }
         activeTab = tab
         guard accentMode == .logoStagger else { return }
-        withAnimation(.easeInOut(duration: 0.35)) { applyAccentToT() }
+        applyAccentToT()
     }
 
     /// Live preview only (see `setAccent`). Persists on `commitChanges()`.

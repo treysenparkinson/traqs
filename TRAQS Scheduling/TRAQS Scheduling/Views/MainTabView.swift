@@ -332,8 +332,21 @@ private struct TabHost: View {
         // launch restored onto a non-Home tab (a push deep link writes
         // `appNav.selected` before this view appears) would otherwise render
         // Home's colour until the first manual tab change.
+        //
+        // The transaction lives HERE, not inside `setActiveTab`: the mutation
+        // that actually invalidates dependent views is `theme.activeTab`, an
+        // `@Observable` property, and that write happens synchronously inside
+        // `setActiveTab`. `T.*` are plain statics with no observable storage,
+        // so a `withAnimation` wrapped around `applyAccentToT()` (as it used
+        // to be, inside `setActiveTab`) had no observable mutation to attach
+        // to and was silently inert — the fills cut hard instead of easing.
+        // Wrapping the call site instead puts the transaction around the one
+        // mutation SwiftUI actually diffs. No animation on first paint —
+        // there is nothing to animate FROM yet.
         .onAppear { theme.setActiveTab(appNav.selected) }
-        .onChange(of: appNav.selected) { _, tab in theme.setActiveTab(tab) }
+        .onChange(of: appNav.selected) { _, tab in
+            withAnimation(.easeInOut(duration: 0.35)) { theme.setActiveTab(tab) }
+        }
     }
 }
 
