@@ -1346,7 +1346,7 @@ struct TaskCardV1: View {
         // Uses the shared hero radius so every page's cards match.
         // No liveSheen: the accent glow it added to "your" cards fought the liquid
         // wash showing through the glass, reading as a smudge rather than a cue.
-        _ = theme.frostedGlass; _ = theme.accent
+        _ = theme.frostedGlass; _ = theme.activeAccent
         return SBox(size: .lg, radius: T.cornerHero, active: isActive, frosted: true) {
             VStack(alignment: .leading, spacing: 0) {
                 // Top row: bright type + status pills ···· date · chevron
@@ -1908,7 +1908,7 @@ private struct StartJobOverlay: View {
 
     var body: some View {
         // Touch the theme so a live Customize change re-tints the panel.
-        _ = theme.bgPresetId; _ = theme.accent
+        _ = theme.bgPresetId; _ = theme.activeAccent
         return ZStack {
             // Invisible tap-catcher. The page behind is blurred by MainTabView
             // via appNav.modalBlur — this cover is its own presentation, so it

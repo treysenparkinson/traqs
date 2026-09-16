@@ -35,7 +35,7 @@ struct ClockActionBanner: View {
         // Touch the theme so a live Customize accent change re-tints the banner
         // (the T.* tokens it reads aren't observable on their own) — same
         // reason FrostedCard does this.
-        _ = theme.accent
+        _ = theme.activeAccent
 
         // Dimmed and blurred backdrop, matching the PIN pad and the end-job
         // photo prompt. This DOES swallow taps for as long as the banner is up,

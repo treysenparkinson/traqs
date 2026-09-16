@@ -2827,7 +2827,7 @@ struct EditGroupPopup: View {
         }
     }
 
-    private var observeTheme: Void { _ = theme.frostedGlass; _ = theme.accent }
+    private var observeTheme: Void { _ = theme.frostedGlass; _ = theme.activeAccent }
 }
 
 struct AddPeoplePopup: View {
@@ -3001,7 +3001,7 @@ struct AddPeoplePopup: View {
 
     /// Touched in `body` so a live frosted-glass flip re-renders the Add button's
     /// label colour. See the property.
-    private var observeTheme: Void { _ = theme.frostedGlass; _ = theme.accent }
+    private var observeTheme: Void { _ = theme.frostedGlass; _ = theme.activeAccent }
 }
 
 // MARK: - New Group Sheet
@@ -3422,7 +3422,7 @@ struct NewMessageSheet: View {
 
     /// Touched in `body` so a live frosted-glass flip re-renders the Create
     /// button's label colour. See the property.
-    private var observeTheme: Void { _ = theme.frostedGlass; _ = theme.accent }
+    private var observeTheme: Void { _ = theme.frostedGlass; _ = theme.activeAccent }
 
     private func start() {
         let ids = Array(selectedIds)

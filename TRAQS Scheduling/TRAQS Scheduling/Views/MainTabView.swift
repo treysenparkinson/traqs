@@ -458,7 +458,7 @@ struct TRAQSTabBar: View {
         // the frost immediately (T.* tokens aren't observable on their own).
         // frostedGlass too: the fill and rim below read the T.* global, which
         // SwiftUI can't see as a dependency.
-        _ = theme.accent; _ = theme.bgPresetId; _ = theme.frostedGlass
+        _ = theme.activeAccent; _ = theme.bgPresetId; _ = theme.frostedGlass
         let shape = Capsule(style: .continuous)
 
         return ZStack(alignment: .leading) {

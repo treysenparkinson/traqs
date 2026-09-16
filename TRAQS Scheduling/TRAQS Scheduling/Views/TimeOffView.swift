@@ -438,7 +438,7 @@ private struct RequestTimeOffOverlay: View {
     }
 
     var body: some View {
-        _ = theme.frostedGlass; _ = theme.accent
+        _ = theme.frostedGlass; _ = theme.activeAccent
         return ZStack {
             // Tapping out cancels — nothing has happened yet, the request only
             // goes out from the CTA. Blocked mid-submit. While the keyboard is
