@@ -311,7 +311,19 @@ struct LiquidBackground: View {
     /// Raised from the nine-blob era's `max(44, 80 / thickness)`: blur has to
     /// grow with the shape it's softening, and these blobs are roughly twice
     /// the size. At the old figure their edges read as hard ellipses.
-    private var blurRadius: CGFloat { scale * max(70, 130 / thickness) }
+    private var blurRadius: CGFloat {
+        // A PALETTE wash is a different problem from a derived pair. The pair is
+        // two near-hues meant to melt together, so a wide blur is the point. Four
+        // unrelated hues blurred that wide stop being four colours: the overlap
+        // averages them, and an average of coral, amber, sky and green is mud.
+        //
+        // So the palette branch blurs about a third as much. Enough that the
+        // blobs are still soft fields rather than hard ellipses, not so much
+        // that each one's colour is smeared into its neighbour's.
+        let base = palette.map { $0.count > 1 } == true ? max(26, 44 / thickness)
+                                                        : max(70, 130 / thickness)
+        return scale * base
+    }
 
     /// Clamped so a caller can't collapse the wash to nothing or inflate it past
     /// the geometry the ladder was designed around.
@@ -405,7 +417,12 @@ struct LiquidBackground: View {
     /// case read as "none supplied," and `specs` falls through to the pair
     /// for it instead of calling this with nothing to draw.
     private func paletteSpecs(_ palette: [String]) -> [BlobSpec] {
-        let hues = palette.map { LiquidColor.vivid($0, saturation) }
+        // NOT `vivid()` here. That pushes saturation up but also drags lightness
+        // toward 0.55, which is right for deriving a wash from ONE accent and
+        // wrong for four colours that were already chosen: it hands back paler,
+        // flatter versions of the exact hues the icon ships. These are brand
+        // values — they go in as they are.
+        let hues = palette
 
         // The four tables below (durations, alphas, paths, corners) are tuned
         // for ≤4 entries — no caller passes more today. Beyond four, `% corners.count`
@@ -444,19 +461,25 @@ struct LiquidBackground: View {
                                      LiquidPath.b,
                                      LiquidPath.reversed(LiquidPath.a)]
 
-        // Smaller than the pair (0.85/0.60 against 1.05/0.72): four of these
-        // span the canvas between them where four full-size ones would drown it.
-        let w = 0.85 * scale
-        let h = 0.60 * scale
+        // Smaller again (0.62/0.44, against the pair's 1.05/0.72). Four blobs
+        // only read as four if each one owns ground the others do not: at 0.85
+        // wide they overlapped across most of the screen and alpha-composited
+        // into a single field. These meet at their edges instead of through
+        // their middles.
+        let w = 0.62 * scale
+        let h = 0.44 * scale
 
         // Two up, two down, alternating edges. Anchored as fractions of the
         // blob's OWN height for the same reason the pair is — so `scale`
         // shrinks the group without pulling it apart.
+        // Pushed further into the corners now the blobs are smaller — they hang
+        // less far off the edges, so they need to start further apart to still
+        // span the canvas without piling up in the middle.
         let corners: [(leading: Double?, trailing: Double?, top: Double)] = [
-            (-0.14, nil,   -h * 0.18),
-            (nil,   -0.14, -h * 0.05),
-            (-0.10, nil,   1 - h * 0.80),
-            (nil,   -0.10, 1 - h * 0.95),
+            (-0.08, nil,   -h * 0.22),
+            (nil,   -0.08, 0.08),
+            (-0.04, nil,   1 - h * 1.05),
+            (nil,   -0.04, 0.46),
         ]
 
         return hues.indices.map { i in
