@@ -1,19 +1,7 @@
 {
   "fill-specializations" : [
     {
-      "value" : {
-        "automatic-gradient" : "extended-gray:1.00000,1.00000",
-        "orientation" : {
-          "start" : {
-            "x" : 0.5,
-            "y" : 1
-          },
-          "stop" : {
-            "x" : 0.5,
-            "y" : 0.3
-          }
-        }
-      }
+      "value" : "system-light"
     },
     {
       "appearance" : "dark",
@@ -24,21 +12,11 @@
     {
       "layers" : [
         {
-          "glass" : true,
           "hidden" : false,
-          "image-name" : "traqs-bars-candy-v2.png",
-          "name" : "traqs-bars-candy-v2",
-          "opacity-specializations" : [
-            {
-              "value" : 1
-            },
-            {
-              "appearance" : "dark",
-              "value" : 1
-            }
-          ],
+          "image-name" : "traqs-candy-bars.png",
+          "name" : "traqs-candy-bars",
           "position" : {
-            "scale" : 0.48,
+            "scale" : 0.16,
             "translation-in-points" : [
               0,
               0
