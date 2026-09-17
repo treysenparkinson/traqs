@@ -2335,6 +2335,96 @@ function accentText(accent) {
   catch { return "#ffffff"; }
 }
 
+// --- Live job-clock session: the live bar and the reservoir it drains ---------
+// A job clock tells two halves of one story on the schedule. The live bar FILLS as
+// time is worked; the reservoir's scheduled block EMPTIES at the same rate. So both
+// halves share a single grammar:
+//     accruing      solid fill, bright cap on the edge that is growing
+//     not accruing  fill knocked back toward the row surface, bar-coloured front
+// A session that has stopped -- finish request pending ("HELD") or paused for lunch
+// ("LUNCH") -- borrows the not-accruing treatment, because nothing is moving. Before
+// this, all three states rendered an identical solid fill reading "LIVE".
+//
+// Everything derives from the bar's own colour and the active theme: no foreign hue
+// and no glow, keeping the decision that the live bar matches the op's real colour
+// with the badge as the only differentiator. The colour passed in has already been
+// through elColor(), so these follow the theme's job-bar mode automatically.
+const LIVE_BADGE_LABEL = { running: "LIVE", held: "HELD", paused: "LUNCH" };
+
+// The "spent" fill, shared by a drained reservoir and a stopped live bar. Replaces a
+// flat-black hatch (rgba(0,0,0,0.28)/0.14) that read as grime on every light ladder
+// rather than as an emptied block. Opaque, so it REPLACES the fill it covers instead
+// of muddying it, and mixed toward the row surface so it lands the same way on all
+// four theme ladders instead of only on the dark ones.
+// How far a spent fill is mixed toward the row surface. Asks the SURFACE being mixed
+// toward, not T.colorScheme: on a custom theme colorScheme tracks the PAGE background
+// (dk = hexLum(bg) < 0.18) while these fills mix toward the surface, and the two can
+// land on opposite sides of the divide -- the theme builder keeps a separate surfDk
+// for exactly this reason. One function so the ratio cannot drift between the fill
+// and the text that has to contrast it.
+function spentMixRatio(T) {
+  return wantsLightText(T.surfaceSolid || T.surface) ? 0.72 : 0.80;
+}
+
+function spentBarFill(T, barColor) {
+  const surf = T.surfaceSolid || T.surface;
+  const body = mixHex(barColor, surf, spentMixRatio(T));
+  const hatch = hexA(barColor, wantsLightText(surf) ? 0.30 : 0.22);
+  return `repeating-linear-gradient(135deg, ${hatch} 0 5px, transparent 5px 10px), ${body}`;
+}
+
+// Text sitting on a spent fill contrasts the SPENT colour, not the original bar
+// colour -- the two can land on opposite sides of the crossover.
+function liveBarTextColor(T, barColor, state = "running") {
+  if (state === "running") return accentText(barColor);
+  return accentText(mixHex(barColor, T.surfaceSolid || T.surface, spentMixRatio(T)));
+}
+
+// The reservoir's drained portion. It covers the block from its left edge up to the
+// drain front, so only the LEFT corners are rounded -- rounding all four left two
+// stray rounded corners floating mid-bar. The front is drawn in the bar's own
+// colour: it is the edge that moves, mirroring the live bar's cap travelling the
+// other way. Caller supplies left/width.
+function drainMaskStyle(T, barColor, rowH) {
+  return {
+    position: "absolute", top: 4, height: rowH - 8, boxSizing: "border-box",
+    // Floor, for the same reason the live bar has one: width is a percentage minus a
+    // pixel constant, so early in a session calc() goes negative and CSS clamps it to
+    // 0 -- taking the drain front with it, because a border-box border cannot render
+    // at width 0. At month zoom that hid the drain for roughly a quarter hour, i.e.
+    // the reservoir appeared not to drain at precisely the moment it starts. The 2px
+    // slightly over-represents how much has gone; the live bar already accepts that
+    // trade, and these two must appear together or the "fills as it empties" pairing
+    // is broken at the only moment anyone is watching for it. Lives in the helper, not
+    // at the call sites, so the two masks cannot drift apart again.
+    minWidth: 2,
+    borderRadius: `${T.radiusXs}px 0 0 ${T.radiusXs}px`,
+    background: spentBarFill(T, barColor),
+    borderRight: `2px solid ${barColor}`,
+    zIndex: 14, pointerEvents: "none",
+  };
+}
+
+// The live bar. Only a running session accrues, so only it gets the solid fill and
+// the leading cap marking the growing edge; stopped sessions take the spent fill, so
+// "washed" means "not accruing" everywhere on the row. No border on the body:
+// day-mode bars have none either, and the cap alone is what the live bar does not
+// share with a scheduled bar. Caller supplies left/width/cursor.
+function liveBarStyle(T, barColor, rowH, state = "running") {
+  const running = state === "running";
+  return {
+    position: "absolute", top: 4, height: rowH - 8, boxSizing: "border-box",
+    borderRadius: T.radiusXs,
+    background: running ? barColor : spentBarFill(T, barColor),
+    // The cap takes whichever of black/white the badge text already resolved to, so
+    // it stays legible against any job colour without introducing a hue of its own.
+    borderRight: running ? `2px solid ${hexA(accentText(barColor), 0.55)}` : "none",
+    boxShadow: running ? `0 2px 8px ${hexA(barColor, T.colorScheme === "dark" ? 0.45 : 0.28)}` : "none",
+    display: "flex", alignItems: "center", gap: 6, padding: "0 10px",
+    overflow: "hidden", zIndex: 15,
+  };
+}
+
 // Custom-theme inputs: bg (page background / image tint), accent (buttons/highlights),
 // surface (lists/cards), and opts.systemColor (outer chrome: header + sidebar + logo).
 // Text is AUTOMATIC — it contrasts whatever it sits on (surface, system bg, or page bg).
@@ -15450,6 +15540,11 @@ ${jobsCtx || "No jobs found."}`;
                         // the clocked-in person isn't formally on the op's team.
                         const liveBarTask = findOpAsBarTask(tasks, jc.reservoirOpId || jc.opId);
                         const liveColor = liveBarTask?.color || T.accent;
+                        // A held or paused session is not accruing, so it must not keep reading
+                        // "LIVE" over a solid fill. Held wins over paused: an approval decision
+                        // outranks a lunch break if somehow both are set.
+                        const liveState = jc.frozenAtMs ? "held" : jc.pausedAt ? "paused" : "running";
+                        const liveInk = liveBarTextColor(T, liveColor, liveState);
                         // This isn't a synthetic new job — it's the SAME op, just live-repositioned
                         // from clockIn to now. So it opens/right-clicks exactly like the real
                         // scheduled bar for that op does. Not draggable: its position is computed
@@ -15457,9 +15552,9 @@ ${jobsCtx || "No jobs found."}`;
                         return <div key="live-bar"
                           onClick={() => liveBarTask && openJobDetail(liveBarTask)}
                           onContextMenu={e => liveBarTask && handleCtx(e, liveBarTask, "team")}
-                          style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:liveColor,boxShadow:`0 2px 8px ${liveColor}33`,display:"flex",alignItems:"center",gap:6,padding:"0 10px",overflow:"hidden",zIndex:15,cursor:liveBarTask?"pointer":"default"}}>
-                          <span style={{fontSize:9,fontWeight:800,color:accentText(liveColor),letterSpacing:"0.05em",flexShrink:0,opacity:0.85}}>LIVE</span>
-                          <span style={{fontSize:10,fontWeight:600,color:accentText(liveColor),overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{jc.opTitle||jc.jobTitle||"—"} · {p.name.split(" ")[0]}</span>
+                          style={{...liveBarStyle(T, liveColor, rH, liveState), left:`${(visS-HS)/NH*100}%`, width:`calc(${(visE-visS)/NH*100}% - 4px)`, cursor:liveBarTask?"pointer":"default"}}>
+                          <span style={{fontSize:9,fontWeight:800,color:liveInk,letterSpacing:"0.05em",flexShrink:0,opacity:0.85}}>{LIVE_BADGE_LABEL[liveState]}</span>
+                          <span style={{fontSize:10,fontWeight:600,color:liveInk,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{jc.opTitle||jc.jobTitle||"—"} · {p.name.split(" ")[0]}</span>
                         </div>;
                       })()}
                       {/* Reservoir drain mask (Phase 3) — visually shrinks the reservoir op's bar
@@ -15474,9 +15569,9 @@ ${jobsCtx || "No jobs found."}`;
                         if (drainH <= 0) return null;
                         const visS = Math.max(bp.rawS, HS), visE = Math.min(Math.min(bp.rawE, bp.rawS + drainH), HE);
                         if (visE <= visS) return null;
-                        return <div key="drain-mask" style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:"repeating-linear-gradient(135deg, rgba(0,0,0,0.28), rgba(0,0,0,0.28) 6px, rgba(0,0,0,0.14) 6px, rgba(0,0,0,0.14) 12px)",zIndex:14,pointerEvents:"none"}}/>;
+                        return <div key="drain-mask" style={{...drainMaskStyle(T, bp.bar.color || T.accent, rH), left:`${(visS-HS)/NH*100}%`, width:`calc(${(visE-visS)/NH*100}% - 4px)`}}/>;
                       })()}
-                      {isToday && nowH>=HS && nowH<=HE && <div style={{position:"absolute",top:0,bottom:0,left:`${(nowH-HS)/NH*100}%`,width:2,background:T.accent+"bb",zIndex:12,pointerEvents:"none"}}/>}
+                      {isToday && nowH>=HS && nowH<=HE && <div style={{position:"absolute",top:0,bottom:0,left:`${(nowH-HS)/NH*100}%`,width:2,background:T.accent+"bb",zIndex:16,pointerEvents:"none"}}/>}
                     </div>
                   </div>;
                 })}
@@ -17203,15 +17298,19 @@ ${jobsCtx || "No jobs found."}`;
                   // clocked-in person isn't formally on the op's team.
                   const liveBarTask = findOpAsBarTask(tasks, jc.reservoirOpId || jc.opId);
                   const liveColor = liveBarTask?.color || T.accent;
+                  // Held or paused: not accruing, so not "LIVE" over a solid fill. Held wins
+                  // over paused if somehow both are set.
+                  const liveState = jc.frozenAtMs ? "held" : jc.pausedAt ? "paused" : "running";
+                  const liveInk = liveBarTextColor(T, liveColor, liveState);
                   // Not a synthetic new job — the SAME op, live-repositioned from clockIn to now.
                   // Opens/right-clicks exactly like the real scheduled bar for that op. Not
                   // draggable: its position is computed from clockIn/now, not stored data.
                   return <div key="live-bar"
                     onClick={() => liveBarTask && openJobDetail(liveBarTask)}
                     onContextMenu={e => liveBarTask && handleCtx(e, liveBarTask, "team")}
-                    style={{ position: "absolute", top: 4, left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: liveColor, boxShadow: `0 2px 8px ${liveColor}33`, display: "flex", alignItems: "center", gap: 6, padding: "0 10px", overflow: "hidden", zIndex: 15, cursor: liveBarTask ? "pointer" : "default" }}>
-                    <span style={{ fontSize: 9, fontWeight: 800, color: accentText(liveColor), letterSpacing: "0.05em", flexShrink: 0, opacity: 0.85 }}>LIVE</span>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: accentText(liveColor), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{jc.opTitle || jc.jobTitle || "—"} · {p.name.split(" ")[0]}</span>
+                    style={{ ...liveBarStyle(T, liveColor, rH, liveState), left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`, cursor: liveBarTask ? "pointer" : "default" }}>
+                    <span style={{ fontSize: 9, fontWeight: 800, color: liveInk, letterSpacing: "0.05em", flexShrink: 0, opacity: 0.85 }}>{LIVE_BADGE_LABEL[liveState]}</span>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: liveInk, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{jc.opTitle || jc.jobTitle || "—"} · {p.name.split(" ")[0]}</span>
                   </div>;
                 })()}
                 {/* Reservoir drain mask (Phase 3) — visually shrinks the reservoir op's own bar
@@ -17237,7 +17336,7 @@ ${jobsCtx || "No jobs found."}`;
                   if (maskEndH <= opSH) return null;
                   const leftPct2 = dayIdx2 / nDays3 * 100 + ((opSH - workStartH) / totalWorkH) * oneDayW3;
                   const widthPct2 = ((maskEndH - opSH) / totalWorkH) * oneDayW3;
-                  return <div key="drain-mask" style={{ position: "absolute", top: 4, left: `calc(${leftPct2}% + 2px)`, width: `calc(${widthPct2}% - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: "repeating-linear-gradient(135deg, rgba(0,0,0,0.28), rgba(0,0,0,0.28) 6px, rgba(0,0,0,0.14) 6px, rgba(0,0,0,0.14) 12px)", zIndex: 14, pointerEvents: "none" }} />;
+                  return <div key="drain-mask" style={{ ...drainMaskStyle(T, rBar.color || T.accent, rH), left: `calc(${leftPct2}% + 2px)`, width: `calc(${widthPct2}% - 4px)` }} />;
                 })()}
               </div>
             </div>;
@@ -17250,7 +17349,7 @@ ${jobsCtx || "No jobs found."}`;
             const _tlH = _tlNow.getHours() + _tlNow.getMinutes() / 60;
             const _tlFrac = Math.max(0, Math.min(1, (_tlH - workStartH) / totalWorkH));
             const _tlDayIdx = diffD(tStart, TD);
-            return <div style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${lW}px + (100% - ${lW}px) * ${(_tlDayIdx + _tlFrac) / days.length})`, width: 1, background: T.accent + "33", zIndex: 12, pointerEvents: "none" }} />;
+            return <div style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${lW}px + (100% - ${lW}px) * ${(_tlDayIdx + _tlFrac) / days.length})`, width: 2, background: T.accent + "bb", zIndex: 16, pointerEvents: "none" }} />;
           })()}
         </div>
       </div>
