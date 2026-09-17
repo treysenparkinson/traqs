@@ -15615,7 +15615,16 @@ ${jobsCtx || "No jobs found."}`;
                           // percentage minus a pixel constant, so at clock-in it computes
                           // negative, CSS clamps it to 0, and the bar is invisible until it
                           // outgrows the inset.
-                          style={{...liveBarStyle(T, liveColor, rH, liveState), left:`${(visS-HS)/NH*100}%`, width:`calc(${(visE-visS)/NH*100}% - 4px)`, minWidth:2, cursor:liveBarTask?"pointer":"default"}}>
+                          style={{
+                            // Appearance (visuals) and geometry (schedule math) are owned by
+                            // different workstreams, so they get their own lines: when both are
+                            // edited in the same round git merges them instead of conflicting.
+                            ...liveBarStyle(T, liveColor, rH, liveState),
+                            left: `${(visS-HS)/NH*100}%`,
+                            width: `calc(${(visE-visS)/NH*100}% - 4px)`,
+                            minWidth: 2,
+                            cursor: liveBarTask ? "pointer" : "default",
+                          }}>
                           <span style={{fontSize:9,fontWeight:800,color:liveInk,letterSpacing:"0.05em",flexShrink:0,opacity:0.85}}>{LIVE_BADGE_LABEL[liveState]}</span>
                           <span style={{fontSize:10,fontWeight:600,color:liveInk,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{jc.opTitle||jc.jobTitle||"—"} · {p.name.split(" ")[0]}</span>
                         </div>;
@@ -15632,7 +15641,11 @@ ${jobsCtx || "No jobs found."}`;
                         if (drainH <= 0) return null;
                         const visS = Math.max(bp.rawS, HS), visE = Math.min(Math.min(bp.rawE, bp.rawS + drainH), HE);
                         if (visE <= visS) return null;
-                        return <div key="drain-mask" style={{...drainMaskStyle(T, bp.bar.color || T.accent, rH), left:`${(visS-HS)/NH*100}%`, width:`calc(${(visE-visS)/NH*100}% - 4px)`}}/>;
+                        return <div key="drain-mask" style={{
+                          ...drainMaskStyle(T, bp.bar.color || T.accent, rH),
+                          left: `${(visS-HS)/NH*100}%`,
+                          width: `calc(${(visE-visS)/NH*100}% - 4px)`,
+                        }}/>;
                       })()}
                       {isToday && nowH>=HS && nowH<=HE && <div style={{position:"absolute",top:0,bottom:0,left:`${(nowH-HS)/NH*100}%`,width:2,background:T.accent+"bb",zIndex:16,pointerEvents:"none"}}/>}
                     </div>
@@ -17386,7 +17399,15 @@ ${jobsCtx || "No jobs found."}`;
                     // constant, so at clock-in it computes negative and CSS clamps it to 0:
                     // the bar stayed invisible until it had grown past the inset. A live
                     // bar that cannot be seen being born defeats the point of it.
-                    style={{ ...liveBarStyle(T, liveColor, rH, liveState), left: `${leftPct}%`, width: `calc(${widthPct}% - 1px)`, minWidth: 2, cursor: liveBarTask ? "pointer" : "default" }}>
+                    style={{
+                      // One property per line, same reason as the day-mode bar: appearance and
+                      // geometry have different owners and must not share a line.
+                      ...liveBarStyle(T, liveColor, rH, liveState),
+                      left: `${leftPct}%`,
+                      width: `calc(${widthPct}% - 1px)`,
+                      minWidth: 2,
+                      cursor: liveBarTask ? "pointer" : "default",
+                    }}>
                     <span style={{ fontSize: 9, fontWeight: 800, color: liveInk, letterSpacing: "0.05em", flexShrink: 0, opacity: 0.85 }}>{LIVE_BADGE_LABEL[liveState]}</span>
                     <span style={{ fontSize: 10, fontWeight: 600, color: liveInk, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{jc.opTitle || jc.jobTitle || "—"} · {p.name.split(" ")[0]}</span>
                   </div>;
@@ -17420,7 +17441,11 @@ ${jobsCtx || "No jobs found."}`;
                   // an opaque fill turns the difference into a 2px sliver of undrained
                   // bar colour along the left edge of the drained region. Day mode never
                   // had this — its mask and bar already use byte-identical expressions.
-                  return <div key="drain-mask" style={{ ...drainMaskStyle(T, rBar.color || T.accent, rH), left: `${leftPct2}%`, width: `calc(${widthPct2}% - 1px)` }} />;
+                  return <div key="drain-mask" style={{
+                    ...drainMaskStyle(T, rBar.color || T.accent, rH),
+                    left: `${leftPct2}%`,
+                    width: `calc(${widthPct2}% - 1px)`,
+                  }} />;
                 })()}
               </div>
             </div>;
