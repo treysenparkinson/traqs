@@ -1744,14 +1744,29 @@ let modalPageBlurRadius: CGFloat = 3
 //            .frame(maxWidth: .infinity, maxHeight: .infinity)
 //            .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
 //
-//    ONE EXCEPTION, and it is about the CURVE, not the geometry: SwiftUI's
-//    automatic lift settles on a spring, so a card that travels far enough
-//    overshoots its resting place and bounces back into it when the pad goes
-//    away. Where that reads badly, ignore `.keyboard` and re-apply the SAME
-//    inset yourself from the keyboard's end frame on a flat curve — the card
-//    moves exactly as far, it just stops when it arrives. See
-//    `AvailabilityCheckPopup`. Still never COLLAPSE the form, which is what the
-//    rest of this rule is about.
+//    AND KEEP IT OUT OF THE PAGE. The glass header is an `.overlay` on the
+//    page out in MainTabView, so a popup rendered inside a page is drawn behind
+//    it and no zIndex down there can win. Holding back the header's band to
+//    dodge it is not the answer — that band is ~94pt, and with the pad up the
+//    card has only ~360pt to start with, so a quarter of the form goes below
+//    the fold. Render the popup from MainTabView instead, above the header, and
+//    blur the page from out there (`appNav.pageBlurred`). See
+//    `AvailabilityCheckPopup`.
+//
+//    NO EXCEPTIONS, and one was tried. `AvailabilityCheckPopup` once ignored
+//    `.keyboard` and re-applied a measured inset by hand, to flatten a bounce
+//    on the way back down. It does not work: `.padding(.bottom, inset)` has to
+//    sit OUTSIDE `.ignoresSafeArea(.keyboard)` to move the card, and out there
+//    it subtracts the pad from a region that has already lost it. The card ends
+//    up with screen − 2×keyboard, pinned to the top, collapsed to whatever in it
+//    is fixed-height. Hand-rolling also gives up the half of the automatic lift
+//    that matters most — scrolling the FOCUSED FIELD into view inside the
+//    scroller, which no outer inset can do.
+//
+//    If a card bounces, the bounce is a symptom: something else in its geometry
+//    is changing in the same transaction as the lift. Find that and stop it
+//    changing. In that popup it was a 94pt header band snapping in and out; the
+//    popup got rendered above the header instead, and the bounce went with it.
 //
 //    The card then fills whatever is left between the island and the keyboard,
 //    and `HugScroll` scrolls the overflow. The panel stays WHOLE while it does

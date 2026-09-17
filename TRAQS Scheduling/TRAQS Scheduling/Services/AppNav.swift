@@ -49,12 +49,19 @@ final class AppNav {
     /// stay sharp over a blurred page.
     var blurChrome: Bool = false
 
+    /// Blurs the PAGE. `modalBlur` covers a `.fullScreenCover`; the availability
+    /// popup is HOISTED out of the page and rendered above the header in
+    /// MainTabView (see `showAvailability`), so like a cover it blurs the page
+    /// from out there rather than from inside it. A page must NOT also apply
+    /// `.modalPageBlur` for this one, or it gets blurred twice.
+    var pageBlurred: Bool { modalBlur || showAvailability }
+
     /// The chrome — glass header + nav pill — is blurred by EITHER kind of
     /// modal: a `.fullScreenCover` (which drives `modalBlur`) or an in-hierarchy
     /// popup (`blurChrome`). One flag so the chrome is blurred exactly once; the
     /// header sits outside the page's blur layer precisely so it can't be
     /// blurred twice. See `ShellBlur` in MainTabView.
-    var chromeBlurred: Bool { modalBlur || blurChrome }
+    var chromeBlurred: Bool { modalBlur || blurChrome || showAvailability }
 
     /// Break banner shown on the Jobs page — set by TaskCardV1's break button,
     /// consumed by JobsHubView which hosts the same frosted-glass popup as the
@@ -81,6 +88,9 @@ final class AppNav {
     // Jobs
     var jobsSearchOpen = false
     var jobsSearchText = ""
+    /// The availability quick-check popup. Opened from the Jobs header pill,
+    /// but rendered by MainTabView ABOVE the glass header rather than inside the
+    /// page — see the popup block in MainTabView's body for why.
     var showAvailability = false
 
     // Messages

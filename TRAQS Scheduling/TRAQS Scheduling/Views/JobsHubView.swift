@@ -23,7 +23,9 @@ struct JobsHubView: View {
     /// every page, so a popup living inside this page renders UNDER both. A
     /// cover is its own presentation, above the lot. (An in-hierarchy popup can
     /// still BLUR the chrome — see `appNav.blurChrome` — but it cannot get on
-    /// top of it, and this one is full-height.)
+    /// top of it, and this one is full-height. The third way out is the one the
+    /// availability popup takes: stay in the hierarchy but be rendered by
+    /// MainTabView, above the header rather than inside a page.)
     @State private var detailTarget: JobDetailTarget?
     /// Shared with the job cards (via the environment). The zoom morph belonged
     /// to the pushed detail screen; the cards still publish their source ids, so
@@ -130,15 +132,17 @@ struct JobsHubView: View {
                         }
                     }
                 }
-                .modalPageBlur(appNav.jobsBreakBanner != nil || showAvailability)
+                // The break banner ONLY. The availability popup is hoisted out
+                // to MainTabView and blurs this page from there (`pageBlurred`);
+                // naming it here too would blur the page twice.
+                .modalPageBlur(appNav.jobsBreakBanner != nil)
                 // Blur the CHROME from the same condition. `.modalPageBlur`
                 // above reaches only this page's content; the glass header is a
                 // sibling of the page out in MainTabView, so without this the
                 // TRAQS wordmark and the header buttons stayed sharp over a
                 // blurred page. (The break banner sets `blurChrome` at its own
-                // call site too — this covers the availability popup and acts as
-                // the failsafe for both.)
-                .onChange(of: appNav.jobsBreakBanner != nil || showAvailability) { _, up in
+                // call site too — this is the failsafe.)
+                .onChange(of: appNav.jobsBreakBanner != nil) { _, up in
                     appNav.blurChrome = up
                 }
                 // Slide the bottom nav pill out while the availability popup is
@@ -146,9 +150,11 @@ struct JobsHubView: View {
                 // (see its `.animation(value: appNav.hideTabBar)`), so this is a
                 // plain write. Same handling the clock PIN pads get.
                 //
-                // The popup is tall and centred; unlike the break shout, which
-                // is small enough that the bar can just blur behind it, this one
-                // reaches the bottom edge and the bar would sit on top of it.
+                // The popup no longer NEEDS this to stay clear of the bar — it
+                // is drawn above the whole shell now, the bar included. It is
+                // kept because the popup is tall and reaches the bottom edge,
+                // and a pill sitting behind it under the scrim reads as clutter;
+                // the break shout, which is small, just blurs the bar behind it.
                 .onChange(of: showAvailability) { _, shown in
                     appNav.hideTabBar = shown
                 }
@@ -174,18 +180,13 @@ struct JobsHubView: View {
                     .zIndex(20)
                 }
 
-                // Availability quick-check — the house popup, in-hierarchy, so
-                // it can blur the page behind it directly. Rendered from this
-                // stable container (not the opacity-animated FAB) so it
-                // reliably shows, which is why the old sheet lived here too.
-                if showAvailability {
-                    AvailabilityCheckPopup {
-                        withTransaction(.noAnimation) { showAvailability = false }
-                    }
-                    // Owns its own entrance and exit — see ModalPop.
-                    .transition(.identity)
-                    .zIndex(20)
-                }
+                // NO availability popup here. It is rendered by MainTabView,
+                // above the glass header — see the block in its `body`. The
+                // header would otherwise be drawn on top of it, and buying its
+                // way out of that cost the popup 94pt of height with the number
+                // pad up. The page still opens it (the header pill sets
+                // `appNav.showAvailability`) and is still blurred behind it,
+                // now via `pageBlurred` out in the shell.
             }
             // Reserve space INSIDE the NavigationStack so content ends at the top
             // of the floating nav pill (an outer inset is absorbed here).

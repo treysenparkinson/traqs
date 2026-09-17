@@ -43,10 +43,11 @@ struct MainTabView: View {
             // THREE blur layers, and which layer a thing sits in is what decides
             // whether it blurs behind a modal:
             //
-            //   • the PAGE     — blurred by `modalBlur` (a .fullScreenCover is its
-            //                    own presentation and can't blur the page from
-            //                    the inside, so it sets the flag and we do it
-            //                    out here; the cover itself stays sharp).
+            //   • the PAGE     — blurred by `pageBlurred` (a .fullScreenCover is
+            //                    its own presentation and can't blur the page
+            //                    from the inside, so it sets the flag and we do
+            //                    it out here; the cover itself stays sharp. The
+            //                    hoisted availability popup rides the same flag).
             //   • the HEADER   — blurred by `chromeBlurred`, i.e. EITHER kind of
             //                    modal.
             //   • the NAV PILL — same.
@@ -60,7 +61,7 @@ struct MainTabView: View {
             // and every header button perfectly sharp over a blurred page.
             Group {
                 TabHost()
-                    .shellBlur(\.modalBlur)
+                    .shellBlur(\.pageBlurred)
                     // THE header. One instance, above the TabView, alive for the
                     // life of the app — pages render content only. The namespace
                     // is handed down from here.
@@ -77,6 +78,30 @@ struct MainTabView: View {
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                         .shellBlur(\.chromeBlurred)
                 }
+            }
+
+            // Availability quick-check — HOISTED here, out of the Jobs page, and
+            // drawn ABOVE the header on purpose.
+            //
+            // THE header is an `.overlay` on TabHost just above, so it is drawn
+            // in front of anything a page renders and no zIndex down in a page
+            // can out-rank it. Rendered inside JobsHubView, this popup had to
+            // reserve the header's whole 94pt band to stop the header landing on
+            // top of it once the number pad lifted it — a quarter of the height
+            // it had left, on the one screen where every point counts. Out here
+            // the question doesn't arise: it owns the screen, the header and the
+            // pill blur behind it like they do behind a `.fullScreenCover`.
+            //
+            // In the ZStack rather than a cover BECAUSE it still needs to blur
+            // the page (`pageBlurred`) while staying sharp itself, which a
+            // separate presentation can't do.
+            if appNav.showAvailability {
+                AvailabilityCheckPopup {
+                    withTransaction(.noAnimation) { appNav.showAvailability = false }
+                }
+                // Owns its own entrance and exit — see ModalPop.
+                .transition(.identity)
+                .zIndex(5)
             }
 
             // Global blocking-action loading overlay (clock in/out). Above all.
@@ -346,13 +371,10 @@ private let tabBarOrder: [TTab] = [.jobs, .hours, .home, .chat, .stats]
 // every page just gains dead space at the end of its scroll.
 let tabPillBottomInset: CGFloat = 99
 
-/// Top space an in-page modal reserves so the keyboard can't lift it under the
-/// header. THE header is an `.overlay` on the page (see `body` above), so it is
-/// always drawn in front of anything a page renders — a popup can't out-rank it
-/// with zIndex, it has to stay out of its band. Tracks GlassHeader's own
-/// numbers: topPad 22 + (controlSize 42 + 18) + bottomPad 12. If the header
-/// changes height and this doesn't, a lifted modal slides under it again.
-let headerTopInset: CGFloat = 94
+// NO `headerTopInset` any more. A modal used to reserve the header's band so
+// the keyboard couldn't lift it underneath the header; the band cost it 94pt of
+// the little height it had left with the pad up. Modals that need to clear the
+// header are rendered ABOVE it instead — see the availability popup in `body`.
 
 struct TRAQSTabBar: View {
     // Reads the selection and the badge count ITSELF rather than taking them
