@@ -1,4 +1,6 @@
 import SwiftUI
+import Combine
+import UIKit
 
 // MARK: - Availability Quick-Check
 // A read-only "how soon could a ~N-hour job get done between these two dates?"
@@ -295,6 +297,9 @@ struct AvailabilityCheckPopup: View {
     let onClose: () -> Void
     /// Drives the shared modal entrance/exit — see ModalPop.
     @State private var appear = false
+    /// How far the keyboard covers the screen. The popup lifts ITSELF by this
+    /// rather than letting SwiftUI's automatic avoidance do it — see the body.
+    @State private var keyboardInset: CGFloat = 0
 
     @State private var fromDate = Calendar.current.startOfDay(for: Date())
     @State private var toDate = Calendar.current.date(byAdding: .day, value: 14, to: Date()) ?? Date()
@@ -371,14 +376,57 @@ struct AvailabilityCheckPopup: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // Unlike the time-off popup, this one does NOT collapse around its
         // field — the whole form stays on screen while the pad is up, and the
-        // pad carries its own Done. Ordinary keyboard avoidance is all it
-        // needs: the panel lifts intact, and `HugScroll` scrolls it if the
-        // remaining height won't hold it. Sides and bottom of the container are
-        // ignored so the card keeps the full width; the top inset stays, so it
-        // can't reach the Dynamic Island. See "Popups that hold a text field"
-        // in Primitives.swift.
+        // pad carries its own Done. The panel lifts intact, and `HugScroll`
+        // scrolls it if the remaining height won't hold it. Sides and bottom of
+        // the container are ignored so the card keeps the full width. See
+        // "Popups that hold a text field" in Primitives.swift.
         .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
+        // Clear of THE header, but ONLY while the pad is up. It's an `.overlay`
+        // on the page up in MainTabView, so it is drawn in front of anything a
+        // page renders and no zIndex here can beat it. With the pad down the
+        // card is centred on the screen and never reaches it; with the pad up it
+        // recentred straight under it and the header sat on top of the card.
+        // Reserving the band unconditionally fixed that and cost the resting
+        // position — the card centred in what was left and sat visibly low. So
+        // it's reserved only when there's a lift to clear it from, and the
+        // change rides the same animated transaction as the lift below.
+        .padding(.top, keyboardInset > 0 ? headerTopInset : 0)
+        // Lift the card OURSELVES instead of taking SwiftUI's automatic keyboard
+        // avoidance (the exception to rule 2 in "Popups that hold a text field").
+        // The automatic lift settles on a spring, so every time the pad went away
+        // the card sailed past its resting place and bounced back into it. Same
+        // geometry — the region shrinks from the bottom and the card recentres in
+        // what's left — on a flat curve that just stops.
+        .ignoresSafeArea(.keyboard, edges: .bottom)
+        .padding(.bottom, keyboardInset)
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            setKeyboardInset(from: note)
+        }
+        .onReceive(NotificationCenter.default.publisher(
+            for: UIResponder.keyboardWillHideNotification)) { _ in
+            withAnimation(keyboardLiftAnimation) { keyboardInset = 0 }
+        }
         .onAppear { withAnimation(modalPopAnimation) { appear = true } }
+    }
+
+    /// Flat, and deliberately not a spring: the bounce this replaced was the
+    /// whole point. Close to the system pad's own duration so the card travels
+    /// with the keyboard rather than chasing it.
+    private var keyboardLiftAnimation: Animation { .easeOut(duration: 0.25) }
+
+    /// How much of the screen the keyboard's end frame covers, in this window's
+    /// coordinates. Read from the notification rather than a fixed number so a
+    /// hardware keyboard (which reports a frame mostly offscreen) and the
+    /// floating iPad pad both come out right.
+    private func setKeyboardInset(from note: Notification) {
+        guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
+              let screen = (note.object as? UIScreen)
+                ?? UIApplication.shared.connectedScenes
+                    .compactMap({ ($0 as? UIWindowScene)?.screen }).first
+        else { return }
+        let covered = max(0, screen.bounds.maxY - end.minY)
+        withAnimation(keyboardLiftAnimation) { keyboardInset = covered }
     }
 
     private var card: some View {

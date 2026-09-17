@@ -1744,6 +1744,15 @@ let modalPageBlurRadius: CGFloat = 3
 //            .frame(maxWidth: .infinity, maxHeight: .infinity)
 //            .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
 //
+//    ONE EXCEPTION, and it is about the CURVE, not the geometry: SwiftUI's
+//    automatic lift settles on a spring, so a card that travels far enough
+//    overshoots its resting place and bounces back into it when the pad goes
+//    away. Where that reads badly, ignore `.keyboard` and re-apply the SAME
+//    inset yourself from the keyboard's end frame on a flat curve — the card
+//    moves exactly as far, it just stops when it arrives. See
+//    `AvailabilityCheckPopup`. Still never COLLAPSE the form, which is what the
+//    rest of this rule is about.
+//
 //    The card then fills whatever is left between the island and the keyboard,
 //    and `HugScroll` scrolls the overflow. The panel stays WHOLE while it does
 //    — no hiding fields to make room. That was tried and reverted: collapsing a

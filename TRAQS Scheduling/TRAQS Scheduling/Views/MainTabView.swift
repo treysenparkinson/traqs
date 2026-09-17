@@ -346,6 +346,14 @@ private let tabBarOrder: [TTab] = [.jobs, .hours, .home, .chat, .stats]
 // every page just gains dead space at the end of its scroll.
 let tabPillBottomInset: CGFloat = 99
 
+/// Top space an in-page modal reserves so the keyboard can't lift it under the
+/// header. THE header is an `.overlay` on the page (see `body` above), so it is
+/// always drawn in front of anything a page renders — a popup can't out-rank it
+/// with zIndex, it has to stay out of its band. Tracks GlassHeader's own
+/// numbers: topPad 22 + (controlSize 42 + 18) + bottomPad 12. If the header
+/// changes height and this doesn't, a lifted modal slides under it again.
+let headerTopInset: CGFloat = 94
+
 struct TRAQSTabBar: View {
     // Reads the selection and the badge count ITSELF rather than taking them
     // from MainTabView. Handing this view a `Binding` to `appNav.selected`
