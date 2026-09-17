@@ -130,6 +130,13 @@ state (planned-position restore on approve + hatched fill + badge).
 by the teleport bug (`startHour === endHour === 15.5333`) and was rebuilt from
 its own `hpd` to **10:08 → 17:00**. See "Known bugs" for what caused it.
 
+> **The repair is LIVE DATA that no commit records.** It exists only in
+> `orgs/MTX2026TRAQS/tasks.json`. S3 versioning is enabled on the bucket, so
+> restoring that object from an earlier version — for any reason — silently
+> undoes the repair and puts the op back to zero width, where the next clock-in
+> will start shoving it right again. `tools/repair-op-hours.mjs <opId> --apply`
+> re-applies it; run it without `--apply` first for a dry run.
+
 ### Known bugs — OPEN, both diagnosed, neither fixed
 
 1. **Kiosk/iOS job clock-in creates no session.** NOT a regression, and not
@@ -161,9 +168,24 @@ its own `hpd` to **10:08 → 17:00**. See "Known bugs" for what caused it.
    so the source says a 6px gap should exist and the rendered DOM disagrees.
    Needs a DOM inspection before any change — three rounds were lost earlier in
    this feature to theorising about geometry that the DOM settled in one step.
-   Suspects, in order: the badge landing inside a nested non-flex wrapper; the
-   label span's `flex: 1` plus the bar's `overflow: hidden` swallowing the
-   margin at narrow widths; or a stale build in the inspected session.
+
+   Suspects, cheapest first:
+   - **A stale build in the inspected session.** Promote this above the others:
+     `netlify dev` will serve a populated `dist/` instead of proxying to vite
+     (`publish = "dist"`, and `npm run dev` exists to `rimraf dist` first). This
+     project has already lost time to that twice tonight in a different
+     disguise, and it is the one suspect under which the source genuinely CAN
+     disagree with the DOM — which is exactly the symptom. Clear `dist`, rebuild
+     clean, re-inspect. If the gap appears, the other two are moot.
+   - The badge landing inside a nested non-flex wrapper.
+   - The label span's `flex: 1` plus the bar's `overflow: hidden` swallowing the
+     margin at narrow widths.
+
+   **Ownership note:** styling is the Visuals session's lane, but this element
+   is NOT its code — the DONE badge landed after it was stood down, and it has
+   never seen the element. `marginRight: 6` on a flex child is not a pattern it
+   introduced. Whoever assigns this should expect it to be read cold; "in your
+   lane" and "your code" are different claims and only the first is true here.
 
 ### Deferred, by explicit decision
 
