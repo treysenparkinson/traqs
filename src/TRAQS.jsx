@@ -15467,7 +15467,7 @@ ${jobsCtx || "No jobs found."}`;
                           Render-only: the persisted footprint only updates at write events. */}
                       {isToday && p.activeJobClock?.reservoirOpId && (() => {
                         const jc = p.activeJobClock;
-                        const bp = barPositions.find(x => x.bar.id === jc.reservoirOpId);
+                        const bp = barPositions.find(x => sameId(x.bar.id, jc.reservoirOpId));
                         if (!bp) return null;
                         const effNowMs = jc.frozenAtMs || Date.now();
                         const drainH = Math.max(0, (effNowMs - new Date(jc.drainCheckpoint).getTime()) / 3600000);
@@ -17221,7 +17221,7 @@ ${jobsCtx || "No jobs found."}`;
                 {(() => {
                   const jc = p.activeJobClock;
                   if (!jc?.reservoirOpId) return null;
-                  const rBar = bars.find(b => b.id === jc.reservoirOpId);
+                  const rBar = bars.find(b => sameId(b.id, jc.reservoirOpId));
                   if (!rBar?.task) return null;
                   const op = rBar.task;
                   const dayIdx2 = days.indexOf(op.start);
@@ -19085,7 +19085,12 @@ ${jobsCtx || "No jobs found."}`;
             try {
               const optimisticClockIn = new Date().toISOString();
               const sessionId = `sess_${loggedInUser.id}_${optimisticClockIn}`;
-              const reservoirOpId = (meta.op.team || []).includes(String(loggedInUser.id)) ? firstRef.opId : null;
+              // onTeam, not .includes(String(id)): person ids are mixed string/number
+              // across web and iOS, so a numeric team entry never matches a String()
+              // needle. A miss here yields no reservoirOpId at all — no drain, no
+              // cascade, just a bare live bar — which looks like the feature being
+              // broken rather than an id comparison failing.
+              const reservoirOpId = onTeam(meta.op.team, loggedInUser.id) ? firstRef.opId : null;
               const sessionSnapshot = buildSessionSnapshot(tasks, loggedInUser.id, toDS(new Date(optimisticClockIn)));
               const jres = await jobClockInAction({
                 personId: loggedInUser.id,
@@ -20152,7 +20157,7 @@ ${jobsCtx || "No jobs found."}`;
         // one of record once the response comes back, but they're the same instant in practice.
         const optimisticClockIn = new Date().toISOString();
         const reservoirOp = findOp(tasks, opId);
-        const reservoirOpId = reservoirOp && (reservoirOp.team || []).includes(String(loggedInUser.id)) ? opId : null;
+        const reservoirOpId = reservoirOp && onTeam(reservoirOp.team, loggedInUser.id) ? opId : null;  // onTeam: ids are mixed string/number
         const sessionId = `sess_${loggedInUser.id}_${optimisticClockIn}`;
         const sessionSnapshot = buildSessionSnapshot(tasks, loggedInUser.id, toDS(new Date(optimisticClockIn)));
         const res = await jobClockInAction({ personId: loggedInUser.id, jobId, panelId, opId, jobTitle, panelTitle, opTitle, sessionId, reservoirOpId, sessionSnapshot }, getToken, orgCode);
@@ -20162,7 +20167,7 @@ ${jobsCtx || "No jobs found."}`;
           // of jobClockIn itself (see netlify/functions/timeclock.js) — no separate savePeople
           // needed, and none would work anyway: activeJobClock is server-owned and pinned on
           // every generic /people POST specifically to prevent stale-roster overwrites.
-          setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: { clockIn: res.clockIn, sessionId, reservoirOpId, drainCheckpoint: res.clockIn, sessionSnapshot, jobId, panelId, opId, jobTitle, panelTitle, opTitle, totalPausedMs: 0, pausedAt: null } } : p));
+          setPeople(pp => pp.map(p => sameId(p.id, loggedInUser.id) ? { ...p, activeJobClock: { clockIn: res.clockIn, sessionId, reservoirOpId, drainCheckpoint: res.clockIn, sessionSnapshot, jobId, panelId, opId, jobTitle, panelTitle, opTitle, totalPausedMs: 0, pausedAt: null } } : p));
           setTasks(prev => {
             let updatedTasks = prev.map(job => {
               if (job.id !== jobId) return job;
