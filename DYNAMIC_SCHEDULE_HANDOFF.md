@@ -107,6 +107,83 @@ deployed) and is also present on `feature/dynamic-schedule` via
    **This fix has been pushed but not yet re-tested/confirmed by the
    user.**
 
+## STATE AS OF END OF DAY 2026-09-17 — READ THIS FIRST
+
+Branch tip: **`a78e91d`** on `feature/dynamic-schedule`, working tree clean,
+build verified (`check-function-imports` exit 0, `vite build` exit 0).
+
+**Pushed through `25aa00b` only.** `a78e91d` is LOCAL — `origin` is behind by
+that one commit. Nothing merged to master. PR #2 is open and does **not**
+contain tonight's work.
+
+Tonight's commit, on top of the pushed tip:
+
+| SHA | Commit |
+|---|---|
+| `a78e91d` | schedule: collapse the live bar into its reservoir when the block is today |
+
+It carries four things: the collapse behaviour (A/C), the continuous left-edge
+glide (D), the clock-in teleport guard against inverted blocks, and the DONE
+state (planned-position restore on approve + hatched fill + badge).
+
+`tzf8ivwbh` was repaired in S3 the same evening — its block had been destroyed
+by the teleport bug (`startHour === endHour === 15.5333`) and was rebuilt from
+its own `hpd` to **10:08 → 17:00**. See "Known bugs" for what caused it.
+
+### Known bugs — OPEN, both diagnosed, neither fixed
+
+1. **Kiosk/iOS job clock-in creates no session.** NOT a regression, and not
+   caused by any commit. A job clock-in made from the kiosk path stores an
+   `activeJobClock` with only seven keys (`clockIn`, `jobId`, `panelId`,
+   `opId`, and the three titles) — no `sessionId`, no `reservoirOpId`, no
+   `drainCheckpoint`, no `sessionSnapshot`. The whole dynamic-schedule feature
+   then silently does nothing for that worker: no live bar, no drain, no
+   cascade.
+
+   The tell is `drainCheckpoint` being **absent** rather than null — the server
+   writes it unconditionally whenever `sessionId` arrives
+   (`timeclock.js`, `jobClockIn`), so its absence proves no `sessionId` was
+   sent. Both web paths (`doClockIn` ~19422 and `handleStartJob` ~20507) DO
+   send all three session fields, and the server destructure and whitelist are
+   intact, so the call came from neither. `activeClockIn.source` read `"kiosk"`
+   on the affected record.
+
+   Distinguishing absent from null is the whole diagnosis — do not collapse the
+   two. `tools/diag-session.mjs` currently reports both as "REAL BUG" and needs
+   correcting.
+
+   Decision still needed: teach the kiosk/iOS paths to build a session, or
+   surface "no session — drain unavailable" instead of failing quietly.
+
+2. **DONE badge renders glued to the bar label** ("DONEDevelopement",
+   "DONEPhase 1"). Cause NOT yet established. Both badges carry
+   `marginRight: 6` and both parent bars are `display: "flex"` with no `gap`,
+   so the source says a 6px gap should exist and the rendered DOM disagrees.
+   Needs a DOM inspection before any change — three rounds were lost earlier in
+   this feature to theorising about geometry that the DOM settled in one step.
+   Suspects, in order: the badge landing inside a nested non-flex wrapper; the
+   label span's `flex: 1` plus the bar's `overflow: hidden` swallowing the
+   margin at narrow widths; or a stale build in the inspected session.
+
+### Deferred, by explicit decision
+
+- **Move-handler inversion source.** `updTask({ startHour })` at `:15269`
+  (day-mode move) and `:11604` (gantt move) write `startHour` WITHOUT
+  `endHour`, and `updTask` is a shallow merge that never recomputes it — so
+  dragging a bar right past its own stored `endHour` inverts the block. This is
+  what corrupted `tzf8ivwbh`. The teleport guard in `a78e91d` stops the
+  *propagation*, but the inversion can still be created. Fix needs: a clamp
+  against the opposite edge at both call sites (the left/right RESIZE handlers
+  already do this correctly), and a decision on whether to add
+  "if `endHour < startHour`, recompute from `hpd`" as defensive normalisation
+  at the write site.
+- **Partial completion.** Rejected as a hack into the finish-approval flow. A
+  worker who does 3h of an 8h op clocks out normally; the next session picks up
+  the remainder; the finish request happens only when the whole op is done.
+  A real partial-completion model needs its own design pass.
+- **Fix D on the shared scheduled-bar render** was originally deferred, then
+  adopted — it is in `a78e91d`.
+
 ## Git / deployment state (updated 2026-09-17, treysen machine)
 
 - **`master` is at `0574621`** ("fix: make approveCompletions and
