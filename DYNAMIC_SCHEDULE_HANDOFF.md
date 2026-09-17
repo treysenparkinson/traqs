@@ -112,50 +112,78 @@ deployed) and is also present on `feature/dynamic-schedule` via
 - **`master` is at `0574621`** ("fix: make approveCompletions and
   approveTimeOff actually mean something"). The doc previously said
   `fbdd205`; master moved 17 commits past that.
-- **`feature/dynamic-schedule` carries three code commits, ending at
-  `6c8adb3`**, plus this doc refresh on top of them as the branch tip. The
-  branch is **0 behind** master — `origin/master` was merged in at `f689465`,
-  and the three commits sit on that merge:
+- **All three sessions' work is now committed and merged.** `origin/master`
+  was merged in at `f689465`; everything sits on that merge. The branch is
+  **0 behind** master.
+
+  `feature/dynamic-schedule` (branch tip `54ee0c4`):
 
   | SHA | Commit |
   |---|---|
   | `f31ccd2` | id: fix numeric/string coercion in dynamic-schedule paths |
   | `cb03271` | schedule: lunch/pause session accounting |
   | `6c8adb3` | schedule: live bar geometry + sliver visibility |
+  | `25d5d11` | docs: refresh dynamic-schedule handoff |
+  | `54ee0c4` | **Merge** branch 'feature/dynamic-schedule-visuals' |
 
-  Commit 1 is foundational — the reservoirOpId id comparisons it fixes
-  gate the whole feature, so the other two are meaningless without it.
-- **NOT PUSHED.** All three are local only. `origin/feature/dynamic-schedule`
-  is still at `fa41485` and does not contain any of this.
+  `feature/dynamic-schedule-visuals` (branch tip `456da1e`):
+
+  | SHA | Commit |
+  |---|---|
+  | `456da1e` | schedule: live bar and reservoir share one visual grammar |
+
+  Commit `f31ccd2` is foundational — the reservoirOpId id comparisons it
+  fixes gate the whole feature, so the rest is meaningless without it.
+- **NOT PUSHED.** Everything above is local only.
+  `origin/feature/dynamic-schedule` is still at `fa41485` and does not
+  contain any of this. `feature/dynamic-schedule-visuals` has no remote.
 - **PR #1 is stale** and deliberately left so:
   https://github.com/treysenparkinson/traqs/pull/1 — it predates the master
-  merge and all three commits. A fresh PR gets raised once all three agents'
-  work is integrated, not before. The Netlify deploy preview attached to it
+  merge and every commit above. A fresh PR gets raised from `54ee0c4`. The
+  Netlify deploy preview attached to it
   (https://deploy-preview-1--traqs.netlify.app) is equally stale; do not
   test against it.
 
-### Parallel work — NOT in this branch
+### How the merge went
 
-Two other sessions are working the same feature in their own worktrees on
-this machine. **Their work is not merged into `feature/dynamic-schedule`
-and is not committed on their branches either** — it exists as
-working-tree edits, so `git merge` of those branches brings in nothing.
+Three sessions worked this feature in parallel worktrees on this machine:
 
 | Worktree | Branch | Owns |
 |---|---|---|
-| `C:/Users/treysen/traqs-func` | `feature/dynamic-schedule` | geometry, session logic, `timeclock.js` (this doc) |
+| `C:/Users/treysen/traqs-func` | `feature/dynamic-schedule` | geometry, session logic, `timeclock.js` |
 | `C:/Users/treysen/traqs-visual` | `feature/dynamic-schedule-visuals` | live bar + drain mask appearance, the three session states |
 | `C:/Users/treysen/traqs-verify` | `feature/dynamic-schedule-verify` | integration + QA; serves the merged build on **8888** |
 
 Visuals extracted the style objects into helpers (`liveBarStyle`,
-`drainMaskStyle`, `spentBarFill`) and added running / **HELD**
-(`frozenAtMs`) / **LUNCH** (`pausedAt`) states. The one recurring merge
-conflict is the week/month drain mask line, which both sides rewrote;
-it resolves as their helper spread with this branch's left/width values.
+`drainMaskStyle`, `spentBarFill`, `spentMixRatio`) and added running /
+**HELD** (`frozenAtMs`) / **LUNCH** (`pausedAt`) states.
 
-Verifier integrates by patching working trees rather than merging, for
-the reason above. Anyone who follows a "just merge the branches" instruction
-literally will build `f689465` and review pre-fix code.
+`git merge` produced **three** conflicts, not one — the two branches edit
+the same physical JSX attributes at every live-bar and mask site, one side
+owning `left`/`width` and the other owning the style object. All three
+resolved the same way: the visual half from the visuals branch, the
+geometry and its rationale comments from this one.
+
+| Site | Resolution |
+|---|---|
+| day live bar | flush, `-4px` (matches THIS view's bar), `minWidth: 2` |
+| week/month live bar | flush, `-1px` (matches THIS view's bar), `minWidth: 2` |
+| week/month drain mask | flush, `-1px` |
+
+The visuals branch still carried `+ 2px` on the week/month bar and mask.
+That inset was sound while the bar was anchored to the COLUMN; the geometry
+revert in `6c8adb3` made it positioned by clock-in TIME, so a fixed nudge
+draws it later than the moment it represents — about half an hour of
+apparent offset at month zoom. The visuals author identified their side as
+the stale one and asked for the flush version to win.
+
+Day mode keeps `-4px` and week/month `-1px` **deliberately**: each mask and
+bar matches the scheduled bar it overlays, and those differ between views.
+Do not sweep them into agreement.
+
+**The structural cause of these conflicts is unfixed.** Style and geometry
+still occupy one JSX `style` attribute at each site, so the next round of
+parallel work collides identically. See "What's NOT done yet".
 
 ## What's NOT done yet
 
@@ -173,10 +201,14 @@ literally will build `f689465` and review pre-fix code.
 - No merge/regression testing beyond the one scenario being walked through
   (clock into a job scheduled for a future day/elsewhere, watch the live bar +
   reservoir + cascade).
-- **Known and deliberately unfixed:** the drain mask has no `minWidth` floor,
-  so it can vanish for the first minutes of a session the same way the live
-  bars did — that reads as "the reservoir isn't draining". The mask is the
-  Visuals session's element; flagged to them rather than fixed here.
+- **Structural: style and geometry share one JSX attribute.** At each live-bar
+  and mask site the `style={{...}}` attribute carries both the visual helper
+  spread and the `left`/`width` values, so any two sessions touching
+  appearance and geometry collide on the same physical line. This produced
+  the same three conflicts every round. Hoisting geometry into the helpers,
+  or splitting it onto separate attributes, would remove the collision class
+  entirely. Not done — it is a refactor of live render paths that nothing has
+  yet been seen running, so it wants its own round with a human watching.
 - **iOS parity:** `AppState.swift:2335` and `:2378` still subtract only
   `totalPausedMs`, not an in-flight `pausedAt`, so op-progress % creeps during
   lunch and self-corrects at lunch end. Cosmetic, nothing saved wrong, needs a
