@@ -1110,7 +1110,7 @@ export async function handler(event) {
       let _ujs;
       try { _ujs = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
 
-      const { personId: ujsPId, sessionId: ujsSessionId, drainCheckpoint: ujsDrainCheckpoint, frozenAtMs: ujsFrozenAtMs } = body;
+      const { personId: ujsPId, sessionId: ujsSessionId, drainCheckpoint: ujsDrainCheckpoint, frozenAtMs: ujsFrozenAtMs, pausedMsAtCheckpoint: ujsPausedMsAtCp } = body;
       if (!ujsPId) return err(400, "Missing personId");
       if (!ujsSessionId) return err(400, "Missing sessionId");
       if (!_ujs.isAdmin && String(_ujs.personId) !== String(ujsPId)) return err(403, "Can only update your own job session");
@@ -1131,6 +1131,10 @@ export async function handler(event) {
           ...ujsPerson.activeJobClock,
           ...(ujsDrainCheckpoint !== undefined ? { drainCheckpoint: ujsDrainCheckpoint } : {}),
           ...(ujsFrozenAtMs !== undefined ? { frozenAtMs: ujsFrozenAtMs } : {}),
+          // Cumulative paused total as of drainCheckpoint. Moves with the checkpoint
+          // and only with it, so the client can tell how much of totalPausedMs
+          // already fell before the current drain window opened.
+          ...(ujsPausedMsAtCp !== undefined ? { pausedMsAtCheckpoint: ujsPausedMsAtCp } : {}),
         },
       };
       try { await writeStampedArray(peopleKey, ujsPeople); } catch { return err(500, "Failed to save"); }

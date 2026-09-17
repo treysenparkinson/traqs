@@ -5549,7 +5549,10 @@ Extraction rules:
           active.forEach(p => {
             const jc = p.activeJobClock;
             const ciMs = new Date(jc.clockIn).getTime();
-            const { pushes } = computeCascadePushes(updated, p.id, jc.reservoirOpId || null, ciMs, nowMs);
+            // Net elapsed, not nowMs — see sessionElapsedMs. This tick persists its
+            // pushes, so measuring it off wall-clock permanently moved other people's
+            // ops for time the worker spent at lunch.
+            const { pushes } = computeCascadePushes(updated, p.id, jc.reservoirOpId || null, ciMs, ciMs + sessionElapsedMs(jc, ciMs, nowMs));
             if (pushes.length) updated = applyPushes(updated, pushes, p.name, jc.sessionId);
           });
           // Phase 3 day-boundary-cross: persist drain + cascade for the portion of the session
@@ -5562,10 +5565,26 @@ Extraction rules:
         const nowIso = new Date(nowMs).toISOString();
         // updateJobSession is the authorized path for drainCheckpoint — savePeople can't touch
         // it (activeJobClock is server-owned and pinned on every generic /people POST).
+        // pausedMsAtCheckpoint moves WITH drainCheckpoint and only with it: the paused
+        // time already counted against the window that just closed must not be
+        // subtracted again from the new one.
+        //
+        // An OPEN pause must be folded in here, not left to sessionElapsedMs's clamp.
+        // The clamp does hold while the pause is open — but the moment it closes,
+        // jobResume/applyAutoJobPause folds the pause's FULL duration into
+        // totalPausedMs, including the slice that fell before this checkpoint, while a
+        // bare snapshot captured 0. The closed total would then re-subtract that
+        // pre-checkpoint slice from every later reading, permanently. Roll at midnight
+        // mid-lunch and the worker silently loses the pre-midnight half of their lunch
+        // for the rest of the session. Snapshotting elapsed-so-far keeps the closed
+        // total pinned at 0 while the pause is open (the snapshot exceeds totalPausedMs,
+        // Math.max floors it) and leaves exactly the post-checkpoint portion once it
+        // closes.
+        const pausedAtCp = p => (p.activeJobClock.totalPausedMs || 0) + (p.activeJobClock.pausedAt ? Math.max(0, nowMs - new Date(p.activeJobClock.pausedAt).getTime()) : 0);
         dayRolled.forEach(p => {
-          updateJobSessionAction({ personId: p.id, sessionId: p.activeJobClock.sessionId, drainCheckpoint: nowIso }, getToken, orgCode).catch(console.warn);
+          updateJobSessionAction({ personId: p.id, sessionId: p.activeJobClock.sessionId, drainCheckpoint: nowIso, pausedMsAtCheckpoint: pausedAtCp(p) }, getToken, orgCode).catch(console.warn);
         });
-        return prevPeople.map(p => dayRolled.includes(p) ? { ...p, activeJobClock: { ...p.activeJobClock, drainCheckpoint: nowIso } } : p);
+        return prevPeople.map(p => dayRolled.includes(p) ? { ...p, activeJobClock: { ...p.activeJobClock, drainCheckpoint: nowIso, pausedMsAtCheckpoint: pausedAtCp(p) } } : p);
       });
     }, 5000);
     return () => clearInterval(iv);
@@ -8676,6 +8695,33 @@ Extraction rules:
     }
     return null;
   };
+  // Net milliseconds a job-clock session actually RAN between fromMs and nowMs.
+  //
+  // The job clock pauses server-side whenever the worker goes to lunch
+  // (applyLunchJobPause in timeclock.js) and on a manual jobPause, so raw
+  // wall-clock time overstates the work done. Measuring the dynamic schedule off
+  // raw wall-clock meant a lunch break kept growing the live bar, kept draining
+  // the reservoir, and kept the 5s cascade tick pushing other people's ops out of
+  // the way — all persisted, all while nobody was working. Every dynamic-schedule
+  // consumer measures through here: the bar width and the drain rate stay in sync
+  // only because they subtract the same paused time.
+  //
+  // totalPausedMs is cumulative since clockIn and pausedAt marks a pause that is
+  // still open, so the paused time that applies to a window starting at fromMs is
+  // whatever accrued after that window opened. pausedMsAtCheckpoint records the
+  // cumulative total as of drainCheckpoint; it is absent on sessions started
+  // before this field existed, where the checkpoint is still the clock-in and a
+  // 0 baseline is exactly right.
+  const sessionElapsedMs = (jc, fromMs, nowMs) => {
+    if (!jc) return 0;
+    const gross = Math.max(0, nowMs - fromMs);
+    const closed = Math.max(0, (jc.totalPausedMs || 0) - (jc.pausedMsAtCheckpoint || 0));
+    // Clamp an open pause to the window: a checkpoint taken mid-pause would
+    // otherwise subtract time that fell before the window even opened.
+    const open = jc.pausedAt ? Math.max(0, nowMs - Math.max(new Date(jc.pausedAt).getTime(), fromMs)) : 0;
+    return Math.max(0, gross - closed - open);
+  };
+  const sessionElapsedH = (jc, fromMs, nowMs) => sessionElapsedMs(jc, fromMs, nowMs) / 3600000;
   // Same shape as bar.task in getPersonBars — used so the live bar (Phase 2/3) can open/
   // right-click exactly like a real scheduled bar for the same op, WITHOUT depending on that
   // op appearing in the clocked-in person's own bars list (which is gated by team membership —
@@ -8787,7 +8833,7 @@ Extraction rules:
               newSH = ciHour; newEH = Math.min(ciHour + duration, workEndH);
             }
           } else {
-            const elapsedH = Math.max(0, (nowMs - new Date(jc.drainCheckpoint).getTime()) / 3600000);
+            const elapsedH = sessionElapsedH(jc, new Date(jc.drainCheckpoint).getTime(), nowMs);
             newSH = Math.min(curEH, curSH + elapsedH); newEH = curEH;
           }
           reservoirRange = [hourTs(op.start, newSH), hourTs(op.start, newEH)];
@@ -8798,7 +8844,7 @@ Extraction rules:
         // Future-day reservoir: drain reduces total remaining work (hpd) rather than sliding
         // the start date across business-day gaps — a scope call, see Phase 3 notes. No
         // same-day occupied span to fold into the cascade footprint below.
-        const elapsedH = isInitial ? 0 : Math.max(0, (nowMs - new Date(jc.drainCheckpoint).getTime()) / 3600000);
+        const elapsedH = isInitial ? 0 : sessionElapsedH(jc, new Date(jc.drainCheckpoint).getTime(), nowMs);
         if (elapsedH <= 0) return op;
         const curHpd = op.hpd || productiveHoursPerDay;
         const newHpd = Math.max(0, curHpd - elapsedH);
@@ -8810,7 +8856,10 @@ Extraction rules:
     // (if it just teleported onto today) — a teleported reservoir can itself now overlap other
     // ops even before the live bar has grown to reach them.
     const liveBarStartMs = ciDate.getTime();
-    const liveBarEndMs = isInitial ? liveBarStartMs + 60000 : nowMs;
+    // Net, not nowMs: the span this worker actually occupies is clock-in plus the
+    // time the session ran, so a lunch break stops the footprint from creeping
+    // forward and shoving the next op down the row.
+    const liveBarEndMs = isInitial ? liveBarStartMs + 60000 : liveBarStartMs + sessionElapsedMs(jc, liveBarStartMs, nowMs);
     const footprintStartMs = reservoirRange ? Math.min(reservoirRange[0], liveBarStartMs) : liveBarStartMs;
     const footprintEndMs = reservoirRange ? Math.max(reservoirRange[1], liveBarEndMs) : liveBarEndMs;
     const { pushes } = computeCascadePushes(result, personId, jc.reservoirOpId || null, footprintStartMs, footprintEndMs);
@@ -15440,7 +15489,8 @@ ${jobsCtx || "No jobs found."}`;
                         // Always flush to the left edge of today's column — duration (matching
                         // the reservoir's drain rate) sets the width, not the actual clock-in
                         // time of day.
-                        const durH = Math.min(elapsedEnd - elapsedStart, NH);
+                        const durH = Math.min(sessionElapsedH(jc, ciDate.getTime(), liveNow.getTime()), NH);
+                        if (durH <= 0) return null;
                         const visS = HS, visE = HS + durH;
                         // Same color as the scheduled bar for this op — the live bar and the
                         // reservoir are the same job, just the actively-worked portion vs the
@@ -15470,7 +15520,7 @@ ${jobsCtx || "No jobs found."}`;
                         const bp = barPositions.find(x => sameId(x.bar.id, jc.reservoirOpId));
                         if (!bp) return null;
                         const effNowMs = jc.frozenAtMs || Date.now();
-                        const drainH = Math.max(0, (effNowMs - new Date(jc.drainCheckpoint).getTime()) / 3600000);
+                        const drainH = sessionElapsedH(jc, new Date(jc.drainCheckpoint).getTime(), effNowMs);
                         if (drainH <= 0) return null;
                         const visS = Math.max(bp.rawS, HS), visE = Math.min(Math.min(bp.rawE, bp.rawS + drainH), HE);
                         if (visE <= visS) return null;
@@ -17192,7 +17242,8 @@ ${jobsCtx || "No jobs found."}`;
                   const oneDayWLive = 1 / nDaysLive * 100;
                   // Always flush to the left edge of today's column — duration (matching the
                   // reservoir's drain rate) sets the width, not the actual clock-in time of day.
-                  const durHLive = Math.min(elapsedEndH - elapsedStartH, totalWorkH);
+                  const durHLive = Math.min(sessionElapsedH(jc, ciDate.getTime(), nowDate.getTime()), totalWorkH);
+                  if (durHLive <= 0) return null;
                   const leftPct = dayIdx / nDaysLive * 100;
                   const widthPct = (durHLive / totalWorkH) * oneDayWLive;
                   // Same color as the scheduled bar for this op — the live bar and the
@@ -17227,7 +17278,7 @@ ${jobsCtx || "No jobs found."}`;
                   const dayIdx2 = days.indexOf(op.start);
                   if (dayIdx2 < 0) return null;
                   const effNowMs2 = jc.frozenAtMs || Date.now();
-                  const drainH = Math.max(0, (effNowMs2 - new Date(jc.drainCheckpoint).getTime()) / 3600000);
+                  const drainH = sessionElapsedH(jc, new Date(jc.drainCheckpoint).getTime(), effNowMs2);
                   if (drainH <= 0) return null;
                   const nDays3 = days.length;
                   const oneDayW3 = 1 / nDays3 * 100;
@@ -20167,7 +20218,7 @@ ${jobsCtx || "No jobs found."}`;
           // of jobClockIn itself (see netlify/functions/timeclock.js) — no separate savePeople
           // needed, and none would work anyway: activeJobClock is server-owned and pinned on
           // every generic /people POST specifically to prevent stale-roster overwrites.
-          setPeople(pp => pp.map(p => sameId(p.id, loggedInUser.id) ? { ...p, activeJobClock: { clockIn: res.clockIn, sessionId, reservoirOpId, drainCheckpoint: res.clockIn, sessionSnapshot, jobId, panelId, opId, jobTitle, panelTitle, opTitle, totalPausedMs: 0, pausedAt: null } } : p));
+          setPeople(pp => pp.map(p => sameId(p.id, loggedInUser.id) ? { ...p, activeJobClock: { clockIn: res.clockIn, sessionId, reservoirOpId, drainCheckpoint: res.clockIn, pausedMsAtCheckpoint: 0, sessionSnapshot, jobId, panelId, opId, jobTitle, panelTitle, opTitle, totalPausedMs: 0, pausedAt: null } } : p));
           setTasks(prev => {
             let updatedTasks = prev.map(job => {
               if (job.id !== jobId) return job;
