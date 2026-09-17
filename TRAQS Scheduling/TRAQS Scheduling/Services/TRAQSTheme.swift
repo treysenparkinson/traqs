@@ -245,19 +245,28 @@ enum T {
 // MARK: - Readable foreground tokens
 // The "dark bg → white text, light bg → black text" rule, resolved for the
 // two backgrounds that follow the user's accent. Use these anywhere text or an
-// icon sits ON the accent color or the brand gradient — never hardcode `.white`.
+// icon sits ON the accent color or the brand gradient.
+//
+// Both return WHITE, always, by request — a label on a coloured button is white
+// whatever the colour underneath it. That is a deliberate override of what they
+// used to do, which was pick black or white per `Color.readableText` so the
+// label stayed legible on any accent a user chose.
+//
+// The cost is real and worth writing down rather than discovering: white on the
+// shipped sky #41C9FA is about 1.9:1 contrast, where WCAG AA wants 4.5:1 for
+// normal text and 3:1 for large. Black on that same sky is 11:1. So these
+// labels are now the least legible thing on the screen, and a pale custom
+// accent (amber, or anything a user picks bright) makes it worse, not better.
+//
+// If that needs fixing later, the fix is NOT to restore the flip — a button
+// whose label changes colour with the theme is what this was moving away from.
+// It is to darken the button fill so white has something to sit on.
 extension T {
-    /// Legible text/icon color for content sitting on a solid `T.accent` fill.
-    static var onAccent: Color { Color(hex: accent).readableText }
+    /// Label colour for content sitting on a solid `T.accent` fill.
+    static var onAccent: Color { .white }
 
-    /// Legible text/icon color for content sitting on the brand gradient.
-    /// Judged from the AVERAGE brightness of the two stops so the pick is
-    /// correct whether the content rides the light end or the dark end.
-    static var onGradient: Color {
-        let avg = (Color(hex: accentGradientStart).perceivedBrightness
-                 + Color(hex: accentGradientEnd).perceivedBrightness) / 2
-        return avg > 140 ? .black : .white
-    }
+    /// Label colour for content sitting on the brand gradient.
+    static var onGradient: Color { .white }
 
     /// Legible text/icon color for content sitting on an arbitrary hex fill
     /// (semantic pills, department colors, avatars, status chips).

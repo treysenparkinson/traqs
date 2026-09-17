@@ -1,5 +1,5 @@
 import { requireOrgMember } from "./_utils/auth.js";
-import { canClockIn } from "./_utils/can.js";
+import { canClockIn, personCan } from "./_utils/can.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgCodeFromHeader } from "./_utils/org.js";
@@ -1822,7 +1822,17 @@ export async function handler(event) {
         const groupsKey = `orgs/${orgCode}/groups.json`;
         let groups = (await readJson(groupsKey)) ?? [];
         if (!Array.isArray(groups)) groups = [];
-        const adminIds = people.filter(p => p.userRole === "admin").map(p => p.id);
+        // Read up here, not below with the bubble write, because the roster
+        // reconciliation needs it: whoever has RAISED a request in this thread
+        // keeps their seat even though they can't approve.
+        const messagesKey = `orgs/${orgCode}/messages.json`;
+        let messages = (await readJson(messagesKey)) ?? [];
+        if (!Array.isArray(messages)) messages = [];
+        // The audience is the admins who can APPROVE completions, not every
+        // admin — an admin with the toggle off has no button on these cards and
+        // was being added to the thread anyway. (personCan treats an absent key
+        // as granted, so only an explicit false drops someone.)
+        const adminIds = people.filter(p => personCan(p, "approveCompletions")).map(p => p.id);
         const want = [...new Set([...adminIds, ...(byId != null ? [byId] : [])])];
         let grp = groups.find(g => g.name === "Completion Requests");
         if (!grp) {
@@ -1830,17 +1840,32 @@ export async function handler(event) {
           groups = [...groups, grp];
           await writeJson(groupsKey, groups);
         } else {
-          const missing = want.filter(id => !(grp.memberIds || []).some(m => String(m) === String(id)));
-          if (missing.length) {
-            grp = { ...grp, memberIds: [...(grp.memberIds || []), ...missing] };
+          // Reconcile the roster rather than only adding to it. The thread is
+          // shared and reused for every request, so members accumulated in it
+          // and nothing ever took them out: an admin whose toggle was switched
+          // off, or anyone added back when the audience was still "every admin",
+          // stayed and kept getting every request.
+          //
+          // Who keeps a seat: the people `want` names (approvers + whoever is
+          // requesting now), plus anyone who has actually RAISED a request in
+          // this thread. That last group can't approve anything — the card's
+          // buttons are gated on the toggle — but has to be able to see that
+          // what they sent arrived and how it was resolved.
+          const senders = new Set(
+            messages
+              .filter(m => m && m.type === "finish_request" && m.threadKey === `group:${grp.id}` && m.authorId != null)
+              .map(m => String(m.authorId))
+          );
+          const allowed = new Set([...want.map(String), ...senders]);
+          const kept = (grp.memberIds || []).filter(m => allowed.has(String(m)));
+          const missing = want.filter(id => !kept.some(m => String(m) === String(id)));
+          if (missing.length || kept.length !== (grp.memberIds || []).length) {
+            grp = { ...grp, memberIds: [...kept, ...missing] };
             groups = groups.map(g => (g.id === grp.id ? grp : g));
             await writeJson(groupsKey, groups);
           }
         }
 
-        const messagesKey = `orgs/${orgCode}/messages.json`;
-        let messages = (await readJson(messagesKey)) ?? [];
-        if (!Array.isArray(messages)) messages = [];
         const jobNumTxt = jobNumber ? `Job #${jobNumber} — ` : "";
         const contextLabel = [panelTitle, opTitle].filter(Boolean).join(" › ") || jobTitle;
         messages.push({

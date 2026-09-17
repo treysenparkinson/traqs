@@ -279,5 +279,44 @@ export async function handler(event) {
     }
   }
 
+  // DELETE — self-service account removal ("Delete Account" on the iOS profile
+  // page). Soft-deletes ONLY the caller's own row: the id comes from the
+  // verified token via requireOrgMember, never from the request body, so this
+  // can't be pointed at a colleague.
+  //
+  // Tombstoning IS the revocation — requireOrgMember reads people through
+  // filterLive, so the next request from this person fails membership (an
+  // already-warm instance can serve its cached membership for up to the
+  // member-cache TTL, but the app signs itself out immediately).
+  //
+  // Same tombstone shape as the admin removal path in POST: strip the PIN so it
+  // neither lingers at rest nor authenticates a kiosk clock-in, and clear the
+  // push token so notifications stop reaching a phone that is no longer part of
+  // the org. Timeclock and job-session history is deliberately left alone —
+  // that's payroll data and it belongs to the organization.
+  if (event.httpMethod === "DELETE") {
+    let member;
+    try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+    if (member.personId == null) return err(404, "Person not found");
+    try {
+      const existing = (await readJson(s3Key)) ?? [];
+      const idx = existing.findIndex(p => String(p.id) === String(member.personId));
+      if (idx === -1) return err(404, "Person not found");
+      // Idempotent: a retry after the first call already landed must not
+      // re-stamp the tombstone and re-broadcast it to every client.
+      if (existing[idx].deletedAt) return json(200, { ok: true });
+
+      const { pin: _pin, ...rest } = existing[idx];
+      existing[idx] = softDelete({ ...rest, pushToken: null });
+      await writeJson(s3Key, existing);
+      await publishChange(member.orgCode, "people", { ids: [String(member.personId)] });
+      await sendSilentPush(member.orgCode, { entity: "people" });
+      return json(200, { ok: true });
+    } catch (e) {
+      console.error("people DELETE error:", e);
+      return err(500, "Failed to delete account");
+    }
+  }
+
   return err(405, "Method not allowed");
 }

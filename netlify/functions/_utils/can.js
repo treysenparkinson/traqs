@@ -57,6 +57,19 @@ export function can(member, key) {
   return perms[key] === true;
 }
 
+/** The same check against a raw PERSON record from people.json (`userRole` +
+ *  `adminPerms`) rather than a membership from requireOrgMember.
+ *
+ *  Use it whenever an approval item picks its AUDIENCE. Every one of those
+ *  audiences used to be `p.userRole === "admin"`, which silently ignored the
+ *  toggles: an admin with approveCompletions switched off was still pushed
+ *  every completion request and still added to the "Completion Requests" group,
+ *  so the switch turned off their buttons and nothing else. The audience for an
+ *  approval item is the admins who hold that toggle. */
+export function personCan(person, key) {
+  return can({ isAdmin: person?.userRole === "admin", adminPerms: person?.adminPerms }, key);
+}
+
 /** Throws a 403 carrying the toggle's plain-English name. */
 export function requirePerm(member, key) {
   if (can(member, key)) return;

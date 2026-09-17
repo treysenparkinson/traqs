@@ -23,44 +23,36 @@ struct CustomizeView: View {
                         SectionLabel("Accent Color")
 
                         VStack(alignment: .leading, spacing: 14) {
-                            // Five columns, not eight: nine swatches plus the
-                            // picker is ten cells, which fills two rows exactly
-                            // where eight left a ragged row of two.
+                            // Five columns: eight swatches plus the picker is
+                            // nine cells, which sits as 5 + 4 rather than the
+                            // 8 + 1 that eight columns left behind.
                             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 14) {
 
-                                // Leads the row — it is the default.
-                                LogoStaggerSwatch(isSelected: theme.accentMode == .logoStagger) {
-                                    theme.setAccentMode(.logoStagger)
-                                }
-
                                 ForEach(ThemeSettings.accentPresets, id: \.self) { hex in
-                                    // Selection is mode-aware: while stagger is
-                                    // on, NO solid swatch reads as selected even
-                                    // though `accent` still holds the user's
-                                    // saved colour underneath.
                                     AccentSwatch(hex: hex,
-                                                 isSelected: theme.accentMode == .solid && theme.accent == hex) {
-                                        // Picking a colour is what leaves stagger.
-                                        theme.setAccentMode(.solid)
+                                                 isSelected: theme.accent == hex,
+                                                 caption: hex == ThemeSettings.defaultAccent ? "Default" : nil) {
                                         theme.setAccent(hex)
                                     }
                                 }
 
                                 // Custom color picker. Binds straight to the theme rather
                                 // than mirroring into a local @State: a mirrored @State has
-                                // to be seeded on `.onAppear` (see below), and that seed
-                                // write fires `.onChange` too — indistinguishable from a
-                                // real user pick — which used to call `setAccentMode(.solid)`
-                                // and silently knock a stagger user out of stagger the
-                                // instant they opened this screen.
-                                ColorPicker("", selection: Binding(
-                                    get: { Color(hex: theme.accent) },          // the saved SOLID choice, per spec
-                                    set: { theme.setAccentMode(.solid); theme.setAccent($0.hexString) }
-                                ), supportsOpacity: false)
-                                    .labelsHidden()
-                                    .frame(width: 36, height: 36)
-                                    .clipShape(Circle())
-                                    .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1.5))
+                                // to be seeded on appear, and that seed write fires
+                                // `.onChange` too — indistinguishable from a real user pick,
+                                // so the screen would act on a choice nobody made the
+                                // instant it opened.
+                                VStack(spacing: 5) {
+                                    ColorPicker("", selection: Binding(
+                                        get: { Color(hex: theme.accent) },      // the saved SOLID choice
+                                        set: { theme.setAccent($0.hexString) }
+                                    ), supportsOpacity: false)
+                                        .labelsHidden()
+                                        .frame(width: 36, height: 36)
+                                        .clipShape(Circle())
+                                        .overlay(Circle().stroke(Color(hex: T.hair), lineWidth: 1.5))
+                                    captionSlot(nil)
+                                }
                             }
                         }
                         .padding(16)
@@ -92,7 +84,6 @@ struct CustomizeView: View {
 
                             SLine().padding(.leading, 70)
                             ToggleRow(title: "Frosted Glass",
-                                      subtitle: "*Off flattens cards, panels and prompts; buttons and the nav bar stay glass",
                                       isOn: theme.frostedGlass) { on in
                                 theme.setFrostedGlass(on)
                             }
@@ -128,7 +119,7 @@ struct CustomizeView: View {
         .toolbarColorScheme(theme.isLightTheme ? .light : .dark, for: .navigationBar)
         .onAppear {
             // The picker reads `theme.accent` directly now (see the ColorPicker
-            // binding above), deliberately NOT `activeAccent` — it should open on
+            // binding above), deliberately NOT `accent` — it should open on
             // the colour the user saved, not on whichever tab's colour happens to
             // be live behind the customizer.
             theme.beginPreview()
@@ -160,72 +151,54 @@ private struct SectionLabel: View {
 private struct AccentSwatch: View {
     let hex: String
     let isSelected: Bool
+    /// Shown under the dot. Only the shipped default carries one — but the SLOT
+    /// is reserved on every swatch (see `captionSlot`), so one captioned cell
+    /// cannot make its row taller than the others.
+    var caption: String? = nil
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            Circle()
-                .fill(Color(hex: hex))
-                .frame(width: 36, height: 36)
-                .overlay(
-                    isSelected
-                        ? Image(systemName: "checkmark")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(Color(hex: hex).readableText)
-                        : nil
-                )
-                .overlay(
-                    Circle()
-                        .stroke(isSelected ? Color.white.opacity(0.6) : Color(hex: T.hair), lineWidth: isSelected ? 2 : 1)
-                )
-                .shadow(color: isSelected ? Color(hex: hex).opacity(T.skyShadowOpacity) : .clear,
-                        radius: isSelected ? T.skyShadowRadius : 0, x: 0, y: isSelected ? T.skyShadowY : 0)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-// The `.logoStagger` swatch: the four icon colours as horizontal stripes inside
-// the same 36pt circle the solid swatches use.
-//
-// Stripes rather than a quartered or conic fill because they echo the bars mark
-// — a quartered circle reads as a generic "multicolour" chip, where stripes say
-// which multicolour. Same order as the mark and the icon.
-private struct LogoStaggerSwatch: View {
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 0) {
-                ForEach(LogoPalette.ordered.indices, id: \.self) { i in
-                    Rectangle().fill(Color(hex: LogoPalette.ordered[i]))
-                }
-            }
-            .frame(width: 36, height: 36)
-            .clipShape(Circle())
-            .overlay(
-                isSelected
-                    // Fixed white with a shadow, not `readableText`: the tick
-                    // lands across all four stripes at once, so there is no one
-                    // background colour to contrast against.
-                    ? Image(systemName: "checkmark")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(.white)
-                        .shadow(color: .black.opacity(0.35), radius: 2, x: 0, y: 1)
-                    : nil
-            )
-            .overlay(
+        VStack(spacing: 5) {
+            Button(action: action) {
                 Circle()
-                    .stroke(isSelected ? Color.white.opacity(0.6) : Color(hex: T.hair),
-                            lineWidth: isSelected ? 2 : 1)
-            )
-            .shadow(color: isSelected ? Color(hex: LogoPalette.sky).opacity(T.skyShadowOpacity) : .clear,
-                    radius: isSelected ? T.skyShadowRadius : 0, x: 0, y: isSelected ? T.skyShadowY : 0)
+                    .fill(Color(hex: hex))
+                    .frame(width: 36, height: 36)
+                    .overlay(
+                        isSelected
+                            ? Image(systemName: "checkmark")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(Color(hex: hex).readableText)
+                            : nil
+                    )
+                    .overlay(
+                        Circle()
+                            .stroke(isSelected ? Color.white.opacity(0.6) : Color(hex: T.hair), lineWidth: isSelected ? 2 : 1)
+                    )
+                    .shadow(color: isSelected ? Color(hex: hex).opacity(T.skyShadowOpacity) : .clear,
+                            radius: isSelected ? T.skyShadowRadius : 0, x: 0, y: isSelected ? T.skyShadowY : 0)
+            }
+            .buttonStyle(.plain)
+
+            captionSlot(caption)
         }
-        .buttonStyle(.plain)
     }
 }
+
+/// A fixed-height line under a swatch, whether or not it has text.
+///
+/// Reserved rather than conditional: `LazyVGrid` sizes a row to its tallest
+/// cell, so captioning one swatch and not the rest would drop that entire row
+/// lower than the one below it and leave the dots visibly off-grid.
+@ViewBuilder
+private func captionSlot(_ text: String?) -> some View {
+    Text(text?.uppercased() ?? " ")
+        .font(TTypo.xsBold(9))
+        .foregroundStyle(Color(hex: T.muted))
+        .tLabel(tracking: 0.8)
+        .frame(height: 11)
+        .opacity(text == nil ? 0 : 1)
+}
+
 
 // A look toggle. Same padding as BgPresetRow so it reads as another row of the
 // same card. Previews live and is committed or reverted by the card's Save /

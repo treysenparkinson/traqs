@@ -1,5 +1,5 @@
 import { requireOrgMember } from "./_utils/auth.js";
-import { can } from "./_utils/can.js";
+import { can, personCan } from "./_utils/can.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { sendWebPush } from "./_utils/webpush.js";
@@ -83,8 +83,13 @@ async function pushTo(orgCode, people, targetIds, heading, content, data) {
 
 // filterLive: notifications must target only LIVE admins — a removed admin's
 // tombstone (userRole still "admin") must not keep receiving time-off pushes/DMs.
+//
+// personCan, not `userRole === "admin"`: approving time off is a toggle, and an
+// admin who has had it switched off has no button to act on these with. They
+// were still being pushed every request. An absent key still counts as granted
+// (see GRANTED_WHEN_ABSENT), so only an explicit false drops someone.
 const adminIdsOf = (people) =>
-  filterLive(people).filter((p) => p.userRole === "admin").map((p) => String(p.id));
+  filterLive(people).filter((p) => personCan(p, "approveTimeOff")).map((p) => String(p.id));
 
 // Human-friendly dates for notifications: "July 6" (single day) or
 // "July 6 - July 10" (range). start/end are date-only "YYYY-MM-DD"; parse as UTC
@@ -189,7 +194,8 @@ export async function handler(event) {
     // approve/deny happens in a single shared thread (rendered from the
     // type:"timeoff_request" bubble). One group per request; groupId is stored on
     // the record so an edit can re-post into the same thread.
-    const adminMembers = filterLive(people).filter((p) => p.userRole === "admin" && String(p.id) !== String(meId));
+    const adminMembers = filterLive(people)
+      .filter((p) => personCan(p, "approveTimeOff") && String(p.id) !== String(meId));
     const memberIds = [String(meId), ...adminMembers.map((a) => String(a.id))];
     const groupId = makeId();
     const hasAdmins = adminMembers.length > 0;

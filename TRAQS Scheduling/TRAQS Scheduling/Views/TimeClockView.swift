@@ -547,7 +547,7 @@ private struct PayClockControls: View {
     let onBreakToggle: () -> Void
 
     var body: some View {
-        _ = theme.frostedGlass; _ = theme.activeAccent
+        _ = theme.frostedGlass; _ = theme.accent
         return VStack(spacing: 8) {
             if active {
                 HStack(spacing: 10) {
@@ -751,7 +751,7 @@ private struct ClockPinOverlay: View {
         // Touch the theme so a live Customize accent change re-renders the
         // surface tint below (the T.* tokens aren't observable on their own).
         // frostedGlass too — the confirm key's label colour follows its paint.
-        _ = theme.activeAccent; _ = theme.frostedGlass
+        _ = theme.accent; _ = theme.frostedGlass
         return ZStack {
             // Dimmed and blurred, the same backdrop as the break/lunch banner
             // and the end-job photo prompt. Its tint is lighter than the flat

@@ -1287,6 +1287,22 @@ class AppState {
         }
     }
 
+    /// Remove the signed-in user from the org (profile page, Delete Account).
+    /// Soft delete: the server tombstones the person row, which is also what
+    /// revokes their org membership. Returns success; the caller signs out.
+    /// No optimistic edit here on purpose — the roster this user is holding is
+    /// about to be thrown away with the session either way, and pulling their
+    /// own row out early would flicker every screen still on the stack.
+    func deleteMyAccount() async -> Bool {
+        guard let api else { return false }
+        do {
+            try await api.deleteMyAccount()
+            return true
+        } catch {
+            return false
+        }
+    }
+
     // MARK: - AI
 
     /// One-line plain-English summary for the availability quick-check. Returns
@@ -1316,11 +1332,60 @@ class AppState {
         _ = cache.applyBatch(SyncedJob.self, [LocalCache.Incoming(id: job.id, lastModifiedAt: Date(), deletedAt: nil, payload: data)])
     }
 
+    /// Who belongs in the "Completion Requests" thread: everyone holding
+    /// approveCompletions, plus whoever is raising this request.
+    ///
+    /// NOT every admin, which is what it used to be. Switching the toggle off
+    /// took the Approve/Deny buttons off their cards and left them in the thread
+    /// receiving every request anyway. `can` treats an absent key as granted
+    /// (see AdminPerms.init), so only an explicit false drops someone.
+    private func completionGroupMembers(requesterId: String) -> [String] {
+        var ids = people.filter { $0.can(.approveCompletions) }.map(\.id)
+        if !ids.contains(requesterId) { ids.append(requesterId) }
+        return ids
+    }
+
+    /// Bring the thread's roster in line with `completionGroupMembers`, adding
+    /// AND removing.
+    ///
+    /// The removal is the point: adding members can never undo a stale roster,
+    /// and a group created before the audience was gated still holds admins who
+    /// have since had the toggle switched off, so it heals itself here. Scoped
+    /// deliberately — only admins who fail the check are dropped, never a plain
+    /// member, and never the requester, who stays in the thread they opened.
+    private func syncCompletionGroupMembers(requesterId: String) async {
+        guard let api else { return }
+        guard let idx = groups.firstIndex(where: { $0.name == "Completion Requests" }) else { return }
+        // Anyone who has actually RAISED a request in this thread keeps their
+        // seat. They still can't approve anything — that's gated on the toggle
+        // wherever the card is drawn — but they have to be able to see that what
+        // they sent arrived and how it was resolved. Everyone else who can't
+        // approve comes out: the thread is shared and reused for every request,
+        // so members accumulated in it and never left.
+        let threadKey = "group:\(groups[idx].id)"
+        let senders = Set(messages
+            .filter { $0.threadKey == threadKey && $0.type == "finish_request" }
+            .map(\.authorId))
+        let want = completionGroupMembers(requesterId: requesterId)
+        let allowed = Set(want).union(senders)
+        let kept = groups[idx].memberIds.filter { allowed.contains($0) }
+        let merged = kept + want.filter { !kept.contains($0) }
+        guard merged != groups[idx].memberIds else { return }
+        var updated = groups
+        updated[idx].memberIds = merged
+        groups = updated
+        do {
+            try await api.saveGroups(updated)
+        } catch {
+            errorMessage = "Failed to update the Completion Requests group: \(error.localizedDescription)"
+        }
+    }
+
     func requestJobCompletion(jobId: String) async {
         guard let me = currentPerson, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
-        let members = Array(Set(people.filter { $0.isAdmin }.map(\.id) + [me.id]))
+        let members = completionGroupMembers(requesterId: me.id)
         guard let created = await createGroup(name: "Completion Requests", memberIds: members) else { return }
-        await addGroupMembers(groupRef: "Completion Requests", add: members)   // ensure new admins/requester are in
+        await syncCompletionGroupMembers(requesterId: me.id)
         let group = groups.first(where: { $0.id == created.id }) ?? created
 
         let reqId = UUID().uuidString
@@ -1351,9 +1416,9 @@ class AppState {
     func requestTaskCompletion(jobId: String, panelId: String, opId: String?,
                                panelTitle: String, opTitle: String?) async {
         guard let me = currentPerson, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return }
-        let members = Array(Set(people.filter { $0.isAdmin }.map(\.id) + [me.id]))
+        let members = completionGroupMembers(requesterId: me.id)
         guard let created = await createGroup(name: "Completion Requests", memberIds: members) else { return }
-        await addGroupMembers(groupRef: "Completion Requests", add: members)
+        await syncCompletionGroupMembers(requesterId: me.id)
         let group = groups.first(where: { $0.id == created.id }) ?? created
 
         let reqId = UUID().uuidString

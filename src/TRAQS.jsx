@@ -10167,12 +10167,19 @@ ${jobsCtx || "No jobs found."}`;
   }
 
   // ── Finish Approval Request — component-level so modal + messages can call them ──
-  // Find-or-create the shared "Completion Requests" group thread (all admins +
-  // the current user), so completion requests reliably reach every admin in one
-  // place. Returns the group (with up-to-date memberIds).
+  // Find-or-create the shared "Completion Requests" group thread, so completion
+  // requests reliably reach the people who can act on them in one place.
+  //
+  // Membership is the admins who hold approveCompletions plus the current user,
+  // NOT every admin. It used to be every admin, which meant switching the toggle
+  // off took the buttons off their cards and left them in the thread getting
+  // every request. permGranted treats an absent key as granted, so only an
+  // explicit false drops someone.
+  //
+  // Returns the group (with up-to-date memberIds).
   const ensureCompletionGroup = async () => {
     const grpName = "Completion Requests";
-    const adminIds = people.filter(p => p.userRole === "admin").map(p => p.id);
+    const adminIds = people.filter(p => permGranted(p.adminPerms, "approveCompletions") && p.userRole === "admin").map(p => p.id);
     const want = [...new Set([...adminIds, ...(loggedInUser ? [loggedInUser.id] : [])])];
     const list = Array.isArray(groups) ? groups : [];
     let grp = list.find(g => g.name === grpName);
@@ -10181,9 +10188,22 @@ ${jobsCtx || "No jobs found."}`;
       const updated = [...list, grp];
       try { await saveGroups(updated, getToken, orgCode); setGroups(updated); } catch (e) { console.warn("ensureCompletionGroup create failed", e); }
     } else {
-      const missing = want.filter(id => !grp.memberIds.includes(id));
-      if (missing.length) {
-        grp = { ...grp, memberIds: [...grp.memberIds, ...missing] };
+      // Reconcile the roster rather than only adding to it. The thread is shared
+      // and reused for every request, so members accumulated in it and nothing
+      // ever took them out. Who keeps a seat: the people `want` names, plus
+      // anyone who has actually RAISED a request in this thread — they can't
+      // approve (the buttons are gated on the toggle) but must be able to see
+      // that what they sent arrived and how it was resolved.
+      const senders = new Set(
+        (Array.isArray(messages) ? messages : [])
+          .filter(m => m && m.type === "finish_request" && m.threadKey === `group:${grp.id}` && m.authorId != null)
+          .map(m => String(m.authorId))
+      );
+      const allowed = new Set([...want.map(String), ...senders]);
+      const kept = (grp.memberIds || []).filter(id => allowed.has(String(id)));
+      const missing = want.filter(id => !kept.includes(id));
+      if (missing.length || kept.length !== (grp.memberIds || []).length) {
+        grp = { ...grp, memberIds: [...kept, ...missing] };
         const updated = list.map(g => g.id === grp.id ? grp : g);
         try { await saveGroups(updated, getToken, orgCode); setGroups(updated); } catch (e) { console.warn("ensureCompletionGroup update failed", e); }
       }
@@ -22694,12 +22714,16 @@ ${jobsCtx || "No jobs found."}`;
                           </div>}
                           {isDeclined && frResolvedRow?.declineReason && <div style={{ fontSize: 12, color: T.textSec, textAlign: "center", marginTop: 6 }}>Reason: {frResolvedRow.declineReason}</div>}
                           {/* Undo — admin only, after approval: reopens the job so it returns to the schedule */}
-                          {isAdmin && isApproved && <button onClick={() => adminUndoJobFinish(m.jobId, m.panelId, m.opId || null, m.finishRequestId)} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%", padding: "12px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}66`, background: "transparent", color: T.accent, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, marginTop: 4 }}>
+                          {can("approveCompletions") && isApproved && <button onClick={() => adminUndoJobFinish(m.jobId, m.panelId, m.opId || null, m.finishRequestId)} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, width: "100%", padding: "12px", borderRadius: T.radiusPill, border: `1px solid ${T.accent}66`, background: "transparent", color: T.accent, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, marginTop: 4 }}>
                             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.86"/></svg>
                             Undo — reopen job
                           </button>}
-                          {/* Approve / Decline buttons — admin only, pending only */}
-                          {isAdmin && isPending && (() => {
+                          {/* Approve / Decline — the approveCompletions TOGGLE, not the
+                              bare admin role, and pending only. An admin with it switched
+                              off still sees the card (they may have raised it) but has
+                              nothing to act with. Enforced server-side too, in
+                              task-perms.js. */}
+                          {can("approveCompletions") && isPending && (() => {
                             if (frDecState.showInput) {
                               const hasReason = !!(frDecState.reason?.trim());
                               return <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

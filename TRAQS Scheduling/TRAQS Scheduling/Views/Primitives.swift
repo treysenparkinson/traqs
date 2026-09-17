@@ -384,7 +384,7 @@ struct GlassSurface<S: InsettableShape>: ViewModifier {
         // The full observation set, matching FrostedCard: a live Customize
         // change to the preset, the accent OR the glass switch has to re-render
         // this, and none of the T.* tokens it reads are observable on their own.
-        _ = theme.bgPresetId; _ = theme.activeAccent; _ = theme.frostedGlass
+        _ = theme.bgPresetId; _ = theme.accent; _ = theme.frostedGlass
         return content
             .background {
                 if T.glassEnabled {
@@ -1039,9 +1039,11 @@ struct PageBackground: View {
             // fast they're driven the field keeps re-mixing rather than visibly
             // looping.
             //
-            // Blob hues come from theme.activeAccent by default, with companion and
-            // tertiary tones derived inside LiquidBackground — all three stay in
-            // the accent's own warm/cool family, so the wash can't clash with it.
+            // On the SHIPPED accent the hues are the app icon's four colours.
+            // On any other accent they come from theme.accent, with companion
+            // and tertiary tones derived inside LiquidBackground — those stay
+            // in the accent's own warm/cool family, so the wash can't clash
+            // with a colour the user chose. Same rule as the bars mark.
             LiquidBackground(base: AmbientCanvas.ground(light: themeSettings.isLightTheme),
                              opacity: LiquidTuning.pageOpacity,
                              thickness: LiquidTuning.thickness,
@@ -1078,7 +1080,7 @@ private struct AmbientCanvas: View {
     var body: some View {
         // Read accent too so a live Customize accent change (which only
         // shifts the glow tint, not isLightTheme) still re-renders here.
-        let _ = themeSettings.activeAccent
+        let _ = themeSettings.accent
         let light = themeSettings.isLightTheme
         ZStack {
             Rectangle().fill(AmbientCanvas.ground(light: light))
@@ -1121,19 +1123,25 @@ struct GlassCTA<S: InsettableShape>: ViewModifier {
     var tint: Color? = nil
 
     func body(content: Content) -> some View {
-        // Accent only — the toggle doesn't reach buttons. `theme.activeAccent` is
+        // Accent only — the toggle doesn't reach buttons. `theme.accent` is
         // still observed because a live Customize accent change has to re-tint
         // this immediately, and T.accent isn't observable on its own.
-        _ = theme.activeAccent
+        _ = theme.accent
         return content.glassEffect(.regular.tint(tint ?? Color(hex: T.accent)).interactive(),
                                    in: shape)
     }
 }
 
-/// The legible label colour for a `glassCTA` of this tint — judged against the
-/// FLAT colour the glass is tinted with, not against a gradient.
+/// The label colour for a `glassCTA`.
+///
+/// White regardless of tint, matching `T.onAccent` — a label on a coloured
+/// button is white whatever the colour underneath it. See the note on
+/// `T.onAccent` for what that costs in contrast.
+///
+/// The `tint` argument is kept so call sites need not change and so the
+/// signature still says what this is about, even though it no longer reads it.
 func glassCTALabel(_ tint: Color? = nil) -> Color {
-    (tint ?? Color(hex: T.accent)).readableText
+    .white
 }
 
 extension View {
@@ -1190,7 +1198,7 @@ struct GradientCTA<Label: View>: View {
     @State private var pressed = false
 
     var body: some View {
-        _ = theme.activeAccent
+        _ = theme.accent
         // Glass is tinted with the flat accent rather than the gradient, so the
         // label is judged against THAT, not against the gradient's two stops.
         return Button(action: action) {
@@ -1244,7 +1252,7 @@ struct FrostedCard: ViewModifier {
         // reads aren't observable on their own).
         // frostedGlass touched too: glassFill() reads the T.* global, which
         // SwiftUI can't see as a dependency, so the observation has to happen here.
-        _ = theme.bgPresetId; _ = theme.activeAccent; _ = theme.frostedGlass
+        _ = theme.bgPresetId; _ = theme.accent; _ = theme.frostedGlass
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         // Real frosted glass, the same recipe as the modals — see GlassPanel and
         // `glassSurfaceTint`. This is what carries the app-wide glass look: it
@@ -1328,7 +1336,7 @@ struct FrostedSheetTop: ViewModifier {
         // Same observation FrostedCard needs: glassFill() reads the T.* globals,
         // which SwiftUI cannot see as dependencies, so a live Customize change
         // would otherwise leave this surface stale.
-        _ = theme.bgPresetId; _ = theme.activeAccent; _ = theme.frostedGlass
+        _ = theme.bgPresetId; _ = theme.accent; _ = theme.frostedGlass
         return content
             // The content lives INSIDE the sheet, so it has to be cut to the same
             // shape. A ScrollView clips to its own rectangular bounds, which
@@ -1615,7 +1623,7 @@ struct GlassPanel: ViewModifier {
         // T.* tokens it reads aren't observable on their own) — same reason
         // FrostedCard does this. `frostedGlass` included: the branch below reads
         // `T.glassEnabled`, a plain global SwiftUI cannot see as a dependency.
-        _ = theme.bgPresetId; _ = theme.activeAccent; _ = theme.frostedGlass
+        _ = theme.bgPresetId; _ = theme.accent; _ = theme.frostedGlass
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         return content
             // FOLLOWS THE TOGGLE. Popups used to be exempt on the grounds that
@@ -1736,6 +1744,15 @@ let modalPageBlurRadius: CGFloat = 3
 //            .frame(maxWidth: .infinity, maxHeight: .infinity)
 //            .ignoresSafeArea(.container, edges: [.horizontal, .bottom])
 //
+//    ONE EXCEPTION, and it is about the CURVE, not the geometry: SwiftUI's
+//    automatic lift settles on a spring, so a card that travels far enough
+//    overshoots its resting place and bounces back into it when the pad goes
+//    away. Where that reads badly, ignore `.keyboard` and re-apply the SAME
+//    inset yourself from the keyboard's end frame on a flat curve — the card
+//    moves exactly as far, it just stops when it arrives. See
+//    `AvailabilityCheckPopup`. Still never COLLAPSE the form, which is what the
+//    rest of this rule is about.
+//
 //    The card then fills whatever is left between the island and the keyboard,
 //    and `HugScroll` scrolls the overflow. The panel stays WHOLE while it does
 //    — no hiding fields to make room. That was tried and reverted: collapsing a
@@ -1814,7 +1831,7 @@ struct FrostedPill: ViewModifier {
     @Environment(ThemeSettings.self) private var theme
     var rim: Bool = true
     func body(content: Content) -> some View {
-        _ = theme.bgPresetId; _ = theme.activeAccent; _ = theme.frostedGlass
+        _ = theme.bgPresetId; _ = theme.accent; _ = theme.frostedGlass
         let shape = Capsule(style: .continuous)
         // The capsule variant of FrostedCard — same glass recipe, and the rim
         // rides along inside `glassFill()`, so a pill and a card are the same

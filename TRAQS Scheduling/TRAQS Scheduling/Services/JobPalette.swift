@@ -15,15 +15,30 @@ import Foundation
 
 extension JobStatus {
 
-    /// `DEFAULT_STA_C`. Hex, not a Color, so this file needs no SwiftUI and can
-    /// live where the test target compiles.
+    /// Hex, not a Color, so this file needs no SwiftUI and can live where the
+    /// test target compiles.
+    ///
+    /// Drawn from the APP ICON (`LogoPalette`) rather than from the web's
+    /// `DEFAULT_STA_C`, so a status pill is a brand colour. Still five distinct
+    /// values: colour IS the status here, and flattening them would mean you
+    /// could no longer spot a stuck job in a list without reading every label.
+    ///
+    /// KNOWN DIVERGENCE FROM THE WEB. The note at the top of this file warned
+    /// against exactly this — "a second copy of this table is how the two start
+    /// disagreeing about what 'On Hold' looks like" — and it is now true: a job
+    /// that is amber on the desktop is coral on the phone. Deliberate, and the
+    /// web has to follow before this can be called finished.
+    ///
+    /// `notStarted` keeps a neutral grey on purpose. It is the ABSENCE of
+    /// progress, and giving it a brand colour would make "nobody has touched
+    /// this" look as deliberate as the four states that were chosen.
     var hex: String {
         switch self {
         case .notStarted: return "#94a3b8"
-        case .pending:    return "#a78bfa"
-        case .inProgress: return "#3b82f6"
-        case .onHold:     return "#f59e0b"
-        case .finished:   return "#10b981"
+        case .pending:    return LogoPalette.amber
+        case .inProgress: return LogoPalette.sky
+        case .onHold:     return LogoPalette.coral
+        case .finished:   return LogoPalette.green
         }
     }
 

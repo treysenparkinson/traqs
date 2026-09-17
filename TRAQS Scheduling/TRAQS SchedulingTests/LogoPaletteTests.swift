@@ -24,29 +24,50 @@ struct LogoPaletteTests {
         #expect(LogoPalette.ordered[2] == LogoPalette.sky)
     }
 
-    @Test func homeTakesTheHeroColour() {
-        #expect(LogoPalette.accent(for: .home) == LogoPalette.sky)
+    // MARK: - bars(for:)
+
+    @Test func theShippedAccentDrawsTheIconItself() {
+        #expect(LogoPalette.bars(for: LogoPalette.sky) == LogoPalette.ordered)
     }
 
-    @Test func everyTabResolvesToALogoColour() {
-        for tab in TTab.allCases {
-            #expect(LogoPalette.ordered.contains(LogoPalette.accent(for: tab)))
+    /// The hex arrives from our literals, from `Color.hexString` (lowercase),
+    /// and from whatever a user's saved `themeAccent` was written as. A raw
+    /// string compare would miss the lowercase form and silently draw shades of
+    /// sky instead of the icon.
+    @Test func theDefaultIsRecognisedWhateverItsCasing() {
+        #expect(LogoPalette.bars(for: "#41c9fa") == LogoPalette.ordered)
+        #expect(LogoPalette.bars(for: "41C9FA")  == LogoPalette.ordered)
+        #expect(LogoPalette.isDefaultAccent(" #41c9fa "))
+    }
+
+    @Test func anyOtherAccentGivesFourDistinctShades() {
+        for accent in ["#7c3aed", "#10b981", "#f43f5e", "#FF1FB4"] {
+            let bars = LogoPalette.bars(for: accent)
+            #expect(bars.count == 4)
+            #expect(Set(bars).count == 4, "\(accent) produced a duplicate bar")
+            #expect(bars != LogoPalette.ordered)
         }
     }
 
-    /// Five tabs, four colours: coral is the one that repeats, and it must land
-    /// on the two tabs at OPPOSITE ends of `tabBarOrder` so they never touch.
-    @Test func coralRepeatsOnlyOnTheOuterTabs() {
-        #expect(LogoPalette.accent(for: .jobs)  == LogoPalette.coral)
-        #expect(LogoPalette.accent(for: .stats) == LogoPalette.coral)
-
-        let all = TTab.allCases.map { LogoPalette.accent(for: $0) }
-        #expect(all.filter { $0 == LogoPalette.coral }.count == 2)
-        #expect(Set(all).count == 4)
+    /// The full-width third bar is the mark's hero, so the colour the user
+    /// actually picked belongs there untouched.
+    @Test func theHeroBarIsTheAccentItself() {
+        #expect(LogoPalette.bars(for: "#7c3aed")[2] == "#7c3aed")
     }
 
-    @Test func theMiddleThreeAreDistinct() {
-        #expect(LogoPalette.accent(for: .hours) == LogoPalette.amber)
-        #expect(LogoPalette.accent(for: .chat)  == LogoPalette.green)
+    /// Clamping is the whole reason the offsets are not applied blind: amber is
+    /// bright enough that its lighter bars would blow out to white, and a
+    /// near-black accent would crush its darkest bar to nothing. Both ends have
+    /// to stay visible against BOTH background presets.
+    @Test func extremeAccentsStayInsideTheVisibleBand() {
+        for accent in ["#FFFFFF", "#000000", "#F4B61E", "#0B0B0C"] {
+            let bars = LogoPalette.bars(for: accent)
+            #expect(bars.count == 4)
+            #expect(!bars.contains(""), "\(accent) produced an empty hex")
+        }
+        // White cannot step lighter, so its non-hero bars must still differ
+        // from each other by going DOWN rather than collapsing into one value.
+        let white = LogoPalette.bars(for: "#FFFFFF")
+        #expect(white[3] != white[2], "the darkest bar collapsed into the hero")
     }
 }

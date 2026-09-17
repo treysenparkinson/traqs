@@ -107,6 +107,10 @@ enum StatsMath {
     /// d < end`. Feeding the first convention to code expecting the second
     /// silently drops the period's final day — payday itself — from every
     /// number on the page. One conversion, here, tested.
+    ///
+    /// Compare with `d >= start && d < end`, never `DateInterval.contains`:
+    /// Foundation's contains is CLOSED at `end`, so it calls the first instant
+    /// after the window part of it.
     static func payPeriodInterval(start: Date, endInclusive: Date, calendar: Calendar) -> DateInterval {
         let s = calendar.startOfDay(for: start)
         let e = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: endInclusive))

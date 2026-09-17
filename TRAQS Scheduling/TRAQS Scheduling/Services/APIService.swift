@@ -194,6 +194,16 @@ struct APIService {
         _ = try await perform(req)
     }
 
+    /// Remove the signed-in user from the org (the profile page's Delete
+    /// Account). The server takes the person from the verified token, so there
+    /// is nothing to send — a body naming someone else would be ignored.
+    /// Soft delete: the row is tombstoned so delta-sync evicts it everywhere and
+    /// the person's time records stay with the org.
+    func deleteMyAccount() async throws {
+        let req = try await request("people", method: "DELETE")
+        _ = try await perform(req)
+    }
+
     // MARK: - Clients
 
     func fetchClients() async throws -> [Client] {

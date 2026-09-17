@@ -34,9 +34,15 @@ struct StatsRangeTests {
     // everything: efficiency, idle, task switching, the lot.
     @Test func theLastDayOfThePeriodIsInsideTheInterval() {
         let i = StatsMath.payPeriodInterval(start: day(3), endInclusive: day(16), calendar: cal)
-        #expect(i.contains(day(16)))                       // payday itself
-        #expect(i.contains(cal.date(byAdding: .hour, value: 23, to: day(16))!))
-        #expect(!i.contains(day(17)))                      // and nothing beyond it
+        // Asserted through the page's OWN comparison, not DateInterval.contains.
+        // The window is half-open and every consumer reads it that way
+        // (jobHours, taskOverlaps, workDays), but Foundation's contains is
+        // CLOSED at `end`, so it calls midnight on the 17th inside a window that
+        // stops at exactly that instant. Using it here tested Foundation, not us.
+        func inWindow(_ d: Date) -> Bool { d >= i.start && d < i.end }
+        #expect(inWindow(day(16)))                         // payday itself
+        #expect(inWindow(cal.date(byAdding: .hour, value: 23, to: day(16))!))
+        #expect(!inWindow(day(17)))                        // and nothing beyond it
     }
 
     @Test func theIntervalCoversExactlyFourteenDays() {

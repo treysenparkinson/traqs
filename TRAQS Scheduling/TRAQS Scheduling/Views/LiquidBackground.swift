@@ -162,6 +162,18 @@ enum LiquidColor {
                         l + (0.55 - l) * amount * 0.6)
     }
 
+    /// Saturation only — `vivid` without its lightness move.
+    ///
+    /// `vivid` raises S *and* drags L toward 0.55, which is right when the wash
+    /// is derived from one accent and wrong for colours that were already
+    /// chosen: it hands back paler, flatter versions of the exact hues the icon
+    /// ships. A palette wants the opposite — the same hues, pushed harder.
+    static func punch(_ hex: String, _ amount: Double) -> String {
+        guard amount > 0 else { return hex }
+        let (h, s, l) = hexToHSL(hex)
+        return hslToHex(h, min(1, s + (1 - s) * amount), l)
+    }
+
     /// A THIRD hue for the wash. `companion` rotates one way from the pick; this
     /// rotates the other, so the three tones straddle the chosen colour instead
     /// of stacking to one side of it. Deeper and more saturated than the other
@@ -311,7 +323,19 @@ struct LiquidBackground: View {
     /// Raised from the nine-blob era's `max(44, 80 / thickness)`: blur has to
     /// grow with the shape it's softening, and these blobs are roughly twice
     /// the size. At the old figure their edges read as hard ellipses.
-    private var blurRadius: CGFloat { scale * max(70, 130 / thickness) }
+    private var blurRadius: CGFloat {
+        // A PALETTE wash is a different problem from a derived pair. The pair is
+        // two near-hues meant to melt together, so a wide blur is the point. Four
+        // unrelated hues blurred that wide stop being four colours: the overlap
+        // averages them, and an average of coral, amber, sky and green is mud.
+        //
+        // So the palette branch blurs about a third as much. Enough that the
+        // blobs are still soft fields rather than hard ellipses, not so much
+        // that each one's colour is smeared into its neighbour's.
+        let base = palette.map { $0.count > 1 } == true ? max(26, 44 / thickness)
+                                                        : max(70, 130 / thickness)
+        return scale * base
+    }
 
     /// Clamped so a caller can't collapse the wash to nothing or inflate it past
     /// the geometry the ladder was designed around.
@@ -324,9 +348,24 @@ struct LiquidBackground: View {
 
     private var specs: [BlobSpec] {
         if let palette, !palette.isEmpty { return paletteSpecs(palette) }
-        // `activeAccent`, not `accent` — under stagger the wash on each page is
-        // that page's tab colour.
-        let base = color ?? theme.activeAccent
+
+        // On the SHIPPED accent the wash is the icon's four colours, the same
+        // way the bars mark is the icon's four bars — the app's own background
+        // should be made of the app's own palette.
+        //
+        // Only when the caller named no `color` of its own: a call site that
+        // passes one is asking for that hue specifically, and overriding it
+        // here would ignore it.
+        //
+        // On any other accent this falls through to the derived pair below,
+        // which is the point — someone who turned the app purple should not
+        // get a coral-and-green wash behind it. Same rule as
+        // `LogoPalette.bars(for:)`, deliberately.
+        if color == nil, LogoPalette.isDefaultAccent(theme.accent) {
+            return paletteSpecs(LogoPalette.ordered)
+        }
+
+        let base = color ?? theme.accent
         // Two blobs, so two hues. `primaryWeighted` picks the partner: the
         // deeper tertiary for body behind page content, the lighter companion
         // otherwise. (The nine-blob version cycled all three down the ladder
@@ -405,7 +444,10 @@ struct LiquidBackground: View {
     /// case read as "none supplied," and `specs` falls through to the pair
     /// for it instead of calling this with nothing to draw.
     private func paletteSpecs(_ palette: [String]) -> [BlobSpec] {
-        let hues = palette.map { LiquidColor.vivid($0, saturation) }
+        // `punch`, not `vivid`. Both raise saturation; only `vivid` also drags
+        // lightness toward 0.55, which is what was washing these out. The hues
+        // stay exactly the icon's, pushed harder.
+        let hues = palette.map { LiquidColor.punch($0, saturation) }
 
         // The four tables below (durations, alphas, paths, corners) are tuned
         // for ≤4 entries — no caller passes more today. Beyond four, `% corners.count`
@@ -420,7 +462,22 @@ struct LiquidBackground: View {
         // and so hold more pigment; four at that density stack toward grey
         // wherever they overlap, which on four DIFFERENT hues is worse than on
         // two related ones.
-        let alphas: [Double] = [0.42, 0.38, 0.38, 0.34]
+        //
+        // And lower again on LIGHT, because the two grounds want opposite things
+        // and only the splash calls this. Remember `a(_:)` multiplies by
+        // `thickness`, and the splash runs 1.6 — so the dark figures below land
+        // at 0.67/0.61/0.61/0.54 on screen. Four blobs that heavy COVER a white
+        // ground, and the load-up stops being white at all; green #1E8D6F is a
+        // genuinely dark colour (rgb 30,141,111) and does most of that damage.
+        // The light figures land at 0.38/0.35/0.35/0.32: still unmistakably the
+        // four brand colours, with white reading between and through them.
+        //
+        // The dark ground has no whiteness to protect and thinning the blobs
+        // there would only dim the colour against near-black, so it keeps the
+        // weights the four-blob composition was originally tuned at.
+        let alphas: [Double] = theme.isLightTheme
+            ? [0.36, 0.34, 0.34, 0.31]   // × 1.6 → 0.58, 0.54, 0.54, 0.50
+            : [0.50, 0.46, 0.46, 0.42]   // × 1.6 → 0.80, 0.74, 0.74, 0.67
 
         // Four trajectories, no two alike — a shared path would make two blobs
         // visibly track each other.
@@ -429,19 +486,27 @@ struct LiquidBackground: View {
                                      LiquidPath.b,
                                      LiquidPath.reversed(LiquidPath.a)]
 
-        // Smaller than the pair (0.85/0.60 against 1.05/0.72): four of these
-        // span the canvas between them where four full-size ones would drown it.
-        let w = 0.85 * scale
-        let h = 0.60 * scale
+        // 0.95/0.64. This has been tuned from both directions now: 0.85/0.60
+        // overlapped through the middles and averaged into one field, and the
+        // 0.62/0.44 that fixed THAT left most of the screen bare, which is just
+        // the opposite failure. These are big enough to reach every edge and
+        // still meet each other around their rims rather than across their
+        // centres — which is what the low palette blur above is protecting.
+        let w = 0.95 * scale
+        let h = 0.64 * scale
 
         // Two up, two down, alternating edges. Anchored as fractions of the
         // blob's OWN height for the same reason the pair is — so `scale`
         // shrinks the group without pulling it apart.
+        // One per quadrant, each hung off its own two edges so colour runs to
+        // the corners instead of stopping short of them. The vertical pair
+        // overlap by design — a seam of bare ground across the waist is the
+        // thing that reads as "not much of it is going around the screen".
         let corners: [(leading: Double?, trailing: Double?, top: Double)] = [
-            (-0.14, nil,   -h * 0.18),
-            (nil,   -0.14, -h * 0.05),
-            (-0.10, nil,   1 - h * 0.80),
-            (nil,   -0.10, 1 - h * 0.95),
+            (-0.22, nil,   -h * 0.30),
+            (nil,   -0.22, -h * 0.10),
+            (-0.18, nil,   1 - h * 0.78),
+            (nil,   -0.18, 1 - h * 0.58),
         ]
 
         return hues.indices.map { i in
