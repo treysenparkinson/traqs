@@ -5573,13 +5573,12 @@ Extraction rules:
         // The clamp does hold while the pause is open — but the moment it closes,
         // jobResume/applyAutoJobPause folds the pause's FULL duration into
         // totalPausedMs, including the slice that fell before this checkpoint, while a
-        // bare snapshot captured 0. The closed total would then re-subtract that
-        // pre-checkpoint slice from every later reading, permanently. Roll at midnight
-        // mid-lunch and the worker silently loses the pre-midnight half of their lunch
-        // for the rest of the session. Snapshotting elapsed-so-far keeps the closed
-        // total pinned at 0 while the pause is open (the snapshot exceeds totalPausedMs,
-        // Math.max floors it) and leaves exactly the post-checkpoint portion once it
-        // closes.
+        // bare snapshot captured 0. `closed` would then re-subtract that pre-checkpoint
+        // slice from every later reading, permanently. Roll at midnight mid-lunch and
+        // the worker silently loses the pre-midnight half of their lunch for the rest
+        // of the session. Snapshotting elapsed-so-far keeps `closed` pinned at 0 while
+        // the pause is open (the snapshot exceeds totalPausedMs, Math.max floors it)
+        // and leaves exactly the post-checkpoint portion once it closes.
         const pausedAtCp = p => (p.activeJobClock.totalPausedMs || 0) + (p.activeJobClock.pausedAt ? Math.max(0, nowMs - new Date(p.activeJobClock.pausedAt).getTime()) : 0);
         dayRolled.forEach(p => {
           updateJobSessionAction({ personId: p.id, sessionId: p.activeJobClock.sessionId, drainCheckpoint: nowIso, pausedMsAtCheckpoint: pausedAtCp(p) }, getToken, orgCode).catch(console.warn);
@@ -15486,12 +15485,21 @@ ${jobsCtx || "No jobs found."}`;
                         const liveNowH = liveNow.getHours() + liveNow.getMinutes() / 60;
                         const elapsedStart = Math.max(rawS, HS), elapsedEnd = Math.min(liveNowH, HE);
                         if (elapsedEnd <= elapsedStart) return null;
-                        // Always flush to the left edge of today's column — duration (matching
-                        // the reservoir's drain rate) sets the width, not the actual clock-in
-                        // time of day.
+                        // Anchored at the CLOCK-IN HOUR and growing rightward toward the now
+                        // line — not flush to the column's left edge. Left-anchoring (4718b7d)
+                        // was tried and rejected on sight: it made the bar encode a magnitude
+                        // while every bar beside it encodes a position in time, so a session
+                        // started at 2pm drew a block sitting over the morning. At clock-in this
+                        // is a sliver at the cursor; it grows as the session runs.
+                        //
+                        // Width is time WORKED (net of pauses), so during a lunch the right edge
+                        // holds still while the now line keeps moving. That gap is intentional —
+                        // it is the visible difference between elapsed and worked, and the badge
+                        // reads LUNCH while it lasts.
                         const durH = Math.min(sessionElapsedH(jc, ciDate.getTime(), liveNow.getTime()), NH);
                         if (durH <= 0) return null;
-                        const visS = HS, visE = HS + durH;
+                        const visS = elapsedStart, visE = Math.min(elapsedStart + durH, HE);
+                        if (visE <= visS) return null;
                         // Same color as the scheduled bar for this op — the live bar and the
                         // reservoir are the same job, just the actively-worked portion vs the
                         // leftover planned portion. Solid fill, same treatment as a normal bar;
@@ -15507,7 +15515,12 @@ ${jobsCtx || "No jobs found."}`;
                         return <div key="live-bar"
                           onClick={() => liveBarTask && openJobDetail(liveBarTask)}
                           onContextMenu={e => liveBarTask && handleCtx(e, liveBarTask, "team")}
-                          style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:liveColor,boxShadow:`0 2px 8px ${liveColor}33`,display:"flex",alignItems:"center",gap:6,padding:"0 10px",overflow:"hidden",zIndex:15,cursor:liveBarTask?"pointer":"default"}}>
+                          // -4px matches THIS view's scheduled bar; week/month uses -1px
+                          // because its bar does. minWidth floors the sliver: the width is a
+                          // percentage minus a pixel constant, so at clock-in it computes
+                          // negative, CSS clamps it to 0, and the bar is invisible until it
+                          // outgrows the inset.
+                          style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,minWidth:2,height:rH-8,borderRadius:T.radiusXs,background:liveColor,boxShadow:`0 2px 8px ${liveColor}33`,display:"flex",alignItems:"center",gap:6,padding:"0 10px",overflow:"hidden",zIndex:15,cursor:liveBarTask?"pointer":"default"}}>
                           <span style={{fontSize:9,fontWeight:800,color:accentText(liveColor),letterSpacing:"0.05em",flexShrink:0,opacity:0.85}}>LIVE</span>
                           <span style={{fontSize:10,fontWeight:600,color:accentText(liveColor),overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{jc.opTitle||jc.jobTitle||"—"} · {p.name.split(" ")[0]}</span>
                         </div>;
@@ -17240,12 +17253,16 @@ ${jobsCtx || "No jobs found."}`;
                   const elapsedStartH = Math.max(rawSH, workStartH), elapsedEndH = Math.min(nowHLive, workEndH);
                   if (elapsedEndH <= elapsedStartH) return null;
                   const oneDayWLive = 1 / nDaysLive * 100;
-                  // Always flush to the left edge of today's column — duration (matching the
-                  // reservoir's drain rate) sets the width, not the actual clock-in time of day.
+                  // Anchored at the CLOCK-IN HOUR inside today's column, growing rightward
+                  // toward the now line — NOT flush to the column's left edge. See the
+                  // day-mode block for why 4718b7d's left-anchoring was reverted. Width is
+                  // time WORKED (net of pauses), so the right edge holds still through a
+                  // lunch while the now line moves on.
                   const durHLive = Math.min(sessionElapsedH(jc, ciDate.getTime(), nowDate.getTime()), totalWorkH);
                   if (durHLive <= 0) return null;
-                  const leftPct = dayIdx / nDaysLive * 100;
-                  const widthPct = (durHLive / totalWorkH) * oneDayWLive;
+                  const leftPct = dayIdx / nDaysLive * 100 + ((elapsedStartH - workStartH) / totalWorkH) * oneDayWLive;
+                  const widthPct = (Math.min(elapsedStartH + durHLive, workEndH) - elapsedStartH) / totalWorkH * oneDayWLive;
+                  if (widthPct <= 0) return null;
                   // Same color as the scheduled bar for this op — the live bar and the
                   // reservoir are the same job, just the actively-worked portion vs the
                   // leftover planned portion. Solid fill, same treatment as a normal bar; no
@@ -17260,7 +17277,17 @@ ${jobsCtx || "No jobs found."}`;
                   return <div key="live-bar"
                     onClick={() => liveBarTask && openJobDetail(liveBarTask)}
                     onContextMenu={e => liveBarTask && handleCtx(e, liveBarTask, "team")}
-                    style={{ position: "absolute", top: 4, left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: liveColor, boxShadow: `0 2px 8px ${liveColor}33`, display: "flex", alignItems: "center", gap: 6, padding: "0 10px", overflow: "hidden", zIndex: 15, cursor: liveBarTask ? "pointer" : "default" }}>
+                    // Flush, and -1px to match the scheduled bar (:17143) and the drain
+                    // mask. The old `+ 2px` was justified as a gutter because the bar was
+                    // anchored to the COLUMN; it is now positioned by clock-in TIME, so a
+                    // fixed nudge just draws it later than the moment it represents — at
+                    // month zoom a day is ~37px, so 2px is about half an hour.
+                    //
+                    // minWidth floors the sliver. Width is a percentage minus a pixel
+                    // constant, so at clock-in it computes negative and CSS clamps it to 0:
+                    // the bar stayed invisible until it had grown past the inset. A live
+                    // bar that cannot be seen being born defeats the point of it.
+                    style={{ position: "absolute", top: 4, left: `${leftPct}%`, width: `calc(${widthPct}% - 1px)`, minWidth: 2, height: rH - 8, borderRadius: T.radiusXs, background: liveColor, boxShadow: `0 2px 8px ${liveColor}33`, display: "flex", alignItems: "center", gap: 6, padding: "0 10px", overflow: "hidden", zIndex: 15, cursor: liveBarTask ? "pointer" : "default" }}>
                     <span style={{ fontSize: 9, fontWeight: 800, color: accentText(liveColor), letterSpacing: "0.05em", flexShrink: 0, opacity: 0.85 }}>LIVE</span>
                     <span style={{ fontSize: 10, fontWeight: 600, color: accentText(liveColor), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{jc.opTitle || jc.jobTitle || "—"} · {p.name.split(" ")[0]}</span>
                   </div>;
@@ -17288,7 +17315,13 @@ ${jobsCtx || "No jobs found."}`;
                   if (maskEndH <= opSH) return null;
                   const leftPct2 = dayIdx2 / nDays3 * 100 + ((opSH - workStartH) / totalWorkH) * oneDayW3;
                   const widthPct2 = ((maskEndH - opSH) / totalWorkH) * oneDayW3;
-                  return <div key="drain-mask" style={{ position: "absolute", top: 4, left: `calc(${leftPct2}% + 2px)`, width: `calc(${widthPct2}% - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: "repeating-linear-gradient(135deg, rgba(0,0,0,0.28), rgba(0,0,0,0.28) 6px, rgba(0,0,0,0.14) 6px, rgba(0,0,0,0.14) 12px)", zIndex: 14, pointerEvents: "none" }} />;
+                  // Insets must match the bar this mask covers EXACTLY (see :17143 —
+                  // `left: x`, `width: calc(${w} - 1px)`). The mask used to be +2px left
+                  // and 3px narrower; under a translucent hatch that was invisible, but
+                  // an opaque fill turns the difference into a 2px sliver of undrained
+                  // bar colour along the left edge of the drained region. Day mode never
+                  // had this — its mask and bar already use byte-identical expressions.
+                  return <div key="drain-mask" style={{ position: "absolute", top: 4, left: `${leftPct2}%`, width: `calc(${widthPct2}% - 1px)`, height: rH - 8, borderRadius: T.radiusXs, background: "repeating-linear-gradient(135deg, rgba(0,0,0,0.28), rgba(0,0,0,0.28) 6px, rgba(0,0,0,0.14) 6px, rgba(0,0,0,0.14) 12px)", zIndex: 14, pointerEvents: "none" }} />;
                 })()}
               </div>
             </div>;
