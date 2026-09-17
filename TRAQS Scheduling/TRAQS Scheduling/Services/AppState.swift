@@ -1287,6 +1287,22 @@ class AppState {
         }
     }
 
+    /// Remove the signed-in user from the org (profile page, Delete Account).
+    /// Soft delete: the server tombstones the person row, which is also what
+    /// revokes their org membership. Returns success; the caller signs out.
+    /// No optimistic edit here on purpose — the roster this user is holding is
+    /// about to be thrown away with the session either way, and pulling their
+    /// own row out early would flicker every screen still on the stack.
+    func deleteMyAccount() async -> Bool {
+        guard let api else { return false }
+        do {
+            try await api.deleteMyAccount()
+            return true
+        } catch {
+            return false
+        }
+    }
+
     // MARK: - AI
 
     /// One-line plain-English summary for the availability quick-check. Returns
