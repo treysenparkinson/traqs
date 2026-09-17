@@ -2155,7 +2155,10 @@ struct TimeOffRequestBubble: View {
                     .foregroundStyle(Color(hex: T.muted))
             }
 
-            if appState.isAdmin && (pending || decided) {
+            // The TOGGLE, not the bare admin role. An admin with
+            // approveCompletions switched off can see the card — they may even
+            // have raised it themselves — but has nothing to act with.
+            if appState.can(.approveCompletions) && (pending || decided) {
                 if denying {
                     VStack(spacing: 8) {
                         TextField("Reason (optional)…", text: $reason)
@@ -2322,7 +2325,9 @@ struct CompletionRequestBubble: View {
             // A DECLINED request still shows nothing: `undoJobCompletion` only
             // accepts "approved" (CompletionRequestRules.applyDecision), so an
             // Undo here would be a button that refuses every press.
-            if appState.isAdmin && (pending || status == "approved") {
+            // Gated on the toggle, not the bare admin role — see the note on
+            // the other decision block in this file.
+            if appState.can(.approveCompletions) && (pending || status == "approved") {
                 DecisionActions(
                     deny: .init(title: "Deny", systemImage: "xmark",
                                 tint: Color(hex: "#ef4444")) { decide(false) },

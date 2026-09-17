@@ -1,6 +1,7 @@
 import { requireOrgMember } from "./_utils/auth.js";
 import { readJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
+import { personCan } from "./_utils/can.js";
 import { sendWebPush } from "./_utils/webpush.js";
 import { filterLive } from "./_utils/entities.js";
 
@@ -41,6 +42,14 @@ export async function handler(event) {
   try { people = filterLive(await readJson(s3Key) || []); } catch { people = []; }
 
   const adminIds = people.filter(p => p.userRole === "admin").map(p => String(p.id));
+  // Completion/finish requests are an approveCompletions item, so the audience
+  // is the admins who actually hold that toggle — not every admin. Without this
+  // a restricted admin got pushed every completion request they had no button
+  // to act on. `step` deliberately keeps the full admin list: engineering
+  // sign-off has no toggle of its own.
+  const completionApproverIds = people
+    .filter(p => personCan(p, "approveCompletions"))
+    .map(p => String(p.id));
   const teamIds  = (jobTeamIds || []).map(id => String(id));
 
   // Authorization by type. Only `finish_request` is a regular-worker action
@@ -72,8 +81,8 @@ export async function handler(event) {
     // Only the newly added team members — admins are no longer CC'd here.
     targetIds = [...new Set((newTeamIds || []).map(id => String(id)))];
   } else if (type === "finish_request") {
-    // Approval-queue item — admins act on it.
-    targetIds = [...adminIds];
+    // Approval-queue item — the admins who can approve completions act on it.
+    targetIds = [...completionApproverIds];
   } else if (type === "completion_resolved") {
     // Notify the requester (passed in newTeamIds) that their request was resolved.
     targetIds = [...new Set((newTeamIds || []).map(id => String(id)))];

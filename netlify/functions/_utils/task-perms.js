@@ -45,6 +45,32 @@ const teamEq = (a, b) => {
   return eq(norm(a), norm(b));
 };
 
+/**
+ * True when a completion request that already existed has been resolved —
+ * approved, declined, reopened, or dropped from the array. A request appearing
+ * for the FIRST time is someone raising one, which needs no permission.
+ */
+function resolvesExistingRequest(prevList, nextList) {
+  const before = new Map(
+    (Array.isArray(prevList) ? prevList : [])
+      .filter((r) => r && r.id != null)
+      .map((r) => [String(r.id), r])
+  );
+  if (before.size === 0) return false;
+  const after = Array.isArray(nextList) ? nextList : [];
+  const seen = new Set();
+  for (const r of after) {
+    if (!r || r.id == null) continue;
+    const id = String(r.id);
+    seen.add(id);
+    const was = before.get(id);
+    if (!was) continue;                                  // newly raised
+    if (!eq(was, r)) return true;                        // resolution or edit
+  }
+  for (const id of before.keys()) if (!seen.has(id)) return true;  // removed
+  return false;
+}
+
 /** Flatten the job tree to id -> node, tagging each node's level. */
 function indexNodes(jobs) {
   const map = new Map();
@@ -115,10 +141,17 @@ export function classifyTaskChanges(nextTasks, prevTasks) {
         continue;
       }
       if (key === REQUEST_FIELD) {
-        // Any member may raise a completion request; resolving one is an
-        // approval, which the approve check below covers via signOffs or the
-        // admin-only approve endpoints.
-        if (!eq(a[key], b[key])) changed = true;
+        // RAISING a request is open to any member — that's the whole point of
+        // the button. RESOLVING one is an approval, and it lands in this field
+        // rather than in signOffs, so it was reaching the server ungated: an
+        // admin with approveCompletions switched off could approve or decline
+        // anyway, straight through the API or through UI that was gated on the
+        // bare admin role. Only a change to an entry that ALREADY existed is
+        // gated; a brand-new pending entry still passes freely.
+        if (!eq(a[key], b[key])) {
+          changed = true;
+          if (resolvesExistingRequest(a[key], b[key])) perms.add("approveCompletions");
+        }
         continue;
       }
       if (!eq(a[key], b[key])) {
