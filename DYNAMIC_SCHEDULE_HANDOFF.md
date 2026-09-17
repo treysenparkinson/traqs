@@ -1,6 +1,6 @@
 # Dynamic Schedule — Handoff / Status
 
-Last updated: 2026-09-16
+Last updated: 2026-09-17
 
 ## What this feature does
 
@@ -16,9 +16,11 @@ Built as **Phases 1-4**, additive-only to the existing Schedule page in
 ## Where the code lives
 
 - Branch: `feature/dynamic-schedule`
-- Worktree: `C:\Users\parki\traqs\.claude\worktrees\schedule-dynamic`
-  (a second worktree, `visual-agent-gantt`, was used by a "Visual" agent
-  working on styling in parallel — functionality vs. visuals split)
+- Worktree: `C:/Users/treysen/traqs-func` on the treysen machine.
+  (The paths this doc gave previously — `C:\Users\parki\traqs\.claude\worktrees\schedule-dynamic`
+  and a `visual-agent-gantt` sibling — were on a DIFFERENT machine and do
+  not exist here. The functionality/visuals split survived the move; see
+  "Parallel work — NOT in this branch" below for the current layout.)
 - Main files touched:
   - `src/TRAQS.jsx` — all client-side logic (day-mode and week/month-mode
     live bar blocks, reservoir drain mask, cascade/push math, session
@@ -105,32 +107,83 @@ deployed) and is also present on `feature/dynamic-schedule` via
    **This fix has been pushed but not yet re-tested/confirmed by the
    user.**
 
-## Git / deployment state (as of last update)
+## Git / deployment state (updated 2026-09-17, treysen machine)
 
-- `feature/dynamic-schedule` is pushed to `origin`, currently at
-  `4718b7d` (matches the worktree exactly, working tree clean).
-- **PR #1 is open**: https://github.com/treysenparkinson/traqs/pull/1
-  (base `master` ← head `feature/dynamic-schedule`)
-- **Netlify Deploy Preview**: https://deploy-preview-1--traqs.netlify.app
-  (auto-rebuilds on every push to the branch — should already reflect
-  `4718b7d` a couple minutes after the push)
-- Local dev server: `netlify dev` has been running from the
-  `schedule-dynamic` worktree, serving on **http://localhost:8888**
-  (this only exists on this machine — you'll need to start it fresh on
-  the other machine: `npm install` in the worktree first if
-  `node_modules` isn't there, since it's gitignored, then
-  `npm run dev`)
-- Master is currently at `fbdd205` (server-side persistence fix only —
-  the client-side rewire and everything else is still only on the
-  feature branch, not yet merged)
+- **`master` is at `0574621`** ("fix: make approveCompletions and
+  approveTimeOff actually mean something"). The doc previously said
+  `fbdd205`; master moved 17 commits past that.
+- **`feature/dynamic-schedule` carries three code commits, ending at
+  `6c8adb3`**, plus this doc refresh on top of them as the branch tip. The
+  branch is **0 behind** master — `origin/master` was merged in at `f689465`,
+  and the three commits sit on that merge:
+
+  | SHA | Commit |
+  |---|---|
+  | `f31ccd2` | id: fix numeric/string coercion in dynamic-schedule paths |
+  | `cb03271` | schedule: lunch/pause session accounting |
+  | `6c8adb3` | schedule: live bar geometry + sliver visibility |
+
+  Commit 1 is foundational — the reservoirOpId id comparisons it fixes
+  gate the whole feature, so the other two are meaningless without it.
+- **NOT PUSHED.** All three are local only. `origin/feature/dynamic-schedule`
+  is still at `fa41485` and does not contain any of this.
+- **PR #1 is stale** and deliberately left so:
+  https://github.com/treysenparkinson/traqs/pull/1 — it predates the master
+  merge and all three commits. A fresh PR gets raised once all three agents'
+  work is integrated, not before. The Netlify deploy preview attached to it
+  (https://deploy-preview-1--traqs.netlify.app) is equally stale; do not
+  test against it.
+
+### Parallel work — NOT in this branch
+
+Two other sessions are working the same feature in their own worktrees on
+this machine. **Their work is not merged into `feature/dynamic-schedule`
+and is not committed on their branches either** — it exists as
+working-tree edits, so `git merge` of those branches brings in nothing.
+
+| Worktree | Branch | Owns |
+|---|---|---|
+| `C:/Users/treysen/traqs-func` | `feature/dynamic-schedule` | geometry, session logic, `timeclock.js` (this doc) |
+| `C:/Users/treysen/traqs-visual` | `feature/dynamic-schedule-visuals` | live bar + drain mask appearance, the three session states |
+| `C:/Users/treysen/traqs-verify` | `feature/dynamic-schedule-verify` | integration + QA; serves the merged build on **8888** |
+
+Visuals extracted the style objects into helpers (`liveBarStyle`,
+`drainMaskStyle`, `spentBarFill`) and added running / **HELD**
+(`frozenAtMs`) / **LUNCH** (`pausedAt`) states. The one recurring merge
+conflict is the week/month drain mask line, which both sides rewrote;
+it resolves as their helper spread with this branch's left/width values.
+
+Verifier integrates by patching working trees rather than merging, for
+the reason above. Anyone who follows a "just merge the branches" instruction
+literally will build `f689465` and review pre-fix code.
 
 ## What's NOT done yet
 
-- Round 5 (left-anchor fix) has not been re-tested by the user.
-- The PR has not been merged to master.
-- No merge/regression testing beyond the specific scenario the user has
-  been walking through (clock into a job scheduled for a future
-  day/elsewhere, watch the live bar + reservoir + cascade).
+- **Round 5 (left-anchor) was re-tested and REVERSED.** Left-anchoring made
+  the bar encode a magnitude while every bar beside it encodes a position in
+  time, so a 2pm clock-in drew a block over the morning. `6c8adb3` anchors the
+  bar at the clock-in hour again. Do not re-apply `4718b7d`; if the sliver
+  reads wrong, the proposed next step is a faint track behind the bar, not
+  another change to where it sits.
+- **Nothing has been seen running.** The three commits build clean but no
+  session has exercised the feature: not the sliver at birth, the growth, the
+  drain, the cascade, the LUNCH or HELD states, dark mode, or 400px width. All
+  of it needs a human clocked into a job.
+- The PR has not been merged to master, and PR #1 is stale (see above).
+- No merge/regression testing beyond the one scenario being walked through
+  (clock into a job scheduled for a future day/elsewhere, watch the live bar +
+  reservoir + cascade).
+- **Known and deliberately unfixed:** the drain mask has no `minWidth` floor,
+  so it can vanish for the first minutes of a session the same way the live
+  bars did — that reads as "the reservoir isn't draining". The mask is the
+  Visuals session's element; flagged to them rather than fixed here.
+- **iOS parity:** `AppState.swift:2335` and `:2378` still subtract only
+  `totalPausedMs`, not an in-flight `pausedAt`, so op-progress % creeps during
+  lunch and self-corrects at lunch end. Cosmetic, nothing saved wrong, needs a
+  build.
+- **Id drift elsewhere:** only the dynamic-schedule paths were converted to
+  `sameId`/`onTeam` in `f31ccd2`. Roughly 50 sites across the rest of the app
+  still compare ids raw.
 
 ## Suggested next steps (when resuming)
 
