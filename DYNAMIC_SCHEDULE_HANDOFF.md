@@ -360,7 +360,36 @@ pattern used for PTO/off-days (`repeating-linear-gradient(135deg, ...)` at low a
 colour), **but change a geometry knob** — angle or period — so worked stripes never read as the
 in-bar PTO hatch, which is white at a 6px/12px period and will appear on the same screen. After
 this change "hatched" alone is no longer a unique signifier; ground colour plus stripe geometry
-together must carry it.
+together must carry it. **Settled: 45deg**, chosen over a period change because all five existing
+hatches in the file are 135deg, and because between the texture floor and ~24px only two or three
+stripes render, where 4/8 versus 6/12 is nearly indistinguishable but a direction flip is instant.
+
+**Correction, 2026-09-18 — "tinted at low alpha" taken literally produces an invisible hatch.**
+The idle ground already carries ~12% of the bar's own hue, so a stripe of the raw bar colour over
+it is a hue match with only a small luminance shift: measured at **2.8 L\*** on the worst job
+colours. It disappears PER COLOUR, so it would have looked correct on whichever job happened to be
+tested — the same failure mode as the flat-black grime this guard was written about, which also
+looked fine on the ladder it was tested on. **Step the stripe in VALUE before tinting** so the
+delta is independent of hue, at the lowest alpha that clears 10 L\* everywhere: measured 10.5 at
+worst, 16.6 at best, tight across all four ladders. Still tinted, still the bar's own hue; only
+the value is pushed first.
+
+**The idle grey's two bounds, and the values that satisfy them.** Idle must sit far enough from
+DONE to separate and far enough from the row ground to still read as a bar — if it lands too close
+to the ground, the bar appears to END at the worked front and the pushed remainder reads as a
+detached block, which is the DONE washout failure reappearing one region over. Measured in CIE L\*
+across all ten job colours and all four ladders: **idle-to-row 13.1** at worst, **idle-to-DONE
+19.8** at worst, both clearing ~10 where a boundary stops being comfortable. The sub-floor value
+step measures 11.1 and is deliberately HARDER than the hatch, not softer: that region is a few
+pixels tall, so it needs more separation than a full-height bar, not less.
+
+Polarity comes from `wantsLightText(T.surface)`, not `T.colorScheme` — they disagree on custom
+themes, which is what the warning above `spentBarFill` is there for.
+
+**And the ordering is by PRESENCE, not luminance.** "Lighter, closer to background" was written
+from the light ladder and inverts in dark, where closer to the row ground means darker; taken
+literally it would make idle the brightest thing on the row in two of the four ladders. The
+binding form: **idle sits nearest the row ground in each theme, DONE sits furthest from it.**
 
 **6b. Zero-width remainder must be an explicit empty state, never a written zero-width block.**
 §3a ends with Caleb's row going empty — exactly the fully-consumed-remainder case the
@@ -392,6 +421,15 @@ must stay accurate **below the texture floor**, where the hatch is not drawn —
 invariant "no hatch right of the worked front" silently stops testing on exactly the dense bars
 where errors hide. Fills are composed by a single helper, `activeBarFill(T, bc, W, C, state,
 renderPx)`, so the two lanes never edit the same line.
+
+`data-state` carries seven values: `pto | done | held | paused | running | worked | scheduled`.
+**`worked` means nobody is clocked in but the bar owns a locked hatched region** (§3a, §3d), and
+`scheduled` therefore narrows to genuinely untouched. Without that split the two are
+indistinguishable and a hatch cannot survive clock-out, which §3d requires it to.
+
+**Segments get their own numbers.** A continuation tail covers a different span from its parent
+bar, so it must never be handed the parent's `workedPct`/`dividerPct` — both boundaries would land
+in the wrong place. Until per-segment values exist, a tail renders as a plain block.
 
 #### 7. Sequencing
 
