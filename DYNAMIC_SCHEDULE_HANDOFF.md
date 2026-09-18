@@ -374,8 +374,19 @@ delete, with no animation, matching the rest of the schedule.
 growing rather than silently pinning at 100%." Do not confuse it with `pctBarWidth` ("Bars stop at
 full"), which clamps percentage bars elsewhere and is out of scope.
 
-**6d. The render/verify interface.** The bar root emits `data-worked-pct`, `data-divider-pct`
-(UNCLAMPED), `data-worked-h`, `data-committed-h`, `data-live-h` and `data-state`. Functionality
+**6d. The render/verify interface.** The bar root emits `data-worked-pct`, `data-divider-pct`,
+`data-raw-worked-pct`, `data-worked-h`, `data-committed-h`, `data-live-h` and `data-state`.
+
+**`data-divider-pct` is the CURSOR — wall-clock now as a fraction of the op's planned span, and
+UNCLAMPED**, so past 100 means now is past the planned end, which is the overrun condition in time
+terms. It is not an hours ratio. The first cut of this interface emitted `rawFraction` (worked
+hours over the estimate) under that name, and the two diverge on any late start or lunch: an
+08:00-16:00 op worked one hour by 15:00 puts the cursor at 87.5% and the ratio at 12.5%. That
+75-point gap is the divergence this whole model exists to show. Worse, `workedFraction` is
+`Math.min(1, rawFraction)`, so the two emitted percentages were one quantity at two clamp levels
+and "the worked front never passes the cursor" could not fail. The hours ratio survives as
+`data-raw-worked-pct`, which is what it always was. `activeBarFill` takes the cursor as its
+`dividerPct` — never pass it a ratio. Functionality
 owns and emits them; Visuals stays geometry-neutral; Verifier asserts against them. These values
 must stay accurate **below the texture floor**, where the hatch is not drawn — otherwise the
 invariant "no hatch right of the worked front" silently stops testing on exactly the dense bars
@@ -386,12 +397,31 @@ renderPx)`, so the two lanes never edit the same line.
 
 **Item 8+11 — one fix, not two.** A dozen-plus live-hours computations across three platforms in
 three variants (guarded open pause / unguarded / no open-pause term), none with a `frozenAtMs`
-branch. **Re-enumerate the sites at execution time rather than trusting a count** — a site using
+branch. **Re-enumerate the sites at execution time rather than trusting a count.** The census run on
+2026-09-18 found **17**, not thirteen: 5 web, 8 iOS (including the helper itself), 4 Android. A site using
 `curPausedMs` was found uncatalogued after the first census, so "thirteen" is a floor, not a fact.
-Land a shared `liveElapsedHours(clockIn, pausedAt, frozenAtMs, totalPausedMs, pausedMsAtCheckpoint)`
-in `statsMath.js` (pure, natural home), migrate every site, migrate the iOS sites that route around
-the existing `HoursCalculator.swift` helper, add the Android equivalent, and add a build-time check
-that no live-hours math exists outside the helper. **That check must be confirmed RED on the
+Land a shared `liveElapsedHours({ clockIn, pausedAt, frozenAtMs, totalPausedMs, now })` in
+`statsMath.js` (pure, natural home), migrate every site, add the Android equivalent, and add a
+build-time check that no live-hours math exists outside the helper. The argument is an OBJECT:
+`totalPausedMs` and the millisecond values beside it are adjacent same-typed numbers, which is
+how a transposed argument gets written and never noticed. `now` is injectable so the frozen and
+future-`pausedAt` cases are table tests rather than wall-clock races. `pausedMsAtCheckpoint` is
+deliberately NOT a parameter — it serves only the two excluded sites, which need a different
+origin anyway, so it would be dead weight at every call site that does pass it.
+
+**iOS: FIX THE HELPER BEFORE MIGRATING ONTO IT.** An earlier draft said to migrate the iOS sites
+that "route around" `HoursCalculator.liveElapsedHours` — that instruction would have caused a
+regression and is withdrawn. The helper takes `(clockIn:totalPausedMs:now:)`, has no `pausedAt`
+parameter and no open-pause term: **it is variant C itself.** Four of the sites bypassing it
+(`MoreView` x3, `TasksView`) handle the open pause and are therefore MORE correct than the helper;
+migrating them onto it would delete working behaviour. Only the genuinely-inline C site improves.
+Fix the helper first, then migrate — the same order as web.
+
+Fix its doc comment in the same commit. It claims the helper "returns 0 for a clock that ... is
+currently paused out", which it has no way to detect. That sentence is how four separate readers
+concluded it was complete and wrote their own instead. The lesson is not that helpers get ignored
+— it is that an INSUFFICIENT helper gets routed around and nothing detects the divergence, which
+is precisely what the build-time check exists to catch. **That check must be confirmed RED on the
 pre-migration tree** — a guard nobody has seen fail is not evidence.
 
 Split across two commits so each has its own verification point: (1) land the helper and migrate
