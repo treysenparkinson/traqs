@@ -2437,9 +2437,8 @@ function spentBarFill(T, barColor) {
 // The one place a schedule bar's fill is composed. Call sites pass the three-region geometry --
 // workedPct, the hatched extent, and dividerPct -- the CURSOR, a time position, UNCLAMPED so now
 // past the planned end reads past 100 rather than pinning. Never pass an hours ratio here: the
-// sites and the numbers. Today the body is a behaviour-neutral stub returning exactly the
-// expressions it replaced, so the interface can land ahead of the geometry rewrite without
-// moving a pixel.
+// two diverge on any late start or lunch, which is the bug 11eb366 fixed. The visuals lane owns
+// what those become; this lane owns the call sites and the numbers.
 //
 // `state` is the bar's own state, never a texture: "pto" | "done" | "held" | "paused" |
 // "running" | "scheduled". Texture is a decision made FROM it -- DONE is never inferred back
