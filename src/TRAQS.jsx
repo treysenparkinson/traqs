@@ -17477,9 +17477,21 @@ ${jobsCtx || "No jobs found."}`;
                     const [_plannedS, _plannedE] = opHourRange(bar.task);
                     return _plannedE > _plannedS ? ((Date.now() - _plannedS) / (_plannedE - _plannedS)) * 100 : 0;
                   })();
+                  // The bar's state describes the OP, and every term comes from the people actually
+                  // clocked into it. It previously mixed two fields that are not the same claim:
+                  // `isLive` reads `activeJobClock.opId` (what someone is working), while
+                  // `liveBadgeFor` reads `reservoirOpId` (whose scheduled block drains) against the
+                  // ROW's person. Those diverge by design — deriveJobSession only sets reservoirOpId
+                  // when the clocked-in person is on the op's team — so cross-row work (§3a) leaves it
+                  // null, and a bar somebody was actively working read as "running" with no badge
+                  // while the row's own person sat idle. One source, one meaning.
+                  const _liveClocks = _liveCrew.map(lp => lp.activeJobClock).filter(Boolean);
                   const _barState = isPto ? "pto"
                     : bar.task?.status === "Finished" ? "done"
-                    : (liveBadgeFor(p.activeJobClock, bar.task) || (isLive ? "running" : "scheduled"));
+                    : _liveClocks.some(jc => jc.frozenAtMs) ? "held"
+                    : _liveClocks.some(jc => jc.pausedAt) ? "paused"
+                    : isLive ? "running"
+                    : "scheduled";
                   return [<div key={barKey}
                     data-worked-pct={_barWorkedPct} data-divider-pct={_barCursorPct} data-raw-worked-pct={_barRawWorkedPct} data-worked-h={_barWorkedH} data-committed-h={_barCommittedH} data-live-h={_barLiveH} data-state={_barState}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
@@ -17497,7 +17509,7 @@ ${jobsCtx || "No jobs found."}`;
                         Deliberately NOT applied to the team-day badge, which looks identical but whose
                         bar never goes through activeBarFill, nor to the DONE badge, which passes the
                         literal "held" to reach liveBarTextColor's spent branch and IS on spent grey. */}
-                    {!isPto && !_hideBarLabel && (() => { const _lb = liveBadgeFor(p.activeJobClock, bar.task); return _lb && <span style={{ flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", opacity: 0.85, color: barLabelColor(T, bc) }}>{LIVE_BADGE_LABEL[_lb]}</span>; })()}
+                    {!isPto && !_hideBarLabel && (_barState === "held" || _barState === "paused") && <span style={{ flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", opacity: 0.85, color: barLabelColor(T, bc) }}>{LIVE_BADGE_LABEL[_barState]}</span>}
                     {!isPto && !_hideBarLabel && bar.task?.status === "Finished" && <span style={{ flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", opacity: 0.85, color: liveBarTextColor(T, bc, "held") }}>DONE</span>}
                     <span style={{ display: _hideBarLabel ? "none" : undefined, fontSize: 11, color: accentText(bc), fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>{isPto ? (<><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={accentText(bc)} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginRight: 5, verticalAlign: "-1.5px" }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>{bar.ptoType}{bar.title && bar.title !== bar.ptoType ? ` · ${bar.title}` : ""}</>) : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
                     {!isPto && !_hideBarLabel && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: accentText(bc) === "#ffffff" ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)', fontFamily: T.mono, position: "relative", zIndex: 5 }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
