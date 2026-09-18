@@ -502,8 +502,47 @@ deliberately — they are NOT copies, do not sweep them in.
 **Deferred to their own pass, non-blocking:** item 9 (`actualHours ~ 0` from the `jobRefs` join
 gap) and item 10 (`applyWorked` swallows downward corrections).
 
+### PROCESS RULE — RED-FIRST VERIFICATION (adopted 2026-09-18, applies beyond this feature)
+
+**A check is not evidence until it has been seen to fail.** Any guard, lint, assertion or test
+written anywhere in this codebase must be demonstrated RED against a tree that genuinely violates
+it, before its green run is allowed to mean anything. Not a preference for the schedule work — the
+standard going forward.
+
+Adopted after three instances of one failure shape in a single day, in three different lanes:
+
+- **The live-hours build check.** Its first draft stripped string literals before scanning; the
+  quote-matching regex derailed on 32k lines of JSX and blanked whole regions. It missed 3 of 9
+  real occurrences — **including the variant-C site the check exists to catch** — and still printed
+  a confident count and exited 0 on the migrated tree. Only the RED run exposed it.
+- **The worked hatch.** "Tinted from the bar colour at low alpha" measured 2.8 L\* against a ground
+  already carrying the same hue. Invisible, and invisible PER COLOUR, so it would have looked
+  correct on whichever job happened to be tested.
+- **`HoursCalculator.liveElapsedHours`.** Its doc comment claimed it returns 0 for a clock "currently
+  paused out", which it has no parameter to detect. Four separate readers concluded it was complete
+  and wrote their own instead.
+
+Each reported success on work that was not there. A tool, a pixel and a sentence, failing the same
+way. The corollary is that "it passes" and "the diff looks deliberate" are not findings — a wrong
+call that produces plausible output is the expensive case, because nothing marks it for review.
+
+Two companion practices, both earned the same day: reproduce the shapes you claim to preserve and
+**diff against them** rather than asserting equivalence by reading; and remember the build is not a
+reference checker — an orphaned binding is a free identifier that bundlers do not flag, so it ships
+green and throws at runtime.
 ### Deferred, by explicit decision
 
+#### Filed 2026-09-18, non-blocking, do NOT fold into the live-hours pass
+
+- **Can the callers drop their guards?** The 56-year bug (`new Date(null).getTime()` is `0`, so a
+  missing `clockIn` reads as elapsed-since-1970) existed in all three variants and was survived only
+  because every caller guarded first. `liveElapsedHours` now rejects a falsy `clockIn` itself, which
+  makes some of those caller-side guards redundant. Removing them would make the code more coherent,
+  but it is a separate pass — note redundant-looking guards while migrating, change nothing.
+- **Free-identifier detection is a gap.** Migrating a site can orphan a `const` its neighbours still
+  use; bundlers do not flag free identifiers, so the build passes green and the code throws at
+  runtime. Caught once by reading a diff, which is not a control. The real fix is an eslint rule or
+  a type-checker upgrade — the same class `scripts/check-function-imports.mjs` exists for.
 #### Null-hour class — one pass, not three patches (added 2026-09-18)
 
 These are coupled and are to be fixed TOGETHER, not opportunistically. The approve fix that
