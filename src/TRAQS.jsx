@@ -8913,10 +8913,11 @@ Extraction rules:
     taskList.forEach(job => {
       (job.subs || []).forEach(panel => {
         (panel.subs || []).forEach(op => {
-          // String-coerced: ids in this app aren't guaranteed the same type across sources
-          // (matches the team.includes(String(pp.id)) convention used elsewhere in the file).
-          // Without this, the team check never matches and the candidate list is always empty.
-          if (String(op.id) !== String(excludeOpId) && (op.team || []).includes(String(personId)) && op.status !== "Finished") {
+          // onTeam, not a String()-coerced needle: coercing only the needle still misses a team
+          // stored as [5] rather than ["5"], and person ids are mixed string/number across web
+          // and iOS. A miss here empties the candidate list entirely, so the cascade does
+          // nothing at all and reads as the feature being off rather than an id compare failing.
+          if (String(op.id) !== String(excludeOpId) && onTeam(op.team, personId) && op.status !== "Finished") {
             allOps.push({ op, panel, job, range: opHourRange(op) });
           }
         });
@@ -9043,7 +9044,7 @@ Extraction rules:
     const snap = [];
     taskList.forEach(job => (job.subs || []).forEach(panel => (panel.subs || []).forEach(op => {
       if (op.status === "Finished") return;
-      if (!(op.team || []).includes(String(personId))) return;
+      if (!onTeam(op.team, personId)) return;   // onTeam: a numeric team entry never matches a String() needle
       if (!op.start || op.start > horizon) return;
       snap.push({ opId: op.id, start: op.start, end: op.end, startHour: op.startHour ?? null, endHour: op.endHour ?? null, hpd: op.hpd ?? null });
     })));

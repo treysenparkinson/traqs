@@ -285,6 +285,75 @@ function applyAutoJobPause(person, reason, starting, nowIso) {
 // Back-compat alias for the lunch call sites.
 const applyLunchJobPause = (person, starting, nowIso) => applyAutoJobPause(person, "lunch", starting, nowIso);
 
+// ── Dynamic-schedule session derivation ─────────────────────────────────────
+// The native clients (iOS APIService.swift jobClockIn, Android ApiService.kt jobClockIn) post
+// the seven job fields and nothing else: no sessionId, no reservoirOpId, no sessionSnapshot.
+// The whole dynamic-schedule feature then does nothing for a worker who starts their job from
+// a phone — no live bar, no reservoir drain, no cascade — and it fails silently, because a
+// session's absence is indistinguishable from nobody being clocked in.
+//
+// The tell on a stored record is drainCheckpoint being ABSENT rather than null: jobClockIn
+// writes it unconditionally whenever a sessionId arrives, so its absence proves none was sent.
+// Do not collapse absent and null when reading these records; they mean different things.
+//
+// All three fields are derivable from data this handler already has, so they are derived here
+// rather than ported into Swift and Kotlin: one implementation, no native build, and every
+// future client gets a session for free. This extends the principle drainCheckpoint already
+// follows (server-derived from clockIn) to the other two.
+const SESSION_SNAPSHOT_WORK_DAYS = [1, 2, 3, 4, 5];   // mirrors DEFAULT_WORK_DAYS in TRAQS.jsx
+const SESSION_SNAPSHOT_HORIZON_BD = 14;               // buildSessionSnapshot's addBD(clockInDS, 14)
+
+// Business-day arithmetic for the snapshot horizon. Mirrors addBD in TRAQS.jsx called with its
+// defaults, which is how buildSessionSnapshot calls it (Mon-Fri, no holiday list). Parsed and
+// formatted in the same zone at noon, so the arithmetic is stable wherever this runs.
+function addBusinessDays(ds, n) {
+  const d = new Date(ds + "T12:00:00");
+  let remaining = n;
+  while (remaining > 0) {
+    d.setDate(d.getDate() + 1);
+    if (SESSION_SNAPSHOT_WORK_DAYS.includes(d.getDay())) remaining--;
+  }
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+}
+
+// Mirrors the client's session construction: sessionId (`sess_<personId>_<clockInISO>`, the same
+// format TRAQS.jsx builds at both of its clock-in sites), reservoirOpId (the op being clocked
+// into, but ONLY when the worker is on its team) and sessionSnapshot (buildSessionSnapshot's
+// pre-clock-in capture, which revertSession restores from when a finish request is denied).
+//
+// Team membership is compared String-to-String on BOTH sides. Coercing only the needle — the
+// (op.team || []).includes(String(personId)) form — still misses a team stored as [5] rather
+// than ["5"], and person ids are mixed string/number across web and iOS. A miss here yields no
+// reservoir at all, which reads as the feature being off rather than as an id compare failing.
+function deriveJobSession(tasks, personId, opId, clockInIso, orgTz) {
+  const onTeam = (team) => (team || []).some(x => x != null && String(x) === String(personId));
+  const horizon = addBusinessDays(orgLocalDay(clockInIso, orgTz), SESSION_SNAPSHOT_HORIZON_BD);
+
+  let reservoirOpId = null;
+  const sessionSnapshot = [];
+
+  for (const job of tasks || []) {
+    for (const panel of job?.subs || []) {
+      for (const op of panel?.subs || []) {
+        // The team gate covers the reservoir too: a clock-in by someone not on the op's team
+        // gets a live bar but nothing to drain. That is the client's rule, kept identical here.
+        if (!op || !onTeam(op.team)) continue;
+        if (opId != null && String(op.id) === String(opId)) reservoirOpId = op.id;
+        if (op.status === "Finished") continue;
+        if (!op.start || op.start > horizon) continue;
+        sessionSnapshot.push({
+          opId: op.id, start: op.start, end: op.end,
+          startHour: op.startHour ?? null, endHour: op.endHour ?? null, hpd: op.hpd ?? null,
+        });
+      }
+    }
+  }
+  return { sessionId: `sess_${personId}_${clockInIso}`, reservoirOpId, sessionSnapshot };
+}
+
 // The lightweight `activeBreak` flag has exactly one clearing path — the
 // breakClear action — and breaks never auto-expire (that is deliberate: an
 // overrunning break should stay visible to admins). So every action that ends
@@ -956,12 +1025,36 @@ export async function handler(event) {
       if (jciPerson.activeJobClock) return err(409, "Already clocked into a job");
 
       const jciClockIn = new Date().toISOString();
-      // sessionId/reservoirOpId/sessionSnapshot: dynamic-schedule session state. The client is
-      // the only side that knows this context (there's no server-side equivalent to derive it
-      // from), so it's accepted from the request body rather than computed here — unlike
-      // jobId/opId/etc. above, which stay server-authoritative. Only stored when present, so a
-      // client that doesn't send them (an older build, or a non-dynamic-schedule caller) gets
-      // the original 7-field shape unchanged.
+      // sessionId/reservoirOpId/sessionSnapshot: dynamic-schedule session state.
+      //
+      // A client that sends them stays authoritative — the web builds its session against the
+      // very tasks snapshot it is about to re-render, so it has context this handler does not
+      // and must win. Everything else here (jobId/opId/clockIn) stays server-authoritative.
+      //
+      // A client that sends NOTHING gets them derived. That is every native client: iOS and
+      // Android both post the seven job fields and stop, which left phone workers with no
+      // session and so no live bar, no drain and no cascade — silently, because an absent
+      // session looks exactly like nobody being clocked in.
+      //
+      // Note the asymmetry on reservoirOpId: absent means "derive", but an explicit null means
+      // the client ran the team check itself and said no, so null is preserved. The two are not
+      // the same claim and collapsing them would override a client that knows better.
+      let jciDerived = null;
+      if (!jciSessionId) {
+        // Read tasks BEFORE the people write so a derivation failure cannot half-apply. A read
+        // that throws leaves jciDerived null and the clock-in proceeds with the original
+        // 7-field shape — exactly today's native behaviour, so a transient S3 failure degrades
+        // to the status quo rather than rejecting a punch the worker has already made.
+        try {
+          const jciTasksForSession = await readJson(tasksKey) ?? [];
+          jciDerived = deriveJobSession(jciTasksForSession, jciPersonId, opId, jciClockIn, await getOrgTimeZone());
+        } catch (e) { console.warn("jobClockIn: session derivation skipped", e); }
+      }
+
+      const jciEffSessionId       = jciSessionId || jciDerived?.sessionId;
+      const jciEffReservoirOpId   = jciReservoirOpId !== undefined ? jciReservoirOpId : jciDerived?.reservoirOpId;
+      const jciEffSessionSnapshot = Array.isArray(jciSessionSnapshot) ? jciSessionSnapshot : jciDerived?.sessionSnapshot;
+
       jciPeople[jciIdx] = {
         ...jciPerson,
         activeJobClock: {
@@ -969,9 +1062,9 @@ export async function handler(event) {
           // drainCheckpoint's initial value is always clockIn by construction (nothing has
           // drained yet) — server-derived here rather than trusted from the client, same as
           // clockIn itself. updateJobSession is the only path that advances it afterward.
-          ...(jciSessionId ? { sessionId: jciSessionId, drainCheckpoint: jciClockIn } : {}),
-          ...(jciReservoirOpId !== undefined ? { reservoirOpId: jciReservoirOpId } : {}),
-          ...(Array.isArray(jciSessionSnapshot) ? { sessionSnapshot: jciSessionSnapshot } : {}),
+          ...(jciEffSessionId ? { sessionId: jciEffSessionId, drainCheckpoint: jciClockIn } : {}),
+          ...(jciEffReservoirOpId !== undefined ? { reservoirOpId: jciEffReservoirOpId } : {}),
+          ...(Array.isArray(jciEffSessionSnapshot) ? { sessionSnapshot: jciEffSessionSnapshot } : {}),
         },
       };
       try { await writeStampedArray(peopleKey, jciPeople); } catch { return err(500, "Failed to save"); }
