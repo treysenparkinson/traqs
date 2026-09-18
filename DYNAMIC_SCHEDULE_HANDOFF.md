@@ -219,6 +219,29 @@ then.
 
 ### Deferred, by explicit decision
 
+#### Null-hour class — one pass, not three patches (added 2026-09-18)
+
+These are coupled and are to be fixed TOGETHER, not opportunistically. The approve fix that
+landed in the same session writes an explicit `startHour: null` when that was the pre-clock-in
+value, which is correct — null is what the plan said, and `opHourRange` reads it as "full
+working day" — but it does put more weight on a state the move handlers already mishandle.
+
+- **Move-handler inversion** at `:15269` (day move) and `:11604` (gantt move). Both write
+  `startHour` via `updTask` WITHOUT `endHour`, and `updTask` is a shallow merge that never
+  recomputes it, so dragging a bar right past its own stored `endHour` inverts the block. This
+  is what destroyed `tzf8ivwbh`. The left/right RESIZE handlers already clamp against the
+  opposite edge correctly — the fix is to do the same at these two call sites.
+- **Defensive normalisation at the write site:** if `endHour < startHour`, or `startHour` is
+  null where it should not be, recompute from `hpd`.
+- **Is `startHour: null` ever the right stored state?** Probably not. `opHourRange`'s
+  `?? workStartH` fallback is doing the work that makes null survivable, and a genuinely
+  designed state should not need fallback logic to be read. Worth deciding whether null means
+  "full working day" as a first-class value or is simply an absence the app has learned to
+  tolerate — the answer changes what the two fixes above should write.
+
+Do not take any of these piecemeal. They share one question.
+
+
 - **Move-handler inversion source.** `updTask({ startHour })` at `:15269`
   (day-mode move) and `:11604` (gantt move) write `startHour` WITHOUT
   `endHour`, and `updTask` is a shallow merge that never recomputes it — so

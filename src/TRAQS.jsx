@@ -19310,7 +19310,8 @@ ${jobsCtx || "No jobs found."}`;
         // dragging a paused bar to another day, another slot, another person's row -- and that
         // decision outranks the snapshot. Without this, approving would teleport the bar off the
         // day the admin had just put it on, which reads as losing their edit rather than as a
-        // historical record. Approve and deny stay symmetric because the rule is the same one.
+        // historical record. Approve and deny run the same GUARD -- but read the restore below before
+        // trusting that they behave identically: they did not, until the startHour skip was removed.
         const _lastLog = (op.moveLog || [])[(op.moveLog || []).length - 1];
         const _sessionOwnsPosition = !!_lastLog && _lastLog.sessionId === session.sessionId;
         const snap = _sessionOwnsPosition ? (session.sessionSnapshot || []).find(s => sameId(s.opId, op.id)) : null;
@@ -19318,7 +19319,20 @@ ${jobsCtx || "No jobs found."}`;
           updated = {
             ...updated,
             start: snap.start, end: snap.end,
-            ...(snap.startHour != null ? { startHour: snap.startHour } : {}),
+            // startHour is restored UNCONDITIONALLY, matching revertSession. A conditional skip here
+            // was a real defect: buildSessionSnapshot normalises an absent hour to null, persistShrink
+            // turns that null into a concrete number via its ?? workStartH fallback, and the skip then
+            // left the DONE bar truncated at wherever the work reached -- recording the work instead of
+            // the plan, which is the one thing this restore exists to prevent. Deny reverted the same
+            // op correctly, so the two disagreed precisely when the pre-clock-in hour was null.
+            //
+            // Writing an explicit null is correct: null IS the pre-clock-in value, and opHourRange reads
+            // it as "full working day" via its own fallback. It does couple to the deferred move-handler
+            // work -- see the follow-up list in the handoff doc -- but the answer there is to make the
+            // null-hour state safe, not to have approve quietly decline to restore it.
+            startHour: snap.startHour,
+            // endHour and hpd stay conditional: persistShrink writes neither, so the session cannot
+            // have changed them and there is nothing to restore.
             ...(snap.endHour != null ? { endHour: snap.endHour } : {}),
             ...(snap.hpd != null ? { hpd: snap.hpd } : {}),
           };
