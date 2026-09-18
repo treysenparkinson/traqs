@@ -118,7 +118,7 @@ step is Trey's green light on the hatched-render checkpoint, then the geometry r
 |---|---|---|---|
 | Functionality / integration | `traqs-func` | `feature/dynamic-schedule` | tip is this doc's own commit; last CODE change **`9d6f023`** |
 | Visuals | `traqs-visual` | `feature/dynamic-schedule-visuals` | **`79cfc75`** |
-| Verifier | `traqs-verify` | `feature/dynamic-schedule-verify` | **`87c4b82`** |
+| Verifier | `traqs-verify` | `feature/dynamic-schedule-verify` | **`e8d5ff5`** |
 
 `feature/dynamic-schedule` already contains both other lanes — visuals merged at `2d44d4d`,
 verifier at `c6322f3`. **It is the branch to run.** Every working tree was clean at shutdown and
@@ -183,12 +183,30 @@ visuals lane; that is not where the cost is.
     git worktree add ../traqs-verify feature/dynamic-schedule-verify
 
 `tools/` is fully tracked — `diag-session.mjs`, `diag-teams.mjs`, `diag-findop.mjs` and
-`repair-op-hours.mjs` all come down with the clone, nothing to recreate. **Two paths are excluded
-LOCAL-ONLY** via `.git/info/exclude`, which lives in the shared git dir and does NOT survive a
-clone: `shots/` and `tools/verify/`. The second is the Verifier lane's harness, so on a fresh
-machine that directory will be absent and its exclusion will need re-adding, or its contents will
-start showing as untracked. `.env` / `.env.local` are not in the repo either and have to be copied
-across by hand.
+`repair-op-hours.mjs` all come down with the clone, nothing to recreate. **`tools/verify/` is now
+tracked too** (`e8d5ff5` on the verifier branch): `shot.mjs`, `probe-done-badge.mjs`,
+`probe-badge-css.mjs`. `shot.mjs` matters most — it is the only way into the app for DOM
+inspection, and it existed as a single untracked file on one machine with no backup. No
+credentials are in it: the authenticated browser profile lives outside the repo at
+`~/.traqs-verify-profile`, overridable with `TRAQS_VERIFY_PROFILE`, and only the path is in the
+file. Its Chrome location is hardcoded for Windows and needs editing elsewhere.
+
+**A trap that outlived its cause:** `.git/info/exclude` still lists `tools/verify/`. It was
+force-added rather than un-excluded, deliberately — that file lives in the shared git dir and every
+worktree reads it, so removing the line would have changed what the other two lanes saw with no
+warning. Tracked files ignore exclude rules, so the line is inert for what exists today, **but any
+NEW file added under `tools/verify/` will be silently ignored.** The other excluded path, `shots/`,
+is disposable PNGs. Neither exclusion survives a clone, so on a fresh machine both will simply
+show as untracked. `.env` / `.env.local` are not in the repo either and have to be copied by hand.
+
+**`INTEGRATION-RECOVERY.patch` in `traqs-verify` is a leftover, not lost work — safe to delete.**
+34KB, untracked, dated 2026-09-17, present in every `git status` since before the lanes started,
+and nobody could account for it. Established at shutdown: it is a two-file diff whose base blob
+for `timeclock.js` dates to `cb03271` ("schedule: lunch/pause session accounting"), and it applies
+in NEITHER direction against the current tree because both files moved a long way past it. Its
+distinctive content is already in the branch — the `pausedMsAtCheckpoint` handling it adds to
+`updateJobSession` is live at `netlify/functions/timeclock.js:1206` and `:1230`. So it was applied
+or superseded and the file is an artifact of how it got there.
 
 Android builds on Windows, which is not obvious because `java` is not on PATH:
 
