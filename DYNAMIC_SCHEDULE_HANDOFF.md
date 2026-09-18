@@ -220,10 +220,16 @@ then.
 ### THE THREE-REGION MODEL — SPEC OF RECORD (added 2026-09-18)
 
 **Provenance.** Reconstructed 2026-09-18 after the orchestrating session was lost. Authority is
-Trey's own wording of the model plus the rulings below. Symbol names and line refs were verified
-against `feature/dynamic-schedule` @ 7b84676 at reconstruction time. Q1 and Q4 were settled in the
-lost session and could not be recovered verbatim — they were **re-derived from principles** on
-2026-09-18 and approved. Treat them as sound but newer than the rest.
+Trey's own wording of the model plus the rulings below. Q1 and Q4 were settled in the lost session
+and could not be recovered verbatim — they were **re-derived from principles** on 2026-09-18 and
+approved. Treat them as sound but newer than the rest.
+
+**How to read the refs below — symbols are the anchor, line numbers are a hint.** Every line
+number here was verified at `7b84676` and is valid only there. The lanes do not share a checkout:
+the Verifier's tree runs roughly 60 lines short of these through the session block, and a stale
+worktree has already produced two wrong readings in one day (see §5, `isCollapsedReservoir`).
+**Re-derive every anchor by symbol name at execution time and cite your own line numbers.** A bare
+line number in this document is never evidence about the branch.
 
 #### 1. The invariant
 
@@ -249,6 +255,8 @@ what is left between the hatched region and the pushed remainder.
 **Q1 — write cadence: persist only at write events.** Clock-in, lunch, pause, drag, clock-out,
 approve, day-boundary. **Never per-tick.** Between stored anchors the bar is interpolated at
 render time. This matches Q3's cadence bound and every piece of existing session infrastructure.
+Already implemented — see the bake-site comment above `shrunkStartH`'s persist path, which also
+states the invariant that the caller MUST advance `drainCheckpoint` in the same write.
 
 **Q2 — push scope is PER OP.** Not row-wide, not org-wide. Push is a property of untouched work
 on that specific op. Clocking into A says nothing about B. B keeps being pushed because no one is
@@ -264,8 +272,10 @@ someone is clocked in, the drag raises the error dialog. Recorded here only so a
 does not go looking for a missing Q4.
 
 **Q5 — two separable greys plus stripes.** Reuse the existing thresholds, do not invent new ones:
-`_thinBar` (`_renderPx < 16`) at `TRAQS.jsx:16243` and `_renderPx < 8` at `:17319`
-(`_tailPx < 8` at `:17374`). Below resolution, fall back to a value step rather than texture.
+`_thinBar` (`_renderPx < 16`), the border-drop threshold (`_renderPx < 8`), and `_tailPx < 8` on
+the tail. **`_thinBar` (< 16) is the texture floor** — below it, fall back to a value step rather
+than texture. A 4px/8px period shows about two stripes at 16px and one at 8px, so texture stops
+carrying meaning at 16, not 8.
 
 **Q6 — "shrinking" is superseded by "divider advancing."** Same behavior, cleaner model. One bar
 per row, no duplicates. Two DONE bars for one worker appear only on an actual split (§3c).
@@ -298,6 +308,9 @@ extends past planned end. No clamp until end of working day (Q7b).
 - Nobody clocked in and the bar has a hatched portion → the drag splits it. Hatched locks in place
   on the original worker's row; the colored remainder becomes a new op record, movable to any
   day/person.
+- **Remainders are themselves splittable.** Recursive splits are expected: each split yields one
+  locked historical op record plus one active remainder, and the chain is the trail of who worked
+  what and when. The only guard is the one above — never split a bar someone is clocked into.
 - No auto-split on clock-out. The one edge case is the cursor about to violate "left of cursor =
   grey only," and that resolves by the ordinary Q3 push, leaving a flat idle gap.
 
@@ -310,63 +323,88 @@ no backward walk over productive hours is needed or wanted (see §5).
 
 - Server-side session derivation (`deriveJobSession` in `jobClockIn`)
 - `sessionId`, `drainCheckpoint`, `sessionElapsedMs`, `pausedMsAtCheckpoint` infrastructure
-- `sessionSnapshot` for revert-on-deny (20 refs)
+- `sessionSnapshot` for revert-on-deny
 - Session-ID guard on approve — admin drags mid-session stay preserved
-- Full drag cascade path
-- Team-check gate on `reservoirOpId` (29 refs)
+- Full drag cascade path (`previewPush` + `applyPushes`)
+- Team-check gate on `reservoirOpId`
 - Green pulsing dot on the person's row (clocked-in indicator)
-- HELD / LUNCH badge rendering (`liveBadgeFor`, `:8867`)
-- The DONE styling helper (solid grey, `DONE_MUTE`, hue trace) — reuse for DONE state ONLY
+- HELD / LUNCH badge rendering (`liveBadgeFor`)
+- The DONE styling helper (`spentBarFill` / `SPENT_MUTE_RATIO` / `DONE_MUTE`) — reuse for DONE
+  state ONLY, and do not retune it; DONE's value is fixed for this pass
 
-#### 5. REMOVE — with three corrections
+#### 5. REMOVE — with corrections
 
-- **Shrink-from-left rendering** (left edge advancing with cursor while right stays at planned end).
-- **`walkProductiveHoursBack` / DONE reposition-to-cursor.** *Correction:* the Verifier lane's two
-  most recent commits (`5bbf257`, `35b541d`, "a DONE bar is a record of when work finished, not
-  where it was planned") implemented precisely this. **Reverted 2026-09-18** by explicit decision;
-  the Verifier lane restarts from the pre-rewrite state rather than building on removed code.
-- **The "5-min overrun clamp."** *Correction:* this is `SHRINK_MIN_REMAINDER_H = 5/60` at `:8859`
-  — five minutes of *bar width*, not of time. Its comment marks it **structural, not cosmetic**:
-  "A zero-width block inverts on the next write and that is the corruption that destroyed
-  tzf8ivwbh once already." The visual floor goes away with shrink-from-left; the corruption guard
-  does not. See §6b.
-- **`isCollapsedReservoir`.** *Correction:* zero hits on `feature/dynamic-schedule`. It lives on
-  the VISUALS lane (`traqs-visual`, `a78e91d`, "four render sites"). Cross-lane removal —
-  Functionality will not find it.
+- **Shrink-from-left rendering** (`shrunkStartH` and its consumers): left edge advancing with the
+  cursor while the right edge stays at planned end.
+- **`walkProductiveHoursBack` / DONE reposition-to-cursor.** The Verifier lane's two most recent
+  commits (`5bbf257`, `35b541d`) implemented precisely this. **Reverted 2026-09-18** by explicit
+  decision; that lane restarts from the pre-rewrite state rather than building on removed code.
+- **The "5-min overrun clamp"** (`SHRINK_MIN_REMAINDER_H`). *Correction:* it is `5/60` — five
+  minutes of *bar width*, not of time. Its comment marks it **structural, not cosmetic**: "A
+  zero-width block inverts on the next write and that is the corruption that destroyed tzf8ivwbh
+  once already." The visual floor goes away with shrink-from-left; the corruption guard does not.
+  See §6b.
+- **`isCollapsedReservoir` — ALREADY COMPLETE, no action.** Added by `a78e91d`, removed by
+  `c0192b4` ("one bar per op, shrinking from the left"); both are ancestors of `ac75f9f`, and the
+  tip has zero hits. An earlier draft of this spec claimed it survived on the visuals lane — that
+  was a **stale-checkout misreading**: `traqs-visual` sits nine commits back at `c2b2ad1`, where
+  the symbol still exists. Fast-forward the worktree; remove nothing.
 
 #### 6. Carry-forward guards
 
-**6a. The hatch must be COLOR-TINTED, never flat black.** The hatch was retired deliberately:
-`:205` ("WORKED_STRIPE is retired"), `:2413` ("flat-black hatch (rgba(0,0,0,0.28)/0.14) that read
-as grime on every light ladder"), `:2431`. Reinstating it as-was reintroduces that defect across
-the four theme ladders. Use the pattern already proven on PTO/off-days at `:15645` —
-`repeating-linear-gradient(135deg, ...)` tinted from the bar color at low alpha. Same geometry,
-tint instead of black.
+**6a. The hatch must be COLOR-TINTED, never flat black.** The hatch was retired deliberately — see
+the `WORKED_STRIPE` retirement comment and the `spentBarFill` comment block ("flat-black hatch
+(rgba(0,0,0,0.28)/0.14) that read as grime on every light ladder"). Reinstating it as-was
+reintroduces that defect across the four theme ladders. Base it on the tinted row-background
+pattern used for PTO/off-days (`repeating-linear-gradient(135deg, ...)` at low alpha off the bar
+colour), **but change a geometry knob** — angle or period — so worked stripes never read as the
+in-bar PTO hatch, which is white at a 6px/12px period and will appear on the same screen. After
+this change "hatched" alone is no longer a unique signifier; ground colour plus stripe geometry
+together must carry it.
 
 **6b. Zero-width remainder must be an explicit empty state, never a written zero-width block.**
 §3a ends with Caleb's row going empty — exactly the fully-consumed-remainder case the
 `SHRINK_MIN_REMAINDER_H` comment warns about. Removing the visual floor is correct; writing a
-zero-width or inverted block to S3 is what destroyed `tzf8ivwbh`. Delete/empty the record
-explicitly instead.
+zero-width or inverted block to S3 is what destroyed `tzf8ivwbh`. The record is **deleted
+outright** when the remainder reaches zero — not zeroed, not sentinel-valued. Where the work moved
+to another row, that row's DONE record is the historical truth. Visually the bar disappears on
+delete, with no animation, matching the rest of the schedule.
 
-**6c. `deriveWorkedState` already supports Q7a.** `overrunFraction` (`:271`) exists so the bar
-"can keep growing rather than silently pinning at 100%." Do not confuse it with `pctBarWidth`
-(`:793`, "Bars stop at full"), which clamps percentage bars elsewhere and is out of scope.
+**6c. `deriveWorkedState` already supports Q7a.** `overrunFraction` exists so the bar "can keep
+growing rather than silently pinning at 100%." Do not confuse it with `pctBarWidth` ("Bars stop at
+full"), which clamps percentage bars elsewhere and is out of scope.
+
+**6d. The render/verify interface.** The bar root emits `data-worked-pct`, `data-divider-pct`
+(UNCLAMPED), `data-worked-h`, `data-committed-h`, `data-live-h` and `data-state`. Functionality
+owns and emits them; Visuals stays geometry-neutral; Verifier asserts against them. These values
+must stay accurate **below the texture floor**, where the hatch is not drawn — otherwise the
+invariant "no hatch right of the worked front" silently stops testing on exactly the dense bars
+where errors hide. Fills are composed by a single helper, `activeBarFill(T, bc, W, C, state,
+renderPx)`, so the two lanes never edit the same line.
 
 #### 7. Sequencing
 
-**Item 8+11 — one fix, not two.** Thirteen live-hours computations across three platforms in three
-variants (guarded open pause / unguarded / no open-pause term), none with a `frozenAtMs` branch.
-Land `liveElapsedHours(clockIn, pausedAt, frozenAtMs, totalPausedMs, pausedMsAtCheckpoint)` in
-`statsMath.js` (pure, natural home), migrate all 13 sites, migrate the 5 iOS sites that route
-around the existing `HoursCalculator.swift:45`, add the Android equivalent, and add a build-time
-check that no live-hours math exists outside the helper. Adding a `frozenAtMs` branch in 13 places
-without dedup guarantees a fourth variant next quarter.
+**Item 8+11 — one fix, not two.** A dozen-plus live-hours computations across three platforms in
+three variants (guarded open pause / unguarded / no open-pause term), none with a `frozenAtMs`
+branch. **Re-enumerate the sites at execution time rather than trusting a count** — a site using
+`curPausedMs` was found uncatalogued after the first census, so "thirteen" is a floor, not a fact.
+Land a shared `liveElapsedHours(clockIn, pausedAt, frozenAtMs, totalPausedMs, pausedMsAtCheckpoint)`
+in `statsMath.js` (pure, natural home), migrate every site, migrate the iOS sites that route around
+the existing `HoursCalculator.swift` helper, add the Android equivalent, and add a build-time check
+that no live-hours math exists outside the helper. **That check must be confirmed RED on the
+pre-migration tree** — a guard nobody has seen fail is not evidence.
 
-*Lands AFTER the geometry rewrite ships* (preexisting defect class, not a new-work regression) but
-*before* the merge to master, since it touches the same production code. Note the web side is
-further along than assumed: `:5733` already filters frozen clocks from `active`, `:5742`-`:5758`
-is the authorized freeze path, `:8869` returns `"held"`, `:8895` has `frozenAtMs || Date.now()`.
+Split across two commits so each has its own verification point: (1) land the helper and migrate
+every site with behaviour unchanged, since nothing has `frozenAtMs` set at that moment; (2) add the
+`frozenAtMs` handling. **The helper lands FIRST, before the geometry rewrite**, so new session math
+calls it rather than becoming a fourth variant; the migration of existing sites follows the
+geometry work.
+
+Two things shift the estimate favourably: the web freeze path is already partly built (frozen
+clocks are filtered from `active`, `updateJobSession` is the authorized write path, `liveBadgeFor`
+returns `"held"`, and `shrunkStartH` already reads `frozenAtMs || Date.now()`). And
+`sessionElapsedMs` and the drag-rebaseline `pausedNow` baseline on `pausedMsAtCheckpoint`
+deliberately — they are NOT copies, do not sweep them in.
 
 **Deferred to their own pass, non-blocking:** item 9 (`actualHours ~ 0` from the `jobRefs` join
 gap) and item 10 (`applyWorked` swallows downward corrections).
