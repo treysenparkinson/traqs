@@ -1,6 +1,6 @@
 # Dynamic Schedule — Handoff / Status
 
-Last updated: 2026-09-17
+Last updated: 2026-09-18
 
 ## What this feature does
 
@@ -107,85 +107,115 @@ deployed) and is also present on `feature/dynamic-schedule` via
    **This fix has been pushed but not yet re-tested/confirmed by the
    user.**
 
-## STATE AS OF END OF DAY 2026-09-17 — READ THIS FIRST
+## STATE AS OF 2026-09-18 — READ THIS FIRST
 
-Branch tip: **`a78e91d`** on `feature/dynamic-schedule`, working tree clean,
-build verified (`check-function-imports` exit 0, `vite build` exit 0).
+Branch tip: **`c2b2ad1`** on `feature/dynamic-schedule`. **Pushed through `25aa00b` only** —
+`a78e91d`, `1480894` and `c2b2ad1` are LOCAL, origin is 3 behind. Nothing merged to
+master. PR #1/#2 do not contain any of this.
 
-**Pushed through `25aa00b` only.** `a78e91d` is LOCAL — `origin` is behind by
-that one commit. Nothing merged to master. PR #2 is open and does **not**
-contain tonight's work.
+Three worktrees, all synced to `c2b2ad1`:
 
-Tonight's commit, on top of the pushed tip:
+| Worktree | Branch | Owns |
+|---|---|---|
+| `C:/Users/treysen/traqs-func` | `feature/dynamic-schedule` | geometry, session logic, `timeclock.js` |
+| `C:/Users/treysen/traqs-visual` | `…-visuals` | live bar + drain mask appearance, session states |
+| `C:/Users/treysen/traqs-verify` | `…-verify` | integration + QA; serves the merged build on **8888** |
 
-| SHA | Commit |
-|---|---|
-| `a78e91d` | schedule: collapse the live bar into its reservoir when the block is today |
+`a78e91d` carries the collapse behaviour, the continuous left-edge glide, the clock-in
+teleport guard, and the DONE state (planned-position restore on approve + hatched fill +
+badge).
 
-It carries four things: the collapse behaviour (A/C), the continuous left-edge
-glide (D), the clock-in teleport guard against inverted blocks, and the DONE
-state (planned-position restore on approve + hatched fill + badge).
+> `tzf8ivwbh` was repaired in S3 on 2026-09-17 — its block had been destroyed by the
+> teleport bug (`startHour === endHour === 15.5333`) and was rebuilt from its own `hpd`
+> to **10:08 → 17:00**. **The repair is LIVE DATA that no commit records.** It exists only
+> in `orgs/MTX2026TRAQS/tasks.json`. S3 versioning is enabled, so restoring that object
+> from an earlier version silently undoes it and the op goes back to zero width, where the
+> next clock-in starts shoving it right again. `tools/repair-op-hours.mjs <opId> --apply`
+> re-applies it; run without `--apply` first for a dry run.
 
-`tzf8ivwbh` was repaired in S3 the same evening — its block had been destroyed
-by the teleport bug (`startHour === endHour === 15.5333`) and was rebuilt from
-its own `hpd` to **10:08 → 17:00**. See "Known bugs" for what caused it.
+### Bug 1 — native clock-ins built no session. FIXED 2026-09-18 (server-side derivation)
 
-> **The repair is LIVE DATA that no commit records.** It exists only in
-> `orgs/MTX2026TRAQS/tasks.json`. S3 versioning is enabled on the bucket, so
-> restoring that object from an earlier version — for any reason — silently
-> undoes the repair and puts the op back to zero width, where the next clock-in
-> will start shoving it right again. `tools/repair-op-hours.mjs <opId> --apply`
-> re-applies it; run it without `--apply` first for a dry run.
+**The kiosk diagnosis in the previous revision of this doc was wrong.** Corrected:
 
-### Known bugs — OPEN, both diagnosed, neither fixed
+iOS (`APIService.swift:598`) and Android (`ApiService.kt:146`) both call the `jobClockIn`
+action correctly but post **only the seven job fields** — no `sessionId`, no
+`reservoirOpId`, no `sessionSnapshot`. The server stores those only when sent
+(`timeclock.js`, conditional spreads), so a phone clock-in produced the 7-key
+`activeJobClock` with `drainCheckpoint` **absent**, and the whole feature — live bar,
+reservoir drain, cascade — silently did nothing for that worker.
 
-1. **Kiosk/iOS job clock-in creates no session.** NOT a regression, and not
-   caused by any commit. A job clock-in made from the kiosk path stores an
-   `activeJobClock` with only seven keys (`clockIn`, `jobId`, `panelId`,
-   `opId`, and the three titles) — no `sessionId`, no `reservoirOpId`, no
-   `drainCheckpoint`, no `sessionSnapshot`. The whole dynamic-schedule feature
-   then silently does nothing for that worker: no live bar, no drain, no
-   cascade.
+What sent the earlier diagnosis wrong: `activeClockIn.source` read `"kiosk"` on the
+affected record, but **that field is the PAY clock's source** (`timeclock.js` `clockIn` /
+`payClockIn`). It says nothing about which client made the *job* clock-in. The
+absent-vs-null reasoning was sound; the inference from `source` was not.
 
-   The tell is `drainCheckpoint` being **absent** rather than null — the server
-   writes it unconditionally whenever `sessionId` arrives
-   (`timeclock.js`, `jobClockIn`), so its absence proves no `sessionId` was
-   sent. Both web paths (`doClockIn` ~19422 and `handleStartJob` ~20507) DO
-   send all three session fields, and the server destructure and whitelist are
-   intact, so the call came from neither. `activeClockIn.source` read `"kiosk"`
-   on the affected record.
+**Fix:** `jobClockIn` now derives all three fields when the client sends none
+(`deriveJobSession`, module scope in `timeclock.js`). Chosen over porting the logic into
+Swift and Kotlin because the server has the same data, it needs no native build, and every
+future client gets a session for free — extending the principle `drainCheckpoint` already
+followed. A client that DOES send them stays authoritative.
 
-   Distinguishing absent from null is the whole diagnosis — do not collapse the
-   two. `tools/diag-session.mjs` currently reports both as "REAL BUG" and needs
-   correcting.
+Note the asymmetry, and do not collapse it: **absent `reservoirOpId` means "derive";
+explicit `null` means a team check ran and said no.** Since this fix, a stored
+`reservoirOpId: null` is a decision, not a gap.
 
-   Decision still needed: teach the kiosk/iOS paths to build a session, or
-   surface "no session — drain unavailable" instead of failing quietly.
+Not covered by this fix: the **initial teleport** (`runClockCascade(..., isInitial=true)`,
+`TRAQS.jsx`) still only runs in the web clock-in handler. A server-derived session gets the
+live bar, the drain mask and the cascade — the 5s tick iterates *all* people with an
+`activeJobClock`, so any open web client drives them — but not the teleport-to-clock-in
+when the op is scheduled elsewhere. Separate, smaller fix.
 
-2. **DONE badge renders glued to the bar label** ("DONEDevelopement",
-   "DONEPhase 1"). Cause NOT yet established. Both badges carry
-   `marginRight: 6` and both parent bars are `display: "flex"` with no `gap`,
-   so the source says a 6px gap should exist and the rendered DOM disagrees.
-   Needs a DOM inspection before any change — three rounds were lost earlier in
-   this feature to theorising about geometry that the DOM settled in one step.
+**Also fixed in the same pass** (both `TRAQS.jsx`, both missed by `f31ccd2`):
+`computeCascadePushes` and `buildSessionSnapshot` compared teams with
+`(op.team || []).includes(String(personId))`, which coerces only the *needle* — a team
+stored as `[5]` never matches. In `computeCascadePushes` that empties the candidate list,
+so **no cascade runs at all**; in `buildSessionSnapshot` it empties the snapshot, so
+**revert-on-deny silently restores nothing**. Both now use `onTeam`.
 
-   Suspects, cheapest first:
-   - **A stale build in the inspected session.** Promote this above the others:
-     `netlify dev` will serve a populated `dist/` instead of proxying to vite
-     (`publish = "dist"`, and `npm run dev` exists to `rimraf dist` first). This
-     project has already lost time to that twice tonight in a different
-     disguise, and it is the one suspect under which the source genuinely CAN
-     disagree with the DOM — which is exactly the symptom. Clear `dist`, rebuild
-     clean, re-inspect. If the gap appears, the other two are moot.
-   - The badge landing inside a nested non-flex wrapper.
-   - The label span's `flex: 1` plus the bar's `overflow: hidden` swallowing the
-     margin at narrow widths.
+`tools/diag-session.mjs` collapsed absent and null through `?? null` in its verdict and so
+reported "REAL BUG" on any record that simply had no session. Corrected, and taught the
+post-derivation semantics.
 
-   **Ownership note:** styling is the Visuals session's lane, but this element
-   is NOT its code — the DONE badge landed after it was stood down, and it has
-   never seen the element. `marginRight: 6` on a flex child is not a pattern it
-   introduced. Whoever assigns this should expect it to be read cold; "in your
-   lane" and "your code" are different claims and only the first is true here.
+### Bug 2 — DONE badge spacing. UNRESOLVED, not reproducible from any committed state
+
+Reported as "DONEDevelopement" / "DONEPhase 1" — no gap between badge and label.
+**Three sessions, four independent routes, agree the committed source is clean:**
+
+- The badge is a **pure addition** in `a78e91d` (`+` lines, no `-` counterpart at either
+  site) and has never been committed without `marginRight: 6`.
+  `git log --all -S` over the badge markup returns nothing else.
+- Measured verbatim in real Chrome: **6.00px** day mode, **18.00px** week/month
+  (`marginRight: 6` plus the label's `paddingLeft: 12`).
+- Badge is a **direct child** of the `display: flex` bar at both sites (the resize-handle
+  div opens and closes before it); React conditionals and fragments emit no DOM nodes, so
+  no wrapper can appear at runtime that isn't in the JSX.
+- A stale *artifact* renders **no badge at all**, not a glued one — `traqs-visual/dist`
+  (built 11:04, before the badge existed) contains zero DONE bar badges.
+- The LIVE/HELD/LUNCH badges carry no `marginRight`, but are **not** a defect: `liveBarStyle`
+  puts `gap: bare ? 0 : 6` on the container with `bare = widthPx < 44`, and the badges
+  render only behind `_livePx >= LIVE_BAR_LABEL_MIN_PX`, which **is the same 44**. One value
+  feeds both, so they cannot drift apart and the badge cannot render while bare.
+
+**The distinction that cost the time, worth reading before re-opening this:** "stale build"
+was read as a stale *artifact*, and that was eliminated thoroughly. The live case is a
+**live dev server compiling an unfinished working tree** — `netlify dev` proxies to vite,
+which compiles from disk. That leaves no artifact and `git -S` structurally cannot see it.
+Two different failure modes sharing one name. There is an uncommitted window of 5h40m
+between `25aa00b` (11:22) and `a78e91d` (17:02) on the day the badge was authored, which
+none of the closures above reaches into.
+
+That hypothesis is **falsifiable from the screenshot alone**, because the week/month
+label's `paddingLeft: 12` dates to `ddc4ca9` (2026-04-10), four months before the window:
+
+| If the intermediate lacked `marginRight: 6` | day mode | week/month |
+|---|---|---|
+| resulting gap | **0px — glued** | **12px — still separated** |
+
+So **which view decides it**. Glued in day mode ⇒ the window explains it, nothing to fix.
+Glued in week/month ⇒ the window is out, and every suspect is dead — a genuinely open
+defect. Deferred pending a fresh hard-refreshed capture; **do not change badge code** until
+then.
+
 
 ### Deferred, by explicit decision
 
