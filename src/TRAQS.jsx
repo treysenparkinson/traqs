@@ -17491,6 +17491,11 @@ ${jobsCtx || "No jobs found."}`;
                     : _liveClocks.some(jc => jc.frozenAtMs) ? "held"
                     : _liveClocks.some(jc => jc.pausedAt) ? "paused"
                     : isLive ? "running"
+                    // Nobody on the clock, but work happened: the hatch is locked and the cursor
+                    // keeps opening idle behind it (§3a, §3d). Survives clock-out because the extent
+                    // comes from committed hours, not from the live clock -- producedFor and
+                    // loggedHours both outlive the session that produced them.
+                    : _barWorkedPct > 0 ? "worked"
                     : "scheduled";
                   return [<div key={barKey}
                     data-worked-pct={_barWorkedPct} data-divider-pct={_barCursorPct} data-raw-worked-pct={_barRawWorkedPct} data-worked-h={_barWorkedH} data-committed-h={_barCommittedH} data-live-h={_barLiveH} data-state={_barState}
