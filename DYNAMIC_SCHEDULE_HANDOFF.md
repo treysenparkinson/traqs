@@ -116,7 +116,7 @@ step is Trey's green light on the hatched-render checkpoint, then the geometry r
 
 | Lane | Worktree | Branch | SHA on origin |
 |---|---|---|---|
-| Functionality / integration | `traqs-func` | `feature/dynamic-schedule` | **`9d6f023`** |
+| Functionality / integration | `traqs-func` | `feature/dynamic-schedule` | tip is this doc's own commit; last CODE change **`9d6f023`** |
 | Visuals | `traqs-visual` | `feature/dynamic-schedule-visuals` | **`79cfc75`** |
 | Verifier | `traqs-verify` | `feature/dynamic-schedule-verify` | **`87c4b82`** |
 
