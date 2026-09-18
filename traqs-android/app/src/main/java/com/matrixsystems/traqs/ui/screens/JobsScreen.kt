@@ -30,6 +30,7 @@ import androidx.navigation.NavHostController
 import com.matrixsystems.traqs.models.*
 import com.matrixsystems.traqs.services.AppState
 import com.matrixsystems.traqs.services.BreakReminderScheduler
+import com.matrixsystems.traqs.services.HoursCalculator
 import com.matrixsystems.traqs.services.parseFlexibleISO
 import com.matrixsystems.traqs.ui.navigation.Screen
 import com.matrixsystems.traqs.ui.theme.parseColor
@@ -1254,12 +1255,14 @@ private fun MetricRow(label: String, value: String, sub: String? = null) {
 
 private fun elapsedLabel(jc: ActiveJobClock?, now: Long): String {
     if (jc == null) return "—"
-    val start = parseFlexibleISO(jc.clockIn) ?: return "—"
-    var ms = (now - start).toDouble()
-    ms -= jc.totalPausedMs ?: 0.0
-    jc.pausedAt?.let { p ->
-        parseFlexibleISO(p)?.let { ms -= (now - it).toDouble() }
-    }
+    if (parseFlexibleISO(jc.clockIn) == null) return "—"
+    val ms = HoursCalculator.liveElapsedHours(
+        clockIn = jc.clockIn,
+        pausedAt = jc.pausedAt,
+        frozenAtMs = jc.frozenAtMs,
+        totalPausedMs = jc.totalPausedMs,
+        now = now,
+    ) * 3_600_000.0
     val secs = max(0, (ms / 1000).toInt())
     return "%dh %dm %ds".format(secs / 3600, (secs % 3600) / 60, secs % 60)
 }

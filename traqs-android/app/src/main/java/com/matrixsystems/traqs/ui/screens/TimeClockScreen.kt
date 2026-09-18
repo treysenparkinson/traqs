@@ -23,6 +23,7 @@ import com.matrixsystems.traqs.models.ActiveJobClock
 import com.matrixsystems.traqs.models.OrgSettings
 import com.matrixsystems.traqs.models.TRAQSJob
 import com.matrixsystems.traqs.services.AppState
+import com.matrixsystems.traqs.services.HoursCalculator
 import com.matrixsystems.traqs.services.parseFlexibleISO
 import com.matrixsystems.traqs.ui.theme.traQSColors
 import kotlinx.coroutines.delay
@@ -137,15 +138,13 @@ fun TimeClockScreen(
 
 private fun computeLiveRunningHours(jc: ActiveJobClock?, now: Long): Double {
     if (jc == null) return 0.0
-    val start = parseFlexibleISO(jc.clockIn) ?: return 0.0
-    var ms = (now - start).toDouble()
-    ms -= jc.totalPausedMs ?: 0.0
-    val pausedAt = jc.pausedAt
-    if (!pausedAt.isNullOrEmpty()) {
-        val pStart = parseFlexibleISO(pausedAt)
-        if (pStart != null) ms -= (now - pStart).toDouble()
-    }
-    return max(0.0, ms / 1000 / 3600)
+    return HoursCalculator.liveElapsedHours(
+        clockIn = jc.clockIn,
+        pausedAt = jc.pausedAt,
+        frozenAtMs = jc.frozenAtMs,
+        totalPausedMs = jc.totalPausedMs,
+        now = now,
+    )
 }
 
 // Weekly hours = sum of loggedHours on jobs the current user is on + live running.
@@ -405,12 +404,14 @@ private fun RunningEntryCard(
 ) {
     val c = traQSColors
     val elapsedLabel = remember(jobClock, now) {
-        val start = parseFlexibleISO(jobClock.clockIn) ?: return@remember "—"
-        var ms = (now - start).toDouble()
-        ms -= jobClock.totalPausedMs ?: 0.0
-        jobClock.pausedAt?.let { p ->
-            parseFlexibleISO(p)?.let { ms -= (now - it).toDouble() }
-        }
+        if (parseFlexibleISO(jobClock.clockIn) == null) return@remember "—"
+        val ms = HoursCalculator.liveElapsedHours(
+            clockIn = jobClock.clockIn,
+            pausedAt = jobClock.pausedAt,
+            frozenAtMs = jobClock.frozenAtMs,
+            totalPausedMs = jobClock.totalPausedMs,
+            now = now,
+        ) * 3_600_000.0
         val secs = max(0, (ms / 1000).toInt())
         "%d:%02d:%02d".format(secs / 3600, (secs % 3600) / 60, secs % 60)
     }

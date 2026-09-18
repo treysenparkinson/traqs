@@ -27,17 +27,23 @@
 //
 // Run: node scripts/check-live-hours.mjs [--root src]
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, relative } from "node:path";
 
+// Web and Android, because the duplication was never confined to one platform —
+// the missing open-pause term was written independently on all three. iOS is not
+// scanned: Swift cannot be built on every machine this runs on, and a check that
+// silently skips a platform is worse than one that says it does not cover it.
 const rootArg = process.argv.indexOf("--root");
-const ROOT = rootArg === -1 ? "src" : process.argv[rootArg + 1];
+const ROOTS = rootArg === -1
+  ? ["src", "traqs-android/app/src/main/java"]
+  : [process.argv[rootArg + 1]];
 const FIELD = "totalPausedMs";
 const EXEMPT = /live-hours-exempt:/;
 
-// Comments are stripped so a mention in prose never trips the check, but the
-// exemption marker is read from the ORIGINAL text for the same reason.
-// Comments only, and blanked rather than removed so line numbers stay true.
+// Comments only, blanked rather than removed so line numbers stay true. A
+// mention of the field in prose never trips the check; the exemption marker is
+// read back from the ORIGINAL text for the same reason.
 //
 // Strings are deliberately NOT stripped. A quote-matching regex cannot survive a
 // 32k-line JSX file — regex literals, apostrophes in prose text and nested
@@ -54,20 +60,25 @@ const stripped = (src) =>
 // Arithmetic, not transport. `totalPausedMs: jc.totalPausedMs` handing the field
 // to the helper is the shape we WANT and must not be flagged; subtracting,
 // dividing or compound-assigning it is the shape that drifts.
+// `?:` is Kotlin's elvis and `0.0` its Double literal, so the second shape has
+// to cover both languages: `(totalPausedMs ?? 0) /` and `(totalPausedMs ?: 0.0) /`.
 const ARITHMETIC = new RegExp(
   `(?:[-+*/]\\s*\\(?\\s*[\\w.?]*\\b${FIELD}\\b)` +      // ... - (jc.totalPausedMs
-  `|(?:\\b${FIELD}\\b[^,;)\\n]*?(?:\\|\\||\\?\\?)\\s*0\\s*\\)?\\s*[-+*/])` + // (totalPausedMs ?? 0) /
+  `|(?:\\b${FIELD}\\b[^,;\\n]*?(?:\\|\\||\\?\\?|\\?:)\\s*0(?:\\.0)?\\s*\\)?\\s*[-+*/])` +
   `|(?:[-+*/]=\\s*[\\w.?]*\\b${FIELD}\\b)`,             // ms -= jc.totalPausedMs
   "");
 
 const files = [];
-(function walk(dir) {
-  for (const e of readdirSync(dir)) {
-    const p = join(dir, e);
-    if (statSync(p).isDirectory()) walk(p);
-    else if (/\.(js|jsx|mjs)$/.test(p)) files.push(p);
-  }
-})(ROOT);
+for (const root of ROOTS) {
+  if (!existsSync(root)) continue;   // a platform checkout may be absent
+  (function walk(dir) {
+    for (const e of readdirSync(dir)) {
+      const p = join(dir, e);
+      if (statSync(p).isDirectory()) walk(p);
+      else if (/\.(js|jsx|mjs|kt)$/.test(p)) files.push(p);
+    }
+  })(root);
+}
 
 let failures = 0, checked = 0, exempted = 0;
 for (const f of files) {
@@ -77,7 +88,7 @@ for (const f of files) {
   const rawLines = raw.split("\n");
   const codeLines = stripped(raw).split("\n");
   // The helper's own body is the one place this arithmetic belongs.
-  const helperAt = codeLines.findIndex(l => l.includes("export function liveElapsedHours"));
+  const helperAt = codeLines.findIndex(l => /(?:export function|fun) liveElapsedHours/.test(l));
   const helperEnd = helperAt === -1 ? -1 : codeLines.findIndex((l, i) => i > helperAt && /^\}/.test(l));
 
   for (let i = 0; i < codeLines.length; i++) {
