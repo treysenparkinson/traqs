@@ -509,7 +509,7 @@ written anywhere in this codebase must be demonstrated RED against a tree that g
 it, before its green run is allowed to mean anything. Not a preference for the schedule work — the
 standard going forward.
 
-Adopted after three instances of one failure shape in a single day, in three different lanes:
+Adopted after four instances of one failure shape in a single day, across every lane:
 
 - **The live-hours build check.** Its first draft stripped string literals before scanning; the
   quote-matching regex derailed on 32k lines of JSX and blanked whole regions. It missed 3 of 9
@@ -521,6 +521,12 @@ Adopted after three instances of one failure shape in a single day, in three dif
 - **`HoursCalculator.liveElapsedHours`.** Its doc comment claimed it returns 0 for a clock "currently
   paused out", which it has no parameter to detect. Four separate readers concluded it was complete
   and wrote their own instead.
+- **A doc comment that drifted off its subject.** New helpers were inserted between `activeBarFill`'s
+  contract comment and `activeBarFill`, leaving the comment sitting ~75 lines above the function it
+  describes and directly above a different one. Nothing broke, the build was green, and the prose
+  still read as correct — it had simply come to describe the wrong thing. **No tool can catch this
+  one at all**, which is why it belongs on the list: the only control is reading the diff before
+  committing instead of treating a green build as evidence the change was right.
 
 Each reported success on work that was not there. A tool, a pixel and a sentence, failing the same
 way. The corollary is that "it passes" and "the diff looks deliberate" are not findings — a wrong
