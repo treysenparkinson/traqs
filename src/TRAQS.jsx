@@ -2366,11 +2366,12 @@ function spentMixRatio(T) {
   return wantsLightText(T.surfaceSolid || T.surface) ? 0.72 : 0.80;
 }
 
+// Flat, no pattern. The diagonal hatch is gone: a DONE bar is a solid spent-colour block,
+// and the hatch was a second way of saying what the muted fill already said. The body is the
+// established spent mix (bar colour toward the surface), so liveBarTextColor still contrasts
+// exactly the colour it is drawn against.
 function spentBarFill(T, barColor) {
-  const surf = T.surfaceSolid || T.surface;
-  const body = mixHex(barColor, surf, spentMixRatio(T));
-  const hatch = hexA(barColor, wantsLightText(surf) ? 0.30 : 0.22);
-  return `repeating-linear-gradient(135deg, ${hatch} 0 5px, transparent 5px 10px), ${body}`;
+  return mixHex(barColor, T.surfaceSolid || T.surface, spentMixRatio(T));
 }
 
 // Text sitting on a spent fill contrasts the SPENT colour, not the original bar
@@ -19301,42 +19302,63 @@ ${jobsCtx || "No jobs found."}`;
           actualEnd: new Date(session.frozenAtMs).toISOString(),
         };
         // sessionSnapshot is the pre-clock-in state captured by buildSessionSnapshot: the plan as
-        // it stood BEFORE any of this session's work moved the left edge. On approve the bar
-        // snaps back to that full planned length and becomes the historical record of what was
-        // scheduled, with the truth about when the work happened in actualStart/actualEnd.
+        // it stood BEFORE any of this session's work moved the left edge. Only its DURATION is
+        // used now — position comes from the approval moment instead. See below.
         //
-        // Guarded exactly as revertSession guards its restore. If the op's LAST move was not made
-        // by this session, someone repositioned it deliberately after the work started -- an admin
-        // dragging a paused bar to another day, another slot, another person's row -- and that
-        // decision outranks the snapshot. Without this, approving would teleport the bar off the
-        // day the admin had just put it on, which reads as losing their edit rather than as a
-        // historical record. Approve and deny run the same GUARD -- but read the restore below before
-        // trusting that they behave identically: they did not, until the startHour skip was removed.
-        const _lastLog = (op.moveLog || [])[(op.moveLog || []).length - 1];
+        // The guard is unchanged and still matches revertSession's. If the op's LAST move was not
+        // made by this session, someone repositioned it deliberately after the work started, and
+        // _sessionOwnsPosition goes false — the snapshot is then not consulted at all and the
+        // duration falls back to the op's own hpd, which is whatever that admin left it at. Their
+        // edit survives in the one dimension the DONE bar still takes from the plan.
         const _sessionOwnsPosition = !!_lastLog && _lastLog.sessionId === session.sessionId;
+        // A DONE bar is a HISTORICAL RECORD, positioned by when the work FINISHED rather than by
+        // where it was planned.
+        //
+        // Full planned DURATION is restored -- a 6.9h op comes back 6.9h wide however little of
+        // it was actually worked -- but the bar is then hung off the approval moment: right edge
+        // at the cursor, left edge one planned duration behind it. It sits entirely in the past,
+        // which is what makes it read as a record rather than as a plan.
+        //
+        // This SUPERSEDES the previous behaviour, which restored the snapshot's POSITION as well
+        // as its size. Duration still comes from sessionSnapshot; position no longer does. The
+        // planned coordinates are kept on the op and in the moveLog for the audit trail, so
+        // nothing is lost -- the visible bar simply stops pretending to be the plan.
+        //
+        // Behaviour B collapses in too: an op clocked into on a future day does NOT come back
+        // finished on that future day. It lands on the day the work was approved.
         const snap = _sessionOwnsPosition ? (session.sessionSnapshot || []).find(s => sameId(s.opId, op.id)) : null;
-        if (snap) {
-          updated = {
-            ...updated,
-            start: snap.start, end: snap.end,
-            // startHour is restored UNCONDITIONALLY, matching revertSession. A conditional skip here
-            // was a real defect: buildSessionSnapshot normalises an absent hour to null, persistShrink
-            // turns that null into a concrete number via its ?? workStartH fallback, and the skip then
-            // left the DONE bar truncated at wherever the work reached -- recording the work instead of
-            // the plan, which is the one thing this restore exists to prevent. Deny reverted the same
-            // op correctly, so the two disagreed precisely when the pre-clock-in hour was null.
-            //
-            // Writing an explicit null is correct: null IS the pre-clock-in value, and opHourRange reads
-            // it as "full working day" via its own fallback. It does couple to the deferred move-handler
-            // work -- see the follow-up list in the handoff doc -- but the answer there is to make the
-            // null-hour state safe, not to have approve quietly decline to restore it.
-            startHour: snap.startHour,
-            // endHour and hpd stay conditional: persistShrink writes neither, so the session cannot
-            // have changed them and there is nothing to restore.
-            ...(snap.endHour != null ? { endHour: snap.endHour } : {}),
-            ...(snap.hpd != null ? { hpd: snap.hpd } : {}),
-          };
-        }
+        const _apprD = new Date();
+        const _apprDS = toDS(_apprD);
+        const _apprH = _apprD.getHours() + _apprD.getMinutes() / 60;
+        // Duration, in priority order: the snapshot's hpd (the planned figure the bar label
+        // shows), then its hour span, then whatever the op currently carries. hpd is preferred
+        // because it is the number an admin recognises as "how long this was meant to take",
+        // and it is what the spec's worked example uses.
+        const _snapSpan = (snap && snap.endHour != null && snap.startHour != null) ? snap.endHour - snap.startHour : null;
+        const _plannedDur = snap?.hpd ?? _snapSpan ?? op.hpd ?? ((op.endHour ?? workEndH) - (op.startHour ?? workStartH));
+        const _dur = Math.max(SHRINK_MIN_REMAINDER_H, Number(_plannedDur) || 0);
+        // Raw wall-clock, not productive-hours walking: the record answers "when was this
+        // finished, and how big was it". Stepping over lunch and non-working hours would put the
+        // left edge at a time no clock ever read. A duration longer than the elapsed day rolls
+        // the start onto earlier dates, which is expected.
+        let _startDS = _apprDS, _startH = _apprH - _dur;
+        while (_startH < 0) { _startDS = addD(_startDS, -1); _startH += 24; }
+        updated = {
+          ...updated,
+          start: _startDS, end: _apprDS,
+          startHour: _startH, endHour: _apprH,
+          hpd: _dur,
+          ...(snap ? { plannedStart: snap.start, plannedEnd: snap.end, plannedStartHour: snap.startHour ?? null, plannedEndHour: snap.endHour ?? null } : {}),
+          moveLog: [...(op.moveLog || []), {
+            fromStart: op.start, fromEnd: op.end, toStart: _startDS, toEnd: _apprDS,
+            fromStartHour: op.startHour ?? null, toStartHour: _startH,
+            fromEndHour: op.endHour ?? null, toEndHour: _apprH,
+            fromHpd: op.hpd ?? null, toHpd: _dur,
+            date: TD, movedBy: loggedInUser?.name || "Admin",
+            reason: "Finished — placed at approval time as a historical record",
+            ...(session.sessionId ? { sessionId: session.sessionId } : {}),
+          }],
+        };
       }
       const newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : updated) }) });
       const finalTasks = session ? recalcBounds(newTasks, loggedInUser?.name || "Admin") : newTasks;
