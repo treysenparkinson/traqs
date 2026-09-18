@@ -699,10 +699,16 @@ const walkProductiveHoursBack = (endH, prodHours, cfg) => {
   let clock = Math.min(Math.max(endH, workStartH), workEndH);
   let left = Math.max(0, prodHours);
   let days = 1, guard = 0;
-  // Sorted defensively before reversing. buildDayWindows already returns them ascending, but
-  // the forward walk does not depend on that order and this one does -- stepping back over
-  // windows out of order double-counts the gap between them. Not worth coupling to an
-  // invariant held elsewhere.
+  // Sorted defensively before reversing. buildDayWindows returns them ascending and the cfg
+  // contract says so, but neither walk should depend on a caller honouring that.
+  //
+  // BOTH walks are order-sensitive, and the forward one is the more dangerous of the two
+  // because it has no such sort. Measured, with break@10:00(15m) and lunch@12:00(30m):
+  // walking forward 6 productive hours from 08:00 gives 14.75 with the windows ascending and
+  // 14.50 with them descending -- its `wEnd <= clock` skip reads an earlier window as already
+  // passed and silently drops its dead time. This walk is immune only because of the sort
+  // below. Do not read this as "forward is safe"; it is unprotected, just not currently fed
+  // out-of-order windows.
   const reversed = [...deadWindows].sort((a, b) => a.start - b.start).reverse();
   while (left > CLOCK_EPS && guard++ < 5000) {
     for (const w of reversed) {
