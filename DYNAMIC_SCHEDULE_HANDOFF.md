@@ -446,7 +446,29 @@ keeps counting through lunch. And **every** variant carried a 56-year bug: `new 
 elapsed-since-1970. All three shapes had it, and all three survived only because each caller
 guarded first. **A shared helper called from 17 sites cannot inherit its callers' guards** — it
 must reject a falsy `clockIn` before parsing. The first draft of the helper had the hole too; the
-test caught it, reading did not. **Re-enumerate the sites at execution time rather than trusting a count.** The census run on
+test caught it, reading did not.
+
+**Both of those are WEB-ONLY, established by porting the grid to the native variants.** Do not
+carry either fix across:
+
+- The native B variants already guard their `pausedAt` parse (`if let` on iOS, `?.let` on Android),
+  so **the NaN defect does not exist on iOS or Android**. The obvious assumption — that a defect
+  found in one platform's copy of an algorithm exists in the others — is wrong here.
+- `clockIn` is a **non-optional String** on both native platforms and both parsers return nil on a
+  bad value, so the falsy-`clockIn` path cannot be reached there at all. Porting the guard would be
+  cargo cult: a branch that cannot execute, justified by a bug from another language's type system.
+
+The general rule this is an instance of: a shared algorithm across three platforms does not imply
+shared defects, because the defects come from the type systems and parsers around it rather than
+from the algorithm. Establish per-platform rather than porting a finding. Both of these came out of
+the grid diff and neither came out of review.
+
+**The guard is per-language and says which languages it covers.** It reads both JS and Kotlin
+arithmetic shapes (`?:` is Kotlin's elvis, `0.0` its Double literal) and was proven RED against the
+pre-migration Kotlin — exactly four sites, no more, no fewer — before going green. Swift is
+**explicitly not scanned** rather than silently skipped, because Swift cannot be built on every
+machine this runs on, and a check that quietly covers two platforms while reading as though it
+covers three is the failure this whole section is about. **Re-enumerate the sites at execution time rather than trusting a count.** The census run on
 2026-09-18 found **17**, not thirteen: 5 web, 8 iOS (including the helper itself), 4 Android. A site using
 `curPausedMs` was found uncatalogued after the first census, so "thirteen" is a floor, not a fact.
 Land a shared `liveElapsedHours({ clockIn, pausedAt, frozenAtMs, totalPausedMs, now })` in
