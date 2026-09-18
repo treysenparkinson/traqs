@@ -202,7 +202,11 @@ const optColor = o => (o && typeof o === "object") ? o.color : null;
 const optIcon = o => (o && typeof o === "object") ? o.icon : null;
 const toOptObjs = names => (names || []).map((o, i) => (o && typeof o === "object") ? o : (o === "—" ? { name: "—" } : { name: o, color: OPT_PALETTE[i % OPT_PALETTE.length], icon: "○" }));
 // Striped overlay used to render the "worked / locked" portion of a bar across all views.
-const WORKED_STRIPE = "repeating-linear-gradient(135deg, rgba(255,255,255,0.18) 0, rgba(255,255,255,0.18) 5px, rgba(0,0,0,0.28) 5px, rgba(0,0,0,0.28) 10px)";
+// WORKED_STRIPE is retired. It drew a hatched "worked so far" overlay from a bar's left edge
+// at zIndex 2 -- behind the label at zIndex 5 -- which is why a DONE badge appeared to have
+// diagonal stripes running through it: the stripes were the bar's own overlay showing past
+// the text. The shrinking left edge now carries that information, so the overlay was saying
+// the same thing twice.
 // True when an op is locked. The MANUAL toggle only (see toggleLock / the padlock
 // in the op modal).
 //
@@ -2416,23 +2420,26 @@ const LIVE_BADGE_LABEL = { running: "LIVE", held: "HELD", paused: "LUNCH" };
 // land on opposite sides of the divide -- the theme builder keeps a separate surfDk
 // for exactly this reason. One function so the ratio cannot drift between the fill
 // and the text that has to contrast it.
-function spentMixRatio(T) {
-  return wantsLightText(T.surfaceSolid || T.surface) ? 0.72 : 0.80;
-}
-
-// Flat, no pattern. The diagonal hatch is gone: a DONE bar is a solid spent-colour block,
-// and the hatch was a second way of saying what the muted fill already said. The body is the
-// established spent mix (bar colour toward the surface), so liveBarTextColor still contrasts
-// exactly the colour it is drawn against.
+// A finished bar is muted toward DONE_MUTE -- the same grey barPaint already uses for Finished
+// work -- rather than washed toward the page surface.
+//
+// The surface mix it replaces sat 72-80% of the way to the background, which left a DONE bar
+// technically present and visually absent. Grey at 0.8 keeps a trace of the bar's own hue so a
+// row of finished ops still reads as distinct jobs, while sitting clearly apart from the row
+// behind it in both light and dark themes.
+//
+// Flat, no pattern: see WORKED_STRIPE above for why the hatch is gone.
+const SPENT_MUTE_RATIO = 0.8;
 function spentBarFill(T, barColor) {
-  return mixHex(barColor, T.surfaceSolid || T.surface, spentMixRatio(T));
+  return mixHex(barColor, DONE_MUTE, SPENT_MUTE_RATIO);
 }
 
-// Text sitting on a spent fill contrasts the SPENT colour, not the original bar
-// colour -- the two can land on opposite sides of the crossover.
+// Text on a spent fill contrasts the SPENT colour, not the bar's original one -- the two can
+// land on opposite sides of the light/dark crossover. Derived from spentBarFill rather than
+// restated, so the fill and the text sitting on it cannot drift apart.
 function liveBarTextColor(T, barColor, state = "running") {
   if (state === "running") return accentText(barColor);
-  return accentText(mixHex(barColor, T.surfaceSolid || T.surface, spentMixRatio(T)));
+  return accentText(spentBarFill(T, barColor));
 }
 
 // The reservoir's drained portion. It covers the block from its left edge up to the
@@ -11889,7 +11896,6 @@ ${jobsCtx || "No jobs found."}`;
                   const _workedPctOfSeg = _segCalDays > 0 ? (_segWorkedDays / _segCalDays) * 100 : 0;
                   return <div key={si} className={isFirst ? "anim-gantt-bar" : undefined} style={{ position: "absolute", top: 6, left: x, width: w, height: rH - 12, borderRadius: T.radiusXs, background: barBg, border: `1.5px solid ${barColor}`, borderRight: !isLast ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`, borderLeft: !isFirst ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`, cursor: can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", overflow: "hidden", zIndex: r.level === 2 ? 5 : 4, boxShadow: isExp ? `0 2px 8px ${barColor}44` : "none", opacity: isDragging ? 0 : 1, transition: isDragging ? "none" : "opacity 0.15s" }}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; handleDrag(e, r, "move"); } }} onContextMenu={e => handleCtx(e, r)}>
-                    {_workedPctOfSeg > 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${_workedPctOfSeg}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", borderTopLeftRadius: isFirst ? T.radiusXs : 0, borderBottomLeftRadius: isFirst ? T.radiusXs : 0, zIndex: 2 }} />}
                     {isFirst && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: "rgba(255,255,255,0.15)", borderRadius: T.radiusXs - 1 }} />}
                     {isFirst && can("moveJobs") && ws.workedHpd === 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {isLast && can("moveJobs") && !ws.isFullyWorked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
@@ -12092,7 +12098,6 @@ ${jobsCtx || "No jobs found."}`;
                         onClick={hasSubs ? () => toggleRow(r.id) : undefined}
                         style={{ position: "absolute", top: (rowH - barH) / 2, left: sL, width: sW, height: barH, background: barColor + "dd", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", boxSizing: "border-box", cursor: hasSubs ? "pointer" : "default", borderRight: !isLast ? `2px dashed rgba(255,255,255,0.4)` : undefined, borderLeft: !isFirst ? `2px dashed rgba(255,255,255,0.4)` : undefined, zIndex: 3 }}
                       >
-                        {_workedPctOfSeg > 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${_workedPctOfSeg}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", zIndex: 2 }} />}
                         {isFirst && hasSubs && (
                           <svg width="9" height="9" viewBox="0 0 10 10" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", color: "rgba(255,255,255,0.85)", flexShrink: 0, marginLeft: 5 }}>
                             <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -17244,13 +17249,6 @@ ${jobsCtx || "No jobs found."}`;
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
                     style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, minWidth: _wFirst > 0 ? 2 : 0, height: rH - 8, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: isPto ? `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${bc}` : bar.task?.status === "Finished" ? spentBarFill(T, bc) : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
                     onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
-                    {!isPto && ws && ws.workedFraction > 0 && _wFirst > 0 && (() => {
-                      const _segWorked = Math.max(0, Math.min(_workedRemainingBudget, _wFirst));
-                      _workedRemainingBudget = Math.max(0, _workedRemainingBudget - _segWorked);
-                      const pctOfDiv = _wFirst > 0 ? (_segWorked / _wFirst) * 100 : 0;
-                      if (pctOfDiv <= 0) return null;
-                      return <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pctOfDiv}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", borderTopLeftRadius: T.radiusXs, borderBottomLeftRadius: T.radiusXs, zIndex: 2 }} />;
-                    })()}
                     {!_isNarrowBar && can("moveJobs") && !barLocked && !_dragBlocked && !(ws && ws.workedHpd > 0) && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {!_isNarrowBar && barSegs.length === 1 && _endsInView && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="6.5" fill="rgba(255,255,255,0.25)"/><polyline points="3,6.5 5.5,9 10,4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
@@ -17306,13 +17304,6 @@ ${jobsCtx || "No jobs found."}`;
                       onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
                       style={{ position: "absolute", top: 4, left: tailX, width: tailW, minWidth: isPto2 ? 0 : 2, height: rH - 8, boxSizing: "border-box", borderRadius: isPto2 ? T.radiusXs : Math.min(T.radiusXs, _tailPx / 2), background: isPto2 ? `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${bc2}` : bc2, border: isBarSelected ? `2px solid #fff` : isPto2 ? `1.5px solid ${bc2}` : _tailPx < 8 ? "none" : `${_tailPx < 16 ? 1 : 2}px dashed ${bc2}cc`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : _dragBlocked ? "not-allowed" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
                       onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
-                      {!isPto2 && ws && _workedRemainingBudget > 0 && _tailWNum > 0 && (() => {
-                        const _segWorked = Math.max(0, Math.min(_workedRemainingBudget, _tailWNum));
-                        _workedRemainingBudget = Math.max(0, _workedRemainingBudget - _segWorked);
-                        const pctOfDiv = _tailWNum > 0 ? (_segWorked / _tailWNum) * 100 : 0;
-                        if (pctOfDiv <= 0) return null;
-                        return <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pctOfDiv}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", zIndex: 2 }} />;
-                      })()}
                       {isLastSeg && _tailPx >= 12 && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: Math.max(3, Math.min(10, _tailPx / 3)), cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     </div>;
                   })];
