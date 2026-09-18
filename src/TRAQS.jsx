@@ -2434,6 +2434,68 @@ function spentBarFill(T, barColor) {
   return mixHex(barColor, DONE_MUTE, SPENT_MUTE_RATIO);
 }
 
+// The grey both in-progress regions sit on. A step AWAY from the row surface, not a mix
+// toward it: mixing toward the surface is what left a DONE bar "technically present and
+// visually absent", and idle is the region most exposed to that failure because low
+// presence is exactly what it conveys. So it carries two bounds, not one -- far enough
+// from the row to still read as a bar, far enough from DONE to separate from it.
+//
+// Step direction asks the SURFACE, never T.colorScheme, for the reason given above
+// spentBarFill: on a custom theme colorScheme tracks the PAGE while these fills sit on the
+// row, and the two can land on opposite sides of the divide. Same idiom as the theme's own
+// border tokens, blendHex(surf, surfDk ? +x : -x).
+//
+// "Lighter, closer to background" in the palette ruling means PRESENCE, not luminance --
+// read literally it inverts on the two dark ladders, where nearer the row means darker.
+// Stepping away from the surface gives the intended ordering on all four.
+//
+// Measured, in CIE L* across the ten job colours and all four ladders: idle-to-row 13.1
+// at worst (frost), idle-to-DONE 19.8 at worst (custom). Both clear of the ~10 where a
+// boundary stops being comfortable.
+const IDLE_STEP_DK = 0.20, IDLE_STEP_LT = -0.13;
+// Idle keeps a smaller hue trace than DONE's 0.2, so in-progress ops still read as distinct
+// jobs while idle stays the most recessive of the three greys.
+const IDLE_HUE_TRACE = 0.88;
+function idleBarFill(T, barColor) {
+  const surfDk = wantsLightText(T.surface);
+  return mixHex(barColor, blendHex(T.surface, surfDk ? IDLE_STEP_DK : IDLE_STEP_LT), IDLE_HUE_TRACE);
+}
+
+// The worked hatch. 45deg, and that is the point: every other hatch in this file is 135deg
+// -- the off-day row wash, the in-bar PTO fill, the tail's, the purple overlay. The opposite
+// diagonal separates worked from ALL of them rather than only from the PTO fill beside it,
+// and a worked bar next to a PTO bar now visibly cross-hatches instead of merging.
+//
+// Angle rather than period is the knob because period differentiation is weakest exactly
+// where bars are densest: between the texture floor and ~24px only two or three stripes
+// render, and at that density 4/8 against PTO's 6/12 is indistinguishable while a direction
+// flip is instant.
+//
+// The stripe is the bar's own colour STEPPED IN VALUE, not the raw colour. Raw was the
+// obvious reading of "tinted at low alpha" and it fails: idle already carries 12% of the
+// same hue, so a same-hue stripe over it is a hue match with only a small luminance shift,
+// and on the mid-value job colours the hatch all but vanished -- 2.8 L* at its worst. The
+// value step makes the delta independent of hue: 10.5 L* at worst, 16.6 at best, tight
+// across all four ladders, at the lowest alpha that clears 10 everywhere. Tinted, never the
+// flat black that read as grime and got the original WORKED_STRIPE retired.
+const HATCH_BAND = 4, HATCH_PERIOD = 8, HATCH_STEP = 0.40, HATCH_ALPHA = 0.30;
+// Below this the stripes cannot resolve -- two of them at 16px, one at 8 -- so texture stops
+// carrying worked-vs-idle and a value step takes over. Reuses the existing _thinBar
+// threshold rather than inventing one.
+const HATCH_MIN_PX = 16;
+function workedHatchLayer(T, barColor) {
+  const surfDk = wantsLightText(T.surface);
+  const s = hexA(blendHex(barColor, surfDk ? HATCH_STEP : -HATCH_STEP), HATCH_ALPHA);
+  return `repeating-linear-gradient(45deg, ${s}, ${s} ${HATCH_BAND}px, transparent ${HATCH_BAND}px, transparent ${HATCH_PERIOD}px)`;
+}
+// The sub-floor stand-in for the stripes. Stepped harder than the hatch is (11.1 L* at
+// worst): the region is only a few pixels tall there, so it needs more separation than a
+// full-height bar, not less.
+const SUBFLOOR_STEP_DK = 0.22, SUBFLOOR_STEP_LT = -0.15;
+function workedFlatFill(T, barColor) {
+  return blendHex(idleBarFill(T, barColor), wantsLightText(T.surface) ? SUBFLOOR_STEP_DK : SUBFLOOR_STEP_LT);
+}
+
 // The one place a schedule bar's fill is composed. Call sites pass the three-region geometry --
 // workedPct, the hatched extent, and dividerPct -- the CURSOR, a time position, UNCLAMPED so now
 // past the planned end reads past 100 rather than pinning. Never pass an hours ratio here: the
@@ -2441,12 +2503,68 @@ function spentBarFill(T, barColor) {
 // what those become; this lane owns the call sites and the numbers.
 //
 // `state` is the bar's own state, never a texture: "pto" | "done" | "held" | "paused" |
-// "running" | "scheduled". Texture is a decision made FROM it -- DONE is never inferred back
-// out of a fill, which is what let a DONE bar and a worked bar read the same once before.
+// "running" | "worked" | "scheduled". Texture is a decision made FROM it -- DONE is never
+// inferred back out of a fill, which is what let a DONE bar and a worked bar read the same
+// once before. "worked" is clocked-out-but-hatched; "scheduled" is genuinely untouched.
+//
+// Composed as layered backgrounds on ONE property rather than as child divs. The four
+// absolutely-positioned WORKED_STRIPE overlays this replaces are what drew stripes through
+// the DONE badge from the bar's left edge at zIndex 2 -- the bug that took three sessions to
+// find. A background layer cannot escape its own box, so that class of defect goes away with
+// the technique instead of being fixed again.
+//
+// Layer order is paint order, first on top:
+//   1  opaque right of the cursor       -> the unworked remainder, hiding everything beneath
+//   2  opaque right of the worked front -> flat idle grey, covering the hatch between W and C
+//   3  the hatch, or its value-step stand-in below the texture floor
+//   4  the idle grey as the base colour
+// Left of W layers 1 and 2 are transparent, so the hatch shows on the base.
 function activeBarFill(T, barColor, workedPct, dividerPct, state, renderPx) {
   if (state === "pto") return `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${barColor}`;
   if (state === "done") return spentBarFill(T, barColor);
-  return barColor;
+  // Only a bar that owns worked time carries regions. "worked" is the clocked-out case --
+  // nobody on the clock, hatched extent locked, cursor still advancing and opening the idle
+  // gap behind it (§3a, §3d) -- so it renders exactly as the live states do; what differs is
+  // whether the worked front is still moving, and that is the caller's number, not a texture.
+  //
+  // "scheduled" stays a plain colour block. Genuinely untouched work has no worked front, and
+  // the tail call site is handed the WHOLE bar's percentages while covering a different span,
+  // so drawing regions from them there would put both boundaries in the wrong place. That is
+  // fixed in the geometry commit with per-segment values; until then this branch is what keeps
+  // the tail honest.
+  if (state !== "running" && state !== "held" && state !== "paused" && state !== "worked") return barColor;
+
+  // Clamped for PAINT only. dividerPct arrives unclamped so past-100 can carry the overrun
+  // signal, but a gradient stop outside the box renders as a plausible fully-worked bar
+  // rather than as something visibly wrong. The raw value stays on the data attribute, where
+  // the overrun is still readable and still assertable.
+  const W = Number.isFinite(workedPct) ? Math.max(0, Math.min(100, workedPct)) : 0;
+  const C = Math.max(W, Math.min(100, Number.isFinite(dividerPct) ? dividerPct : 0));
+  if (W <= 0 && C <= 0) return barColor;
+
+  const idle = idleBarFill(T, barColor);
+  const layers = [];
+  if (C < 100) layers.push(`linear-gradient(to right, transparent 0%, transparent ${C}%, ${barColor} ${C}%, ${barColor} 100%)`);
+  if (W < C) layers.push(`linear-gradient(to right, transparent 0%, transparent ${W}%, ${idle} ${W}%, ${idle} 100%)`);
+  if (W > 0) {
+    if (renderPx < HATCH_MIN_PX) {
+      const flat = workedFlatFill(T, barColor);
+      layers.push(`linear-gradient(to right, ${flat} 0%, ${flat} ${W}%, transparent ${W}%, transparent 100%)`);
+    } else {
+      layers.push(workedHatchLayer(T, barColor));
+    }
+  }
+  layers.push(idle);
+  return layers.join(", ");
+}
+
+// Badge and label colour for a bar carrying regions. They are flexStart, so they sit at the
+// bar's LEFT -- which under the three-region model is grey ground, not the op colour that
+// accentText(bc) contrasts. Kept separate from liveBarTextColor because that helper is also
+// what the DONE badge calls, passing the literal "held" to reach its spent-contrast branch;
+// overloading the same state strings would have handed DONE the wrong ground.
+function barLabelColor(T, barColor) {
+  return accentText(idleBarFill(T, barColor));
 }
 
 // Text on a spent fill contrasts the SPENT colour, not the bar's original one -- the two can
