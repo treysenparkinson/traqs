@@ -109,6 +109,100 @@ deployed) and is also present on `feature/dynamic-schedule` via
 
 ## STATE AS OF 2026-09-18 — READ THIS FIRST
 
+### END OF DAY 2026-09-18 — RESUME HERE
+
+**Everything is pushed. Nothing is running. All three lane sessions are released.** The next
+step is Trey's green light on the hatched-render checkpoint, then the geometry rewrite.
+
+| Lane | Worktree | Branch | SHA on origin |
+|---|---|---|---|
+| Functionality / integration | `traqs-func` | `feature/dynamic-schedule` | **`9d6f023`** |
+| Visuals | `traqs-visual` | `feature/dynamic-schedule-visuals` | **`79cfc75`** |
+| Verifier | `traqs-verify` | `feature/dynamic-schedule-verify` | **`87c4b82`** |
+
+`feature/dynamic-schedule` already contains both other lanes — visuals merged at `2d44d4d`,
+verifier at `c6322f3`. **It is the branch to run.** Every working tree was clean at shutdown and
+no lane is mid-anything.
+
+**What works in a browser right now, confirmed by Trey on 2026-09-18:** clock into an op and its
+bar renders three regions — 45deg hatched grey to the worked front, flat idle grey to the cursor,
+op colour beyond. Restart with `cd traqs-func && npm run dev` (that script is
+`rimraf dist && netlify dev`, and the rimraf matters — netlify will otherwise serve a stale
+`dist/`, which has twice produced a symptom that looked like a code bug).
+
+**Known-absent, deliberately — do not file these as defects:**
+- Tails render as plain blocks. The tail call site is handed the WHOLE bar's percentages over a
+  different span, so drawing regions there would put both boundaries in the wrong place.
+- The title label's contrast is wrong where it crosses grounds. It is `flex: 1` and spans all
+  three regions, so no single colour is right. A halo is the agreed direction; the fallback is
+  accepting imperfect contrast, NOT a scrim.
+- Cross-row work only renders on the scheduled row. The worker's own row growing its own hatch
+  (§3a) is geometry-rewrite work.
+
+**Already fixed, do not go looking for it:** the `isLive` vs `reservoirOpId` mismatch is closed at
+`711f190`. It is worth knowing WHY rather than just that it is done, because the same trap is
+waiting elsewhere: `isLive` reads `activeJobClock.opId` (what someone is working) while
+`liveBadgeFor` reads `reservoirOpId` (whose scheduled block drains) against the ROW's person, and
+`deriveJobSession` only sets `reservoirOpId` when the clocked-in person is **on the op's team**.
+They therefore diverge exactly in the cross-row case the model is built around. Any future code
+asking "is this op being worked" must key on `opId`; anything asking "does this row's person drain
+it" must key on `reservoirOpId`. The two are not interchangeable and reading like each other is
+the whole problem. `9d6f023` then made `worked` emit, so a hatch survives clock-out.
+
+#### THE ONE OPEN QUESTION, and it gates the geometry rewrite
+
+**Is the hatch an EXTENT or a RECORD?** Currently `_barWorkedPct` is `ws.workedFraction * 100` —
+worked hours over the estimate. That is an HOURS RATIO being used as a POSITION, the same class of
+bug as the cursor one fixed in `11eb366`. It only looks right when work starts at the planned start
+and runs continuously. On an 08:00-16:00 op clocked into at 14:00 for one hour, the ratio is 12.5%
+so the hatch is drawn across 08:00-09:00 — reporting work in a window where nobody was working, and
+making an idle region before the hatch impossible to draw.
+
+The spec argues for RECORD in three places: §1 defines hatched as "clocked in against **this
+span**", §3a says the row "grows hatched **from the cursor leftward**", and §3d justifies deleting
+`walkProductiveHoursBack` on the grounds that "the hatch already encodes where the work happened" —
+true only under RECORD. Under EXTENT we removed the thing that placed DONE correctly and put
+nothing back.
+
+The data supports RECORD: every row in `productionhours.json` carries `clockIn`, `clockOut`,
+`opId` and `personId`, so actual worked spans are recoverable per op and per person.
+
+Costs, established with both lanes before shutdown. **Rendering is cheap either way** — the layered
+background technique does not care how many spans there are; a record reading is more pairs of hard
+stops in the same gradient list, still one CSS property, still no child elements, so the fill
+signature goes from a scalar to a list and nothing structural moves. **The expensive half is
+verification**: "no hatch right of the worked front" is one boundary, while "no hatch outside any
+recorded span" is a stronger check with several edges to get wrong. Do not pick EXTENT to spare the
+visuals lane; that is not where the cost is.
+
+#### Rebuilding this environment elsewhere
+
+    git clone https://github.com/treysenparkinson/traqs.git traqs && cd traqs
+    git worktree add ../traqs-func   feature/dynamic-schedule
+    git worktree add ../traqs-visual feature/dynamic-schedule-visuals
+    git worktree add ../traqs-verify feature/dynamic-schedule-verify
+
+`tools/` is fully tracked — `diag-session.mjs`, `diag-teams.mjs`, `diag-findop.mjs` and
+`repair-op-hours.mjs` all come down with the clone, nothing to recreate. **Two paths are excluded
+LOCAL-ONLY** via `.git/info/exclude`, which lives in the shared git dir and does NOT survive a
+clone: `shots/` and `tools/verify/`. The second is the Verifier lane's harness, so on a fresh
+machine that directory will be absent and its exclusion will need re-adding, or its contents will
+start showing as untracked. `.env` / `.env.local` are not in the repo either and have to be copied
+across by hand.
+
+Android builds on Windows, which is not obvious because `java` is not on PATH:
+
+    export JAVA_HOME="/c/Program Files/Android/Android Studio/jbr"
+    export ANDROID_HOME="$HOME/AppData/Local/Android/Sdk"
+    cd traqs-android && ./gradlew compileDebugKotlin --console=plain
+
+Do NOT pipe that through `tail` — a pipeline reports the LAST command's status, so a failed build
+exits 0 and reads as success. Redirect to a file and check `$?`.
+
+---
+
+*The paragraph below is from earlier in the day and its SHAs are superseded by the table above.*
+
 Branch tip: **`c2b2ad1`** on `feature/dynamic-schedule`. **Pushed through `25aa00b` only** —
 `a78e91d`, `1480894` and `c2b2ad1` are LOCAL, origin is 3 behind. Nothing merged to
 master. PR #1/#2 do not contain any of this.
