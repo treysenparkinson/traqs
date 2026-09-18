@@ -433,6 +433,14 @@ in the wrong place. Until per-segment values exist, a tail renders as a plain bl
 
 #### 7. Sequencing
 
+> **SCOPE, RESET 2026-09-18 — WEB ONLY THIS PASS.** This section is paused after the web half.
+> It exists to stop the geometry rewrite creating a fourth live-hours variant, and the web helper
+> plus the web `frozenAtMs` commit achieve that. **iOS and Android migration are follow-up work and
+> do not block anything.** They were allowed to become the critical path for the feature they were
+> only meant to unblock — a preexisting defect class outranking the thing actually being built.
+> The priority is the fastest path to a three-region schedule testable in a browser. Anything past
+> the web half needs explicit sign-off, not "while we're here" reasoning.
+
 **Item 8+11 — one fix, not two.** A dozen-plus live-hours computations across three platforms in
 three variants (guarded open pause / unguarded / no open-pause term), none with a `frozenAtMs`
 branch.
@@ -562,6 +570,21 @@ green and throws at runtime.
 
 #### Filed 2026-09-18, non-blocking, do NOT fold into the live-hours pass
 
+**Deferred by the 2026-09-18 scope reset — after web geometry ships and has been tested:**
+
+- **iOS helper migration.** The helper fix was written and stopped mid-flight, uncommitted: `pausedAt`
+  and `frozenAtMs` added, open pause floored, the false doc comment replaced. `pausedAt` deliberately
+  non-optional with no default so the compiler forces all five call sites — the Swift equivalent of
+  the build check. **Not verified by anything**: no Swift toolchain exists on the Windows machine, and
+  it was written by porting web semantics, which is the move the asymmetry rule above warns against.
+  It needs the grid treatment AND a Mac build before it lands.
+- **Android `frozenAtMs` (commit 2).** Android migration itself is done and compiled; only the freeze
+  branch is outstanding. `ActiveJobClock.frozenAtMs` already exists there, so no call site is revisited.
+- **The `Double?` modelling gap.** `liveElapsedHours` returns `Double`, so "zero hours" and "no clock
+  at all" are indistinguishable. Two Android sites parse `clockIn` twice per tick to preserve a "—"
+  fallback the `0.0` return cannot express. Decided to keep `Double`: "no clock" is knowable from the
+  presence of `activeJobClock` at every call site examined. Revisit only with a reason.
+- **The three-region model itself on iOS and Android.** Web first, native after it has been tested.
 - **Can the callers drop their guards?** The 56-year bug (`new Date(null).getTime()` is `0`, so a
   missing `clockIn` reads as elapsed-since-1970) existed in all three variants and was survived only
   because every caller guarded first. `liveElapsedHours` now rejects a falsy `clockIn` itself, which
