@@ -10,7 +10,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
-import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct } from "./statsMath.js";
+import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
@@ -5930,14 +5930,10 @@ Extraction rules:
     const now = Date.now();
     let total = 0;
     for (const jc of clocks) {
-      const started = new Date(jc.clockIn).getTime();
-      if (!Number.isFinite(started)) continue;
-      let h = (now - started) / 3600000 - (jc.totalPausedMs || 0) / 3600000;
-      if (jc.pausedAt) {
-        const pausedSince = new Date(jc.pausedAt).getTime();
-        if (Number.isFinite(pausedSince)) h -= Math.max(0, (now - pausedSince) / 3600000);
-      }
-      total += Math.max(0, h);
+      total += liveElapsedHours({
+        clockIn: jc.clockIn, pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs,
+        totalPausedMs: jc.totalPausedMs, now,
+      });
     }
     return total;
   };
@@ -6899,9 +6895,10 @@ Extraction rules:
     const jc = loggedInUser?.activeJobClock;
     if (!jc?.clockIn) { setTsJobElapsed(""); return; }
     const calc = () => {
-      const totalMs = Date.now() - new Date(jc.clockIn).getTime();
-      const curPausedMs = jc.pausedAt ? (Date.now() - new Date(jc.pausedAt).getTime()) : 0;
-      const netMs = Math.max(0, totalMs - (jc.totalPausedMs || 0) - curPausedMs);
+      const netMs = liveElapsedHours({
+        clockIn: jc.clockIn, pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs,
+        totalPausedMs: jc.totalPausedMs, now: Date.now(),
+      }) * 3600000;
       const h = Math.floor(netMs / 3600000), m = Math.floor((netMs % 3600000) / 60000);
       setTsJobElapsed(`${h}h ${m}m`);
     };
@@ -8974,6 +8971,9 @@ Extraction rules:
   const sessionElapsedMs = (jc, fromMs, nowMs) => {
     if (!jc) return 0;
     const gross = Math.max(0, nowMs - fromMs);
+    // live-hours-exempt: measures from drainCheckpoint, not clockIn, and baselines
+    // the pause on pausedMsAtCheckpoint. A different window on purpose — this is
+    // not a copy of liveElapsedHours and must not be migrated onto it.
     const closed = Math.max(0, (jc.totalPausedMs || 0) - (jc.pausedMsAtCheckpoint || 0));
     // Clamp an open pause to the window: a checkpoint taken mid-pause would
     // otherwise subtract time that fell before the window even opened.
@@ -9165,6 +9165,9 @@ Extraction rules:
       if (!last || last.sessionId === jc.sessionId) return;   // our own persistShrink write
       const nowIso = new Date().toISOString();
       const nowMs = Date.now();
+      // live-hours-exempt: computes the pause total to STORE as the next
+      // pausedMsAtCheckpoint baseline, not elapsed working time. It adds the open
+      // pause rather than subtracting it — the opposite sign to liveElapsedHours.
       const pausedNow = (jc.totalPausedMs || 0) + (jc.pausedAt ? Math.max(0, nowMs - new Date(jc.pausedAt).getTime()) : 0);
       updateJobSessionAction({ personId: p.id, sessionId: jc.sessionId, drainCheckpoint: nowIso, pausedMsAtCheckpoint: pausedNow }, getToken, orgCode).catch(console.warn);
       setPeople(pp => pp.map(x => sameId(x.id, p.id) && x.activeJobClock?.sessionId === jc.sessionId
@@ -18679,7 +18682,10 @@ ${jobsCtx || "No jobs found."}`;
     let cw = null;
     if (jc) {
       const pair = jcMatch ? _opHoursPair(jcMatch.op) : null;
-      const elapsedH = Math.max(0, (Date.now() - new Date(jc.clockIn).getTime()) / 3600000 - (jc.totalPausedMs || 0) / 3600000);
+      const elapsedH = liveElapsedHours({
+        clockIn: jc.clockIn, pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs,
+        totalPausedMs: jc.totalPausedMs, now: Date.now(),
+      });
       const remaining = pair ? Math.max(0, pair.est - pair.logged) : null;
       cw = {
         job: jc.jobTitle || jcMatch?.job?.title || "—",
@@ -31568,8 +31574,13 @@ ${jobsCtx || "No jobs found."}`;
     <FadeOnClose open={!!confirmEndJob} duration={220}>{confirmEndJob && (() => {
       const jc = confirmEndJob.jc || {};
       const ctx = [jc.panelTitle, jc.opTitle].filter(Boolean).join(" › ");
+      // Still needed below for the "Since <time>" line, which shows when the
+      // session began rather than how long it has run.
       const started = jc.clockIn ? new Date(jc.clockIn) : null;
-      const netMs = started ? Math.max(0, Date.now() - started.getTime() - (jc.totalPausedMs || 0) - (jc.pausedAt ? Date.now() - new Date(jc.pausedAt).getTime() : 0)) : 0;
+      const netMs = liveElapsedHours({
+        clockIn: jc.clockIn, pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs,
+        totalPausedMs: jc.totalPausedMs, now: Date.now(),
+      }) * 3600000;
       const elapsed = `${Math.floor(netMs / 3600000)}h ${Math.floor((netMs % 3600000) / 60000)}m`;
       return <div className="anim-modal-overlay" onClick={() => { if (!endJobBusy) setConfirmEndJob(null); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)", zIndex: 10060, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: T.font }}>
         <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 420, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)" }}>

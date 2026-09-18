@@ -150,7 +150,12 @@ data class ActiveJobClock(
     val panelTitle: String? = null,
     val opTitle: String? = null,
     val pausedAt: String? = null,
-    val totalPausedMs: Double? = null
+    val totalPausedMs: Double? = null,
+    // Set server-side while a finish request is awaiting approval. Carried so
+    // every live-hours call site can pass it to HoursCalculator; the helper
+    // currently ignores it, and teaching held sessions to stop accruing is then
+    // a change to that one function rather than to every caller.
+    val frozenAtMs: Double? = null
 ) {
     val isPaused: Boolean get() = pausedAt != null
 }

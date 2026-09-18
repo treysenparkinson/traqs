@@ -618,12 +618,12 @@ class AppState(private val context: Context) : ViewModel() {
         }
         val jc = activeP?.activeJobClock
         if (jc != null) {
-            val started = parseFlexibleISO(jc.clockIn)
-            if (started != null) {
-                val elapsedH = (System.currentTimeMillis() - started) / 3_600_000.0
-                val pausedH = (jc.totalPausedMs ?: 0.0) / 3_600_000.0
-                live = maxOf(0.0, elapsedH - pausedH)
-            }
+            live = HoursCalculator.liveElapsedHours(
+                clockIn = jc.clockIn,
+                pausedAt = jc.pausedAt,
+                frozenAtMs = jc.frozenAtMs,
+                totalPausedMs = jc.totalPausedMs,
+            )
         }
         return minOf(est, base + live) to est
     }
