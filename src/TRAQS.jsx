@@ -8937,6 +8937,72 @@ Extraction rules:
     return { tasks: recalcBounds(result, movedByName), changed: true };
   };
 
+  // Fields that make an op FINISHED, in one place, because there are two approval surfaces and
+  // they had silently diverged:
+  //
+  //   approveFinish (:approveFinish)        the schedule / job-details approve
+  //   adminApproveJobFinish (:22905 button) the chat-bubble approve
+  //
+  // Both toast "Completion approved". Only the first ever repositioned the bar, so approving
+  // from chat set status and nothing else -- leaving the op at whatever coordinates the session
+  // had worked it down to. On screen that is a block lying across the cursor rather than behind
+  // it, which reads as the placement running backwards when in fact it never ran at all.
+  //
+  // Returns fields to SPREAD onto the op. It deliberately does not touch finishRequest or
+  // finishRequests: those are the chat path's own bookkeeping and it merges them itself.
+  const finishedOpFields = (op, movedByName) => {
+    const logged = timeclock
+      .filter(ev => ev.jobRefs?.some(r => sameId(r.opId, op.id)))
+      .reduce((s, ev) => s + (ev.hours || 0), 0);
+    const session = op.pendingSession;
+    // actualHours only when there is something to record. The chat approve also resolves
+    // PANEL-level requests, and a panel matches no timeclock jobRef, so writing it
+    // unconditionally would stamp actualHours: 0 onto every approved panel -- a field that
+    // path has never set.
+    const base = {
+      status: "Finished", pendingFinish: false, pendingSession: undefined,
+      ...(logged > 0 || session ? { actualHours: Math.round(logged * 100) / 100 } : {}),
+    };
+    // No session means no finish-request lifecycle ran for this op -- a job-level finish, or an
+    // op nobody clocked into. Nothing to reposition against, so status only.
+    if (!session) return base;
+
+    const apprD = new Date();
+    const apprDS = toDS(apprD);
+    const apprH = apprD.getHours() + apprD.getMinutes() / 60;
+    const lastLog = (op.moveLog || [])[(op.moveLog || []).length - 1];
+    const sessionOwnsPosition = !!lastLog && lastLog.sessionId === session.sessionId;
+    const snap = sessionOwnsPosition ? (session.sessionSnapshot || []).find(s => sameId(s.opId, op.id)) : null;
+    const snapSpan = (snap && snap.endHour != null && snap.startHour != null) ? snap.endHour - snap.startHour : null;
+    const plannedDur = snap?.hpd ?? snapSpan ?? op.hpd ?? ((op.endHour ?? workEndH) - (op.startHour ?? workStartH));
+    const dur = Math.max(SHRINK_MIN_REMAINDER_H, Number(plannedDur) || 0);
+
+    const walk = walkProductiveHoursBack(apprH, dur, dayWindowCfg);
+    const bdOpts = { workDays: orgSettings.workDays, holidays: orgSettings.holidays };
+    const startDS = walk.days > 1 ? addBD(apprDS, -(walk.days - 1), bdOpts) : apprDS;
+    const startH = walk.startHour;
+    if (walk.clamped) console.warn("finishedOpFields: planned duration exceeds available history; DONE bar clamped at the earliest reachable position", { opId: op.id, duration: dur });
+
+    return {
+      ...base,
+      actualStart: session.clockIn,
+      actualEnd: session.frozenAtMs ? new Date(session.frozenAtMs).toISOString() : undefined,
+      start: startDS, end: apprDS,
+      startHour: startH, endHour: apprH,
+      hpd: dur,
+      ...(snap ? { plannedStart: snap.start, plannedEnd: snap.end, plannedStartHour: snap.startHour ?? null, plannedEndHour: snap.endHour ?? null } : {}),
+      moveLog: [...(op.moveLog || []), {
+        fromStart: op.start, fromEnd: op.end, toStart: startDS, toEnd: apprDS,
+        fromStartHour: op.startHour ?? null, toStartHour: startH,
+        fromEndHour: op.endHour ?? null, toEndHour: apprH,
+        fromHpd: op.hpd ?? null, toHpd: dur,
+        date: TD, movedBy: movedByName,
+        reason: "Finished — placed at approval time as a historical record",
+        ...(session.sessionId ? { sessionId: session.sessionId } : {}),
+      }],
+    };
+  };
+
   // Rebaseline the shrink anchor when someone MOVES the op being worked.
   //
   // The left edge is plannedStart + worked-since-drainCheckpoint, so a drag that rewrites
@@ -10499,7 +10565,10 @@ ${jobsCtx || "No jobs found."}`;
       if (!target) return;
       const updateItem = (items, targetId) => items.map(item => {
         if (sameId(item.id, targetId)) return {
-          ...item, status: "Finished", finishRequest: undefined, pendingFinish: false, finishRequests: resolveReq(item.finishRequests, item),
+          // finishedOpFields carries the placement -- see approveFinish. Spread FIRST so this path's
+          // own finishRequest bookkeeping still wins; the helper deliberately leaves those alone.
+          ...item, ...finishedOpFields(item, loggedInUser?.name || "Admin"),
+          finishRequest: undefined, finishRequests: resolveReq(item.finishRequests, item),
         };
         if (item.subs?.length) return { ...item, subs: updateItem(item.subs, targetId) };
         return item;
@@ -19328,93 +19397,12 @@ ${jobsCtx || "No jobs found."}`;
 
     const approveFinish = (job, panel, op) => {
       toast("Completion approved");
-      const loggedHours = timeclock.filter(e => e.jobRefs?.some(r => r.opId === op.id)).reduce((s, e) => s + (e.hours||0), 0);
       const session = op.pendingSession;
-      let updated = { ...op, status: "Finished", pendingFinish: false, actualHours: Math.round(loggedHours*100)/100, pendingSession: undefined };
-      if (session) {
-        // PLANNED position is what gets rendered; ACTUAL is kept alongside it.
-        //
-        // This used to commit the live bar's footprint (clockIn → frozenAtMs) over the op's
-        // own dates, which destroyed the plan: a block scheduled 10:00–17:00 and worked for
-        // twenty minutes came back as a twenty-minute block, and the schedule no longer
-        // showed what had been scheduled. An admin reads this board as "what I planned",
-        // so the finished bar is restored to its planned coordinates and the truth about
-        // when the work happened moves to actualStart/actualEnd, beside actualHours.
-        // Payroll already reads timeclock, which is unaffected either way.
-        updated = {
-          ...updated,
-          actualStart: session.clockIn,
-          actualEnd: new Date(session.frozenAtMs).toISOString(),
-        };
-        // sessionSnapshot is the pre-clock-in state captured by buildSessionSnapshot: the plan as
-        // it stood BEFORE any of this session's work moved the left edge. Only its DURATION is
-        // used now — position comes from the approval moment instead. See below.
-        //
-        // The guard is unchanged and still matches revertSession's. If the op's LAST move was not
-        // made by this session, someone repositioned it deliberately after the work started, and
-        // _sessionOwnsPosition goes false — the snapshot is then not consulted at all and the
-        // duration falls back to the op's own hpd, which is whatever that admin left it at. Their
-        // edit survives in the one dimension the DONE bar still takes from the plan.
-        const _sessionOwnsPosition = !!_lastLog && _lastLog.sessionId === session.sessionId;
-        // A DONE bar is a HISTORICAL RECORD, positioned by when the work FINISHED rather than by
-        // where it was planned.
-        //
-        // Full planned DURATION is restored -- a 6.9h op comes back 6.9h wide however little of
-        // it was actually worked -- but the bar is then hung off the approval moment: right edge
-        // at the cursor, left edge one planned duration behind it. It sits entirely in the past,
-        // which is what makes it read as a record rather than as a plan.
-        //
-        // This SUPERSEDES the previous behaviour, which restored the snapshot's POSITION as well
-        // as its size. Duration still comes from sessionSnapshot; position no longer does. The
-        // planned coordinates are kept on the op and in the moveLog for the audit trail, so
-        // nothing is lost -- the visible bar simply stops pretending to be the plan.
-        //
-        // Behaviour B collapses in too: an op clocked into on a future day does NOT come back
-        // finished on that future day. It lands on the day the work was approved.
-        const snap = _sessionOwnsPosition ? (session.sessionSnapshot || []).find(s => sameId(s.opId, op.id)) : null;
-        const _apprD = new Date();
-        const _apprDS = toDS(_apprD);
-        const _apprH = _apprD.getHours() + _apprD.getMinutes() / 60;
-        // Duration, in priority order: the snapshot's hpd (the planned figure the bar label
-        // shows), then its hour span, then whatever the op currently carries. hpd is preferred
-        // because it is the number an admin recognises as "how long this was meant to take",
-        // and it is what the spec's worked example uses.
-        const _snapSpan = (snap && snap.endHour != null && snap.startHour != null) ? snap.endHour - snap.startHour : null;
-        const _plannedDur = snap?.hpd ?? _snapSpan ?? op.hpd ?? ((op.endHour ?? workEndH) - (op.startHour ?? workStartH));
-        const _dur = Math.max(SHRINK_MIN_REMAINDER_H, Number(_plannedDur) || 0);
-        // Walked through PRODUCTIVE hours, not raw wall clock. Raw wall clock put a 6.9h bar's
-        // left edge at 03:33 -- outside the day grid (5-21), and in week/month at a NEGATIVE
-        // column offset that drew the bar into the previous day or into the label gutter, wrong
-        // by up to half a column while looking entirely plausible. Walking makes the bar's DRAWN
-        // width equal its planned duration, which is the only claim the DONE bar makes.
-        //
-        // Business days for the date step, so weekends and holidays come from the org's own
-        // calendar rather than from a second rule here. days === 1 means the span fits inside the
-        // finishing day; 2 reaches the previous working day, and so on.
-        const _walk = walkProductiveHoursBack(_apprH, _dur, dayWindowCfg);
-        const _bdOpts = { workDays: orgSettings.workDays, holidays: orgSettings.holidays };
-        const _startDS = _walk.days > 1 ? addBD(_apprDS, -(_walk.days - 1), _bdOpts) : _apprDS;
-        const _startH = _walk.startHour;
-        // Ran out of history before the duration ran out. Clamped at the boundary rather than
-        // looping: a bar drawn at the edge is readable, a hung approve is not.
-        if (_walk.clamped) console.warn("approveFinish: planned duration exceeds available history; DONE bar clamped at the earliest reachable position", { opId: op.id, duration: _dur });
-        updated = {
-          ...updated,
-          start: _startDS, end: _apprDS,
-          startHour: _startH, endHour: _apprH,
-          hpd: _dur,
-          ...(snap ? { plannedStart: snap.start, plannedEnd: snap.end, plannedStartHour: snap.startHour ?? null, plannedEndHour: snap.endHour ?? null } : {}),
-          moveLog: [...(op.moveLog || []), {
-            fromStart: op.start, fromEnd: op.end, toStart: _startDS, toEnd: _apprDS,
-            fromStartHour: op.startHour ?? null, toStartHour: _startH,
-            fromEndHour: op.endHour ?? null, toEndHour: _apprH,
-            fromHpd: op.hpd ?? null, toHpd: _dur,
-            date: TD, movedBy: loggedInUser?.name || "Admin",
-            reason: "Finished — placed at approval time as a historical record",
-            ...(session.sessionId ? { sessionId: session.sessionId } : {}),
-          }],
-        };
-      }
+      // Placement, actualHours and the moveLog entry all live in finishedOpFields, shared with
+      // the chat-bubble approve. The two surfaces had drifted: this one repositioned the bar and
+      // that one did not, so which button an admin pressed decided whether the DONE bar landed
+      // behind the cursor or stayed lying across it.
+      const updated = { ...op, ...finishedOpFields(op, loggedInUser?.name || "Admin") };
       const newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : updated) }) });
       const finalTasks = session ? recalcBounds(newTasks, loggedInUser?.name || "Admin") : newTasks;
       setTasks(finalTasks); saveTasks(finalTasks, getToken, orgCode).catch(console.warn);
