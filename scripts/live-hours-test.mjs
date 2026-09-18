@@ -57,8 +57,22 @@ const cases = [
   { name: "missing clockIn",                args: { clockIn: null, now: NOW },                                           expect: 0 },
   { name: "Date object accepted",           args: { clockIn: new Date(NOW - 2 * H), now: NOW },                          expect: 2 },
   { name: "invalid pausedAt ignored",       args: { clockIn: at(2), pausedAt: "garbage", now: NOW },                     expect: 2 },
-  // Commit 1 accepts frozenAtMs and ignores it; commit 2 makes it freeze.
-  { name: "frozenAtMs ignored (commit 1)",  args: { clockIn: at(2), frozenAtMs: NOW - 1 * H, now: NOW },                  expect: 2 },
+  // HELD sessions stop accruing. frozenAtMs is set while a finish request awaits
+  // approval, and the hours must stop where the bar's geometry already stopped.
+  { name: "HELD freezes at frozenAtMs",     args: { clockIn: at(2), frozenAtMs: NOW - 1 * H, now: NOW },                  expect: 1,   held: true },
+  { name: "HELD, still frozen an hour on",  args: { clockIn: at(3), frozenAtMs: NOW - 2 * H, now: NOW },                  expect: 1,   held: true },
+  { name: "freeze ahead of now cannot add", args: { clockIn: at(2), frozenAtMs: NOW + 5 * H, now: NOW },                  expect: 2 },
+  { name: "freeze before clock-in floors",  args: { clockIn: at(2), frozenAtMs: NOW - 3 * H, now: NOW },                  expect: 0,   held: true },
+  { name: "HELD with a closed pause",       args: { clockIn: at(3), totalPausedMs: 0.5 * H, frozenAtMs: NOW - 1 * H, now: NOW }, expect: 1.5, held: true },
+  // A pause opened AFTER the freeze must not be deducted at all: the clock had
+  // already stopped, so there is nothing for it to take away.
+  { name: "pause opened after freeze",      args: { clockIn: at(3), pausedAt: at(0.5), frozenAtMs: NOW - 1 * H, now: NOW }, expect: 2, held: true },
+  // Frozen while a pause was ALREADY open is a numerical no-op, and deliberately
+  // not marked `held`. Once a pause is open, elapsed and paused advance in
+  // lockstep, so the clock is already stopped and freezing it changes nothing.
+  // Left in as a value case because that equivalence is worth pinning down.
+  { name: "HELD during an open pause",      args: { clockIn: at(4), pausedAt: at(2), frozenAtMs: NOW - 1 * H, now: NOW }, expect: 2 },
+  { name: "no frozenAtMs is unaffected",    args: { clockIn: at(2), frozenAtMs: null, now: NOW },                         expect: 2 },
 ];
 
 let failures = 0;
@@ -77,7 +91,11 @@ for (const c of cases) {
 // differ ONLY when a pause is open. Any other divergence is an unintended
 // behaviour change and the migration is not safe to land.
 console.log("\nvariant agreement");
-const grid = cases.filter(c => c.args.clockIn && c.args.clockIn !== "not-a-date");
+// HELD cases are excluded here and asserted separately below: no legacy variant
+// has a frozenAtMs concept at all, so "does it differ" is not a question about
+// the migration — every one of them differs, which is the point of the change.
+const grid = cases.filter(c =>
+  c.args.clockIn && c.args.clockIn !== "not-a-date" && c.args.frozenAtMs == null);
 // B differs on TWO counts, not one: the missing floor (future pausedAt) and the
 // missing validity check — `now - NaN` is NaN, so an unparseable pausedAt makes
 // every B site render NaN rather than degrade to the unpaused value.
@@ -99,6 +117,23 @@ for (const [label, legacy] of [["A", variantA], ["B", variantB], ["C", variantC]
     }
   }
   console.log(`  ok   ${label}: ${expectDiffer[label].length === 0 ? "identical everywhere" : `differs only on ${expectDiffer[label].length} intended case(s)`}`);
+}
+
+// ── HELD: the behaviour change commit 2 exists for ───────────────────────────
+// Every legacy shape kept accruing through a hold. Asserting that all three
+// differ is the positive statement of the fix; if any of them agreed, either the
+// freeze is not being applied or the case is not exercising a hold.
+console.log("\nHELD freeze");
+const heldCases = cases.filter(c => c.held);
+for (const c of heldCases) {
+  const mine = liveElapsedHours(c.args);
+  const stale = [["A", variantA], ["B", variantB], ["C", variantC]]
+    .filter(([, fn]) => near(fn(c.args), mine));
+  const ok = stale.length === 0;
+  if (!ok) failures++;
+  console.log(`  ${ok ? "ok  " : "FAIL"} ${c.name.padEnd(34)} ${ok
+    ? `all 3 legacy variants kept counting; helper stops at ${mine}`
+    : `${stale.map(([l]) => l).join(",")} already agreed — freeze not exercised`}`);
 }
 
 console.log(`\n${failures === 0 ? "all checks passed" : `${failures} check(s) failed`}`);

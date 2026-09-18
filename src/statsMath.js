@@ -30,8 +30,17 @@ import { localDay } from "./localDay.js";
  * `pausedMsAtCheckpoint` deliberately. Different origin, different window; they
  * are not copies of this and must not be migrated onto it.
  *
- * `frozenAtMs` is accepted and currently IGNORED — the call sites pass it so that
- * teaching held sessions to stop accruing is a change to this function alone.
+ * `frozenAtMs` FREEZES the clock. It is set server-side while a finish request
+ * awaits approval, and until it was honoured here a held session kept accruing:
+ * the bar's geometry stopped (shrunkStartH already read `frozenAtMs`) while the
+ * hours beside it climbed, and the same inflation reached the Analytics
+ * efficiency card through payProdByDay. A request sitting three hours showed
+ * three hours nobody worked.
+ *
+ * Taken as `min(now, frozenAtMs)` rather than used directly, so a freeze stamp
+ * can only ever STOP the clock and never advance it — the same one-directional
+ * reasoning as the open-pause floor. A session frozen before it began floors at
+ * zero like any other.
  */
 export function liveElapsedHours({ clockIn, pausedAt = null, frozenAtMs = null, totalPausedMs = 0, now = Date.now() }) {
   // Falsy is rejected BEFORE parsing: `new Date(null)` is the epoch, not an
@@ -41,12 +50,17 @@ export function liveElapsedHours({ clockIn, pausedAt = null, frozenAtMs = null, 
   if (!clockIn) return 0;
   const started = clockIn instanceof Date ? clockIn.getTime() : new Date(clockIn).getTime();
   if (!Number.isFinite(started)) return 0;
-  let ms = now - started - (totalPausedMs || 0);
+  // A held session stops here. The open pause is measured against the same
+  // frozen instant, so freezing mid-pause does not keep deducting pause time
+  // from a clock that has already stopped.
+  const frozen = frozenAtMs instanceof Date ? frozenAtMs.getTime() : frozenAtMs;
+  const effNow = Number.isFinite(frozen) ? Math.min(now, frozen) : now;
+  let ms = effNow - started - (totalPausedMs || 0);
   // Floored: an open pause can only ever REMOVE time. Without this a pausedAt
   // ahead of `now` adds it instead — variant B's defect.
   if (pausedAt) {
     const pausedSince = pausedAt instanceof Date ? pausedAt.getTime() : new Date(pausedAt).getTime();
-    if (Number.isFinite(pausedSince)) ms -= Math.max(0, now - pausedSince);
+    if (Number.isFinite(pausedSince)) ms -= Math.max(0, effNow - pausedSince);
   }
   return Math.max(0, ms) / 3600000;
 }
