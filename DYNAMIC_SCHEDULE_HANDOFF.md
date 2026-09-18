@@ -435,7 +435,18 @@ in the wrong place. Until per-segment values exist, a tail renders as a plain bl
 
 **Item 8+11 — one fix, not two.** A dozen-plus live-hours computations across three platforms in
 three variants (guarded open pause / unguarded / no open-pause term), none with a `frozenAtMs`
-branch. **Re-enumerate the sites at execution time rather than trusting a count.** The census run on
+branch.
+
+**What the variants actually cost, established by executable diff on 2026-09-18 rather than by
+reading.** Variant B has THREE defects, not the two recorded here before: no `Math.max(0, …)`
+floor, so a future `pausedAt` ADDS time; no validity check on `pausedAt`, so an unparseable value
+renders **NaN** rather than degrading to the unpaused number; and the latent one below. Variant C
+keeps counting through lunch. And **every** variant carried a 56-year bug: `new Date(null)`
+`.getTime()` is `0`, not `NaN`, so `Number.isFinite` passes and a missing `clockIn` reads as
+elapsed-since-1970. All three shapes had it, and all three survived only because each caller
+guarded first. **A shared helper called from 17 sites cannot inherit its callers' guards** — it
+must reject a falsy `clockIn` before parsing. The first draft of the helper had the hole too; the
+test caught it, reading did not. **Re-enumerate the sites at execution time rather than trusting a count.** The census run on
 2026-09-18 found **17**, not thirteen: 5 web, 8 iOS (including the helper itself), 4 Android. A site using
 `curPausedMs` was found uncatalogued after the first census, so "thirteen" is a floor, not a fact.
 Land a shared `liveElapsedHours({ clockIn, pausedAt, frozenAtMs, totalPausedMs, now })` in
@@ -460,7 +471,21 @@ currently paused out", which it has no way to detect. That sentence is how four 
 concluded it was complete and wrote their own instead. The lesson is not that helpers get ignored
 — it is that an INSUFFICIENT helper gets routed around and nothing detects the divergence, which
 is precisely what the build-time check exists to catch. **That check must be confirmed RED on the
-pre-migration tree** — a guard nobody has seen fail is not evidence.
+pre-migration tree** — a guard nobody has seen fail is not evidence. That rule paid for itself
+immediately: the check's first draft stripped string literals before scanning, a quote-matching
+regex derailed on 32k lines of JSX (regex literals, apostrophes in prose, nested templates) and
+blanked whole regions. It missed 3 of 9 real occurrences **including the variant-C site the check
+exists to catch**, and still printed a confident count and exited 0 on the migrated tree. Only the
+RED run exposed it. The fix is to not strip strings at all — comments are the only real
+false-positive source, and arithmetic on the field inside a string is not a real shape.
+
+Two more things reading does not catch, both worth budgeting for in the remaining platforms. The
+unit test must reproduce A, B and C **verbatim** and diff the helper against each across a grid,
+asserting A identical everywhere and B/C differing only on their intended cases — that is what
+turns "behaviour unchanged" from an assurance into an artifact. And migrating a site can orphan a
+binding its neighbours still use: removing a `const` twenty lines above a surviving reference
+leaves a free identifier that **bundlers do not flag**, so the build passes green and the modal
+throws on open. That is the same class `scripts/check-function-imports.mjs` exists for.
 
 Split across two commits so each has its own verification point: (1) land the helper and migrate
 every site with behaviour unchanged, since nothing has `frozenAtMs` set at that moment; (2) add the
