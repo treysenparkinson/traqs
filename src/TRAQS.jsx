@@ -675,6 +675,54 @@ const walkProductiveHours = (startH, prodHours, cfg) => {
     : (workEndH - firstStart) / dayLen + (days - 2) + (clock - workStartH) / dayLen;
   return { days, endHour: clock, columns: Math.max(0, columns) };
 };
+
+// The same walk, backwards: given the moment work FINISHED and a duration in productive
+// hours, find where it started. Mirror of walkProductiveHours -- same dead windows, same
+// day length, same CLOCK_EPS -- so a span measured one way and rebuilt the other lands on
+// itself rather than drifting by the lunch hour.
+//
+// Exists for the DONE bar, which is positioned by its end. Placing it by raw wall-clock
+// instead put a 6.9h bar's left edge at 03:33, outside the day grid (5-21) and, in
+// week/month, at a NEGATIVE column offset that drew it into the previous day or into the
+// label gutter. Walking productive hours keeps the bar's drawn width equal to its planned
+// duration, which is the whole claim the DONE bar makes.
+//
+// Returns `days`: 1 when the span fits in the finishing day, 2 when it reaches the previous
+// working day, and so on -- the caller steps that many BUSINESS days back, so weekends and
+// holidays are skipped by the org's own calendar rather than by a second rule here.
+//
+// `guard` bounds the loop the same way the forward walk does. A caller asking for more hours
+// than history holds walks back to the guard and stops, which clamps at a boundary instead
+// of hanging; the caller checks `clamped` and reports it.
+const walkProductiveHoursBack = (endH, prodHours, cfg) => {
+  const { workStartH, workEndH, deadWindows = [] } = cfg;
+  let clock = Math.min(Math.max(endH, workStartH), workEndH);
+  let left = Math.max(0, prodHours);
+  let days = 1, guard = 0;
+  // Sorted defensively before reversing. buildDayWindows already returns them ascending, but
+  // the forward walk does not depend on that order and this one does -- stepping back over
+  // windows out of order double-counts the gap between them. Not worth coupling to an
+  // invariant held elsewhere.
+  const reversed = [...deadWindows].sort((a, b) => a.start - b.start).reverse();
+  while (left > CLOCK_EPS && guard++ < 5000) {
+    for (const w of reversed) {
+      const wEnd = w.start + w.dur;
+      if (w.start >= clock - CLOCK_EPS || wEnd <= workStartH) continue;   // ahead of us / before hours
+      const prodUntil = clock - wEnd;
+      if (prodUntil > 0) {
+        if (left <= prodUntil + CLOCK_EPS) { clock -= left; left = 0; break; }
+        left -= prodUntil;
+      }
+      clock = Math.min(clock, w.start);   // step back over the window without spending against it
+    }
+    if (left <= CLOCK_EPS) break;
+    const head = clock - workStartH;
+    if (left <= head + CLOCK_EPS) { clock -= left; left = 0; break; }
+    left -= head;
+    days++; clock = workEndH;
+  }
+  return { days, startHour: clock, clamped: left > CLOCK_EPS };
+};
 const fm = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const fmtDate = dateStr => { if (!dateStr) return "—"; return new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); };
 const uid = () => "t" + Math.random().toString(36).substr(2, 8);
@@ -19337,12 +19385,22 @@ ${jobsCtx || "No jobs found."}`;
         const _snapSpan = (snap && snap.endHour != null && snap.startHour != null) ? snap.endHour - snap.startHour : null;
         const _plannedDur = snap?.hpd ?? _snapSpan ?? op.hpd ?? ((op.endHour ?? workEndH) - (op.startHour ?? workStartH));
         const _dur = Math.max(SHRINK_MIN_REMAINDER_H, Number(_plannedDur) || 0);
-        // Raw wall-clock, not productive-hours walking: the record answers "when was this
-        // finished, and how big was it". Stepping over lunch and non-working hours would put the
-        // left edge at a time no clock ever read. A duration longer than the elapsed day rolls
-        // the start onto earlier dates, which is expected.
-        let _startDS = _apprDS, _startH = _apprH - _dur;
-        while (_startH < 0) { _startDS = addD(_startDS, -1); _startH += 24; }
+        // Walked through PRODUCTIVE hours, not raw wall clock. Raw wall clock put a 6.9h bar's
+        // left edge at 03:33 -- outside the day grid (5-21), and in week/month at a NEGATIVE
+        // column offset that drew the bar into the previous day or into the label gutter, wrong
+        // by up to half a column while looking entirely plausible. Walking makes the bar's DRAWN
+        // width equal its planned duration, which is the only claim the DONE bar makes.
+        //
+        // Business days for the date step, so weekends and holidays come from the org's own
+        // calendar rather than from a second rule here. days === 1 means the span fits inside the
+        // finishing day; 2 reaches the previous working day, and so on.
+        const _walk = walkProductiveHoursBack(_apprH, _dur, dayWindowCfg);
+        const _bdOpts = { workDays: orgSettings.workDays, holidays: orgSettings.holidays };
+        const _startDS = _walk.days > 1 ? addBD(_apprDS, -(_walk.days - 1), _bdOpts) : _apprDS;
+        const _startH = _walk.startHour;
+        // Ran out of history before the duration ran out. Clamped at the boundary rather than
+        // looping: a bar drawn at the edge is readable, a hung approve is not.
+        if (_walk.clamped) console.warn("approveFinish: planned duration exceeds available history; DONE bar clamped at the earliest reachable position", { opId: op.id, duration: _dur });
         updated = {
           ...updated,
           start: _startDS, end: _apprDS,
