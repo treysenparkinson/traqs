@@ -5,6 +5,53 @@
 import { localDay } from "./localDay.js";
 
 /**
+ * Hours accrued on ONE open job clock, net of paused time.
+ *
+ * The single definition of live job hours for every surface on every platform.
+ * Before this existed the same arithmetic was written seventeen times in three
+ * variants, and which variant you got decided what the number meant:
+ *
+ *   A. open pause subtracted, floored  — correct; `liveOpHours` only
+ *   B. open pause subtracted, unfloored — a `pausedAt` in the FUTURE (phone/server
+ *      clock skew) subtracts a negative and ADDS time
+ *   C. no open-pause term at all        — keeps counting straight through lunch,
+ *      because `totalPausedMs` is the CLOSED total and an open pause lands in it
+ *      only when the pause ends
+ *
+ * Variant C is why the current-work card and the op-progress percentage climbed
+ * during a break on web, iOS and Android alike — the same omission written three
+ * times independently, and filed once as an iOS-only cosmetic gap.
+ *
+ * `now` is injectable because the cases worth testing — a future `pausedAt`, a
+ * frozen session — are otherwise races against the wall clock.
+ *
+ * NOT for the drain/checkpoint window: `sessionElapsedMs` and the drag
+ * rebaseline measure from `drainCheckpoint` and baseline their pause on
+ * `pausedMsAtCheckpoint` deliberately. Different origin, different window; they
+ * are not copies of this and must not be migrated onto it.
+ *
+ * `frozenAtMs` is accepted and currently IGNORED — the call sites pass it so that
+ * teaching held sessions to stop accruing is a change to this function alone.
+ */
+export function liveElapsedHours({ clockIn, pausedAt = null, frozenAtMs = null, totalPausedMs = 0, now = Date.now() }) {
+  // Falsy is rejected BEFORE parsing: `new Date(null)` is the epoch, not an
+  // invalid date, so a missing clockIn would otherwise read as fifty-six years
+  // of elapsed time rather than as no session. Every legacy variant had this
+  // hole and was saved only by its caller guarding first.
+  if (!clockIn) return 0;
+  const started = clockIn instanceof Date ? clockIn.getTime() : new Date(clockIn).getTime();
+  if (!Number.isFinite(started)) return 0;
+  let ms = now - started - (totalPausedMs || 0);
+  // Floored: an open pause can only ever REMOVE time. Without this a pausedAt
+  // ahead of `now` adds it instead — variant B's defect.
+  if (pausedAt) {
+    const pausedSince = pausedAt instanceof Date ? pausedAt.getTime() : new Date(pausedAt).getTime();
+    if (Number.isFinite(pausedSince)) ms -= Math.max(0, now - pausedSince);
+  }
+  return Math.max(0, ms) / 3600000;
+}
+
+/**
  * Paid break hours bucketed by the calendar day each break STARTED,
  * including a break that is still running.
  *
@@ -182,12 +229,11 @@ export function payProdByDay({ timeclock, productionHours, people, personId = nu
     }
     const jc = person.activeJobClock;
     if (jc?.clockIn) {
-      const start = new Date(jc.clockIn).getTime();
-      if (start) {
-        let ms = now - start - (jc.totalPausedMs || 0);
-        if (jc.pausedAt) ms -= (now - new Date(jc.pausedAt).getTime());
-        bump(prodByDay, localDay(jc.clockIn, timeZone), Math.max(0, ms / 3600000));
-      }
+      const liveH = liveElapsedHours({
+        clockIn: jc.clockIn, pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs,
+        totalPausedMs: jc.totalPausedMs, now,
+      });
+      if (liveH > 0) bump(prodByDay, localDay(jc.clockIn, timeZone), liveH);
     }
   }
 
