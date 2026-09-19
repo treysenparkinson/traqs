@@ -733,6 +733,18 @@ export const jobClockOutAction = async (payload, getToken, orgCode) => {
   }).then(r => r.json());
 };
 
+// Narrow mid-session update for the dynamic schedule's drainCheckpoint/frozenAtMs — see
+// updateJobSession in netlify/functions/timeclock.js. NOT a general activeJobClock patch;
+// requires personId + sessionId (server rejects if sessionId doesn't match what's stored).
+export const updateJobSessionAction = async (payload, getToken, orgCode) => {
+  const headers = await authHeaders(getToken, orgCode);
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ action: "updateJobSession", ...payload }),
+  }).then(r => r.json());
+};
+
 export const jobPauseAction = async (payload, getToken, orgCode) => {
   const headers = await authHeaders(getToken, orgCode);
   return fetch(`${BASE}/timeclock`, {

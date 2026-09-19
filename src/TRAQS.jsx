@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import TRAQS_BARS_STATIC from "./traqs-bars-static.png";
 import TRAQS_BARS_ACCENT from "./traqs-bars-accent.png";
@@ -10,7 +10,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
-import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct } from "./statsMath.js";
+import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
@@ -202,7 +202,11 @@ const optColor = o => (o && typeof o === "object") ? o.color : null;
 const optIcon = o => (o && typeof o === "object") ? o.icon : null;
 const toOptObjs = names => (names || []).map((o, i) => (o && typeof o === "object") ? o : (o === "—" ? { name: "—" } : { name: o, color: OPT_PALETTE[i % OPT_PALETTE.length], icon: "○" }));
 // Striped overlay used to render the "worked / locked" portion of a bar across all views.
-const WORKED_STRIPE = "repeating-linear-gradient(135deg, rgba(255,255,255,0.18) 0, rgba(255,255,255,0.18) 5px, rgba(0,0,0,0.28) 5px, rgba(0,0,0,0.28) 10px)";
+// WORKED_STRIPE is retired. It drew a hatched "worked so far" overlay from a bar's left edge
+// at zIndex 2 -- behind the label at zIndex 5 -- which is why a DONE badge appeared to have
+// diagonal stripes running through it: the stripes were the bar's own overlay showing past
+// the text. The shrinking left edge now carries that information, so the overlay was saying
+// the same thing twice.
 // True when an op is locked. The MANUAL toggle only (see toggleLock / the padlock
 // in the op modal).
 //
@@ -674,6 +678,60 @@ const walkProductiveHours = (startH, prodHours, cfg) => {
     ? (clock - firstStart) / dayLen
     : (workEndH - firstStart) / dayLen + (days - 2) + (clock - workStartH) / dayLen;
   return { days, endHour: clock, columns: Math.max(0, columns) };
+};
+
+// The same walk, backwards: given the moment work FINISHED and a duration in productive
+// hours, find where it started. Mirror of walkProductiveHours -- same dead windows, same
+// day length, same CLOCK_EPS -- so a span measured one way and rebuilt the other lands on
+// itself rather than drifting by the lunch hour.
+//
+// Exists for the DONE bar, which is positioned by its end. Placing it by raw wall-clock
+// instead put a 6.9h bar's left edge at 03:33, outside the day grid (5-21) and, in
+// week/month, at a NEGATIVE column offset that drew it into the previous day or into the
+// label gutter. Walking productive hours keeps the bar's drawn width equal to its planned
+// duration, which is the whole claim the DONE bar makes.
+//
+// Returns `days`: 1 when the span fits in the finishing day, 2 when it reaches the previous
+// working day, and so on -- the caller steps that many BUSINESS days back, so weekends and
+// holidays are skipped by the org's own calendar rather than by a second rule here.
+//
+// `guard` bounds the loop the same way the forward walk does. A caller asking for more hours
+// than history holds walks back to the guard and stops, which clamps at a boundary instead
+// of hanging; the caller checks `clamped` and reports it.
+const walkProductiveHoursBack = (endH, prodHours, cfg) => {
+  const { workStartH, workEndH, deadWindows = [] } = cfg;
+  let clock = Math.min(Math.max(endH, workStartH), workEndH);
+  let left = Math.max(0, prodHours);
+  let days = 1, guard = 0;
+  // Sorted defensively before reversing. buildDayWindows returns them ascending and the cfg
+  // contract says so, but neither walk should depend on a caller honouring that.
+  //
+  // BOTH walks are order-sensitive, and the forward one is the more dangerous of the two
+  // because it has no such sort. Measured, with break@10:00(15m) and lunch@12:00(30m):
+  // walking forward 6 productive hours from 08:00 gives 14.75 with the windows ascending and
+  // 14.50 with them descending -- its `wEnd <= clock` skip reads an earlier window as already
+  // passed and silently drops its dead time. This walk is immune only because of the sort
+  // below. Do not read this as "forward is safe"; it is unprotected, just not currently fed
+  // out-of-order windows.
+  const reversed = [...deadWindows].sort((a, b) => a.start - b.start).reverse();
+  while (left > CLOCK_EPS && guard++ < 5000) {
+    for (const w of reversed) {
+      const wEnd = w.start + w.dur;
+      if (w.start >= clock - CLOCK_EPS || wEnd <= workStartH) continue;   // ahead of us / before hours
+      const prodUntil = clock - wEnd;
+      if (prodUntil > 0) {
+        if (left <= prodUntil + CLOCK_EPS) { clock -= left; left = 0; break; }
+        left -= prodUntil;
+      }
+      clock = Math.min(clock, w.start);   // step back over the window without spending against it
+    }
+    if (left <= CLOCK_EPS) break;
+    const head = clock - workStartH;
+    if (left <= head + CLOCK_EPS) { clock -= left; left = 0; break; }
+    left -= head;
+    days++; clock = workEndH;
+  }
+  return { days, startHour: clock, clamped: left > CLOCK_EPS };
 };
 const fm = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const fmtDate = dateStr => { if (!dateStr) return "—"; return new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); };
@@ -2334,6 +2392,248 @@ function accentText(accent) {
   try { return wantsLightText(blendHex(accent, ACCENT_FILL_DARKEST)) ? "#ffffff" : "#0f172a"; }
   catch { return "#ffffff"; }
 }
+
+// --- Live job-clock session: the live bar and the reservoir it drains ---------
+// A job clock tells two halves of one story on the schedule. The live bar FILLS as
+// time is worked; the reservoir's scheduled block EMPTIES at the same rate. So both
+// halves share a single grammar:
+//     accruing      solid fill, bright cap on the edge that is growing
+//     not accruing  fill knocked back toward the row surface, bar-coloured front
+// A session that has stopped -- finish request pending ("HELD") or paused for lunch
+// ("LUNCH") -- borrows the not-accruing treatment, because nothing is moving. Before
+// this, all three states rendered an identical solid fill reading "LIVE".
+//
+// Everything derives from the bar's own colour and the active theme: no foreign hue
+// and no glow, keeping the decision that the live bar matches the op's real colour
+// with the badge as the only differentiator. The colour passed in has already been
+// through elColor(), so these follow the theme's job-bar mode automatically.
+const LIVE_BADGE_LABEL = { running: "LIVE", held: "HELD", paused: "LUNCH" };
+
+// The "spent" fill, shared by a drained reservoir and a stopped live bar. Replaces a
+// flat-black hatch (rgba(0,0,0,0.28)/0.14) that read as grime on every light ladder
+// rather than as an emptied block. Opaque, so it REPLACES the fill it covers instead
+// of muddying it, and mixed toward the row surface so it lands the same way on all
+// four theme ladders instead of only on the dark ones.
+// How far a spent fill is mixed toward the row surface. Asks the SURFACE being mixed
+// toward, not T.colorScheme: on a custom theme colorScheme tracks the PAGE background
+// (dk = hexLum(bg) < 0.18) while these fills mix toward the surface, and the two can
+// land on opposite sides of the divide -- the theme builder keeps a separate surfDk
+// for exactly this reason. One function so the ratio cannot drift between the fill
+// and the text that has to contrast it.
+// A finished bar is muted toward DONE_MUTE -- the same grey barPaint already uses for Finished
+// work -- rather than washed toward the page surface.
+//
+// The surface mix it replaces sat 72-80% of the way to the background, which left a DONE bar
+// technically present and visually absent. Grey at 0.8 keeps a trace of the bar's own hue so a
+// row of finished ops still reads as distinct jobs, while sitting clearly apart from the row
+// behind it in both light and dark themes.
+//
+// Flat, no pattern: see WORKED_STRIPE above for why the hatch is gone.
+const SPENT_MUTE_RATIO = 0.8;
+function spentBarFill(T, barColor) {
+  return mixHex(barColor, DONE_MUTE, SPENT_MUTE_RATIO);
+}
+
+// The grey both in-progress regions sit on. A step AWAY from the row surface, not a mix
+// toward it: mixing toward the surface is what left a DONE bar "technically present and
+// visually absent", and idle is the region most exposed to that failure because low
+// presence is exactly what it conveys. So it carries two bounds, not one -- far enough
+// from the row to still read as a bar, far enough from DONE to separate from it.
+//
+// Step direction asks the SURFACE, never T.colorScheme, for the reason given above
+// spentBarFill: on a custom theme colorScheme tracks the PAGE while these fills sit on the
+// row, and the two can land on opposite sides of the divide. Same idiom as the theme's own
+// border tokens, blendHex(surf, surfDk ? +x : -x).
+//
+// "Lighter, closer to background" in the palette ruling means PRESENCE, not luminance --
+// read literally it inverts on the two dark ladders, where nearer the row means darker.
+// Stepping away from the surface gives the intended ordering on all four.
+//
+// Measured, in CIE L* across the ten job colours and all four ladders: idle-to-row 13.1
+// at worst (frost), idle-to-DONE 19.8 at worst (custom). Both clear of the ~10 where a
+// boundary stops being comfortable.
+const IDLE_STEP_DK = 0.20, IDLE_STEP_LT = -0.13;
+// Idle keeps a smaller hue trace than DONE's 0.2, so in-progress ops still read as distinct
+// jobs while idle stays the most recessive of the three greys.
+const IDLE_HUE_TRACE = 0.88;
+function idleBarFill(T, barColor) {
+  const surfDk = wantsLightText(T.surface);
+  return mixHex(barColor, blendHex(T.surface, surfDk ? IDLE_STEP_DK : IDLE_STEP_LT), IDLE_HUE_TRACE);
+}
+
+// The worked hatch. 45deg, and that is the point: every other hatch in this file is 135deg
+// -- the off-day row wash, the in-bar PTO fill, the tail's, the purple overlay. The opposite
+// diagonal separates worked from ALL of them rather than only from the PTO fill beside it,
+// and a worked bar next to a PTO bar now visibly cross-hatches instead of merging.
+//
+// Angle rather than period is the knob because period differentiation is weakest exactly
+// where bars are densest: between the texture floor and ~24px only two or three stripes
+// render, and at that density 4/8 against PTO's 6/12 is indistinguishable while a direction
+// flip is instant.
+//
+// The stripe is the bar's own colour STEPPED IN VALUE, not the raw colour. Raw was the
+// obvious reading of "tinted at low alpha" and it fails: idle already carries 12% of the
+// same hue, so a same-hue stripe over it is a hue match with only a small luminance shift,
+// and on the mid-value job colours the hatch all but vanished -- 2.8 L* at its worst. The
+// value step makes the delta independent of hue: 10.5 L* at worst, 16.6 at best, tight
+// across all four ladders, at the lowest alpha that clears 10 everywhere. Tinted, never the
+// flat black that read as grime and got the original WORKED_STRIPE retired.
+const HATCH_BAND = 4, HATCH_PERIOD = 8, HATCH_STEP = 0.40, HATCH_ALPHA = 0.30;
+// Below this the stripes cannot resolve -- two of them at 16px, one at 8 -- so texture stops
+// carrying worked-vs-idle and a value step takes over. Reuses the existing _thinBar
+// threshold rather than inventing one.
+const HATCH_MIN_PX = 16;
+function workedHatchLayer(T, barColor) {
+  const surfDk = wantsLightText(T.surface);
+  const s = hexA(blendHex(barColor, surfDk ? HATCH_STEP : -HATCH_STEP), HATCH_ALPHA);
+  return `repeating-linear-gradient(45deg, ${s}, ${s} ${HATCH_BAND}px, transparent ${HATCH_BAND}px, transparent ${HATCH_PERIOD}px)`;
+}
+// The sub-floor stand-in for the stripes. Stepped harder than the hatch is (11.1 L* at
+// worst): the region is only a few pixels tall there, so it needs more separation than a
+// full-height bar, not less.
+const SUBFLOOR_STEP_DK = 0.22, SUBFLOOR_STEP_LT = -0.15;
+function workedFlatFill(T, barColor) {
+  return blendHex(idleBarFill(T, barColor), wantsLightText(T.surface) ? SUBFLOOR_STEP_DK : SUBFLOOR_STEP_LT);
+}
+
+// The one place a schedule bar's fill is composed. Call sites pass the three-region geometry --
+// workedPct, the hatched extent, and dividerPct -- the CURSOR, a time position, UNCLAMPED so now
+// past the planned end reads past 100 rather than pinning. Never pass an hours ratio here: the
+// two diverge on any late start or lunch, which is the bug 11eb366 fixed. The visuals lane owns
+// what those become; this lane owns the call sites and the numbers.
+//
+// `state` is the bar's own state, never a texture: "pto" | "done" | "held" | "paused" |
+// "running" | "worked" | "scheduled". Texture is a decision made FROM it -- DONE is never
+// inferred back out of a fill, which is what let a DONE bar and a worked bar read the same
+// once before. "worked" is clocked-out-but-hatched; "scheduled" is genuinely untouched.
+//
+// Composed as layered backgrounds on ONE property rather than as child divs. The four
+// absolutely-positioned WORKED_STRIPE overlays this replaces are what drew stripes through
+// the DONE badge from the bar's left edge at zIndex 2 -- the bug that took three sessions to
+// find. A background layer cannot escape its own box, so that class of defect goes away with
+// the technique instead of being fixed again.
+//
+// Layer order is paint order, first on top:
+//   1  opaque right of the cursor       -> the unworked remainder, hiding everything beneath
+//   2  opaque right of the worked front -> flat idle grey, covering the hatch between W and C
+//   3  the hatch, or its value-step stand-in below the texture floor
+//   4  the idle grey as the base colour
+// Left of W layers 1 and 2 are transparent, so the hatch shows on the base.
+function activeBarFill(T, barColor, workedPct, dividerPct, state, renderPx) {
+  if (state === "pto") return `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${barColor}`;
+  if (state === "done") return spentBarFill(T, barColor);
+  // Only a bar that owns worked time carries regions. "worked" is the clocked-out case --
+  // nobody on the clock, hatched extent locked, cursor still advancing and opening the idle
+  // gap behind it (§3a, §3d) -- so it renders exactly as the live states do; what differs is
+  // whether the worked front is still moving, and that is the caller's number, not a texture.
+  //
+  // "scheduled" stays a plain colour block. Genuinely untouched work has no worked front, and
+  // the tail call site is handed the WHOLE bar's percentages while covering a different span,
+  // so drawing regions from them there would put both boundaries in the wrong place. That is
+  // fixed in the geometry commit with per-segment values; until then this branch is what keeps
+  // the tail honest.
+  if (state !== "running" && state !== "held" && state !== "paused" && state !== "worked") return barColor;
+
+  // Clamped for PAINT only. dividerPct arrives unclamped so past-100 can carry the overrun
+  // signal, but a gradient stop outside the box renders as a plausible fully-worked bar
+  // rather than as something visibly wrong. The raw value stays on the data attribute, where
+  // the overrun is still readable and still assertable.
+  const W = Number.isFinite(workedPct) ? Math.max(0, Math.min(100, workedPct)) : 0;
+  const C = Math.max(W, Math.min(100, Number.isFinite(dividerPct) ? dividerPct : 0));
+  if (W <= 0 && C <= 0) return barColor;
+
+  const idle = idleBarFill(T, barColor);
+  const layers = [];
+  if (C < 100) layers.push(`linear-gradient(to right, transparent 0%, transparent ${C}%, ${barColor} ${C}%, ${barColor} 100%)`);
+  if (W < C) layers.push(`linear-gradient(to right, transparent 0%, transparent ${W}%, ${idle} ${W}%, ${idle} 100%)`);
+  if (W > 0) {
+    if (renderPx < HATCH_MIN_PX) {
+      const flat = workedFlatFill(T, barColor);
+      layers.push(`linear-gradient(to right, ${flat} 0%, ${flat} ${W}%, transparent ${W}%, transparent 100%)`);
+    } else {
+      layers.push(workedHatchLayer(T, barColor));
+    }
+  }
+  layers.push(idle);
+  return layers.join(", ");
+}
+
+// Badge and label colour for a bar carrying regions. They are flexStart, so they sit at the
+// bar's LEFT -- which under the three-region model is grey ground, not the op colour that
+// accentText(bc) contrasts. Kept separate from liveBarTextColor because that helper is also
+// what the DONE badge calls, passing the literal "held" to reach its spent-contrast branch;
+// overloading the same state strings would have handed DONE the wrong ground.
+function barLabelColor(T, barColor) {
+  return accentText(idleBarFill(T, barColor));
+}
+
+// Text on a spent fill contrasts the SPENT colour, not the bar's original one -- the two can
+// land on opposite sides of the light/dark crossover. Derived from spentBarFill rather than
+// restated, so the fill and the text sitting on it cannot drift apart.
+function liveBarTextColor(T, barColor, state = "running") {
+  if (state === "running") return accentText(barColor);
+  return accentText(spentBarFill(T, barColor));
+}
+
+// The reservoir's drained portion. It covers the block from its left edge up to the
+// drain front, so only the LEFT corners are rounded -- rounding all four left two
+// stray rounded corners floating mid-bar. The front is drawn in the bar's own
+// colour: it is the edge that moves, mirroring the live bar's cap travelling the
+// other way. Caller supplies left/width.
+function drainMaskStyle(T, barColor, rowH) {
+  return {
+    position: "absolute", top: 4, height: rowH - 8, boxSizing: "border-box",
+    // Floor, for the same reason the live bar has one: width is a percentage minus a
+    // pixel constant, so early in a session calc() goes negative and CSS clamps it to
+    // 0 -- taking the drain front with it, because a border-box border cannot render
+    // at width 0. At month zoom that hid the drain for roughly a quarter hour, i.e.
+    // the reservoir appeared not to drain at precisely the moment it starts. The 2px
+    // slightly over-represents how much has gone; the live bar already accepts that
+    // trade, and these two must appear together or the "fills as it empties" pairing
+    // is broken at the only moment anyone is watching for it. Lives in the helper, not
+    // at the call sites, so the two masks cannot drift apart again.
+    minWidth: 2,
+    borderRadius: `${T.radiusXs}px 0 0 ${T.radiusXs}px`,
+    background: spentBarFill(T, barColor),
+    borderRight: `2px solid ${barColor}`,
+    zIndex: 14, pointerEvents: "none",
+  };
+}
+
+// The live bar. Only a running session accrues, so only it gets the solid fill and
+// the leading cap marking the growing edge; stopped sessions take the spent fill, so
+// "washed" means "not accruing" everywhere on the row. No border on the body:
+// day-mode bars have none either, and the cap alone is what the live bar does not
+// share with a scheduled bar. Caller supplies left/width/cursor.
+// widthPx is the bar's RENDERED width. It is not decoration: box-sizing is
+// border-box, so padding and border set a hard FLOOR under the rendered width —
+// a content box cannot be negative. At 10px+10px padding plus a 2px cap that
+// floor was 22px, so a session one second old, whose true width is ~0, still
+// drew a 22px block. That is the "big block instead of a sliver" this bar was
+// reported for three times; minWidth: 2 never had a say, because 22 > 2.
+//
+// Thresholds mirror the scheduled bar's own (_hideBarLabel below 44px, border
+// dropped below 8px) so a narrow live bar degrades the way a narrow scheduled
+// bar already does.
+function liveBarStyle(T, barColor, rowH, state = "running", widthPx = Infinity) {
+  const running = state === "running";
+  const bare = widthPx < 44;      // no room for chrome; shed padding so the box can shrink
+  const hairline = widthPx < 8;   // narrower than its own cap
+  return {
+    position: "absolute", top: 4, height: rowH - 8, boxSizing: "border-box",
+    borderRadius: T.radiusXs,
+    background: running ? barColor : spentBarFill(T, barColor),
+    // The cap takes whichever of black/white the badge text already resolved to, so
+    // it stays legible against any job colour without introducing a hue of its own.
+    borderRight: running && !hairline ? `2px solid ${hexA(accentText(barColor), 0.55)}` : "none",
+    boxShadow: running ? `0 2px 8px ${hexA(barColor, T.colorScheme === "dark" ? 0.45 : 0.28)}` : "none",
+    display: "flex", alignItems: "center", gap: bare ? 0 : 6, padding: bare ? 0 : "0 10px",
+    overflow: "hidden", zIndex: 15,
+  };
+}
+// Shared threshold so the two call sites cannot disagree with the helper about
+// when a bar is too narrow to carry a label.
+const LIVE_BAR_LABEL_MIN_PX = 44;
 
 // Custom-theme inputs: bg (page background / image tint), accent (buttons/highlights),
 // surface (lists/cards), and opts.systemColor (outer chrome: header + sidebar + logo).
@@ -5523,49 +5823,27 @@ Extraction rules:
     }
     return period;
   };
-  // Tick every 30s while at least one worker is clocked into a job, so progress bars update
-  // live as the worker logs time. No-op when nobody is clocked in.
+  // Re-render tick while at least one worker is clocked into a job, so progress bars and the
+  // shrinking left edge of the worked op stay live. RENDER ONLY — this tick writes nothing.
+  // No-op when nobody is clocked in.
   const [_progressTick, setProgressTick] = useState(0);
   useEffect(() => {
     const anyActive = people.some(p => p.activeJobClock?.clockIn);
     if (!anyActive) return;
     const iv = setInterval(() => {
       setProgressTick(t => (t + 1) | 0);
-      const nowMs = Date.now();
-      const todayDS = toDS(new Date(nowMs));
-      setPeople(prevPeople => {
-        // Frozen sessions (Phase 4, pending finish request) are excluded — the cascade is
-        // suspended until admin approves or denies.
-        const active = prevPeople.filter(p => p.activeJobClock?.clockIn && !p.activeJobClock.frozenAtMs);
-        if (active.length === 0) return prevPeople;
-        const dayRolled = active.filter(p => p.activeJobClock.drainCheckpoint && toDS(new Date(p.activeJobClock.drainCheckpoint)) !== todayDS);
-        setTasks(prevTasks => {
-          let updated = prevTasks;
-          // Bug D / Trigger 2: as each session's live bar grows, check whether it has grown
-          // into an op that wasn't overlapping at clock-in. Read-only computation + idempotent
-          // application — an already-pushed op no longer overlaps, so in the steady state this
-          // is a no-op and only writes at the moment a genuinely NEW overlap appears (not
-          // per-tick, and it never touches reservoir drain, which stays on its own cadence).
-          active.forEach(p => {
-            const jc = p.activeJobClock;
-            const ciMs = new Date(jc.clockIn).getTime();
-            const { pushes } = computeCascadePushes(updated, p.id, jc.reservoirOpId || null, ciMs, nowMs);
-            if (pushes.length) updated = applyPushes(updated, pushes, p.name, jc.sessionId);
-          });
-          // Phase 3 day-boundary-cross: persist drain + cascade for the portion of the session
-          // that happened before midnight.
-          dayRolled.forEach(p => { updated = runClockCascade(updated, p.activeJobClock, p.id, nowMs, p.activeJobClock.sessionId, p.name, false); });
-          if (updated !== prevTasks) saveTasks(updated, getToken, orgCode).catch(console.warn);
-          return updated;
-        });
-        if (dayRolled.length === 0) return prevPeople;
-        const nowIso = new Date(nowMs).toISOString();
-        const nextPeople = prevPeople.map(p => dayRolled.includes(p) ? { ...p, activeJobClock: { ...p.activeJobClock, drainCheckpoint: nowIso } } : p);
-        // drainCheckpoint has no server-side channel either — persist explicitly, same reason
-        // as the clock-in sites.
-        savePeople(nextPeople, getToken, orgCode).catch(console.warn);
-        return nextPeople;
-      });
+      // The cascade that used to run here is gone. A bar now SHRINKS from its left edge as
+      // work is done, so a live session's footprint only ever contracts — it can never grow
+      // into an op it did not already overlap, and there is nothing to push. Reality does not
+      // move the schedule; only a deliberate drag does, and that path (previewPush +
+      // applyPushes) is untouched.
+      //
+      // The midnight drainCheckpoint advance is gone with it, and that is not an oversight.
+      // The edge is measured as plannedStart + worked-since-drainCheckpoint, so the anchor and
+      // the stored position have to move together or the bar jumps: advancing the checkpoint
+      // without writing the position back loses every hour worked before it, and the bar would
+      // spring back to full width at midnight. persistShrink is the only place they move, and
+      // it always moves both.
     }, 5000);
     return () => clearInterval(iv);
   }, [people]);
@@ -5594,7 +5872,8 @@ Extraction rules:
       let updated = prevTasks;
       toFreeze.forEach(p => {
         const jc = p.activeJobClock;
-        updated = runClockCascade(updated, jc, p.id, nowMs, jc.sessionId, p.name, false);
+        // No cascade and no persist: frozenAtMs pins the rendered edge (shrunkStartH reads it),
+        // and the pendingSession stamp below carries everything approve/deny needs.
         updated = updated.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, subs: (panel.subs || []).map(op => {
           if (String(op.id) !== String(jc.opId)) return op;
           return { ...op, pendingSession: { sessionId: jc.sessionId, clockIn: jc.clockIn, frozenAtMs: nowMs, reservoirOpId: jc.reservoirOpId, sessionSnapshot: jc.sessionSnapshot || [] } };
@@ -5603,11 +5882,13 @@ Extraction rules:
       saveTasks(updated, getToken, orgCode).catch(console.warn);
       return updated;
     });
-    // frozenAtMs has no server-side channel either — persist explicitly, same reason as the
-    // clock-in sites.
+    // updateJobSession is the authorized path for frozenAtMs — savePeople can't touch it
+    // (activeJobClock is server-owned and pinned on every generic /people POST).
+    toFreeze.forEach(p => {
+      updateJobSessionAction({ personId: p.id, sessionId: p.activeJobClock.sessionId, frozenAtMs: nowMs }, getToken, orgCode).catch(console.warn);
+    });
     setPeople(pp => {
       const next = pp.map(p => toFreeze.includes(p) ? { ...p, activeJobClock: { ...p.activeJobClock, frozenAtMs: nowMs } } : p);
-      savePeople(next, getToken, orgCode).catch(console.warn);
       return next;
     });
   }, [tasks, people]);
@@ -5649,14 +5930,10 @@ Extraction rules:
     const now = Date.now();
     let total = 0;
     for (const jc of clocks) {
-      const started = new Date(jc.clockIn).getTime();
-      if (!Number.isFinite(started)) continue;
-      let h = (now - started) / 3600000 - (jc.totalPausedMs || 0) / 3600000;
-      if (jc.pausedAt) {
-        const pausedSince = new Date(jc.pausedAt).getTime();
-        if (Number.isFinite(pausedSince)) h -= Math.max(0, (now - pausedSince) / 3600000);
-      }
-      total += Math.max(0, h);
+      total += liveElapsedHours({
+        clockIn: jc.clockIn, pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs,
+        totalPausedMs: jc.totalPausedMs, now,
+      });
     }
     return total;
   };
@@ -6618,9 +6895,10 @@ Extraction rules:
     const jc = loggedInUser?.activeJobClock;
     if (!jc?.clockIn) { setTsJobElapsed(""); return; }
     const calc = () => {
-      const totalMs = Date.now() - new Date(jc.clockIn).getTime();
-      const curPausedMs = jc.pausedAt ? (Date.now() - new Date(jc.pausedAt).getTime()) : 0;
-      const netMs = Math.max(0, totalMs - (jc.totalPausedMs || 0) - curPausedMs);
+      const netMs = liveElapsedHours({
+        clockIn: jc.clockIn, pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs,
+        totalPausedMs: jc.totalPausedMs, now: Date.now(),
+      }) * 3600000;
       const h = Math.floor(netMs / 3600000), m = Math.floor((netMs % 3600000) / 60000);
       setTsJobElapsed(`${h}h ${m}m`);
     };
@@ -8673,6 +8951,244 @@ Extraction rules:
     }
     return null;
   };
+  // Net milliseconds a job-clock session actually RAN between fromMs and nowMs.
+  //
+  // The job clock pauses server-side whenever the worker goes to lunch
+  // (applyLunchJobPause in timeclock.js) and on a manual jobPause, so raw
+  // wall-clock time overstates the work done. Measuring the dynamic schedule off
+  // raw wall-clock meant a lunch break kept growing the live bar, kept draining
+  // the reservoir, and kept the 5s cascade tick pushing other people's ops out of
+  // the way — all persisted, all while nobody was working. Every dynamic-schedule
+  // consumer measures through here: the bar width and the drain rate stay in sync
+  // only because they subtract the same paused time.
+  //
+  // totalPausedMs is cumulative since clockIn and pausedAt marks a pause that is
+  // still open, so the paused time that applies to a window starting at fromMs is
+  // whatever accrued after that window opened. pausedMsAtCheckpoint records the
+  // cumulative total as of drainCheckpoint; it is absent on sessions started
+  // before this field existed, where the checkpoint is still the clock-in and a
+  // 0 baseline is exactly right.
+  const sessionElapsedMs = (jc, fromMs, nowMs) => {
+    if (!jc) return 0;
+    const gross = Math.max(0, nowMs - fromMs);
+    // live-hours-exempt: measures from drainCheckpoint, not clockIn, and baselines
+    // the pause on pausedMsAtCheckpoint. A different window on purpose — this is
+    // not a copy of liveElapsedHours and must not be migrated onto it.
+    const closed = Math.max(0, (jc.totalPausedMs || 0) - (jc.pausedMsAtCheckpoint || 0));
+    // Clamp an open pause to the window: a checkpoint taken mid-pause would
+    // otherwise subtract time that fell before the window even opened.
+    const open = jc.pausedAt ? Math.max(0, nowMs - Math.max(new Date(jc.pausedAt).getTime(), fromMs)) : 0;
+    return Math.max(0, gross - closed - open);
+  };
+  const sessionElapsedH = (jc, fromMs, nowMs) => sessionElapsedMs(jc, fromMs, nowMs) / 3600000;
+  // Never let the shrinking left edge reach the planned end. A zero-width block inverts on the
+  // next write and that is the corruption that destroyed tzf8ivwbh once already, so the floor is
+  // structural rather than cosmetic: 5 minutes of visible bar, held indefinitely.
+  //
+  // Overrun is therefore LOUD by design. A job worked past its planned duration parks as a
+  // 5-minute sliver pinned to the right edge of its planned window and stays there until someone
+  // submits a finish request. "That bar is stuck at minimum width" is the signal that something
+  // needs finishing; the true overrun is recorded on approve, not drawn here.
+  const SHRINK_MIN_REMAINDER_H = 5 / 60;
+  // HELD / LUNCH badge for the bar being worked. The live bar carried these before it was
+  // removed; they move onto the scheduled bar itself, which is now the only block for the op.
+  //
+  // Deliberately NO badge for the running state: the shrinking bar and the pulsing dot on the
+  // person's row already say work is happening, and a third "LIVE" mark on the same row was
+  // exactly the duplication this model set out to remove. HELD and LUNCH stay because neither
+  // is visible from the geometry -- a frozen edge and a slowly-moving one look identical.
+  const liveBadgeFor = (jc, op) => {
+    if (!jc || !op || !sameId(jc.reservoirOpId, op.id) || op.status === "Finished") return null;
+    return jc.frozenAtMs ? "held" : jc.pausedAt ? "paused" : null;
+  };
+  // The left edge of the op being worked, interpolated at render time.
+  //
+  // ONE model for every case. The block starts at "however far the session has got" and runs to
+  // its planned end, so it shrinks from the left as the work is done -- whether that block sits
+  // today or on a future day. The collapsed-vs-future-reservoir distinction is gone, and with it
+  // the today sliver and the drain mask: there is only ever one bar per op, and it gets smaller.
+  //
+  // Worked time, not wall clock: lunch and pause freeze the edge while the cursor walks on.
+  //
+  // Interpolated from drainCheckpoint, which is the persisted anchor. Nothing is written per
+  // tick -- see persistShrink for the write-event half, and for why the anchor and the stored
+  // position must always move together.
+  //
+  // The planned end is read LIVE from the op, not from a snapshot: extend an op to 18:00
+  // mid-session and the block extends with it.
+  //
+  // Returns storedSH untouched for every bar that is not this person's reservoir -- which is
+  // every bar on the schedule but one. That guard is what keeps a mistake here from becoming a
+  // whole-schedule regression.
+  const shrunkStartH = (jc, op, storedSH) => {
+    if (!jc || !op || !sameId(jc.reservoirOpId, op.id)) return storedSH;
+    // Finished: the DONE bar shows the FULL original scope as a historical record.
+    if (op.status === "Finished") return storedSH;
+    if (!jc.drainCheckpoint) return storedSH;
+    const effNow = jc.frozenAtMs || Date.now();
+    const worked = sessionElapsedH(jc, new Date(jc.drainCheckpoint).getTime(), effNow);
+    if (!(worked > 0)) return storedSH;
+    const plannedEnd = op.endHour ?? workEndH;
+    return Math.max(storedSH, Math.min(storedSH + worked, plannedEnd - SHRINK_MIN_REMAINDER_H));
+  };
+
+  // The ONE place the shrinking left edge becomes persisted state.
+  //
+  // Render interpolates continuously (shrunkStartH); nothing is written per tick. At a write
+  // event -- lunch, pause, drag, clock-out -- the visible edge is baked into op.startHour so
+  // that what an admin sees and what the schedule stores are the same number.
+  //
+  // The caller MUST advance drainCheckpoint to the same instant it passes here, because the
+  // edge is measured as plannedStart + worked-since-drainCheckpoint. Write the position without
+  // advancing the anchor and that work is counted twice on the next render; advance the anchor
+  // without writing the position and the work before it is lost and the bar springs back.
+  //
+  // Returns { tasks, changed } so a caller can skip BOTH writes when the edge has not moved.
+  const persistShrink = (taskList, jc, nowMs, movedByName) => {
+    if (!jc?.reservoirOpId || !jc.drainCheckpoint) return { tasks: taskList, changed: false };
+    const op = findOp(taskList, jc.reservoirOpId);
+    if (!op || op.status === "Finished") return { tasks: taskList, changed: false };
+    const storedSH = op.startHour ?? workStartH;
+    const worked = sessionElapsedH(jc, new Date(jc.drainCheckpoint).getTime(), jc.frozenAtMs || nowMs);
+    if (!(worked > 0)) return { tasks: taskList, changed: false };
+    const plannedEnd = op.endHour ?? workEndH;
+    // Same clamp as the render, for the same reason: a zero-width block inverts on the next
+    // write. Overrun parks at the 5-minute floor rather than collapsing.
+    const newSH = Math.max(storedSH, Math.min(storedSH + worked, plannedEnd - SHRINK_MIN_REMAINDER_H));
+    if (!(newSH > storedSH)) return { tasks: taskList, changed: false };
+    const logEntry = {
+      fromStart: op.start, fromEnd: op.end, toStart: op.start, toEnd: op.end,
+      fromStartHour: storedSH, toStartHour: newSH,
+      fromEndHour: op.endHour ?? null, toEndHour: op.endHour ?? null,
+      date: TD, movedBy: movedByName, reason: "Worked down by clock-in session",
+      ...(jc.sessionId ? { sessionId: jc.sessionId } : {}),
+    };
+    const result = taskList.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, subs: (panel.subs || []).map(o => {
+      if (!sameId(o.id, jc.reservoirOpId)) return o;
+      return { ...o, startHour: newSH, moveLog: [...(o.moveLog || []), logEntry] };
+    }) })) }));
+    return { tasks: recalcBounds(result, movedByName), changed: true };
+  };
+
+  // Fields that make an op FINISHED, in one place, because there are two approval surfaces and
+  // they had silently diverged:
+  //
+  //   approveFinish (:approveFinish)        the schedule / job-details approve
+  //   adminApproveJobFinish (:22905 button) the chat-bubble approve
+  //
+  // Both toast "Completion approved". Only the first ever repositioned the bar, so approving
+  // from chat set status and nothing else -- leaving the op at whatever coordinates the session
+  // had worked it down to. On screen that is a block lying across the cursor rather than behind
+  // it, which reads as the placement running backwards when in fact it never ran at all.
+  //
+  // Returns fields to SPREAD onto the op. It deliberately does not touch finishRequest or
+  // finishRequests: those are the chat path's own bookkeeping and it merges them itself.
+  const finishedOpFields = (op, movedByName) => {
+    const logged = timeclock
+      .filter(ev => ev.jobRefs?.some(r => sameId(r.opId, op.id)))
+      .reduce((s, ev) => s + (ev.hours || 0), 0);
+    const session = op.pendingSession;
+    // actualHours only when there is something to record. The chat approve also resolves
+    // PANEL-level requests, and a panel matches no timeclock jobRef, so writing it
+    // unconditionally would stamp actualHours: 0 onto every approved panel -- a field that
+    // path has never set.
+    const base = {
+      status: "Finished", pendingFinish: false, pendingSession: undefined,
+      ...(logged > 0 || session ? { actualHours: Math.round(logged * 100) / 100 } : {}),
+    };
+    // No session means no finish-request lifecycle ran for this op -- a job-level finish, or an
+    // op nobody clocked into. Nothing to reposition against, so status only.
+    if (!session) return base;
+
+    const apprD = new Date();
+    const apprDS = toDS(apprD);
+    const apprH = apprD.getHours() + apprD.getMinutes() / 60;
+    const lastLog = (op.moveLog || [])[(op.moveLog || []).length - 1];
+    const sessionOwnsPosition = !!lastLog && lastLog.sessionId === session.sessionId;
+    const snap = sessionOwnsPosition ? (session.sessionSnapshot || []).find(s => sameId(s.opId, op.id)) : null;
+    const snapSpan = (snap && snap.endHour != null && snap.startHour != null) ? snap.endHour - snap.startHour : null;
+    const plannedDur = snap?.hpd ?? snapSpan ?? op.hpd ?? ((op.endHour ?? workEndH) - (op.startHour ?? workStartH));
+    const dur = Math.max(SHRINK_MIN_REMAINDER_H, Number(plannedDur) || 0);
+
+    const walk = walkProductiveHoursBack(apprH, dur, dayWindowCfg);
+    const bdOpts = { workDays: orgSettings.workDays, holidays: orgSettings.holidays };
+    const startDS = walk.days > 1 ? addBD(apprDS, -(walk.days - 1), bdOpts) : apprDS;
+    const startH = walk.startHour;
+    if (walk.clamped) console.warn("finishedOpFields: planned duration exceeds available history; DONE bar clamped at the earliest reachable position", { opId: op.id, duration: dur });
+
+    return {
+      ...base,
+      actualStart: session.clockIn,
+      actualEnd: session.frozenAtMs ? new Date(session.frozenAtMs).toISOString() : undefined,
+      start: startDS, end: apprDS,
+      startHour: startH, endHour: apprH,
+      hpd: dur,
+      ...(snap ? { plannedStart: snap.start, plannedEnd: snap.end, plannedStartHour: snap.startHour ?? null, plannedEndHour: snap.endHour ?? null } : {}),
+      moveLog: [...(op.moveLog || []), {
+        fromStart: op.start, fromEnd: op.end, toStart: startDS, toEnd: apprDS,
+        fromStartHour: op.startHour ?? null, toStartHour: startH,
+        fromEndHour: op.endHour ?? null, toEndHour: apprH,
+        fromHpd: op.hpd ?? null, toHpd: dur,
+        date: TD, movedBy: movedByName,
+        reason: "Finished — placed at approval time as a historical record",
+        ...(session.sessionId ? { sessionId: session.sessionId } : {}),
+      }],
+    };
+  };
+
+  // Rebaseline the shrink anchor when someone MOVES the op being worked.
+  //
+  // The left edge is plannedStart + worked-since-drainCheckpoint, so a drag that rewrites
+  // plannedStart makes the already-worked hours reapply to the new anchor and the bar JUMPS:
+  // two hours in, dragged to start at 12:00, the edge recomputes to 14:00 the moment work
+  // resumes. Advancing drainCheckpoint to the drag instant (and pausedMsAtCheckpoint with it,
+  // since the two always move together) restarts the measurement from where the bar landed.
+  //
+  // Detected from the moveLog rather than from inside the drag handlers. Every path -- team
+  // grid, gantt, resize, reassign, and any added later -- appends an entry that is not ours,
+  // so one check here covers them all and cannot be forgotten at a new call site. The ref
+  // keeps it to once per move: without it a moveLog whose last entry belongs to some earlier
+  // session would rebaseline on every single render.
+  const _shrinkLogLenRef = useRef({});
+  useEffect(() => {
+    const seen = _shrinkLogLenRef.current;
+    people.forEach(p => {
+      const jc = p.activeJobClock;
+      if (!jc?.clockIn || !jc.sessionId || !jc.reservoirOpId || !jc.drainCheckpoint) return;
+      const op = findOp(tasks, jc.reservoirOpId);
+      if (!op || op.status === "Finished") return;
+      const len = (op.moveLog || []).length;
+      const prev = seen[jc.sessionId];
+      seen[jc.sessionId] = len;
+      if (prev === undefined || len <= prev) return;   // first sighting, or nothing appended
+      const last = (op.moveLog || [])[len - 1];
+      if (!last || last.sessionId === jc.sessionId) return;   // our own persistShrink write
+      const nowIso = new Date().toISOString();
+      const nowMs = Date.now();
+      // live-hours-exempt: computes the pause total to STORE as the next
+      // pausedMsAtCheckpoint baseline, not elapsed working time. It adds the open
+      // pause rather than subtracting it — the opposite sign to liveElapsedHours.
+      const pausedNow = (jc.totalPausedMs || 0) + (jc.pausedAt ? Math.max(0, nowMs - new Date(jc.pausedAt).getTime()) : 0);
+      updateJobSessionAction({ personId: p.id, sessionId: jc.sessionId, drainCheckpoint: nowIso, pausedMsAtCheckpoint: pausedNow }, getToken, orgCode).catch(console.warn);
+      setPeople(pp => pp.map(x => sameId(x.id, p.id) && x.activeJobClock?.sessionId === jc.sessionId
+        ? { ...x, activeJobClock: { ...x.activeJobClock, drainCheckpoint: nowIso, pausedMsAtCheckpoint: pausedNow } }
+        : x));
+    });
+  }, [tasks, people]);
+  // Same shape as bar.task in getPersonBars — used so the live bar (Phase 2/3) can open/
+  // right-click exactly like a real scheduled bar for the same op, WITHOUT depending on that
+  // op appearing in the clocked-in person's own bars list (which is gated by team membership —
+  // an admin clocked into an op they aren't personally assigned to would otherwise get no click
+  // target and the wrong color, since both come from that per-person bars lookup).
+  const findOpAsBarTask = (taskList, opId) => {
+    for (const job of taskList) {
+      for (const panel of (job.subs || [])) {
+        const op = (panel.subs || []).find(o => String(o.id) === String(opId));
+        if (op) return { ...op, color: elColor(panel.color || "#94a3b8"), isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, panelTitle: panel.title, level: 2 };
+      }
+    }
+    return null;
+  };
   // Hour-aware time range for an op, used only by the clock-in cascade below (not admin drag).
   // Same-day ops resolve to their actual startHour/endHour; multi-day ops span full work days —
   // hour precision only applies within a single day, matching the locked decision that
@@ -8686,120 +9202,10 @@ Extraction rules:
     }
     return [hourTs(op.start, workStartH), hourTs(op.end, workEndH)];
   };
-  // Hour-aware cascade push computation for the clock-in trigger. Unlike previewPush
-  // (interactive drag, day-level, aborts entirely on a locked collision), this does a PARTIAL
-  // push: everything up to a locked op moves, the locked op and everything downstream stays and
-  // the collision is left visible on the schedule (no dashboard, no alert — by design).
-  const computeCascadePushes = (taskList, personId, excludeOpId, footprintStartMs, footprintEndMs) => {
-    const allOps = [];
-    taskList.forEach(job => {
-      (job.subs || []).forEach(panel => {
-        (panel.subs || []).forEach(op => {
-          // String-coerced: ids in this app aren't guaranteed the same type across sources
-          // (matches the team.includes(String(pp.id)) convention used elsewhere in the file).
-          // Without this, the team check never matches and the candidate list is always empty.
-          if (String(op.id) !== String(excludeOpId) && (op.team || []).includes(String(personId)) && op.status !== "Finished") {
-            allOps.push({ op, panel, job, range: opHourRange(op) });
-          }
-        });
-      });
-    });
-    let toPush = allOps.filter(a => a.range[0] < footprintEndMs && a.range[1] > footprintStartMs);
-    if (toPush.length === 0) return { pushes: [] };
-    toPush.sort((a, b) => a.range[0] - b.range[0]);
-    let cursorMs = footprintEndMs;
-    const pushes = [];
-    while (toPush.length > 0) {
-      const item = toPush.shift();
-      if (isOpLocked(item.op)) break; // partial push — stop, leave this + downstream in place
-      const durationMs = Math.max(0, item.range[1] - item.range[0]);
-      const newStartDS = toDS(new Date(cursorMs));
-      const newStartH = (cursorMs - hourTs(newStartDS, 0)) / 3600000;
-      const sameDay = item.op.start === item.op.end;
-      let push, pushedStartMs, pushedEndMs;
-      if (sameDay && newStartH + durationMs / 3600000 <= workEndH) {
-        push = { opId: item.op.id, newStart: newStartDS, newEnd: newStartDS, newStartHour: newStartH, newEndHour: newStartH + durationMs / 3600000, reason: "Pushed by clock-in" };
-        pushedStartMs = cursorMs; pushedEndMs = cursorMs + durationMs;
-      } else {
-        const spanBD = Math.max(0, diffBD(item.op.start, item.op.end));
-        const fbStartDS = newStartH <= workStartH ? newStartDS : addBD(newStartDS, 1);
-        const fbEndDS = addBD(fbStartDS, spanBD);
-        const fbStartH = sameDay ? workStartH : null;
-        const fbEndH = sameDay ? Math.min(workStartH + durationMs / 3600000, workEndH) : null;
-        push = { opId: item.op.id, newStart: fbStartDS, newEnd: fbEndDS, newStartHour: fbStartH, newEndHour: fbEndH, reason: "Pushed by clock-in" };
-        pushedStartMs = hourTs(fbStartDS, fbStartH ?? workStartH);
-        pushedEndMs = sameDay ? hourTs(fbEndDS, fbEndH) : hourTs(fbEndDS, workEndH);
-      }
-      pushes.push(push);
-      cursorMs = pushedEndMs;
-      const nextOverlaps = allOps.filter(a =>
-        String(a.op.id) !== String(item.op.id) && !toPush.includes(a) && !pushes.find(p2 => String(p2.opId) === String(a.op.id)) &&
-        a.range[0] < pushedEndMs && a.range[1] > pushedStartMs
-      );
-      nextOverlaps.forEach(n => toPush.push(n));
-    }
-    return { pushes };
-  };
-  // Single choke point for the clock-in-driven adaptation: teleport the reservoir op into
-  // alignment with "now" at clock-in, drain it as time is worked, and cascade anything it now
-  // overlaps on the same person's row. Called at clock-in, day-boundary-cross, and clock-out —
-  // never per-minute; between these events the Phase 2 live bar interpolates purely render-side.
-  const runClockCascade = (taskList, jc, personId, nowMs, sessionId, movedByName, isInitial) => {
-    const ciDate = new Date(jc.clockIn);
-    const ciHour = ciDate.getHours() + ciDate.getMinutes() / 60;
-    let result = taskList;
-    let reservoirRange = null; // [startMs, endMs] the reservoir now occupies today, if same-day
-    if (jc.reservoirOpId) {
-      result = result.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, subs: (panel.subs || []).map(op => {
-        if (String(op.id) !== String(jc.reservoirOpId)) return op;
-        if (op.start === TD) {
-          const curSH = op.startHour ?? workStartH;
-          const curEH = op.endHour ?? Math.min(curSH + (op.hpd || productiveHoursPerDay), workEndH);
-          let newSH, newEH;
-          if (isInitial) {
-            // Teleport, split by whether the block already covers "now":
-            // - Already covering (clockIn falls inside [curSH,curEH]): trim ONLY the left edge
-            //   to clockIn — the historical portion is consumed — and leave the end exactly
-            //   where it was scheduled. Do NOT extend it; that's the bug this replaces.
-            // - Scheduled later today (or its window already fully passed): pull the whole
-            //   block to start at "now", preserving its original duration.
-            const duration = Math.max(0, curEH - curSH);
-            if (ciHour >= curSH && ciHour < curEH) {
-              newSH = ciHour; newEH = curEH;
-            } else {
-              newSH = ciHour; newEH = Math.min(ciHour + duration, workEndH);
-            }
-          } else {
-            const elapsedH = Math.max(0, (nowMs - new Date(jc.drainCheckpoint).getTime()) / 3600000);
-            newSH = Math.min(curEH, curSH + elapsedH); newEH = curEH;
-          }
-          reservoirRange = [hourTs(op.start, newSH), hourTs(op.start, newEH)];
-          if (newSH === curSH && newEH === curEH) return op;
-          const logEntry = { fromStart: op.start, fromEnd: op.end, toStart: op.start, toEnd: op.end, fromStartHour: curSH, toStartHour: newSH, fromEndHour: curEH, toEndHour: newEH, date: TD, movedBy: movedByName, reason: isInitial ? "Teleported to clock-in" : "Drained by clock-in session", sessionId };
-          return { ...op, startHour: newSH, endHour: newEH, moveLog: [...(op.moveLog || []), logEntry] };
-        }
-        // Future-day reservoir: drain reduces total remaining work (hpd) rather than sliding
-        // the start date across business-day gaps — a scope call, see Phase 3 notes. No
-        // same-day occupied span to fold into the cascade footprint below.
-        const elapsedH = isInitial ? 0 : Math.max(0, (nowMs - new Date(jc.drainCheckpoint).getTime()) / 3600000);
-        if (elapsedH <= 0) return op;
-        const curHpd = op.hpd || productiveHoursPerDay;
-        const newHpd = Math.max(0, curHpd - elapsedH);
-        const logEntry = { fromStart: op.start, fromEnd: op.end, toStart: op.start, toEnd: op.end, fromHpd: curHpd, toHpd: newHpd, date: TD, movedBy: movedByName, reason: "Drained by clock-in session", sessionId };
-        return { ...op, hpd: newHpd, moveLog: [...(op.moveLog || []), logEntry] };
-      }) })) }));
-    }
-    // Cascade footprint = union of the live bar's span and the reservoir's own occupied span
-    // (if it just teleported onto today) — a teleported reservoir can itself now overlap other
-    // ops even before the live bar has grown to reach them.
-    const liveBarStartMs = ciDate.getTime();
-    const liveBarEndMs = isInitial ? liveBarStartMs + 60000 : nowMs;
-    const footprintStartMs = reservoirRange ? Math.min(reservoirRange[0], liveBarStartMs) : liveBarStartMs;
-    const footprintEndMs = reservoirRange ? Math.max(reservoirRange[1], liveBarEndMs) : liveBarEndMs;
-    const { pushes } = computeCascadePushes(result, personId, jc.reservoirOpId || null, footprintStartMs, footprintEndMs);
-    if (pushes.length) result = applyPushes(result, pushes, movedByName, sessionId);
-    return result;
-  };
+  // runClockCascade and computeCascadePushes lived here. Both are gone with the live-work
+  // cascade: a bar that only ever shrinks cannot overlap anything new, so live work has
+  // nothing to push. Dragging still cascades — that path runs on previewPush + applyPushes
+  // and is untouched.
   // Phase 4: snapshot every unfinished op on the clocking-in worker's row (within ~2 weeks
   // forward) so a later deny can restore exactly what the cascade is about to touch. Overshoot
   // is fine — restoring an op the session never moved is a no-op.
@@ -8808,7 +9214,7 @@ Extraction rules:
     const snap = [];
     taskList.forEach(job => (job.subs || []).forEach(panel => (panel.subs || []).forEach(op => {
       if (op.status === "Finished") return;
-      if (!(op.team || []).includes(String(personId))) return;
+      if (!onTeam(op.team, personId)) return;   // onTeam: a numeric team entry never matches a String() needle
       if (!op.start || op.start > horizon) return;
       snap.push({ opId: op.id, start: op.start, end: op.end, startHour: op.startHour ?? null, endHour: op.endHour ?? null, hpd: op.hpd ?? null });
     })));
@@ -10295,7 +10701,10 @@ ${jobsCtx || "No jobs found."}`;
       if (!target) return;
       const updateItem = (items, targetId) => items.map(item => {
         if (sameId(item.id, targetId)) return {
-          ...item, status: "Finished", finishRequest: undefined, pendingFinish: false, finishRequests: resolveReq(item.finishRequests, item),
+          // finishedOpFields carries the placement -- see approveFinish. Spread FIRST so this path's
+          // own finishRequest bookkeeping still wins; the helper deliberately leaves those alone.
+          ...item, ...finishedOpFields(item, loggedInUser?.name || "Admin"),
+          finishRequest: undefined, finishRequests: resolveReq(item.finishRequests, item),
         };
         if (item.subs?.length) return { ...item, subs: updateItem(item.subs, targetId) };
         return item;
@@ -11692,7 +12101,6 @@ ${jobsCtx || "No jobs found."}`;
                   const _workedPctOfSeg = _segCalDays > 0 ? (_segWorkedDays / _segCalDays) * 100 : 0;
                   return <div key={si} className={isFirst ? "anim-gantt-bar" : undefined} style={{ position: "absolute", top: 6, left: x, width: w, height: rH - 12, borderRadius: T.radiusXs, background: barBg, border: `1.5px solid ${barColor}`, borderRight: !isLast ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`, borderLeft: !isFirst ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`, cursor: can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", overflow: "hidden", zIndex: r.level === 2 ? 5 : 4, boxShadow: isExp ? `0 2px 8px ${barColor}44` : "none", opacity: isDragging ? 0 : 1, transition: isDragging ? "none" : "opacity 0.15s" }}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; handleDrag(e, r, "move"); } }} onContextMenu={e => handleCtx(e, r)}>
-                    {_workedPctOfSeg > 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${_workedPctOfSeg}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", borderTopLeftRadius: isFirst ? T.radiusXs : 0, borderBottomLeftRadius: isFirst ? T.radiusXs : 0, zIndex: 2 }} />}
                     {isFirst && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: "rgba(255,255,255,0.15)", borderRadius: T.radiusXs - 1 }} />}
                     {isFirst && can("moveJobs") && ws.workedHpd === 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {isLast && can("moveJobs") && !ws.isFullyWorked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
@@ -11895,7 +12303,6 @@ ${jobsCtx || "No jobs found."}`;
                         onClick={hasSubs ? () => toggleRow(r.id) : undefined}
                         style={{ position: "absolute", top: (rowH - barH) / 2, left: sL, width: sW, height: barH, background: barColor + "dd", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", boxSizing: "border-box", cursor: hasSubs ? "pointer" : "default", borderRight: !isLast ? `2px dashed rgba(255,255,255,0.4)` : undefined, borderLeft: !isFirst ? `2px dashed rgba(255,255,255,0.4)` : undefined, zIndex: 3 }}
                       >
-                        {_workedPctOfSeg > 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${_workedPctOfSeg}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", zIndex: 2 }} />}
                         {isFirst && hasSubs && (
                           <svg width="9" height="9" viewBox="0 0 10 10" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", color: "rgba(255,255,255,0.85)", flexShrink: 0, marginLeft: 5 }}>
                             <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -15352,7 +15759,10 @@ ${jobsCtx || "No jobs found."}`;
                       rawE = hpd > 0 ? Math.min(rawS + hpd, HE) : Math.min(rawS + 2, HE);
                     }
                     if (!hasManual) cumH = rawE;
-                    return { bar, rawS, rawE, hpd };
+                    // Collapsed reservoir glides its left edge with worked time. rawE is
+                    // computed from the ORIGINAL rawS above, so the planned right edge stays
+                    // put while the left one advances into it. Every other bar is untouched.
+                    return { bar, rawS: shrunkStartH(p.activeJobClock, bar.task, rawS), rawE, hpd };
                   });
                   const isDropTarget = dayDragTarget === p.id;
                   return <div key={p.id} style={{display:"flex",height:row.hidden ? 0 : rH,overflow:"hidden",borderBottom:row.hidden?"none":`1px solid ${T.bg}55`,background:isDropTarget?T.accent+"18":"transparent",outline:isDropTarget?`2px dashed ${T.accent}88`:"none",opacity:row.hidden?0:1,pointerEvents:row.hidden?"none":"auto",transition:"height 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.14s ease, background 0.1s"}}>
@@ -15378,11 +15788,13 @@ ${jobsCtx || "No jobs found."}`;
                         return <div key={bar.id}
                           onMouseDown={e=>{ if(e.button===0) { isDraggingRef.current = true; handleTeamDayBarDrag(e, bar.task, "move", p.id, rawS, rawE); } }}
                           onContextMenu={e=>bar.task&&handleCtx(e,bar.task,"team")}
-                          style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:bar.color,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis&&dayDragInfo?.mode==="move"?`0 0 0 2px ${bar.color}88`:`0 2px 8px ${bar.color}33`,opacity:isDraggingThis&&dayDragInfo?.mode==="move"?0.3:dayDragInfo&&!isDraggingThis?0.7:(!hoveredBarPid||bar.task?.pid===hoveredBarPid?1:0.2)*barFade(bar.task),transition:"box-shadow 0.1s,opacity 0.2s"}}
+                          style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:bar.task?.status==="Finished"?spentBarFill(T,bar.color):bar.color,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis&&dayDragInfo?.mode==="move"?`0 0 0 2px ${bar.color}88`:`0 2px 8px ${bar.color}33`,opacity:isDraggingThis&&dayDragInfo?.mode==="move"?0.3:dayDragInfo&&!isDraggingThis?0.7:(!hoveredBarPid||bar.task?.pid===hoveredBarPid?1:0.2)*barFade(bar.task),transition:"box-shadow 0.1s,opacity 0.2s"}}
                           onMouseEnter={e=>{ if(!dayDragInfo && !isDraggingRef.current){ e.currentTarget.style.filter="brightness(1.1)"; setHoveredBarPid(bar.task?.pid??null); } }} onMouseLeave={e=>{ e.currentTarget.style.filter="none"; setHoveredBarPid(null); }}>
                           <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"left",p.id);}} style={{position:"absolute",left:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
                             <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
                           </div>
+                          {(() => { const _lb = liveBadgeFor(p.activeJobClock, bar.task); return _lb && <span style={{fontSize:9,fontWeight:800,color:liveBarTextColor(T,bar.color,_lb),letterSpacing:"0.05em",flexShrink:0,marginRight:6,opacity:0.85}}>{LIVE_BADGE_LABEL[_lb]}</span>; })()}
+                          {bar.task?.status==="Finished" && <span style={{fontSize:9,fontWeight:800,color:liveBarTextColor(T,bar.color,"held"),letterSpacing:"0.05em",flexShrink:0,marginRight:6,opacity:0.85}}>DONE</span>}
                           <span style={{fontSize:10,color:accentText(bar.color),fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,textAlign:"left",position:"relative",zIndex:5}}>{hpd > 0 ? `${hpd}h · ` : ""}{bar.task?.title || bar.title}</span>
                           <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"right",p.id);}} style={{position:"absolute",right:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
                             <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
@@ -15409,42 +15821,11 @@ ${jobsCtx || "No jobs found."}`;
                       {pOff && <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
                         <span style={{fontSize:12,color:offColor,fontWeight:600,background:T.surface+"cc",padding:"2px 8px",borderRadius:4}}>{offType}{offR?` · ${offR}`:""}</span>
                       </div>}
-                      {/* Live active bar — clock-in to now, render-only (Phase 2), no data writes */}
-                      {!pOff && isToday && p.activeJobClock?.clockIn && (() => {
-                        const jc = p.activeJobClock;
-                        const ciDate = new Date(jc.clockIn);
-                        const rawS = toDS(ciDate) === TD ? (ciDate.getHours() + ciDate.getMinutes() / 60) : 0;
-                        // Frozen (Phase 4, pending finish request) stops the bar growing past the
-                        // freeze moment instead of tracking real "now".
-                        const liveNow = jc.frozenAtMs ? new Date(jc.frozenAtMs) : new Date();
-                        const liveNowH = liveNow.getHours() + liveNow.getMinutes() / 60;
-                        const visS = Math.max(rawS, HS), visE = Math.min(liveNowH, HE);
-                        if (visE <= visS) return null;
-                        // Same color as the scheduled bar for this op — the live bar and the
-                        // reservoir are the same job, just the actively-worked portion vs the
-                        // leftover planned portion. Solid fill, same treatment as a normal bar;
-                        // no gradient/glow — "LIVE" text is the only differentiator.
-                        const liveColor = barPositions.find(x => String(x.bar.id) === String(jc.reservoirOpId || jc.opId))?.bar.color || T.accent;
-                        return <div key="live-bar" style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:liveColor,boxShadow:`0 2px 8px ${liveColor}33`,display:"flex",alignItems:"center",gap:6,padding:"0 10px",overflow:"hidden",zIndex:15,pointerEvents:"none"}}>
-                          <span style={{fontSize:9,fontWeight:800,color:accentText(liveColor),letterSpacing:"0.05em",flexShrink:0,opacity:0.85}}>LIVE</span>
-                          <span style={{fontSize:10,fontWeight:600,color:accentText(liveColor),overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{jc.opTitle||jc.jobTitle||"—"} · {p.name.split(" ")[0]}</span>
-                        </div>;
-                      })()}
-                      {/* Reservoir drain mask (Phase 3) — visually shrinks the reservoir op's bar
-                          in real time from its left edge, interpolated from drainCheckpoint.
-                          Render-only: the persisted footprint only updates at write events. */}
-                      {isToday && p.activeJobClock?.reservoirOpId && (() => {
-                        const jc = p.activeJobClock;
-                        const bp = barPositions.find(x => x.bar.id === jc.reservoirOpId);
-                        if (!bp) return null;
-                        const effNowMs = jc.frozenAtMs || Date.now();
-                        const drainH = Math.max(0, (effNowMs - new Date(jc.drainCheckpoint).getTime()) / 3600000);
-                        if (drainH <= 0) return null;
-                        const visS = Math.max(bp.rawS, HS), visE = Math.min(Math.min(bp.rawE, bp.rawS + drainH), HE);
-                        if (visE <= visS) return null;
-                        return <div key="drain-mask" style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:"repeating-linear-gradient(135deg, rgba(0,0,0,0.28), rgba(0,0,0,0.28) 6px, rgba(0,0,0,0.14) 6px, rgba(0,0,0,0.14) 12px)",zIndex:14,pointerEvents:"none"}}/>;
-                      })()}
-                      {isToday && nowH>=HS && nowH<=HE && <div style={{position:"absolute",top:0,bottom:0,left:`${(nowH-HS)/NH*100}%`,width:2,background:T.accent+"bb",zIndex:12,pointerEvents:"none"}}/>}
+                      {/* No live sliver and no drain mask. One op renders as exactly one bar,
+                          and that bar shrinks from its left edge as the work is done -- see
+                          shrunkStartH, which feeds rawS for this row. The clocked-in indicator
+                          is the pulsing dot on the person's row, not a second block here. */}
+                      {isToday && nowH>=HS && nowH<=HE && <div style={{position:"absolute",top:0,bottom:0,left:`${(nowH-HS)/NH*100}%`,width:2,background:T.accent+"bb",zIndex:16,pointerEvents:"none"}}/>}
                     </div>
                   </div>;
                 })}
@@ -15882,7 +16263,9 @@ ${jobsCtx || "No jobs found."}`;
                   // Base start hour: an explicitly placed hour wins, else the packed slot
                   // from singleDayStacking, else the start of the working day.
                   const _packedStartH = singleDayStacking[bar.start]?.[bar.id];
-                  const _baseStartH = bar.task?.startHour ?? _packedStartH ?? workStartH;
+                  // Collapsed reservoir glides its left edge with worked time; every other
+                  // bar gets its stored hour back unchanged. See shrunkStartH.
+                  const _baseStartH = shrunkStartH(p.activeJobClock, bar.task, bar.task?.startHour ?? _packedStartH ?? workStartH);
                   let _pushedStartH = _baseStartH + (_pushH - _pushWholeDays * Math.max(0.0001, productiveHoursPerDay));
                   while (_pushH > 0 && totalWorkH > 0 && _pushedStartH >= workEndH) {
                     _pushedStartH -= totalWorkH;
@@ -17066,23 +17449,73 @@ ${jobsCtx || "No jobs found."}`;
                   // op ids are mixed string/number, so a strict compare misses live work.
                   const _liveCrew = isPto ? [] : people.filter(p => p.activeJobClock?.clockIn && sameId(p.activeJobClock.opId, bar.task?.id));
                   const isLive = _liveCrew.length > 0;
+                  // The render/verify interface (spec 6d). Functionality owns these numbers;
+                  // Visuals stays geometry-neutral and Verifier asserts against them. They must
+                  // stay accurate BELOW the texture floor, where no hatch is drawn -- otherwise
+                  // the "no hatch right of the worked front" invariant silently stops testing on
+                  // exactly the dense bars where errors hide.
+                  const _barLiveH = isPto ? 0 : liveOpHours(bar.task);
+                  const _barWorkedH = ws ? ws.workedHoursShown : 0;
+                  const _barCommittedH = Math.max(0, _barWorkedH - _barLiveH);
+                  const _barWorkedPct = ws ? ws.workedFraction * 100 : 0;
+                  // An HOURS RATIO, not a position: worked hours over the estimate. Kept because
+                  // it is the honest overrun number, renamed because it is not the divider. It is
+                  // min()'d into _barWorkedPct above, so asserting one against the other proves
+                  // nothing -- they are one quantity at two clamp levels.
+                  const _barRawWorkedPct = ws ? ws.rawFraction * 100 : 0;
+                  // THE CURSOR. Wall-clock now as a fraction of the op's PLANNED span -- a time
+                  // position, which the hours ratio above is not. The two diverge the moment work
+                  // starts late or lunch intervenes: an 08:00-16:00 op worked for one hour by 15:00
+                  // puts the cursor at 87.5% and the ratio at 12.5%. That 75-point gap is the whole
+                  // reason the three-region model exists, and collapsing it back into one number is
+                  // how the bar started lying in the first place.
+                  //
+                  // UNCLAMPED: past 100 means now is past the planned end, which IS the overrun
+                  // condition in time terms and is exactly what Q7a says the bar must keep showing.
+                  const _barCursorPct = (() => {
+                    if (isPto || !bar.task) return 0;
+                    const [_plannedS, _plannedE] = opHourRange(bar.task);
+                    return _plannedE > _plannedS ? ((Date.now() - _plannedS) / (_plannedE - _plannedS)) * 100 : 0;
+                  })();
+                  // The bar's state describes the OP, and every term comes from the people actually
+                  // clocked into it. It previously mixed two fields that are not the same claim:
+                  // `isLive` reads `activeJobClock.opId` (what someone is working), while
+                  // `liveBadgeFor` reads `reservoirOpId` (whose scheduled block drains) against the
+                  // ROW's person. Those diverge by design — deriveJobSession only sets reservoirOpId
+                  // when the clocked-in person is on the op's team — so cross-row work (§3a) leaves it
+                  // null, and a bar somebody was actively working read as "running" with no badge
+                  // while the row's own person sat idle. One source, one meaning.
+                  const _liveClocks = _liveCrew.map(lp => lp.activeJobClock).filter(Boolean);
+                  const _barState = isPto ? "pto"
+                    : bar.task?.status === "Finished" ? "done"
+                    : _liveClocks.some(jc => jc.frozenAtMs) ? "held"
+                    : _liveClocks.some(jc => jc.pausedAt) ? "paused"
+                    : isLive ? "running"
+                    // Nobody on the clock, but work happened: the hatch is locked and the cursor
+                    // keeps opening idle behind it (§3a, §3d). Survives clock-out because the extent
+                    // comes from committed hours, not from the live clock -- producedFor and
+                    // loggedHours both outlive the session that produced them.
+                    : _barWorkedPct > 0 ? "worked"
+                    : "scheduled";
                   return [<div key={barKey}
+                    data-worked-pct={_barWorkedPct} data-divider-pct={_barCursorPct} data-raw-worked-pct={_barRawWorkedPct} data-worked-h={_barWorkedH} data-committed-h={_barCommittedH} data-live-h={_barLiveH} data-state={_barState}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, minWidth: _wFirst > 0 ? 2 : 0, height: rH - 8, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: isPto ? `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${bc}` : bc, border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
+                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, minWidth: _wFirst > 0 ? 2 : 0, height: rH - 8, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: activeBarFill(T, bc, _barWorkedPct, _barCursorPct, _barState, _renderPx), border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
                     onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
-                    {!isPto && ws && ws.workedFraction > 0 && _wFirst > 0 && (() => {
-                      const _segWorked = Math.max(0, Math.min(_workedRemainingBudget, _wFirst));
-                      _workedRemainingBudget = Math.max(0, _workedRemainingBudget - _segWorked);
-                      const pctOfDiv = _wFirst > 0 ? (_segWorked / _wFirst) * 100 : 0;
-                      if (pctOfDiv <= 0) return null;
-                      return <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pctOfDiv}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", borderTopLeftRadius: T.radiusXs, borderBottomLeftRadius: T.radiusXs, zIndex: 2 }} />;
-                    })()}
                     {!_isNarrowBar && can("moveJobs") && !barLocked && !_dragBlocked && !(ws && ws.workedHpd > 0) && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {!_isNarrowBar && barSegs.length === 1 && _endsInView && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="6.5" fill="rgba(255,255,255,0.25)"/><polyline points="3,6.5 5.5,9 10,4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
                     {inDepGroup && !isBarSelected && (() => { const _panelId2 = bar.task?.level === 2 ? bar.task.pid : bar.task?.level === 1 ? bar.task.id : null; const _dm = _panelId2 ? tasks.flatMap(j => j.subs||[]).find(p => p.id === _panelId2)?.depsMode : undefined; const _locked = _dm === "locked"; return <Tip label={_locked ? "Locked — moves as a block with its group" : "Linked — moves with its dependency group"}><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.7, lineHeight: 0 }}>{_locked ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>}</span></Tip>; })()}
                     {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
+                    {/* HELD/LUNCH contrast the GREY ground, not the bar colour. A badge only renders when
+                        someone is clocked in, so by the time it exists the bar's left end is hatched
+                        and `accentText(bc)` is contrasting a colour that is no longer under the text.
+                        Deliberately NOT applied to the team-day badge, which looks identical but whose
+                        bar never goes through activeBarFill, nor to the DONE badge, which passes the
+                        literal "held" to reach liveBarTextColor's spent branch and IS on spent grey. */}
+                    {!isPto && !_hideBarLabel && (_barState === "held" || _barState === "paused") && <span style={{ flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", opacity: 0.85, color: barLabelColor(T, bc) }}>{LIVE_BADGE_LABEL[_barState]}</span>}
+                    {!isPto && !_hideBarLabel && bar.task?.status === "Finished" && <span style={{ flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", opacity: 0.85, color: liveBarTextColor(T, bc, "held") }}>DONE</span>}
                     <span style={{ display: _hideBarLabel ? "none" : undefined, fontSize: 11, color: accentText(bc), fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>{isPto ? (<><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={accentText(bc)} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginRight: 5, verticalAlign: "-1.5px" }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>{bar.ptoType}{bar.title && bar.title !== bar.ptoType ? ` · ${bar.title}` : ""}</>) : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
                     {!isPto && !_hideBarLabel && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: accentText(bc) === "#ffffff" ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)', fontFamily: T.mono, position: "relative", zIndex: 5 }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
                   </div>,
@@ -17129,72 +17562,16 @@ ${jobsCtx || "No jobs found."}`;
                     return <div key={bar.id + "_t" + si + "_" + seg.start}
                       onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto2) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                       onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
-                      style={{ position: "absolute", top: 4, left: tailX, width: tailW, minWidth: isPto2 ? 0 : 2, height: rH - 8, boxSizing: "border-box", borderRadius: isPto2 ? T.radiusXs : Math.min(T.radiusXs, _tailPx / 2), background: isPto2 ? `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${bc2}` : bc2, border: isBarSelected ? `2px solid #fff` : isPto2 ? `1.5px solid ${bc2}` : _tailPx < 8 ? "none" : `${_tailPx < 16 ? 1 : 2}px dashed ${bc2}cc`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : _dragBlocked ? "not-allowed" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
+                      style={{ position: "absolute", top: 4, left: tailX, width: tailW, minWidth: isPto2 ? 0 : 2, height: rH - 8, boxSizing: "border-box", borderRadius: isPto2 ? T.radiusXs : Math.min(T.radiusXs, _tailPx / 2), background: activeBarFill(T, bc2, _barWorkedPct, _barCursorPct, isPto2 ? "pto" : "scheduled", _tailPx), border: isBarSelected ? `2px solid #fff` : isPto2 ? `1.5px solid ${bc2}` : _tailPx < 8 ? "none" : `${_tailPx < 16 ? 1 : 2}px dashed ${bc2}cc`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : _dragBlocked ? "not-allowed" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
                       onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
-                      {!isPto2 && ws && _workedRemainingBudget > 0 && _tailWNum > 0 && (() => {
-                        const _segWorked = Math.max(0, Math.min(_workedRemainingBudget, _tailWNum));
-                        _workedRemainingBudget = Math.max(0, _workedRemainingBudget - _segWorked);
-                        const pctOfDiv = _tailWNum > 0 ? (_segWorked / _tailWNum) * 100 : 0;
-                        if (pctOfDiv <= 0) return null;
-                        return <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pctOfDiv}%`, background: WORKED_STRIPE, opacity: 0.9, pointerEvents: "none", zIndex: 2 }} />;
-                      })()}
                       {isLastSeg && _tailPx >= 12 && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: Math.max(3, Math.min(10, _tailPx / 3)), cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     </div>;
                   })];
                 })}
-                {/* Live active bar — clock-in to now, render-only (Phase 2), no data writes */}
-                {(() => {
-                  const jc = p.activeJobClock;
-                  if (!jc?.clockIn) return null;
-                  const dayIdx = days.indexOf(TD);
-                  if (dayIdx < 0) return null;
-                  const nDaysLive = days.length;
-                  // Frozen (Phase 4, pending finish request) stops the bar growing past the
-                  // freeze moment instead of tracking real "now".
-                  const nowDate = jc.frozenAtMs ? new Date(jc.frozenAtMs) : new Date();
-                  const nowHLive = nowDate.getHours() + nowDate.getMinutes() / 60;
-                  const ciDate = new Date(jc.clockIn);
-                  const rawSH = toDS(ciDate) === TD ? (ciDate.getHours() + ciDate.getMinutes() / 60) : workStartH;
-                  const visSH = Math.max(rawSH, workStartH), visEH = Math.min(nowHLive, workEndH);
-                  if (visEH <= visSH) return null;
-                  const oneDayWLive = 1 / nDaysLive * 100;
-                  const leftPct = dayIdx / nDaysLive * 100 + ((visSH - workStartH) / totalWorkH) * oneDayWLive;
-                  const widthPct = ((visEH - visSH) / totalWorkH) * oneDayWLive;
-                  // Same color as the scheduled bar for this op — the live bar and the
-                  // reservoir are the same job, just the actively-worked portion vs the
-                  // leftover planned portion. Solid fill, same treatment as a normal bar; no
-                  // gradient/glow — "LIVE" text is the only differentiator.
-                  const liveColor = bars.find(b => String(b.id) === String(jc.reservoirOpId || jc.opId))?.color || T.accent;
-                  return <div key="live-bar" style={{ position: "absolute", top: 4, left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: liveColor, boxShadow: `0 2px 8px ${liveColor}33`, display: "flex", alignItems: "center", gap: 6, padding: "0 10px", overflow: "hidden", zIndex: 15, pointerEvents: "none" }}>
-                    <span style={{ fontSize: 9, fontWeight: 800, color: accentText(liveColor), letterSpacing: "0.05em", flexShrink: 0, opacity: 0.85 }}>LIVE</span>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: accentText(liveColor), overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{jc.opTitle || jc.jobTitle || "—"} · {p.name.split(" ")[0]}</span>
-                  </div>;
-                })()}
-                {/* Reservoir drain mask (Phase 3) — visually shrinks the reservoir op's own bar
-                    from its left edge in real time, interpolated from drainCheckpoint. Approximates
-                    against the op's first day/segment only — see Phase 3 scope notes for multi-day
-                    reservoirs. Render-only: the persisted footprint only updates at write events. */}
-                {(() => {
-                  const jc = p.activeJobClock;
-                  if (!jc?.reservoirOpId) return null;
-                  const rBar = bars.find(b => b.id === jc.reservoirOpId);
-                  if (!rBar?.task) return null;
-                  const op = rBar.task;
-                  const dayIdx2 = days.indexOf(op.start);
-                  if (dayIdx2 < 0) return null;
-                  const effNowMs2 = jc.frozenAtMs || Date.now();
-                  const drainH = Math.max(0, (effNowMs2 - new Date(jc.drainCheckpoint).getTime()) / 3600000);
-                  if (drainH <= 0) return null;
-                  const nDays3 = days.length;
-                  const oneDayW3 = 1 / nDays3 * 100;
-                  const opSH = op.startHour ?? workStartH;
-                  const opEH = op.start === op.end ? (op.endHour ?? Math.min(opSH + (op.hpd || productiveHoursPerDay), workEndH)) : workEndH;
-                  const maskEndH = Math.min(opEH, opSH + drainH);
-                  if (maskEndH <= opSH) return null;
-                  const leftPct2 = dayIdx2 / nDays3 * 100 + ((opSH - workStartH) / totalWorkH) * oneDayW3;
-                  const widthPct2 = ((maskEndH - opSH) / totalWorkH) * oneDayW3;
-                  return <div key="drain-mask" style={{ position: "absolute", top: 4, left: `calc(${leftPct2}% + 2px)`, width: `calc(${widthPct2}% - 4px)`, height: rH - 8, borderRadius: T.radiusXs, background: "repeating-linear-gradient(135deg, rgba(0,0,0,0.28), rgba(0,0,0,0.28) 6px, rgba(0,0,0,0.14) 6px, rgba(0,0,0,0.14) 12px)", zIndex: 14, pointerEvents: "none" }} />;
-                })()}
+                {/* No live sliver and no drain mask -- see the day-mode note and shrunkStartH.
+                    Behaviour B collapses into the same path: an op scheduled on a FUTURE day
+                    shrinks from its left edge on that future day while the work happens today.
+                    Today carries no second block; the pulsing dot on the row is the indicator. */}
               </div>
             </div>;
           })}
@@ -17206,7 +17583,7 @@ ${jobsCtx || "No jobs found."}`;
             const _tlH = _tlNow.getHours() + _tlNow.getMinutes() / 60;
             const _tlFrac = Math.max(0, Math.min(1, (_tlH - workStartH) / totalWorkH));
             const _tlDayIdx = diffD(tStart, TD);
-            return <div style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${lW}px + (100% - ${lW}px) * ${(_tlDayIdx + _tlFrac) / days.length})`, width: 1, background: T.accent + "33", zIndex: 12, pointerEvents: "none" }} />;
+            return <div style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${lW}px + (100% - ${lW}px) * ${(_tlDayIdx + _tlFrac) / days.length})`, width: 2, background: T.accent + "bb", zIndex: 16, pointerEvents: "none" }} />;
           })()}
         </div>
       </div>
@@ -18328,7 +18705,10 @@ ${jobsCtx || "No jobs found."}`;
     let cw = null;
     if (jc) {
       const pair = jcMatch ? _opHoursPair(jcMatch.op) : null;
-      const elapsedH = Math.max(0, (Date.now() - new Date(jc.clockIn).getTime()) / 3600000 - (jc.totalPausedMs || 0) / 3600000);
+      const elapsedH = liveElapsedHours({
+        clockIn: jc.clockIn, pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs,
+        totalPausedMs: jc.totalPausedMs, now: Date.now(),
+      });
       const remaining = pair ? Math.max(0, pair.est - pair.logged) : null;
       cw = {
         job: jc.jobTitle || jcMatch?.job?.title || "—",
@@ -19039,32 +19419,35 @@ ${jobsCtx || "No jobs found."}`;
           const meta = firstRef ? myTodayOps.find(t => t.op.id === firstRef.opId) : null;
           if (firstRef && meta) {
             try {
+              const optimisticClockIn = new Date().toISOString();
+              const sessionId = `sess_${loggedInUser.id}_${optimisticClockIn}`;
+              // onTeam, not .includes(String(id)): person ids are mixed string/number
+              // across web and iOS, so a numeric team entry never matches a String()
+              // needle. A miss here yields no reservoirOpId at all — no drain, no
+              // cascade, just a bare live bar — which looks like the feature being
+              // broken rather than an id comparison failing.
+              const reservoirOpId = onTeam(meta.op.team, loggedInUser.id) ? firstRef.opId : null;
+              const sessionSnapshot = buildSessionSnapshot(tasks, loggedInUser.id, toDS(new Date(optimisticClockIn)));
               const jres = await jobClockInAction({
                 personId: loggedInUser.id,
                 jobId: firstRef.jobId, panelId: firstRef.panelId, opId: firstRef.opId,
                 jobTitle: meta.job.title, panelTitle: meta.panel.title, opTitle: meta.op.title,
+                sessionId, reservoirOpId, sessionSnapshot,
               }, getToken, orgCode);
               if (jres?.ok) {
-                const sessionId = `sess_${loggedInUser.id}_${jres.clockIn}`;
-                const reservoirOpId = (meta.op.team || []).includes(String(loggedInUser.id)) ? firstRef.opId : null;
-                const sessionSnapshot = buildSessionSnapshot(tasks, loggedInUser.id, toDS(new Date(jres.clockIn)));
-                // See handleStartJob for why this explicit savePeople is required — the extra
-                // session fields have no server-side channel and get wiped by the next poll
-                // otherwise.
-                setPeople(pp => {
-                  const next = pp.map(p => p.id === loggedInUser.id ? {
-                    ...p,
-                    activeJobClock: {
-                      clockIn: jres.clockIn,
-                      sessionId, reservoirOpId, drainCheckpoint: jres.clockIn, sessionSnapshot,
-                      jobId: firstRef.jobId, panelId: firstRef.panelId, opId: firstRef.opId,
-                      jobTitle: meta.job.title, panelTitle: meta.panel.title, opTitle: meta.op.title,
-                      totalPausedMs: 0, pausedAt: null,
-                    },
-                  } : p);
-                  savePeople(next, getToken, orgCode).catch(console.warn);
-                  return next;
-                });
+                // Server persists sessionId/reservoirOpId/drainCheckpoint/sessionSnapshot as
+                // part of jobClockIn itself — see handleStartJob for why no savePeople is
+                // needed (or would work) here.
+                setPeople(pp => pp.map(p => p.id === loggedInUser.id ? {
+                  ...p,
+                  activeJobClock: {
+                    clockIn: jres.clockIn,
+                    sessionId, reservoirOpId, drainCheckpoint: jres.clockIn, sessionSnapshot,
+                    jobId: firstRef.jobId, panelId: firstRef.panelId, opId: firstRef.opId,
+                    jobTitle: meta.job.title, panelTitle: meta.panel.title, opTitle: meta.op.title,
+                    totalPausedMs: 0, pausedAt: null,
+                  },
+                } : p));
                 setTasks(prev => {
                   let updated = prev.map(job => {
                     if (job.id !== firstRef.jobId) return job;
@@ -19082,7 +19465,9 @@ ${jobsCtx || "No jobs found."}`;
                     };
                   });
                   const jc = { clockIn: jres.clockIn, sessionId, reservoirOpId, drainCheckpoint: jres.clockIn };
-                  updated = runClockCascade(updated, jc, loggedInUser.id, new Date(jres.clockIn).getTime(), sessionId, loggedInUser.name, true);
+                  // No teleport, no initial cascade. The op stays where it is scheduled — today or on a
+                  // future day — and its left edge starts moving right as work accrues. Behaviour A and B
+                  // are the same path now, so there is nothing to reposition at clock-in.
                   saveTasks(updated, getToken, orgCode).catch(console.warn);
                   return updated;
                 });
@@ -19206,29 +19591,22 @@ ${jobsCtx || "No jobs found."}`;
 
     const approveFinish = (job, panel, op) => {
       toast("Completion approved");
-      const loggedHours = timeclock.filter(e => e.jobRefs?.some(r => r.opId === op.id)).reduce((s, e) => s + (e.hours||0), 0);
       const session = op.pendingSession;
-      let updated = { ...op, status: "Finished", pendingFinish: false, actualHours: Math.round(loggedHours*100)/100, pendingSession: undefined };
-      if (session) {
-        // Commit the live bar as the finished block's real footprint — clockIn to frozenAtMs.
-        // Cascade positions from the session are already persisted (Phase 3 writes); nothing
-        // else to do for those. A same-day session gets exact hour precision; a session frozen
-        // on a later calendar day falls back to end-of-day on the clock-in date (scope call —
-        // matches the Phase 3 precedent of not modeling multi-day single blocks).
-        const ciDate = new Date(session.clockIn);
-        const frozenDate = new Date(session.frozenAtMs);
-        const sameDay = toDS(ciDate) === toDS(frozenDate);
-        const startHour = ciDate.getHours() + ciDate.getMinutes() / 60;
-        const endHour = sameDay ? (frozenDate.getHours() + frozenDate.getMinutes() / 60) : workEndH;
-        updated = { ...updated, start: toDS(ciDate), end: toDS(ciDate), startHour, endHour };
-      }
+      // Placement, actualHours and the moveLog entry all live in finishedOpFields, shared with
+      // the chat-bubble approve. The two surfaces had drifted: this one repositioned the bar and
+      // that one did not, so which button an admin pressed decided whether the DONE bar landed
+      // behind the cursor or stayed lying across it.
+      const updated = { ...op, ...finishedOpFields(op, loggedInUser?.name || "Admin") };
       const newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : updated) }) });
       const finalTasks = session ? recalcBounds(newTasks, loggedInUser?.name || "Admin") : newTasks;
       setTasks(finalTasks); saveTasks(finalTasks, getToken, orgCode).catch(console.warn);
-      // Only relevant if the worker approved-while-still-clocked-in (they may have already
-      // clocked out, in which case the server already nulled this). Needs an explicit
-      // savePeople like the other activeJobClock session-field writes — same reason.
-      if (session) setPeople(pp => { const next = pp.map(p => p.activeJobClock?.sessionId === session.sessionId ? { ...p, activeJobClock: null } : p); savePeople(next, getToken, orgCode).catch(console.warn); return next; });
+      // Optimistic-only: clearing activeJobClock entirely isn't something updateJobSession
+      // supports (it only merges drainCheckpoint/frozenAtMs), and savePeople can't touch it
+      // either (server-owned, pinned on every generic POST). If the worker approved-while-
+      // still-clocked-in, this local clear will be overwritten back to "active" by the next
+      // /people poll until they actually clock out via jobClockOut, which nulls it for real.
+      // Usually harmless — the op is already Finished, so there's nothing left to drain/cascade.
+      if (session) setPeople(pp => pp.map(p => p.activeJobClock?.sessionId === session.sessionId ? { ...p, activeJobClock: null } : p));
     };
     const rejectFinish = (job, panel, op) => {
       toast("Completion declined");
@@ -19236,7 +19614,8 @@ ${jobsCtx || "No jobs found."}`;
       let newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : { ...o, pendingFinish: false, pendingSession: undefined }) }) });
       if (session) newTasks = revertSession(newTasks, session, loggedInUser?.name || "Admin");
       setTasks(newTasks); saveTasks(newTasks, getToken, orgCode).catch(console.warn);
-      if (session) setPeople(pp => { const next = pp.map(p => p.activeJobClock?.sessionId === session.sessionId ? { ...p, activeJobClock: null } : p); savePeople(next, getToken, orgCode).catch(console.warn); return next; });
+      // See approveFinish — optimistic-only, same reason.
+      if (session) setPeople(pp => pp.map(p => p.activeJobClock?.sessionId === session.sessionId ? { ...p, activeJobClock: null } : p));
     };
 
     // ── Shared numpad component ───────────────────────────────────────────────
@@ -20100,22 +20479,23 @@ ${jobsCtx || "No jobs found."}`;
     const handleStartJob = async ({ jobId, jobTitle, panelId, panelTitle, opId, opTitle }) => {
       setJobClockLoading(true);
       try {
-        const res = await jobClockInAction({ personId: loggedInUser.id, jobId, panelId, opId, jobTitle, panelTitle, opTitle }, getToken, orgCode);
+        // sessionId is deterministic from personId + the client's own clock-in moment, computed
+        // before the call so it can be sent to the server and used as the reservoir/cascade
+        // sessionId immediately — the server's clockIn timestamp (returned below) becomes the
+        // one of record once the response comes back, but they're the same instant in practice.
+        const optimisticClockIn = new Date().toISOString();
+        const reservoirOp = findOp(tasks, opId);
+        const reservoirOpId = reservoirOp && onTeam(reservoirOp.team, loggedInUser.id) ? opId : null;  // onTeam: ids are mixed string/number
+        const sessionId = `sess_${loggedInUser.id}_${optimisticClockIn}`;
+        const sessionSnapshot = buildSessionSnapshot(tasks, loggedInUser.id, toDS(new Date(optimisticClockIn)));
+        const res = await jobClockInAction({ personId: loggedInUser.id, jobId, panelId, opId, jobTitle, panelTitle, opTitle, sessionId, reservoirOpId, sessionSnapshot }, getToken, orgCode);
         if (res.ok) {
           toast("Started on job");
-          const reservoirOp = findOp(tasks, opId);
-          const reservoirOpId = reservoirOp && (reservoirOp.team || []).includes(String(loggedInUser.id)) ? opId : null;
-          const sessionId = `sess_${loggedInUser.id}_${res.clockIn}`;
-          const sessionSnapshot = buildSessionSnapshot(tasks, loggedInUser.id, toDS(new Date(res.clockIn)));
-          // sessionId/reservoirOpId/drainCheckpoint/sessionSnapshot are new fields the
-          // timeclock server functions don't know about, so an explicit savePeople is required
-          // here — without it, the next /people poll overwrites local state with the server's
-          // copy (which lacks these fields) and silently wipes the whole clock-in session.
-          setPeople(pp => {
-            const next = pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: { clockIn: res.clockIn, sessionId, reservoirOpId, drainCheckpoint: res.clockIn, sessionSnapshot, jobId, panelId, opId, jobTitle, panelTitle, opTitle, totalPausedMs: 0, pausedAt: null } } : p);
-            savePeople(next, getToken, orgCode).catch(console.warn);
-            return next;
-          });
+          // Server now persists sessionId/reservoirOpId/drainCheckpoint/sessionSnapshot as part
+          // of jobClockIn itself (see netlify/functions/timeclock.js) — no separate savePeople
+          // needed, and none would work anyway: activeJobClock is server-owned and pinned on
+          // every generic /people POST specifically to prevent stale-roster overwrites.
+          setPeople(pp => pp.map(p => sameId(p.id, loggedInUser.id) ? { ...p, activeJobClock: { clockIn: res.clockIn, sessionId, reservoirOpId, drainCheckpoint: res.clockIn, pausedMsAtCheckpoint: 0, sessionSnapshot, jobId, panelId, opId, jobTitle, panelTitle, opTitle, totalPausedMs: 0, pausedAt: null } } : p));
           setTasks(prev => {
             let updatedTasks = prev.map(job => {
               if (job.id !== jobId) return job;
@@ -20136,7 +20516,9 @@ ${jobsCtx || "No jobs found."}`;
               };
             });
             const jc = { clockIn: res.clockIn, sessionId, reservoirOpId, drainCheckpoint: res.clockIn };
-            updatedTasks = runClockCascade(updatedTasks, jc, loggedInUser.id, new Date(res.clockIn).getTime(), sessionId, loggedInUser.name, true);
+            // No teleport, no initial cascade. The op stays where it is scheduled — today or on a
+            // future day — and its left edge starts moving right as work accrues. Behaviour A and B
+            // are the same path now, so there is nothing to reposition at clock-in.
             saveTasks(updatedTasks, getToken, orgCode).catch(console.warn);
             return updatedTasks;
           });
@@ -20189,7 +20571,10 @@ ${jobsCtx || "No jobs found."}`;
             // Final cascade write: drain the reservoir to its clock-out position and cascade
             // any op the session's full growth now overlaps. Does NOT convert the live bar to
             // a finished scheduled block — that's Phase 4's approve step.
-            let finalTasks = runClockCascade(tasks, jc, loggedInUser.id, Date.now(), jc.sessionId, loggedInUser.name, false);
+            // Clock-out is a write event: bake the edge the session reached into op.startHour so the
+            // stored schedule matches what the admin has been looking at. No checkpoint advance is
+            // needed — the session is ending and activeJobClock is dropped whole.
+            let finalTasks = persistShrink(tasks, jc, Date.now(), loggedInUser.name).tasks;
             if (res.hours > 0) {
               finalTasks = finalTasks.map(job => {
                 if (job.id !== jc.jobId) return job;
@@ -31212,8 +31597,13 @@ ${jobsCtx || "No jobs found."}`;
     <FadeOnClose open={!!confirmEndJob} duration={220}>{confirmEndJob && (() => {
       const jc = confirmEndJob.jc || {};
       const ctx = [jc.panelTitle, jc.opTitle].filter(Boolean).join(" › ");
+      // Still needed below for the "Since <time>" line, which shows when the
+      // session began rather than how long it has run.
       const started = jc.clockIn ? new Date(jc.clockIn) : null;
-      const netMs = started ? Math.max(0, Date.now() - started.getTime() - (jc.totalPausedMs || 0) - (jc.pausedAt ? Date.now() - new Date(jc.pausedAt).getTime() : 0)) : 0;
+      const netMs = liveElapsedHours({
+        clockIn: jc.clockIn, pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs,
+        totalPausedMs: jc.totalPausedMs, now: Date.now(),
+      }) * 3600000;
       const elapsed = `${Math.floor(netMs / 3600000)}h ${Math.floor((netMs % 3600000) / 60000)}m`;
       return <div className="anim-modal-overlay" onClick={() => { if (!endJobBusy) setConfirmEndJob(null); }} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", WebkitBackdropFilter: "blur(6px)", zIndex: 10060, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, fontFamily: T.font }}>
         <div onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 420, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.6)" }}>
