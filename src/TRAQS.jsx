@@ -10,7 +10,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
-import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours } from "./statsMath.js";
+import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
@@ -6771,6 +6771,15 @@ Extraction rules:
   // 11h of real production. Reading the sessions makes the schedule and the
   // Analytics production number agree by construction.
   const producedScopes = useMemo(() => producedHoursByScope(productionHours), [productionHours]);
+  // WHEN each op was worked, as merged [startMs, endMs] spans. producedScopes above answers
+  // "how much" and this answers "when" -- the schedule's hatch needs the second, and drawing
+  // the first in its place puts worked time in windows nobody worked (see workedSpansByOp).
+  //
+  // CLOSED sessions only. An open clock's span ends at "now", which does not change when
+  // productionHours does, so memoising it here would pin the growing edge at whatever the
+  // clock read on first render. The live span is added per bar instead, where Date.now() is
+  // already being read for the cursor and the two cannot drift apart.
+  const workedSpansStored = useMemo(() => workedSpansByOp(productionHours), [productionHours]);
   // Zone used to bucket clock records into days. The org's configured zone if set,
   // otherwise this device's — anything but UTC, which puts an evening shift on
   // the next day for every shop west of Greenwich.
@@ -17486,6 +17495,25 @@ ${jobsCtx || "No jobs found."}`;
                   // null, and a bar somebody was actively working read as "running" with no badge
                   // while the row's own person sat idle. One source, one meaning.
                   const _liveClocks = _liveCrew.map(lp => lp.activeJobClock).filter(Boolean);
+                  // The hatch as a RECORD of when, clipped to this bar's planned window and
+                  // expressed across it. Closed sessions come from the memo; the open one is added
+                  // here because its end is "now" and belongs next to the cursor that reads the
+                  // same clock. Emitted as data for now -- the fill still takes the scalar extent
+                  // until the extent-versus-record question is settled and activeBarFill can take
+                  // a list.
+                  const _barSpans = (() => {
+                    if (isPto || !bar.task) return [];
+                    const [_spanS, _spanE] = opHourRange(bar.task);
+                    const _nowMs = Date.now();
+                    const _live = [];
+                    for (const jc of _liveClocks) {
+                      const a = Date.parse(jc.clockIn);
+                      const b = Number.isFinite(jc.frozenAtMs) ? jc.frozenAtMs : _nowMs;
+                      if (Number.isFinite(a) && b > a) _live.push([a, b]);
+                    }
+                    const _all = mergeSpans([...(workedSpansStored.get(String(bar.task.id)) || []), ..._live]);
+                    return spansToPct(_all, _spanS, _spanE);
+                  })();
                   const _barState = isPto ? "pto"
                     : bar.task?.status === "Finished" ? "done"
                     : _liveClocks.some(jc => jc.frozenAtMs) ? "held"
@@ -17498,7 +17526,7 @@ ${jobsCtx || "No jobs found."}`;
                     : _barWorkedPct > 0 ? "worked"
                     : "scheduled";
                   return [<div key={barKey}
-                    data-worked-pct={_barWorkedPct} data-divider-pct={_barCursorPct} data-raw-worked-pct={_barRawWorkedPct} data-worked-h={_barWorkedH} data-committed-h={_barCommittedH} data-live-h={_barLiveH} data-state={_barState}
+                    data-worked-pct={_barWorkedPct} data-divider-pct={_barCursorPct} data-raw-worked-pct={_barRawWorkedPct} data-worked-spans={JSON.stringify(_barSpans)} data-worked-h={_barWorkedH} data-committed-h={_barCommittedH} data-live-h={_barLiveH} data-state={_barState}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
                     style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, minWidth: _wFirst > 0 ? 2 : 0, height: rH - 8, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: activeBarFill(T, bc, _barWorkedPct, _barCursorPct, _barState, _renderPx), border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
