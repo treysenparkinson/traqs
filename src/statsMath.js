@@ -774,3 +774,74 @@ export function firstFreeStart(desiredStart, durationMs, occupied) {
   }
   return at;
 }
+
+/**
+ * Roll an instant onto real working time: forward to the next working day's start if it lands
+ * on a weekend, a holiday, or outside the working window. Packing produces raw instants and
+ * the schedule can only place work when the shop is open.
+ */
+export function normalizeToWorkTime(ms, cfg) {
+  const { workStartH = 8, workEndH = 16, workDays = [1, 2, 3, 4, 5], holidays = [] } = cfg || {};
+  if (!Number.isFinite(ms)) return ms;
+  const holidaySet = new Set(holidays || []);
+  const workDaySet = new Set(workDays || []);
+  const d = new Date(ms);
+  for (let guard = 0; guard < 400; guard++) {
+    const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const midnight = new Date(d); midnight.setHours(0, 0, 0, 0);
+    const hour = (d.getTime() - midnight.getTime()) / 3600000;
+    const open = workDaySet.has(d.getDay()) && !holidaySet.has(ds);
+    if (open && hour >= workStartH && hour < workEndH) return d.getTime();
+    if (open && hour < workStartH) { d.setHours(workStartH, 0, 0, 0); return d.getTime(); }
+    // Past the close, or a day the shop is shut: try the next day at opening.
+    d.setDate(d.getDate() + 1);
+    d.setHours(workStartH, 0, 0, 0);
+  }
+  return ms;
+}
+
+/**
+ * Pack one row so nothing overlaps, and say what moved.
+ *
+ * PRIORITY, which is how the shop reasons about it rather than a convenience:
+ *   1. An op with worked hours is PINNED. Its position is a record of when the work happened,
+ *      and moving it would separate the hatch from the hours it stands for. Locked ops pin for
+ *      the same reason.
+ *   2. Among unworked ops, the earliest planned start takes the position it asked for.
+ *   3. A later unworked op that would clash slides to the first free slot after it.
+ *
+ * Only ops inside the active horizon are touched. History sits where it is, may clash with
+ * other history, and is exempt — a year of unfinished backlog packing forward would push a row
+ * months into the future and describe nothing real.
+ *
+ * Returns [{ id, fromStart, toStart, fromMs, toMs }] for the ops that moved, so a caller can
+ * log it and a human can review it before anything is written.
+ */
+export function packActiveRow(ops, { nowDay, cfg, durationMsOf }) {
+  const moves = [];
+  const list = (ops || []).filter((o) => o && o.start && o.end);
+  const active = list.filter((o) => nowDay == null || o.end >= nowDay);
+  if (active.length < 2) return moves;
+
+  const durOf = durationMsOf || ((o) => { const i = opInterval(o, cfg); return i ? Math.max(0, i.e - i.s) : 0; });
+  const pinned = active.filter((o) => o.locked || (o.workedHoursShown || 0) > 0);
+  const movable = active.filter((o) => !(o.locked || (o.workedHoursShown || 0) > 0))
+    .sort((a, b) => a.start.localeCompare(b.start)
+      || ((a.startHour ?? 0) - (b.startHour ?? 0)));
+
+  // Pinned work occupies its ground first; everything else has to fit around it.
+  const occupied = pinned.map((o) => opInterval(o, cfg)).filter(Boolean);
+  for (const o of movable) {
+    const want = opInterval(o, cfg);
+    const dur = durOf(o);
+    if (!want || dur <= 0) continue;
+    let at = firstFreeStart(want.s, dur, occupied);
+    const rolled = normalizeToWorkTime(at, cfg);
+    // Rolling onto working time can land inside something that was free at the raw instant, so
+    // re-test once the roll has happened rather than trusting the first answer.
+    if (rolled !== at) at = firstFreeStart(rolled, dur, occupied);
+    occupied.push({ s: at, e: at + dur });
+    if (at !== want.s) moves.push({ id: o.id, fromMs: want.s, toMs: at, fromStart: o.start, dur });
+  }
+  return moves;
+}
