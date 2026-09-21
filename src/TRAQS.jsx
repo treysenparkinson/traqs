@@ -15435,7 +15435,7 @@ ${jobsCtx || "No jobs found."}`;
           panelTitle: xFound.panel.title, level: 2,
         };
         bars.push({
-          type: "task", id: `xrow-${pid}-${xOpId}`, crossRow: true, xOpId: String(xOpId),
+          type: "task", id: `xrow-${pid}-${xOpId}`, crossRow: true, xOpId: String(xOpId), personId: pid,
           start: xStartDS, end: xEndDS,
           title: `${xFound.panel.title} · ${xFound.op.title}`,
           color: barPaint(xFound.op, elColor(xTc)),
@@ -17583,7 +17583,13 @@ ${jobsCtx || "No jobs found."}`;
                   const isNew = !isPto && bar.jobCreatedAt && (Date.now() - new Date(bar.jobCreatedAt).getTime()) < 86400000;
                   // Someone is clocked into this operation right now. sameId, not === :
                   // op ids are mixed string/number, so a strict compare misses live work.
-                  const _liveCrew = isPto ? [] : people.filter(p => p.activeJobClock?.clockIn && sameId(p.activeJobClock.opId, bar.task?.id));
+                  // Who is on the clock against what this bar represents. For an op's own bar that
+                  // is anyone working the op -- the op is being worked regardless of whose row it
+                  // sits on. For a cross-row record it is that one person only: the bar is THEIR
+                  // work, and it must not read as running because a colleague picked the op up.
+                  const _liveCrew = isPto ? [] : people.filter(lp =>
+                    lp.activeJobClock?.clockIn && sameId(lp.activeJobClock.opId, bar.task?.id)
+                    && (!bar.crossRow || sameId(lp.id, bar.personId)));
                   const isLive = _liveCrew.length > 0;
                   // The render/verify interface (spec 6d). Functionality owns these numbers;
                   // Visuals stays geometry-neutral and Verifier asserts against them. They must
