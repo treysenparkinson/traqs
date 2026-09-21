@@ -253,6 +253,45 @@ if (JSON.stringify(naiveSplit({ hpd: 8, workedMs: 8 * H })) === JSON.stringify([
   console.log("red proof: the fully-worked case rejects a split that always mints a remainder");
 }
 
+// ── openSessionEnd (Q7b) ─────────────────────────────────────────────────
+// A clock nobody stopped must not accrue all night. The bound is the end of the day the
+// clock STARTED on, and the fact it was applied is what flags the session unclosed.
+const { openSessionEnd, endOfWorkingDayMs } = await import("../src/statsMath.js");
+
+const DCFG = { workEndH: 16 };
+const ose = (o) => { const r = openSessionEnd({ ...o, cfg: DCFG }); return [r.endMs, r.frozen, r.unclosed]; };
+
+eq("end of the working day is that day at workEndH",
+  endOfWorkingDayMs(L(2026, 9, 21, 9), DCFG), L(2026, 9, 21, 16));
+eq("mid-day, still running: now, not frozen, not unclosed",
+  ose({ clockInMs: L(2026, 9, 21, 9), nowMs: L(2026, 9, 21, 11) }),
+  [L(2026, 9, 21, 11), false, false]);
+eq("past shop close: capped at close, frozen, and flagged unclosed",
+  ose({ clockInMs: L(2026, 9, 21, 9), nowMs: L(2026, 9, 21, 20) }),
+  [L(2026, 9, 21, 16), true, true]);
+eq("still open days later is ONE unclosed session from its own day, not a renewing one",
+  ose({ clockInMs: L(2026, 9, 21, 9), nowMs: L(2026, 9, 24, 11) }),
+  [L(2026, 9, 21, 16), true, true]);
+eq("an explicit HELD freeze wins and is not an unclosed session",
+  ose({ clockInMs: L(2026, 9, 21, 9), frozenAtMs: L(2026, 9, 21, 10), nowMs: L(2026, 9, 21, 20) }),
+  [L(2026, 9, 21, 10), true, false]);
+eq("a freeze stamp in the future cannot push the clock forward",
+  ose({ clockInMs: L(2026, 9, 21, 9), frozenAtMs: L(2026, 9, 21, 23), nowMs: L(2026, 9, 21, 11) }),
+  [L(2026, 9, 21, 11), true, false]);
+eq("exactly at close is not yet over", ose({ clockInMs: L(2026, 9, 21, 9), nowMs: L(2026, 9, 21, 16) }),
+  [L(2026, 9, 21, 16), false, false]);
+
+// RED PROOF: the plausible wrong bound is the end of TODAY rather than of the day the clock
+// started, which agrees on every same-day case and lets a Friday punch keep growing all
+// weekend -- the exact case Q7b exists for.
+const endOfToday = (nowMs) => { const d = new Date(nowMs); d.setHours(0,0,0,0); return d.getTime() + 16 * 3600000; };
+if (endOfToday(L(2026, 9, 24, 11)) === L(2026, 9, 21, 16)) {
+  console.error("RED PROOF FAILED: the days-later case does not distinguish the clock-in day from today");
+  process.exitCode = 1;
+} else {
+  console.log("red proof: the days-later case rejects bounding by today instead of the clock-in day");
+}
+
 // Summary LAST. This block has been stranded mid-file twice by appending a new section
 // after it -- the run stayed green while the new assertions never executed, which is the
 // same green-and-blind failure the red proofs exist to catch. If you add a section, add it

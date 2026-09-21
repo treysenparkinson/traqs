@@ -10,7 +10,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
-import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansForPerson, spansDurationMs } from "./statsMath.js";
+import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansForPerson, spansDurationMs, openSessionEnd } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
@@ -15389,7 +15389,9 @@ ${jobsCtx || "No jobs found."}`;
       const _openByOp = new Map();
       if (_selfJc?.clockIn && _selfJc.opId != null) {
         const a = Date.parse(_selfJc.clockIn);
-        const b = Number.isFinite(_selfJc.frozenAtMs) ? _selfJc.frozenAtMs : Date.now();
+        // Same Q7b bound as the op's own bar. Two places end an open clock and they must agree,
+        // or a forgotten session would freeze on one row and keep growing on the other.
+        const { endMs: b } = openSessionEnd({ clockInMs: a, frozenAtMs: _selfJc.frozenAtMs, nowMs: Date.now(), cfg: dayWindowCfg });
         if (Number.isFinite(a) && b > a) _openByOp.set(String(_selfJc.opId), [[a, b]]);
       }
       for (const [xOpId, xSpans] of workedSpansForPerson(productionHours, pid, _openByOp)) {
@@ -17621,7 +17623,9 @@ ${jobsCtx || "No jobs found."}`;
                     const _live = [];
                     for (const jc of _liveClocks) {
                       const a = Date.parse(jc.clockIn);
-                      const b = Number.isFinite(jc.frozenAtMs) ? jc.frozenAtMs : _nowMs;
+                      // Q7b: a clock nobody stopped freezes at the end of the day it started on,
+                      // so a forgotten Friday punch does not grow a bar across the weekend.
+                      const { endMs: b } = openSessionEnd({ clockInMs: a, frozenAtMs: jc.frozenAtMs, nowMs: _nowMs, cfg: dayWindowCfg });
                       if (Number.isFinite(a) && b > a) _live.push([a, b]);
                     }
                     // A cross-row bar carries its own person's spans; every other bar takes the
@@ -17636,6 +17640,10 @@ ${jobsCtx || "No jobs found."}`;
                   // window has not opened, the left end is still the op colour and accentText is right.
                   const _leftIsGrey = !isPto && bar.task?.status !== "Finished" && _barCursorPct > 0 && (isLive || _barWorkedPct > 0);
                   const iconColor = _leftIsGrey ? barLabelColor(T, bc) : accentText(bc);
+                  // An open clock past its day's close. Emitted rather than persisted: the resolve
+                  // queue needs to find these, and the durable flag belongs on the session record
+                  // via updateJobSession, which is a server change and not this pass.
+                  const _barUnclosed = _liveClocks.some(jc => openSessionEnd({ clockInMs: Date.parse(jc.clockIn), frozenAtMs: jc.frozenAtMs, nowMs: Date.now(), cfg: dayWindowCfg }).unclosed);
                   const _barState = isPto ? "pto"
                     : bar.task?.status === "Finished" ? "done"
                     : _liveClocks.some(jc => jc.frozenAtMs) ? "held"
@@ -17648,7 +17656,7 @@ ${jobsCtx || "No jobs found."}`;
                     : _barWorkedPct > 0 ? "worked"
                     : "scheduled";
                   return [<div key={barKey}
-                    data-worked-pct={_barWorkedPct} data-divider-pct={_barCursorPct} data-raw-worked-pct={_barRawWorkedPct} data-worked-spans={JSON.stringify(_barSpans)} data-worked-h={_barWorkedH} data-committed-h={_barCommittedH} data-live-h={_barLiveH} data-state={_barState}
+                    data-worked-pct={_barWorkedPct} data-divider-pct={_barCursorPct} data-raw-worked-pct={_barRawWorkedPct} data-worked-spans={JSON.stringify(_barSpans)} data-unclosed={_barUnclosed ? "1" : undefined} data-worked-h={_barWorkedH} data-committed-h={_barCommittedH} data-live-h={_barLiveH} data-state={_barState}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
                     style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, minWidth: _wFirst > 0 ? 2 : 0, height: rH - 8, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: activeBarFill(T, bc, _barSpans, _barCursorPct, _barState, _renderPx), border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}

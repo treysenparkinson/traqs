@@ -536,3 +536,33 @@ export function splitWorkedOp({ hpd, workedMs, teamSize = 1 }) {
     perPersonRemainderH: remaining / size,
   };
 }
+
+/**
+ * The instant a working day closes, for the day an open clock started on (Q7b).
+ *
+ * A clock nobody stopped would otherwise accrue all night and all weekend, and the bar would
+ * grow with it — by Monday a forgotten Friday punch reads as sixty hours of work. Freezing at
+ * the end of the working day bounds both the hours and the geometry, and the fact that it had
+ * to be frozen is the signal that the session needs resolving.
+ *
+ * Deliberately the end of the day the clock STARTED on, not of the current day: a session left
+ * open for three days is one unclosed session from Tuesday, not a daily one that keeps renewing.
+ */
+export function endOfWorkingDayMs(startMs, cfg) {
+  const { workEndH = 24 } = cfg || {};
+  if (!Number.isFinite(startMs)) return null;
+  const d = new Date(startMs);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime() + workEndH * 3600000;
+}
+
+/**
+ * An open clock's end, bounded by Q7b. Returns the instant AND whether the bound was applied,
+ * because the caller needs both: one draws the bar, the other says the session is unclosed.
+ */
+export function openSessionEnd({ clockInMs, frozenAtMs, nowMs, cfg }) {
+  if (Number.isFinite(frozenAtMs)) return { endMs: Math.min(nowMs, frozenAtMs), frozen: true, unclosed: false };
+  const dayEnd = endOfWorkingDayMs(clockInMs, cfg);
+  if (Number.isFinite(dayEnd) && nowMs > dayEnd) return { endMs: dayEnd, frozen: true, unclosed: true };
+  return { endMs: nowMs, frozen: false, unclosed: false };
+}
