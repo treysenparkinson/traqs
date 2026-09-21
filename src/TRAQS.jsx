@@ -17746,6 +17746,25 @@ ${jobsCtx || "No jobs found."}`;
                   // window has not opened, the left end is still the op colour and accentText is right.
                   const _leftIsGrey = !isPto && bar.task?.status !== "Finished" && _barCursorPct > 0 && (isLive || _barWorkedPct > 0);
                   const iconColor = _leftIsGrey ? barLabelColor(T, bc) : accentText(bc);
+                  // The title is flex:1, so once regions are drawn it CROSSES them -- grey at its
+                  // start, op colour past the cursor -- and no single colour is right along its
+                  // whole run. It takes the ground it STARTS on, and a halo in the opposite
+                  // polarity carries the part that crosses over.
+                  //
+                  // A halo rather than a scrim: a scrim is a positioned overlay with its own
+                  // extent and z-index, which is the pattern whose wrong extent drew stripes
+                  // through the DONE badge, and putting one back to solve a text problem would
+                  // trade a known-bad mechanism for a cosmetic gain. Constraining the label
+                  // instead would make it reflow as the cursor advances, which is worse than
+                  // imperfect contrast because it moves while you are reading it.
+                  //
+                  // Only where it can actually cross: an untouched bar is one ground and needs
+                  // nothing. _hideBarLabel already hides labels below 44px, so this never has to
+                  // survive the small sizes where a soft halo reads as muddy.
+                  const _titleColor = _leftIsGrey ? barLabelColor(T, bc) : accentText(bc);
+                  const _titleHalo = _leftIsGrey
+                    ? (_titleColor === "#ffffff" ? "0 0 3px rgba(0,0,0,0.60)" : "0 0 3px rgba(255,255,255,0.70)")
+                    : undefined;
                   // An open clock past its day's close. Emitted rather than persisted: the resolve
                   // queue needs to find these, and the durable flag belongs on the session record
                   // via updateJobSession, which is a server change and not this pass.
@@ -17780,7 +17799,7 @@ ${jobsCtx || "No jobs found."}`;
                         literal "held" to reach liveBarTextColor's spent branch and IS on spent grey. */}
                     {!isPto && !_hideBarLabel && (_barState === "held" || _barState === "paused") && <span style={{ flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", opacity: 0.85, color: barLabelColor(T, bc) }}>{LIVE_BADGE_LABEL[_barState]}</span>}
                     {!isPto && !_hideBarLabel && bar.task?.status === "Finished" && <span style={{ flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", opacity: 0.85, color: liveBarTextColor(T, bc, "held") }}>DONE</span>}
-                    <span style={{ display: _hideBarLabel ? "none" : undefined, fontSize: 11, color: accentText(bc), fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>{isPto ? (<><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={accentText(bc)} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginRight: 5, verticalAlign: "-1.5px" }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>{bar.ptoType}{bar.title && bar.title !== bar.ptoType ? ` · ${bar.title}` : ""}</>) : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
+                    <span style={{ display: _hideBarLabel ? "none" : undefined, fontSize: 11, color: _titleColor, textShadow: _titleHalo, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>{isPto ? (<><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={accentText(bc)} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginRight: 5, verticalAlign: "-1.5px" }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>{bar.ptoType}{bar.title && bar.title !== bar.ptoType ? ` · ${bar.title}` : ""}</>) : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
                     {!isPto && !_hideBarLabel && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: accentText(bc) === "#ffffff" ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)', fontFamily: T.mono, position: "relative", zIndex: 5 }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
                   </div>,
                   /* "New job" dot — a sibling of the bar (not a child, which the bar's overflow:hidden
