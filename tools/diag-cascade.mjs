@@ -62,7 +62,7 @@ for (const person of people) {
   if (!ops.length) continue;
   ops.sort((a, b) => String(a.start).localeCompare(String(b.start)));
   const NOWDAY = process.env.NO_CURSOR ? null : TODAY;
-  const r = rowPushHours({ ops, nowDay: NOWDAY, nowHour: 8, cfg: { workStartH: WORK_START, totalWorkH: TOTAL_WORK, productiveHoursPerDay: PHPD, diffBD: bd } });
+  const r = rowPushHours({ ops, nowDay: NOWDAY, nowHour: d0.getHours() + d0.getMinutes() / 60, cfg: { workStartH: WORK_START, totalWorkH: TOTAL_WORK, productiveHoursPerDay: PHPD, diffBD: bd } });
   const worst = Math.max(0, ...[...r.pushes.values()]);
   rows.push({ name: person.name, ops, r, worst, anchored: r.atCursor.size });
 }

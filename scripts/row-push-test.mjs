@@ -258,5 +258,44 @@ if (overrunOnly(vanishRow) === rowSlackHours({ ops: vanishRow, nowMs: NOW, produ
   console.log("red proof: an untouched past-due row rejects overrun-only slack");
 }
 
+// ── AN ACTIVE SESSION PINS AN OP ─────────────────────────────────────────
+// Somebody being on the clock is a FACT, not a quantity. The exemption used to rest on
+// worked hours being greater than zero, which is a race: at the instant of clock-in the
+// elapsed time is seconds, the op still reads as untouched, and the cursor drags it forward
+// out from under the person working it. The zero-hours case below is the one that matters.
+
+eq("an op with an active session is NOT pushed, even with zero hours on it",
+  asObj(rowPushHours({
+    ops: [op("a", "2026-09-14", { hasActiveSession: true, workedHoursShown: 0 })],
+    nowDay: "2026-09-16", nowHour: 8, cfg: CFG,
+  })), {});
+eq("...and is not cursor-anchored either",
+  cursorSet(rowPushHours({
+    ops: [op("a", "2026-09-14", { hasActiveSession: true, workedHoursShown: 0 })],
+    nowDay: "2026-09-16", nowHour: 8, cfg: CFG,
+  })), []);
+eq("the same op WITHOUT a session is pushed — so the flag is what is doing the work",
+  cursorSet(rowPushHours({
+    ops: [op("a", "2026-09-14", { workedHoursShown: 0 })],
+    nowDay: "2026-09-16", nowHour: 8, cfg: CFG,
+  })), ["a"]);
+eq("a session on one op does not exempt its neighbour",
+  cursorSet(rowPushHours({
+    ops: [op("a", "2026-09-14", { hasActiveSession: true }), op("b", "2026-09-14")],
+    nowDay: "2026-09-16", nowHour: 8, cfg: CFG,
+  })), ["b"]);
+
+// RED PROOF: the hours-based exemption this replaces. It agrees once a session has accrued
+// time and fails at exactly the moment someone clocks in, which is when the bar was seen to
+// slide.
+const hoursOnly = (o) => (o.workedHoursShown || 0) > 0;
+let sessionRedOk = true;
+if (hoursOnly({ hasActiveSession: true, workedHoursShown: 0 })) {
+  sessionRedOk = false;
+  console.error("RED PROOF FAILED: an hours-based exemption already covers the zero-hours session");
+} else {
+  console.log("red proof: a just-started session is exempt by fact and not by hours");
+}
+
 console.log(`${pass} passed, ${fail} failed`);
-process.exit(fail === 0 && redOk && collideRedOk && slackRedOk ? 0 : 1);
+process.exit(fail === 0 && redOk && collideRedOk && slackRedOk && sessionRedOk ? 0 : 1);

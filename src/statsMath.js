@@ -678,7 +678,16 @@ export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
     // every bar past the first was painted beyond the window's right edge. It reads as jobs
     // disappearing, because the visibility filter tests STORED dates and keeps them while the
     // paint uses pushed ones.
-    if (nowProd != null && worked <= 0 && !op.isFullyWorked && nowProd - sp > push) {
+    // AN ACTIVE SESSION MAKES AN OP NON-UNTOUCHED, as a fact rather than as a measurement.
+    //
+    // `worked <= 0` was doing this job alone and it is a race: at the instant of clock-in the
+    // live hours are seconds, so the quantity is still zero, the op still reads as untouched,
+    // and the cursor drags it forward out from under the person working it. A session HELD at
+    // clock-in has the same shape. Somebody being on the clock is a boolean and cannot race.
+    //
+    // Cross-row counts. The clock names an opId whoever owns the row, so an op is being worked
+    // whether or not the worker is on its team -- which is the case this was reported for.
+    if (nowProd != null && worked <= 0 && !op.hasActiveSession && !op.isFullyWorked && nowProd - sp > push) {
       push = nowProd - sp;
       atCursor.add(String(op.id));
     }
