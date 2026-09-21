@@ -560,8 +560,18 @@ export function endOfWorkingDayMs(startMs, cfg) {
  * An open clock's end, bounded by Q7b. Returns the instant AND whether the bound was applied,
  * because the caller needs both: one draws the bar, the other says the session is unclosed.
  */
-export function openSessionEnd({ clockInMs, frozenAtMs, nowMs, cfg }) {
+export function openSessionEnd({ clockInMs, pausedAt, frozenAtMs, nowMs, cfg }) {
+  // HELD first: somebody asked for that one, and an explicit decision outranks a lunch that
+  // happens to be open at the same moment.
   if (Number.isFinite(frozenAtMs)) return { endMs: Math.min(nowMs, frozenAtMs), frozen: true, unclosed: false };
+  // LUNCH. An open pause stops the hatch where the work stopped while the cursor carries on,
+  // which is what opens the flat idle gap behind it and is the whole visual meaning of being
+  // on a break. Without it the span ran to now, the hatch grew straight through lunch, and a
+  // bar on lunch was indistinguishable from one being worked.
+  const pausedMs = typeof pausedAt === "string" ? Date.parse(pausedAt) : pausedAt;
+  if (Number.isFinite(pausedMs) && pausedMs > clockInMs) {
+    return { endMs: Math.min(nowMs, pausedMs), frozen: true, unclosed: false, paused: true };
+  }
   const dayEnd = endOfWorkingDayMs(clockInMs, cfg);
   if (Number.isFinite(dayEnd) && nowMs > dayEnd) return { endMs: dayEnd, frozen: true, unclosed: true };
   return { endMs: nowMs, frozen: false, unclosed: false };
@@ -612,11 +622,17 @@ export function workedSpansByPersonOp(sessions) {
 // `diffBD` is injected rather than reimplemented — business days, work days and holidays have
 // one definition in this codebase and a second one here would drift from it silently.
 export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
+  // Ops whose push comes from the CURSOR rather than from a collision. Their left edge is not
+  // a quantity of hours to add back onto a clock -- it is a known instant, and the caller
+  // places them at it directly. Reconstructing it from `push` cannot be exact: the push is in
+  // PRODUCTIVE hours and a start hour is a CLOCK hour, so converting between them drifts by
+  // however much lunch falls inside the span.
+  const atCursor = new Set();
   const out = new Map();
   const list = ops || [];
-  if (!list.length) return out;
+  if (!list.length) return { pushes: out, atCursor };
   const { workStartH = 0, totalWorkH = 1, productiveHoursPerDay = 1, diffBD } = cfg || {};
-  if (typeof diffBD !== "function") return out;
+  if (typeof diffBD !== "function") return { pushes: out, atCursor };
 
   const anchor = list[0].start;
   const dayFraction = (h) => Math.max(0, (((h ?? workStartH) - workStartH) / Math.max(0.0001, totalWorkH)) * productiveHoursPerDay);
@@ -638,10 +654,13 @@ export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
     // And the cursor, for work nobody has started. Untouched only: once someone has worked an
     // op, where it sits is a record rather than a plan, and dragging it forward would move the
     // hatch away from the hours it represents.
-    if (nowProd != null && worked <= 0 && !op.isFullyWorked) push = Math.max(push, nowProd - sp);
+    if (nowProd != null && worked <= 0 && !op.isFullyWorked && nowProd - sp > push) {
+      push = nowProd - sp;
+      atCursor.add(String(op.id));
+    }
     // A locked op does not move, whatever is behind it. It still OCCUPIES its slot, so the ops
     // after it are pushed by it as usual — the lock pins this bar, it does not exempt the row.
-    if (op.locked) push = 0;
+    if (op.locked) { push = 0; atCursor.delete(String(op.id)); }
 
     if (push > 0) out.set(String(op.id), push);
     const own = planned + (op.isFullyWorked ? 0 : Math.max(0, worked - (op.hpd || 0)) / size);
@@ -650,5 +669,5 @@ export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
     // later-ending one, and the blocker is whichever reaches furthest.
     prevEnd = prevEnd == null ? end : Math.max(prevEnd, end);
   }
-  return out;
+  return { pushes: out, atCursor };
 }

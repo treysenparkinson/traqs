@@ -19,7 +19,9 @@ const DAYS = ["2026-09-14", "2026-09-15", "2026-09-16", "2026-09-17", "2026-09-1
 const diffBD = (a, b) => DAYS.indexOf(b) - DAYS.indexOf(a);
 const CFG = { workStartH: 8, totalWorkH: 8, productiveHoursPerDay: 7.5, diffBD };
 const op = (id, start, o = {}) => ({ id, start, startHour: 8, hpd: 7.5, teamSize: 1, workedHoursShown: 0, isFullyWorked: false, locked: false, ...o });
-const asObj = (m) => Object.fromEntries([...m.entries()].map(([k, v]) => [k, Math.round(v * 100) / 100]));
+// rowPushHours returns { pushes, atCursor }: the hours, and which of them are pinned to now.
+const asObj = (r) => Object.fromEntries([...r.pushes.entries()].map(([k, v]) => [k, Math.round(v * 100) / 100]));
+const cursorSet = (r) => [...r.atCursor].sort();
 
 // ── the cursor push ──────────────────────────────────────────────────────
 eq("no cursor supplied, no cursor push",
@@ -66,6 +68,33 @@ eq("the two causes compose: a cursor push cascades like any other",
     ops: [op("a", "2026-09-14"), op("b", "2026-09-15")],
     nowDay: "2026-09-16", nowHour: 8, cfg: CFG,
   })), { a: 15, b: 15 });
+
+// ── CURSOR ANCHORING ─────────────────────────────────────────────────────
+// An op pushed BY THE CURSOR is placed at a known instant, so the render sets its start
+// directly instead of rebuilding it from `push`. That distinction is the fix for bars
+// landing near the cursor rather than at it: `push` is in PRODUCTIVE hours and a start hour
+// is a CLOCK hour, so reconstructing one from the other drifts by whatever lunch falls
+// inside the span. Anything NOT in this set is placed by the old arithmetic, correctly,
+// because its target is the end of the op before it rather than now.
+
+eq("an untouched op pushed by the cursor is flagged for exact placement",
+  cursorSet(rowPushHours({ ops: [op("a", "2026-09-14")], nowDay: "2026-09-16", nowHour: 12, cfg: CFG })), ["a"]);
+eq("an op pushed only by a COLLISION is not cursor-anchored",
+  cursorSet(rowPushHours({
+    ops: [op("a", "2026-09-14", { workedHoursShown: 15 }), op("b", "2026-09-15")],
+    nowDay: null, cfg: CFG,
+  })), []);
+eq("a worked op is never cursor-anchored — its position is a record",
+  cursorSet(rowPushHours({ ops: [op("a", "2026-09-14", { workedHoursShown: 2 })], nowDay: "2026-09-18", nowHour: 8, cfg: CFG })), []);
+eq("a LOCKED op is not cursor-anchored, however far past it the cursor is",
+  cursorSet(rowPushHours({ ops: [op("a", "2026-09-14", { locked: true })], nowDay: "2026-09-18", nowHour: 8, cfg: CFG })), []);
+eq("when a collision pushes an op FURTHER than the cursor would, it is not cursor-anchored",
+  cursorSet(rowPushHours({
+    ops: [op("a", "2026-09-14", { workedHoursShown: 30 }), op("b", "2026-09-15")],
+    nowDay: "2026-09-15", nowHour: 8, cfg: CFG,
+  // Neither is anchored: a has been worked, and b is moved further by the collision than the
+  // cursor would have moved it, so its target is the end of a rather than now.
+  })), []);
 
 // ── PAN STABILITY ────────────────────────────────────────────────────────
 // The regression this file exists for. The same row, computed three times; the only thing

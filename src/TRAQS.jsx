@@ -15523,7 +15523,7 @@ ${jobsCtx || "No jobs found."}`;
         const a = Date.parse(_selfJc.clockIn);
         // Same Q7b bound as the op's own bar. Two places end an open clock and they must agree,
         // or a forgotten session would freeze on one row and keep growing on the other.
-        const { endMs: b } = openSessionEnd({ clockInMs: a, frozenAtMs: _selfJc.frozenAtMs, nowMs: Date.now(), cfg: dayWindowCfg });
+        const { endMs: b } = openSessionEnd({ clockInMs: a, pausedAt: _selfJc.pausedAt, frozenAtMs: _selfJc.frozenAtMs, nowMs: Date.now(), cfg: dayWindowCfg });
         if (Number.isFinite(a) && b > a) _openByOp.set(String(_selfJc.opId), [[a, b]]);
       }
       // Closed sessions from the memo, merged with this person's open clock if they have one.
@@ -16223,7 +16223,7 @@ ${jobsCtx || "No jobs found."}`;
             // there. Two calls would read Date.now() at different instants, so the
             // push and the growth it is meant to match could disagree — and it halves
             // the work on the heaviest view.
-            const overrunPushH = {}, rowBarWS = {};
+            const overrunPushH = {}, rowBarWS = {}, cursorAnchored = {};
             {
               // (see the collision walk below)
               // Accumulated over the person's ENTIRE schedule, not the visible slice.
@@ -16273,7 +16273,7 @@ ${jobsCtx || "No jobs found."}`;
               // Locked ops are pinned but still occupy their slot, so a lock stops that bar
               // without exempting the row behind it.
               const _nowD = new Date();
-              for (const [_k, _v] of rowPushHours({
+              const _rowPush = rowPushHours({
                 ops: ordered.map(b => ({
                   id: b.id, start: b.start, startHour: b.task?.startHour ?? workStartH,
                   hpd: b.task?.hpd || 0, teamSize: Math.max(1, (b.task.team || []).length),
@@ -16283,7 +16283,12 @@ ${jobsCtx || "No jobs found."}`;
                 })),
                 nowDay: toDS(_nowD), nowHour: _nowD.getHours() + _nowD.getMinutes() / 60,
                 cfg: { workStartH, totalWorkH, productiveHoursPerDay, diffBD: (x, y) => diffBD(x, y, _rowBDOpts) },
-              })) overrunPushH[_k] = _v;
+              });
+              for (const [_k, _v] of _rowPush.pushes) overrunPushH[_k] = _v;
+              // Anchored ops are placed AT the cursor below rather than rebuilt from these
+              // hours. The hours are still recorded because the ops BEHIND them cascade off
+              // the same numbers.
+              for (const _k of _rowPush.atCursor) cursorAnchored[_k] = true;
             }
             const isDrop = dropTarget === p.id;
             const isBeingDragged = rowDragId === p.id;
@@ -16504,7 +16509,27 @@ ${jobsCtx || "No jobs found."}`;
                     _layoutStart = addBD(_layoutStart, 1, _barBDOpts);
                     _layoutEnd = addBD(_layoutEnd, 1, _barBDOpts);
                   }
-                  const _barStartH = _pushH > 0 ? _pushedStartH : _baseStartH;
+                  // FLUSH TO THE CURSOR. An op pushed because the clock passed it is placed at
+                  // the instant itself, not reconstructed from a quantity of hours. The
+                  // reconstruction cannot be exact: `_pushH` is in PRODUCTIVE hours and
+                  // `_baseStartH` is a CLOCK hour, so adding one to the other drifts by however
+                  // much lunch and breaks fall inside the span -- which is why pushed bars landed
+                  // near the cursor rather than on it.
+                  //
+                  // After the rollover loop deliberately: that loop exists to carry an ADDED
+                  // quantity over the end of a working day, and would shove a bar we have just
+                  // placed at a known time.
+                  const _atCursor = bar.type === "task" && !!cursorAnchored[bar.id];
+                  if (_atCursor) {
+                    const _curDay = toDS(new Date());
+                    const _shiftBD = diffBD(bar.start, _curDay, _barBDOpts);
+                    _layoutStart = _curDay;
+                    _layoutEnd = _shiftBD !== 0 ? addBD(bar.end, _shiftBD, _barBDOpts) : bar.end;
+                  }
+                  const _nowForBar = new Date();
+                  const _barStartH = _atCursor
+                    ? _nowForBar.getHours() + _nowForBar.getMinutes() / 60
+                    : (_pushH > 0 ? _pushedStartH : _baseStartH);
                   // The push, as the two numbers needed to reapply it: working days moved, and
                   // the leftover hour shift. Taken as the DIFFERENCE the lines above actually
                   // produced, so the rollover while-loop is already counted and there is no
@@ -17756,7 +17781,7 @@ ${jobsCtx || "No jobs found."}`;
                       const a = Date.parse(jc.clockIn);
                       // Q7b: a clock nobody stopped freezes at the end of the day it started on,
                       // so a forgotten Friday punch does not grow a bar across the weekend.
-                      const { endMs: b } = openSessionEnd({ clockInMs: a, frozenAtMs: jc.frozenAtMs, nowMs: _nowMs, cfg: dayWindowCfg });
+                      const { endMs: b } = openSessionEnd({ clockInMs: a, pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs, nowMs: _nowMs, cfg: dayWindowCfg });
                       if (Number.isFinite(a) && b > a) _live.push([a, b]);
                     }
                     // A cross-row bar carries its own person's spans; every other bar takes the
@@ -17789,7 +17814,7 @@ ${jobsCtx || "No jobs found."}`;
                   // An open clock past its day's close. Emitted rather than persisted: the resolve
                   // queue needs to find these, and the durable flag belongs on the session record
                   // via updateJobSession, which is a server change and not this pass.
-                  const _barUnclosed = _liveClocks.some(jc => openSessionEnd({ clockInMs: Date.parse(jc.clockIn), frozenAtMs: jc.frozenAtMs, nowMs: Date.now(), cfg: dayWindowCfg }).unclosed);
+                  const _barUnclosed = _liveClocks.some(jc => openSessionEnd({ clockInMs: Date.parse(jc.clockIn), pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs, nowMs: Date.now(), cfg: dayWindowCfg }).unclosed);
                   // OWED. Hours this op still has coming to it after the cursor has passed the end
                   // of its planned window — work that was scheduled, was not done, and is not
                   // finished. Under the three-region model such a bar renders entirely grey, which

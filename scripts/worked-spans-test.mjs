@@ -304,6 +304,29 @@ eq("it agrees with the per-person function it replaces",
   [...workedSpansForPerson([sess(1,"opA",T(9),T(10)), sess(1,"opA",T(10),T(11))], 1).entries()]);
 eq("rows with no person are skipped", workedSpansByPersonOp([{ opId: "opA", clockIn: new Date(T(9)).toISOString(), clockOut: new Date(T(10)).toISOString() }]).size, 0);
 
+// ── openSessionEnd, LUNCH ────────────────────────────────────────────────
+// An open pause stops the hatch where the work stopped while the cursor carries on. That
+// gap IS being on lunch; without it a bar on a break looked exactly like one being worked.
+
+eq("lunch freezes the span at the moment the pause began",
+  ose({ clockInMs: L(2026, 9, 21, 9), pausedAt: L(2026, 9, 21, 12), nowMs: L(2026, 9, 21, 14) }),
+  [L(2026, 9, 21, 12), true, false]);
+eq("a pause as an ISO string is parsed, since that is how the clock stores it",
+  ose({ clockInMs: L(2026, 9, 21, 9), pausedAt: new Date(L(2026, 9, 21, 12)).toISOString(), nowMs: L(2026, 9, 21, 14) }),
+  [L(2026, 9, 21, 12), true, false]);
+eq("a pause is NOT an unclosed session — somebody is coming back from it",
+  openSessionEnd({ clockInMs: L(2026, 9, 21, 9), pausedAt: L(2026, 9, 21, 12), nowMs: L(2026, 9, 21, 14), cfg: DCFG }).unclosed,
+  false);
+eq("HELD outranks an open pause: that one was asked for",
+  ose({ clockInMs: L(2026, 9, 21, 9), pausedAt: L(2026, 9, 21, 12), frozenAtMs: L(2026, 9, 21, 10), nowMs: L(2026, 9, 21, 14) }),
+  [L(2026, 9, 21, 10), true, false]);
+eq("a pause stamped before the clock-in is ignored rather than rewinding the bar",
+  ose({ clockInMs: L(2026, 9, 21, 9), pausedAt: L(2026, 9, 21, 7), nowMs: L(2026, 9, 21, 11) }),
+  [L(2026, 9, 21, 11), false, false]);
+eq("no pause, no freeze — normal running work still tracks the cursor",
+  ose({ clockInMs: L(2026, 9, 21, 9), pausedAt: null, nowMs: L(2026, 9, 21, 11) }),
+  [L(2026, 9, 21, 11), false, false]);
+
 // Summary LAST. This block has been stranded mid-file twice by appending a new section
 // after it -- the run stayed green while the new assertions never executed, which is the
 // same green-and-blind failure the red proofs exist to catch. If you add a section, add it
