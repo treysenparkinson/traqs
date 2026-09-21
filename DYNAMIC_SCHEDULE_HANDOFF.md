@@ -109,14 +109,51 @@ deployed) and is also present on `feature/dynamic-schedule` via
 
 ## STATE AS OF 2026-09-18 — READ THIS FIRST
 
-### END OF DAY 2026-09-18 — RESUME HERE
+### STATE 2026-09-21 — THE GEOMETRY REWRITE, MOSTLY LANDED
+
+The hatch is a RECORD, not an extent: that question is settled and built. `activeBarFill`
+takes `[startPct, endPct]` spans, the idle layer is their COMPLEMENT, and so idle can appear
+to the left of the hatch (work that started late) and between two hatches (work done in two
+sittings). Neither was expressible before. Trey confirmed the fill in a browser.
+
+Landed since: per-op push (unworked work cannot sit left of now, so the remainder starts at
+the cursor and the bar's budget grows by the idle gap — the left edge never moves); tails
+measured against their own window; cross-row work drawn on the worker's own row (§3a); the
+drag/resize refusal while someone is clocked in (§3c, first rule); and the Q7b freeze, so a
+forgotten punch stops at the end of the day it started on instead of growing all weekend.
+
+`scripts/worked-spans-test.mjs` is the safety net — 84 assertions, five red proofs, each
+rejecting the plausible wrong implementation rather than only confirming the right one. Run
+it with `node scripts/worked-spans-test.mjs`. `npm run build` also runs Verifier's
+`check-live-hours` guard ahead of vite.
+
+**Still open, in priority order:**
+1. **The §3c SPLIT is not wired.** `splitWorkedOp` is written and tested, including §6b's ban
+   on zero-width remainders, but nothing calls it. Wiring it means creating a new op record on
+   drop, inside a path that already juggles multi-drag, reassign, dependency cascade and a
+   confirm dialog. That is the most likely place in this feature to write a corrupt record, so
+   it wants interactive testing rather than a blind landing.
+2. **The unclosed-session flag is emitted, not persisted.** `data-unclosed` marks the bar; the
+   durable flag belongs on the session via `updateJobSession`, which is a server change.
+3. **The §3c refusal is a toast, not a dialog.** Wording is verbatim and the drag is refused;
+   the existing confirm modal has fixed button labels, so an OK-only variant is new UI and
+   belongs to the visuals lane.
+4. **The spanning title's halo** — visuals' call, and they cannot judge it at 11px without a
+   browser.
+
+**Two pre-existing things found while building, neither changed:** Q7a overrun growth was
+already implemented (`_overrunPerPerson` feeds `_barHpd`), and `overrunPushH` is a second,
+ROW-WIDE push with a different cause — an op that ran long displaces its neighbours. It now
+coexists with the per-op push; if they interact badly, that is the first place to look.
+
+### END OF DAY 2026-09-18 — how the day before ended
 
 **Everything is pushed. Nothing is running. All three lane sessions are released.** The next
 step is Trey's green light on the hatched-render checkpoint, then the geometry rewrite.
 
 | Lane | Worktree | Branch | SHA on origin |
 |---|---|---|---|
-| Functionality / integration | `traqs-func` | `feature/dynamic-schedule` | tip is this doc's own commit; last CODE change **`9d6f023`** |
+| Functionality / integration | `traqs-func` | `feature/dynamic-schedule` | tip is this doc's own commit; last CODE change **`a6330e9`** (2026-09-21) |
 | Visuals | `traqs-visual` | `feature/dynamic-schedule-visuals` | **`79cfc75`** |
 | Verifier | `traqs-verify` | `feature/dynamic-schedule-verify` | **`e8d5ff5`** |
 
