@@ -10,7 +10,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
-import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours } from "./statsMath.js";
+import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours, dayShiftToClear } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
@@ -9046,6 +9046,59 @@ Extraction rules:
       }),
     }));
   };
+  // NO OVERLAP, enforced after a write rather than trusted from it.
+  //
+  // Every path that places an op runs through here, and each of them computes its target
+  // differently -- a drag from a drop position, a push from a collision, a split from the
+  // half that stayed behind. Checking the RESULT is the only way one rule covers all three;
+  // checking each computation would be three rules that agree until one is edited.
+  //
+  // Whole business days, so an op's record is only ever moved, never reshaped. History is
+  // skipped because it no longer renders and is not being scheduled. A move that cannot be
+  // cleared inside the bound is REFUSED rather than placed somewhere arbitrary -- the caller
+  // gets the op back where it was, which is visible and recoverable, unlike a silent
+  // relocation nobody asked for.
+  const enforceNoOverlap = (taskList, touchedIds) => {
+    const ids = (touchedIds || []).map(String).filter(Boolean);
+    if (!ids.length) return { tasks: taskList, moved: [], refused: [] };
+    const todayDs = toDS(new Date());
+    const cfg = { workStartH, workEndH };
+    const shiftDays = (ds, n) => addBD(ds, n, { workDays: orgSettings.workDays, holidays: orgSettings.holidays });
+    const all = [];
+    taskList.forEach(job => (job.subs || []).forEach(panel => (panel.subs || []).forEach(op => all.push(op))));
+    const placeable = o => o && o.start && o.end && o.status !== "Finished" && o.end >= todayDs;
+    const shifts = new Map(), refused = [], moved = [];
+    for (const id of ids) {
+      const op = all.find(o => String(o.id) === id);
+      if (!placeable(op)) continue;
+      // Worst case across every row the op sits on: a shared op has to clear all of them.
+      let worst = 0, blocked = false;
+      for (const pid of (op.team || [])) {
+        const others = all.filter(o => o !== op && placeable(o) && onTeam(o.team, pid));
+        const n = dayShiftToClear(op, others, { cfg, shiftDays });
+        if (n === null) { blocked = true; break; }
+        if (n > worst) worst = n;
+      }
+      if (blocked) { refused.push(id); continue; }
+      if (worst > 0) { shifts.set(id, worst); moved.push({ id, days: worst, from: op.start }); }
+    }
+    if (!shifts.size) return { tasks: taskList, moved, refused };
+    const next = taskList.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, subs: (panel.subs || []).map(op => {
+      const n = shifts.get(String(op.id));
+      return n ? { ...op, start: shiftDays(op.start, n), end: shiftDays(op.end, n) } : op;
+    }) })) }));
+    return { tasks: next, moved, refused };
+  };
+  // The split writes a brand new op record, so it gets the same check the pushes do: a
+  // remainder dropped onto occupied ground is an overlap however carefully it was computed.
+  const applyWorkedSplitGuarded = (afterMove, origOp, workedMs, out = {}) => {
+    const next = applyWorkedSplit(afterMove, origOp, workedMs, out);
+    const ids = [origOp && String(origOp.id), out.newId].filter(Boolean);
+    const { tasks, moved, refused } = enforceNoOverlap(next, ids);
+    if (moved.length) console.warn("no-overlap: split remainder bumped", moved);
+    if (refused.length) console.warn("no-overlap: split remainder could not be placed", refused);
+    return tasks;
+  };
   const applyPushes = (taskList, pushes, movedBy, sessionId) => {
     let result = JSON.parse(JSON.stringify(taskList));
     for (const p of pushes) {
@@ -9057,7 +9110,13 @@ Extraction rules:
         return op;
       }) })) }));
     }
-    return recalcBounds(result, movedBy);
+    // The invariant is checked on the RESULT, not trusted from the computation. Whatever a
+    // push believed it was doing, two ops on a row may not end up sharing time.
+    const _ids = (pushes || []).map(x => x && x.opId).filter(Boolean);
+    const { tasks: _guarded, moved: _bumped, refused: _stuck } = enforceNoOverlap(recalcBounds(result, movedBy), _ids);
+    if (_bumped.length) console.warn("no-overlap: bumped", _bumped);
+    if (_stuck.length) console.warn("no-overlap: could not clear a slot for", _stuck);
+    return _guarded;
   };
 
   // ─── Phase 3: clock-in-driven schedule adaptation (teleport + drain + cascade) ───────────
@@ -17377,7 +17436,7 @@ ${jobsCtx || "No jobs found."}`;
                         ? spansDurationMs(workedSpansStored.get(String(bar.task.id)) || [])
                         : 0;
                       const withMove = _splitWorkedMs > 0
-                        ? applyWorkedSplit(buildGroupMove(tasks, allMoves), findOp(tasks, bar.task.id), _splitWorkedMs, _splitOut)
+                        ? applyWorkedSplitGuarded(buildGroupMove(tasks, allMoves), findOp(tasks, bar.task.id), _splitWorkedMs, _splitOut)
                         : buildGroupMove(tasks, allMoves);
                       // Expand viewport to include all newly placed bars
                       const allNewStarts = [effStart, ...groupFinalMoves.map(m => m.newStart)];
