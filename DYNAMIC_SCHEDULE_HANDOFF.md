@@ -127,20 +127,21 @@ rejecting the plausible wrong implementation rather than only confirming the rig
 it with `node scripts/worked-spans-test.mjs`. `npm run build` also runs Verifier's
 `check-live-hours` guard ahead of vite.
 
-**Still open, in priority order:**
-1. **The §3c SPLIT is not wired.** `splitWorkedOp` is written and tested, including §6b's ban
-   on zero-width remainders, but nothing calls it. Wiring it means creating a new op record on
-   drop, inside a path that already juggles multi-drag, reassign, dependency cascade and a
-   confirm dialog. That is the most likely place in this feature to write a corrupt record, so
-   it wants interactive testing rather than a blind landing.
-2. **The unclosed-session flag is emitted, not persisted.** `data-unclosed` marks the bar; the
-   durable flag belongs on the session via `updateJobSession`, which is a server change.
-3. **The §3c refusal is a toast, not a dialog.** Wording is verbatim and the drag is refused;
-   the existing confirm modal has fixed button labels, so an OK-only variant is new UI and
-   belongs to the visuals lane.
-4. **The spanning title's halo** — visuals' call, and they cannot judge it at 11px without a
-   browser.
+**All eight items are landed.** The split is wired (the original id keeps the history, the
+remainder is a new record, and a reassign follows the remainder rather than the history); the
+refusal is a dialog carrying the wording the spec fixes; `unclosedAt` is persisted through
+`updateJobSession`; and the spanning title carries a halo rather than a scrim.
 
+**What still wants a human rather than more code:**
+
+- **The split has never been dragged.** The rule is table-tested; the tree transform is not. It
+  mints an op record on drop, which is the one place in this feature that can write a corrupt
+  row. Drag a half-worked op, then a fully-worked one, then one onto another person, and read
+  what lands in tasks.json before trusting it.
+- **The halo has never been seen at 11px.** A soft halo on small bold text is exactly the thing
+  that measures fine and looks cheap. If it reads poorly the fallback is accepting the title as
+  contrast-imperfect — NOT a scrim.
+- **Two pushes now coexist**, see below.
 **Two pre-existing things found while building, neither changed:** Q7a overrun growth was
 already implemented (`_overrunPerPerson` feeds `_barHpd`), and `overrunPushH` is a second,
 ROW-WIDE push with a different cause — an op that ran long displaces its neighbours. It now
