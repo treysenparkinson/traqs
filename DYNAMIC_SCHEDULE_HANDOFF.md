@@ -400,6 +400,43 @@ The idle region is not special-cased. It is the gap the ordinary push (Q2/Q3) op
 clock-out: the cursor keeps advancing, the colored remainder is pushed right, and flat grey is
 what is left between the hatched region and the pushed remainder.
 
+#### 1b. THE STATE MACHINE OF RECORD — state to treatment
+
+§1 above gives the visual channels and §6d lists the state values; this is the table that
+connects them, and its absence is why a screenshot could not be read against the spec. **Six
+state values reach the fill.** Everything else people describe as "a state" is a geometry
+variation of one of them, which is why the list of situations is longer than the list of
+states.
+
+| Situation | `data-state` | Fill treatment |
+|---|---|---|
+| Not started, dated in the future | `scheduled` | **Plain colour.** Cursor is negative, clamps to 0, early return |
+| Not started, today, cursor before its start | `scheduled` | **Plain colour**, same path |
+| Not started, cursor INSIDE its window | `scheduled` | **Idle grey to the cursor, colour beyond** |
+| Not started, cursor past its end, hours owed | `scheduled` | **All idle grey, plus the OWED pill** |
+| Actively worked | `running` | Hatch on the worked spans, idle in the gaps, colour past the cursor |
+| HELD (finish requested) | `held` | The same three regions, plus the HELD badge |
+| On lunch or paused | `paused` | The same three regions, plus the LUNCH badge |
+| Clocked out mid-work | `worked` | As `running`; only the worked front stops moving |
+| Worked to estimate, not yet submitted | `worked` | All hatch, **no badge** — see the post-ship filing |
+| DONE, approved | `done` | Solid `spentBarFill`, DONE badge |
+| PTO | `pto` | White 135° hatch over the bar colour |
+| Locked segment after an admin split | `worked` | All hatch. `locked` blocks the drag; it does not change the fill |
+| Unworked remainder after an admin split | `scheduled` | Whichever of the four `scheduled` rows applies to its dates |
+
+Two things that are NOT states and are regularly mistaken for them:
+
+- **A dashed outline is a continuation TAIL**, not a status. A bar spanning a weekend or a
+  holiday renders as a head plus one dashed tail per later run of working days. It predates
+  all of this work (`be6a969`).
+- **Every element measures against ITS OWN window.** The head covers only the first run of
+  working days and the tails cover theirs, so each gets its own spans and cursor. Handing an
+  element the whole op's percentages applies them to a width that is not the op — which drew a
+  head 40% grey and 60% coloured inside a week that was entirely behind the cursor. The bar
+  root reports both: `data-divider-pct` / `data-worked-spans` describe the OP, and
+  `data-seg-divider-pct` / `data-seg-worked-spans` describe what that element actually paints.
+  An all-grey check wants the second pair; a question about the op wants the first.
+
 #### 2. The rulings
 
 **Q1 — write cadence: persist only at write events.** Clock-in, lunch, pause, drag, clock-out,
