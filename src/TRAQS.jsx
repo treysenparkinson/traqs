@@ -10,7 +10,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
-import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans } from "./statsMath.js";
+import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
@@ -16268,7 +16268,36 @@ ${jobsCtx || "No jobs found."}`;
                     ? Math.max(0, _barWS.workedHoursShown - (bar.task?.hpd || 0)) / _barTeamSz
                     : 0;
                   const _isOverrunning = _overrunPerPerson > 0;
-                  const _barHpd = ((bar.task?.hpd || 0) > 0 ? bar.task.hpd / _barTeamSz : productiveHoursPerDay) + _overrunPerPerson;
+                  const _plannedDurH = (bar.task?.hpd || 0) > 0 ? bar.task.hpd / _barTeamSz : productiveHoursPerDay;
+                  // THE PUSH (Q2/Q3). Unworked work cannot sit to the left of now, so the
+                  // remainder starts at the cursor -- which means the bar spans its planned start,
+                  // through however much productive time has elapsed without being worked, and then
+                  // the remainder. Expressed here as extra budget rather than as a moved start,
+                  // because the left edge does NOT move: history stays where it happened, and the
+                  // idle grey is exactly this gap made visible.
+                  //
+                  // PER OP, not per row. overrunPushH below is a different mechanism with a
+                  // different cause (an op that ran long displaces its neighbours); this one is a
+                  // property of THIS op being untouched while the clock moved past it, which is why
+                  // clocking into A cannot strand B.
+                  //
+                  // Q3 scope: ops ending before today are locked historical and never pushed. Without
+                  // that a year-old op nobody finished would grow a year of idle and swamp the view.
+                  //
+                  // Today is read live rather than from the module-level TD, which is computed once
+                  // at load. A tab left open overnight would otherwise still think yesterday is today
+                  // and keep pushing ops that became historical while nobody was looking -- visible
+                  // wrongness on the schedule, where TD being stale elsewhere is only cosmetic.
+                  const _pushIdleH = (() => {
+                    if (bar.type !== "task" || !bar.task || _barWS?.isFullyWorked) return 0;
+                    if (!bar.task.end || bar.task.end < toDS(new Date())) return 0;
+                    const workedPerPerson = Math.min(_barWS?.workedHoursShown || 0, bar.task.hpd || 0) / _barTeamSz;
+                    if (workedPerPerson >= _plannedDurH) return 0; // nothing left to push
+                    const [_pStart] = opHourRange(bar.task);
+                    const elapsed = productiveHoursBetween(_pStart, Date.now(), { ...dayWindowCfg, workDays: orgSettings.workDays, holidays: orgSettings.holidays });
+                    return Math.max(0, elapsed - workedPerPerson);
+                  })();
+                  const _barHpd = _plannedDurH + _overrunPerPerson + _pushIdleH;
                   // PTO spans its whole calendar range as one continuous bar (incl. weekends),
                   // so treat every day as a "work" day for segmentation — no weekend gaps.
                   // Hoisted above the layout-start maths below, which needs the same options.
