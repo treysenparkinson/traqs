@@ -17763,7 +17763,20 @@ ${jobsCtx || "No jobs found."}`;
                   // conditions only.
                   const _barOwedH = (() => {
                     if (isPto || !bar.task || bar.crossRow) return 0;
-                    if (bar.task.status === "Finished" || _barWS?.isFullyWorked) return 0;
+                    // Finished only. `isFullyWorked` was in this test too, on my reading that it
+                    // meant hours-complete -- it does not: `isFullyWorked: t?.status === "Finished"`,
+                    // so the clause was `X || X` and excluded nothing. Removed rather than left
+                    // tidy-but-harmless, because it implied an hours check that does not exist and
+                    // the next reader would take the case as covered.
+                    //
+                    // WHAT IS THEREFORE NOT COVERED: an op worked to (or past) its estimate and not
+                    // yet submitted for completion owes nothing, so it gets no owed badge, and it is
+                    // not Finished, so it gets no DONE badge -- an all-grey bar with no label. It is
+                    // the normal state of every op between clock-out and approval. It is
+                    // distinguishable from DONE by texture, all hatch against DONE's flat, which is
+                    // why the invariant deliberately allows it; whether it deserves a signal of its
+                    // own is a product question and is with Trey.
+                    if (bar.task.status === "Finished") return 0;
                     if (!(_plannedE > _plannedS) || Date.now() <= _plannedE) return 0;
                     const owed = (bar.task.hpd || 0) - (_barWS?.workedHoursShown || 0);
                     // A minute of team time, the same floor the split uses: below it the number
