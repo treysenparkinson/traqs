@@ -413,9 +413,9 @@ states.
 | Not started, dated in the future | `scheduled` | **Plain colour.** Cursor is negative, clamps to 0, early return |
 | Not started, today, cursor before its start | `scheduled` | **Plain colour**, same path |
 | Not started, cursor INSIDE its window | `scheduled` | **The bar MOVES** — its start slides to the cursor and the row cascades behind it |
-| Not started, cursor past its end | `scheduled` | **The bar MOVES** to the cursor. No badge: nothing is stuck |
-| Not started but LOCKED, cursor past its end | `scheduled` | **All idle grey, plus the OWED pill.** Pinned, so the hours have nowhere else to be read |
-| Partially worked, cursor past its end | `worked` | Hatch where the work happened, idle after it, **plus the OWED pill** for the remainder |
+| Not started, cursor past its end, still in horizon | `scheduled` | **The bar MOVES** to the cursor |
+| Not started but LOCKED, or outside the horizon | `scheduled` | **All idle grey.** Pinned, so it stays where it is |
+| Partially worked, cursor past its end | `worked` | Hatch where the work happened, idle after it. Pinned — a position is a record |
 | Actively worked | `running` | Hatch on the worked spans, idle in the gaps, colour past the cursor |
 | HELD (finish requested) | `held` | The same three regions, plus the HELD badge |
 | On lunch or paused | `paused` | The same three regions, plus the LUNCH badge |
@@ -425,6 +425,12 @@ states.
 | PTO | `pto` | White 135° hatch over the bar colour |
 | Locked segment after an admin split | `worked` | All hatch. `locked` blocks the drag; it does not change the fill |
 | Unworked remainder after an admin split | `scheduled` | Whichever of the four `scheduled` rows applies to its dates |
+
+**There is no OWED badge.** It existed briefly and was removed by decision on 2026-09-21: a
+bar that cannot move renders grey and says nothing else. **Bare grey is therefore a valid**
+**state** — it means elapsed-and-not-worked on something pinned, and it is distinguished from
+DONE by texture and by DONE's own badge rather than by a label of its own. The
+`grey-bar-labelled` assertion that guarded the opposite invariant was removed with it.
 
 Two things that are NOT states and are regularly mistaken for them:
 

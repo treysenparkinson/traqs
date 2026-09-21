@@ -2592,42 +2592,6 @@ function barLabelColor(T, barColor) {
   return accentText(idleBarFill(T, barColor));
 }
 
-// The owed-hours badge. Same slot as HELD / LUNCH / DONE, deliberately not the same shape:
-// those name a state the bar is IN, this one carries a number that is MISSING, and it has to
-// read as something to act on rather than another label.
-//
-// A FILLED PILL rather than coloured text, and that is a measurement result, not a taste call.
-// Coloured text in the theme's danger was the obvious reading and it is unreadable: T.danger
-// against the idle grey it sits on measures 1.75-2.34 WCAG contrast across the four ladders
-// (9px at weight 800 wants 4.5). Pushing the red toward the ladder's polarity only reaches
-// 3.58-7.06 at a step of 0.55, still under 4.5 on two of them, and by then it is pink rather
-// than urgent.
-//
-// Inverting it fixes both halves at once. Text contrast becomes text-against-PILL, which is
-// accentText's job and lands near 5.6-5.7. The pill against the ground no longer has to carry
-// text legibility at all -- it only has to be distinguishable, and a saturated red block
-// against a near-neutral grey differs in HUE, which is the axis contrast ratio cannot see and
-// the reason the ratio was the wrong test for a fill. A solid badge also reads louder than
-// tinted text, which is the urgency the badge exists for.
-function owedBadgeStyle(T) {
-  const bg = T.danger || "#ef4444";
-  return {
-    flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em",
-    // No opacity fade. The other badges carry 0.85 because they are incidental; this one is
-    // the reason someone is looking at the bar.
-    color: accentText(bg), background: bg,
-    padding: "1px 5px", borderRadius: T.radiusPill, whiteSpace: "nowrap",
-  };
-}
-// "5h owed" / "5.2h owed". One decimal, trailing ".0" dropped, because a whole number reads as
-// a decision and "5.0h" reads as an instrument. Suppressing a trivially small figure is the
-// detection side's call, not the formatter's -- if a number arrives here it gets shown.
-function formatOwedH(h) {
-  const n = Number(h);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  const r = Math.round(n * 10) / 10;
-  return `${r % 1 === 0 ? r.toFixed(0) : r.toFixed(1)}H OWED`;
-}
 
 // Text on a spent fill contrasts the SPENT colour, not the bar's original one -- the two can
 // land on opposite sides of the light/dark crossover. Derived from spentBarFill rather than
@@ -17815,62 +17779,6 @@ ${jobsCtx || "No jobs found."}`;
                   // queue needs to find these, and the durable flag belongs on the session record
                   // via updateJobSession, which is a server change and not this pass.
                   const _barUnclosed = _liveClocks.some(jc => openSessionEnd({ clockInMs: Date.parse(jc.clockIn), pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs, nowMs: Date.now(), cfg: dayWindowCfg }).unclosed);
-                  // OWED. Hours this op still has coming to it after the cursor has passed the end
-                  // of its planned window — work that was scheduled, was not done, and is not
-                  // finished. Under the three-region model such a bar renders entirely grey, which
-                  // is a true statement (elapsed, not worked) that says nothing about how much is
-                  // still owed; the badge carries the number the geometry stopped implying.
-                  //
-                  // NOTE, and this departs from the spec line as written. That line reads
-                  // "untouched AND planned end before cursor AND ends today or later per Q3", and
-                  // those last two nearly exclude each other — taken strictly the badge would never
-                  // appear on the very bars whose owed hours are being hidden. Q3's exclusion is
-                  // about not REWRITING history: no moves, no retroactive writes. A badge writes
-                  // nothing, so it is not what Q3 is protecting, and the test here is the first two
-                  // conditions only.
-                  const _barOwedH = (() => {
-                    if (isPto || !bar.task || bar.crossRow) return 0;
-                    // Finished only. `isFullyWorked` was in this test too, on my reading that it
-                    // meant hours-complete -- it does not: `isFullyWorked: t?.status === "Finished"`,
-                    // so the clause was `X || X` and excluded nothing. Removed rather than left
-                    // tidy-but-harmless, because it implied an hours check that does not exist and
-                    // the next reader would take the case as covered.
-                    //
-                    // WHAT IS THEREFORE NOT COVERED: an op worked to (or past) its estimate and not
-                    // yet submitted for completion owes nothing, so it gets no owed badge, and it is
-                    // not Finished, so it gets no DONE badge -- an all-grey bar with no label. It is
-                    // the normal state of every op between clock-out and approval. It is
-                    // distinguishable from DONE by texture, all hatch against DONE's flat, which is
-                    // why the invariant deliberately allows it; whether it deserves a signal of its
-                    // own is a product question and is with Trey.
-                    if (bar.task.status === "Finished") return 0;
-                    if (!(_plannedE > _plannedS) || Date.now() <= _plannedE) return 0;
-                    // AND it could not be moved. Untouched work now slides to the cursor rather
-                    // than sitting behind it, so a badge on one of those would report hours as
-                    // stuck when the bar has already moved on. What remains behind the cursor is
-                    // work that is PINNED: locked by a split or by an admin, or partially worked,
-                    // where the position is a record of when the work happened and moving it
-                    // would separate the hatch from the hours it stands for.
-                    //
-                    // So the badge stopped being a colour convention and became a report that
-                    // something is stuck -- which is the only case where the number has nowhere
-                    // else to be read from.
-                    // ...AND it could not be moved, which now has three reasons: it is locked
-                    // (by an admin or by a split), it has been worked (its position is a record,
-                    // and moving it would separate the hatch from the hours it stands for), or it
-                    // is outside the active horizon (Q3 -- history does not slide).
-                    //
-                    // Untouched work still inside the horizon slides to the cursor, so a badge
-                    // there would report hours as stuck on a bar that has already moved.
-                    const _pinnedLocked = !!bar.task.locked;
-                    const _pinnedWorked = (_barWS?.workedHoursShown || 0) > 0;
-                    const _pinnedHistory = !!bar.task.end && bar.task.end < toDS(new Date());
-                    if (!_pinnedLocked && !_pinnedWorked && !_pinnedHistory) return 0;
-                    const owed = (bar.task.hpd || 0) - (_barWS?.workedHoursShown || 0);
-                    // A minute of team time, the same floor the split uses: below it the number
-                    // rounds to nothing and a badge reading "0h owed" is worse than no badge.
-                    return owed > 1 / 60 ? owed : 0;
-                  })();
                   const _barState = isPto ? "pto"
                     : bar.task?.status === "Finished" ? "done"
                     : _liveClocks.some(jc => jc.frozenAtMs) ? "held"
@@ -17916,7 +17824,7 @@ ${jobsCtx || "No jobs found."}`;
                     ? (_titleColor === "#ffffff" ? "0 0 3px rgba(0,0,0,0.60)" : "0 0 3px rgba(255,255,255,0.70)")
                     : undefined;
                   return [<div key={barKey}
-                    data-worked-pct={_barWorkedPct} data-divider-pct={_barCursorPct} data-raw-worked-pct={_barRawWorkedPct} data-worked-spans={JSON.stringify(_barSpans)} data-seg-worked-spans={JSON.stringify(_headSpans)} data-seg-divider-pct={_headCursorPct} data-unclosed={_barUnclosed ? "1" : undefined} data-owed-h={_barOwedH > 0 ? Math.round(_barOwedH * 10) / 10 : undefined} data-worked-h={_barWorkedH} data-committed-h={_barCommittedH} data-live-h={_barLiveH} data-state={_barState}
+                    data-worked-pct={_barWorkedPct} data-divider-pct={_barCursorPct} data-raw-worked-pct={_barRawWorkedPct} data-worked-spans={JSON.stringify(_barSpans)} data-seg-worked-spans={JSON.stringify(_headSpans)} data-seg-divider-pct={_headCursorPct} data-unclosed={_barUnclosed ? "1" : undefined} data-worked-h={_barWorkedH} data-committed-h={_barCommittedH} data-live-h={_barLiveH} data-state={_barState}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
                     style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, minWidth: _wFirst > 0 ? 2 : 0, height: rH - 8, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: activeBarFill(T, bc, _headSpans, _headCursorPct, _barState, _renderPx), border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
@@ -17934,12 +17842,6 @@ ${jobsCtx || "No jobs found."}`;
                         literal "held" to reach liveBarTextColor's spent branch and IS on spent grey. */}
                     {!isPto && !_hideBarLabel && (_barState === "held" || _barState === "paused") && <span style={{ flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", opacity: 0.85, color: barLabelColor(T, bc) }}>{LIVE_BADGE_LABEL[_barState]}</span>}
                     {!isPto && !_hideBarLabel && bar.task?.status === "Finished" && <span style={{ flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", opacity: 0.85, color: liveBarTextColor(T, bc, "held") }}>DONE</span>}
-                    {/* Owed hours. Last of the badges so it reads as the thing to act on rather than
-                        another state label, and a filled pill rather than coloured text because the
-                        theme's danger measures 1.75-2.34 contrast against the grey it sits on --
-                        see owedBadgeStyle. formatOwedH returns null below a showable number, so the
-                        floor is enforced in one place rather than at the call site too. */}
-                    {!isPto && !_hideBarLabel && _barOwedH > 0 && formatOwedH(_barOwedH) && <span style={owedBadgeStyle(T)}>{formatOwedH(_barOwedH)}</span>}
                     <span style={{ display: _hideBarLabel ? "none" : undefined, fontSize: 11, color: _titleColor, textShadow: _titleHalo, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>{isPto ? (<><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={accentText(bc)} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginRight: 5, verticalAlign: "-1.5px" }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>{bar.ptoType}{bar.title && bar.title !== bar.ptoType ? ` · ${bar.title}` : ""}</>) : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
                     {!isPto && !_hideBarLabel && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: accentText(bc) === "#ffffff" ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)', fontFamily: T.mono, position: "relative", zIndex: 5 }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
                   </div>,
