@@ -17440,7 +17440,6 @@ ${jobsCtx || "No jobs found."}`;
                   const _workedCellsTotal = ws ? ws.workedFraction * _wBudget : 0;
                   let _workedRemainingBudget = _workedCellsTotal;
                   const bc = bar.color;
-                  const iconColor = accentText(bc);
                   const isHighlighted = !isPto && scheduleHighlightId != null && (bar.task?.id === scheduleHighlightId || bar.task?.pid === scheduleHighlightId || bar.task?.grandPid === scheduleHighlightId);
                   const isDraggingThis = teamDragInfo?.barId === bar.id;
                   const isMultiDragging = !isDraggingThis && !!(teamDragInfo?.multiDragIds?.has(bar.id));
@@ -17524,6 +17523,12 @@ ${jobsCtx || "No jobs found."}`;
                     return mergeSpans([...(workedSpansStored.get(String(bar.task.id)) || []), ..._live]);
                   })();
                   const _barSpans = spansToPct(_barSpansAbs, _plannedS, _plannedE);
+                  // The dep and lock icons sit at the bar's LEFT end, which is grey once regions are
+                  // drawn and the cursor has moved off zero -- everything left of the cursor is hatch
+                  // or idle. Conditional rather than a blanket swap: on an untouched bar, or one whose
+                  // window has not opened, the left end is still the op colour and accentText is right.
+                  const _leftIsGrey = !isPto && bar.task?.status !== "Finished" && _barCursorPct > 0 && (isLive || _barWorkedPct > 0);
+                  const iconColor = _leftIsGrey ? barLabelColor(T, bc) : accentText(bc);
                   const _barState = isPto ? "pto"
                     : bar.task?.status === "Finished" ? "done"
                     : _liveClocks.some(jc => jc.frozenAtMs) ? "held"
