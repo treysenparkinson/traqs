@@ -10,7 +10,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
-import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansForPerson, spansDurationMs, openSessionEnd } from "./statsMath.js";
+import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
@@ -6794,6 +6794,10 @@ Extraction rules:
   // clock read on first render. The live span is added per bar instead, where Date.now() is
   // already being read for the cursor and the two cannot drift apart.
   const workedSpansStored = useMemo(() => workedSpansByOp(productionHours), [productionHours]);
+  // The same sessions grouped by person, for cross-row work. Memoised together with the
+  // op-keyed form because the schedule asks for EVERY row on every render: scanning the whole
+  // session log per person is fine once and quadratic here.
+  const workedSpansPerPerson = useMemo(() => workedSpansByPersonOp(productionHours), [productionHours]);
   // Zone used to bucket clock records into days. The org's configured zone if set,
   // otherwise this device's — anything but UTC, which puts an evening shift on
   // the next day for every shop west of Greenwich.
@@ -15394,7 +15398,11 @@ ${jobsCtx || "No jobs found."}`;
         const { endMs: b } = openSessionEnd({ clockInMs: a, frozenAtMs: _selfJc.frozenAtMs, nowMs: Date.now(), cfg: dayWindowCfg });
         if (Number.isFinite(a) && b > a) _openByOp.set(String(_selfJc.opId), [[a, b]]);
       }
-      for (const [xOpId, xSpans] of workedSpansForPerson(productionHours, pid, _openByOp)) {
+      // Closed sessions from the memo, merged with this person's open clock if they have one.
+      const _myClosed = workedSpansPerPerson.get(String(pid)) || new Map();
+      const _myOpIds = new Set([..._myClosed.keys(), ..._openByOp.keys()]);
+      for (const xOpId of _myOpIds) {
+        const xSpans = mergeSpans([...(_myClosed.get(xOpId) || []), ...(_openByOp.get(xOpId) || [])]);
         if (!xSpans.length) continue;
         let xFound = null;
         for (const job of tasks) {

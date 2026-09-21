@@ -292,6 +292,18 @@ if (endOfToday(L(2026, 9, 24, 11)) === L(2026, 9, 21, 16)) {
   console.log("red proof: the days-later case rejects bounding by today instead of the clock-in day");
 }
 
+// ── workedSpansByPersonOp ──────────────────────────────
+// The grouped form the schedule uses; must agree with the per-person one it replaces.
+const { workedSpansByPersonOp } = await import("../src/statsMath.js");
+
+const grouped = workedSpansByPersonOp([sess(1,"opA",T(9),T(10)), sess(1,"opA",T(10),T(11)), sess(2,"opB",T(9),T(10))]);
+eq("grouped by person then op, merged", [...grouped.get("1").entries()], [["opA", [[T(9), T(11)]]]]);
+eq("a second person is separate", [...grouped.get("2").entries()], [["opB", [[T(9), T(10)]]]]);
+eq("it agrees with the per-person function it replaces",
+  [...grouped.get("1").entries()],
+  [...workedSpansForPerson([sess(1,"opA",T(9),T(10)), sess(1,"opA",T(10),T(11))], 1).entries()]);
+eq("rows with no person are skipped", workedSpansByPersonOp([{ opId: "opA", clockIn: new Date(T(9)).toISOString(), clockOut: new Date(T(10)).toISOString() }]).size, 0);
+
 // Summary LAST. This block has been stranded mid-file twice by appending a new section
 // after it -- the run stayed green while the new assertions never executed, which is the
 // same green-and-blind failure the red proofs exist to catch. If you add a section, add it

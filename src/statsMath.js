@@ -566,3 +566,25 @@ export function openSessionEnd({ clockInMs, frozenAtMs, nowMs, cfg }) {
   if (Number.isFinite(dayEnd) && nowMs > dayEnd) return { endMs: dayEnd, frozen: true, unclosed: true };
   return { endMs: nowMs, frozen: false, unclosed: false };
 }
+
+/**
+ * Every person's worked spans, grouped in ONE pass: Map<personId, Map<opId, spans>>.
+ *
+ * workedSpansForPerson scans the whole session log per person, which is fine for one lookup and
+ * quadratic when the schedule asks for every row on every render. The schedule does exactly
+ * that, so it gets the grouped form and the single-person one stays for callers that want it.
+ */
+export function workedSpansByPersonOp(sessions) {
+  const byPerson = new Map();
+  for (const s of sessions || []) {
+    if (!s || s.deletedAt || s.opId == null || s.opId === "" || s.personId == null) continue;
+    const a = Date.parse(s.clockIn), b = Date.parse(s.clockOut);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) continue;
+    const pk = String(s.personId), ok = String(s.opId);
+    let ops = byPerson.get(pk);
+    if (!ops) { ops = new Map(); byPerson.set(pk, ops); }
+    ops.set(ok, [...(ops.get(ok) || []), [a, b]]);
+  }
+  for (const ops of byPerson.values()) for (const [k, list] of ops) ops.set(k, mergeSpans(list));
+  return byPerson;
+}
