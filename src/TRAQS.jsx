@@ -10,7 +10,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
-import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct } from "./statsMath.js";
+import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
@@ -2497,10 +2497,11 @@ function workedFlatFill(T, barColor) {
 }
 
 // The one place a schedule bar's fill is composed. Call sites pass the three-region geometry --
-// workedPct, the hatched extent, and dividerPct -- the CURSOR, a time position, UNCLAMPED so now
-// past the planned end reads past 100 rather than pinning. Never pass an hours ratio here: the
-// two diverge on any late start or lunch, which is the bug 11eb366 fixed. The visuals lane owns
-// what those become; this lane owns the call sites and the numbers.
+// `spans`, WHERE the work happened as [startPct, endPct] pairs across this bar, and dividerPct --
+// the CURSOR, a time position, UNCLAMPED so now past the planned end reads past 100 rather than
+// pinning. Never pass an hours RATIO as either: a ratio says how much and these say when, and
+// they diverge on any late start. The visuals lane owns what these become; this lane owns the
+// call sites and the numbers.
 //
 // `state` is the bar's own state, never a texture: "pto" | "done" | "held" | "paused" |
 // "running" | "worked" | "scheduled". Texture is a decision made FROM it -- DONE is never
@@ -2514,12 +2515,14 @@ function workedFlatFill(T, barColor) {
 // the technique instead of being fixed again.
 //
 // Layer order is paint order, first on top:
-//   1  opaque right of the cursor       -> the unworked remainder, hiding everything beneath
-//   2  opaque right of the worked front -> flat idle grey, covering the hatch between W and C
+//   1  opaque right of the cursor  -> the unworked remainder, hiding everything beneath
+//   2  opaque over the GAPS        -> flat idle grey, wherever no work was clocked
 //   3  the hatch, or its value-step stand-in below the texture floor
 //   4  the idle grey as the base colour
-// Left of W layers 1 and 2 are transparent, so the hatch shows on the base.
-function activeBarFill(T, barColor, workedPct, dividerPct, state, renderPx) {
+// Layer 2 is the complement of the spans rather than one boundary, which is what lets idle
+// appear to the LEFT of the hatch (work that started late) and BETWEEN two hatches (work done
+// in two sittings). Both are ordinary and neither is expressible with a single worked front.
+function activeBarFill(T, barColor, spans, dividerPct, state, renderPx) {
   if (state === "pto") return `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${barColor}`;
   if (state === "done") return spentBarFill(T, barColor);
   // Only a bar that owns worked time carries regions. "worked" is the clocked-out case --
@@ -2538,22 +2541,33 @@ function activeBarFill(T, barColor, workedPct, dividerPct, state, renderPx) {
   // signal, but a gradient stop outside the box renders as a plausible fully-worked bar
   // rather than as something visibly wrong. The raw value stays on the data attribute, where
   // the overrun is still readable and still assertable.
-  const W = Number.isFinite(workedPct) ? Math.max(0, Math.min(100, workedPct)) : 0;
-  const C = Math.max(W, Math.min(100, Number.isFinite(dividerPct) ? dividerPct : 0));
-  if (W <= 0 && C <= 0) return barColor;
+  const C = Math.max(0, Math.min(100, Number.isFinite(dividerPct) ? dividerPct : 0));
+  const worked = (spans || []).filter(s => Array.isArray(s) && s[1] > s[0]);
+  if (worked.length === 0 && C <= 0) return barColor;
 
   const idle = idleBarFill(T, barColor);
+  // A run of hard stops: one colour from a% to b%, then the next. Two stops per boundary is
+  // what makes the edge a line rather than a fade.
+  const banded = (ranges, colour) =>
+    `linear-gradient(to right, ${ranges.map(([a, b]) => `transparent ${a}%, ${colour} ${a}%, ${colour} ${b}%, transparent ${b}%`).join(", ")})`;
+
   const layers = [];
+  // 1 — the unworked remainder, opaque, hiding everything beneath it.
   if (C < 100) layers.push(`linear-gradient(to right, transparent 0%, transparent ${C}%, ${barColor} ${C}%, ${barColor} 100%)`);
-  if (W < C) layers.push(`linear-gradient(to right, transparent 0%, transparent ${W}%, ${idle} ${W}%, ${idle} 100%)`);
-  if (W > 0) {
-    if (renderPx < HATCH_MIN_PX) {
-      const flat = workedFlatFill(T, barColor);
-      layers.push(`linear-gradient(to right, ${flat} 0%, ${flat} ${W}%, transparent ${W}%, transparent 100%)`);
-    } else {
-      layers.push(workedHatchLayer(T, barColor));
-    }
+  // 2 — flat idle over every interval that was NOT worked. This is the complement rather than
+  // a single boundary, which is the whole difference between the two readings: work that
+  // started late leaves idle to its LEFT, and a bar worked in two sittings has idle between
+  // them. A lone worked-front cannot express either.
+  const gaps = complementSpans(worked, 0, 100);
+  if (gaps.length) layers.push(banded(gaps, idle));
+  // 3 — the worked record itself. Below the texture floor stripes stop resolving, so the
+  // value step stands in; above it the hatch is drawn full width and layer 2 cuts it back to
+  // the spans, which is cheaper than clipping a repeating gradient per interval.
+  if (worked.length) {
+    if (renderPx < HATCH_MIN_PX) layers.push(banded(worked, workedFlatFill(T, barColor)));
+    else layers.push(workedHatchLayer(T, barColor));
   }
+  // 4 — idle as the base, so any sliver left by rounding is grey rather than bar colour.
   layers.push(idle);
   return layers.join(", ");
 }
@@ -17529,7 +17543,7 @@ ${jobsCtx || "No jobs found."}`;
                     data-worked-pct={_barWorkedPct} data-divider-pct={_barCursorPct} data-raw-worked-pct={_barRawWorkedPct} data-worked-spans={JSON.stringify(_barSpans)} data-worked-h={_barWorkedH} data-committed-h={_barCommittedH} data-live-h={_barLiveH} data-state={_barState}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, minWidth: _wFirst > 0 ? 2 : 0, height: rH - 8, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: activeBarFill(T, bc, _barWorkedPct, _barCursorPct, _barState, _renderPx), border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
+                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, minWidth: _wFirst > 0 ? 2 : 0, height: rH - 8, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: activeBarFill(T, bc, _barSpans, _barCursorPct, _barState, _renderPx), border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
                     onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
                     {!_isNarrowBar && can("moveJobs") && !barLocked && !_dragBlocked && !(ws && ws.workedHpd > 0) && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {!_isNarrowBar && barSegs.length === 1 && _endsInView && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
@@ -17590,7 +17604,7 @@ ${jobsCtx || "No jobs found."}`;
                     return <div key={bar.id + "_t" + si + "_" + seg.start}
                       onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto2) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                       onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
-                      style={{ position: "absolute", top: 4, left: tailX, width: tailW, minWidth: isPto2 ? 0 : 2, height: rH - 8, boxSizing: "border-box", borderRadius: isPto2 ? T.radiusXs : Math.min(T.radiusXs, _tailPx / 2), background: activeBarFill(T, bc2, _barWorkedPct, _barCursorPct, isPto2 ? "pto" : "scheduled", _tailPx), border: isBarSelected ? `2px solid #fff` : isPto2 ? `1.5px solid ${bc2}` : _tailPx < 8 ? "none" : `${_tailPx < 16 ? 1 : 2}px dashed ${bc2}cc`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : _dragBlocked ? "not-allowed" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
+                      style={{ position: "absolute", top: 4, left: tailX, width: tailW, minWidth: isPto2 ? 0 : 2, height: rH - 8, boxSizing: "border-box", borderRadius: isPto2 ? T.radiusXs : Math.min(T.radiusXs, _tailPx / 2), background: activeBarFill(T, bc2, _barSpans, _barCursorPct, isPto2 ? "pto" : "scheduled", _tailPx), border: isBarSelected ? `2px solid #fff` : isPto2 ? `1.5px solid ${bc2}` : _tailPx < 8 ? "none" : `${_tailPx < 16 ? 1 : 2}px dashed ${bc2}cc`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : _dragBlocked ? "not-allowed" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
                       onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
                       {isLastSeg && _tailPx >= 12 && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: Math.max(3, Math.min(10, _tailPx / 3)), cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     </div>;

@@ -137,5 +137,28 @@ if (JSON.stringify(pushRed) === JSON.stringify([T(9), T(14), T(18), 1 * H])) {
 } else {
   console.log("red proof: the half-worked case rejects a push that slides by lateness alone");
 }
+
+// ── complementSpans ──────────────────────────────────────────────────────
+// The idle layer needs the gaps, not a boundary: idle is everything left of the cursor that
+// was not worked, which can be several intervals rather than one.
+const { complementSpans } = await import("../src/statsMath.js");
+
+eq("no work means the whole window is idle", complementSpans([]), [[0, 100]]);
+eq("a span in the middle leaves a gap either side", complementSpans([[40, 60]]), [[0, 40], [60, 100]]);
+eq("a span at the left edge leaves only the right gap", complementSpans([[0, 30]]), [[30, 100]]);
+eq("a span at the right edge leaves only the left gap", complementSpans([[70, 100]]), [[0, 70]]);
+eq("a full-width span leaves no gap at all", complementSpans([[0, 100]]), []);
+eq("two spans leave three gaps", complementSpans([[20, 30], [60, 70]]), [[0, 20], [30, 60], [70, 100]]);
+eq("touching spans do not emit a zero-width gap between them", complementSpans([[20, 40], [40, 60]]), [[0, 20], [60, 100]]);
+eq("spans are clipped to the window before complementing", complementSpans([[-20, 30]]), [[30, 100]]);
+eq("a custom window is respected", complementSpans([[40, 60]], 0, 80), [[0, 40], [60, 80]]);
+eq("the late-start case: idle BEFORE the hatch, which extent can never produce",
+  complementSpans([[75, 87.5]]), [[0, 75], [87.5, 100]]);
+
+
+// Summary LAST. This block has been stranded mid-file twice by appending a new section
+// after it -- the run stayed green while the new assertions never executed, which is the
+// same green-and-blind failure the red proofs exist to catch. If you add a section, add it
+// ABOVE this line.
 console.log(`${pass} passed, ${fail} failed (cumulative)`);
 process.exit(fail === 0 && redOk && !process.exitCode ? 0 : 1);

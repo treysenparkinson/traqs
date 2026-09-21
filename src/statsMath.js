@@ -401,3 +401,27 @@ export function spansDurationMs(spans) {
   for (const [a, b] of spans || []) total += Math.max(0, b - a);
   return total;
 }
+
+/**
+ * The gaps between spans across a window — the intervals where nothing happened.
+ *
+ * Under the three-region model the hatch is drawn wherever work was clocked and the idle grey
+ * covers everything else left of the cursor, so the idle layer needs the COMPLEMENT of the
+ * worked spans rather than a single boundary. Expressed in the same units as its input, so
+ * percentage spans give percentage gaps.
+ *
+ * Spans are assumed merged and sorted (mergeSpans does both). Unmerged input would emit
+ * negative-width gaps between overlapping spans, which paint as nothing and hide the mistake.
+ */
+export function complementSpans(spans, from = 0, to = 100) {
+  const out = [];
+  let cursor = from;
+  for (const [a, b] of spans || []) {
+    const s = Math.max(from, a), e = Math.min(to, b);
+    if (e <= s) continue;
+    if (s > cursor) out.push([cursor, s]);
+    cursor = Math.max(cursor, e);
+  }
+  if (cursor < to) out.push([cursor, to]);
+  return out;
+}
