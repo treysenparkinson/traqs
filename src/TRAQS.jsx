@@ -17495,11 +17495,8 @@ ${jobsCtx || "No jobs found."}`;
                   //
                   // UNCLAMPED: past 100 means now is past the planned end, which IS the overrun
                   // condition in time terms and is exactly what Q7a says the bar must keep showing.
-                  const _barCursorPct = (() => {
-                    if (isPto || !bar.task) return 0;
-                    const [_plannedS, _plannedE] = opHourRange(bar.task);
-                    return _plannedE > _plannedS ? ((Date.now() - _plannedS) / (_plannedE - _plannedS)) * 100 : 0;
-                  })();
+                  const [_plannedS, _plannedE] = (!isPto && bar.task) ? opHourRange(bar.task) : [0, 0];
+                  const _barCursorPct = _plannedE > _plannedS ? ((Date.now() - _plannedS) / (_plannedE - _plannedS)) * 100 : 0;
                   // The bar's state describes the OP, and every term comes from the people actually
                   // clocked into it. It previously mixed two fields that are not the same claim:
                   // `isLive` reads `activeJobClock.opId` (what someone is working), while
@@ -17515,9 +17512,8 @@ ${jobsCtx || "No jobs found."}`;
                   // same clock. Emitted as data for now -- the fill still takes the scalar extent
                   // until the extent-versus-record question is settled and activeBarFill can take
                   // a list.
-                  const _barSpans = (() => {
+                  const _barSpansAbs = (() => {
                     if (isPto || !bar.task) return [];
-                    const [_spanS, _spanE] = opHourRange(bar.task);
                     const _nowMs = Date.now();
                     const _live = [];
                     for (const jc of _liveClocks) {
@@ -17525,9 +17521,9 @@ ${jobsCtx || "No jobs found."}`;
                       const b = Number.isFinite(jc.frozenAtMs) ? jc.frozenAtMs : _nowMs;
                       if (Number.isFinite(a) && b > a) _live.push([a, b]);
                     }
-                    const _all = mergeSpans([...(workedSpansStored.get(String(bar.task.id)) || []), ..._live]);
-                    return spansToPct(_all, _spanS, _spanE);
+                    return mergeSpans([...(workedSpansStored.get(String(bar.task.id)) || []), ..._live]);
                   })();
+                  const _barSpans = spansToPct(_barSpansAbs, _plannedS, _plannedE);
                   const _barState = isPto ? "pto"
                     : bar.task?.status === "Finished" ? "done"
                     : _liveClocks.some(jc => jc.frozenAtMs) ? "held"
@@ -17601,10 +17597,18 @@ ${jobsCtx || "No jobs found."}`;
                     const _tailPx = Math.max((_tailWNum / 100) * nDays * cW, 2);
                     const isPto2 = bar.type === "pto";
                     const bc2 = bar.color;
+                    // A tail covers a DIFFERENT span from its parent, so the parent's percentages
+                    // put both boundaries in the wrong place on it -- which is why tails rendered
+                    // as plain blocks rather than wrongly. Measured against this segment's own
+                    // window they are right, and the guard is no longer load-bearing.
+                    const _segS = hourTs(seg.start, workStartH);
+                    const _segE = hourTs(seg.end, isLastSeg ? _barEndHour : workEndH);
+                    const _segSpans = isPto2 ? [] : spansToPct(_barSpansAbs, _segS, _segE);
+                    const _segCursorPct = _segE > _segS ? ((Date.now() - _segS) / (_segE - _segS)) * 100 : 0;
                     return <div key={bar.id + "_t" + si + "_" + seg.start}
                       onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto2) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                       onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
-                      style={{ position: "absolute", top: 4, left: tailX, width: tailW, minWidth: isPto2 ? 0 : 2, height: rH - 8, boxSizing: "border-box", borderRadius: isPto2 ? T.radiusXs : Math.min(T.radiusXs, _tailPx / 2), background: activeBarFill(T, bc2, _barSpans, _barCursorPct, isPto2 ? "pto" : "scheduled", _tailPx), border: isBarSelected ? `2px solid #fff` : isPto2 ? `1.5px solid ${bc2}` : _tailPx < 8 ? "none" : `${_tailPx < 16 ? 1 : 2}px dashed ${bc2}cc`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : _dragBlocked ? "not-allowed" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
+                      style={{ position: "absolute", top: 4, left: tailX, width: tailW, minWidth: isPto2 ? 0 : 2, height: rH - 8, boxSizing: "border-box", borderRadius: isPto2 ? T.radiusXs : Math.min(T.radiusXs, _tailPx / 2), background: activeBarFill(T, bc2, _segSpans, _segCursorPct, isPto2 ? "pto" : _barState, _tailPx), border: isBarSelected ? `2px solid #fff` : isPto2 ? `1.5px solid ${bc2}` : _tailPx < 8 ? "none" : `${_tailPx < 16 ? 1 : 2}px dashed ${bc2}cc`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : _dragBlocked ? "not-allowed" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
                       onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
                       {isLastSeg && _tailPx >= 12 && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: Math.max(3, Math.min(10, _tailPx / 3)), cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     </div>;
