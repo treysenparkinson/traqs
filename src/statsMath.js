@@ -588,3 +588,67 @@ export function workedSpansByPersonOp(sessions) {
   for (const ops of byPerson.values()) for (const [k, list] of ops) ops.set(k, mergeSpans(list));
   return byPerson;
 }
+
+// ─── Row push ──────────────────────────────────────────────────────────────
+//
+// Where every op on one person's row sits once the ones before it have run long, and once
+// the clock has moved past work nobody started. Returns Map<opId, pushHours>.
+//
+// Ops are placed on a productive-hours line measured from the row's first op, and each is
+// pushed by however much the previous one actually reaches INTO it — idle time in between
+// absorbs the push first, so slack produces no movement. Each op's end is computed after its
+// own push, so a genuine collision cascades down the row.
+//
+// TWO CAUSES, one line. An op that ran long occupies more of the line than its estimate. An
+// op nobody started cannot begin in the past, so the cursor drags its start forward. Both are
+// the same arithmetic — something is in the way — and keeping them in one pass is what makes
+// them compose instead of fighting.
+//
+// THE INPUT MUST BE EVERY OP ON THE ROW, not the ones currently on screen. A previous version
+// read the viewport-filtered list and the push became a function of scroll position: pan one
+// day, an overrunning op leaves the list, and everything after it jumps. The test asserts the
+// result is identical across three windows for exactly this reason.
+//
+// `diffBD` is injected rather than reimplemented — business days, work days and holidays have
+// one definition in this codebase and a second one here would drift from it silently.
+export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
+  const out = new Map();
+  const list = ops || [];
+  if (!list.length) return out;
+  const { workStartH = 0, totalWorkH = 1, productiveHoursPerDay = 1, diffBD } = cfg || {};
+  if (typeof diffBD !== "function") return out;
+
+  const anchor = list[0].start;
+  const dayFraction = (h) => Math.max(0, (((h ?? workStartH) - workStartH) / Math.max(0.0001, totalWorkH)) * productiveHoursPerDay);
+  const startProd = (op) => diffBD(anchor, op.start) * productiveHoursPerDay + dayFraction(op.startHour);
+  // Now on the same line. Deliberately the SAME formula as startProd rather than a true
+  // productive-hours elapsed: two axes that disagree by a lunch break would put the cursor in
+  // a different place from the bars it is being compared against.
+  const nowProd = nowDay == null ? null : diffBD(anchor, nowDay) * productiveHoursPerDay + dayFraction(nowHour);
+
+  let prevEnd = null;
+  for (const op of list) {
+    const sp = startProd(op);
+    const worked = Math.max(0, op.workedHoursShown || 0);
+    const size = Math.max(1, op.teamSize || 1);
+    const planned = (op.hpd || 0) > 0 ? op.hpd / size : productiveHoursPerDay;
+
+    // Collision with whatever is already reaching into this slot.
+    let push = prevEnd == null ? 0 : Math.max(0, prevEnd - sp);
+    // And the cursor, for work nobody has started. Untouched only: once someone has worked an
+    // op, where it sits is a record rather than a plan, and dragging it forward would move the
+    // hatch away from the hours it represents.
+    if (nowProd != null && worked <= 0 && !op.isFullyWorked) push = Math.max(push, nowProd - sp);
+    // A locked op does not move, whatever is behind it. It still OCCUPIES its slot, so the ops
+    // after it are pushed by it as usual — the lock pins this bar, it does not exempt the row.
+    if (op.locked) push = 0;
+
+    if (push > 0) out.set(String(op.id), push);
+    const own = planned + (op.isFullyWorked ? 0 : Math.max(0, worked - (op.hpd || 0)) / size);
+    const end = sp + push + own;
+    // max(), not assignment: ops can be ordered so an earlier-ending one follows a
+    // later-ending one, and the blocker is whichever reaches furthest.
+    prevEnd = prevEnd == null ? end : Math.max(prevEnd, end);
+  }
+  return out;
+}

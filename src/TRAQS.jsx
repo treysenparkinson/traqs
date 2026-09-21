@@ -10,7 +10,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
-import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp } from "./statsMath.js";
+import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
@@ -16260,28 +16260,30 @@ ${jobsCtx || "No jobs found."}`;
               // then pushed by the overlap with where the previous one now ENDS. Slack gives
               // a push of zero; a genuine collision still cascades, because each op's end is
               // computed after its own push is applied.
-              const _rowAnchor = ordered.length ? ordered[0].start : null;
               const _rowBDOpts = { workDays: orgSettings.workDays, holidays: orgSettings.holidays };
-              const _startProd = b => diffBD(_rowAnchor, b.start, _rowBDOpts) * productiveHoursPerDay
-                + Math.max(0, (((b.task?.startHour ?? workStartH) - workStartH) / Math.max(0.0001, totalWorkH)) * productiveHoursPerDay);
-              let _prevEnd = null;
-              for (const b of ordered) {
-                const _sp = _startProd(b);
-                // Pushed only by the part of the previous op that reaches past this start.
-                const _push = _prevEnd == null ? 0 : Math.max(0, _prevEnd - _sp);
-                if (_push > 0) overrunPushH[b.id] = _push;
-                const ws = deriveWorkedState(b.task, producedFor(b.task), liveOpHours(b.task));
-                rowBarWS[b.id] = ws;
-                const tsz = Math.max(1, (b.task.team || []).length);
-                // Its own length: the estimate, grown by however far past it the work has run.
-                // A finished op stops growing but still occupies the time it was given.
-                const _own = ((b.task.hpd || 0) > 0 ? b.task.hpd / tsz : productiveHoursPerDay)
-                  + (ws.isFullyWorked ? 0 : Math.max(0, ws.workedHoursShown - (b.task.hpd || 0)) / tsz);
-                const _end = _sp + _push + _own;
-                // max(), not assignment: ops can be listed in an order where an earlier-ending
-                // one follows a later-ending one, and the blocker is whichever reaches furthest.
-                _prevEnd = _prevEnd == null ? _end : Math.max(_prevEnd, _end);
-              }
+              for (const b of ordered) rowBarWS[b.id] = deriveWorkedState(b.task, producedFor(b.task), liveOpHours(b.task));
+              // Placement moved into rowPushHours: pure, and therefore testable — the
+              // pan-stability case in scripts/row-push-test.mjs is why it was moved out at all,
+              // since the bug this arithmetic is prone to is becoming a function of the viewport.
+              //
+              // It now carries a SECOND cause beside overrun: an op nobody has started cannot
+              // begin in the past, so the cursor drags its start forward and the row cascades from
+              // there. That replaces the version which grew a bar's HOURS instead of moving it —
+              // satisfying the divider rule on paper while leaving the bar exactly where it was.
+              // Locked ops are pinned but still occupy their slot, so a lock stops that bar
+              // without exempting the row behind it.
+              const _nowD = new Date();
+              for (const [_k, _v] of rowPushHours({
+                ops: ordered.map(b => ({
+                  id: b.id, start: b.start, startHour: b.task?.startHour ?? workStartH,
+                  hpd: b.task?.hpd || 0, teamSize: Math.max(1, (b.task.team || []).length),
+                  workedHoursShown: rowBarWS[b.id]?.workedHoursShown || 0,
+                  isFullyWorked: !!rowBarWS[b.id]?.isFullyWorked,
+                  locked: !!b.task?.locked,
+                })),
+                nowDay: toDS(_nowD), nowHour: _nowD.getHours() + _nowD.getMinutes() / 60,
+                cfg: { workStartH, totalWorkH, productiveHoursPerDay, diffBD: (x, y) => diffBD(x, y, _rowBDOpts) },
+              })) overrunPushH[_k] = _v;
             }
             const isDrop = dropTarget === p.id;
             const isBeingDragged = rowDragId === p.id;
@@ -16472,35 +16474,10 @@ ${jobsCtx || "No jobs found."}`;
                     : 0;
                   const _isOverrunning = _overrunPerPerson > 0;
                   const _plannedDurH = (bar.task?.hpd || 0) > 0 ? bar.task.hpd / _barTeamSz : productiveHoursPerDay;
-                  // THE PUSH (Q2/Q3). Unworked work cannot sit to the left of now, so the
-                  // remainder starts at the cursor -- which means the bar spans its planned start,
-                  // through however much productive time has elapsed without being worked, and then
-                  // the remainder. Expressed here as extra budget rather than as a moved start,
-                  // because the left edge does NOT move: history stays where it happened, and the
-                  // idle grey is exactly this gap made visible.
-                  //
-                  // PER OP, not per row. overrunPushH below is a different mechanism with a
-                  // different cause (an op that ran long displaces its neighbours); this one is a
-                  // property of THIS op being untouched while the clock moved past it, which is why
-                  // clocking into A cannot strand B.
-                  //
-                  // Q3 scope: ops ending before today are locked historical and never pushed. Without
-                  // that a year-old op nobody finished would grow a year of idle and swamp the view.
-                  //
-                  // Today is read live rather than from the module-level TD, which is computed once
-                  // at load. A tab left open overnight would otherwise still think yesterday is today
-                  // and keep pushing ops that became historical while nobody was looking -- visible
-                  // wrongness on the schedule, where TD being stale elsewhere is only cosmetic.
-                  const _pushIdleH = (() => {
-                    if (bar.type !== "task" || bar.crossRow || !bar.task || _barWS?.isFullyWorked) return 0;
-                    if (!bar.task.end || bar.task.end < toDS(new Date())) return 0;
-                    const workedPerPerson = Math.min(_barWS?.workedHoursShown || 0, bar.task.hpd || 0) / _barTeamSz;
-                    if (workedPerPerson >= _plannedDurH) return 0; // nothing left to push
-                    const [_pStart] = opHourRange(bar.task);
-                    const elapsed = productiveHoursBetween(_pStart, Date.now(), { ...dayWindowCfg, workDays: orgSettings.workDays, holidays: orgSettings.holidays });
-                    return Math.max(0, elapsed - workedPerPerson);
-                  })();
-                  const _barHpd = _plannedDurH + _overrunPerPerson + _pushIdleH;
+                  // No idle term any more. This used to add the elapsed-but-unworked hours to the
+                  // bar's BUDGET, which lengthened it and left its left edge where it was; the
+                  // cursor push in rowPushHours moves the bar instead, which is what was wanted.
+                  const _barHpd = _plannedDurH + _overrunPerPerson;
                   // PTO spans its whole calendar range as one continuous bar (incl. weekends),
                   // so treat every day as a "work" day for segmentation — no weekend gaps.
                   // Hoisted above the layout-start maths below, which needs the same options.
@@ -17843,6 +17820,17 @@ ${jobsCtx || "No jobs found."}`;
                     // own is a product question and is with Trey.
                     if (bar.task.status === "Finished") return 0;
                     if (!(_plannedE > _plannedS) || Date.now() <= _plannedE) return 0;
+                    // AND it could not be moved. Untouched work now slides to the cursor rather
+                    // than sitting behind it, so a badge on one of those would report hours as
+                    // stuck when the bar has already moved on. What remains behind the cursor is
+                    // work that is PINNED: locked by a split or by an admin, or partially worked,
+                    // where the position is a record of when the work happened and moving it
+                    // would separate the hatch from the hours it stands for.
+                    //
+                    // So the badge stopped being a colour convention and became a report that
+                    // something is stuck -- which is the only case where the number has nowhere
+                    // else to be read from.
+                    if (!bar.task.locked && (_barWS?.workedHoursShown || 0) <= 0) return 0;
                     const owed = (bar.task.hpd || 0) - (_barWS?.workedHoursShown || 0);
                     // A minute of team time, the same floor the split uses: below it the number
                     // rounds to nothing and a badge reading "0h owed" is worse than no badge.

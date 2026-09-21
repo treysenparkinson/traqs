@@ -412,8 +412,10 @@ states.
 |---|---|---|
 | Not started, dated in the future | `scheduled` | **Plain colour.** Cursor is negative, clamps to 0, early return |
 | Not started, today, cursor before its start | `scheduled` | **Plain colour**, same path |
-| Not started, cursor INSIDE its window | `scheduled` | **Idle grey to the cursor, colour beyond** |
-| Not started, cursor past its end, hours owed | `scheduled` | **All idle grey, plus the OWED pill** |
+| Not started, cursor INSIDE its window | `scheduled` | **The bar MOVES** — its start slides to the cursor and the row cascades behind it |
+| Not started, cursor past its end | `scheduled` | **The bar MOVES** to the cursor. No badge: nothing is stuck |
+| Not started but LOCKED, cursor past its end | `scheduled` | **All idle grey, plus the OWED pill.** Pinned, so the hours have nowhere else to be read |
+| Partially worked, cursor past its end | `worked` | Hatch where the work happened, idle after it, **plus the OWED pill** for the remainder |
 | Actively worked | `running` | Hatch on the worked spans, idle in the gaps, colour past the cursor |
 | HELD (finish requested) | `held` | The same three regions, plus the HELD badge |
 | On lunch or paused | `paused` | The same three regions, plus the LUNCH badge |
