@@ -45,6 +45,19 @@ const bd = (a, b) => {
   for (let i = 0; i < days % 7; i++) { d = new Date(d.getTime() + dayMs); const wd = d.getDay(); if (wd !== 0 && wd !== 6) n++; }
   return sign * n;
 };
+// The same live-clock map TRAQS builds, keyed on opId so cross-row work counts. Without this
+// the tool reported a push on an op somebody was actively working -- it modelled the rule
+// incompletely and disagreed with the app it exists to explain, which is worse than no tool.
+const activeByOp = new Map();
+for (const p of people) {
+  const jc = p.activeJobClock;
+  if (!jc?.clockIn) continue;
+  const target = jc.opId ?? jc.panelId ?? jc.jobId;
+  if (target == null) continue;
+  const k = String(target);
+  if (!activeByOp.has(k)) activeByOp.set(k, []);
+  activeByOp.get(k).push(jc);
+}
 const producedByOp = new Map();
 for (const s of prod || []) if (s && !s.deletedAt && s.opId != null) producedByOp.set(String(s.opId), (producedByOp.get(String(s.opId)) || 0) + (Number(s.hours) || 0));
 
@@ -57,7 +70,9 @@ for (const person of people) {
     const worked = Math.max(producedByOp.get(String(op.id)) || 0, Number(op.loggedHours) || 0);
     ops.push({ id: op.id, start: op.start, end: op.end, startHour: op.startHour ?? WORK_START,
       hpd: Number(op.hpd) || 0, teamSize: Math.max(1, (op.team || []).length),
-      workedHoursShown: worked, isFullyWorked: op.status === "Finished", locked: !!op.locked, title: `${panel.title} · ${op.title}` });
+      workedHoursShown: worked, isFullyWorked: op.status === "Finished", locked: !!op.locked,
+      hasActiveSession: (activeByOp.get(String(op.id)) || []).length > 0,
+      title: `${panel.title} · ${op.title}` });
   }
   if (!ops.length) continue;
   ops.sort((a, b) => String(a.start).localeCompare(String(b.start)));
@@ -73,7 +88,7 @@ if (who) {
   console.log(`${row.name} — ${row.ops.length} ops, ${row.anchored} cursor-anchored, worst push ${row.worst.toFixed(1)}h (${(row.worst / PHPD).toFixed(1)} working days)\n`);
   for (const op of row.ops) {
     const push = row.r.pushes.get(String(op.id)) || 0;
-    const tag = row.r.atCursor.has(String(op.id)) ? " AT-CURSOR" : "";
+    const tag = (row.r.atCursor.has(String(op.id)) ? " AT-CURSOR" : "") + (op.hasActiveSession ? " ON-THE-CLOCK" : "");
     console.log(`  ${op.start}..${op.end}  ${String(op.hpd).padStart(6)}h  push ${push.toFixed(1).padStart(7)}h${tag}  ${op.title}`);
   }
 } else {

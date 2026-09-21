@@ -500,11 +500,21 @@ computation. Consolidated with item 11 — see §7.
 
 #### 3. Scenarios
 
-**3a. Cross-row work.** Trey clocks in on Caleb's scheduled job. Trey's row grows hatched from
-the cursor leftward. On Caleb's row the divider advances across the job's bar. Team is unchanged.
-On finish: Trey's hatched region becomes DONE in place on his row, and Caleb's row goes empty —
-his reservoir is fully consumed. (Zero-width guard applies, §6b.)
+**3a. Cross-row work.** Trey clocks in on Caleb’s scheduled job. The two rows show different
+halves of one piece of work, and neither is derived from the other.
 
+- **The worker’s row carries the work.** A bar appears on Trey’s row spanning clock-in to now,
+  hatched end to end by construction — it IS the worked record, so it has no remainder and no
+  colour. It grows leftward from the cursor as he works.
+- **The owner’s row carries only what is left.** Caleb’s bar is clamped to START at the cursor
+  and shrinks as the cursor advances. **Nothing from it sits left of the cursor, and it shows no
+  grey at all** — worked time lives on the worker’s row, and showing it on both would count it
+  twice. (Ruling 2026-09-21, superseding the earlier “divider advances” wording, which put grey
+  on both rows.)
+- Team is unchanged, and the op is NOT pushed while anybody is on it — an active session makes
+  it non-untouched as a fact, whichever row the worker sits on.
+- On finish: Trey’s hatched region becomes DONE in place on his row, and Caleb’s row goes empty
+  — his reservoir is fully consumed. (Zero-width guard applies, §6b.)
 **3b. Overrun.** Cursor advances past planned end, hatched keeps growing rightward, right edge
 extends past planned end. No clamp until end of working day (Q7b).
 
