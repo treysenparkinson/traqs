@@ -2525,17 +2525,28 @@ function workedFlatFill(T, barColor) {
 function activeBarFill(T, barColor, spans, dividerPct, state, renderPx) {
   if (state === "pto") return `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${barColor}`;
   if (state === "done") return spentBarFill(T, barColor);
-  // Only a bar that owns worked time carries regions. "worked" is the clocked-out case --
-  // nobody on the clock, hatched extent locked, cursor still advancing and opening the idle
-  // gap behind it (§3a, §3d) -- so it renders exactly as the live states do; what differs is
-  // whether the worked front is still moving, and that is the caller's number, not a texture.
+  // "worked" is the clocked-out case -- nobody on the clock, hatched extent locked, cursor
+  // still advancing and opening idle behind it (§3a, §3d) -- so it renders exactly as the live
+  // states do; what differs is whether the worked front is still moving, and that is the
+  // caller's number, not a texture.
   //
-  // "scheduled" stays a plain colour block. Genuinely untouched work has no worked front, and
-  // the tail call site is handed the WHOLE bar's percentages while covering a different span,
-  // so drawing regions from them there would put both boundaries in the wrong place. That is
-  // fixed in the geometry commit with per-segment values; until then this branch is what keeps
-  // the tail honest.
-  if (state !== "running" && state !== "held" && state !== "paused" && state !== "worked") return barColor;
+  // There is no state guard here any more. "scheduled" used to return a plain colour block,
+  // written when the tail call site was handed the WHOLE bar's percentages while covering a
+  // different span, so regions drawn from them would have put both boundaries in the wrong
+  // place. The tail takes per-segment spans and its own cursor now, so that reason expired --
+  // but the guard stayed, and it was the cause of coloured unworked bars sitting LEFT of the
+  // cursor against §1. It short-circuited before the cursor was ever read, so no amount of
+  // correct geometry could have fixed it from the other side.
+  //
+  // The three cases fall out of logic already below rather than needing branches:
+  //   future untouched  cursor is NEGATIVE, C clamps to 0, the empty-and-C<=0 return fires
+  //                     -> plain colour, which is right: nothing has elapsed yet
+  //   straddling        idle left of the cursor, colour beyond it
+  //   wholly past       C clamps to 100, the colour layer is skipped, complement covers all
+  //                     -> all idle, the true statement about untouched elapsed time
+  // Region-capable is the safer default for any state added later, too: this defect was an
+  // over-exclusion, and a state that genuinely carries no regions has no spans and no cursor
+  // inside it, which the return below already handles.
 
   // Clamped for PAINT only. dividerPct arrives unclamped so past-100 can carry the overrun
   // signal, but a gradient stop outside the box renders as a plausible fully-worked bar
@@ -2579,6 +2590,43 @@ function activeBarFill(T, barColor, spans, dividerPct, state, renderPx) {
 // overloading the same state strings would have handed DONE the wrong ground.
 function barLabelColor(T, barColor) {
   return accentText(idleBarFill(T, barColor));
+}
+
+// The owed-hours badge. Same slot as HELD / LUNCH / DONE, deliberately not the same shape:
+// those name a state the bar is IN, this one carries a number that is MISSING, and it has to
+// read as something to act on rather than another label.
+//
+// A FILLED PILL rather than coloured text, and that is a measurement result, not a taste call.
+// Coloured text in the theme's danger was the obvious reading and it is unreadable: T.danger
+// against the idle grey it sits on measures 1.75-2.34 WCAG contrast across the four ladders
+// (9px at weight 800 wants 4.5). Pushing the red toward the ladder's polarity only reaches
+// 3.58-7.06 at a step of 0.55, still under 4.5 on two of them, and by then it is pink rather
+// than urgent.
+//
+// Inverting it fixes both halves at once. Text contrast becomes text-against-PILL, which is
+// accentText's job and lands near 5.6-5.7. The pill against the ground no longer has to carry
+// text legibility at all -- it only has to be distinguishable, and a saturated red block
+// against a near-neutral grey differs in HUE, which is the axis contrast ratio cannot see and
+// the reason the ratio was the wrong test for a fill. A solid badge also reads louder than
+// tinted text, which is the urgency the badge exists for.
+function owedBadgeStyle(T) {
+  const bg = T.danger || "#ef4444";
+  return {
+    flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em",
+    // No opacity fade. The other badges carry 0.85 because they are incidental; this one is
+    // the reason someone is looking at the bar.
+    color: accentText(bg), background: bg,
+    padding: "1px 5px", borderRadius: T.radiusPill, whiteSpace: "nowrap",
+  };
+}
+// "5h owed" / "5.2h owed". One decimal, trailing ".0" dropped, because a whole number reads as
+// a decision and "5.0h" reads as an instrument. Suppressing a trivially small figure is the
+// detection side's call, not the formatter's -- if a number arrives here it gets shown.
+function formatOwedH(h) {
+  const n = Number(h);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const r = Math.round(n * 10) / 10;
+  return `${r % 1 === 0 ? r.toFixed(0) : r.toFixed(1)}H OWED`;
 }
 
 // Text on a spent fill contrasts the SPENT colour, not the bar's original one -- the two can
@@ -17833,6 +17881,12 @@ ${jobsCtx || "No jobs found."}`;
                         literal "held" to reach liveBarTextColor's spent branch and IS on spent grey. */}
                     {!isPto && !_hideBarLabel && (_barState === "held" || _barState === "paused") && <span style={{ flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", opacity: 0.85, color: barLabelColor(T, bc) }}>{LIVE_BADGE_LABEL[_barState]}</span>}
                     {!isPto && !_hideBarLabel && bar.task?.status === "Finished" && <span style={{ flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", opacity: 0.85, color: liveBarTextColor(T, bc, "held") }}>DONE</span>}
+                    {/* Owed hours. Last of the badges so it reads as the thing to act on rather than
+                        another state label, and a filled pill rather than coloured text because the
+                        theme's danger measures 1.75-2.34 contrast against the grey it sits on --
+                        see owedBadgeStyle. formatOwedH returns null below a showable number, so the
+                        floor is enforced in one place rather than at the call site too. */}
+                    {!isPto && !_hideBarLabel && _barOwedH > 0 && formatOwedH(_barOwedH) && <span style={owedBadgeStyle(T)}>{formatOwedH(_barOwedH)}</span>}
                     <span style={{ display: _hideBarLabel ? "none" : undefined, fontSize: 11, color: _titleColor, textShadow: _titleHalo, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>{isPto ? (<><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={accentText(bc)} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginRight: 5, verticalAlign: "-1.5px" }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>{bar.ptoType}{bar.title && bar.title !== bar.ptoType ? ` · ${bar.title}` : ""}</>) : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
                     {!isPto && !_hideBarLabel && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: accentText(bc) === "#ffffff" ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)', fontFamily: T.mono, position: "relative", zIndex: 5 }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
                   </div>,
