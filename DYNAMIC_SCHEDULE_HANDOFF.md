@@ -718,6 +718,39 @@ reference checker — an orphaned binding is a free identifier that bundlers do 
 green and throws at runtime.
 ### Deferred, by explicit decision
 
+#### Filed 2026-09-21 — post-ship, do not design for these now
+
+- **"Hours complete, awaiting approval" has no signal.** An op worked to (or past) its
+  estimate and not yet submitted for completion owes nothing, so no owed badge, and is not
+  Finished, so no DONE badge — an all-grey bar with no label. It is the normal state of every
+  op between clock-out and approval, so it is common rather than exotic. It is deliberately
+  allowed by the never-bare-grey invariant because TEXTURE distinguishes it: all hatch against
+  DONE's flat. **Trey's ruling: leave it.** If admins report confusion in real use, add a
+  badge; otherwise it stays as it is.
+- **`pushedBarRange` is dead code and is not a drop-in for what ships.** It returns a RANGE and
+  moves the remainder to the cursor; the running `_pushIdleH` returns extra HOURS, flows into
+  `_barHpd` -> `_wBudget` -> width, and never touches the bar's left edge. So the shipped push
+  can only LENGTHEN a bar, never translate one — which is why no push setting can satisfy §1
+  for an op whose window has entirely passed, and why greying was the available answer rather
+  than the preferred one. Reconciling them is a geometry rewrite (option 3, deferred), not a
+  substitution.
+
+#### THE INSTRUMENT GAP — permanent, and worth knowing before trusting a green run
+
+The headed `shot.mjs` login is **permanently deferred**: a standing credential that exists
+only to let a test log in is a real liability against a workflow convenience, and Trey
+screenshots instead. That is a sound trade, and it fixes what the automated checks can say.
+
+**The instrument covers data and source. Screenshots are the only instrument for paint.**
+Where they diverge — a badge rendering behind another element, a hatch that does not resolve
+at the rendered size, a colour that measures fine and looks cheap — the assertion passes and
+the bar is still wrong. `grey-bar-labelled-test.mjs` asserts that a bar NEEDING a badge
+reports the number that would feed it; it cannot assert the badge reached the DOM.
+
+Two of this feature's four worst defects were invisible to every check we had: a hatch
+measuring 2.8 L\* against its own ground, and a comment that drifted 75 lines from its
+subject. Neither had a data signature.
+
 #### Filed 2026-09-18, non-blocking, do NOT fold into the live-hours pass
 
 **Deferred by the 2026-09-18 scope reset — after web geometry ships and has been tested:**
