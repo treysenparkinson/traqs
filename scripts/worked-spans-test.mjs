@@ -7,7 +7,7 @@
 //
 //   node scripts/worked-spans-test.mjs
 
-import { workedSpansByOp, mergeSpans, spansToPct } from "../src/statsMath.js";
+import { workedSpansByOp, mergeSpans, spansToPct, pushedBarRange, spansDurationMs } from "../src/statsMath.js";
 
 let pass = 0, fail = 0;
 const eq = (label, got, want) => {
@@ -81,5 +81,61 @@ for (const [label, input, want] of redCases) {
 const redOk = caught === redCases.length;
 if (redOk) console.log(`red proof: ${caught}/${redCases.length} assertions reject a non-merging implementation`);
 
-console.log(`${pass} passed, ${fail} failed`);
-process.exit(fail === 0 && redOk ? 0 : 1);
+// ── pushedBarRange ───────────────────────────────────────────────────────
+// The push rule: where a bar sits once the clock has moved past work nobody did.
+
+const H = 3600000;
+const pr = (o) => {
+  const r = pushedBarRange(o);
+  return [r.startMs, r.remainderStartMs, r.endMs, r.pushedMs];
+};
+
+eq("before its window opens, nothing moves — Thursday's bar is not late on Tuesday",
+  pr({ plannedStartMs: T(9), plannedEndMs: T(17), workedMs: 0, nowMs: T(8) }),
+  [T(9), T(9), T(17), 0]);
+eq("exactly at the planned start, nothing has been missed yet",
+  pr({ plannedStartMs: T(9), plannedEndMs: T(17), workedMs: 0, nowMs: T(9) }),
+  [T(9), T(9), T(17), 0]);
+eq("untouched and an hour late: the whole block slides, duration intact",
+  pr({ plannedStartMs: T(9), plannedEndMs: T(17), workedMs: 0, nowMs: T(10) }),
+  [T(9), T(10), T(18), 1 * H]);
+eq("half worked: the remainder resumes at the cursor and only the remainder is left",
+  pr({ plannedStartMs: T(9), plannedEndMs: T(17), workedMs: 4 * H, nowMs: T(14) }),
+  [T(9), T(14), T(18), 1 * H]);
+eq("fully worked: nothing left to push, planned extent kept",
+  pr({ plannedStartMs: T(9), plannedEndMs: T(17), workedMs: 8 * H, nowMs: T(20) }),
+  [T(9), T(17), T(17), 0]);
+eq("worked MORE than planned does not invert the bar — overrun is Q7a's, not a negative remainder",
+  pr({ plannedStartMs: T(9), plannedEndMs: T(17), workedMs: 20 * H, nowMs: T(20) }),
+  [T(9), T(17), T(17), 0]);
+eq("the left edge never moves: history stays where it happened",
+  pr({ plannedStartMs: T(9), plannedEndMs: T(17), workedMs: 2 * H, nowMs: T(16) })[0], T(9));
+eq("a degenerate window is returned untouched rather than divided by",
+  pr({ plannedStartMs: T(9), plannedEndMs: T(9), workedMs: 0, nowMs: T(12) }),
+  [T(9), T(9), T(9), 0]);
+eq("an inverted window is returned untouched rather than 'fixed' into something plausible",
+  pr({ plannedStartMs: T(17), plannedEndMs: T(9), workedMs: 0, nowMs: T(12) }),
+  [T(17), T(17), T(9), 0]);
+eq("a missing now does not silently push to 1970",
+  pr({ plannedStartMs: T(9), plannedEndMs: T(17), workedMs: 0, nowMs: undefined }),
+  [T(9), T(9), T(17), 0]);
+
+eq("spansDurationMs sums merged spans", spansDurationMs([[T(9), T(11)], [T(13), T(14)]]), 3 * H);
+eq("spansDurationMs of nothing is nothing", spansDurationMs([]), 0);
+
+// RED PROOF for the push: the plausible wrong rule is "slide by how late you are", which is
+// right for an untouched op and wrong the moment any work exists — it double-counts the worked
+// portion and pushes the end an extra four hours in the half-worked case above.
+const naivePush = ({ plannedStartMs, plannedEndMs, nowMs }) => {
+  const late = Math.max(0, nowMs - plannedStartMs);
+  return [plannedStartMs, plannedStartMs + late, plannedEndMs + late, late];
+};
+const pushRed = naivePush({ plannedStartMs: T(9), plannedEndMs: T(17), nowMs: T(14) });
+if (JSON.stringify(pushRed) === JSON.stringify([T(9), T(14), T(18), 1 * H])) {
+  console.error("RED PROOF FAILED: the half-worked case does not distinguish the push rule from sliding by lateness");
+  process.exitCode = 1;
+} else {
+  console.log("red proof: the half-worked case rejects a push that slides by lateness alone");
+}
+console.log(`${pass} passed, ${fail} failed (cumulative)`);
+process.exit(fail === 0 && redOk && !process.exitCode ? 0 : 1);

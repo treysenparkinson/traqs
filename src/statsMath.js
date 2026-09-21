@@ -344,3 +344,60 @@ export function spansToPct(spans, fromMs, toMs) {
   }
   return out;
 }
+
+// ─── Push ──────────────────────────────────────────────────────────────────
+//
+// Where a bar actually sits once the clock has moved past work nobody did.
+//
+// PER OP, not per row. The cascade this replaces pushed every op on the clocked-in person's
+// row that overlapped the new work's footprint, so clocking into A moved B. Under the
+// three-region model B moves because B is untouched and the cursor has passed it, which is a
+// property of B alone — clocking into A says nothing about B, and B stays recoverable when a
+// drag on A is refused.
+//
+// The rule is one sentence: the unworked remainder cannot sit to the LEFT of now, so it starts
+// at the cursor and keeps its duration. Everything else follows. An untouched op whose window
+// has passed slides whole and leaves flat idle behind it. A half-worked op keeps its hatch
+// where the work happened, shows idle from there to the cursor, and its remainder resumes
+// ahead. A bar whose work is done stops moving, because there is no remainder to push.
+//
+// `workedMs` is time actually clocked against the op, which is NOT the same as the elapsed
+// window: an op can be a day old with twenty minutes on it. Pass the merged spans' duration,
+// not `now - start`.
+export function pushedBarRange({ plannedStartMs, plannedEndMs, workedMs = 0, nowMs }) {
+  const duration = plannedEndMs - plannedStartMs;
+  if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(nowMs)) {
+    return { startMs: plannedStartMs, endMs: plannedEndMs, remainderStartMs: plannedStartMs, pushedMs: 0 };
+  }
+  // Worked time is clamped into the op's own duration. More worked than planned is an overrun,
+  // which grows the bar (Q7a) rather than producing a negative remainder that would pull the
+  // end backwards past the start and write an inverted block.
+  const worked = Math.max(0, Math.min(duration, workedMs || 0));
+  const remaining = duration - worked;
+
+  // Before the op's window opens nothing is pushed: a bar scheduled for Thursday is not late on
+  // Tuesday. This is what keeps the push from dragging the whole future forward.
+  if (nowMs <= plannedStartMs) {
+    return { startMs: plannedStartMs, endMs: plannedEndMs, remainderStartMs: plannedStartMs, pushedMs: 0 };
+  }
+  // Nothing left to place. The bar keeps its planned extent; overrun growth is Q7a's business
+  // and is measured from the clock still running, not from a remainder that no longer exists.
+  if (remaining <= 0) {
+    return { startMs: plannedStartMs, endMs: plannedEndMs, remainderStartMs: plannedEndMs, pushedMs: 0 };
+  }
+  const remainderStartMs = nowMs;
+  const endMs = remainderStartMs + remaining;
+  return {
+    startMs: plannedStartMs,          // history stays put; the left edge is where it was planned
+    endMs,
+    remainderStartMs,
+    pushedMs: Math.max(0, endMs - plannedEndMs),
+  };
+}
+
+/** Total duration of merged, non-overlapping spans. Merge first — overlaps would double-count. */
+export function spansDurationMs(spans) {
+  let total = 0;
+  for (const [a, b] of spans || []) total += Math.max(0, b - a);
+  return total;
+}
