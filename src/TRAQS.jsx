@@ -9272,6 +9272,11 @@ Extraction rules:
     // path has never set.
     const base = {
       status: "Finished", pendingFinish: false, pendingSession: undefined,
+      // WHEN it was finished. Approve previously flipped the status and recorded no instant
+      // at all, so a DONE bar had nothing to sit against and kept its PLANNED dates -- which
+      // is how an op finished today can paint itself across next week and break §1's rule
+      // that nothing DONE sits right of the cursor.
+      finishedAt: new Date().toISOString(),
       ...(logged > 0 || session ? { actualHours: Math.round(logged * 100) / 100 } : {}),
     };
     // No session means no finish-request lifecycle ran for this op -- a job-level finish, or an
@@ -16522,7 +16527,31 @@ ${jobsCtx || "No jobs found."}`;
                   // No idle term any more. This used to add the elapsed-but-unworked hours to the
                   // bar's BUDGET, which lengthened it and left its left edge where it was; the
                   // cursor push in rowPushHours moves the bar instead, which is what was wanted.
-                  const _barHpd = _plannedDurH + _overrunPerPerson;
+                  // A DONE bar ends when the work ended, and never later than now.
+                  //
+                  // Its length comes from the hours budget like any other bar, so leaving that as
+                  // the estimate paints a finished op across whatever it was PLANNED to span --
+                  // including dates in the future. §1 says nothing DONE sits right of the cursor,
+                  // and the 79 ops already Finished carry no timestamp to place them by, so the
+                  // cursor is the floor that holds for all of them.
+                  //
+                  // min(finishedAt, now): a new approval lands on its real instant, which is
+                  // already behind the cursor; a legacy op with no stamp clamps to the cursor.
+                  // Visual only — the stored dates are not rewritten, because a bar being drawn
+                  // truthfully and a record being edited are different things.
+                  const _doneEndMs = bar.task?.status === "Finished" ? (() => {
+                    const stamped = Date.parse(bar.task.finishedAt);
+                    return Math.min(Date.now(), Number.isFinite(stamped) ? stamped : Date.now());
+                  })() : null;
+                  const _doneSpanH = _doneEndMs == null ? null : productiveHoursBetween(
+                    hourTs(bar.start, bar.task?.startHour ?? workStartH), _doneEndMs,
+                    { ...dayWindowCfg, workDays: orgSettings.workDays, holidays: orgSettings.holidays });
+                  // A floor rather than zero: a finished op that started after the cursor would
+                  // otherwise collapse to nothing and vanish, and a bar nobody can see is a worse
+                  // answer than a short one.
+                  const _barHpd = _doneSpanH != null
+                    ? Math.max(0.25, _doneSpanH / _barTeamSz)
+                    : _plannedDurH + _overrunPerPerson;
                   // PTO spans its whole calendar range as one continuous bar (incl. weekends),
                   // so treat every day as a "work" day for segmentation — no weekend gaps.
                   // Hoisted above the layout-start maths below, which needs the same options.
