@@ -16605,7 +16605,7 @@ ${jobsCtx || "No jobs found."}`;
                   const _someoneOnIt = !isPto && !!bar.task && people.some(lp => lp.activeJobClock?.clockIn && sameId(lp.activeJobClock.opId, bar.task.id));
                   const handleTeamDrag = (e) => {
                     if (!can("moveJobs")) { if (!isPto && bar.task) openJobDetail(bar.task); return; }
-                    if (_someoneOnIt) { e.preventDefault(); e.stopPropagation(); toast("Someone is currently working on this. They must be clocked out before you can edit this."); return; }
+                    if (_someoneOnIt) { e.preventDefault(); e.stopPropagation(); setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Someone is on this job", message: "Someone is currently working on this. They must be clocked out before you can edit this.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) }); return; }
                     if (isPto) {
                       // PTO drag
                       e.preventDefault();
@@ -17430,7 +17430,7 @@ ${jobsCtx || "No jobs found."}`;
                   };
                   const handleTeamResize = (e, side) => {
                     if (!can("moveJobs")) return;
-                    if (_someoneOnIt) { e.preventDefault(); e.stopPropagation(); toast("Someone is currently working on this. They must be clocked out before you can edit this."); return; }
+                    if (_someoneOnIt) { e.preventDefault(); e.stopPropagation(); setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Someone is on this job", message: "Someone is currently working on this. They must be clocked out before you can edit this.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) }); return; }
                     if (isPto) {
                       e.preventDefault(); e.stopPropagation();
                       const sx = e.clientX;
@@ -31922,8 +31922,10 @@ ${jobsCtx || "No jobs found."}`;
         <h3 style={{ margin: "0 0 12px", color: T.text, fontSize: 20, fontWeight: 700 }}>{confirmMove.title || "Move Entire Job?"}</h3>
         <p style={{ margin: "0 0 24px", fontSize: 14, color: T.textSec, lineHeight: 1.6 }}>{confirmMove.message}</p>
         <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-          <Btn variant="ghost" onClick={() => { if (confirmMove.onCancel) confirmMove.onCancel(); }} style={{ minWidth: 120 }}>Cancel</Btn>
-          <Btn onClick={() => { if (confirmMove.onConfirm) confirmMove.onConfirm(); }} style={{ minWidth: 120 }}>Yes, Move It</Btn>
+          {/* A refusal has nothing to confirm, so it shows one button. Offering "Cancel / Yes,
+              Move It" for a message that just said no would invite the move it refused. */}
+          {!confirmMove.ackOnly && <Btn variant="ghost" onClick={() => { if (confirmMove.onCancel) confirmMove.onCancel(); }} style={{ minWidth: 120 }}>Cancel</Btn>}
+          <Btn onClick={() => { if (confirmMove.onConfirm) confirmMove.onConfirm(); }} style={{ minWidth: 120 }}>{confirmMove.confirmLabel || "Yes, Move It"}</Btn>
         </div>
       </div>
     </div>}</FadeOnClose>
