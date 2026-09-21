@@ -16509,8 +16509,13 @@ ${jobsCtx || "No jobs found."}`;
                   }
                   const isPto = bar.type === "pto";
                   const isExp = false;
+                  // §3c. An op cannot be rescheduled out from under the person working it: their
+                  // clock is running against a block that would move, and the split rules only make
+                  // sense once nobody is on it.
+                  const _someoneOnIt = !isPto && !!bar.task && people.some(lp => lp.activeJobClock?.clockIn && sameId(lp.activeJobClock.opId, bar.task.id));
                   const handleTeamDrag = (e) => {
                     if (!can("moveJobs")) { if (!isPto && bar.task) openJobDetail(bar.task); return; }
+                    if (_someoneOnIt) { e.preventDefault(); e.stopPropagation(); toast("Someone is currently working on this. They must be clocked out before you can edit this."); return; }
                     if (isPto) {
                       // PTO drag
                       e.preventDefault();
@@ -17323,6 +17328,7 @@ ${jobsCtx || "No jobs found."}`;
                   };
                   const handleTeamResize = (e, side) => {
                     if (!can("moveJobs")) return;
+                    if (_someoneOnIt) { e.preventDefault(); e.stopPropagation(); toast("Someone is currently working on this. They must be clocked out before you can edit this."); return; }
                     if (isPto) {
                       e.preventDefault(); e.stopPropagation();
                       const sx = e.clientX;
