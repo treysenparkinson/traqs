@@ -10,7 +10,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
-import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd } from "./statsMath.js";
+import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
@@ -8954,6 +8954,60 @@ Extraction rules:
   // newStartHour/newEndHour: optional, hour-precision companion to newStart/newEnd (Phase 3
   // clock-in cascade). Admin-drag pushes never set these, so that path writes start/end only,
   // exactly as before.
+  // §3c. Dragging a PARTIALLY WORKED op does not move it — it splits it. The work already
+  // done is history: it stays on the row and at the hours it was worked, locked. What the
+  // admin is actually dragging is the unworked remainder, and that becomes its own record,
+  // free to land on any day or person.
+  //
+  // Applied AFTER the ordinary move has been built, so the moved copy already carries the
+  // target's dates, hours and team: the remainder is that copy with a new id, and the original
+  // is put back where it was. Reusing the move instead of recomputing the target is what keeps
+  // this from drifting away from the drag preview the admin just watched.
+  //
+  // The ORIGINAL id stays with the history, deliberately. Sessions, attachments, chat
+  // references and the moveLog all point at it, and moving the id to the remainder would
+  // re-attribute a day of finished work to a block nobody has started.
+  // `out.newId` is set when a remainder record is created. A reassign has to follow the
+  // REMAINDER: re-teaming by the original id would hand a finished afternoon to whoever the
+  // admin dropped the unworked half on, which is the opposite of what history means.
+  const applyWorkedSplit = (afterMove, origOp, workedMs, out = {}) => {
+    if (!origOp || !origOp.id) return afterMove;
+    const teamSize = Math.max(1, (origOp.team || []).length);
+    const { keep, remainder } = splitWorkedOp({ hpd: origOp.hpd || 0, workedMs, teamSize });
+    // Nothing worked: an ordinary drag, and calling it a split would mint a record of work
+    // nobody did. Nothing remaining: §6b — the op is fully worked, so it simply does not move,
+    // and no zero-width remainder is written.
+    if (!keep) return afterMove;
+    const newId = `op_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    return afterMove.map(job => ({
+      ...job,
+      subs: (job.subs || []).map(panel => {
+        const idx = (panel.subs || []).findIndex(o => String(o.id) === String(origOp.id));
+        if (idx < 0) return panel;
+        const moved = panel.subs[idx];
+        const ops = [...panel.subs];
+        ops[idx] = {
+          ...moved,
+          start: origOp.start, end: origOp.end,
+          startHour: origOp.startHour ?? null, endHour: origOp.endHour ?? null,
+          team: origOp.team, hpd: keep.hpd, locked: true,
+        };
+        if (remainder) {
+          out.newId = newId;
+          ops.splice(idx + 1, 0, {
+            ...moved,
+            id: newId, hpd: remainder.hpd, locked: false,
+            // The remainder has no history of its own. loggedHours and any pending finish
+            // belong to the work that was done, which stayed behind with the original id —
+            // carrying them over would credit the new block with hours nobody worked on it.
+            loggedHours: 0, pendingFinish: null,
+            status: moved.status === "Finished" ? "Not Started" : moved.status,
+          });
+        }
+        return { ...panel, subs: ops };
+      }),
+    }));
+  };
   const applyPushes = (taskList, pushes, movedBy, sessionId) => {
     let result = JSON.parse(JSON.stringify(taskList));
     for (const p of pushes) {
@@ -17236,13 +17290,25 @@ ${jobsCtx || "No jobs found."}`;
                         { id: bar.task.id, newStart: effStart, newEnd: effEnd, logEntry: { ...logBase, fromStart: os, fromEnd: oe, toStart: effStart, toEnd: effEnd } },
                         ...groupFinalMoves.map(m => ({ id: m.id, newStart: m.newStart, newEnd: m.newEnd, logEntry: { ...logBase, fromStart: m.origStart, fromEnd: m.origEnd, toStart: m.newStart, toEnd: m.newEnd } }))
                       ];
-                      const withMove = buildGroupMove(tasks, allMoves);
+                      // §3c split. Single-bar drags only: a multi-drag is a bulk reschedule, and
+                      // splitting several ops at once would produce a pile of records nobody asked
+                      // for from one gesture. Drops onto another PERSON do split — "movable to any
+                      // day or person" is most of the point — and the reassign below is redirected
+                      // at the remainder so the history keeps the team that did it. Nobody can be
+                      // clocked in here: _someoneOnIt refused the gesture before it began.
+                      const _splitOut = {};
+                      const _splitWorkedMs = (multiDragMembers.length === 0 && bar.task)
+                        ? spansDurationMs(workedSpansStored.get(String(bar.task.id)) || [])
+                        : 0;
+                      const withMove = _splitWorkedMs > 0
+                        ? applyWorkedSplit(buildGroupMove(tasks, allMoves), findOp(tasks, bar.task.id), _splitWorkedMs, _splitOut)
+                        : buildGroupMove(tasks, allMoves);
                       // Expand viewport to include all newly placed bars
                       const allNewStarts = [effStart, ...groupFinalMoves.map(m => m.newStart)];
                       const minNewStart = allNewStarts.reduce((a, b) => a < b ? a : b, effStart);
                       const applyReassign = (snapshot) => {
                         const allReassignments = [
-                          { taskId: bar.task.id, pid: taskPid, fromPerson: origPerson },
+                          { taskId: _splitOut.newId || bar.task.id, pid: taskPid, fromPerson: origPerson },
                           ...multiDragMembers.map(m => ({ taskId: m.id, pid: m.pid, fromPerson: m.origPerson }))
                         ];
                         return snapshot.map(t => {
