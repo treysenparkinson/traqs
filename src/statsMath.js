@@ -280,3 +280,67 @@ export function totalsForDays({ payByDay, prodByDay, breakByDay }, days) {
 export function efficiencyPct({ prod, working }) {
   return working > 0 ? Math.round((prod / working) * 100) : null;
 }
+
+// ─── Worked SPANS ──────────────────────────────────────────────────────────
+//
+// WHEN an op was worked, not how much. The hours total answers "how much" and already has
+// three call sites; this answers the question the schedule's hatch actually asks, and the two
+// are not interchangeable. An op estimated at 8h and clocked into at 14:00 for one hour has a
+// worked FRACTION of 12.5% and a worked SPAN of 14:00-15:00 — draw the fraction as a position
+// and the bar reports work in a window where nobody was working.
+//
+// Sessions are the record: every js_ row in productionhours.json carries clockIn and clockOut.
+// Rows without both are skipped rather than guessed at, and deletedAt rows are skipped for the
+// same reason producedHoursByScope skips them.
+//
+// KNOWN GAP, deliberate: a lunch taken mid-session is not carved out, so a span can cover time
+// that was paused. Under the three-region model that time is "elapsed but not worked" and
+// should read as idle, but pause boundaries live in the pay timeclock's lunchStart/lunchEnd
+// events rather than on the session row, so joining them is its own piece of work.
+export function workedSpansByOp(sessions) {
+  const byOp = new Map();
+  for (const s of sessions || []) {
+    if (!s || s.deletedAt || s.opId == null || s.opId === "") continue;
+    const a = Date.parse(s.clockIn), b = Date.parse(s.clockOut);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) continue;
+    const k = String(s.opId);
+    const list = byOp.get(k) || [];
+    list.push([a, b]);
+    byOp.set(k, list);
+  }
+  for (const [k, list] of byOp) byOp.set(k, mergeSpans(list));
+  return byOp;
+}
+
+/**
+ * Sorted, non-overlapping spans. Two people on one op produce overlapping rows and the op was
+ * worked once, not twice — for a fill extent the union is the answer, and leaving them
+ * unmerged would paint the same region twice at compounding alpha.
+ */
+export function mergeSpans(spans) {
+  const out = [];
+  for (const [a, b] of [...(spans || [])].sort((x, y) => x[0] - y[0])) {
+    const last = out[out.length - 1];
+    if (last && a <= last[1]) last[1] = Math.max(last[1], b);
+    else out.push([a, b]);
+  }
+  return out;
+}
+
+/**
+ * Spans clipped to a window and expressed as percentages across it, for a bar that occupies
+ * that window. Returns [] when the window is degenerate rather than dividing by zero, and
+ * clamps to 0..100 because a span may start before the bar or run past it — a session that
+ * began yesterday is real, it just is not this bar's to draw.
+ */
+export function spansToPct(spans, fromMs, toMs) {
+  const width = toMs - fromMs;
+  if (!Number.isFinite(width) || width <= 0) return [];
+  const out = [];
+  for (const [a, b] of spans || []) {
+    const s = Math.max(fromMs, a), e = Math.min(toMs, b);
+    if (e <= s) continue;
+    out.push([((s - fromMs) / width) * 100, ((e - fromMs) / width) * 100]);
+  }
+  return out;
+}
