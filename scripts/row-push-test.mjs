@@ -220,5 +220,43 @@ if (JSON.stringify(filtered) === JSON.stringify(full)) {
   console.log("red proof: a viewport-filtered op list produces a different answer, so the pan cases are load-bearing");
 }
 
+// ── rowSlackHours ────────────────────────────────────────────────────────
+// The assertion that would have caught bars vanishing on scroll. Slack widens a row's
+// window so a displaced bar is never filtered out of a viewport it is painted in; when slack
+// does not cover the displacement, the bar disappears and comes back as you pan.
+const { rowSlackHours } = await import("../src/statsMath.js");
+
+// Productive hours between two instants, simplified for the fixture: 7.5 per day elapsed.
+const pb = (a, b) => Math.max(0, (b - a) / 86400000) * 7.5;
+const DAY = 86400000;
+const NOW = 10 * DAY;
+const sop = (o) => ({ hpd: 7.5, teamSize: 1, workedHoursShown: 0, isFullyWorked: false, locked: false, ...o });
+
+eq("a row with nothing displaced needs no slack",
+  rowSlackHours({ ops: [sop({ plannedStartMs: NOW + DAY })], nowMs: NOW, productiveBetween: pb }), 0);
+eq("an overrunning op contributes its overrun",
+  rowSlackHours({ ops: [sop({ workedHoursShown: 15, hpd: 7.5, plannedStartMs: NOW + DAY })], nowMs: NOW, productiveBetween: pb }), 7.5);
+eq("an UNTOUCHED op past its start contributes its cursor displacement — the case that was missing",
+  rowSlackHours({ ops: [sop({ plannedStartMs: NOW - 2 * DAY })], nowMs: NOW, productiveBetween: pb }), 15);
+eq("a worked op does not slide, so it contributes no cursor displacement",
+  rowSlackHours({ ops: [sop({ workedHoursShown: 1, hpd: 7.5, plannedStartMs: NOW - 2 * DAY })], nowMs: NOW, productiveBetween: pb }), 0);
+eq("a locked op does not slide either",
+  rowSlackHours({ ops: [sop({ locked: true, plannedStartMs: NOW - 2 * DAY })], nowMs: NOW, productiveBetween: pb }), 0);
+eq("slack covers the SUM, because displacements cascade onto each other",
+  rowSlackHours({ ops: [sop({ plannedStartMs: NOW - DAY }), sop({ plannedStartMs: NOW - DAY })], nowMs: NOW, productiveBetween: pb }), 15);
+
+// RED PROOF: the implementation this replaces counted OVERRUN only. It agrees on an
+// overrunning row and returns zero for untouched work past its start — precisely the row
+// whose bars were vanishing on scroll.
+const overrunOnly = (ops) => ops.reduce((s, o) => s + Math.max(0, (o.workedHoursShown || 0) - (o.hpd || 0)), 0);
+const vanishRow = [sop({ plannedStartMs: NOW - 2 * DAY })];
+let slackRedOk = true;
+if (overrunOnly(vanishRow) === rowSlackHours({ ops: vanishRow, nowMs: NOW, productiveBetween: pb })) {
+  slackRedOk = false;
+  console.error("RED PROOF FAILED: overrun-only slack is indistinguishable from slack covering the cursor push");
+} else {
+  console.log("red proof: an untouched past-due row rejects overrun-only slack");
+}
+
 console.log(`${pass} passed, ${fail} failed`);
-process.exit(fail === 0 && redOk && collideRedOk ? 0 : 1);
+process.exit(fail === 0 && redOk && collideRedOk && slackRedOk ? 0 : 1);

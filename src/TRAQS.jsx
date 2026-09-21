@@ -10,7 +10,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
-import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours, dayShiftToClear } from "./statsMath.js";
+import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours, dayShiftToClear, rowSlackHours } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
@@ -15344,15 +15344,34 @@ ${jobsCtx || "No jobs found."}`;
     // panned, purely because something ahead of it on the row had run long. Only the left
     // edge needs the slack: a push moves a bar to the RIGHT, so it can never make a bar
     // fail the tEnd test that should have passed it.
+    // Slack: how far back a row's window must reach so a DISPLACED bar is never filtered out
+    // of a viewport it is actually painted in. The filter tests an op's stored dates and the
+    // paint uses its pushed position, so a bar can be drawn inside the window while its record
+    // sits outside it — the filter drops it, the bar vanishes, and it comes back when the
+    // window scrolls over its stored dates again.
+    //
+    // This counted OVERRUN only, which was the sole cause of displacement when it was written.
+    // The cursor push moves work considerably further, and an untouched op contributes no
+    // overrun at all — so the newer and larger displacement was invisible to the very slack
+    // meant to cover it, and those bars were the ones disappearing on scroll.
     const overrunSlackDays = (() => {
       const byPerson = new Map();
+      const nowMs = Date.now();
+      const prodBetween = (a, b) => productiveHoursBetween(a, b, { ...dayWindowCfg, workDays: orgSettings.workDays, holidays: orgSettings.holidays });
       tasks.forEach(job => (job.subs || []).forEach(panel => (panel.subs || []).forEach(op => {
         if (!op.start || op.status === "Finished") return;
-        const tsz = Math.max(1, (op.team || []).length);
         const ws = deriveWorkedState(op, producedFor(op), liveOpHours(op));
-        const over = Math.max(0, ws.workedHoursShown - (op.hpd || 0)) / tsz;
-        if (over <= 0) return;
-        (op.team || []).forEach(pid => { const k = String(pid); byPerson.set(k, (byPerson.get(k) || 0) + over); });
+        const hrs = rowSlackHours({
+          nowMs, productiveBetween: prodBetween,
+          ops: [{
+            hpd: op.hpd || 0, teamSize: Math.max(1, (op.team || []).length),
+            workedHoursShown: ws.workedHoursShown, isFullyWorked: ws.isFullyWorked,
+            locked: !!op.locked,
+            plannedStartMs: hourTs(op.start, op.startHour ?? workStartH),
+          }],
+        });
+        if (hrs <= 0) return;
+        (op.team || []).forEach(pid => { const k = String(pid); byPerson.set(k, (byPerson.get(k) || 0) + hrs); });
       })));
       const out = new Map();
       byPerson.forEach((h, k) => out.set(k, Math.ceil(h / Math.max(0.0001, productiveHoursPerDay))));

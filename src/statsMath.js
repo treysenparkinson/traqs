@@ -874,3 +874,40 @@ export function dayShiftToClear(op, others, { cfg, shiftDays, maxDays = 260 }) {
   }
   return null;
 }
+
+/**
+ * How far back a row's visibility window must reach so a displaced bar is never filtered out
+ * of a viewport it is actually painted in.
+ *
+ * The filter tests an op's STORED dates; the paint uses its PUSHED position. Those diverge by
+ * the push, so a bar can be drawn inside the window while its record sits outside it — the
+ * filter drops it and the bar disappears, then reappears when the window scrolls back over its
+ * stored dates. That is a viewport-dependent render, and it is the shape of bug this function
+ * exists to prevent.
+ *
+ * Both causes of displacement count. The version this replaces summed only OVERRUN, which was
+ * the only push that existed when it was written; the cursor push moves work much further, and
+ * an op nobody has started contributes no overrun at all — so the newer and larger displacement
+ * was invisible to the slack that was supposed to cover it.
+ *
+ * Over-estimating is safe and under-estimating is not: too much slack considers a few extra
+ * bars that the row then clips, while too little makes work vanish. Hence a sum rather than a
+ * maximum.
+ */
+export function rowSlackHours({ ops, nowMs, productiveBetween }) {
+  let total = 0;
+  for (const op of ops || []) {
+    if (!op || op.isFullyWorked) continue;
+    const size = Math.max(1, op.teamSize || 1);
+    const worked = Math.max(0, op.workedHoursShown || 0);
+    // Overrun: the bar is longer than planned, so everything after it shifts.
+    total += Math.max(0, worked - (op.hpd || 0)) / size;
+    // Cursor: untouched work inside the horizon slides to now, which is usually the bigger of
+    // the two and was the one entirely missing.
+    if (worked <= 0 && !op.locked && Number.isFinite(op.plannedStartMs) && Number.isFinite(nowMs)
+        && nowMs > op.plannedStartMs && typeof productiveBetween === "function") {
+      total += Math.max(0, productiveBetween(op.plannedStartMs, nowMs));
+    }
+  }
+  return total;
+}
