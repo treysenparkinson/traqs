@@ -161,5 +161,48 @@ const alwaysAppend = (d, dur, occ) => Math.max(d, ...occ.map((x) => x.e));
 red("a slot finder that always appends moves work that did not need moving",
   alwaysAppend(100, 50, [iv(200, 300)]), firstFreeStart(100, 50, [iv(200, 300)]));
 
+
+// ── dayShiftToClear ──────────────────────────────────────────────────────
+// Whole business days, because an arbitrary instant has no honest representation in an op
+// record: "start 3.2 hours later" on a multi-day op means recomputing its whole span, while a
+// day shift moves it and changes nothing else.
+const { dayShiftToClear } = await import("../src/statsMath.js");
+
+const DAYS = ["2026-09-21", "2026-09-22", "2026-09-23", "2026-09-24", "2026-09-25", "2026-09-28", "2026-09-29", "2026-09-30"];
+const shiftDays = (ds, n) => DAYS[Math.min(DAYS.length - 1, DAYS.indexOf(ds) + n)];
+const SH = { cfg: CFG, shiftDays };
+
+eq("an op with nothing in its way does not move",
+  dayShiftToClear(op("a", "2026-09-21", "2026-09-21", { startHour: 8, endHour: 16 }), [], SH), 0);
+eq("an op that already fits beside its neighbour does not move",
+  dayShiftToClear(op("a", "2026-09-22", "2026-09-22", { startHour: 8, endHour: 16 }), [op("b", "2026-09-21", "2026-09-21", { startHour: 8, endHour: 16 })], SH), 0);
+eq("a clash moves it one day",
+  dayShiftToClear(op("a", "2026-09-21", "2026-09-21", { startHour: 8, endHour: 16 }), [op("b", "2026-09-21", "2026-09-21", { startHour: 8, endHour: 16 })], SH), 1);
+eq("it keeps going until it is clear",
+  dayShiftToClear(op("a", "2026-09-21", "2026-09-21", { startHour: 8, endHour: 16 }),
+    [op("b", "2026-09-21", "2026-09-21", { startHour: 8, endHour: 16 }), op("c", "2026-09-22", "2026-09-22", { startHour: 8, endHour: 16 })], SH), 2);
+eq("a MULTI-DAY op shifts as a whole and keeps its span",
+  dayShiftToClear(op("a", "2026-09-21", "2026-09-23", { startHour: 8, endHour: 16 }), [op("b", "2026-09-21", "2026-09-22", { startHour: 8, endHour: 16 })], SH), 2);
+eq("weekends are skipped because the shift function owns that",
+  dayShiftToClear(op("a", "2026-09-25", "2026-09-25", { startHour: 8, endHour: 16 }), [op("b", "2026-09-25", "2026-09-25", { startHour: 8, endHour: 16 })], SH), 1);
+eq("no clear slot inside the bound returns null so the caller can refuse",
+  dayShiftToClear(op("a", "2026-09-21", "2026-09-21", { startHour: 8, endHour: 16 }), [op("b", "2026-09-21", "2026-09-21", { startHour: 8, endHour: 16 })],
+    { ...SH, maxDays: 0 }), null);
+
+// RED PROOF: a bumper that always moves by one day looks right on the single-clash case and
+// leaves the op still overlapping whenever two neighbours sit back to back.
+const alwaysOne = () => 1;
+if (alwaysOne() === dayShiftToClear(op("a", "2026-09-21", "2026-09-21", { startHour: 8, endHour: 16 }),
+  [op("b", "2026-09-21", "2026-09-21", { startHour: 8, endHour: 16 }), op("c", "2026-09-22", "2026-09-22", { startHour: 8, endHour: 16 })], SH)) {
+  console.error("RED PROOF FAILED: a fixed one-day bump is indistinguishable from clearing the row");
+  process.exitCode = 1;
+} else {
+  console.log("red proof: two back-to-back neighbours reject a fixed one-day bump");
+}
+
+
+// Summary LAST. Appending a section below this has silently skipped it three times in
+// this suite family: the run stays green while the new assertions never execute, which is
+// the same green-and-blind failure the red proofs exist to catch. Add sections ABOVE.
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail === 0 && redOk ? 0 : 1);

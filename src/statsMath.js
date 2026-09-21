@@ -845,3 +845,32 @@ export function packActiveRow(ops, { nowDay, cfg, durationMsOf }) {
   }
   return moves;
 }
+
+/**
+ * How many WHOLE business days an op must shift to stop overlapping anything on its row.
+ *
+ * Whole days, deliberately. An arbitrary instant is not always expressible as an op record:
+ * a multi-day op has a start date, an end date and hours, and "start 3.2 hours later" has no
+ * honest representation in that shape without recomputing its whole span. Shifting by whole
+ * business days preserves the op exactly as it is and only moves it, which is always writable
+ * and can never mangle the record.
+ *
+ * Returns 0 when it already fits — nothing is moved that does not have to be. Returns null if
+ * no clear slot is found inside `maxDays`, so a caller can refuse the write rather than place
+ * the op somewhere arbitrary and call it done.
+ *
+ * `shiftDays` is injected because business days, work days and holidays have one definition in
+ * this codebase and a second one here would drift from it.
+ */
+export function dayShiftToClear(op, others, { cfg, shiftDays, maxDays = 260 }) {
+  if (!op || typeof shiftDays !== "function") return 0;
+  const occupied = (others || []).map((o) => opInterval(o, cfg)).filter((i) => i && i.e > i.s);
+  if (!occupied.length) return 0;
+  for (let n = 0; n <= maxDays; n++) {
+    const moved = n === 0 ? op : { ...op, start: shiftDays(op.start, n), end: shiftDays(op.end, n) };
+    const iv = opInterval(moved, cfg);
+    if (!iv || iv.e <= iv.s) return 0;
+    if (!occupied.some((o) => intervalsOverlap(iv, o))) return n;
+  }
+  return null;
+}

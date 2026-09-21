@@ -178,6 +178,35 @@ eq("pan window 1 (Sep 14-16)", asObj(rowPushHours({ ops: ROW, nowDay: "2026-09-1
 eq("pan window 2 (Sep 16-18)", asObj(rowPushHours({ ops: ROW, nowDay: "2026-09-15", nowHour: 8, cfg: CFG })), full);
 eq("pan window 3 (Sep 18-22)", asObj(rowPushHours({ ops: ROW, nowDay: "2026-09-15", nowHour: 8, cfg: CFG })), full);
 
+// COLLISION PLACEMENT, viewport-bounded. The pan cases above cover a row containing a
+// cursor-anchored op; this one has none, so it isolates the COLLISION path -- the one whose
+// placement was still being reconstructed from hours until 9ea6dd5. If collision pushes ever
+// become a function of which bars happen to be on screen, these diverge.
+const COLLIDE = [
+  op("c1", "2026-09-21", { workedHoursShown: 22.5 }),
+  op("c2", "2026-09-22"),
+  op("c3", "2026-09-22"),
+];
+const collideFull = asObj(rowPushHours({ ops: COLLIDE, nowDay: null, cfg: CFG }));
+eq("collision pushes are identical across three viewport ranges (1)",
+  asObj(rowPushHours({ ops: COLLIDE, nowDay: null, cfg: CFG })), collideFull);
+eq("collision pushes are identical across three viewport ranges (2)",
+  asObj(rowPushHours({ ops: COLLIDE, nowDay: null, cfg: CFG })), collideFull);
+eq("collision pushes are identical across three viewport ranges (3)",
+  asObj(rowPushHours({ ops: COLLIDE, nowDay: null, cfg: CFG })), collideFull);
+eq("and no op is cursor-anchored here, so this really is the collision path",
+  cursorSet(rowPushHours({ ops: COLLIDE, nowDay: null, cfg: CFG })), []);
+const collideClipped = asObj(rowPushHours({ ops: COLLIDE.slice(1), nowDay: null, cfg: CFG }));
+// Own flag, declared here: redOk is declared further down, so assigning it from above
+// would throw a ReferenceError at exactly the moment the proof needed to report a failure.
+let collideRedOk = true;
+if (JSON.stringify(collideClipped) === JSON.stringify(collideFull)) {
+  collideRedOk = false;
+  console.error("RED PROOF FAILED: dropping the overrunning op left collision pushes unchanged");
+} else {
+  console.log("red proof: a viewport-clipped row changes collision pushes, so the three above are load-bearing");
+}
+
 // RED PROOF. Those three pass trivially because the input is identical — which is the whole
 // design. The test only means something if it can tell that apart from the bug, so: feed the
 // function what a viewport-FILTERED list would have been and assert the answer changes. If
@@ -192,4 +221,4 @@ if (JSON.stringify(filtered) === JSON.stringify(full)) {
 }
 
 console.log(`${pass} passed, ${fail} failed`);
-process.exit(fail === 0 && redOk ? 0 : 1);
+process.exit(fail === 0 && redOk && collideRedOk ? 0 : 1);
