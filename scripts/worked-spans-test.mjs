@@ -218,6 +218,41 @@ eq("an open clock merges with the closed session it continues",
   [["opA", [[T(9), T(11)]]]]);
 eq("no person, nothing", [...workedSpansForPerson([sess(1, "opA", T(9), T(10))], null).entries()], []);
 
+// ── splitWorkedOp ────────────────────────────────────────────────────────
+// The worked half is history and stays; the unworked half is what the admin is dragging.
+// A remainder of zero must come back NULL rather than as a zero-width record -- that is the
+// shape that inverts on write and destroyed tzf8ivwbh.
+const { splitWorkedOp } = await import("../src/statsMath.js");
+
+const sp = (o) => { const r = splitWorkedOp(o); return [r.keep && r.keep.hpd, r.remainder && r.remainder.hpd]; };
+
+eq("half worked splits into two records", sp({ hpd: 8, workedMs: 4 * H }), [4, 4]);
+eq("the kept half is locked", splitWorkedOp({ hpd: 8, workedMs: 4 * H }).keep.locked, true);
+eq("untouched: nothing to keep, the whole op moves — an ordinary drag, not a split",
+  sp({ hpd: 8, workedMs: 0 }), [null, 8]);
+eq("fully worked: nothing left to move, and NO zero-width remainder is minted",
+  sp({ hpd: 8, workedMs: 8 * H }), [8, null]);
+eq("worked past the estimate still yields no negative remainder",
+  sp({ hpd: 8, workedMs: 20 * H }), [8, null]);
+eq("a sliver of float noise does not mint a remainder record",
+  sp({ hpd: 8, workedMs: (8 - 0.0001) * H }), [8 - 0.0001, null]);
+eq("a sliver of float noise does not mint a kept record either",
+  sp({ hpd: 8, workedMs: 0.0001 * H }), [null, 8 - 0.0001]);
+eq("team size divides the per-person durations but not the hour totals",
+  (() => { const r = splitWorkedOp({ hpd: 8, workedMs: 4 * H, teamSize: 2 }); return [r.keep.hpd, r.perPersonKeepH, r.perPersonRemainderH]; })(),
+  [4, 2, 2]);
+eq("a zero-hour op splits into nothing at all", sp({ hpd: 0, workedMs: 0 }), [null, null]);
+
+// RED PROOF: the plausible wrong implementation returns a record for both halves always,
+// which looks right on the half-worked case and mints exactly the zero-width block §6b bans.
+const naiveSplit = ({ hpd, workedMs }) => [ (workedMs || 0) / 3600000, hpd - (workedMs || 0) / 3600000 ];
+if (JSON.stringify(naiveSplit({ hpd: 8, workedMs: 8 * H })) === JSON.stringify([8, null])) {
+  console.error("RED PROOF FAILED: the fully-worked case does not reject a split that always returns two records");
+  process.exitCode = 1;
+} else {
+  console.log("red proof: the fully-worked case rejects a split that always mints a remainder");
+}
+
 // Summary LAST. This block has been stranded mid-file twice by appending a new section
 // after it -- the run stayed green while the new assertions never executed, which is the
 // same green-and-blind failure the red proofs exist to catch. If you add a section, add it

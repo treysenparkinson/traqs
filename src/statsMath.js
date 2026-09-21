@@ -504,3 +504,35 @@ export function workedSpansForPerson(sessions, personId, extraSpansByOp) {
   for (const [k, list] of byOp) byOp.set(k, mergeSpans(list));
   return byOp;
 }
+
+/**
+ * Splitting a partially-worked op on an admin drag (§3c).
+ *
+ * The worked part is history and does not move: it stays on the row and at the hours it was
+ * worked, locked. The unworked remainder is what the admin is actually dragging, and it becomes
+ * its own record, free to land on any day or person. Both halves are returned as plain field
+ * sets so the caller owns how they are written.
+ *
+ * §6b is enforced here rather than at the write: a remainder of zero or less is returned as
+ * NULL, never as a record with zero width. A zero-width block inverts on the next write, and
+ * that is the corruption that destroyed tzf8ivwbh. The caller deletes rather than writes.
+ *
+ * Symmetrically, an op with NO worked time has nothing to keep — `keep` is null and the whole
+ * op moves, which is the ordinary drag and not a split at all.
+ */
+export function splitWorkedOp({ hpd, workedMs, teamSize = 1 }) {
+  const size = Math.max(1, teamSize || 1);
+  const planned = Math.max(0, hpd || 0);
+  // Worked hours are the TEAM's total, like hpd, so they compare directly.
+  const worked = Math.max(0, Math.min(planned, (workedMs || 0) / 3600000));
+  const remaining = planned - worked;
+  // A hair of float noise either side should not mint a record or strand one. A minute of
+  // team time is far below anything schedulable and comfortably above rounding.
+  const EPS = 1 / 60;
+  return {
+    keep: worked > EPS ? { hpd: worked, locked: true } : null,
+    remainder: remaining > EPS ? { hpd: remaining } : null,
+    perPersonKeepH: worked / size,
+    perPersonRemainderH: remaining / size,
+  };
+}
