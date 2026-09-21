@@ -6798,6 +6798,32 @@ Extraction rules:
   // op-keyed form because the schedule asks for EVERY row on every render: scanning the whole
   // session log per person is fine once and quadratic here.
   const workedSpansPerPerson = useMemo(() => workedSpansByPersonOp(productionHours), [productionHours]);
+  // Q7b, persisted. A session that stopped accruing because the working day closed -- rather
+  // than because someone stopped it -- is stamped once, so the admin resolve queue can find it
+  // tomorrow instead of every client re-deriving it from the clock. Written through
+  // updateJobSession because activeJobClock is server-owned and a generic /people POST is
+  // pinned against it.
+  const unclosedMarkedRef = useRef(new Set());
+  useEffect(() => {
+    if (!orgCode) return;
+    const nowMs = Date.now();
+    for (const person of people || []) {
+      const jc = person?.activeJobClock;
+      if (!jc?.clockIn || !jc.sessionId || jc.unclosedAt) continue;
+      // Only sessions this user may write. The server refuses the rest with a 403, and a
+      // shop floor of clients all retrying someone else's session every render would turn one
+      // forgotten punch into a steady stream of rejected writes.
+      if (!sameId(person.id, loggedInUser?.id) && !can("manageTeam")) continue;
+      if (unclosedMarkedRef.current.has(jc.sessionId)) continue;
+      const { unclosed } = openSessionEnd({ clockInMs: Date.parse(jc.clockIn), frozenAtMs: jc.frozenAtMs, nowMs, cfg: dayWindowCfg });
+      if (!unclosed) continue;
+      // Marked BEFORE the call, not after. Two renders inside one round trip would otherwise
+      // both pass the guard and write the same session twice.
+      unclosedMarkedRef.current.add(jc.sessionId);
+      updateJobSessionAction({ personId: person.id, sessionId: jc.sessionId, unclosedAt: new Date(nowMs).toISOString() }, getToken, orgCode)
+        .catch(e => { unclosedMarkedRef.current.delete(jc.sessionId); console.warn("unclosed stamp failed", e); });
+    }
+  }, [people, orgCode, dayWindowCfg, getToken, loggedInUser]);
   // Zone used to bucket clock records into days. The org's configured zone if set,
   // otherwise this device's — anything but UTC, which puts an evening shift on
   // the next day for every shop west of Greenwich.

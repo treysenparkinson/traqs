@@ -1203,7 +1203,7 @@ export async function handler(event) {
       let _ujs;
       try { _ujs = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
 
-      const { personId: ujsPId, sessionId: ujsSessionId, drainCheckpoint: ujsDrainCheckpoint, frozenAtMs: ujsFrozenAtMs, pausedMsAtCheckpoint: ujsPausedMsAtCp } = body;
+      const { personId: ujsPId, sessionId: ujsSessionId, drainCheckpoint: ujsDrainCheckpoint, frozenAtMs: ujsFrozenAtMs, pausedMsAtCheckpoint: ujsPausedMsAtCp, unclosedAt: ujsUnclosedAt } = body;
       if (!ujsPId) return err(400, "Missing personId");
       if (!ujsSessionId) return err(400, "Missing sessionId");
       if (!_ujs.isAdmin && String(_ujs.personId) !== String(ujsPId)) return err(403, "Can only update your own job session");
@@ -1228,6 +1228,12 @@ export async function handler(event) {
           // and only with it, so the client can tell how much of totalPausedMs
           // already fell before the current drain window opened.
           ...(ujsPausedMsAtCp !== undefined ? { pausedMsAtCheckpoint: ujsPausedMsAtCp } : {}),
+          // Q7b. The instant a session stopped accruing because the working day closed rather
+          // than because anyone stopped it -- the admin resolve queue reads this to find the
+          // punches nobody closed. Distinct from frozenAtMs, which is a HELD session somebody
+          // deliberately paused: one is a decision, the other is a thing nobody noticed, and
+          // collapsing them would bury the second in the first.
+          ...(ujsUnclosedAt !== undefined ? { unclosedAt: ujsUnclosedAt } : {}),
         },
       };
       try { await writeStampedArray(peopleKey, ujsPeople); } catch { return err(500, "Failed to save"); }
