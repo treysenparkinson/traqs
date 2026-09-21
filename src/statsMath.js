@@ -644,6 +644,20 @@ export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
 
   let prevEnd = null;
   for (const op of list) {
+    // THE ACTIVE HORIZON, and history takes no part in push mechanics of any kind. An op whose
+    // window closed before today is not pushed, is not cursor-anchored, and -- the part that
+    // matters most -- does not OCCUPY the line, so it cannot displace live work either.
+    //
+    // Occupying was the older and larger half of the bars-disappearing report. Measured on real
+    // data: one row carried 64 unfinished ops going back to November 2025, each overlapping the
+    // previous one's pushed end, compounding to 2,543 hours -- 339 working days -- with the
+    // cursor push switched off entirely. Two other rows were three and five months out on the
+    // same mechanism. Those bars were painted past the window's right edge while the
+    // visibility filter, which tests STORED dates, happily kept them in the list.
+    //
+    // A November op nobody has worked should not be displacing next week. It stays where it is,
+    // greys, and reports what it owes with a badge.
+    if (nowDay != null && op.end != null && op.end < nowDay) continue;
     const sp = startProd(op);
     const worked = Math.max(0, op.workedHoursShown || 0);
     const size = Math.max(1, op.teamSize || 1);
@@ -654,6 +668,16 @@ export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
     // And the cursor, for work nobody has started. Untouched only: once someone has worked an
     // op, where it sits is a record rather than a plan, and dragging it forward would move the
     // hatch away from the hours it represents.
+    // THE ACTIVE HORIZON. Only work that is still live slides. An op whose window closed
+    // before today is history: it does not move, it greys, and its owed hours are reported by
+    // the badge instead.
+    //
+    // Without this the cursor push applies to the entire backlog. Measured on real data: 504
+    // untouched past-due ops totalling 9,176 hours, which cursor-anchor onto today and then
+    // cascade off each other -- one row alone ran about 150 working days into the future, and
+    // every bar past the first was painted beyond the window's right edge. It reads as jobs
+    // disappearing, because the visibility filter tests STORED dates and keeps them while the
+    // paint uses pushed ones.
     if (nowProd != null && worked <= 0 && !op.isFullyWorked && nowProd - sp > push) {
       push = nowProd - sp;
       atCursor.add(String(op.id));

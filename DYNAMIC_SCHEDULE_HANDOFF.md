@@ -774,6 +774,27 @@ green and throws at runtime.
   than the preferred one. Reconciling them is a geometry rewrite (option 3, deferred), not a
   substitution.
 
+#### LESSONS — patterns that produced real defects in this feature
+
+- **If you delete a defensive comment, its guard has to survive somehow.** Twice in one day a
+  comment was removed and the thing it defended against came straight back. The push comment
+  said "a year-old op nobody finished would grow a year of idle and swamp the view"; it was
+  deleted with the code it described, the horizon went with it, and 504 past-due ops piled
+  onto today and pushed rows months off-screen. A comment explaining why a condition exists is
+  part of the condition.
+- **A guard that reads as two tests may be one test twice.** `status === "Finished" ||
+  isFullyWorked` looked like belt and braces; `isFullyWorked` IS that status, so the second
+  clause excluded nothing while implying an hours check that did not exist.
+- **Every element measures against its own window.** Handing the head a whole op's percentages
+  drew it 40% grey inside a week that was entirely behind the cursor.
+- **A tested rule is not a shipped rule.** `pushedBarRange` had ten table tests, a red proof,
+  and no call sites, while the code that actually ran had none of the three.
+- **A filter on stored dates and a paint on computed ones will disagree.** Bars kept by the
+  visibility filter were painted past the window's right edge, which reads as work vanishing
+  rather than as work being misplaced.
+- **Measure before believing a colour.** A hatch at 2.8 L\*, danger text at 1.75 against its
+  ground: both looked reasonable and neither survived being measured.
+
 #### THE INSTRUMENT GAP — permanent, and worth knowing before trusting a green run
 
 The headed `shot.mjs` login is **permanently deferred**: a standing credential that exists

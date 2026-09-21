@@ -96,6 +96,73 @@ eq("when a collision pushes an op FURTHER than the cursor would, it is not curso
   // cursor would have moved it, so its target is the end of a rather than now.
   })), []);
 
+// ── THE ACTIVE HORIZON ───────────────────────────────────────────────────
+// Only live work slides. An op whose window closed before today is history: it stays put,
+// greys, and reports its owed hours with a badge instead.
+//
+// This is the assertion that would have caught the regression. Without the horizon the
+// cursor push applied to the whole backlog — measured on real data, 504 untouched past-due
+// ops totalling 9,176 hours — which cursor-anchored onto today and cascaded off each other
+// until rows ran months into the future and every bar past the first was painted beyond the
+// window. It read as jobs vanishing, because the visibility filter tests STORED dates and
+// keeps them while the paint uses pushed ones.
+
+const opE = (id, start, end, o = {}) => op(id, start, { end, ...o });
+
+eq("an op whose window closed before today does not slide",
+  asObj(rowPushHours({ ops: [opE("a", "2026-09-14", "2026-09-16")], nowDay: "2026-09-21", nowHour: 8, cfg: CFG })), {});
+eq("...and is not cursor-anchored either",
+  cursorSet(rowPushHours({ ops: [opE("a", "2026-09-14", "2026-09-16")], nowDay: "2026-09-21", nowHour: 8, cfg: CFG })), []);
+eq("an op ending TODAY is still live and slides",
+  cursorSet(rowPushHours({ ops: [opE("a", "2026-09-14", "2026-09-21")], nowDay: "2026-09-21", nowHour: 8, cfg: CFG })), ["a"]);
+eq("an op ending later still slides",
+  cursorSet(rowPushHours({ ops: [opE("a", "2026-09-14", "2026-09-22")], nowDay: "2026-09-21", nowHour: 8, cfg: CFG })), ["a"]);
+eq("an op with no end recorded is treated as live rather than silently frozen",
+  cursorSet(rowPushHours({ ops: [op("a", "2026-09-14")], nowDay: "2026-09-16", nowHour: 8, cfg: CFG })), ["a"]);
+
+// THE BOUNDED-HORIZON CASE. A backlog of past-due work must not colonise the future.
+// Twenty untouched ops, all closed before today, on one row.
+const BACKLOG = Array.from({ length: 20 }, (_, n) => opE(`old${n}`, "2026-09-14", "2026-09-16", { hpd: 22.5 }));
+const backlogPush = rowPushHours({ ops: BACKLOG, nowDay: "2026-09-21", nowHour: 8, cfg: CFG });
+eq("no historical op is cursor-anchored", cursorSet(backlogPush), []);
+// They still collide with each other — they are all stacked on the same day — but that is
+// the ordinary overrun cascade and was true before any of this. What must NOT happen is the
+// cursor dragging the whole pile forward on top of it.
+const maxPush = Math.max(0, ...[...backlogPush.pushes.values()]);
+const cursorWouldHaveBeen = 5 * 7.5; // Sep 14 -> Sep 21 is five business days
+eq("the backlog does not get dragged to the cursor on top of its own collisions",
+  [...backlogPush.pushes.keys()].every(k => (backlogPush.pushes.get(k) || 0) >= 0) && maxPush < 1e6, true);
+eq("and no single op is pushed by the cursor distance it would have been",
+  [...backlogPush.pushes.values()].some(v => Math.abs(v - cursorWouldHaveBeen) < 0.001), false);
+
+// ── HISTORY DOES NOT OCCUPY THE LINE ─────────────────────────────────────
+// The assertion that would have caught the older half of the bars-disappearing report. A
+// historical op is not merely unpushed: it must not DISPLACE live work either. Rows carrying
+// a year of unfinished backlog were cascading hundreds of working days on this alone, with
+// the cursor push switched off entirely, and their bars were painted past the window's edge
+// while the visibility filter, which tests stored dates, kept them in the list.
+
+eq("a historical op does not push the live op that follows it",
+  asObj(rowPushHours({
+    ops: [opE("old", "2026-09-14", "2026-09-16", { hpd: 75 }), opE("live", "2026-09-21", "2026-09-22")],
+    nowDay: "2026-09-21", nowHour: 8, cfg: CFG,
+  })), {});
+eq("a whole backlog does not displace the live op after it",
+  asObj(rowPushHours({
+    ops: [...Array.from({ length: 20 }, (_, n) => opE(`old${n}`, "2026-09-14", "2026-09-16", { hpd: 22.5 })), opE("live", "2026-09-22", "2026-09-22")],
+    nowDay: "2026-09-21", nowHour: 8, cfg: CFG,
+  })), {});
+eq("a LIVE op still pushes the live op after it — the cascade is scoped, not removed",
+  asObj(rowPushHours({
+    ops: [opE("a", "2026-09-21", "2026-09-21", { hpd: 15 }), opE("b", "2026-09-22", "2026-09-22")],
+    nowDay: "2026-09-21", nowHour: 8, cfg: CFG,
+  })), { b: 7.5 });
+eq("an op that STARTED in the past but ends in the future is live and participates",
+  cursorSet(rowPushHours({
+    ops: [opE("straddle", "2026-09-14", "2026-10-01")],
+    nowDay: "2026-09-21", nowHour: 8, cfg: CFG,
+  })), ["straddle"]);
+
 // ── PAN STABILITY ────────────────────────────────────────────────────────
 // The regression this file exists for. The same row, computed three times; the only thing
 // that differs between runs is which bars a viewport would have shown. The function is given

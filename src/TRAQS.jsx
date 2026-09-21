@@ -16275,7 +16275,7 @@ ${jobsCtx || "No jobs found."}`;
               const _nowD = new Date();
               const _rowPush = rowPushHours({
                 ops: ordered.map(b => ({
-                  id: b.id, start: b.start, startHour: b.task?.startHour ?? workStartH,
+                  id: b.id, start: b.start, end: b.task?.end ?? b.end, startHour: b.task?.startHour ?? workStartH,
                   hpd: b.task?.hpd || 0, teamSize: Math.max(1, (b.task.team || []).length),
                   workedHoursShown: rowBarWS[b.id]?.workedHoursShown || 0,
                   isFullyWorked: !!rowBarWS[b.id]?.isFullyWorked,
@@ -17855,7 +17855,17 @@ ${jobsCtx || "No jobs found."}`;
                     // So the badge stopped being a colour convention and became a report that
                     // something is stuck -- which is the only case where the number has nowhere
                     // else to be read from.
-                    if (!bar.task.locked && (_barWS?.workedHoursShown || 0) <= 0) return 0;
+                    // ...AND it could not be moved, which now has three reasons: it is locked
+                    // (by an admin or by a split), it has been worked (its position is a record,
+                    // and moving it would separate the hatch from the hours it stands for), or it
+                    // is outside the active horizon (Q3 -- history does not slide).
+                    //
+                    // Untouched work still inside the horizon slides to the cursor, so a badge
+                    // there would report hours as stuck on a bar that has already moved.
+                    const _pinnedLocked = !!bar.task.locked;
+                    const _pinnedWorked = (_barWS?.workedHoursShown || 0) > 0;
+                    const _pinnedHistory = !!bar.task.end && bar.task.end < toDS(new Date());
+                    if (!_pinnedLocked && !_pinnedWorked && !_pinnedHistory) return 0;
                     const owed = (bar.task.hpd || 0) - (_barWS?.workedHoursShown || 0);
                     // A minute of team time, the same floor the split uses: below it the number
                     // rounds to nothing and a badge reading "0h owed" is worse than no badge.
