@@ -425,3 +425,51 @@ export function complementSpans(spans, from = 0, to = 100) {
   if (cursor < to) out.push([cursor, to]);
   return out;
 }
+
+/**
+ * Productive hours actually available between two instants.
+ *
+ * Wall-clock elapsed is not the number the schedule runs on: an op left untouched from Friday
+ * lunchtime to Monday morning has lost a couple of productive hours, not seventy. Nights,
+ * weekends, holidays and the lunch/break windows are all skipped, so this is the measure that
+ * says how far a bar's remainder has to move when the cursor passes work nobody did.
+ *
+ * cfg matches buildDayWindows: { workStartH, workEndH, deadWindows: [{ start, dur }], workDays,
+ * holidays }. Days are stepped in LOCAL time, the same basis as hourTs — the schedule places
+ * every block with `new Date(ds + "T00:00:00")`, and measuring in UTC here would disagree with
+ * the geometry by the offset for half the year.
+ */
+export function productiveHoursBetween(startMs, endMs, cfg) {
+  const { workStartH = 0, workEndH = 24, deadWindows = [], workDays = [1, 2, 3, 4, 5], holidays = [] } = cfg || {};
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return 0;
+  const dayLen = workEndH - workStartH;
+  if (!(dayLen > 0)) return 0;
+  const holidaySet = new Set(holidays || []);
+  const workDaySet = new Set(workDays || []);
+  const HOUR = 3600000;
+
+  let total = 0;
+  const day = new Date(startMs);
+  day.setHours(0, 0, 0, 0);
+  // Bounded rather than while(true): a bad endMs should cost one wrong number, not a frozen
+  // render. A year of business days is far past any span the schedule reasons about.
+  for (let guard = 0; guard < 400 && day.getTime() <= endMs; guard++, day.setDate(day.getDate() + 1)) {
+    const midnight = day.getTime();
+    const ds = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+    if (!workDaySet.has(day.getDay()) || holidaySet.has(ds)) continue;
+    const a = Math.max(startMs, midnight + workStartH * HOUR);
+    const b = Math.min(endMs, midnight + workEndH * HOUR);
+    if (b <= a) continue;
+    let hours = (b - a) / HOUR;
+    // Only the part of a dead window the span actually reaches is deducted. Subtracting whole
+    // lunches for a span that ended before lunch is how an idle gap gets undercounted.
+    for (const w of deadWindows) {
+      const dS = midnight + (w.start ?? 0) * HOUR;
+      const dE = dS + (w.dur ?? 0) * HOUR;
+      const oa = Math.max(a, dS), ob = Math.min(b, dE);
+      if (ob > oa) hours -= (ob - oa) / HOUR;
+    }
+    total += Math.max(0, hours);
+  }
+  return total;
+}

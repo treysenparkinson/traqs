@@ -156,6 +156,45 @@ eq("the late-start case: idle BEFORE the hatch, which extent can never produce",
   complementSpans([[75, 87.5]]), [[0, 75], [87.5, 100]]);
 
 
+
+// ── productiveHoursBetween ───────────────────────────────────────────────
+// Local time throughout, matching hourTs. Dates below are LOCAL so the assertions do not
+// drift with the runner timezone.
+const { productiveHoursBetween } = await import("../src/statsMath.js");
+
+const L = (y, mo, d, h, mi = 0) => new Date(y, mo - 1, d, h, mi, 0, 0).getTime();
+// Mon 2026-09-21 .. Fri 2026-09-25 are weekdays; Sat/Sun 26-27 are not.
+const CFG = { workStartH: 8, workEndH: 16, deadWindows: [{ start: 12, dur: 1 }], workDays: [1,2,3,4,5], holidays: [] };
+
+eq("a morning inside one day, no lunch reached", productiveHoursBetween(L(2026,9,21,9), L(2026,9,21,11), CFG), 2);
+eq("a span crossing lunch loses the lunch hour", productiveHoursBetween(L(2026,9,21,11), L(2026,9,21,14), CFG), 2);
+eq("a whole working day is the day minus lunch", productiveHoursBetween(L(2026,9,21,8), L(2026,9,21,16), CFG), 7);
+eq("before work does not count", productiveHoursBetween(L(2026,9,21,5), L(2026,9,21,8), CFG), 0);
+eq("after work does not count", productiveHoursBetween(L(2026,9,21,16), L(2026,9,21,23), CFG), 0);
+eq("overnight counts neither night", productiveHoursBetween(L(2026,9,21,15), L(2026,9,22,9), CFG), 2);
+eq("Friday lunchtime to Monday morning is hours, not days",
+  productiveHoursBetween(L(2026,9,25,13), L(2026,9,28,9), CFG), 4);
+eq("a weekend on its own is nothing", productiveHoursBetween(L(2026,9,26,0), L(2026,9,28,0), CFG), 0);
+eq("a holiday is skipped like a weekend",
+  productiveHoursBetween(L(2026,9,22,8), L(2026,9,23,16), { ...CFG, holidays: ["2026-09-22"] }), 7);
+eq("backwards is zero, not negative", productiveHoursBetween(L(2026,9,21,14), L(2026,9,21,9), CFG), 0);
+eq("equal instants are zero", productiveHoursBetween(L(2026,9,21,9), L(2026,9,21,9), CFG), 0);
+eq("a non-finite bound is zero rather than NaN", productiveHoursBetween(NaN, L(2026,9,21,9), CFG), 0);
+eq("an inverted working day yields zero rather than negative hours",
+  productiveHoursBetween(L(2026,9,21,9), L(2026,9,21,15), { ...CFG, workStartH: 16, workEndH: 8 }), 0);
+eq("a partial lunch overlap deducts only the part reached",
+  productiveHoursBetween(L(2026,9,21,11), L(2026,9,21,12,30), CFG), 1);
+
+// RED PROOF: the plausible wrong implementation is wall-clock elapsed, which agrees on a
+// simple morning and is wildly wrong across a weekend -- the case the push rule depends on.
+const wallClock = (a, b) => (b - a) / 3600000;
+if (wallClock(L(2026,9,25,13), L(2026,9,28,9)) === 4) {
+  console.error("RED PROOF FAILED: the Friday-to-Monday case does not distinguish productive hours from wall clock");
+  process.exitCode = 1;
+} else {
+  console.log("red proof: the weekend case rejects wall-clock elapsed");
+}
+
 // Summary LAST. This block has been stranded mid-file twice by appending a new section
 // after it -- the run stayed green while the new assertions never executed, which is the
 // same green-and-blind failure the red proofs exist to catch. If you add a section, add it
