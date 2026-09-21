@@ -17744,7 +17744,56 @@ ${jobsCtx || "No jobs found."}`;
                   // drawn and the cursor has moved off zero -- everything left of the cursor is hatch
                   // or idle. Conditional rather than a blanket swap: on an untouched bar, or one whose
                   // window has not opened, the left end is still the op colour and accentText is right.
-                  const _leftIsGrey = !isPto && bar.task?.status !== "Finished" && _barCursorPct > 0 && (isLive || _barWorkedPct > 0);
+                  // An open clock past its day's close. Emitted rather than persisted: the resolve
+                  // queue needs to find these, and the durable flag belongs on the session record
+                  // via updateJobSession, which is a server change and not this pass.
+                  const _barUnclosed = _liveClocks.some(jc => openSessionEnd({ clockInMs: Date.parse(jc.clockIn), frozenAtMs: jc.frozenAtMs, nowMs: Date.now(), cfg: dayWindowCfg }).unclosed);
+                  // OWED. Hours this op still has coming to it after the cursor has passed the end
+                  // of its planned window — work that was scheduled, was not done, and is not
+                  // finished. Under the three-region model such a bar renders entirely grey, which
+                  // is a true statement (elapsed, not worked) that says nothing about how much is
+                  // still owed; the badge carries the number the geometry stopped implying.
+                  //
+                  // NOTE, and this departs from the spec line as written. That line reads
+                  // "untouched AND planned end before cursor AND ends today or later per Q3", and
+                  // those last two nearly exclude each other — taken strictly the badge would never
+                  // appear on the very bars whose owed hours are being hidden. Q3's exclusion is
+                  // about not REWRITING history: no moves, no retroactive writes. A badge writes
+                  // nothing, so it is not what Q3 is protecting, and the test here is the first two
+                  // conditions only.
+                  const _barOwedH = (() => {
+                    if (isPto || !bar.task || bar.crossRow) return 0;
+                    if (bar.task.status === "Finished" || _barWS?.isFullyWorked) return 0;
+                    if (!(_plannedE > _plannedS) || Date.now() <= _plannedE) return 0;
+                    const owed = (bar.task.hpd || 0) - (_barWS?.workedHoursShown || 0);
+                    // A minute of team time, the same floor the split uses: below it the number
+                    // rounds to nothing and a badge reading "0h owed" is worse than no badge.
+                    return owed > 1 / 60 ? owed : 0;
+                  })();
+                  const _barState = isPto ? "pto"
+                    : bar.task?.status === "Finished" ? "done"
+                    : _liveClocks.some(jc => jc.frozenAtMs) ? "held"
+                    : _liveClocks.some(jc => jc.pausedAt) ? "paused"
+                    : isLive ? "running"
+                    // Nobody on the clock, but work happened: the hatch is locked and the cursor
+                    // keeps opening idle behind it (§3a, §3d). Survives clock-out because the extent
+                    // comes from committed hours, not from the live clock -- producedFor and
+                    // loggedHours both outlive the session that produced them.
+                    : _barWorkedPct > 0 ? "worked"
+                    : "scheduled";
+                  // Grey at the bar's left edge, which is what the title and the icons sit on.
+                  //
+                  // This used to require work or a live clock, on the assumption that only a worked
+                  // bar ever has grey at its left. That stopped being true the moment `scheduled`
+                  // became region-capable: an untouched bar the cursor has entered is now grey from
+                  // its start to the cursor, with no work on it at all. Left as it was, the title
+                  // would have gone on contrasting the op colour while sitting on grey — the exact
+                  // defect fixed yesterday, reintroduced by the change that made the bar correct.
+                  //
+                  // So the test is the fill's test: does this bar draw regions, and has the cursor
+                  // entered it.
+                  const _leftIsGrey = !isPto && bar.task?.status !== "Finished" && _barCursorPct > 0
+                    && (isLive || _barWorkedPct > 0 || _barState === "scheduled" || _barState === "worked");
                   const iconColor = _leftIsGrey ? barLabelColor(T, bc) : accentText(bc);
                   // The title is flex:1, so once regions are drawn it CROSSES them -- grey at its
                   // start, op colour past the cursor -- and no single colour is right along its
@@ -17765,23 +17814,8 @@ ${jobsCtx || "No jobs found."}`;
                   const _titleHalo = _leftIsGrey
                     ? (_titleColor === "#ffffff" ? "0 0 3px rgba(0,0,0,0.60)" : "0 0 3px rgba(255,255,255,0.70)")
                     : undefined;
-                  // An open clock past its day's close. Emitted rather than persisted: the resolve
-                  // queue needs to find these, and the durable flag belongs on the session record
-                  // via updateJobSession, which is a server change and not this pass.
-                  const _barUnclosed = _liveClocks.some(jc => openSessionEnd({ clockInMs: Date.parse(jc.clockIn), frozenAtMs: jc.frozenAtMs, nowMs: Date.now(), cfg: dayWindowCfg }).unclosed);
-                  const _barState = isPto ? "pto"
-                    : bar.task?.status === "Finished" ? "done"
-                    : _liveClocks.some(jc => jc.frozenAtMs) ? "held"
-                    : _liveClocks.some(jc => jc.pausedAt) ? "paused"
-                    : isLive ? "running"
-                    // Nobody on the clock, but work happened: the hatch is locked and the cursor
-                    // keeps opening idle behind it (§3a, §3d). Survives clock-out because the extent
-                    // comes from committed hours, not from the live clock -- producedFor and
-                    // loggedHours both outlive the session that produced them.
-                    : _barWorkedPct > 0 ? "worked"
-                    : "scheduled";
                   return [<div key={barKey}
-                    data-worked-pct={_barWorkedPct} data-divider-pct={_barCursorPct} data-raw-worked-pct={_barRawWorkedPct} data-worked-spans={JSON.stringify(_barSpans)} data-unclosed={_barUnclosed ? "1" : undefined} data-worked-h={_barWorkedH} data-committed-h={_barCommittedH} data-live-h={_barLiveH} data-state={_barState}
+                    data-worked-pct={_barWorkedPct} data-divider-pct={_barCursorPct} data-raw-worked-pct={_barRawWorkedPct} data-worked-spans={JSON.stringify(_barSpans)} data-unclosed={_barUnclosed ? "1" : undefined} data-owed-h={_barOwedH > 0 ? Math.round(_barOwedH * 10) / 10 : undefined} data-worked-h={_barWorkedH} data-committed-h={_barCommittedH} data-live-h={_barLiveH} data-state={_barState}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
                     style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, minWidth: _wFirst > 0 ? 2 : 0, height: rH - 8, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: activeBarFill(T, bc, _barSpans, _barCursorPct, _barState, _renderPx), border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
