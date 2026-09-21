@@ -432,6 +432,18 @@ bar that cannot move renders grey and says nothing else. **Bare grey is therefor
 DONE by texture and by DONE's own badge rather than by a label of its own. The
 `grey-bar-labelled` assertion that guarded the opposite invariant was removed with it.
 
+**Why that is safe, with the measurement it actually rests on.** Idle and DONE separate by
+**19.8 CIE L* at worst** — measured across all four ladders (midnight, obsidian, frost,
+custom) and all ten entries of `COLORS`. That is a comfortable separation, and it holds by
+CONSTRUCTION rather than by luck: idle tracks the row surface while DONE tracks a fixed mute,
+so the gap cannot close as a side effect of a theme change.
+
+A separate check by the verifier lane put the WCAG contrast RATIO between the same two greys
+at 2.1-2.8 over three themes. Both are true and they are not interchangeable: a ratio near
+2.5 sounds marginal because 3.0 is the floor for anything text-adjacent, while 19.8 L* is
+not marginal at all. The L* figure is the one this decision rests on. Recording the weaker-
+sounding number as the justification would invite someone to reopen a well-supported call.
+
 Two things that are NOT states and are regularly mistaken for them:
 
 - **A dashed outline is a continuation TAIL**, not a status. A bar spanning a weekend or a
