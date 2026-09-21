@@ -16475,21 +16475,40 @@ ${jobsCtx || "No jobs found."}`;
                   // day at a real hour rather than sliding across a weekend column. PTO is
                   // never pushed: a booked day off does not move because work ran late.
                   const _pushH = bar.type === "task" ? (overrunPushH[bar.id] || 0) : 0;
-                  const _pushWholeDays = _pushH > 0 ? Math.floor(_pushH / Math.max(0.0001, productiveHoursPerDay)) : 0;
-                  let _layoutStart = _pushWholeDays > 0 ? addBD(bar.start, _pushWholeDays, _barBDOpts) : bar.start;
-                  let _layoutEnd = _pushWholeDays > 0 ? addBD(bar.end, _pushWholeDays, _barBDOpts) : bar.end;
+                  // A push is a quantity of PRODUCTIVE hours, so it is spent by WALKING productive
+                  // hours -- the same walker that gives the bar its length. The arithmetic this
+                  // replaces divided by an average day and added the remainder onto a clock hour,
+                  // which silently drifts by however much lunch falls inside the span: a bar pushed
+                  // by 3.75 productive hours landed 3.75 CLOCK hours later, short of where it
+                  // belonged, and two bars could then occupy the same minutes while the cascade
+                  // that placed them believed they were adjacent.
+                  //
+                  // Cursor-anchored bars were fixed by placing them at a known instant instead;
+                  // this is the same correction for the ones pushed by a collision, whose target
+                  // is the end of the op in front of them rather than now.
                   // Base start hour: an explicitly placed hour wins, else the packed slot
                   // from singleDayStacking, else the start of the working day.
                   const _packedStartH = singleDayStacking[bar.start]?.[bar.id];
                   // Collapsed reservoir glides its left edge with worked time; every other
                   // bar gets its stored hour back unchanged. See shrunkStartH.
                   const _baseStartH = shrunkStartH(p.activeJobClock, bar.task, bar.task?.startHour ?? _packedStartH ?? workStartH);
-                  let _pushedStartH = _baseStartH + (_pushH - _pushWholeDays * Math.max(0.0001, productiveHoursPerDay));
-                  while (_pushH > 0 && totalWorkH > 0 && _pushedStartH >= workEndH) {
-                    _pushedStartH -= totalWorkH;
-                    _layoutStart = addBD(_layoutStart, 1, _barBDOpts);
-                    _layoutEnd = addBD(_layoutEnd, 1, _barBDOpts);
+                  const _pushWalk = (_pushH > 0 && bar.type === "task")
+                    ? walkProductiveHours(_baseStartH, _pushH, dayWindowCfg)
+                    : null;
+                  let _pushDays = 0, _pushLandsAtH = null;
+                  if (_pushWalk) {
+                    _pushDays = Math.max(0, (_pushWalk.days || 1) - 1);
+                    _pushLandsAtH = _pushWalk.endHour;
+                    // Landing exactly at closing time is the start of the next working day, not a
+                    // zero-width sliver against the edge.
+                    if (_pushLandsAtH >= workEndH - 1e-9) { _pushDays += 1; _pushLandsAtH = workStartH; }
                   }
+                  let _layoutStart = _pushDays > 0 ? addBD(bar.start, _pushDays, _barBDOpts) : bar.start;
+                  let _layoutEnd = _pushDays > 0 ? addBD(bar.end, _pushDays, _barBDOpts) : bar.end;
+                  // The walk above already carried the push over day boundaries, so there is no
+                  // rollover loop left to run: it exists to fix up an addition that no longer
+                  // happens.
+                  const _pushedStartH = _pushLandsAtH != null ? _pushLandsAtH : _baseStartH;
                   // FLUSH TO THE CURSOR. An op pushed because the clock passed it is placed at
                   // the instant itself, not reconstructed from a quantity of hours. The
                   // reconstruction cannot be exact: `_pushH` is in PRODUCTIVE hours and
