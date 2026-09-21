@@ -473,3 +473,34 @@ export function productiveHoursBetween(startMs, endMs, cfg) {
   }
   return total;
 }
+
+/**
+ * Worked spans for ONE person, keyed by op — the cross-row case (§3a).
+ *
+ * workedSpansByOp merges every worker's sessions together, which is right for an op's own bar:
+ * the op was worked, and by whom does not change its shape. It is wrong for a row, because a
+ * row belongs to a person. When someone clocks into an op they are not on the team of, the work
+ * shows on THEIR row as the span they personally worked, while the op's scheduled bar stays
+ * where it was scheduled.
+ */
+export function workedSpansForPerson(sessions, personId, extraSpansByOp) {
+  const byOp = new Map();
+  if (personId == null) return byOp;
+  const want = String(personId);
+  for (const s of sessions || []) {
+    if (!s || s.deletedAt || s.opId == null || s.opId === "") continue;
+    if (String(s.personId) !== want) continue;
+    const a = Date.parse(s.clockIn), b = Date.parse(s.clockOut);
+    if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) continue;
+    const k = String(s.opId);
+    byOp.set(k, [...(byOp.get(k) || []), [a, b]]);
+  }
+  // An open clock is not a session row yet, so the caller passes it in rather than this
+  // function reaching for "now" — a pure function that reads the clock cannot be table-tested.
+  for (const [opId, spans] of extraSpansByOp || []) {
+    const k = String(opId);
+    byOp.set(k, [...(byOp.get(k) || []), ...spans]);
+  }
+  for (const [k, list] of byOp) byOp.set(k, mergeSpans(list));
+  return byOp;
+}

@@ -10,7 +10,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
-import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween } from "./statsMath.js";
+import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansForPerson, spansDurationMs } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
@@ -15373,6 +15373,71 @@ ${jobsCtx || "No jobs found."}`;
         if (gSort === "client") return (a.clientName || "").localeCompare(b.clientName || "") || (a.start || "").localeCompare(b.start || "");
         return (a.start || "").localeCompare(b.start || "");
       });
+      // ── §3a CROSS-ROW WORK ────────────────────────────────────────────
+      // Someone can clock into an op they are not on the team of, and the work is real: it
+      // belongs on THEIR row, where they did it, while the op's scheduled bar stays on the row
+      // it was scheduled to and its divider advances. The team gate above is what keeps it off
+      // this row, so these are ADDED rather than the gate being loosened — an op you are not on
+      // the team of is not your scheduled work, and drawing its planned window here would claim
+      // it was.
+      //
+      // The bar covers the spans actually worked and nothing more: it begins when they began
+      // and ends when they stopped, so it is hatched end to end by construction and there is no
+      // remainder on it to push. hpd is the worked hours for the same reason -- this bar's
+      // length is a record, not an estimate.
+      const _selfJc = (people.find(x => sameId(x.id, pid)) || {}).activeJobClock;
+      const _openByOp = new Map();
+      if (_selfJc?.clockIn && _selfJc.opId != null) {
+        const a = Date.parse(_selfJc.clockIn);
+        const b = Number.isFinite(_selfJc.frozenAtMs) ? _selfJc.frozenAtMs : Date.now();
+        if (Number.isFinite(a) && b > a) _openByOp.set(String(_selfJc.opId), [[a, b]]);
+      }
+      for (const [xOpId, xSpans] of workedSpansForPerson(productionHours, pid, _openByOp)) {
+        if (!xSpans.length) continue;
+        let xFound = null;
+        for (const job of tasks) {
+          for (const panel of (job.subs || [])) {
+            const op = (panel.subs || []).find(o => String(o.id) === String(xOpId));
+            if (op) { xFound = { op, panel, job }; break; }
+          }
+          if (xFound) break;
+        }
+        // On the team means the op already has a bar on this row from the walk above, drawn at
+        // its planned window -- which is the right bar. Only genuinely off-team work is added.
+        if (!xFound || onTeam(xFound.op.team, pid)) continue;
+        if (!showCompleted && xFound.op.status === "Finished") continue;
+        const xS = xSpans[0][0], xE = xSpans[xSpans.length - 1][1];
+        const xStartDS = toDS(new Date(xS)), xEndDS = toDS(new Date(xE));
+        if (xEndDS < _winS || xStartDS > _winE) continue;
+        const xTc = xFound.panel.color || "#94a3b8";
+        const xClient = xFound.job.clientId ? clients.find(c => c.id === xFound.job.clientId) : null;
+        const xTask = {
+          ...xFound.op,
+          start: xStartDS, end: xEndDS,
+          startHour: (xS - hourTs(xStartDS, 0)) / 3600000,
+          endHour: (xE - hourTs(xEndDS, 0)) / 3600000,
+          hpd: spansDurationMs(xSpans) / 3600000,
+          // Team is this person alone: the bar is their record of the work, and a team size
+          // borrowed from the op would divide its length by people who were not on it.
+          team: [pid],
+          color: barPaint(xFound.op, xTc), isSub: true, pid: xFound.panel.id, grandPid: xFound.job.id,
+          jobTitle: xFound.job.title, jobNumber: xFound.job.jobNumber || null,
+          panelTitle: xFound.panel.title, level: 2,
+        };
+        bars.push({
+          type: "task", id: `xrow-${pid}-${xOpId}`, crossRow: true, xOpId: String(xOpId),
+          start: xStartDS, end: xEndDS,
+          title: `${xFound.panel.title} · ${xFound.op.title}`,
+          color: barPaint(xFound.op, elColor(xTc)),
+          clientName: xClient ? xClient.name : null, jobNumber: xFound.job.jobNumber || null,
+          dueDate: xFound.job.dueDate || null, status: xFound.op.status,
+          jobCreatedAt: xFound.job.createdAt || null, task: xTask, subs: [], hasSubs: false,
+          spans: xSpans,
+          // THIS person's spans. The op-keyed lookup the render uses merges every worker's
+          // sessions, which is right for the op's own bar and wrong for a row that belongs to
+          // one person -- it would hatch someone else's work onto their row.
+        });
+      }
       return bars;
     };
     // Build flat row list with subtask expansion. Person rows always get pushed (with a
@@ -16264,7 +16329,7 @@ ${jobsCtx || "No jobs found."}`;
                   // the bar physically extend on the schedule. Divided by team size for
                   // the same reason hpd is: the budget is per-person, worked hours are
                   // the team's total. Finished ops never extend.
-                  const _overrunPerPerson = (_barWS && !_barWS.isFullyWorked)
+                  const _overrunPerPerson = (_barWS && !_barWS.isFullyWorked && !bar.crossRow)
                     ? Math.max(0, _barWS.workedHoursShown - (bar.task?.hpd || 0)) / _barTeamSz
                     : 0;
                   const _isOverrunning = _overrunPerPerson > 0;
@@ -16289,7 +16354,7 @@ ${jobsCtx || "No jobs found."}`;
                   // and keep pushing ops that became historical while nobody was looking -- visible
                   // wrongness on the schedule, where TD being stale elsewhere is only cosmetic.
                   const _pushIdleH = (() => {
-                    if (bar.type !== "task" || !bar.task || _barWS?.isFullyWorked) return 0;
+                    if (bar.type !== "task" || bar.crossRow || !bar.task || _barWS?.isFullyWorked) return 0;
                     if (!bar.task.end || bar.task.end < toDS(new Date())) return 0;
                     const workedPerPerson = Math.min(_barWS?.workedHoursShown || 0, bar.task.hpd || 0) / _barTeamSz;
                     if (workedPerPerson >= _plannedDurH) return 0; // nothing left to push
@@ -17463,7 +17528,11 @@ ${jobsCtx || "No jobs found."}`;
                   // was dropped — the same failure the comment inside that handler warns
                   // about for hour-positioned bars. Selection still works; only moving
                   // and resizing are held.
-                  const _dragBlocked = !isPto && _isOverrunning;
+                  // A cross-row bar is a RECORD of work, not a scheduled block, and its id is
+                  // synthetic -- dragging it would aim a move at an op id that does not exist. It
+                  // is also not this person's scheduled work to reschedule: the op's real bar lives
+                  // on the row it was assigned to, and that is the one an admin moves.
+                  const _dragBlocked = !isPto && (_isOverrunning || bar.crossRow);
                   // Worked-overlay budget: percent-of-timeline width covered by the striped portion.
                   // Distributes across multi-segment bars in lockstep with the bar's own width budget.
                   const _workedCellsTotal = ws ? ws.workedFraction * _wBudget : 0;
@@ -17549,6 +17618,9 @@ ${jobsCtx || "No jobs found."}`;
                       const b = Number.isFinite(jc.frozenAtMs) ? jc.frozenAtMs : _nowMs;
                       if (Number.isFinite(a) && b > a) _live.push([a, b]);
                     }
+                    // A cross-row bar carries its own person's spans; every other bar takes the
+                    // op's merged ones.
+                    if (bar.crossRow) return bar.spans || [];
                     return mergeSpans([...(workedSpansStored.get(String(bar.task.id)) || []), ..._live]);
                   })();
                   const _barSpans = spansToPct(_barSpansAbs, _plannedS, _plannedE);

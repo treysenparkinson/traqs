@@ -195,6 +195,29 @@ if (wallClock(L(2026,9,25,13), L(2026,9,28,9)) === 4) {
   console.log("red proof: the weekend case rejects wall-clock elapsed");
 }
 
+// ── workedSpansForPerson ─────────────────────────────────────────────────
+// A row belongs to a person, so cross-row work is per person rather than per op.
+const { workedSpansForPerson } = await import("../src/statsMath.js");
+
+const sess = (personId, opId, a, b) => ({ personId, opId, clockIn: new Date(a).toISOString(), clockOut: new Date(b).toISOString() });
+
+eq("only this person’s sessions come back",
+  [...workedSpansForPerson([sess(1, "opA", T(9), T(10)), sess(2, "opA", T(11), T(12))], 1).entries()],
+  [["opA", [[T(9), T(10)]]]]);
+eq("a numeric id matches a string id, as everywhere else in this codebase",
+  [...workedSpansForPerson([sess("1", "opA", T(9), T(10))], 1).entries()],
+  [["opA", [[T(9), T(10)]]]]);
+eq("two sittings on one op merge per person",
+  [...workedSpansForPerson([sess(1, "opA", T(9), T(10)), sess(1, "opA", T(10), T(11))], 1).entries()],
+  [["opA", [[T(9), T(11)]]]]);
+eq("an open clock is passed in rather than read from the wall clock",
+  [...workedSpansForPerson([], 1, new Map([["opB", [[T(13), T(14)]]]])).entries()],
+  [["opB", [[T(13), T(14)]]]]);
+eq("an open clock merges with the closed session it continues",
+  [...workedSpansForPerson([sess(1, "opA", T(9), T(10))], 1, new Map([["opA", [[T(10), T(11)]]]])).entries()],
+  [["opA", [[T(9), T(11)]]]]);
+eq("no person, nothing", [...workedSpansForPerson([sess(1, "opA", T(9), T(10))], null).entries()], []);
+
 // Summary LAST. This block has been stranded mid-file twice by appending a new section
 // after it -- the run stayed green while the new assertions never executed, which is the
 // same green-and-blind failure the red proofs exist to catch. If you add a section, add it
