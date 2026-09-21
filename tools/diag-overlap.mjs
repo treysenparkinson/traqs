@@ -48,6 +48,9 @@ for (const person of people) {
   for (const job of tasks) for (const panel of job.subs || []) for (const op of panel.subs || []) {
     if (!(op.team || []).some((x) => String(x) === String(person.id))) continue;
     if (!op.start || !op.end || op.status === "Finished") continue;
+    // History no longer renders on the schedule, so it cannot produce a VISIBLE overlap.
+    // Counting it here would report a problem the user cannot see.
+    if (op.end < TODAY) continue;
     const size = Math.max(1, (op.team || []).length);
     const worked = Math.max(producedByOp.get(String(op.id)) || 0, Number(op.loggedHours) || 0);
     const perPerson = ((Number(op.hpd) || 0) > 0 ? Number(op.hpd) / size : PHPD)

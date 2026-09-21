@@ -15392,6 +15392,23 @@ ${jobsCtx || "No jobs found."}`;
               // for work that has no date yet. isTimelinePlaced is the single predicate
               // for this across all three assignment levels below.
               if (!isTimelinePlaced(op)) return;
+              // HISTORY IS NOT ON THE SCHEDULE. An op whose window closed before today is not
+              // actionable and is not an accurate claim about when the work will happen, so it
+              // does not render here. The data is untouched and still reaches Analytics, pay
+              // history, the moveLog and any direct query -- it just stops cluttering the view.
+              //
+              // This is also what makes the no-overlap invariant absolute rather than
+              // conditional. With history on screen the rule had to carve out an exemption for
+              // it -- 268 of the 271 real overlaps are historical -- and an invariant with an
+              // exemption is a guideline. Hidden, everything that renders can be held to it.
+              //
+              // ONE EXCEPTION, and it is not negotiable: an op somebody is clocked into stays
+              // visible whatever its dates say. Hiding the bar a worker is actively on would
+              // take away the thing they are looking at, and a job running past its planned end
+              // is exactly when that happens.
+              const _opIsHistory = op.end < toDS(new Date());
+              const _opIsLive = people.some(lp => lp.activeJobClock?.clockIn && sameId(lp.activeJobClock.opId, op.id));
+              if (_opIsHistory && !_opIsLive) return;
               if (_visualEnd(op) < _winS || op.start > _winE) return;
               const bStart = op.start;
               const bEnd = op.end;
