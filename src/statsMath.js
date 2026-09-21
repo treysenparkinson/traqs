@@ -695,3 +695,82 @@ export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
   }
   return { pushes: out, atCursor };
 }
+
+// ─── No overlap ────────────────────────────────────────────────────────────
+//
+// A hard invariant: two ops on one row may never occupy the same time. Not for a minute.
+// Every path that places an op — creation, import, dependency cascade, push, split, drag —
+// asks THESE functions, so the definition of "overlap" cannot drift between them. That is the
+// whole reason they live here rather than at each call site.
+//
+// Hour precision throughout. Comparing dates alone counts 08:00-12:00 and 13:00-16:00 on one
+// day as a clash, which it is not, and the real data has plenty of both shapes.
+
+const HOUR_MS = 3600000;
+/** Local midnight for a YYYY-MM-DD, plus h hours. Mirrors the schedule's own hourTs. */
+export function dayHourMs(ds, h) {
+  return new Date(ds + "T00:00:00").getTime() + (h || 0) * HOUR_MS;
+}
+
+/**
+ * The time an op actually occupies, as [s, e) in ms.
+ *
+ * A single-day op ends at its endHour, or at its start plus its duration when no endHour is
+ * recorded. A multi-day op runs to the end of the working day on its last day. This mirrors
+ * `opHourRange` in the render — if the two ever disagree, the guard and the geometry are
+ * arguing about different rectangles.
+ */
+export function opInterval(op, cfg) {
+  const { workStartH = 8, workEndH = 16 } = cfg || {};
+  if (!op || !op.start || !op.end) return null;
+  const sH = op.startHour ?? workStartH;
+  const eH = op.start === op.end
+    ? (op.endHour ?? Math.min(sH + Math.max(0, op.durationH || 0), workEndH))
+    : (op.endHour ?? workEndH);
+  const s = dayHourMs(op.start, sH), e = dayHourMs(op.end, eH);
+  return e > s ? { s, e } : { s, e: s };
+}
+
+/** Do two intervals share any time? Touching end-to-start is adjacency, not overlap. */
+export function intervalsOverlap(a, b) {
+  if (!a || !b) return false;
+  return a.s < b.e && b.s < a.e;
+}
+
+/**
+ * Every clashing pair on a row, as { a, b } of the ops passed in. Empty means the invariant
+ * holds. Zero-width ops cannot clash with anything and are skipped rather than reported.
+ */
+export function rowOverlaps(ops, cfg) {
+  const iv = (ops || []).map((op) => ({ op, i: opInterval(op, cfg) })).filter((x) => x.i && x.i.e > x.i.s);
+  const out = [];
+  for (let i = 0; i < iv.length; i++) {
+    for (let j = i + 1; j < iv.length; j++) {
+      if (intervalsOverlap(iv[i].i, iv[j].i)) out.push({ a: iv[i].op, b: iv[j].op });
+    }
+  }
+  return out;
+}
+
+/**
+ * The earliest instant at or after `desiredStart` where something of `durationMs` fits without
+ * touching any occupied interval.
+ *
+ * Returns the desired start unchanged when it already fits — placing work later than it needs
+ * to be is its own kind of wrong, so the slot finder never moves anything it does not have to.
+ * Occupied intervals are sorted and walked once; a candidate that collides jumps to the end of
+ * whatever it hit and re-tests, because the next interval along may start immediately after.
+ */
+export function firstFreeStart(desiredStart, durationMs, occupied) {
+  if (!Number.isFinite(desiredStart) || !(durationMs > 0)) return desiredStart;
+  const busy = (occupied || []).filter((x) => x && x.e > x.s).sort((x, y) => x.s - y.s);
+  let at = desiredStart;
+  // Bounded: each pass either finishes or moves `at` past one more interval, so the worst case
+  // is one pass per occupied block. A while(true) here would hang on malformed input.
+  for (let guard = 0; guard <= busy.length; guard++) {
+    const hit = busy.find((x) => at < x.e && x.s < at + durationMs);
+    if (!hit) return at;
+    at = hit.e;
+  }
+  return at;
+}
