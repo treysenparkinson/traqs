@@ -568,7 +568,7 @@ function ForgotOrgStep({ onBack }) {
 
 // ─── Create org form ──────────────────────────────────────────────────────────
 function CreateOrgStep({ onSuccess, onBack }) {
-  const [form, setForm] = useState({ code: "", name: "", domain: "", adminEmail: "" });
+  const [form, setForm] = useState({ name: "", domain: "", adminEmail: "" });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -576,16 +576,21 @@ function CreateOrgStep({ onSuccess, onBack }) {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    const code = form.code.trim().toUpperCase();
     const name = form.name.trim();
     const domain = form.domain.trim().toLowerCase().replace(/^@/, "");
     const adminEmail = form.adminEmail.trim();
-    if (!code || !name || !domain || !adminEmail) { setError("All fields are required."); return; }
-    if (!/^[a-zA-Z0-9]{3,20}$/.test(code)) { setError("Org code must be 3–20 letters and numbers only."); return; }
+    // No org-code field any more: the server generates it. This used to validate
+    // a code the admin typed, which let a caller squat a prefix or pick one that
+    // impersonates another org. The generated code comes back in the response
+    // and is what gets persisted — storing a locally-chosen one would point the
+    // client at a prefix that does not exist.
+    if (!name || !domain || !adminEmail) { setError("All fields are required."); return; }
     if (!domain.includes(".")) { setError("Please enter a valid domain, e.g. yourcompany.com"); return; }
     setLoading(true); setError("");
     try {
-      await createOrg({ code, name, domain, adminEmail });
+      const created = await createOrg({ name, domain, adminEmail });
+      const code = created?.code;
+      if (!code) throw new Error("The server did not return an organization code.");
       const config = { name, domain, adminEmail, createdAt: new Date().toISOString() };
       persist.setItem(LS_CODE, code);
       persist.setItem(LS_CONFIG, JSON.stringify(config));
@@ -610,19 +615,9 @@ function CreateOrgStep({ onSuccess, onBack }) {
               <input style={INPUT_STYLE} type="text" placeholder="Acme Corp" value={form.name} onChange={set("name")} autoFocus autoComplete="off" />
             </div>
 
-            <div style={{ marginBottom: 14 }}>
-              <label style={LABEL}>Org Code</label>
-              <input
-                style={INPUT_STYLE}
-                type="text"
-                placeholder="ACME"
-                value={form.code.toUpperCase()}
-                onChange={e => setForm(f => ({ ...f, code: e.target.value.toUpperCase() }))}
-                autoComplete="off"
-                maxLength={20}
-              />
-              <div style={HINT}>3–20 letters and numbers. This is what your team types to log in.</div>
-            </div>
+            {/* No Org Code field: the server generates the code and returns it,
+                and it is shown on the confirmation screen for the admin to copy.
+                An input here would be collected and then ignored. */}
 
             <div style={{ marginBottom: 14 }}>
               <label style={LABEL}>Email Domain</label>

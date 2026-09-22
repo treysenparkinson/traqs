@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { readJson, writeJson } from "./s3.js";
 import { filterLive } from "./entities.js";
+import { isValidOrgCode } from "./orgcode.js";
 
 const domain = process.env.AUTH0_DOMAIN;
 const audience = process.env.AUTH0_AUDIENCE;
@@ -251,8 +252,10 @@ export class AuthError extends Error {
  * changes quickly while not re-reading two S3 objects on every request.
  */
 export async function requireOrgMember(event) {
+  // One definition, in _utils/orgcode.js. This used to be a literal copy, one of
+  // five, and a format change meant finding all of them.
   const orgCode = event.headers?.["x-org-code"] || event.headers?.["X-Org-Code"] || "";
-  if (!/^[a-zA-Z0-9]{3,20}$/.test(orgCode)) {
+  if (!isValidOrgCode(orgCode)) {
     throw new AuthError(400, "Missing or invalid X-Org-Code header");
   }
 

@@ -2,6 +2,7 @@ import { randomBytes } from "crypto";
 import { requireOrgMember } from "./_utils/auth.js";
 import { writeBinary, readBinaryWithMeta, readJson } from "./_utils/s3.js";
 import { CORS, preflight, json, err } from "./_utils/cors.js";
+import { ORG_CODE_SOURCE } from "./_utils/orgcode.js";
 
 // How long after clocking out a worker may still attach their finish-of-job
 // photo. Long enough to take and upload a picture, short enough that the
@@ -141,7 +142,12 @@ export async function handler(event) {
     // Anchor the trailing segment so the key can only reference an object
     // directly under the org's attachments/ prefix — no path escape and no
     // CR/LF or quote characters can reach the Content-Disposition header.
-    if (!/^orgs\/[a-zA-Z0-9]{3,20}\/attachments\/[a-zA-Z0-9._-]+$/.test(key)) {
+    // The org-code half comes from _utils/orgcode.js rather than being spelled
+    // out here. This was the fifth copy of that rule and the one that hides:
+    // embedded in a KEY-PATH validator, it does not read as org-code validation,
+    // so a format change slips past it and every attachment download 400s while
+    // everything else in the org keeps working.
+    if (!new RegExp("^orgs/" + ORG_CODE_SOURCE + "/attachments/[a-zA-Z0-9._-]+$").test(key)) {
       return err(400, "Missing or invalid key");
     }
 

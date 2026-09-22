@@ -1,13 +1,12 @@
-// Shared org-code helpers for all Netlify functions.
-// The org code arrives in the X-Org-Code header (case varies by client/proxy).
-// Valid codes are 3–20 alphanumeric chars; anything else is rejected.
+// Shared org-key helpers for all Netlify functions.
+//
+// The org code arrives in the X-Org-Code header (casing varies by client and
+// proxy). What counts as a valid code is defined once, in orgcode.js — this
+// module held its own copy of that rule, which is how the format came to be
+// enforced in five separate places.
+import { orgCodeFromHeader } from "./orgcode.js";
 
-// Reads and validates the org code from the request headers.
-// Returns the code, or null if it is missing or malformed.
-export function orgCodeFromHeader(event) {
-  const code = event.headers?.["x-org-code"] || event.headers?.["X-Org-Code"] || "";
-  return /^[a-zA-Z0-9]{3,20}$/.test(code) ? code : null;
-}
+export { orgCodeFromHeader };
 
 // Builds the S3 key `orgs/{code}/{file}` for the request's org,
 // or null if the org code is missing or invalid.

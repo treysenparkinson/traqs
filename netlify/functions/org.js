@@ -5,10 +5,12 @@ import { requirePerm } from "./_utils/can.js";
 import { nowIso, stampObject } from "./_utils/timestamps.js";
 import { publishChange } from "./_utils/ably-publish.js";
 import { sendSilentPush } from "./_utils/push.js";
+import { isValidOrgCode, generateOrgCode } from "./_utils/orgcode.js";
 
-function isValidCode(code) {
-  return typeof code === "string" && /^[a-zA-Z0-9]{3,20}$/.test(code);
-}
+// isValidCode was a third copy of the org-code rule. It now comes from
+// _utils/orgcode.js, which accepts both the legacy alphanumeric shape and the
+// generated PREFIX.XXXX.XXXX one.
+const isValidCode = isValidOrgCode;
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
@@ -56,8 +58,11 @@ export async function handler(event) {
       return err(400, "Invalid JSON body");
     }
 
-    const { code, name, domain, adminEmail } = body ?? {};
-    if (!isValidCode(code)) return err(400, "Invalid org code — must be 3–20 alphanumeric characters");
+    // THE CODE IS GENERATED HERE, NOT CHOSEN BY THE CALLER. Any `code` in the
+    // body is ignored — accepting one lets a caller squat a prefix, pick a code
+    // that impersonates another org, or probe which codes already exist by
+    // watching for 409s.
+    const { name, domain, adminEmail } = body ?? {};
     if (!name || !domain || !adminEmail) return err(400, "Missing required fields: name, domain, adminEmail");
     // Cap the free-form fields so the gate isn't a path to write giant
     // blobs to S3 even if SIGNUPS_ENABLED is left on.
@@ -65,13 +70,25 @@ export async function handler(event) {
     if (String(domain).length > 80) return err(400, "Domain too long (max 80 chars)");
     if (String(adminEmail).length > 200 || !adminEmail.includes("@")) return err(400, "Invalid adminEmail");
 
-    const configKey = `orgs/${code}/config.json`;
-    try {
-      const existing = await readJson(configKey);
-      if (existing) return err(409, "Organization code already taken");
-    } catch {
-      // If readJson throws (unexpected), fall through to creation attempt
+    // Generate, checking for collision. The random half is 31^8 wide per prefix,
+    // so a clash is remote — but "remote" is not "impossible", and silently
+    // writing into an existing org's prefix would hand a stranger its data. A
+    // bounded retry, then refuse: never fall through to a create on an unknown
+    // read failure, which is what the previous try/catch did.
+    let code = null, configKey = null;
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const candidate = generateOrgCode(name);
+      const key = `orgs/${candidate}/config.json`;
+      let existing;
+      try {
+        existing = await readJson(key);
+      } catch (e) {
+        console.error("org POST: collision check failed for", candidate, e);
+        return err(503, "Could not verify organization code availability. Try again.");
+      }
+      if (!existing) { code = candidate; configKey = key; break; }
     }
+    if (!code) return err(503, "Could not allocate an organization code. Try again.");
 
     const cleanDomain = domain.toLowerCase().replace(/^@/, "");
     const config = {
@@ -155,7 +172,31 @@ export async function handler(event) {
       }
     }
 
-    // ── Rename the org code (existing path; optionally also update name) ──
+    // ── Rename the org code — DISABLED ──────────────────────────────────
+    //
+    // This path calls copyPrefix(), which copies objects verbatim. Attachment
+    // keys are stored INSIDE the data — messages.json and tasks.json hold full
+    // `orgs/{code}/attachments/...` strings, 25+ in messages.json alone on the
+    // live bucket — and copyPrefix does not rewrite them. After a rename every
+    // one of those still points at the old prefix.
+    //
+    // THE FAILURE IS DEFERRED, which is why this is disabled rather than left
+    // with a warning. attachment.js GET validates only the key's SHAPE, with no
+    // ownership check (the key is a documented unguessable bearer). So the stale
+    // keys keep resolving while the old prefix exists and nothing looks wrong.
+    // They break when the old prefix is deleted — a week later, by which point
+    // nobody connects the two events.
+    //
+    // A rename run today therefore appears to succeed and silently arms a
+    // failure for next week. Re-enabled in step 3 of ORG_ONBOARDING.md, once the
+    // embedded references are rewritten AND every referenced key is verified to
+    // resolve before success is reported. "The copy succeeded" is not proof.
+    //
+    // The Settings control is hidden too, but this is the guarantee: the API is
+    // reachable without the UI.
+    return err(503, "Changing the organization code is temporarily unavailable. It is being reworked so that attachments survive the change.");
+
+    // eslint-disable-next-line no-unreachable
     try { requirePerm(member, "orgSettings"); } catch (e) { return err(e.statusCode, e.message); }
     if (!isValidCode(newCode)) return err(400, "Invalid new code — must be 3–20 alphanumeric characters");
     if (newCode.toUpperCase() === currentCode.toUpperCase()) return err(400, "New code is the same as current code");

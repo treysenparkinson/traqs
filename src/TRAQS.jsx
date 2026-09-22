@@ -262,6 +262,19 @@ const isOpLocked = (op) => !!op?.locked;
 // approval -> status Finished). An op past its estimate is overdue, not done, and
 // `rawFraction`/`overrunFraction` expose how far past so the bar can keep growing
 // rather than silently pinning at 100%.
+// ORG CODE RENAME IS DISABLED. The server refuses it with a 503 -- that is the
+// guarantee, since the API is reachable without this UI -- and these controls are
+// hidden so nobody is offered an action that cannot succeed.
+//
+// Why: the rename copies the S3 prefix but does not rewrite the attachment keys
+// stored INSIDE messages.json and tasks.json, and the resulting breakage is
+// DEFERRED -- the stale keys keep resolving until the old prefix is deleted, so a
+// rename looks successful and fails a week later. See ORG_ONBOARDING.md §5.
+//
+// Flip to true only when the reference rewrite AND the post-migration resolve
+// check are both in place. A successful copy is not evidence.
+const ORG_CODE_RENAME_ENABLED = false;
+
 const deriveWorkedState = (t, produced = 0, live = 0) => {
   const hpd = t?.hpd || 0;
   const committed = Math.max(0, Math.max(t?.loggedHours || 0, produced || 0));
@@ -27083,9 +27096,9 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 18, fontWeight: 800, color: T.text, fontFamily: T.mono, letterSpacing: "-0.045em" }}>{orgCode || "—"}</div>
               <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Everyone signs in with this code.</div>
             </div>
-            {orgEditing !== "code" && <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setOrgEditing("code"); }} style={stGhostBtn}>Change code</button>}
+            {ORG_CODE_RENAME_ENABLED && orgEditing !== "code" && <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setOrgEditing("code"); }} style={stGhostBtn}>Change code</button>}
           </div>
-          {orgEditing === "code" && <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.border}` }}>
+          {ORG_CODE_RENAME_ENABLED && orgEditing === "code" && <div style={{ marginTop: 14, paddingTop: 14, borderTop: `1px solid ${T.border}` }}>
             <div style={{ fontSize: 12, color: "#f59e0b", marginBottom: 10, display: "flex", gap: 8, alignItems: "flex-start", lineHeight: 1.5 }}>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginTop: 1 }}><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
               <span>Changing the code reloads the app immediately and everyone must sign in with the new code. This can't be batched with the Save button.</span>
@@ -28660,9 +28673,9 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 3 }}>Org Code</div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: T.text, fontFamily: T.mono, letterSpacing: "-0.045em" }}>{orgCode || "—"}</div>
                 </div>
-                {orgEditing !== "code" && <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setOrgEditing("code"); }} style={{ padding: "4px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>Edit</button>}
+                {ORG_CODE_RENAME_ENABLED && orgEditing !== "code" && <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setOrgEditing("code"); }} style={{ padding: "4px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font, flexShrink: 0 }}>Edit</button>}
               </div>
-              {orgEditing === "code" && <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
+              {ORG_CODE_RENAME_ENABLED && orgEditing === "code" && <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${T.border}` }}>
                 <div style={{ fontSize: 11, color: T.textDim, marginBottom: 8 }}>Changing this reloads the app. Everyone signs in with the new code.</div>
                 <input autoFocus value={orgCodeInput} onChange={e => { setOrgCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setOrgCodeError(""); }} placeholder="New code" maxLength={20} style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusPill, border: `1.5px solid ${orgCodeError ? "#ef4444" : T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, fontFamily: T.mono, fontWeight: 700, letterSpacing: "-0.045em", outline: "none", boxSizing: "border-box", marginBottom: 6, textTransform: "uppercase" }} />
                 {orgCodeError && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 6 }}>{orgCodeError}</div>}
