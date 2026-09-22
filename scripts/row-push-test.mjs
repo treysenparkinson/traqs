@@ -5,7 +5,7 @@
 //
 //   node scripts/row-push-test.mjs
 
-import { rowPushHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, idleLeftOfCursorH, flushRightWidthPct, rollupLeafHours } from "../src/statsMath.js";
+import { rowPushHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, idleLeftOfCursorH, flushRightWidthPct, rollupLeafHours, shiftRangeForward } from "../src/statsMath.js";
 
 let pass = 0, fail = 0;
 const eq = (label, got, want) => {
@@ -734,5 +734,42 @@ let rollupRedOk = true;
     console.log(`red proof: one level deep reports ${shallow}h where the leaves total ${deep}h`);
   }
 }
+// -- new work is never scheduled behind the cursor -----------------------
+const TODAY_DS = "2026-09-22";
+
+eq("a range already ahead of the cursor is untouched",
+  shiftRangeForward("2026-10-01", "2026-10-10", TODAY_DS), { start: "2026-10-01", end: "2026-10-10", shiftedDays: 0 });
+eq("starting exactly on the floor is untouched",
+  shiftRangeForward(TODAY_DS, "2026-09-30", TODAY_DS), { start: TODAY_DS, end: "2026-09-30", shiftedDays: 0 });
+eq("the reported case: a row imported as 2025-09-24 moves up to today",
+  shiftRangeForward("2025-09-24", "2025-09-26", TODAY_DS).start, TODAY_DS);
+eq("...and its duration is carried with it, not collapsed",
+  shiftRangeForward("2025-09-24", "2025-09-26", TODAY_DS).end, "2026-09-24");
+eq("a three week span is still three weeks after the shift",
+  (() => {
+    const r = shiftRangeForward("2026-01-05", "2026-01-23", TODAY_DS);
+    return Math.round((new Date(r.end + "T12:00:00") - new Date(r.start + "T12:00:00")) / 86400000);
+  })(), 18);
+eq("no end date stays empty rather than being invented",
+  shiftRangeForward("2025-01-01", "", TODAY_DS).end, "");
+eq("junk start is left alone for the caller to reject",
+  shiftRangeForward("not-a-date", "2026-01-01", TODAY_DS).shiftedDays, 0);
+eq("a missing floor cannot shift anything",
+  shiftRangeForward("2025-01-01", "2025-01-05", "").shiftedDays, 0);
+
+// RED PROOF: the import rule this replaces told the model to keep source dates exactly, so a
+// spreadsheet row dated a year back was stored a year back -- which is how 537 unworked ops
+// came to sit behind the cursor holding 45,693 hours of work still to do.
+let schedRedOk = true;
+{
+  const kept = "2025-09-24";
+  const moved = shiftRangeForward(kept, "2025-09-26", TODAY_DS).start;
+  if (kept === moved || kept >= TODAY_DS) {
+    schedRedOk = false;
+    console.error("RED PROOF FAILED: preserving the source date does not put work behind the cursor");
+  } else {
+    console.log(`red proof: preserving the source date stores ${kept}, which is behind ${TODAY_DS}`);
+  }
+}
 console.log(`${pass} passed, ${fail} failed`);
-process.exit(fail === 0 && redOk && collideRedOk && slackRedOk && sessionRedOk && shrinkRedOk && overlapRedOk && badgeRedOk && recordRedOk && insetRedOk && recPushRedOk && segRedOk && idleRedOk && stretchRedOk && flushRedOk && rollupRedOk ? 0 : 1);
+process.exit(fail === 0 && redOk && collideRedOk && slackRedOk && sessionRedOk && shrinkRedOk && overlapRedOk && badgeRedOk && recordRedOk && insetRedOk && recPushRedOk && segRedOk && idleRedOk && stretchRedOk && flushRedOk && rollupRedOk && schedRedOk ? 0 : 1);

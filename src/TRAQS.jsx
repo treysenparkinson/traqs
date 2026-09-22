@@ -10,7 +10,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
-import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours, dayShiftToClear, rowSlackHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours } from "./statsMath.js";
+import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours, dayShiftToClear, rowSlackHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
@@ -4563,7 +4563,7 @@ Extraction rules:
 - Match assignedTo to existing team members by name when possible; otherwise spell the full name as written and the system will create them. Same for client.
 - If relative dates ("next week", "in 2 weeks") are given, compute from today.
 - DATE FORMAT: source dates use MM/DD/YY (US format). "05/03/26" means May 3, 2026 — NOT March 5. "11/04/25" means November 4, 2025. Always output as YYYY-MM-DD.
-- PRESERVE THE YEAR EXACTLY as written in the source. Do NOT shift past dates (e.g. 2025) forward to the current year. A row dated 09/24/25 stays 2025-09-24 even if today is in 2026. Historical and in-progress jobs are normal.
+- PRESERVE THE YEAR EXACTLY as written in the source when READING it. A row dated 09/24/25 is 2025-09-24, not 2026-09-24 — parse it as written and do not guess. Note that the app then moves any start earlier than today forward to today, keeping the duration, because imported work has no hours logged against it and belongs ahead of the schedule cursor rather than behind it. Do not try to pre-compensate for that shift: report the dates you actually read.
 - If a year is an obvious typo (e.g. 2030 in a schedule otherwise full of 2026 dates) you may correct it, but be conservative — only fix dates that are clearly impossible.
 - When computing end dates, count only working days. A 40-hour op at ${orgSettings.hpd}h/day spans ${Math.ceil(40 / Math.max(1, orgSettings.hpd))} working days.
 - hpd is ALWAYS a daily rate (hours per day), never total hours. Realistic values are 4–8. If the source shows "Hours: 40" for an op, return durationDays=${Math.ceil(40 / Math.max(1, orgSettings.hpd))} and hpd=${orgSettings.hpd} — NOT hpd=40. If unsure, omit hpd and only return durationDays.
@@ -4662,10 +4662,25 @@ Extraction rules:
         });
       });
 
+      // NOTHING UNWORKED IS IMPORTED BEHIND THE CURSOR. Imported work has, by definition, had
+      // no hours logged against it, so none of it belongs in the past -- a spreadsheet row
+      // dated last September describes work still to do, not work done.
+      //
+      // Applied to the PREVIEW rather than the commit, so the dates on screen are the dates
+      // that will be stored and anyone can see what moved before accepting it.
+      //
+      // The floor is the next working day: today if today is one, otherwise forward to the
+      // next. The loop is bounded because an org with no working days configured would
+      // otherwise spin forever.
+      let _floor = today;
+      for (let _g = 0; _g < 14 && !isWorkDay(_floor, orgSettings.workDays); _g++) _floor = addD(_floor, 1);
+      const noPast = (start, end) => shiftRangeForward(start, end, _floor);
+
       // Build preview state — every node is checkbox-toggleable and editable
       const previewJobs = aiJobs.map(j => {
-        const jStart = j.start || today;
-        const jEnd = j.end || addD(jStart, 14);
+        const _j = noPast(j.start || today, j.end || addD(j.start || today, 14));
+        const jStart = _j.start;
+        const jEnd = _j.end;
         return {
           _checked: true,
           _id: uid(),
@@ -4683,8 +4698,7 @@ Extraction rules:
             _checked: true,
             _id: uid(),
             title: p.title || "Panel",
-            start: p.start || jStart,
-            end: p.end || jEnd,
+            ...(() => { const _p = noPast(p.start || jStart, p.end || jEnd); return { start: _p.start, end: _p.end }; })(),
             assigneeName: canonicalPersonName(p.assignedTo),
             ops: (p.ops || []).map(o => {
               const opStart = o.start || p.start || jStart;
@@ -4694,12 +4708,13 @@ Extraction rules:
                 opEnd = addWorkingDays(opStart, Math.max(0, Math.floor(o.durationDays) - 1), orgSettings.workDays);
               }
               if (!opEnd) opEnd = p.end || jEnd;
+              const _o = noPast(opStart, opEnd);
               return {
                 _checked: true,
                 _id: uid(),
                 title: o.title || "Operation",
-                start: opStart,
-                end: opEnd,
+                start: _o.start,
+                end: _o.end,
                 assigneeName: canonicalPersonName(o.assignedTo),
                 hpd: sanitizeHpd(o.hpd),
               };

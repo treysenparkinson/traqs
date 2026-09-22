@@ -751,6 +751,45 @@ export function rollupLeafHours(node, leafHours) {
   for (const child of subs) total += rollupLeafHours(child, leafHours);
   return total;
 }
+// NOTHING UNWORKED IS SCHEDULED BEHIND THE CURSOR. Shifts a date range forward so it starts
+// no earlier than `floorDS`, carrying its end with it so the duration is preserved exactly.
+//
+// The render already refuses to DRAW unworked time in the past -- an untouched op slides to
+// the cursor. This is the same rule at WRITE time, which is a different thing: a bar drawn at
+// the cursor whose stored start is a year back still sorts, groups, filters and exports as a
+// year-old job, and every consumer that reads the dates rather than the bars disagrees with
+// what is on screen.
+//
+// Calendar days, not working days: the shift is applied to both ends equally, so a range that
+// spanned three working weeks still spans three working weeks wherever it lands. Snapping the
+// start onto a working day is the caller's business -- it owns the org's calendar.
+//
+// A range already at or after the floor is returned untouched, so this is safe to apply to
+// everything and only moves what breaks the rule.
+export function shiftRangeForward(startDS, endDS, floorDS) {
+  const DAY = 86400000;
+  const parse = (ds) => {
+    if (typeof ds !== "string" || ds.length !== 10 || ds[4] !== "-" || ds[7] !== "-") return null;
+    const t = new Date(ds + "T12:00:00").getTime();
+    return Number.isFinite(t) ? t : null;
+  };
+  // Formatted from LOCAL parts. toISOString() would re-project through UTC and can land a
+  // day either side of the one just computed.
+  const fmt = (t) => {
+    const d = new Date(t);
+    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0")
+      + "-" + String(d.getDate()).padStart(2, "0");
+  };
+  const s = parse(startDS), f = parse(floorDS);
+  if (s == null || f == null || s >= f) return { start: startDS, end: endDS, shiftedDays: 0 };
+  const shiftedDays = Math.round((f - s) / DAY);
+  const e = parse(endDS);
+  return {
+    start: floorDS,
+    end: e == null ? endDS : fmt(e + shiftedDays * DAY),
+    shiftedDays,
+  };
+}
 export function barLengthHours({ hpd, workedHoursShown = 0, isFullyWorked = false, teamSize = 1, fallbackH = 7.5, elapsedToCursorH = null }) {
   const size = Math.max(1, teamSize || 1);
   const est = (hpd || 0) > 0 ? hpd : fallbackH * size;
