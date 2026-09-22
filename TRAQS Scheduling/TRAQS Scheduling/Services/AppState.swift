@@ -409,9 +409,17 @@ class AppState {
         // withTransaction ties the mutation to SwiftUI's update cycle so the
         // observing view re-runs its body immediately. (loadAll renders reliably
         // precisely because it wraps every assignment in withoutAnimation.)
+        //
+        // Capture the current user's in-flight clocks BEFORE the overwrite
+        // below, exactly as loadAll() does. Without this, a delta sync fired by
+        // anyone else's change while our own clock-in was still in flight
+        // rehydrated the pre-tap person row over the optimistic one — the job
+        // card snapped back to LOG TIME, and the pay shift read offline with
+        // zero live hours until the next delta. See OptimisticClocks.
+        let clockSnap = OptimisticClocks.capture(person: currentPerson, changedAt: clockChangeAt)
         withoutAnimation {
             if !j.isEmpty || jobs.isEmpty { jobs = j }
-            if !p.isEmpty || people.isEmpty { people = p }
+            if !p.isEmpty || people.isEmpty { people = OptimisticClocks.apply(clockSnap, to: p) }
             if !c.isEmpty || clients.isEmpty { clients = c }
             if m != messages, !m.isEmpty || messages.isEmpty { messages = m }
             if g != groups, !g.isEmpty || groups.isEmpty { groups = g }
@@ -733,22 +741,15 @@ class AppState {
             // the race where the user taps START TIMER mid-fetch — by the
             // time we get the people response, the local mutation has
             // already happened and we can preserve it.
-            let snap: (personId: String, clock: ActiveJobClock?, brk: ActiveBreak?, payClock: ActiveClockIn?)? = {
-                guard let last = clockChangeAt, Date().timeIntervalSince(last) < 12,
-                      let p = currentPerson else { return nil }
-                return (p.id, p.activeJobClock, p.activeBreak, p.activeClockIn)
-            }()
+            //
+            // Shared with rehydrateFromCache via OptimisticClocks — the pay
+            // clock is preserved for the same reason as the job clock: the Home
+            // shift card reads currentPerson.activeClockIn directly, so without
+            // it a pull-to-refresh right after Clock In reverted the card to
+            // "offline" with a dead timer until the next rehydrate.
+            let snap = OptimisticClocks.capture(person: currentPerson, changedAt: clockChangeAt)
             withoutAnimation {
-                people = r
-                if let snap, let idx = people.firstIndex(where: { $0.id == snap.personId }) {
-                    people[idx].activeJobClock = snap.clock
-                    people[idx].activeBreak = snap.brk
-                    // Preserve the optimistic PAY clock too — the Home shift card
-                    // reads currentPerson.activeClockIn directly, so without this a
-                    // pull-to-refresh right after Clock In reverted the card to
-                    // "offline" with a dead timer until the next rehydrate.
-                    people[idx].activeClockIn = snap.payClock
-                }
+                people = OptimisticClocks.apply(snap, to: r)
             }
         }
         if let r = try? await api.fetchClients(), !r.isEmpty || clients.isEmpty {
