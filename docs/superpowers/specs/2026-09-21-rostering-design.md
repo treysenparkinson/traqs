@@ -367,7 +367,8 @@ Two consequences worth stating, because they are easy to get wrong:
    efficiency and utilization. In a Basic org those render empty today — an
    employee page reading "None scheduled". Under decision 10 that is not
    acceptable output: the job-fed panels must be absent in Basic, and the
-   schedule panels re-sourced from the roster. Same applies to the month option
+   schedule panels re-sourced from the roster. §11.3 inventories the affected
+   panels. Same applies to the month option
    in `renderTeam`'s toggle (§6.2) — filtered out of the array, not shown
    inactive.
 
@@ -463,6 +464,9 @@ insight → automation → ports → tier-specific polish.** Steps 0–1 are ung
 and non-negotiable; 5 is where it starts paying; 6 is the one not to rush; 9 is
 the only step that cares about tiers.
 
+§11 audits what already exists for Basic — read it before starting, since
+three of Basic's five scoped capabilities need no build at all.
+
 ---
 
 ## 10. Known consequences and risks
@@ -519,7 +523,136 @@ change. Miss the mobile nav and Basic users reach Jobs on their phone.
 
 ---
 
-## 11. File reference
+## 11. Current state — Basic tier audit
+
+Audited 2026-09-21 against Basic as scoped: manual shift entry, clock in/out,
+PTO/UTO, employee stats page (on-time metrics + basic schedule info), HR payroll
+export. **Business was not audited** — it is the current app as-is.
+
+The headline: **most of Basic already exists.** The work is concentrated in
+rostering plus four smaller items, two of which do not depend on rostering at
+all.
+
+### 11.1 Already covered — nothing to build
+
+**Manual shift entry — complete.** `netlify/functions/timeclock.js` exposes a
+full admin timesheet surface: `adminClockIn`, `adminClockOut`, `adminEditEntry`,
+`adminEditActiveClockIn`, `adminAddEvent`, `adminEditEvent`, `adminDeleteEvent`,
+`adminDeleteEntry`, `adminReopenEntry`, `adminLunchStart/End`,
+`adminBreakStart/End`, plus `confirmTimesheet` / `unconfirmTimesheet`. An admin
+can create, edit, delete, reopen and confirm shifts and their lunch/break events.
+
+**Clock in/out — complete.** Employee punches with lunch/break tracking,
+`source:"kiosk"`, `activeClockIn` on the person record, the `canClockIn` gate in
+`_utils/can.js` (with its deliberate never-block-clock-out rule), iOS
+`TimeClockView.swift`, the `forgot-clockout.js` daily sweep, and an org-wide live
+table (Name / Punches / Hours / Status, `src/TRAQS.jsx:~20980`).
+`jobClockIn` / `jobClockOut` are separate job-clock actions — correctly
+Business-only.
+
+**PTO/UTO workflow — complete.** Both types, full request lifecycle in
+`timeoff.js` (`approve` / `deny` / `cancel` / `reopen` / `edit`; statuses
+pending / approved / denied / cancelled), the `approveTimeOff` permission with
+audience selection via `personCan`, `person.timeOff[]`, calendar hatching
+(UTO amber / PTO green), overlap warnings (`src/TRAQS.jsx:8496` →
+`showOverlapIfAny`), `timeoff-cleanup.js` pruning, and an "Upcoming PTO" panel.
+
+**Pay-period reporting — substantially complete.** `buildHoursReport` /
+`openHoursExport` (`src/TRAQS.jsx:6255`) already produces a pay-period report
+including **lunch, break, PTO, UTO and OT**. Supporting machinery exists too:
+`payDates`, `payPeriodHourCap`, `person.payType` (`"hourly"|"salary"`) with
+hourly-only payroll filtering (`isHourly`, `:6156`), and timesheet confirmation.
+
+### 11.2 Gap — on-time metrics do not exist, and are blocked on rostering
+
+`ontime` appears 16 times in `src/TRAQS.jsx` but is **entirely job-delivery
+health**: `getHealth()` (`:701`), `HEALTH_DOT` / `HEALTH_COLOR` (`:715`–`717`),
+"Jobs on time %" (`:14063`, `:17339`, `:17671`). There is no clock-in-versus-
+scheduled-start comparison anywhere, for the simple reason that **there is no
+scheduled start**.
+
+Basic's headline metric therefore requires this plan. It is step 5 of §9, and
+steps 0–4 gate it. The word exists in the codebase; the metric does not.
+
+### 11.3 Gap — the employee page exists, but half its panels are job-fed
+
+`renderEmployees` (`:17936`) is real and well-built — "one person's complete
+picture" — with Status, Performance, Schedule, This week, Available, Assigned
+Queue, Time History, PTO / Attendance, Upcoming PTO, Reviews / Notes.
+
+Its own header comment states the sourcing:
+
+> *"Everything here is derived from data the app already holds: `tasks` for the
+> schedule/queue, `timeclock` for payroll punches, `productionHours` for
+> job-clock sessions… Anything the data model has no field for (reviews,
+> certifications, sick balance) renders an explicit empty state rather than a
+> fabricated number."*
+
+So in a Basic org: **Schedule**, **This week**, **Assigned Queue**,
+**Current Job**, **Current Task** and **Current Work** all render empty — an
+employee page reading *"None scheduled"*. **Performance** is efficiency +
+utilization, both job-derived, so also empty.
+
+Under decision 10 (§7.2) empty is not acceptable output: the job-fed panels must
+be **omitted** in Basic, and the schedule panels **re-sourced** from the roster.
+The page does not need building; roughly half of it needs re-wiring.
+
+### 11.4 Gap — the payroll export is PDF-only
+
+The complete data — lunch, break, PTO, UTO, OT — exists in `buildHoursReport`,
+but renders to **PDF**. The CSV path (`exportCSV`, `:19172`) is thin:
+`Date, Person, Clock In, Clock Out, Hours`, and it filters out event rows
+(`!e.eventType`), so no lunch, PTO, UTO or OT.
+
+Payroll systems ingest CSV. This is a **CSV renderer over an existing report**,
+not a new report — considerably smaller than it first appears, and it ships
+independently of rostering.
+
+### 11.5 Gap — no PTO balances or accrual
+
+Verified absent: no accrual, allowance, entitlement or balance fields anywhere.
+(`ALLOWANCE` at `:570` is break policy; the `accru` hits at `:5622` / `:17356`
+are lunch banking and job-clock time.) The `renderEmployees` comment names
+"sick balance" among the things *the data model has no field for*.
+
+You can request and approve time off but cannot answer "how many days does Maria
+have left" — usually table stakes for an HR-facing product. Also independent of
+rostering.
+
+### 11.6 Scoping question — HR data-model fields
+
+| Field | Present |
+|---|---|
+| `payType` (hourly / salary) | yes |
+| Pay **rate** / amount | no — exports are hours-only, no gross pay |
+| Employee / payroll ID | no — nothing to map into a payroll system |
+| Hire date | no |
+| Certifications, sick balance, reviews | no — already explicit empty states by design |
+
+Whether these matter turns on what "HR payroll export" means: an **hours
+handoff** (the payroll provider holds rates — the current design works) or a
+**payroll document with dollars** (needs rate + employee ID). This is the
+difference between a small CSV task and a data-model addition, and it is
+unresolved.
+
+### 11.7 Summary
+
+| Work | Size | Blocked by |
+|---|---|---|
+| Rostering | Large | — (this document) |
+| Re-source / omit employee-page panels | Medium | rostering |
+| On-time metrics | Small | rostering |
+| CSV renderer for the existing hours report | Small | — |
+| PTO balances / accrual | Medium | — (if in scope) |
+
+Clock in/out, manual shift administration and the PTO/UTO workflow need nothing.
+Two items ship today without rostering: the CSV renderer and PTO balances.
+Everything else waits on the roster — which confirms §9's ordering from a
+different direction.
+
+---
+
+## 12. File reference
 
 **Backend**
 - `netlify/functions/_utils/auth.js:253` — `requireOrgMember`; `:67` TTL
