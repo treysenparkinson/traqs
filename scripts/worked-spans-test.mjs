@@ -327,6 +327,46 @@ eq("no pause, no freeze — normal running work still tracks the cursor",
   ose({ clockInMs: L(2026, 9, 21, 9), pausedAt: null, nowMs: L(2026, 9, 21, 11) }),
   [L(2026, 9, 21, 11), false, false]);
 
+// ── HATCH FOLLOWS THE WORKER, PERMANENTLY ────────────────────────────────
+// Ruling 2026-09-22: worked time renders as hatch ONLY on the row of the person who did it,
+// and clocking out does not move it back. An op's owner shows grey only for sessions that
+// owner personally worked.
+//
+// The derivation therefore has to be per-op-PER-PERSON. These assert that the two readings
+// genuinely differ, which is the whole reason the change is needed — if they agreed, the
+// op-keyed map would have been fine and this rule would cost nothing to get wrong.
+
+const twoWorkers = [
+  sess(1, "opA", T(9), T(11)),   // Caleb worked 09-11
+  sess(2, "opA", T(13), T(16)),  // Trey worked 13-16 on the SAME op
+];
+
+eq("the op-keyed map merges both workers — what the owner's row used to show",
+  [...workedSpansByOp(twoWorkers).get("opA")],
+  [[T(9), T(11)], [T(13), T(16)]]);
+eq("per person, the owner sees only their own session",
+  [...workedSpansByPersonOp(twoWorkers).get("1").get("opA")],
+  [[T(9), T(11)]]);
+eq("per person, the cross-row worker sees only theirs",
+  [...workedSpansByPersonOp(twoWorkers).get("2").get("opA")],
+  [[T(13), T(16)]]);
+eq("someone who worked none of it has no entry at all — no grey on their row",
+  workedSpansByPersonOp(twoWorkers).get("3") ?? null, null);
+
+// RED PROOF: the per-op derivation is what the owner's row used to use. It agrees whenever
+// one person worked an op alone — which is most ops, and why this went unnoticed — and
+// hatches a colleague's afternoon onto the owner's row the moment two people touch one op.
+{
+  const perOp = [...workedSpansByOp(twoWorkers).get("opA")];
+  const perPerson = [...workedSpansByPersonOp(twoWorkers).get("1").get("opA")];
+  if (JSON.stringify(perOp) === JSON.stringify(perPerson)) {
+    console.error("RED PROOF FAILED: per-op and per-person agree here, so these cases cannot tell the readings apart");
+    process.exitCode = 1;
+  } else {
+    console.log("red proof: two workers on one op separate the per-op and per-person readings");
+  }
+}
+
 // Summary LAST. This block has been stranded mid-file twice by appending a new section
 // after it -- the run stayed green while the new assertions never executed, which is the
 // same green-and-blind failure the red proofs exist to catch. If you add a section, add it

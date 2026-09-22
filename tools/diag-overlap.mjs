@@ -39,6 +39,8 @@ const addBD = (ds, n) => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
+import { barLengthHours } from "../src/statsMath.js";
+
 const producedByOp = new Map();
 for (const s of prod || []) if (s && !s.deletedAt && s.opId != null) producedByOp.set(String(s.opId), (producedByOp.get(String(s.opId)) || 0) + (Number(s.hours) || 0));
 
@@ -53,8 +55,15 @@ for (const person of people) {
     if (op.end < TODAY) continue;
     const size = Math.max(1, (op.team || []).length);
     const worked = Math.max(producedByOp.get(String(op.id)) || 0, Number(op.loggedHours) || 0);
-    const perPerson = ((Number(op.hpd) || 0) > 0 ? Number(op.hpd) / size : PHPD)
-      + Math.max(0, worked - (Number(op.hpd) || 0)) / size;          // + overrun, as the render does
+    // The shipped length, not a copy of it. Measured from the op's STORED start, so the
+    // elapsed term is the productive stretch from there to now -- which is what the render
+    // computes for an unpushed bar.
+    const elapsedH = Math.max(0, (Date.parse(TODAY) - Date.parse(op.start)) / 86400000) * (5 / 7) * PHPD;
+    const perPerson = barLengthHours({
+      hpd: Number(op.hpd) || 0, workedHoursShown: worked, isFullyWorked: false,
+      teamSize: size, fallbackH: PHPD,
+      elapsedToCursorH: op.start <= TODAY ? elapsedH : 0,
+    });
     const spanBD = Math.max(0, Math.ceil(perPerson / PHPD) - 1);
     const sH = op.startHour ?? WORK_START;
     const eH = op.start === op.end

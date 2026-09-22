@@ -10,7 +10,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
-import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours, dayShiftToClear, rowSlackHours } from "./statsMath.js";
+import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours, dayShiftToClear, rowSlackHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
@@ -15442,7 +15442,13 @@ ${jobsCtx || "No jobs found."}`;
         // Same operands and same per-person divide as the render's _overrunPerPerson, and never
         // applied to a finished op, so the two cannot disagree.
         const ws = deriveWorkedState(op, producedFor(op), liveOpHours(op));
-        const overrun = ws.isFullyWorked ? 0 : Math.max(0, ws.workedHoursShown - (op.hpd || 0)) / teamSz;
+        // The same length the render and the cascade use, so a bar cannot be filtered out of
+        // a window it is actually drawn inside. Expressed as the DELTA from the planned block
+        // because that is what the caller adds to its window; a shrunk bar contributes a
+        // negative one, which is correct -- it needs less room than it was given.
+        const overrun = barLengthHours({ hpd: op.hpd, workedHoursShown: ws.workedHoursShown,
+          isFullyWorked: ws.isFullyWorked, teamSize: teamSz, fallbackH: productiveHoursPerDay })
+          - ((op.hpd || 0) > 0 ? op.hpd / teamSz : productiveHoursPerDay);
         const bdOpts = { workDays: orgSettings.workDays, holidays: orgSettings.holidays };
         const startH = op.startHour ?? workStartH;
         const { days } = walkProductiveHours(startH, hpd + overrun, dayWindowCfg);
@@ -15618,7 +15624,13 @@ ${jobsCtx || "No jobs found."}`;
           start: xStartDS, end: xEndDS,
           startHour: (xS - hourTs(xStartDS, 0)) / 3600000,
           endHour: (xE - hourTs(xEndDS, 0)) / 3600000,
-          hpd: spansDurationMs(xSpans) / 3600000,
+          // Its length is the SPAN it covers, not the hours inside it. Summed hours drew a
+          // 20.4h session as 20.4 hours of bar -- nearly three working days from its start,
+          // running well past the cursor -- when the work itself ended at 16:03. Hours worked
+          // and time elapsed are different quantities and one was standing in for the other.
+          //
+          // Clamped at now as a floor: a record of work cannot extend into the future.
+          hpd: Math.max(0.25, productiveHoursBetween(xS, Math.min(xE, Date.now()), { ...dayWindowCfg, workDays: orgSettings.workDays, holidays: orgSettings.holidays })),
           // Team is this person alone: the bar is their record of the work, and a team size
           // borrowed from the op would divide its length by people who were not on it.
           team: [pid],
@@ -16344,9 +16356,25 @@ ${jobsCtx || "No jobs found."}`;
                   workedHoursShown: rowBarWS[b.id]?.workedHoursShown || 0,
                   isFullyWorked: !!rowBarWS[b.id]?.isFullyWorked,
                   locked: !!b.task?.locked,
-                  // Anyone clocked into this op, from ANY row. _activeJobClocksByOp keys on opId,
-                  // so cross-row work registers here exactly as same-row work does.
-                  hasActiveSession: (_activeJobClocksByOp.get(String(b.task?.id)) || []).length > 0,
+                  // A cross-row bar is a record of work already done, not a block of time
+                  // being reserved. The render has always treated it that way; this is the
+                  // packing pass being told the same thing.
+                  isRecord: !!b.crossRow,
+                  // What THIS row's person has done on it, which is what decides whether the
+                  // remainder may sit behind the cursor. workedHoursShown above stays op-level
+                  // because the bar's LENGTH and its overrun are about the op, not about a row.
+                  ownWorkedHours: spansDurationMs(workedSpansPerPerson.get(String(p.id))?.get(String(b.task?.id)) || []) / 3600000,
+                  // THIS ROW'S person, clocked into this op. It used to be anyone from any row,
+                  // which was right while the exemption's job was 'do not drag an op somebody is
+                  // working'. Under the idle-left rule it is wrong: a row shows only its own
+                  // person's work, so a colleague's session puts no worked time on THIS row, and
+                  // exempting the bar from the cursor push left it sitting behind the line with
+                  // nothing but grey in front of it. That is the muted slab, exactly.
+                  //
+                  // It stays a boolean rather than an hours test because at the instant of
+                  // clock-in the hours are still zero and the op would be dragged out from under
+                  // the person working it.
+                  hasActiveSession: !!p.activeJobClock?.clockIn && sameId(p.activeJobClock.opId, b.task?.id),
                 })),
                 nowDay: toDS(_nowD), nowHour: _nowD.getHours() + _nowD.getMinutes() / 60,
                 cfg: { workStartH, totalWorkH, productiveHoursPerDay, diffBD: (x, y) => diffBD(x, y, _rowBDOpts) },
@@ -16525,6 +16553,24 @@ ${jobsCtx || "No jobs found."}`;
                 {/* Task/PTO bars */}
                 {bars.map(bar => {
                   const nDays = days.length;
+                  // WHERE THE CURSOR IS ON THE GRID, in the same percent-of-window units as every
+                  // bar's left and width. The vertical now-line is placed on the day/hour axis;
+                  // a bar's internal divider was a percentage of the BAR'S OWN TIME WINDOW applied
+                  // to its drawn width, and those are different mappings -- the drawn width comes
+                  // from an hours budget with weekends skipped, the axis from calendar columns. Two
+                  // mappings cannot agree except by coincidence, which is why the grey/colour
+                  // boundary sat a sliver off the line instead of flush against it.
+                  //
+                  // Outside the visible window it deliberately falls beyond 0..100 rather than
+                  // clamping here: a bar left of a past cursor must read as fully behind it, and
+                  // the fill clamps for paint at the point where it draws.
+                  const _nowD = new Date();
+                  const _nowIdx = days.indexOf(toDS(_nowD));
+                  const _nowHourFrac = totalWorkH > 0
+                    ? ((_nowD.getHours() + _nowD.getMinutes() / 60) - workStartH) / totalWorkH : 0;
+                  const _nowGridPct = _nowIdx >= 0
+                    ? ((_nowIdx + Math.min(1, Math.max(0, _nowHourFrac))) / nDays) * 100
+                    : (toDS(_nowD) < days[0] ? -1 : 101);
                   const _opStart = bar.task?.start; const _opEnd = bar.task?.end;
                   const _barTeamSz = Math.max(1, (bar.task?.team || []).length);
                   // Worked state for this bar — the bar's own geometry depends on it
@@ -16545,7 +16591,6 @@ ${jobsCtx || "No jobs found."}`;
                     ? Math.max(0, _barWS.workedHoursShown - (bar.task?.hpd || 0)) / _barTeamSz
                     : 0;
                   const _isOverrunning = _overrunPerPerson > 0;
-                  const _plannedDurH = (bar.task?.hpd || 0) > 0 ? bar.task.hpd / _barTeamSz : productiveHoursPerDay;
                   // No idle term any more. This used to add the elapsed-but-unworked hours to the
                   // bar's BUDGET, which lengthened it and left its left edge where it was; the
                   // cursor push in rowPushHours moves the bar instead, which is what was wanted.
@@ -16571,9 +16616,35 @@ ${jobsCtx || "No jobs found."}`;
                   // A floor rather than zero: a finished op that started after the cursor would
                   // otherwise collapse to nothing and vanish, and a bar nobody can see is a worse
                   // answer than a short one.
+                  // HOW MUCH OF THIS BAR IS ALREADY BEHIND THE CURSOR, which is what separates the part that
+                  // records work done from the part that reserves work still to do. Only the second shrinks.
+                  //
+                  // Measured from the STORED start less the push, which is the same thing as measuring from
+                  // where the bar actually lands -- and it has to be phrased that way because _layoutStart and
+                  // _barStartH are settled forty lines below this. Reading them here would be a reference
+                  // before initialisation: legal at parse, fatal at render, invisible to the build.
+                  //
+                  // Null for a cross-row bar, whose hpd is already the extent of the work it depicts, and for
+                  // PTO, which is a calendar range rather than an hours budget. Null means the classic block.
+                  const _elapsedRaw = (bar.type === "task" && bar.task && bar.start && !bar.crossRow)
+                    ? (cursorAnchored[bar.id] ? 0 : Math.max(0, productiveHoursBetween(
+                        hourTs(bar.start, bar.task.startHour ?? workStartH), Date.now(),
+                        { ...dayWindowCfg, workDays: orgSettings.workDays, holidays: orgSettings.holidays },
+                      ) - (overrunPushH[bar.id] || 0)))
+                  : null;
+                  // Same cap the packing applies: behind the cursor a bar shows worked time and
+                  // nothing else, so the elapsed stretch is never allowed to exceed it. A length
+                  // that disagrees between the packing and the paint IS an overlap.
+                  const _ownWorkedH = (bar.task && !bar.crossRow)
+                    ? spansDurationMs(workedSpansPerPerson.get(String(p.id))?.get(String(bar.task.id)) || []) / 3600000
+                    : 0;
+                  const _elapsedToCursorH = _elapsedRaw == null ? null : Math.min(_elapsedRaw, _ownWorkedH);
                   const _barHpd = _doneSpanH != null
                     ? Math.max(0.25, _doneSpanH / _barTeamSz)
-                    : _plannedDurH + _overrunPerPerson;
+                    : barLengthHours({
+                          hpd: bar.task?.hpd, workedHoursShown: bar.crossRow ? 0 : (_barWS?.workedHoursShown || 0),
+                          isFullyWorked: !!_barWS?.isFullyWorked, teamSize: _barTeamSz,
+                          fallbackH: productiveHoursPerDay, elapsedToCursorH: _elapsedToCursorH });
                   // PTO spans its whole calendar range as one continuous bar (incl. weekends),
                   // so treat every day as a "work" day for segmentation — no weekend gaps.
                   // Hoisted above the layout-start maths below, which needs the same options.
@@ -16634,9 +16705,26 @@ ${jobsCtx || "No jobs found."}`;
                   // is what remains, and it shrinks from the left as the cursor advances. This is a
                   // clamp on where it is drawn, not a push: the stored dates are untouched, and the
                   // push logic still exempts the op entirely.
-                  const _ownerClamp = !isPto && !bar.crossRow && !!bar.task
-                    && (_activeJobClocksByOp.get(String(bar.task.id)) || []).length > 0;
-                  const _atCursor = (bar.type === "task" && !!cursorAnchored[bar.id]) || _ownerClamp;
+                  // bar.type rather than isPto: that const is declared ~130 lines below this
+                  // point, so reading it here is a temporal dead zone throw at render -- which
+                  // builds clean and takes the page down the moment a row draws. Same value,
+                  // available now.
+                  // A row shows only its own person's work. If they have done none of this op, nothing
+                  // of it belongs left of the cursor -- not hatch, and not the idle grey either, which
+                  // carries 12% of the bar's hue and so reads as a muted version of the bar. On a red
+                  // bar that muted band looks exactly like work Caleb did, when the twenty hours behind
+                  // it were Trey's and are already drawn on Trey's row.
+                  //
+                  // The bar moving to the cursor is the push's job. What is left here is the test the
+                  // FILL needs: has the cursor gone past where this bar starts, which together with an
+                  // empty span list means this row has no claim on the work and the bar paints plain.
+                  const _cursorPastStart = !!bar.task && !!bar.start
+                    && hourTs(bar.start, bar.task.startHour ?? workStartH) < Date.now();
+                  // Placement comes from the push pass alone. A draw-time clamp used to force a bar
+                  // here as well, which put two bars on one row at the same instant with nothing to
+                  // separate them -- a move made at paint time cannot cascade. The push keys on this
+                  // row's own work now, so it covers that case and packs the result.
+                  const _atCursor = bar.type === "task" && !!cursorAnchored[bar.id];
                   if (_atCursor) {
                     const _curDay = toDS(new Date());
                     const _shiftBD = diffBD(bar.start, _curDay, _barBDOpts);
@@ -16727,6 +16815,19 @@ ${jobsCtx || "No jobs found."}`;
                   // the handles come off and the whole bar becomes the move target;
                   // zoom to week/day and the bar grows past it, so they return.
                   const _barPx = (_wFirst / 100) * nDays * cW;
+                  // How much of this bar is off the LEFT of the window, and therefore how far
+                  // its label has to slide in to stay on screen. A job running since January
+                  // is drawn right across the canvas with its left edge -- and its name -- far
+                  // outside it, so the longest-running jobs were the ones showing no name.
+                  const _clipLeftPx = _xNum < 0 ? (-_xNum / 100) * nDays * cW : 0;
+                  const _labelInset = labelInsetPx(_clipLeftPx, _barPx);
+                  // Which piece of this bar carries its name. Widths in pixels: the head's is
+                  // already known, and a later segment's is its whole-day span, which is what
+                  // it draws at. See labelSegmentIndex -- the head is not always the widest,
+                  // and on a bar that started months ago it is a grey sliver.
+                  const _segWidthsPx = barSegs.map((sg, si) => si === 0 ? _barPx
+                    : (diffD(sg.start, sg.end) + 1) * cW);
+                  const _labelSeg = labelSegmentIndex(_segWidthsPx);
                   // Handles SCALE with the bar rather than being a fixed 10px that a
                   // short job can't afford. Fixed-width was the whole bug: two 10px
                   // handles on a ~5px month-zoom bar were clipped by overflow:hidden
@@ -17893,18 +17994,31 @@ ${jobsCtx || "No jobs found."}`;
                   const _barSpansAbs = (() => {
                     if (isPto || !bar.task) return [];
                     const _nowMs = Date.now();
+                    // This row's own clock, if it is on this op. HATCH FOLLOWS THE WORKER, so a
+                    // colleague's running session belongs on THEIR row and not here — the same
+                    // rule the closed sessions below follow, applied to the open one.
+                    const _myJc = p.activeJobClock?.clockIn && sameId(p.activeJobClock.opId, bar.task.id)
+                      ? [p.activeJobClock] : [];
                     const _live = [];
-                    for (const jc of _liveClocks) {
+                    for (const jc of (bar.crossRow ? _liveClocks : _myJc)) {
                       const a = Date.parse(jc.clockIn);
                       // Q7b: a clock nobody stopped freezes at the end of the day it started on,
                       // so a forgotten Friday punch does not grow a bar across the weekend.
                       const { endMs: b } = openSessionEnd({ clockInMs: a, pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs, nowMs: _nowMs, cfg: dayWindowCfg });
                       if (Number.isFinite(a) && b > a) _live.push([a, b]);
                     }
-                    // A cross-row bar carries its own person's spans; every other bar takes the
-                    // op's merged ones.
+                    // HATCH FOLLOWS THE WORKER, and keeps following them after clock-out.
+                    //
+                    // Spans come from THIS ROW'S person on this op, not from the op. The op-keyed
+                    // reading merges everyone who touched it, so work done by somebody else painted
+                    // as grey on the owner's row -- Caleb showing twenty hours he did not work
+                    // because Trey worked them cross-row. An op's owner shows grey only for
+                    // sessions that owner personally worked, and a cross-row bar carries the spans
+                    // it was built from.
+                    //
                     if (bar.crossRow) return bar.spans || [];
-                    return mergeSpans([...(workedSpansStored.get(String(bar.task.id)) || []), ..._live]);
+                    const _mine = workedSpansPerPerson.get(String(p.id))?.get(String(bar.task.id)) || [];
+                    return mergeSpans([..._mine, ..._live]);
                   })();
                   const _barSpans = spansToPct(_barSpansAbs, _plannedS, _plannedE);
                   // THE HEAD'S OWN WINDOW. The head element covers only `firstBarSeg` -- the first
@@ -17923,7 +18037,10 @@ ${jobsCtx || "No jobs found."}`;
                   const _headS = (!isPto && bar.task) ? hourTs(firstBarSeg.start, _barStartH) : 0;
                   const _headE = (!isPto && bar.task) ? hourTs(firstBarSeg.end, _headIsLast ? _barEndHour : workEndH) : 0;
                   const _headSpans = spansToPct(_barSpansAbs, _headS, _headE);
-                  const _headCursorPct = _headE > _headS ? ((Date.now() - _headS) / (_headE - _headS)) * 100 : 0;
+                  // Across the head's DRAWN extent, on the grid axis, so the boundary lands on the
+                  // line rather than near it. _xNum and _wFirst are the same numbers the element's
+                  // left and width are set from, which is what makes this flush by construction.
+                  const _headCursorPct = _wFirst > 0 ? ((_nowGridPct - _xNum) / _wFirst) * 100 : 0;
                   // §3a, as ruled: the two rows show different halves of one piece of work, and
                   // neither half is derived from the other.
                   //
@@ -17936,9 +18053,22 @@ ${jobsCtx || "No jobs found."}`;
                   // THE OWNER'S ROW carries only what is left. Nothing from it may sit left of the
                   // cursor, so it has no spans and no grey: worked time lives on the worker's row
                   // and showing it on both would count it twice. Its left edge is clamped below.
+                  // Same test as the clamp above, so the paint and the placement cannot disagree
+                  // about whether this row has any claim on the work.
                   const _ownerOnTheClock = !isPto && !bar.crossRow && !!bar.task
-                    && (_activeJobClocksByOp.get(String(bar.task.id)) || []).length > 0;
-                  const _fillSpans = bar.crossRow ? [[0, 100]] : (_ownerOnTheClock ? [] : _headSpans);
+                    && _barSpansAbs.length === 0 && _cursorPastStart;
+                  // THE IDLE-LEFT RULE MAKES THE LEFT REGION ENTIRELY HATCH. A bar's left edge is
+                  // now placed exactly this person's worked hours behind the cursor, so every hour
+                  // of it behind the line IS worked time and there is no idle band left to draw.
+                  // That is the whole point of the rule: unworked time is not shown in the past.
+                  //
+                  // It replaces span-derived spans, which hatched the clock times the work
+                  // actually fell on. With the bar no longer sitting at its scheduled date those
+                  // times no longer line up with it, so three hours worked last week drew three
+                  // hours of GREY against the cursor with the hatch off somewhere the bar no
+                  // longer covers. The extent is the honest part now; the exact minutes are the
+                  // cross-row record's job, and those bars are still positioned by their spans.
+                  const _fillSpans = bar.crossRow ? [[0, 100]] : (_ownerOnTheClock ? [] : [[0, 100]]);
                   const _fillCursorPct = bar.crossRow ? 100 : (_ownerOnTheClock ? 0 : _headCursorPct);
                   // The dep and lock icons sit at the bar's LEFT end, which is grey once regions are
                   // drawn and the cursor has moved off zero -- everything left of the cursor is hatch
@@ -17996,7 +18126,7 @@ ${jobsCtx || "No jobs found."}`;
                     data-worked-pct={_barWorkedPct} data-divider-pct={_headCursorPct} data-op-divider-pct={_barCursorPct} data-raw-worked-pct={_barRawWorkedPct} data-worked-spans={JSON.stringify(_barSpans)} data-seg-worked-spans={JSON.stringify(_headSpans)} data-seg-divider-pct={_headCursorPct} data-unclosed={_barUnclosed ? "1" : undefined} data-worked-h={_barWorkedH} data-committed-h={_barCommittedH} data-live-h={_barLiveH} data-state={_barState}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, minWidth: _wFirst > 0 ? 2 : 0, height: rH - 8, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: activeBarFill(T, bc, _fillSpans, _fillCursorPct, _barState, _renderPx), border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : "0 12px", overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
+                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - 1px)`, minWidth: _wFirst > 0 ? 2 : 0, height: rH - 8, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: activeBarFill(T, bc, _fillSpans, _fillCursorPct, _barState, _renderPx), border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : `0 12px 0 ${12 + _labelInset}px`, overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
                     onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
                     {!_isNarrowBar && can("moveJobs") && !barLocked && !_dragBlocked && !(ws && ws.workedHpd > 0) && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {!_isNarrowBar && barSegs.length === 1 && _endsInView && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
@@ -18011,8 +18141,8 @@ ${jobsCtx || "No jobs found."}`;
                         literal "held" to reach liveBarTextColor's spent branch and IS on spent grey. */}
                     {!isPto && !_hideBarLabel && (_barState === "held" || _barState === "paused") && <span style={{ flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", opacity: 0.85, color: barLabelColor(T, bc) }}>{LIVE_BADGE_LABEL[_barState]}</span>}
                     {!isPto && !_hideBarLabel && bar.task?.status === "Finished" && <span style={{ flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", opacity: 0.85, color: liveBarTextColor(T, bc, "held") }}>DONE</span>}
-                    <span style={{ display: _hideBarLabel ? "none" : undefined, fontSize: 11, color: _titleColor, textShadow: _titleHalo, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>{isPto ? (<><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={accentText(bc)} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginRight: 5, verticalAlign: "-1.5px" }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>{bar.ptoType}{bar.title && bar.title !== bar.ptoType ? ` · ${bar.title}` : ""}</>) : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
-                    {!isPto && !_hideBarLabel && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: accentText(bc) === "#ffffff" ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)', fontFamily: T.mono, position: "relative", zIndex: 5 }}>{Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10}h</span>}
+                    <span style={{ display: (_hideBarLabel || _labelSeg !== 0) ? "none" : undefined, fontSize: 11, color: _titleColor, textShadow: _titleHalo, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>{isPto ? (<><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={accentText(bc)} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginRight: 5, verticalAlign: "-1.5px" }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>{bar.ptoType}{bar.title && bar.title !== bar.ptoType ? ` · ${bar.title}` : ""}</>) : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
+                    {!isPto && !_hideBarLabel && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: accentText(bc) === "#ffffff" ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)', fontFamily: T.mono, position: "relative", zIndex: 5 }} title={Math.round(_barHpd * 10) / 10 + "h left  ·  " + Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10 + "h estimated" + (_barWS && _barWS.workedHoursShown > 0 ? "  ·  " + _barWS.workedHoursShown.toFixed(1) + "h logged" : "")}>{Math.round(_barHpd * 10) / 10}h</span>}
                   </div>,
                   /* "New job" dot — a sibling of the bar (not a child, which the bar's overflow:hidden
                      would clip). Tucked just inside the bar's top-right corner so it stays fully
@@ -18023,8 +18153,15 @@ ${jobsCtx || "No jobs found."}`;
                   // Live dot takes the corner; the new-job dot shifts left when both apply,
                   // so a job created today that someone is already working shows both signals
                   // rather than one hiding the other.
-                  isLive && _wFirst > 0 && <span key={barKey + "-live"} className="tq-live-pulse" title={`On the clock now — ${_liveCrew.map(p => p.name).join(", ")}`} style={{ position: "absolute", left: `calc(${x} + ${w} - 10px)`, top: 4, zIndex: 9, width: 9, height: 9, borderRadius: "50%", background: "#10b981", boxSizing: "border-box", pointerEvents: "none" }} />,
-                  isNew && _wFirst > 0 && <span key={barKey + "-new"} className="tq-new-pulse" title="New job — added in the last 24h" style={{ position: "absolute", left: `calc(${x} + ${w} - ${isLive ? 23 : 10}px)`, top: 4, zIndex: 8, width: 9, height: 9, borderRadius: "50%", background: "#0a84ff", boxSizing: "border-box", pointerEvents: "none" }} />,
+                  isLive && _wFirst > 0 && <span key={barKey + "-live"} className="tq-live-pulse" title={`On the clock now — ${_liveCrew.map(p => p.name).join(", ")}`} style={{ position: "absolute", left: `calc(${x} + ${badgeOffsetPx(_barPx, 10)}px)`, top: 4, zIndex: 9, width: 9, height: 9, borderRadius: "50%", background: "#10b981", boxSizing: "border-box", pointerEvents: "none" }} />,
+                  isNew && _wFirst > 0 && <span key={barKey + "-new"} className="tq-new-pulse" title="New job — added in the last 24h" style={{ position: "absolute", left: `calc(${x} + ${badgeOffsetPx(_barPx, isLive ? 23 : 10)}px)`, top: 4, zIndex: 8, width: 9, height: 9, borderRadius: "50%", background: "#0a84ff", boxSizing: "border-box", pointerEvents: "none" }} />,
+                  isLive && _hideBarLabel && _wFirst > 0 && <span key={barKey + "-livelabel"}
+                    title={bar.task?.level === 2 && bar.task?.panelTitle ? `${bar.task.panelTitle}  ·  ${bar.task.title}` : (bar.task?.title || bar.title)}
+                    style={{ position: "absolute", left: `calc(${x} + ${Math.max(_barPx, badgeOffsetPx(_barPx, 10) + 9) + 8}px)`, top: 4, height: rH - 8,
+                      display: "flex", alignItems: "center", gap: 6, zIndex: 8, pointerEvents: "none",
+                      fontSize: 11, fontWeight: 700, color: T.text, whiteSpace: "nowrap" }}>
+                    {bar.task?.level === 2 && bar.task?.panelTitle ? `${bar.task.panelTitle}  ·  ${bar.task.title}` : (bar.task?.title || bar.title)}
+                  </span>,
                   ...barSegs.slice(1).map((seg, si) => {
                     const tailX = (diffD(tStart, seg.start) / nDays * 100) + "%";
                     // Only the segment that actually holds the bar's end gets the
@@ -18061,12 +18198,20 @@ ${jobsCtx || "No jobs found."}`;
                     const _segS = hourTs(seg.start, workStartH);
                     const _segE = hourTs(seg.end, isLastSeg ? _barEndHour : workEndH);
                     const _segSpans = isPto2 ? [] : spansToPct(_barSpansAbs, _segS, _segE);
-                    const _segCursorPct = _segE > _segS ? ((Date.now() - _segS) / (_segE - _segS)) * 100 : 0;
+                    // Same axis, against this segment's own left and width.
+                    const _tailXNum = (diffD(tStart, seg.start) / nDays) * 100;
+                    const _segCursorPct = _tailWNum > 0 ? ((_nowGridPct - _tailXNum) / _tailWNum) * 100 : 0;
                     return <div key={bar.id + "_t" + si + "_" + seg.start}
                       onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto2) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                       onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
-                      style={{ position: "absolute", top: 4, left: tailX, width: tailW, minWidth: isPto2 ? 0 : 2, height: rH - 8, boxSizing: "border-box", borderRadius: isPto2 ? T.radiusXs : Math.min(T.radiusXs, _tailPx / 2), background: activeBarFill(T, bc2, _segSpans, _segCursorPct, isPto2 ? "pto" : _barState, _tailPx), border: isBarSelected ? `2px solid #fff` : isPto2 ? `1.5px solid ${bc2}` : _tailPx < 8 ? "none" : `${_tailPx < 16 ? 1 : 2}px dashed ${bc2}cc`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : _dragBlocked ? "not-allowed" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", opacity: barOpacity, transition: "opacity 0.2s" }}
+                      style={{ position: "absolute", top: 4, left: tailX, width: tailW, minWidth: isPto2 ? 0 : 2, height: rH - 8, boxSizing: "border-box", borderRadius: isPto2 ? T.radiusXs : Math.min(T.radiusXs, _tailPx / 2), background: activeBarFill(T, bc2, _segSpans, _segCursorPct, isPto2 ? "pto" : _barState, _tailPx), border: isBarSelected ? `2px solid #fff` : isPto2 ? `1.5px solid ${bc2}` : _tailPx < 8 ? "none" : `${_tailPx < 16 ? 1 : 2}px dashed ${bc2}cc`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : _dragBlocked ? "not-allowed" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", display: "flex", alignItems: "center", opacity: barOpacity, transition: "opacity 0.2s" }}
                       onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
+                      {_labelSeg === si + 1 && _tailPx >= 44 && !isPto2 && <>
+                        <span style={{ fontSize: 11, color: _titleColor, textShadow: _titleHalo, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>
+                          {bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}
+                        </span>
+                        {bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginRight: 12, fontSize: 10, fontWeight: 700, color: accentText(bc2) === "#ffffff" ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.7)", fontFamily: T.mono, position: "relative", zIndex: 5 }}>{Math.round(_barHpd * 10) / 10}h</span>}
+                      </>}
                       {isLastSeg && _tailPx >= 12 && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: Math.max(3, Math.min(10, _tailPx / 3)), cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     </div>;
                   })];

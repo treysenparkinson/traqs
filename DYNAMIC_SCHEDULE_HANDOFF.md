@@ -109,6 +109,27 @@ deployed) and is also present on `feature/dynamic-schedule` via
 
 ## STATE AS OF 2026-09-18 — READ THIS FIRST
 
+### ONE LANE, FROM 2026-09-22
+
+**The three-lane split is over.** Functionality, Visuals and Verifier ran as separate sessions
+in separate worktrees for the geometry rewrite; all work now happens in **`traqs-func`** on
+`feature/dynamic-schedule`.
+
+`traqs-visual` and `traqs-verify` are **not deleted** — the worktrees stay on disk and the
+branches stay on origin at `92f5c47` and `f563115`. They are simply not used again. Everything
+either lane produced is already merged here, so nothing is stranded; but a branch that is not
+being used still LOOKS live, so check the date on anything found there before trusting it.
+Both still carry the OWED badge, which this branch removed at `8a2f649`.
+
+**What carries over, because it was worth more than the structure:**
+
+- **Red-first.** A check is not evidence until it has been seen to fail against a tree that
+  genuinely violates it. Every suite here carries red proofs for that reason, and the rule has
+  caught real defects since it was adopted — a slot finder that always appends, and an
+  exemption resting on worked hours that fails at exactly the moment someone clocks in.
+- **No commits, and no pushes, unless asked.** Build and test freely; landing is a decision.
+- **Ports belong to Trey.** Do not bind 8888 or 5173, and do not leave a server running.
+
 ### STATE 2026-09-21 — THE GEOMETRY REWRITE, MOSTLY LANDED
 
 The hatch is a RECORD, not an extent: that question is settled and built. `activeBarFill`
@@ -500,17 +521,22 @@ computation. Consolidated with item 11 — see §7.
 
 #### 3. Scenarios
 
-**3a. Cross-row work.** Trey clocks in on Caleb’s scheduled job. The two rows show different
-halves of one piece of work, and neither is derived from the other.
+**3a. Cross-row work — HATCH FOLLOWS THE WORKER, PERMANENTLY.** Trey clocks in on Caleb’s
+scheduled job. The two rows show different halves of one piece of work, and neither is derived
+from the other.
 
-- **The worker’s row carries the work.** A bar appears on Trey’s row spanning clock-in to now,
-  hatched end to end by construction — it IS the worked record, so it has no remainder and no
-  colour. It grows leftward from the cursor as he works.
-- **The owner’s row carries only what is left.** Caleb’s bar is clamped to START at the cursor
-  and shrinks as the cursor advances. **Nothing from it sits left of the cursor, and it shows no
-  grey at all** — worked time lives on the worker’s row, and showing it on both would count it
-  twice. (Ruling 2026-09-21, superseding the earlier “divider advances” wording, which put grey
-  on both rows.)
+- **Worked time renders as hatch ONLY on the row of the person who did it**, and clock-out does
+  not move it back. An op’s owner shows grey only for sessions that owner **personally**
+  worked. The derivation is therefore per-op-PER-PERSON, not per-op: the op-keyed reading
+  merges everyone who touched it, which painted twenty hours of Trey’s work as grey on
+  Caleb’s row. (Ruling 2026-09-22.)
+- **The worker’s row carries the work.** A bar appears on Trey’s row covering the SPAN he
+  worked — clock-in to clock-out, not the hours summed inside it — hatched end to end, with no
+  remainder and no colour. Clamped at the cursor: a record of work cannot extend into the
+  future.
+- **The owner’s row carries only what is left.** While somebody is on the op, Caleb’s bar is
+  clamped to START at the cursor and shrinks as the cursor advances. After they clock out it
+  still shows no grey for their work, because that work was never his.
 - Team is unchanged, and the op is NOT pushed while anybody is on it — an active session makes
   it non-untouched as a fact, whichever row the worker sits on.
 - On finish: Trey’s hatched region becomes DONE in place on his row, and Caleb’s row goes empty
@@ -804,6 +830,15 @@ green and throws at runtime.
 
 #### LESSONS — patterns that produced real defects in this feature
 
+**The one shape underneath all of them**, worth reading before the list: none of these were
+wrong when written. An instruction that read fine and drew nothing; a palette rule that
+inverted on two ladders; four expressions read by source order rather than by the ground they
+land on; a guard whose justification had expired. Every one read as correct right up to the
+moment somebody measured or traced it, and **not one would have been caught by a build**.
+What found them was not skill, it was declining to accept a plausible sentence as a checked
+one — including one's own. The 2.8 L* hatch and a wrong fast-forward claim were both caught
+that way, by their own author.
+
 - **If you delete a defensive comment, its guard has to survive somehow.** Twice in one day a
   comment was removed and the thing it defended against came straight back. The push comment
   said "a year-old op nobody finished would grow a year of idle and swamp the view"; it was
@@ -820,9 +855,131 @@ green and throws at runtime.
 - **A filter on stored dates and a paint on computed ones will disagree.** Bars kept by the
   visibility filter were painted past the window's right edge, which reads as work vanishing
   rather than as work being misplaced.
+- **A move made at paint time cannot cascade.** The owner clamp relocated a bar to the cursor
+  in the render while `rowPushHours` went on packing the row from stored positions. Every
+  clamped bar on a row therefore landed on the same instant, drawing on top of each other,
+  and the bar packed behind one of them was placed against an end that was no longer where
+  the bar was. Two mechanisms deciding one bar's position is the defect; the fix was to
+  delete one, not to reconcile them. **Placement belongs to the packing pass, always.**
+- **A length that disagrees between the packing and the paint IS an overlap.** Three sites
+  computed a bar's length from the same operands with slightly different expressions. They
+  are one exported function now (`barLengthHours`), and the diagnostics import it rather
+  than restating it -- `diag-overlap` had a fourth copy and was reporting on code that had
+  already changed.
+- **A check written with escapes may be checking nothing.** Twice a declaration-order sweep
+  reported "all clear" while its regex matched zero lines, because the heredoc writing the
+  script collapsed `\s` to `s` and `\b` to a backspace. Both times the conclusion drawn
+  was the opposite of the truth. **Any checker must be made to FAIL once** -- the version
+  that found the real answer carries a canary assertion for exactly this reason.
+- **A badge anchored to an edge assumes the element is bigger than the inset.** The live dot
+  sat at `x + w - 10px`. A bar can be one pixel wide -- a session three minutes old is three
+  minutes of record -- so the dot rendered nine pixels to the LEFT of the bar it marked and
+  read as floating loose on the timeline. Every offset-from-an-edge needs a clamp, because
+  the element it hangs off can be smaller than the offset (`badgeOffsetPx`).
+- **The smallest bar is the one that most needs its label.** `_hideBarLabel` drops the title
+  below 44px, which is right -- there is nowhere to put it inside. But the bar a person most
+  needs to identify is the one they are clocked into right now, and a fresh session is a
+  hairline. The name renders BESIDE the bar instead of widening it: widening would move a
+  bar for a reason that has nothing to do with time, and could push it into its neighbour.
+- **A record is not a reservation.** A cross-row bar depicts work somebody already did on an
+  op they are not on the team of. The render always treated it as a record -- no elapsed
+  term, extent equal to its span -- while `rowPushHours` treated it as a schedulable block and
+  added the elapsed-since-its-start term every op gets. Monday's 4.4-hour session measured as
+  19 hours in the packing, reached fifteen hours past the cursor, and shoved a LIVE clock-in
+  2.8 days into the future. Same class as the length disagreement above, and found the same
+  way: by reconstructing the row and comparing the two answers (`tools/diag-row-place.mjs`).
+- **A reconstruction that omits a bar hides the collision that bar causes.** The first trace
+  of that row left out the cross-row records and showed the live bar landing flush at +0.00h,
+  which said the data was fine and the render was wrong. It was the reverse. A row diagnostic
+  has to build the row the way `getPersonBars` builds it, records included.
+- **A label pinned to an edge disappears when that edge leaves the canvas.** A job running
+  since January is drawn right across the screen with its left edge -- and its name -- far
+  outside the window, so the LONGEST-running jobs were the ones showing no name at all
+  (`labelInsetPx`). The same shape as the badge clamp: a position relative to an element is
+  only meaningful while that part of the element is actually visible.
+- **Clocking into an op moves its bar, and moving a bar moves its name.** An active session
+  exempts the op from the cursor push -- correct, you cannot drag work somebody is on. The
+  bar then falls back to its real start, which for a job running since January puts its HEAD
+  segment months off to the left as a one-day grey sliver, while the 300px of colour anyone
+  is actually looking at is a tail, and tails never drew labels. The user reported it as "it
+  had a name before I clocked in", which was the whole diagnosis in one sentence -- the
+  earlier off-screen-label theory was close but wrong, and would not have fixed this.
+  `labelSegmentIndex` puts the name on the first segment with room for it.
+- **An exemption has to name every mechanism it exempts from.** Records were exempted from
+  the CURSOR push and still took COLLISION pushes, which was enough to ruin them: shifting a
+  record forward by half an hour puts its LEFT edge on the cursor rather than its right, so
+  work already finished is drawn as though it were still to come. A record now skips the push
+  pass entirely, the same standing history already had.
+- **A rule can be broken by length as well as by position.** Moving every bar off its idle
+  time still left one drawing three hours of grey: it was LOCKED, so the push could not move
+  it, and the elapsed term grew it forward to the cursor instead. Two mechanisms can violate
+  one invariant, and fixing the obvious one makes the other look like a fresh bug.
+- **An invariant you can measure ends the guessing.** Four rounds went on inferring geometry
+  from screenshots and getting it wrong. `idleLeftOfCursorH` plus `tools/diag-idle-left.mjs`
+  turned it into a number: 1,387h on two named rows, then 0. Every wrong theory in those
+  rounds -- off-screen labels, drag ghosts, hidden history -- would have been rejected in one
+  run. **Build the measurement before the third guess, not after the fifth.**
 - **Measure before believing a colour.** A hatch at 2.8 L\*, danger text at 1.75 against its
   ground: both looked reasonable and neither survived being measured.
 
+#### BAR LENGTH — a record behind the cursor, the hours left ahead of it (2026-09-22)
+
+A bar has two parts and they are measured differently.
+
+- **Ahead of the cursor** is the work still owed: the estimate less what has been logged,
+  divided per head. This is the shrink. A 22.5-hour op with 20.4 hours on it reserves 2.1
+  hours, not 22.5 -- reserving the whole estimate plans everything behind it around work
+  that is already finished.
+- **Behind the cursor** is a record, and records do not shrink. Its size is geometry: from
+  where the bar starts to now. The hatch lives there and has to be as wide as the stretch
+  of time it represents.
+- **Past the estimate** the remainder is zero and the ahead part becomes the overrun, so a
+  job running long keeps growing instead of collapsing. Floor of 0.25h: a bar with no
+  extent cannot be clicked, dragged, or seen.
+- **With no cursor** there is no ahead and behind, and it falls back to the estimate, or to
+  the hours actually sunk in if those ran longer. That fallback is load-bearing -- the
+  cascade uses it to decide what a row's PAST looks like, and an op that consumed 22.5
+  hours occupied 22.5 hours of that person whether or not its estimate said so. Shrinking
+  there would let the next op start inside them.
+
+The cursor push keys on **the row person's own work** (`ownWorkedHours`), not the op's total.
+A row shows only its own person's work, so an op somebody else worked is, from that row's
+point of view, entirely ahead of it. This is what retired the draw-time owner clamp.
+
+Measured on production data 2026-09-22: **0 packed overlaps across all 7 rows**
+(`node tools/diag-packed.mjs`). Note `diag-overlap.mjs` still reports 4 -- it measures
+STORED positions, which the packing pass then resolves. Only the packed number is the rule.
+#### THE IDLE-LEFT RULE — supersedes parts of §3a (2026-09-22)
+
+> "The only reason something like that should be there is if it was worked on by them.
+> Other than that, NO unworked time should be to the left. And ONLY THE WORKED TIME
+> SHOULD BE ON THE LEFT."
+
+**Left of the cursor a bar shows worked time and nothing else.** There is no idle region
+any more. What follows from it:
+
+- **A bar's left edge is exactly this person's worked hours behind the cursor.** This
+  generalises the cursor push rather than sitting beside it -- an untouched op has zero
+  worked hours, so its target IS the cursor, which is the old behaviour unchanged.
+- **The left region is drawn as hatch end to end.** It used to be hatched at the clock times
+  the work fell on, with grey in between. With the bar no longer sitting at its scheduled
+  date those times no longer line up with it, so three hours worked last week drew three
+  hours of GREY against the cursor and the hatch landed where the bar no longer was.
+- **The hours behind the cursor are capped at the hours worked**, so a bar the push could
+  not move -- a LOCKED op -- is not stretched forward to the cursor by the elapsed term
+  either. The rule was being broken by length as well as by position.
+- **`hasActiveSession` is no longer per-op, and no longer exempts.** It was "anyone, from any
+  row", which meant a colleague clocking into Tyler's op froze Tyler's bar at its January
+  start with 1,383 hours of grey in front of it. The target is now where the worker is, and
+  the bar grows leftward as hours land, so there is nothing left to protect it from.
+
+**SUPERSEDED:** "a worked op does not slide, where it sits is a record". It slides until only
+its worked hours sit behind the cursor. Cross-row RECORD bars still carry the when -- they are
+positioned by their spans and take no push at all.
+
+Measured on production data 2026-09-22 with `node tools/diag-idle-left.mjs`: **0 violations**,
+down from 1,387h across two rows. One bar sits at the 0.25h zero-width floor by design and is
+reported separately -- counting it would leave the check permanently red and therefore useless.
 #### THE INSTRUMENT GAP — permanent, and worth knowing before trusting a green run
 
 The headed `shot.mjs` login is **permanently deferred**: a standing credential that exists

@@ -5,7 +5,7 @@
 //
 //   node scripts/row-push-test.mjs
 
-import { rowPushHours } from "../src/statsMath.js";
+import { rowPushHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, idleLeftOfCursorH } from "../src/statsMath.js";
 
 let pass = 0, fail = 0;
 const eq = (label, got, want) => {
@@ -32,8 +32,18 @@ eq("cursor two days past an untouched op: it slides to the cursor",
   asObj(rowPushHours({ ops: [op("a", "2026-09-14")], nowDay: "2026-09-16", nowHour: 8, cfg: CFG })), { a: 15 });
 eq("part of a day counts",
   asObj(rowPushHours({ ops: [op("a", "2026-09-14")], nowDay: "2026-09-14", nowHour: 12, cfg: CFG })), { a: 3.75 });
-eq("a WORKED op does not slide — where it sits is a record, not a plan",
-  asObj(rowPushHours({ ops: [op("a", "2026-09-14", { workedHoursShown: 2 })], nowDay: "2026-09-16", nowHour: 8, cfg: CFG })), {});
+// SUPERSEDED RULING. This used to assert that a worked op does not slide at all, on the
+// grounds that where it sits is a record. It now slides until its left edge is exactly its
+// worked hours behind the cursor -- two hours worked, two hours behind -- because the rule
+// that outranks it is that left of the cursor is worked time AND NOTHING ELSE. Leaving it
+// where it was scheduled drew every unworked hour since that date as muted grey.
+eq("a worked op slides until only its worked hours sit behind the cursor",
+  asObj(rowPushHours({ ops: [op("a", "2026-09-14", { workedHoursShown: 2 })], nowDay: "2026-09-16", nowHour: 8, cfg: CFG })), { a: 13 });
+eq("...so its left edge lands exactly 2h behind a cursor 15h along",
+  (() => {
+    const r = rowPushHours({ ops: [op("a", "2026-09-14", { workedHoursShown: 2 })], nowDay: "2026-09-16", nowHour: 8, cfg: CFG });
+    return 0 + (r.pushes.get("a") || 0) - 15;
+  })(), -2);
 eq("a finished op does not slide",
   asObj(rowPushHours({ ops: [op("a", "2026-09-14", { isFullyWorked: true })], nowDay: "2026-09-16", nowHour: 8, cfg: CFG })), {});
 
@@ -264,14 +274,23 @@ if (overrunOnly(vanishRow) === rowSlackHours({ ops: vanishRow, nowMs: NOW, produ
 // elapsed time is seconds, the op still reads as untouched, and the cursor drags it forward
 // out from under the person working it. The zero-hours case below is the one that matters.
 
-eq("an op with an active session is NOT pushed, even with zero hours on it",
+// SUPERSEDED RULING. hasActiveSession used to exempt an op from the push entirely, to stop
+// it being dragged out from under the person working it while their hours were still zero.
+// The target now IS where that person is -- the cursor, less whatever they have logged --
+// so the bar lands under them and grows leftward as hours arrive. Nothing to protect.
+eq("a just-started session lands ON the cursor rather than being exempt",
   asObj(rowPushHours({
     ops: [op("a", "2026-09-14", { hasActiveSession: true, workedHoursShown: 0 })],
     nowDay: "2026-09-16", nowHour: 8, cfg: CFG,
-  })), {});
-eq("...and is not cursor-anchored either",
+  })), { a: 15 });
+eq("...and IS anchored there, because zero worked hours means the target is the cursor",
   cursorSet(rowPushHours({
     ops: [op("a", "2026-09-14", { hasActiveSession: true, workedHoursShown: 0 })],
+    nowDay: "2026-09-16", nowHour: 8, cfg: CFG,
+  })), ["a"]);
+eq("but an op with hours behind it is NOT anchored -- it lands short of the cursor",
+  cursorSet(rowPushHours({
+    ops: [op("a", "2026-09-14", { workedHoursShown: 2 })],
     nowDay: "2026-09-16", nowHour: 8, cfg: CFG,
   })), []);
 eq("the same op WITHOUT a session is pushed — so the flag is what is doing the work",
@@ -279,11 +298,16 @@ eq("the same op WITHOUT a session is pushed — so the flag is what is doing the
     ops: [op("a", "2026-09-14", { workedHoursShown: 0 })],
     nowDay: "2026-09-16", nowHour: 8, cfg: CFG,
   })), ["a"]);
+// A session on 'a' exempts 'a' and nothing else. 'b' is pushed clear of it -- past its end,
+// which is further than the cursor, because an op being worked since Monday occupies
+// Monday-to-now as a record and then the 7.5h it still owes.
+// Both untouched, so both target the cursor -- and the second is then packed off the end of
+// the first rather than landing on top of it.
 eq("a session on one op does not exempt its neighbour",
-  cursorSet(rowPushHours({
+  asObj(rowPushHours({
     ops: [op("a", "2026-09-14", { hasActiveSession: true }), op("b", "2026-09-14")],
     nowDay: "2026-09-16", nowHour: 8, cfg: CFG,
-  })), ["b"]);
+  })), { a: 15, b: 22.5 });
 
 // RED PROOF: the hours-based exemption this replaces. It agrees once a session has accrued
 // time and fails at exactly the moment someone clocks in, which is when the bar was seen to
@@ -297,5 +321,351 @@ if (hoursOnly({ hasActiveSession: true, workedHoursShown: 0 })) {
   console.log("red proof: a just-started session is exempt by fact and not by hours");
 }
 
+
+// ── bar length: a record behind the cursor, the hours left ahead of it ───
+// With no cursor there is no ahead and behind, and the block is what it always was.
+eq("no cursor, untouched: the estimate",
+  barLengthHours({ hpd: 40, workedHoursShown: 0 }), 40);
+eq("no cursor, part done: still the estimate, because worked plus left IS the estimate",
+  barLengthHours({ hpd: 40, workedHoursShown: 30 }), 40);
+eq("no cursor, run long: the hours actually sunk in, not the estimate",
+  barLengthHours({ hpd: 7.5, workedHoursShown: 22.5 }), 22.5);
+eq("no cursor, no estimate: a day per head",
+  barLengthHours({ hpd: 0, workedHoursShown: 0, fallbackH: 7.5 }), 7.5);
+
+// THE SHRINK. Ahead of the cursor is what is left, and nothing else.
+eq("starts at the cursor with thirty of forty done: ten wide",
+  barLengthHours({ hpd: 40, workedHoursShown: 30, elapsedToCursorH: 0 }), 10);
+eq("...and the same job untouched is still forty",
+  barLengthHours({ hpd: 40, workedHoursShown: 0, elapsedToCursorH: 0 }), 40);
+eq("the screenshot case: 97.5h estimated, 20h logged, clamped to the cursor",
+  barLengthHours({ hpd: 97.5, workedHoursShown: 20, elapsedToCursorH: 0 }), 77.5);
+eq("started two days ago: the record behind plus what is left ahead",
+  barLengthHours({ hpd: 40, workedHoursShown: 30, elapsedToCursorH: 15 }), 25);
+eq("a team of two splits what is LEFT, not what was estimated",
+  barLengthHours({ hpd: 40, workedHoursShown: 10, teamSize: 2, elapsedToCursorH: 0 }), 15);
+eq("past the estimate the future part is the overrun, so it grows rather than vanishing",
+  barLengthHours({ hpd: 40, workedHoursShown: 50, elapsedToCursorH: 0 }), 10);
+eq("exactly spent: the zero-width floor, not nothing",
+  barLengthHours({ hpd: 40, workedHoursShown: 40, elapsedToCursorH: 0 }), 0.25);
+eq("finished: the floor, with no overrun added",
+  barLengthHours({ hpd: 40, workedHoursShown: 60, isFullyWorked: true, elapsedToCursorH: 0 }), 0.25);
+
+// RED PROOF for the shrink: the formula it replaces reserved the FULL estimate however much
+// of the work was already done. If it agreed with the cases above there would be nothing to
+// fix -- and note it agrees exactly on the no-cursor rows, which is why those are unchanged.
+const oldLen = (o) => {
+  const size = Math.max(1, o.teamSize || 1);
+  return (o.hpd > 0 ? o.hpd / size : 7.5)
+    + (o.isFullyWorked ? 0 : Math.max(0, (o.workedHoursShown || 0) - (o.hpd || 0)) / size);
+};
+let shrinkRedOk = true;
+if (oldLen({ hpd: 97.5, workedHoursShown: 20 }) === 77.5) {
+  shrinkRedOk = false;
+  console.error("RED PROOF FAILED: the old length formula already shrinks to the remainder");
+} else {
+  console.log(`red proof: the old formula reserves ${oldLen({ hpd: 97.5, workedHoursShown: 20 })}h for a job with 77.5h left`);
+}
+// ── the push keys on THIS ROW'S work, so clamped bars cannot pile up ──────
+// The screenshot case. Two ops scheduled in the past on one row. 'a' carries twenty hours
+// somebody ELSE logged, so from this row's point of view neither has been started, and the
+// remainder of both belongs at or after the cursor -- laid end to end, never on the same spot.
+const twoUnstarted = rowPushHours({
+  ops: [
+    op("a", "2026-09-14", { workedHoursShown: 20, ownWorkedHours: 0 }),
+    op("b", "2026-09-14", { workedHoursShown: 0, ownWorkedHours: 0 }),
+  ],
+  nowDay: "2026-09-16", nowHour: 8, cfg: CFG,
+});
+// a: slides the 15h to the cursor, then occupies its 12.5h overrun -> ends at 27.5.
+// b: cannot start before that, so 27.5 -- which is further than the cursor alone would put it.
+eq("an op worked only by someone else still slides to the cursor on this row",
+  asObj(twoUnstarted), { a: 15, b: 27.5 });
+eq("...and the one behind it is packed past its end rather than onto it",
+  cursorSet(twoUnstarted), ["a"]);
+
+// The same row, but this person HAS worked 'a'. Then its position is a record of when that
+// happened and it must not be dragged anywhere.
+eq("own work pins the op where it sits",
+  cursorSet(rowPushHours({
+    ops: [op("a", "2026-09-14", { workedHoursShown: 20, ownWorkedHours: 20 })],
+    nowDay: "2026-09-16", nowHour: 8, cfg: CFG,
+  })), []);
+eq("an op with no ownWorkedHours at all falls back to the op total",
+  cursorSet(rowPushHours({
+    ops: [op("a", "2026-09-14", { workedHoursShown: 20 })],
+    nowDay: "2026-09-16", nowHour: 8, cfg: CFG,
+  })), []);
+
+// THE INVARIANT, stated directly: no two bars on a row may occupy the same hour.
+// every fixture starts on DAYS[0] at 8am, so start-in-productive-hours is 0, and the cursor
+// at 2026-09-16 08:00 is two full days along.
+const NOW_PROD = 15;
+const intervals = (r, ops) => ops.map((o) => {
+  const push = r.pushes.get(String(o.id)) || 0;
+  // Length derived the way rowPushHours derives it -- from where the op LANDS. Deriving it
+  // any other way here would reproduce the disagreement this section exists to catch.
+  const len = barLengthHours({ ...o, elapsedToCursorH: Math.max(0, NOW_PROD - push) });
+  return [push, push + len];
+});
+const anyOverlap = (iv) => iv.some(([s1, e1], i) => iv.some(([s2, e2], j) => j > i && s1 < e2 && s2 < e1));
+let overlapRedOk = true;
+{
+  const ops = [
+    op("a", "2026-09-14", { workedHoursShown: 20, ownWorkedHours: 0 }),
+    op("b", "2026-09-14", { workedHoursShown: 0, ownWorkedHours: 0 }),
+  ];
+  eq("no two bars on the row occupy the same hour", anyOverlap(intervals(twoUnstarted, ops)), false);
+
+  // RED PROOF: the same row as it was drawn before -- 'a' left where the packing put it but
+  // moved to the cursor at paint time, which is what the retired draw-time clamp did. b is
+  // packed against a's UNCLAMPED end, so it lands inside a. This is the reported overlap.
+  const clamped = new Map([["a", 15], ["b", 20]]);
+  const drawn = intervals({ pushes: clamped }, ops);
+  if (!anyOverlap(drawn)) {
+    overlapRedOk = false;
+    console.error("RED PROOF FAILED: the clamp-and-pack-separately layout does not overlap");
+  } else {
+    console.log(`red proof: clamping at paint time draws ${JSON.stringify(drawn)} -- b sits inside a`);
+  }
+}
+
+// -- corner badges stay on the bar -------------------------------------
+eq("a wide bar hangs the badge off its right edge",
+  badgeOffsetPx(120, 10), 110);
+eq("exactly wide enough: flush at the left edge",
+  badgeOffsetPx(10, 10), 0);
+eq("a one-pixel live bar pins the badge to its left edge, not off it",
+  badgeOffsetPx(1, 10), 0);
+eq("the second badge, further in, clamps the same way",
+  badgeOffsetPx(1, 23), 0);
+eq("junk in, zero out",
+  badgeOffsetPx(undefined, 10), 0);
+
+// RED PROOF: the expression this replaces went negative on a narrow bar, which is the
+// detached dot -- rendered to the LEFT of the bar it marks.
+let badgeRedOk = true;
+if ((1 - 10) >= 0) {
+  badgeRedOk = false;
+  console.error("RED PROOF FAILED: the unclamped offset does not go negative");
+} else {
+  console.log(`red proof: unclamped, a 1px bar puts its badge at ${1 - 10}px -- outside itself`);
+}
+// -- a cross-row RECORD is history, not a reservation --------------------
+// A record of work someone did on another person's op is drawn on their row. Its extent is
+// the span the work covered and nothing else. Giving it the elapsed-since-its-start term
+// every scheduled op gets makes a Monday session grow all week and shove live work days out.
+const rec = (id, start, o = {}) => op(id, start, { xrow: true, isRecord: true, hpd: 4, ...o });
+
+eq("a record does not grow with time the way a reservation does",
+  (() => {
+    const r = rowPushHours({
+      ops: [rec("r", "2026-09-14"), op("live", "2026-09-16", { startHour: 10, hasActiveSession: true })],
+      nowDay: "2026-09-16", nowHour: 10, cfg: CFG,
+    });
+    return Math.round((r.pushes.get("live") || 0) * 100) / 100;
+  })(), 0);
+
+eq("a record is never dragged to the cursor -- where it sits is when it happened",
+  cursorSet(rowPushHours({
+    ops: [rec("r", "2026-09-14", { ownWorkedHours: 0 })],
+    nowDay: "2026-09-16", nowHour: 8, cfg: CFG,
+  })), []);
+
+eq("a scheduled op in the same slot still behaves normally",
+  cursorSet(rowPushHours({
+    ops: [op("a", "2026-09-14", { ownWorkedHours: 0 })],
+    nowDay: "2026-09-16", nowHour: 8, cfg: CFG,
+  })), ["a"]);
+
+// RED PROOF: with the elapsed term applied to a record, the record swells from its 4h span to
+// its span PLUS two days of elapsed time, and the live op behind it is pushed clear of that.
+let recordRedOk = true;
+{
+  const swollen = barLengthHours({ hpd: 4, workedHoursShown: 0, teamSize: 1, elapsedToCursorH: 15 });
+  const honest = barLengthHours({ hpd: 4, workedHoursShown: 0, teamSize: 1, elapsedToCursorH: null });
+  if (swollen <= honest) {
+    recordRedOk = false;
+    console.error("RED PROOF FAILED: the elapsed term does not lengthen a record");
+  } else {
+    console.log(`red proof: an elapsed term turns a ${honest}h record into a ${swollen}h block`);
+  }
+}
+// -- a long job's name stays on screen -----------------------------------
+eq("a bar starting inside the window is not inset at all",
+  labelInsetPx(0, 900), 0);
+eq("a bar clipped on the left slides its label in by the clipped amount",
+  labelInsetPx(400, 900), 400);
+eq("...capped so there is room left to draw the text",
+  labelInsetPx(880, 900), 740);
+eq("a bar with no room at all does not inset and push its label off the right",
+  labelInsetPx(400, 100), 0);
+eq("negative clip is treated as none",
+  labelInsetPx(-50, 900), 0);
+
+// RED PROOF: without the inset the label sits at the bar's left edge, which for a job that
+// began before the window is off the canvas -- so the name is simply never drawn.
+let insetRedOk = true;
+if (labelInsetPx(400, 900) === 0) {
+  insetRedOk = false;
+  console.error("RED PROOF FAILED: a clipped bar is not inset, so its label stays off screen");
+} else {
+  console.log(`red proof: uninset, a bar clipped 400px draws its label 400px off the canvas`);
+}
+// -- a record takes NO push of any kind ----------------------------------
+// Exempting it from the CURSOR push is not enough. A collision push moves it just the same,
+// and moving a record forward by even half an hour puts its LEFT edge on the cursor instead
+// of its right -- so work already done is drawn as though it were still to come.
+eq("a record is not pushed by the op in front of it",
+  (() => {
+    const r = rowPushHours({
+      ops: [
+        op("before", "2026-09-22", { startHour: 8, hpd: 20, ownWorkedHours: 0 }),
+        rec("r", "2026-09-22", { startHour: 10, hpd: 1 }),
+      ],
+      nowDay: "2026-09-22", nowHour: 11, cfg: CFG,
+    });
+    return Math.round((r.pushes.get("r") || 0) * 100) / 100;
+  })(), 0);
+
+eq("...and a record does not push the op behind it into the future either",
+  (() => {
+    const r = rowPushHours({
+      ops: [
+        rec("r", "2026-09-14", { hpd: 30 }),
+        op("after", "2026-09-16", { startHour: 10, ownWorkedHours: 0 }),
+      ],
+      nowDay: "2026-09-16", nowHour: 10, cfg: CFG,
+    });
+    // 'after' is dragged to the cursor and nowhere further: the record is not in its way.
+    return Math.round((r.pushes.get("after") || 0) * 100) / 100;
+  })(), 0);
+
+eq("two ordinary ops still collide normally, so the exemption is the record and not the pass",
+  (() => {
+    const r = rowPushHours({
+      ops: [
+        op("before", "2026-09-22", { startHour: 8, hpd: 20, ownWorkedHours: 0 }),
+        op("x", "2026-09-22", { startHour: 10, hpd: 1, ownWorkedHours: 0 }),
+      ],
+      nowDay: "2026-09-22", nowHour: 11, cfg: CFG,
+    });
+    return (r.pushes.get("x") || 0) > 0;
+  })(), true);
+
+// RED PROOF: the reported geometry. A record one hour long, whose work ended at the cursor,
+// pushed even slightly forward now starts AT the cursor and sticks out to the right of it.
+let recPushRedOk = true;
+{
+  const cursorH = 3.0, recLen = 1.0, recStart = 2.0;   // ends exactly at the cursor
+  const pushed = recStart + 0.5;
+  if (!(recStart + recLen <= cursorH && pushed + recLen > cursorH)) {
+    recPushRedOk = false;
+    console.error("RED PROOF FAILED: a pushed record does not cross the cursor");
+  } else {
+    console.log(`red proof: pushed 0.5h, a record ending at the cursor now ends ${(pushed + recLen - cursorH).toFixed(1)}h past it`);
+  }
+}
+// -- the name goes where there is room for it ----------------------------
+eq("a wide head keeps the name, so nothing moves for an ordinary bar",
+  labelSegmentIndex([300, 400, 400]), 0);
+eq("Tyler's bar: a one-day grey sliver, then five-day blocks",
+  labelSegmentIndex([80, 417, 300]), 1);
+eq("exactly at the threshold counts as room",
+  labelSegmentIndex([88, 400]), 0);
+eq("no segment has room: the widest one takes it",
+  labelSegmentIndex([20, 60, 45]), 1);
+eq("all equal and none with room: the head, so it does not drift",
+  labelSegmentIndex([30, 30, 30]), 0);
+eq("a single segment is always the answer",
+  labelSegmentIndex([12]), 0);
+eq("no segments at all does not throw",
+  labelSegmentIndex([]), 0);
+
+// RED PROOF: the rule it replaces was 'always index 0'. On the reported bar that picks the
+// 80px grey sliver over the 417px block beside it.
+let segRedOk = true;
+if (labelSegmentIndex([80, 417, 300]) === 0) {
+  segRedOk = false;
+  console.error("RED PROOF FAILED: the chooser still picks the head");
+} else {
+  console.log(`red proof: always-head puts the name in an 80px sliver beside a 417px block`);
+}
+// -- LEFT OF THE CURSOR IS WORKED TIME AND NOTHING ELSE ------------------
+eq("a bar entirely right of the cursor has no idle behind it",
+  idleLeftOfCursorH(10, 5, 10, []), 0);
+eq("a bar starting exactly at the cursor is clean",
+  idleLeftOfCursorH(10, 5, 10, []), 0);
+eq("an unworked bar sitting two days behind the cursor is all violation",
+  idleLeftOfCursorH(0, 20, 15, []), 15);
+eq("...and its extent right of the cursor does not count",
+  idleLeftOfCursorH(0, 100, 15, []), 15);
+eq("fully worked up to the cursor is clean",
+  idleLeftOfCursorH(0, 20, 15, [[0, 15]]), 0);
+eq("worked late: the stretch before the first hour logged is the violation",
+  idleLeftOfCursorH(0, 20, 15, [[10, 15]]), 10);
+eq("a gap between two worked stretches counts too",
+  idleLeftOfCursorH(0, 20, 15, [[0, 5], [10, 15]]), 5);
+eq("work logged beyond the cursor is not credited backwards",
+  idleLeftOfCursorH(0, 20, 15, [[15, 20]]), 15);
+eq("overlapping spans are merged, not double counted",
+  idleLeftOfCursorH(0, 20, 15, [[0, 10], [5, 15]]), 0);
+
+// RED PROOF: the three rows as reported -- a job scheduled to start six working days ago,
+// nobody has logged an hour against it, and it is drawn from there. Every one of those hours
+// is idle time left of the cursor, which is what the muted slab was.
+let idleRedOk = true;
+{
+  const slab = idleLeftOfCursorH(0, 97.5, 45, []);
+  if (slab === 0) {
+    idleRedOk = false;
+    console.error("RED PROOF FAILED: an unworked bar behind the cursor reports no idle");
+  } else {
+    console.log(`red proof: an unworked bar six days behind the cursor draws ${slab}h of idle grey`);
+  }
+}
+// -- a pinned bar does not stretch to the cursor -------------------------
+// A lock says do not move this bar, and it is honoured. But the elapsed term then grew the
+// bar forward from its pinned start all the way to the cursor, and every hour of that growth
+// was unworked time drawn behind the line -- the rule broken by length instead of position.
+eq("a locked op behind the cursor is not stretched forward to it",
+  (() => {
+    const r = rowPushHours({
+      ops: [op("a", "2026-09-16", { startHour: 8, hpd: 0.5, locked: true, ownWorkedHours: 0 })],
+      nowDay: "2026-09-16", nowHour: 14, cfg: CFG,
+    });
+    return Math.round((r.pushes.get("a") || 0) * 100) / 100;
+  })(), 0);
+eq("...and an unlocked one in the same slot slides instead",
+  (() => {
+    const r = rowPushHours({
+      ops: [op("a", "2026-09-16", { startHour: 8, hpd: 0.5, ownWorkedHours: 0 })],
+      nowDay: "2026-09-16", nowHour: 14, cfg: CFG,
+    });
+    return (r.pushes.get("a") || 0) > 0;
+  })(), true);
+
+// The length rule behind it, stated directly: time behind the cursor is capped at the hours
+// actually worked, so a pinned bar cannot grow into the past on elapsed time alone.
+// 1h behind the cursor plus the 0.5h it has run over its estimate ahead of it. The point is
+// the BEHIND term being 1 and not 6 -- the total carries the overrun as it always has.
+eq("six hours elapsed but one worked: one hour behind the cursor, not six",
+  barLengthHours({ hpd: 0.5, workedHoursShown: 1, elapsedToCursorH: Math.min(6, 1) }), 1.5);
+eq("nothing worked: nothing behind the cursor",
+  barLengthHours({ hpd: 4, workedHoursShown: 0, elapsedToCursorH: Math.min(6, 0) }), 4);
+
+// RED PROOF: uncapped, the pinned bar reaches from its start to the cursor, and all of it is
+// idle grey.
+let stretchRedOk = true;
+{
+  const uncapped = barLengthHours({ hpd: 0.5, workedHoursShown: 1, elapsedToCursorH: 6 });
+  const capped = barLengthHours({ hpd: 0.5, workedHoursShown: 1, elapsedToCursorH: Math.min(6, 1) });
+  if (uncapped <= capped) {
+    stretchRedOk = false;
+    console.error("RED PROOF FAILED: the uncapped elapsed term does not stretch the bar");
+  } else {
+    console.log(`red proof: uncapped, a 1h-worked pinned bar draws ${uncapped}h behind the cursor instead of ${capped}h`);
+  }
+}
 console.log(`${pass} passed, ${fail} failed`);
-process.exit(fail === 0 && redOk && collideRedOk && slackRedOk && sessionRedOk ? 0 : 1);
+process.exit(fail === 0 && redOk && collideRedOk && slackRedOk && sessionRedOk && shrinkRedOk && overlapRedOk && badgeRedOk && recordRedOk && insetRedOk && recPushRedOk && segRedOk && idleRedOk && stretchRedOk ? 0 : 1);

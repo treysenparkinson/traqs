@@ -621,6 +621,113 @@ export function workedSpansByPersonOp(sessions) {
 //
 // `diffBD` is injected rather than reimplemented — business days, work days and holidays have
 // one definition in this codebase and a second one here would drift from it silently.
+// HOW LONG A BAR IS. Two parts, and they are measured differently.
+//
+// AHEAD of the cursor is the work still owed: the estimate less what has been logged. This
+// is the shrink. A 97.5-hour job with 20 hours on it has 77.5 hours left, and 77.5 hours is
+// what it should reserve -- reserving the whole 97.5 plans everything behind it around work
+// that is already finished.
+//
+// BEHIND the cursor is a record, and records do not shrink. Its size is geometry: from where
+// the bar starts to now. The hatch lives there, and it has to be as wide as the stretch of
+// time it represents.
+//
+// With no cursor supplied there is no ahead and behind, so it falls back to the block this
+// replaced -- the estimate, or the hours actually sunk into it if those ran longer. That
+// fallback is load-bearing: the cascade uses it to decide what the row's PAST looks like,
+// and an op that consumed twenty-two hours occupied twenty-two hours of that person whether
+// or not its estimate said so. Shrinking there would let the next op start inside them.
+//
+// Past the estimate the remainder is zero and the future part is the OVERRUN, so a job
+// running long keeps growing instead of collapsing to nothing. The 0.25 floor is the
+// zero-width ban: a bar with no extent cannot be clicked, dragged, or seen.
+//
+// Three places computed this independently -- the push cascade, the schedule's slack
+// calculation, and the bar render -- with the same operands and slightly different
+// expressions. They are one function now, because a length that disagrees between the
+// packing and the paint IS an overlap.
+// WHERE A CORNER BADGE SITS on a bar, as pixels from the bar's own LEFT edge.
+//
+// Badges hang off the right edge, `inset` pixels in, which silently assumes the bar is wider
+// than the inset. A bar can be one pixel wide -- a live session three minutes old is three
+// minutes of record -- and then the naive barPx - inset is NEGATIVE and the badge renders to
+// the LEFT of the bar it belongs to, floating clear of it. That is the detached green dot.
+//
+// Clamped at zero: on a bar too narrow to hang from, the badge sits at its left edge and
+// overhangs to the right, which still reads as attached.
+export function badgeOffsetPx(barPx, inset) {
+  return Math.max(0, (Number(barPx) || 0) - (Number(inset) || 0));
+}
+// HOW FAR TO INSET A BAR'S LABEL so it stays on screen.
+//
+// A bar's title sits at its left edge. A bar that began before the visible window has that
+// edge off the left of the canvas, so a job drawn right across the screen shows no name at
+// all -- which is worst for exactly the longest-running jobs, the ones hardest to identify
+// from position alone.
+//
+// `clipPx` is how much of the bar is off the left. The label slides in by that much, capped
+// so at least `minContentPx` of the bar is left to draw the text in; without the cap a bar
+// clipped to its last few pixels would push its own label off the RIGHT edge instead.
+export function labelInsetPx(clipPx, barPx, minContentPx = 160) {
+  const clip = Math.max(0, Number(clipPx) || 0);
+  const room = Math.max(0, (Number(barPx) || 0) - minContentPx);
+  return Math.min(clip, room);
+}
+// WHICH SEGMENT OF A BAR CARRIES ITS NAME.
+//
+// A bar crossing weekends is drawn as several elements, and the name went on the first one
+// always. That is fine while the first one is the widest, which it is for a bar starting at
+// the cursor -- and stops being true the moment the bar starts earlier. A job running since
+// January has a one-day sliver for its head and five-day blocks after it, so the name was
+// squeezed into 80 pixels of grey while 300 pixels of colour sat there blank. Clocking into
+// an op did exactly this: it exempts the op from the cursor push, the bar falls back to its
+// real start, and the name vanishes from the part of it anyone is looking at.
+//
+// First segment with room, else the widest one. Earliest wins a tie, so a bar whose segments
+// are all the same size still labels its head and nothing appears to move.
+export function labelSegmentIndex(widthsPx, minPx = 88) {
+  const w = Array.isArray(widthsPx) ? widthsPx.map((v) => Number(v) || 0) : [];
+  if (!w.length) return 0;
+  const fits = w.findIndex((v) => v >= minPx);
+  if (fits >= 0) return fits;
+  let best = 0;
+  for (let i = 1; i < w.length; i++) if (w[i] > w[best]) best = i;
+  return best;
+}
+// THE IDLE-LEFT INVARIANT, as a number so it can be asserted instead of argued about.
+//
+// RULE: left of the cursor a bar shows WORKED TIME AND NOTHING ELSE. Time that has passed
+// with no hours logged against it is not drawn -- an unstarted job slides to the cursor
+// rather than sitting behind it in muted grey, and a job worked in a later stretch than it
+// was scheduled begins where the work begins.
+//
+// Returns the hours of this bar that lie left of the cursor and are NOT covered by a worked
+// span. Anything above zero is a violation. All four arguments are on one axis -- productive
+// hours from whatever origin the caller picked -- because mixing axes here would make the
+// check agree with neither the packing nor the paint.
+export function idleLeftOfCursorH(startH, lenH, nowH, workedSpans = []) {
+  const a = Number(startH) || 0;
+  const b = Math.min(a + (Number(lenH) || 0), Number(nowH) || 0);
+  if (!(b > a)) return 0;
+  let covered = 0;
+  for (const [s, e] of mergeSpans(workedSpans || [])) {
+    const lo = Math.max(a, s), hi = Math.min(b, e);
+    if (hi > lo) covered += hi - lo;
+  }
+  return Math.max(0, (b - a) - covered);
+}
+export function barLengthHours({ hpd, workedHoursShown = 0, isFullyWorked = false, teamSize = 1, fallbackH = 7.5, elapsedToCursorH = null }) {
+  const size = Math.max(1, teamSize || 1);
+  const est = (hpd || 0) > 0 ? hpd : fallbackH * size;
+  const worked = Math.max(0, workedHoursShown || 0);
+  const remaining = Math.max(0, est - worked) / size;
+  const overrun = isFullyWorked ? 0 : Math.max(0, worked - est) / size;
+  const ahead = remaining > 0 ? remaining : overrun;
+  const behind = elapsedToCursorH == null
+    ? Math.max(0, Math.max(est, worked) / size - ahead)
+    : Math.max(0, elapsedToCursorH);
+  return Math.max(0.25, behind + ahead);
+}
 export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
   // Ops whose push comes from the CURSOR rather than from a collision. Their left edge is not
   // a quantity of hours to add back onto a clock -- it is a known instant, and the caller
@@ -658,10 +765,20 @@ export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
     // A November op nobody has worked should not be displacing next week. It stays where it is,
     // greys, and reports what it owes with a badge.
     if (nowDay != null && op.end != null && op.end < nowDay) continue;
+    // A RECORD TAKES NO PART IN PUSH MECHANICS AT ALL -- the same standing this pass already
+    // gives history, for the same reason. A cross-row bar depicts work that has already
+    // happened; it is not competing for a slot, so it neither receives a push nor blocks
+    // anything behind it.
+    //
+    // Exempting it from the CURSOR push alone was not enough. A collision push moves it just
+    // the same, and shifting a record forward by even half an hour puts its LEFT edge on the
+    // cursor instead of its right -- work already done drawn as though it were still to come.
+    // A record's right edge is the moment the work stopped, and for an open session that
+    // moment is now, so it sits flush against the cursor by construction once nothing moves it.
+    if (op.isRecord) continue;
     const sp = startProd(op);
     const worked = Math.max(0, op.workedHoursShown || 0);
     const size = Math.max(1, op.teamSize || 1);
-    const planned = (op.hpd || 0) > 0 ? op.hpd / size : productiveHoursPerDay;
 
     // Collision with whatever is already reaching into this slot.
     let push = prevEnd == null ? 0 : Math.max(0, prevEnd - sp);
@@ -687,16 +804,68 @@ export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
     //
     // Cross-row counts. The clock names an opId whoever owns the row, so an op is being worked
     // whether or not the worker is on its team -- which is the case this was reported for.
-    if (nowProd != null && worked <= 0 && !op.hasActiveSession && !op.isFullyWorked && nowProd - sp > push) {
-      push = nowProd - sp;
-      atCursor.add(String(op.id));
+    // WHOSE work decides whether this slides. `worked` is the op's total across everybody;
+    // `ownWorked` is what the person whose row this is has done. A row shows only its own
+    // person's work, so an op somebody ELSE worked is, from this row's point of view, still
+    // entirely ahead of it -- and its remainder cannot sit behind the cursor.
+    //
+    // Using the op total here is what left those bars where they were scheduled, which then
+    // needed a separate draw-time clamp to drag them to the cursor -- and that clamp did not
+    // participate in packing, so every clamped bar on a row landed on the same point and they
+    // drew on top of each other. One mechanism, which cascades, rather than two.
+    const ownWorked = op.ownWorkedHours == null ? worked : Math.max(0, op.ownWorkedHours);
+    // A RECORD IS NOT A RESERVATION. A cross-row bar depicts work somebody already did on an
+    // op they are not on the team of. Where it sits is WHEN THAT HAPPENED -- dragging it to
+    // the cursor would move a fact, and its extent is the span the work covered, so it never
+    // takes the elapsed term below either.
+    //
+    // THE IDLE-LEFT RULE. Left of the cursor a bar shows WORKED TIME AND NOTHING ELSE, so a
+    // bar's left edge is exactly this person's worked hours behind the cursor -- no more, and
+    // never any elapsed-but-unworked stretch in front of it.
+    //
+    // This generalises the cursor push rather than sitting beside it: an untouched op has
+    // zero worked hours, so its target IS the cursor, which is the old behaviour unchanged.
+    // An op worked for six hours starts six hours back. What it replaces is a rule that left
+    // a worked op wherever it was scheduled and let barLengthHours stretch it forward to the
+    // cursor -- which drew every unworked hour since its start date as muted grey.
+    //
+    // Only ever forward (`> push`): this moves a bar OFF idle time, it never drags one
+    // backwards into the past to manufacture room.
+    //
+    // hasActiveSession is no longer a term. It existed to stop an op being dragged out from
+    // under the person working it while their hours were still zero -- but the target now IS
+    // where they are, and the bar grows leftward as their hours land, so there is nothing to
+    // protect it from.
+    const idleTarget = nowProd == null ? null : nowProd - ownWorked;
+    if (idleTarget != null && !op.isRecord && !op.isFullyWorked && idleTarget - sp > push) {
+      push = idleTarget - sp;
+      // Anchored only when it lands ON the cursor. A worked op lands short of it, and the
+      // render places that from the push like any other rather than snapping it to now.
+      if (ownWorked <= 0) atCursor.add(String(op.id));
     }
     // A locked op does not move, whatever is behind it. It still OCCUPIES its slot, so the ops
     // after it are pushed by it as usual — the lock pins this bar, it does not exempt the row.
     if (op.locked) { push = 0; atCursor.delete(String(op.id)); }
 
     if (push > 0) out.set(String(op.id), push);
-    const own = planned + (op.isFullyWorked ? 0 : Math.max(0, worked - (op.hpd || 0)) / size);
+    // What it occupies. See barLengthHours: the packing and the paint must agree about this
+    // number, because a length that disagrees between them IS an overlap. The elapsed term is
+    // measured from where the op ACTUALLY lands, push included -- an op shoved forward to the
+    // cursor has nothing behind it, so it is purely the hours it still owes.
+    const own = barLengthHours({ hpd: op.hpd, workedHoursShown: worked,
+      isFullyWorked: op.isFullyWorked, teamSize: size, fallbackH: productiveHoursPerDay,
+      // Null for a record, matching the render, which has always passed null for a cross-row
+      // bar. Two answers for one bar's length IS an overlap: a Monday session measured here
+      // as its span PLUS two days of elapsed time swelled from four hours to nineteen and
+      // shoved the op behind it -- a live clock-in -- nearly three days into the future.
+      // CAPPED AT THE HOURS WORKED. For a bar the push was free to move, the two are already
+      // equal -- it was placed so that exactly the worked hours sit behind the cursor. The cap
+      // is for the bars it could not move: a LOCKED op keeps its pinned start, and without
+      // this the elapsed term grew it forward from there to the cursor, drawing every unworked
+      // hour of the wait as muted grey. The rule was being broken by length rather than by
+      // position, which is why moving bars alone did not settle it.
+      elapsedToCursorH: (nowProd == null || op.isRecord) ? null
+        : Math.min(Math.max(0, nowProd - (sp + push)), ownWorked) });
     const end = sp + push + own;
     // max(), not assignment: ops can be ordered so an earlier-ending one follows a
     // later-ending one, and the blocker is whichever reaches furthest.
