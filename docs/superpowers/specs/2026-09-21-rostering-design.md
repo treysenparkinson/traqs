@@ -47,7 +47,8 @@ weight to route around — `addWorkingDays` (`src/TRAQS.jsx:523`), `isWorkDay`
 | 9 | Tier selection | **At org signup.** New orgs pick Basic or Business during setup; the choice writes `tier` on the org record |
 | 10 | Gating style | **Removal, not disablement.** Basic renders no Business-only UI at all — no greyed-out items, no scattered upgrade CTAs |
 | 11 | Upgrade entry point | **One button in Settings.** "Upgrade to Business" flips the tier and reveals every Business feature |
-| 12 | Roster view granularity | **Basic: week (default) + day. No month.** Business keeps month |
+| 12 | Roster view granularity | **Basic: week (default) + day. No month timeline.** Business keeps month. Refined by decision 20 — Basic's third slot is the shift Calendar, not the month timeline (§12.4) |
+| 13–20 | Product-wide tier split | Recorded in **§12.1**, decided 2026-09-22: roster stays on Schedule; Basic Analytics cut to three elements; Time Clock splits at the job clock; Approval Templates to Business and `PERM_KEYS` trimmed to four; Admin board loses the job bucket; `undoHistory` filtered out; global search keeps people only; Basic gains a shift calendar |
 
 ### Deferred (decided to defer, not undecided)
 
@@ -297,8 +298,12 @@ alongside `pto` and `task`. No extraction, no parallel component.
   apply to a range. PTO renders as it already does and visibly wins.
 - **View granularity is tier-gated (decision 12).** `renderTeam` already has a
   day/week/month toggle at `src/TRAQS.jsx:15149` (it sets `tMode` and adjusts
-  `tStart`/`tEnd`). Basic filters `month` out of that array, leaving day + week
-  with **week as the default**; Business keeps all three. The other two toggles
+  `tStart`/`tEnd`). Basic filters the month
+  *timeline* out of that array, leaving day + week with **week as the default**;
+  Business keeps all three. Decision 20 then puts a shift **Calendar** in that
+  third slot for Basic — a month grid rather than a month timeline, which is
+  legible at month scale for the reason the timeline is not. See §12.4.
+- The other two toggles
   — `renderGantt` `:11466` (day/week/month) and `renderSplitGantt` `:11815`
   (week/month) — need no filtering, because both surfaces are Business-only and
   disappear wholesale in Basic.
@@ -453,6 +458,7 @@ unexpected, it does not stop it.
 | **2** | `roster.json` entity — endpoint (mirrors `timeoff.js`), `sync.js` entry, Ably + silent-push registration, exception pruning | Verifiable by curl, no UI. One entity = one round of three-app wiring. |
 | **3** | Web template editor — `validFrom`-aware, both person-edit surfaces (`:19389`, `~:29919`), copy-to-all-days + copy-from-person | First visible value; admins can author before any roster view exists. |
 | **4** | Web roster — add `type:"shift"` to `renderTeam`'s `bars` pipeline; read-only, then cell overrides | Reuses the existing PTO/task rendering path. Where the `workDays` audit lands. |
+| **4b** | Web shift calendar — extract the shared month grid from the two existing copies (`:14080`, `:17777`), then build the shift cell body: org-wide avatars, per-person shift times, click-to-drill day detail | Decision 20, §12.4. Reads the same resolver as step 4, so it is cell rendering rather than new logic. Slots into `renderTeam`'s toggle as Basic's third view. |
 | **5** | Timeclock comparison — late / missed / unscheduled flags, variance column in `exportCSV` | Pure read-side on the resolver. Most of the payroll payoff. |
 | **6** | Server detection pass — hourly, filtered per org-local time; `forgot-clockout` gets real shift ends instead of `STALE_MS` | Last of the core work: only piece needing UTC materialization, and the only one that can push wrong alerts to everyone at 6am. |
 | **7** | iOS read-only roster | Small, given admin-only. Watch the payload-decode-per-cell trap. |
@@ -465,7 +471,8 @@ and non-negotiable; 5 is where it starts paying; 6 is the one not to rush; 9 is
 the only step that cares about tiers.
 
 §11 audits what already exists for Basic — read it before starting, since
-three of Basic's five scoped capabilities need no build at all.
+three of Basic's five scoped capabilities need no build at all. §12 sets the
+product-wide tier split; 4b and 9 are the steps it adds or constrains.
 
 ---
 
@@ -652,7 +659,307 @@ different direction.
 
 ---
 
-## 12. File reference
+## 12. Product-wide tier split
+
+§7 settled how the `tier` field works and what it gates around *rostering*. This
+section takes the whole product, audited feature by feature against
+`2026-09-22-feature-inventory.md`. The first pass found six mis-sorts; all six
+were resolved on 2026-09-22 and are recorded here as decisions rather than
+questions.
+
+### 12.1 Decisions
+
+| # | Decision | Date |
+|---|---|---|
+| 13 | The roster lives on Schedule / `renderTeam` in Basic. Only `renderGantt`, `renderSplitGantt` and `task` bars are Business. | 2026-09-22 |
+| 14 | Basic Analytics is Hours Logged + Pay Hours + Export Hours. Efficiency and production math are cut, not adapted. Attendance/PTO analytics deferred until launch feedback. | 2026-09-22 |
+| 15 | Time Clock splits at the job clock: personal clock/lunch/break is Basic; job clock, Working On, start-job picker, Requests tab, `adminJobHours` and the `productionHours` entity are Business. | 2026-09-22 |
+| 16 | Approval Queue Templates is Business. `PERM_KEYS` is trimmed to the four that apply in Basic. | 2026-09-22 |
+| 17 | The Admin live board shows clock-in status only in Basic — no `job` bucket, no End Job action. | 2026-09-22 |
+| 18 | `undoHistory` is filtered out of Basic. Extending the history stack to roster writes is deferred. | 2026-09-22 |
+| 19 | Global search stays in Basic with job routing disabled. | 2026-09-22 |
+| 20 | Basic gains a **shift calendar** — a month grid of shifts across the org, filterable by person. See §12.4. | 2026-09-22 |
+
+### 12.2 Settled without change
+
+| Item | Why it holds |
+|---|---|
+| **Jobs → Business** | Whole page, whole entity tree (job → panel → op), plus the export designer, job templates, engineering sign-off and approval chains. Nothing in Basic reads it. |
+| **Clients → Business** | Nothing Basic-side consumes `clients`. One loose end in §12.6. |
+| **Gantt → Business** | `renderGantt` (`:11063`) and `renderSplitGantt` (`:11764`) are job-only and disappear wholesale, exactly as §6.2 assumed. |
+| **Auth / Sync / Kiosk → both** | Org code, Auth0, domain gate, roster gate, PIN, delta sync, Ably, IndexedDB rehydrate, tombstones. No job coupling anywhere. |
+
+**Notifications are the cleanest seam in the product.** All six types in
+`notify.js` — `new_job`, `assigned`, `step`, `ready`, `finish_request`,
+`completion_resolved` — are job events. The Basic channels each live in a
+*different function*: `messages.js:329`, `timeoff.js:44`, and
+`forgot-clockout.js` via `sendVisiblePush`. So Basic is "everything except
+`notify.js`," enforceable at the function boundary with no per-call filtering and
+no decomposition. Worth protecting — do not let a PTO or clock notification get
+added to `notify.js` for convenience.
+
+### 12.3 The six corrections, resolved
+
+#### A. Schedule is not Business. It is the roster. → decision 13
+
+The first pass proposed moving Schedule wholesale to Business, which contradicted
+§6.2 and §7.5: `renderTeam` (`:14744`) **is** the roster week view, with `shift`
+joining `pto` and `task` as a third bar type in the same pipeline. Resolved in
+favour of the existing design.
+
+| Surface | Tier |
+|---|---|
+| `renderTeam` people × days grid | **Both** — Basic's is the roster |
+| `renderTeam` `pto` + `shift` bars | Both |
+| `renderTeam` `task` bars, drag-to-move, cascade push, pull-back, clock cascade, optimize, overlap check, availability check, dependency arrows | Business |
+| `renderGantt`, `renderSplitGantt` | Business |
+
+#### B. Basic Analytics: cut the math, do not adapt it. → decision 14
+
+`efficiencyPct({ prod, working })` (`src/statsMath.js:220`) divides production
+hours by working hours, and `prod` comes from `productionHours` — job-clock
+sessions. With no jobs, `prod` is always 0, so efficiency renders **0%**: a false
+statement rather than a missing one. The same module feeds the Employees page
+Performance panel via `payProdByDay` (`:148`), so the defect appears twice.
+
+Decided: **cut it in Basic rather than adapt it.** No zero, no "not applicable"
+placeholder, no reworked denominator — the card and the panel are absent, per
+§7.2. That keeps `statsMath.js` a Business-only module and avoids inventing a
+Basic efficiency metric nobody has asked for.
+
+Basic Analytics is therefore three elements: **Hours Logged, Pay Hours, Export
+Hours.** Attendance and PTO analytics are **deferred until launch feedback** —
+they are a new build (none of it exists today) and the on-time metric they would
+most want is itself blocked on rostering per §11.2. Shipping a thin, correct
+Analytics page beats shipping a speculative one.
+
+#### C. Time Clock splits at the job clock. → decision 15
+
+The page is the largest mixed surface in the product. Business-side pieces:
+
+- Job clock: `jobClockIn` / `jobClockOut` / `jobPause` / `jobResume`
+- The searchable start-job picker (`renderStartJobPicker`, `:20220`) and its
+  Your Jobs / Upcoming Jobs / Other Jobs sections
+- "Working On" and the job-clock elapsed display
+- The **Requests / Finish Requests tab**, declared twice — `:20704` and `:21331`
+- `adminJobHoursAction`, `adminEndJobClock`
+- The `productionHours` entity in its entirety
+- The clock-out guard ("Log out of your job before clocking out"), which becomes
+  unreachable and should be removed in Basic rather than left as dead code
+
+Basic keeps punches, lunch, break, the full admin timesheet suite, confirmation,
+Past Logs, pay periods, PIN and pay type — all of which per §11.1 need nothing
+built.
+
+#### D. Settings: two sections move. → decision 16
+
+- **Approval Queue Templates → Business entirely.** Approval chains only attach
+  to panels.
+- **Worker Permissions → trimmed to four.** Basic shows `manageTeam`,
+  `orgSettings`, `approveTimeOff` and — pending F — nothing else. The five
+  job/client toggles (`editJobs`, `moveJobs`, `reassign`, `manageClients`,
+  `approveCompletions`) are omitted, not disabled.
+
+The other six sections (General, Org General, Departments, Schedule Preferences,
+Time Clock, Customization) are Basic-safe as they stand. Schedule Preferences is a
+**rostering prerequisite**, not a job setting: working days, work hours and
+holidays all feed the resolver.
+
+#### E. Admin live board: clock-in status only. → decision 17
+
+There is no admin *settings* page — `renderAdmin` (`:12163`) is the live status
+board. Its job coupling is two things: the `job` bucket in `PERSON_STATUS_META`,
+which `personStatus` (`:484`) only ever returns when `activeJobClock` is set, and
+the **End job** force-action.
+
+Basic shows four buckets — Clocked in / Lunch / Break / Off — and keeps End break.
+Grouping (Live / By dept / Today) is unaffected.
+
+#### F. Undo: filter the toggle. → decision 18
+
+`setTasks` is the only state setter wrapped by the history stack (`:4822`);
+`setPeople` (`:4835`) deliberately is not. In a Basic org the stack never receives
+a frame, so Ctrl+Z does nothing and `undoHistory` gates nothing.
+
+Decided: **filter `undoHistory` out of Basic**, leaving three toggles (D above).
+Extending history to roster writes is **deferred** — it is more work than it
+looks, because roster overrides persist server-side per §3 rather than living in
+client state the way `tasks` does, so it needs a different mechanism rather than a
+wider wrapper. Recorded as a known absence: a Basic admin who mis-drags a shift
+re-drags it.
+
+Consequence worth naming: the Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y key handler
+(`:4863`) must also be inert in Basic, not merely unbound from a button.
+
+### 12.4 New in Basic: the shift calendar → decision 20
+
+A month grid of shifts across the org, filterable to one person. It complements
+the week roster rather than duplicating it: the week view answers "what is this
+person's pattern," the calendar answers "what does the month look like."
+
+**This is not the Business month view.** `renderGantt`'s month mode is a job
+timeline. This is shift-focused, reads from the roster resolver, and is a much
+simpler component.
+
+#### It resolves a conflict with decision 12
+
+§6.2 has Basic filtering `month` out of `renderTeam`'s day/week/month toggle
+(`:15149`), on the grounds that 30 columns of 15-minute-granularity shift data is
+unreadable. **That reasoning still holds for the timeline**, and the calendar does
+not challenge it — a calendar cell is a box with text in it, not a proportional
+bar, which is exactly why it works at month scale where the timeline does not.
+
+So decision 12 stands, refined: Basic's toggle is **Day / Week / Calendar** with
+week as the default, not Day / Week. Same array-filter mechanic §7.2 asks for —
+one entry swapped, not a nav item added.
+
+**Open question:** whether Business gets the calendar as a fourth toggle entry.
+Recommendation is yes — "Business is a superset of Basic" is a rule worth not
+breaking on its first test, and a shift calendar is no less useful to an org that
+also runs jobs. That makes Business's toggle Day / Week / Month / Calendar.
+
+#### Interaction model — recommendation
+
+Not read-only, and not inline-edit either:
+
+- **Unfiltered**, a day cell shows *who is on* — a count plus avatars or initials.
+  Shift times do not fit and should not be attempted.
+- **Filtered to one person**, a day cell shows that person's shift time, which is
+  one short string and fits comfortably. This is the mode that makes the calendar
+  worth building.
+- **Clicking a day drills into it** — a day detail listing each person and their
+  hours, from which an override can be applied. Editing therefore stays where the
+  time label already fits, consistent with §6.2's "label, not draw-to-scale" and
+  with the week view's click-a-cell-to-override interaction.
+- PTO renders as it does elsewhere and visibly wins, per §6.2.
+- Per §6.4 mobile is a viewer: the drill-down renders, the override does not.
+
+#### Build it in-house, and extract while doing it
+
+**No calendar library.** The dependency list carries no calendar today, and a
+month grid is about fifteen lines of date arithmetic — `leadBlanks`,
+`daysInMonth`, a 7-column grid. A library would also have to be fought into the
+`T.*` theme tokens, the custom-theme system and the liquid background, which is
+more work than the grid it replaces.
+
+That arithmetic is **already written twice**: the Dashboard month calendar
+(`:14080`) and `renderMobileCal` (`:17777`). Both are single-dot-per-day
+densities, so neither cell body is reusable, but the geometry is identical and a
+third copy is the point at which it should be extracted into one shared grid
+component. `renderMobileCal` is also the closest structural match to what is
+wanted here — grid, month nav, selected-day detail list below — so it is the one
+to model on.
+
+Both existing copies are job-fed (`activeJobs`, `allItems`) and so are Business;
+the extraction is shared geometry with three different cell bodies, not shared
+data.
+
+### 12.5 Components needing decomposition
+
+The §7.2 sharp edge: a Business-only element nested inside a Basic-visible
+surface must be *omitted*, not left to render empty. Updated for decisions 13–20.
+
+| # | Component | Decomposition | Decision |
+|---|---|---|---|
+| 1 | `renderTeam` bars (`:14744`) | Basic contributes `pto` + `shift`; Business adds `task`. Drag/cascade/optimize/availability behaviours are Business. | 13, §7.5 |
+| 2 | `renderTeam` view toggle (`:15149`) | Basic: Day / Week / **Calendar**, week default. Business: Day / Week / Month / Calendar. | 12, 20 |
+| 3 | Month grid geometry (`:14080`, `:17777`) | Extract the shared grid from the two existing copies; three cell bodies (dashboard dots, mobile job dots, shift calendar). | 20 |
+| 4 | `renderEmployees` (`:17936`) | Six job-fed panels omitted; schedule panels re-sourced from the roster. | §11.3 |
+| 5 | `statsMath.js` (`:148`, `:220`) | **Becomes Business-only.** Not adapted for Basic — the Analytics card and the Employees Performance panel are both absent. | 14 |
+| 6 | `DASH_STAT_KEYS` (module scope) | Filter to `hours` + `clocked`. Leaves a six-slot rotation showing two; roster-fed refills are deferred with the rest of §12.8. | 14 |
+| 7 | `PERSON_STATUS_META` / `personStatus` (`:484`) | Drop the `job` bucket in Basic. Three call sites — Dashboard "Team right now", the Admin board, schedule clock pills — one definition. | 17 |
+| 8 | Admin board actions (`:12163`) | Omit End job; keep End break. | 17 |
+| 9 | Time Clock tab arrays (`:20703`, `:21331`) | Two independent declarations, both carrying `finishRequests`. Filter both or they drift. | 15 |
+| 10 | Time Clock job surfaces | Job clock controls, Working On, start-job picker, `productionHours`. Remove the clock-out guard rather than leaving it unreachable. | 15 |
+| 11 | Messages thread derivation (`:22235`) | DM and group are Basic; job/panel/op threads must not appear in the list. | — |
+| 12 | In-thread approval cards | On **web** already two separate blocks — Completion Request (`:22590`, Business) and Time Off Request (`:22710`, Basic) — so a straight omission. On **iOS** they share `DecisionActions.swift`, which does need splitting. The ports disagree; the web shape is the right one. | — |
+| 13 | `ensureCompletionGroup` (`:10163`) | Must not run in Basic, or every Basic org grows a permanent empty group. | — |
+| 14 | Permissions settings page | Tier-aware `PERM_KEYS`: four in Basic, nine in Business. | 16, 18 |
+| 15 | Undo stack (`:4822`) and key handler (`:4863`) | Both inert in Basic; `undoHistory` omitted from the permissions list. | 18 |
+| 16 | Mobile global search (`:21982`) | Person and client hits kept, job hits omitted, person routing repointed. See §12.6. | 19 |
+
+### 12.6 Search → decision 19
+
+Global search stays in Basic with job routing disabled. Three things to know
+before building it:
+
+1. **It is mobile-only.** It lives inside `renderMobileApp` at `:21982`. Desktop
+   has per-page search boxes (jobs, clients, schedule, the start-job picker) and
+   no global one. "Search in Basic" therefore means the mobile control.
+2. **It searches people, clients and jobs.** Job results are omitted in Basic.
+   Client results are a loose end — clients are Business (§12.2), so those results
+   go too, leaving Basic with people only.
+3. **A person result navigates to `switchView("schedule")`.** Under decision 13
+   that destination exists in Basic and is the roster, so the routing happens to
+   remain correct — but it now means something different, and the calendar
+   (decision 20) may be the better landing place.
+
+No PTO search exists anywhere; that half is deferred with §12.8.
+
+### 12.7 Time Off is not a surface
+
+It has no nav entry on any web view. The functionality is distributed across the
+Time Clock page (requests, approvals), `renderTeam` (PTO/UTO hatching),
+`renderEmployees` (PTO / Attendance, Upcoming PTO) and Messages (Time Off Request
+cards). iOS is the exception — it has a dedicated `TimeOffView.swift`.
+
+Not a mis-sort, but a naming hazard: treating it as a page to gate will produce a
+ticket nobody can close. There are four host surfaces, three of which appear
+elsewhere in the split.
+
+### 12.8 Deferred and new-build work
+
+Nothing here ships by filtering.
+
+| Work | Status | Blocked by |
+|---|---|---|
+| Shift calendar | **In scope** (decision 20) | rostering |
+| On-time metrics | In scope, §11.2 | rostering |
+| CSV payroll renderer | In scope, §11.4 | — |
+| Employee-page re-sourcing | In scope, §11.3 | rostering |
+| Attendance / PTO analytics | **Deferred** to launch feedback (decision 14) | on-time metric |
+| PTO search | **Deferred** (§12.6) | — |
+| Roster-fed dashboard stats | **Deferred** (§12.5 #6) | rostering |
+| Undo for roster writes | **Deferred** (decision 18) | server-side override model, §3 |
+| PTO balances / accrual | Unresolved scope, §11.5 | — |
+
+### 12.9 The split, in full
+
+**Basic**
+- Dashboard — 2 of 6 rotating stats (`hours`, `clocked`), Team right now (4 buckets), My clock, Today strip, month calendar without job spans, Messages panel
+- **Schedule — the people × days grid as the roster week view**, Day / Week / Calendar with week default, `pto` + `shift` bars
+- **Shift calendar** — month grid, org-wide or filtered to one person, click-to-drill
+- Employees — job-fed panels omitted, schedule panels roster-sourced, no Performance panel
+- Time Clock — punches, lunch, break, admin timesheet suite, confirmation, Past Logs, pay periods, PIN, pay type
+- Time off — request, approve, deny, cancel, reopen, edit, calendar hatching, overlap warnings
+- Analytics — Hours Logged, Pay Hours, Export Hours
+- Messages — DMs and groups, Time Off Request cards
+- Admin board — 4 clock-in status buckets, End break, no End job
+- Settings — 6 of 8 sections; Worker Permissions filtered to `manageTeam`, `orgSettings`, `approveTimeOff`
+- Notifications — `messages.js`, `timeoff.js`, `forgot-clockout.js`
+- Auth, Sync, Push, Kiosk — unchanged
+- Search — people only, mobile only
+- **Rostering** — new, and per §7.4 present in both tiers
+
+**Business** — all of the above, plus Jobs, `renderGantt` and `renderSplitGantt`,
+`task` bars and every scheduling behaviour acting on them, Clients, the job clock
+and its Time Clock surfaces, `productionHours`, `statsMath.js` and job-side
+Analytics, `notify.js`, job and client search, Approval Queue Templates, the five
+job/client permission toggles, `undoHistory`, and the Month timeline view.
+
+### 12.10 One consequence worth recording
+
+§7.2 says gating is removal, not disablement, and §12.5 lists sixteen components
+that have to be decomposed to honour that. That is the real cost of decision 10,
+and it is concentrated in four files: `src/TRAQS.jsx`, `src/statsMath.js`, and the
+two native ports that duplicate the same views. A `disabled`-prop approach would
+be perhaps a tenth of the work and would produce the greyed-out-shell product
+decision 10 exists to prevent. The trade is still worth making; it should just be
+made with the sixteen in view rather than discovered one panel at a time.
+
+---
+
+## 13. File reference
 
 **Backend**
 - `netlify/functions/_utils/auth.js:253` — `requireOrgMember`; `:67` TTL
