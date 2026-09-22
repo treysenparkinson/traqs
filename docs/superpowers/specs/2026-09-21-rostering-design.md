@@ -47,7 +47,7 @@ weight to route around — `addWorkingDays` (`src/TRAQS.jsx:523`), `isWorkDay`
 | 9 | Tier selection | **At org signup.** New orgs pick Basic or Business during setup; the choice writes `tier` on the org record |
 | 10 | Gating style | **Removal, not disablement.** Basic renders no Business-only UI at all — no greyed-out items, no scattered upgrade CTAs |
 | 11 | Upgrade entry point | **One button in Settings.** "Upgrade to Business" flips the tier and reveals every Business feature |
-| 12 | Roster view granularity | **Basic: week (default) + day. No month timeline.** Business keeps month. Refined by decision 20 — Basic's third slot is the shift Calendar, not the month timeline (§12.4) |
+| 12 | Roster view granularity | **Basic: week (default) + day. No month timeline.** Business keeps month. Refined by decision 20 — Basic's third slot is the shift Calendar, Business's is the month timeline; the calendar is Basic-only (§12.4) |
 | 13–20 | Product-wide tier split | Recorded in **§12.1**, decided 2026-09-22: roster stays on Schedule; Basic Analytics cut to three elements; Time Clock splits at the job clock; Approval Templates to Business and `PERM_KEYS` trimmed to four; Admin board loses the job bucket; `undoHistory` filtered out; global search keeps people only; Basic gains a shift calendar |
 
 ### Deferred (decided to defer, not undecided)
@@ -302,7 +302,9 @@ alongside `pto` and `task`. No extraction, no parallel component.
   *timeline* out of that array, leaving day + week with **week as the default**;
   Business keeps all three. Decision 20 then puts a shift **Calendar** in that
   third slot for Basic — a month grid rather than a month timeline, which is
-  legible at month scale for the reason the timeline is not. See §12.4.
+  legible at month scale for the reason the timeline is not. The two tiers swap
+  that slot rather than nesting: Basic gets Calendar, Business keeps Month, and
+  neither gets both. See §12.4.
 - The other two toggles
   — `renderGantt` `:11466` (day/week/month) and `renderSplitGantt` `:11815`
   (week/month) — need no filtering, because both surfaces are Business-only and
@@ -528,6 +530,27 @@ filter applies only to `renderTeam` (`:15149`); the `renderGantt` (`:11466`) and
 `renderSplitGantt` (`:11815`) toggles live on Business-only surfaces and need no
 change. Miss the mobile nav and Basic users reach Jobs on their phone.
 
+Per decision 20 that filter is now a **swap**, not a removal: `renderTeam`'s third
+slot holds the shift Calendar in Basic and the Month timeline in Business. A
+filter written as "drop `month` when Basic" therefore leaves Basic with two views
+and no calendar — the array has to be built per tier, not pruned.
+
+**10.9 Upgrading to Business removes a view.**
+Decision 20 makes the shift calendar Basic-only, which is the first place Business
+is not a superset of Basic. §7.3 describes the upgrade as revealing every Business
+feature; it now also *takes one away*, replacing the calendar with the month
+timeline. Three follow-ons:
+
+- The upgrade button's copy has to say so. A one-way flip that silently removes a
+  view someone schedules from is a support ticket.
+- §7.3's downgrade semantics (data retained, UI hidden, writes rejected) need a
+  matching read on the upgrade side. Nothing is destroyed here — the calendar is a
+  *view* over `roster.json`, not a store — so downgrading restores it intact. That
+  is worth confirming in the build rather than assuming.
+- If the calendar turns out to be the more-loved view, this is the decision to
+  revisit. It is a product call, not an architectural constraint: the component
+  works identically in both tiers and only the toggle array keeps it out.
+
 ---
 
 ## 11. Current state — Basic tier audit
@@ -678,7 +701,7 @@ questions.
 | 17 | The Admin live board shows clock-in status only in Basic — no `job` bucket, no End Job action. | 2026-09-22 |
 | 18 | `undoHistory` is filtered out of Basic. Extending the history stack to roster writes is deferred. | 2026-09-22 |
 | 19 | Global search stays in Basic with job routing disabled. | 2026-09-22 |
-| 20 | Basic gains a **shift calendar** — a month grid of shifts across the org, filterable by person. See §12.4. | 2026-09-22 |
+| 20 | Basic gains a **shift calendar** — a month grid of shifts across the org, filterable by person — in the toggle slot Business gives to the month timeline. Basic-only. See §12.4. | 2026-09-22 |
 
 ### 12.2 Settled without change
 
@@ -813,10 +836,26 @@ So decision 12 stands, refined: Basic's toggle is **Day / Week / Calendar** with
 week as the default, not Day / Week. Same array-filter mechanic §7.2 asks for —
 one entry swapped, not a nav item added.
 
-**Open question:** whether Business gets the calendar as a fourth toggle entry.
-Recommendation is yes — "Business is a superset of Basic" is a rule worth not
-breaking on its first test, and a shift calendar is no less useful to an org that
-also runs jobs. That makes Business's toggle Day / Week / Month / Calendar.
+**The calendar is Basic-only.** Business does not get it as a fourth toggle
+entry: in Business the timeline *is* the month overview, and Day / Week / Month
+already covers the need. The toggles therefore diverge rather than nest:
+
+| Tier | `renderTeam` toggle |
+|---|---|
+| Basic | Day / **Week** / Calendar |
+| Business | Day / **Week** / Month |
+
+One slot, two components, tier-selected — still the array filter §7.2 asks for,
+now a swap in both directions rather than a removal in one.
+
+**This is the first place Business is not a superset of Basic**, and it has a
+consequence for §7.3 worth stating plainly: upgrading no longer only *reveals*
+things. An org that has been running on the shift calendar loses it the moment
+someone presses "Upgrade to Business," and gets a month timeline in its place.
+That is defensible — a Business org has jobs on the timeline, which is what makes
+the month view worth reading — but it means the upgrade button needs to say so,
+and the downgrade path (§7.3: data retained, UI hidden) now has a matching
+upgrade case where a *view* disappears. Recorded as §10.9.
 
 #### Interaction model — recommendation
 
@@ -862,7 +901,7 @@ surface must be *omitted*, not left to render empty. Updated for decisions 13–
 | # | Component | Decomposition | Decision |
 |---|---|---|---|
 | 1 | `renderTeam` bars (`:14744`) | Basic contributes `pto` + `shift`; Business adds `task`. Drag/cascade/optimize/availability behaviours are Business. | 13, §7.5 |
-| 2 | `renderTeam` view toggle (`:15149`) | Basic: Day / Week / **Calendar**, week default. Business: Day / Week / Month / Calendar. | 12, 20 |
+| 2 | `renderTeam` view toggle (`:15149`) | Diverges rather than nests. Basic: Day / Week / **Calendar**. Business: Day / Week / **Month**. Week is the default in both. | 12, 20 |
 | 3 | Month grid geometry (`:14080`, `:17777`) | Extract the shared grid from the two existing copies; three cell bodies (dashboard dots, mobile job dots, shift calendar). | 20 |
 | 4 | `renderEmployees` (`:17936`) | Six job-fed panels omitted; schedule panels re-sourced from the roster. | §11.3 |
 | 5 | `statsMath.js` (`:148`, `:220`) | **Becomes Business-only.** Not adapted for Basic — the Analytics card and the Employees Performance panel are both absent. | 14 |
@@ -928,7 +967,7 @@ Nothing here ships by filtering.
 **Basic**
 - Dashboard — 2 of 6 rotating stats (`hours`, `clocked`), Team right now (4 buckets), My clock, Today strip, month calendar without job spans, Messages panel
 - **Schedule — the people × days grid as the roster week view**, Day / Week / Calendar with week default, `pto` + `shift` bars
-- **Shift calendar** — month grid, org-wide or filtered to one person, click-to-drill
+- **Shift calendar** — month grid, org-wide or filtered to one person, click-to-drill; occupies the toggle slot Business gives to Month, and is **Basic-only**
 - Employees — job-fed panels omitted, schedule panels roster-sourced, no Performance panel
 - Time Clock — punches, lunch, break, admin timesheet suite, confirmation, Past Logs, pay periods, PIN, pay type
 - Time off — request, approve, deny, cancel, reopen, edit, calendar hatching, overlap warnings
@@ -945,7 +984,8 @@ Nothing here ships by filtering.
 `task` bars and every scheduling behaviour acting on them, Clients, the job clock
 and its Time Clock surfaces, `productionHours`, `statsMath.js` and job-side
 Analytics, `notify.js`, job and client search, Approval Queue Templates, the five
-job/client permission toggles, `undoHistory`, and the Month timeline view.
+job/client permission toggles, `undoHistory`, and the Month timeline view — but
+**not** the shift calendar, which Basic alone has.
 
 ### 12.10 One consequence worth recording
 
