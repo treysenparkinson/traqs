@@ -49,6 +49,7 @@ weight to route around — `addWorkingDays` (`src/TRAQS.jsx:523`), `isWorkDay`
 | 11 | Upgrade entry point | **One button in Settings.** "Upgrade to Business" flips the tier and reveals every Business feature |
 | 12 | Roster view granularity | **Basic: week (default) + day. No month timeline.** Business keeps month. Refined by decision 20 — Basic's third slot is the shift Calendar, Business's is the month timeline; the calendar is Basic-only (§12.4) |
 | 13–20 | Product-wide tier split | Recorded in **§12.1**, decided 2026-09-22: roster stays on Schedule; Basic Analytics cut to three elements; Time Clock splits at the job clock; Approval Templates to Business and `PERM_KEYS` trimmed to four; Admin board loses the job bucket; `undoHistory` filtered out; global search keeps people only; Basic gains a shift calendar |
+| 21–23 | Membership and signup | Recorded in **§13.1**, decided 2026-09-22: Business requires a business email; workers join by invitation; no public self-signup for Basic. §13.4 is the correction — Basic must *drop* the single-domain gate, not relax it, or invites cannot be accepted |
 
 ### Deferred (decided to defer, not undecided)
 
@@ -352,6 +353,13 @@ since a defaulted tier is how Business gets given away silently.
 That grandfathering default is also what keeps §7.4 true: rostering can ship
 before the tier system exists, because an org with no `tier` behaves exactly as
 today.
+
+**Signup gains two more rules, both in §13:** Business refuses free-provider
+email domains (decision 21), and Basic drops the single-domain membership gate
+entirely (§13.4) — without that second change an invited worker on a different
+personal domain cannot log in at all. Both are writes to, or reads of, this same
+`tier` field, and the blocklist has to run on the §7.3 upgrade path as well as at
+creation or it gates nothing.
 
 ### 7.2 Gating is removal, not disablement
 
@@ -999,7 +1007,200 @@ made with the sixteen in view rather than discovered one panel at a time.
 
 ---
 
-## 13. File reference
+## 13. Membership: signup, invitations and the domain gate
+
+Three requirements added 2026-09-22: Business requires a business email, workers
+join by invitation, and Basic has no public self-signup. Like the tier system
+itself (§7.4) this is a separate project from rostering; it is documented here
+because it touches `tier`, and because two of the three collide with machinery
+that already exists.
+
+### 13.1 Decisions
+
+| # | Decision | Date |
+|---|---|---|
+| 21 | **Business requires a business email.** Free-provider domains (gmail, yahoo, outlook, …) are refused at Business signup. Basic accepts any address. | 2026-09-22 |
+| 22 | **Workers join by invitation.** Admin invites from org settings; email *and* shareable link; invitee sees org name, inviter name and a generated welcome, then accepts or declines; accepting collects name and phone and writes the roster record. Auth0 creates the account. | 2026-09-22 |
+| 23 | **No public self-signup for Basic workers.** Invite-only. | 2026-09-22 |
+
+### 13.2 Current state — what already exists
+
+**There is no invite infrastructure.** Verified: no `invite` / `invitation`
+anywhere in `src/` or `netlify/`.
+
+**Adding a worker today is an admin typing a person record by hand.**
+`blankEmployee()` (`:4982`) seeds `image`, `name`, `email`, `phone`,
+`department`, `secondaryDepartment`; the admin saves it and tells the person to
+go log in.
+
+**Decision 23 is therefore already true — for both tiers.** There is no public
+self-signup on any surface. The only route into an org is an admin putting your
+email in `people.json`. The invite flow *formalizes and automates* that route; it
+does not add a gate that was missing. Sized accordingly, this is a convenience
+feature with a security surface, not a new access-control model.
+
+**The real membership boundary is `requireOrgMember`** (`_utils/auth.js:253`):
+the token's email appears in a live (`filterLive`) `people.json`, **or** equals
+`config.adminEmail` / one of `config.adminEmails`.
+
+**The domain gate is client-side only.** `requireOrgMember` never reads
+`config.domain`. The check lives at `App.jsx:1449`, comparing the Auth0 email's
+domain against `orgConfig.domain` and routing to a `domain-error` step. So the
+signup form's promise — *"Only users with this email domain can log in to your
+organization"* (`App.jsx:630`) — is kept by the roster, not by the domain. Worth
+knowing before anyone "fixes" the asymmetry by adding a server-side domain check,
+which would break §13.4.
+
+### 13.3 Business requires a business email → decision 21
+
+**The check belongs in `org.js`, not `App.jsx`.** `POST /org` is directly
+callable and already validates name / domain / adminEmail server-side
+(`org.js:59–65`); the blocklist goes beside that validation. A client-only check
+gates nothing.
+
+**It must also run on the upgrade path, or it gates nothing anyway.** §7.3 puts a
+self-serve *"Upgrade to Business"* button in Settings that flips `tier`. A gmail
+org signs up Basic, presses the button, and is Business — the signup check
+bypassed entirely. **Both writes to `tier` need the same check.** Note also §10.6:
+until pricing exists the button gives Business away for free, which makes this
+blocklist the *only* thing currently gating the Business tier at all.
+
+**Denylist caveats, since this is a denylist.** It will never be complete, new
+providers appear continuously, and it needs a maintained source rather than a
+hand-typed array that rots. Two failure modes to decide explicitly:
+
+- **List unreadable** → recommend **fail open**. Refusing a legitimate paying
+  signup is worse than admitting one gmail org that can be corrected later.
+- **Domain matches the list** → fail closed, with copy that names the reason and
+  points at Basic rather than a bare rejection.
+
+**Sole traders and consultants on a personal address cannot have Business.** That
+is the intended effect of decision 21 and it is a product call, not an oversight —
+recorded so it is not rediscovered as a bug report.
+
+### 13.4 Basic must *drop* the domain gate, not relax it
+
+This is the correction. Decision 21 reads as being about the admin's signup
+address, but `config.domain` is a single, required, exact-match field applied to
+**every member at every login**.
+
+Concretely: a Basic shop whose admin signs up with `gmail.com` gets
+`config.domain = "gmail.com"`. The admin then invites a worker whose address is
+`@yahoo.com`. That worker hits **"Email domain mismatch"** at `App.jsx:1449` —
+before the roster is ever consulted, and before the invite they were sent can do
+anything. The invitation flow is undeliverable in practice for exactly the orgs
+Basic exists to serve.
+
+So for Basic the domain check is **removed**, per §7.2's removal-not-disablement,
+not widened to a list. The roster becomes the gate, which per §13.2 is already the
+only gate the server enforces. Business keeps the domain check — that is part of
+what a business domain buys.
+
+Three consequences:
+
+1. **`config.domain` becomes optional at creation for Basic.** `org.js:61`
+   currently hard-requires it, and the create form requires it client-side
+   (`App.jsx:583`, with the `domain.includes(".")` shape check at `:585`).
+2. **The domain copy must not render for Basic** — the hint at `App.jsx:630` and
+   the *"@{domain} accounts only"* line on the login screen (`:668`). Both state a
+   rule that will not apply.
+3. **The `domain-error` step (`:1632`) becomes unreachable in Basic** and should
+   be omitted from the step machine rather than left as dead state.
+
+### 13.5 The invitation flow → decision 22
+
+The sequence as specified is right in shape. Four things about it are worth
+settling before anyone builds it, one of them load-bearing.
+
+#### Take the email from Auth0. Do not prompt for it.
+
+The stated order is *accept → prompt for name, email, phone → roster → Auth0*.
+Inverting the last two steps is the single most important detail in this section.
+
+`requireOrgMember` matches `people.json` email against **the token's** email,
+lowercased and trimmed (`auth.js:292`). If the invitee types a different address
+than the one they authenticate with — a personal address instead of a work one, a
+typo, an alias — the person record is written, the invite reports success, and
+they are immediately locked out with *"Not a member of this organization."* That
+failure looks like an auth bug and is not one.
+
+Corrected order: **accept → Auth0 signup/login → prompt for name and phone, email
+pre-filled and read-only → write the roster record from the token email.**
+
+#### The invite should carry department, pay type and role
+
+Set by the admin at invite time. A person record created with no department is
+not merely incomplete: the project rule is that a subtask's department filters its
+assignee options, so a department-less invitee **silently never appears as an
+assignment option**. The admin has to notice and go fix a record they thought the
+invite had finished.
+
+`payType` matters for the same reason at a smaller scale — payroll filtering is
+hourly-only (`isHourly`, `:6156`), so a new hire with no pay type is absent from
+the hours export.
+
+#### Two credential types, different risk
+
+| Kind | Shape |
+|---|---|
+| Emailed invite | Single-use, bound to one address, expiring. |
+| Shareable link | A **bearer credential to join an org.** Multi-use by nature. |
+
+The shareable link needs an expiry, a use cap and revocation, and should not be
+the default offered in the UI. Storage in `orgs/<code>/invites.json`, mirroring
+the `timeoff.js` endpoint template (§12 / §9 step 2 use the same precedent), with
+a `sync.js` entry so admins get a live pending-invites list with revoke.
+
+#### The accept endpoint is unauthenticated, which is new here
+
+The invitee has no account on first contact. Only `org.js`'s public
+`GET /org?code=…` and `forgot-org.js` are unauthenticated today, and the public
+org endpoint deliberately returns **non-PII only** — name, domain, optional SSO
+connection. `org-config.js` exists precisely to keep `adminEmail` off that
+response.
+
+But the invite landing page must show **the inviter's name**, which is the class
+of data that endpoint withholds. The resolution: **the token authorizes the
+disclosure, not the org code.** Return inviter name only against a valid,
+unexpired, unrevoked invite token, and never against a bare org code. Otherwise
+guessing org codes becomes a way to enumerate staff names.
+
+#### Re-inviting someone previously removed
+
+Removal tombstones the record and `filterLive` drops it from membership. A
+re-invite must either clear the tombstone or mint a fresh id — creating a second
+live record with the same email leaves `requireOrgMember`'s `.find()` picking
+whichever comes first, which is stable until someone reorders the array.
+
+### 13.6 Scoping question — is invite-only universal?
+
+Decision 23 scopes invite-only to Basic, which implies Business might get public
+self-signup. Nothing in the product has ever had it, nothing else in this document
+assumes it, and §13.2 establishes that both tiers are invite-only today by
+construction.
+
+Unresolved: **is public self-signup planned for Business, or is invite-only
+universal and decision 23 simply naming the tier that was in front of us?** The
+answer changes whether §13.5 needs a second, self-serve join path with its own
+approval step — which would be a materially larger build than the invite flow.
+
+### 13.7 What this costs
+
+| Work | Size | Notes |
+|---|---|---|
+| Free-provider blocklist at `POST /org` **and** the tier-upgrade write | Small | Two call sites, one shared helper. §13.3. |
+| Make `domain` optional; omit the gate, the copy and the `domain-error` step in Basic | Small | Four touch points, all named in §13.4. |
+| `invites.json` entity + endpoint + `sync.js` entry | Medium | Mirrors `timeoff.js`. |
+| Invite UI in org settings — create, list, revoke, copy link | Medium | |
+| Unauthenticated accept/landing endpoint with token-scoped inviter disclosure | Medium | The only genuinely new auth shape. §13.5. |
+| Post-Auth0 profile completion step (name, phone; email read-only) | Small | |
+| Email delivery | Small | `@aws-sdk/client-ses` is already a dependency and `forgot-org.js` is the precedent. |
+
+Nothing here is blocked on rostering, and nothing in rostering is blocked on this.
+
+---
+
+## 14. File reference
 
 **Backend**
 - `netlify/functions/_utils/auth.js:253` — `requireOrgMember`; `:67` TTL
