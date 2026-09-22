@@ -716,6 +716,21 @@ export function idleLeftOfCursorH(startH, lenH, nowH, workedSpans = []) {
   }
   return Math.max(0, (b - a) - covered);
 }
+// A LIVE RECORD'S RIGHT EDGE IS THE CURSOR, so it is measured from the cursor rather than
+// derived and hoped to land there.
+//
+// An open session runs from clock-in to now, so the bar depicting it ends exactly at now.
+// Its width was coming from an hours budget walked through the working day while the cursor
+// is placed on the day/hour grid -- two mappings that agree only by coincidence, which left
+// a two-pixel gap between the bar and the line it is supposed to touch. Same shape as the
+// grey/colour divider sitting a sliver off the line, and the same fix: one axis, measured.
+//
+// All three arguments are percentages of the visible window, the units `left` and `width`
+// are already set in.
+export function flushRightWidthPct(leftPct, cursorPct, minPct = 0) {
+  const w = (Number(cursorPct) || 0) - (Number(leftPct) || 0);
+  return Math.max(Number(minPct) || 0, w);
+}
 export function barLengthHours({ hpd, workedHoursShown = 0, isFullyWorked = false, teamSize = 1, fallbackH = 7.5, elapsedToCursorH = null }) {
   const size = Math.max(1, teamSize || 1);
   const est = (hpd || 0) > 0 ? hpd : fallbackH * size;

@@ -5,7 +5,7 @@
 //
 //   node scripts/row-push-test.mjs
 
-import { rowPushHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, idleLeftOfCursorH } from "../src/statsMath.js";
+import { rowPushHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, idleLeftOfCursorH, flushRightWidthPct } from "../src/statsMath.js";
 
 let pass = 0, fail = 0;
 const eq = (label, got, want) => {
@@ -667,5 +667,32 @@ let stretchRedOk = true;
     console.log(`red proof: uncapped, a 1h-worked pinned bar draws ${uncapped}h behind the cursor instead of ${capped}h`);
   }
 }
+// -- a live bar touches the cursor line ----------------------------------
+eq("the width is exactly the distance to the cursor",
+  flushRightWidthPct(40, 52.5), 12.5);
+eq("a bar starting at the cursor has no width, before the floor",
+  flushRightWidthPct(52.5, 52.5), 0);
+eq("the floor keeps a just-started session visible",
+  flushRightWidthPct(52.4, 52.5, 0.3), 0.3);
+eq("a left edge past the cursor cannot produce negative width",
+  flushRightWidthPct(60, 52.5, 0.3), 0.3);
+
+// RED PROOF: the hours-derived width it replaces. A 40-minute session is 0.67 productive
+// hours, which at this zoom is a hair under the distance the grid puts between clock-in and
+// now -- so the bar stops short of the line instead of meeting it.
+let flushRedOk = true;
+{
+  const left = 40, cursor = 52.5;
+  const nDays = 30, phpd = 7.5;
+  const fromHours = (0.667 / phpd) / nDays * 100;   // the old budget
+  const fromGrid = flushRightWidthPct(left, cursor);
+  if (Math.abs(fromHours - fromGrid) < 1e-9) {
+    flushRedOk = false;
+    console.error("RED PROOF FAILED: the hours budget already lands on the cursor");
+  } else {
+    console.log(`red proof: hours budget gives ${fromHours.toFixed(3)}% where the grid needs `
+      + `${fromGrid.toFixed(3)}% -- the bar stops short of the line`);
+  }
+}
 console.log(`${pass} passed, ${fail} failed`);
-process.exit(fail === 0 && redOk && collideRedOk && slackRedOk && sessionRedOk && shrinkRedOk && overlapRedOk && badgeRedOk && recordRedOk && insetRedOk && recPushRedOk && segRedOk && idleRedOk && stretchRedOk ? 0 : 1);
+process.exit(fail === 0 && redOk && collideRedOk && slackRedOk && sessionRedOk && shrinkRedOk && overlapRedOk && badgeRedOk && recordRedOk && insetRedOk && recPushRedOk && segRedOk && idleRedOk && stretchRedOk && flushRedOk ? 0 : 1);
