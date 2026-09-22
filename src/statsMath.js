@@ -731,6 +731,26 @@ export function flushRightWidthPct(leftPct, cursorPct, minPct = 0) {
   const w = (Number(cursorPct) || 0) - (Number(leftPct) || 0);
   return Math.max(Number(minPct) || 0, w);
 }
+// ACTUAL HOURS for a job, a panel or an op: what the crew has really put into it, as against
+// the estimate stored on it.
+//
+// Summed from the LEAVES. Hours are recorded against the op somebody clocked into, so only a
+// leaf has any of its own -- a panel's actual hours are its ops', and a job's are its panels'.
+// Recursive rather than one level deep, because a panel can hold sub-ops and stopping at the
+// first level silently reports a deep job as having done no work at all.
+//
+// `leafHours` is passed in rather than read here: the caller owns what counts as worked, and
+// there is exactly one answer for that in this app (deriveWorkedState's workedHoursShown,
+// which is max(logged, produced) plus any running session). A second definition living here
+// would drift from the one the schedule bars are drawn from.
+export function rollupLeafHours(node, leafHours) {
+  if (!node || typeof leafHours !== "function") return 0;
+  const subs = Array.isArray(node.subs) ? node.subs : [];
+  if (!subs.length) return Math.max(0, Number(leafHours(node)) || 0);
+  let total = 0;
+  for (const child of subs) total += rollupLeafHours(child, leafHours);
+  return total;
+}
 export function barLengthHours({ hpd, workedHoursShown = 0, isFullyWorked = false, teamSize = 1, fallbackH = 7.5, elapsedToCursorH = null }) {
   const size = Math.max(1, teamSize || 1);
   const est = (hpd || 0) > 0 ? hpd : fallbackH * size;

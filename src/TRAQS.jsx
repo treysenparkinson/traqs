@@ -10,7 +10,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
-import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours, dayShiftToClear, rowSlackHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct } from "./statsMath.js";
+import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours, dayShiftToClear, rowSlackHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
@@ -100,6 +100,12 @@ const FIELD_COL_CATALOG = [
   { fieldKey: "color",         label: "Color",       type: "text",   defaultWidth: 70,  description: "Job color tag" },
   // Computed and read-only: the most recent signed approval step on the row (who signed,
   // which step, when). No stored job field sits behind this fieldKey.
+  // Computed and read-only, like apprActivity below: hours are recorded against whatever op
+  // somebody clocked into, so there is no stored field to edit and a panel or job is the sum
+  // of its leaves. Kept as its OWN column rather than folded into the estimate cell -- the
+  // estimate is the denominator progress is computed from and has to stay editable, and the
+  // two are separate facts.
+  { fieldKey: "actHours",      label: "Act Hrs",     type: "acthours", defaultWidth: 90,  description: "Hours the crew has actually worked" },
   { fieldKey: "apprActivity",  label: "Activity",    type: "activity", defaultWidth: 210, description: "Latest approval step signed" },
 ];
 // panel.apprLog action → what the Activity cell prints. Kept separate from the stored
@@ -6850,6 +6856,17 @@ Extraction rules:
         ?? producedScopes.byJob.get(id)
         ?? 0;
   }, [producedScopes]);
+  // ACTUAL HOURS -- what the crew has really put in, as against the estimate stored on the op.
+  // Works for a job, a panel or an op: hours are recorded against whatever somebody clocked
+  // into, so only a leaf has any of its own and everything above it is a sum (rollupLeafHours).
+  //
+  // deriveWorkedState's workedHoursShown is the one answer for "worked" in this app -- the
+  // schedule bars are drawn from it -- so this reads the same number rather than adding a
+  // second definition that would drift from it. producedFor already rolls up on its own, but
+  // liveOpHours does not, so the running session would be missed by asking a panel directly.
+  const actualHoursFor = (node) => rollupLeafHours(node, (leaf) =>
+    deriveWorkedState(leaf, producedFor(leaf), liveOpHours(leaf)).workedHoursShown);
+
   const [dataLoading, setDataLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   // Gates the autosave: doSave refuses to fire until the initial S3 load
@@ -13774,6 +13791,23 @@ ${jobsCtx || "No jobs found."}`;
                 // Activity: computed and read-only — the newest signature on this row's
                 // approval chain (who, which step, when). No stored field backs it, so it
                 // never routes through commitEdit.
+                // Act Hrs: computed and read-only. Summed from the leaves, so a panel reports its
+                // ops' hours and a job its panels'. Never routes through commitEdit -- there is no
+                // stored field behind it, and writing one would give a second answer for "worked".
+                if (col.fieldKey === "actHours") {
+                  const ah = actualHoursFor(item);
+                  const est = level === 2 ? opHrs(item) : level === 1 ? panelHrs(item) : jobHrs(item);
+                  return (
+                    <div key={col.id} style={{ ...cellBase, ...ccCond, fontFamily: T.mono, fontSize: 12 }}>
+                      {ah > 0
+                        ? <span title={`${ah.toFixed(1)}h worked of ${est}h scheduled`}
+                            style={{ color: T.textSec, fontWeight: est > 0 && ah > est ? 700 : 400 }}>
+                            {Math.round(ah * 10) / 10}h
+                          </span>
+                        : <span style={{ color: T.textDim }}>—</span>}
+                    </div>
+                  );
+                }
                 if (col.fieldKey === "apprActivity") {
                   const act = apprActivityFor(item, level, jobId, panelId);
                   return (
@@ -13885,7 +13919,7 @@ ${jobsCtx || "No jobs found."}`;
                       onContextMenu={e => { e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setColCtxMenu({ x: e.clientX, y: e.clientY, colId: col.id, isCustom: false, hdrLeft: r.left, hdrTop: r.top }); }}
                       onClick={e => { e.stopPropagation(); if (colDragMovedRef.current) { colDragMovedRef.current = false; return; } }}
                       onDoubleClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setRenameCol({ colId: col.id, isCustom: false, value: stdColLabel(col), x: r.left, y: Math.max(8, r.top - 50) }); }}
-                      style={{ ...hdrCell, justifyContent: col.align === "right" ? "flex-end" : col.align === "center" ? "center" : "flex-start", position: "relative", userSelect: "none", cursor: colDragging ? "grabbing" : "pointer", borderLeft: isDragOver ? `2px solid ${T.accent}` : undefined, gap: 4, background: colSort.id === col.id ? T.accent + "12" : undefined, ...(col.id === "name" ? { paddingLeft: 22 } : {}) }}>
+                      style={{ ...hdrCell, position: "relative", userSelect: "none", cursor: colDragging ? "grabbing" : "pointer", borderLeft: isDragOver ? `2px solid ${T.accent}` : undefined, gap: 4, background: colSort.id === col.id ? T.accent + "12" : undefined, ...(col.id === "name" ? { paddingLeft: 22 } : {}) }}>
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, color: colSort.id === col.id ? T.accent : undefined }}>{stdColLabel(col)}</span>
                       <span style={{ fontSize: 9, flexShrink: 0, color: colSort.id === col.id ? T.accent : T.textDim, opacity: colSort.id === col.id ? 1 : 0.35, transition: "opacity 0.15s" }}>{colSort.id === col.id ? (colSort.dir === "asc" ? "▲" : "▼") : "⇅"}</span>
                       <div onMouseDown={e => { e.stopPropagation(); startColResize(e, widthIdx); }} style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "col-resize", zIndex: 5 }} onMouseEnter={e => e.currentTarget.style.background = T.hoverStrong} onMouseLeave={e => e.currentTarget.style.background = "transparent"} />
@@ -24591,7 +24625,7 @@ ${jobsCtx || "No jobs found."}`;
       }
       if (col.id === "hrs") {
         const h = level === 1 ? (node.subs || []).reduce((s, o) => s + (o.hpd || 0), 0) : (node.hpd || 0);
-        return <span key={key} style={{ ...pad, justifyContent: "flex-end", fontFamily: T.mono, color: T.textSec }}>{h ? `${Math.round(h * 10) / 10}h` : "—"}</span>;
+        return <span key={key} style={{ ...pad, fontFamily: T.mono, color: T.textSec }}>{h ? `${Math.round(h * 10) / 10}h` : "—"}</span>;
       }
       if (col.id === "progress") {
         const pct = Math.round(level === 1 ? _panelPct(node) : _opPct(node));
@@ -24639,6 +24673,17 @@ ${jobsCtx || "No jobs found."}`;
           title={col.id === "appr" ? "Approvals are tracked per job, not per task" : "From the job"}>
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{v || "—"}</span>
         </span>;
+      }
+      // Act Hrs: computed and read-only, so it is caught BEFORE the fallback below. That
+      // fallback reads node[key] and offers an edit, which for a field with nothing behind it
+      // would write a junk property onto the op and give a second answer for "worked".
+      if (col.fieldKey === "actHours") {
+        const ah = actualHoursFor(node);
+        const est = level === 1 ? (node.subs || []).reduce((a, o) => a + (o.hpd || 0), 0) : (node.hpd || 0);
+        const over = est > 0 && ah > est;
+        return <span key={key} style={{ ...pad, fontFamily: T.mono, color: T.textSec, fontWeight: over ? 700 : 400 }}
+          title={`${Math.round(ah * 10) / 10}h worked of ${Math.round(est * 10) / 10}h scheduled`}>
+          {ah > 0 ? `${Math.round(ah * 10) / 10}h` : "—"}</span>;
       }
       // custom + field-linked columns, committed through the same path
       const raw = node[key] ?? "";
@@ -25393,6 +25438,8 @@ ${jobsCtx || "No jobs found."}`;
                         : <input type="number" min="0.5" max="24" step="0.5" value={panel.hpd??7.5} onChange={e => { setAvailCheckPassed(false); updatePanel({hpd:parseFloat(e.target.value)||7.5}); }} style={{ width:52, padding:"7px 6px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
                       }
                       <Tip label="Estimated total hours for this operation"><span style={{ fontSize:11, color:hasSubs?T.accent:T.textDim, whiteSpace:"nowrap", width:24 }}>hrs</span></Tip>
+                      <Tip label="Hours the crew has actually worked, summed across this operation&#39;s sub-operations"><div style={{ width:52, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.bg, color:T.textDim, fontSize:13, fontFamily:T.font, textAlign:"center", fontWeight:600 }}>{actualHoursFor(panel).toFixed(1)}</div></Tip>
+                      <Tip label="Hours actually worked. The cell beside it is the estimate, and progress is worked over estimate."><span style={{ fontSize:11, color:T.textDim, whiteSpace:"nowrap", width:24 }}>act</span></Tip>
                       {!hasSubs && <div style={{ position:"relative", flexShrink:0 }}>
                         <button onClick={e => { e.stopPropagation(); const opening=deptDropId!==panel.id; setDeptDropId(opening?panel.id:null); if(opening){ setDeptAddInput(""); setDeptAddMode(false); } }}
                           style={{ display:"flex", alignItems:"center", gap:6, padding:"7px 12px", borderRadius:T.radiusPill, minWidth:92, justifyContent:"space-between", border:`1px solid ${panel.requiredDepartment?T.accent+"55":T.border}`, background:panel.requiredDepartment?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}>
@@ -25442,6 +25489,8 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ display:"flex", alignItems:"center", gap:4, flexShrink:0 }}>
                           <input type="number" min="0.5" max="24" step="0.5" value={sub.hpd??7.5} onChange={e => { setAvailCheckPassed(false); updateSub({hpd:parseFloat(e.target.value)||7.5}); }} style={{ width:52, padding:"7px 6px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
                           <Tip label="Estimated total hours for this operation"><span style={{ fontSize:11, color:T.textDim, whiteSpace:"nowrap", width:24 }}>hrs</span></Tip>
+                          <Tip label="Hours the crew has actually worked on this sub-operation"><div style={{ width:52, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.bg, color:T.textDim, fontSize:13, fontFamily:T.font, textAlign:"center", fontWeight:600 }}>{actualHoursFor(sub).toFixed(1)}</div></Tip>
+                          <Tip label="Hours actually worked. The cell beside it is the estimate, and progress is worked over estimate."><span style={{ fontSize:11, color:T.textDim, whiteSpace:"nowrap", width:24 }}>act</span></Tip>
                           <div style={{ position:"relative", flexShrink:0 }}>
                             <button onClick={e => { e.stopPropagation(); const opening=deptDropId!==sub.id; setDeptDropId(opening?sub.id:null); if(opening){ setDeptAddInput(""); setDeptAddMode(false); } }}
                               // Pill, and sized to match the hours and title inputs beside it

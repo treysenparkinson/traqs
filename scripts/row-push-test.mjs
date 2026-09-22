@@ -5,7 +5,7 @@
 //
 //   node scripts/row-push-test.mjs
 
-import { rowPushHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, idleLeftOfCursorH, flushRightWidthPct } from "../src/statsMath.js";
+import { rowPushHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, idleLeftOfCursorH, flushRightWidthPct, rollupLeafHours } from "../src/statsMath.js";
 
 let pass = 0, fail = 0;
 const eq = (label, got, want) => {
@@ -694,5 +694,45 @@ let flushRedOk = true;
       + `${fromGrid.toFixed(3)}% -- the bar stops short of the line`);
   }
 }
+// -- actual hours roll up from the leaves --------------------------------
+// Hours are recorded against the op somebody clocked into, so only a leaf has any of its own.
+const H = { a: 3, b: 4, c: 5, d: 6 };
+const leaf = (n) => H[n.id] || 0;
+const job = { id: "job", subs: [
+  { id: "p1", subs: [{ id: "a" }, { id: "b" }] },
+  { id: "p2", subs: [{ id: "c", subs: [{ id: "d" }] }] },
+] };
+
+eq("a leaf reports its own hours",
+  rollupLeafHours({ id: "a" }, leaf), 3);
+eq("a panel reports its ops' hours",
+  rollupLeafHours(job.subs[0], leaf), 7);
+eq("a job reports every leaf beneath it, however deep",
+  rollupLeafHours(job, leaf), 13);
+eq("a node with subs contributes none of its OWN hours, only its children's",
+  rollupLeafHours(job.subs[1], leaf), 6);
+eq("an empty subs array is a leaf",
+  rollupLeafHours({ id: "a", subs: [] }, leaf), 3);
+eq("nothing recorded is zero, not NaN",
+  rollupLeafHours({ id: "zzz" }, leaf), 0);
+eq("a negative reading cannot subtract from the total",
+  rollupLeafHours({ id: "x", subs: [{ id: "a" }, { id: "neg" }] }, (n) => n.id === "neg" ? -99 : leaf(n)), 3);
+eq("no node, no hours",
+  rollupLeafHours(null, leaf), 0);
+
+// RED PROOF: summing only the DIRECT children misses a panel that holds sub-ops, and reports
+// a deep job as having had no work done on it at all.
+let rollupRedOk = true;
+{
+  const oneLevel = (n) => (n.subs || []).reduce((a, c) => a + leaf(c), 0);
+  const shallow = oneLevel(job.subs[1]);   // p2 -> c has subs, so leaf(c) is 5 not 6
+  const deep = rollupLeafHours(job.subs[1], leaf);
+  if (shallow === deep) {
+    rollupRedOk = false;
+    console.error("RED PROOF FAILED: one level deep already agrees with the recursive rollup");
+  } else {
+    console.log(`red proof: one level deep reports ${shallow}h where the leaves total ${deep}h`);
+  }
+}
 console.log(`${pass} passed, ${fail} failed`);
-process.exit(fail === 0 && redOk && collideRedOk && slackRedOk && sessionRedOk && shrinkRedOk && overlapRedOk && badgeRedOk && recordRedOk && insetRedOk && recPushRedOk && segRedOk && idleRedOk && stretchRedOk && flushRedOk ? 0 : 1);
+process.exit(fail === 0 && redOk && collideRedOk && slackRedOk && sessionRedOk && shrinkRedOk && overlapRedOk && badgeRedOk && recordRedOk && insetRedOk && recPushRedOk && segRedOk && idleRedOk && stretchRedOk && flushRedOk && rollupRedOk ? 0 : 1);
