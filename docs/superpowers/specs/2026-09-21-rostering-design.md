@@ -44,6 +44,10 @@ weight to route around — `addWorkingDays` (`src/TRAQS.jsx:523`), `isWorkDay`
 | 6 | Weekend / holiday policy | **Respect org `workDays` + `holidays`. No emission on non-work days** |
 | 7 | Template ownership | **Person-owned only.** Role-owned deferred |
 | 8 | Tier placement | **Basic.** Both tiers get rostering; Business adds jobs/Gantt on top |
+| 9 | Tier selection | **At org signup.** New orgs pick Basic or Business during setup; the choice writes `tier` on the org record |
+| 10 | Gating style | **Removal, not disablement.** Basic renders no Business-only UI at all — no greyed-out items, no scattered upgrade CTAs |
+| 11 | Upgrade entry point | **One button in Settings.** "Upgrade to Business" flips the tier and reveals every Business feature |
+| 12 | Roster view granularity | **Basic: week (default) + day. No month.** Business keeps month |
 
 ### Deferred (decided to defer, not undecided)
 
@@ -56,6 +60,9 @@ weight to route around — `addWorkingDays` (`src/TRAQS.jsx:523`), `isWorkDay`
 - **Roster horizon.** Rolling / effectively infinite, since the model is
   rule-based. The UI still needs a defensible answer for "what does week 40 look
   like."
+- **Pricing.** Out of scope. The upgrade button flips the tier with no payment
+  step, which is deliberate for rollout and must be revisited before pricing
+  lands — see §10.6.
 
 ---
 
@@ -288,6 +295,13 @@ alongside `pto` and `task`. No extraction, no parallel component.
   nobody can tell what is actually scheduled.
 - Interactions (web only): click a cell → override that date; drag across cells →
   apply to a range. PTO renders as it already does and visibly wins.
+- **View granularity is tier-gated (decision 12).** `renderTeam` already has a
+  day/week/month toggle at `src/TRAQS.jsx:15149` (it sets `tMode` and adjusts
+  `tStart`/`tEnd`). Basic filters `month` out of that array, leaving day + week
+  with **week as the default**; Business keeps all three. The other two toggles
+  — `renderGantt` `:11466` (day/week/month) and `renderSplitGantt` `:11815`
+  (week/month) — need no filtering, because both surfaces are Business-only and
+  disappear wholesale in Basic.
 
 ### 6.3 Time input
 
@@ -311,16 +325,86 @@ Per decision 8: **Basic** = rostering + timeclock/PTO/hours/CSV.
 **Business** = adds job/project/Gantt scheduling. Both share the same rostering
 feature.
 
-Two consequences:
+### 7.1 Tier selection at signup
 
-**1. Rostering is tier-independent and can ship before the tier system.** Since
-both tiers get it, rostering needs no gate, no `requireFeature` call, no upgrade
-prompt. This resolves the ordering question between the tier project and this
-one: neither blocks the other.
+New orgs pick Basic or Business during setup (decision 9). The choice writes
+`tier` on the org record (`orgs/<code>/config.json`, created by `POST /org`,
+authored in `src/App.jsx:588`). That field gates three things:
 
-**2. `renderTeam`'s bar composition becomes the tier boundary.** Today a Basic
-org opening the Team page gets a timeline whose three `task` pushes contribute
-nothing, so it renders PTO against empty space. Rostering is what fills it.
+| Gated | Basic | Business |
+|---|---|---|
+| **Which features render** | No job/project/Gantt UI at all | Everything |
+| **Default schedule view** | Week, with day available; no month | Week, with day and month |
+| **Which onboarding flow runs** | Basic setup suite | Business setup suite |
+
+`tier` is server-authored and never client-writable. Absent on an existing
+record means **`business`**, which grandfathers every org created before the
+field existed; absent at *creation* should be a hard 400 rather than a default,
+since a defaulted tier is how Business gets given away silently.
+
+That grandfathering default is also what keeps §7.4 true: rostering can ship
+before the tier system exists, because an org with no `tier` behaves exactly as
+today.
+
+### 7.2 Gating is removal, not disablement
+
+Decision 10, and it is a real architectural constraint rather than a styling
+preference. Basic renders **no Business-only UI at all**: no greyed-out nav
+items, no disabled buttons, no upgrade CTAs scattered through the product. A
+Basic org should look like an app built for it, not a Business org with pieces
+crossed out.
+
+Two consequences worth stating, because they are easy to get wrong:
+
+1. **Gating happens at the nav/feature level, not per control.** One filter per
+   nav array — desktop `views` (`src/TRAQS.jsx:~9864`) and mobile (`:22012`) —
+   rather than `disabled` props sprinkled through the UI. Cheaper and much harder
+   to leave half-done.
+2. **A Business-only panel nested inside a Basic-visible page must be *omitted*,
+   not left to render empty.** This is the sharp edge. `renderEmployees`
+   (`:17936`) derives its Schedule / This week / Assigned Queue / Current Job /
+   Current Task / Current Work panels from `tasks`, and `Performance` from job
+   efficiency and utilization. In a Basic org those render empty today — an
+   employee page reading "None scheduled". Under decision 10 that is not
+   acceptable output: the job-fed panels must be absent in Basic, and the
+   schedule panels re-sourced from the roster. Same applies to the month option
+   in `renderTeam`'s toggle (§6.2) — filtered out of the array, not shown
+   inactive.
+
+### 7.3 The upgrade path
+
+One button, in Settings: **"Upgrade to Business."** Pressing it flips `tier` and
+reveals every Business feature (decision 11). No other upgrade surface exists
+anywhere in the product.
+
+This supersedes the earlier "option 3" shape (in-app *request* + operator flips
+the field). **The difference is deliberate but load-bearing:** with pricing out
+of scope (§2, Deferred), a self-serve flip means Business is free to anyone who
+presses the button. That is acceptable — arguably desirable — during rollout and
+trials, and unacceptable the day pricing exists. Recorded as §10.6 so it is a
+scheduled decision rather than a discovered hole.
+
+**Downgrade** keeps its earlier semantics: data is retained untouched, UI is
+hidden, writes are rejected. Nothing is destroyed, and re-upgrading restores
+everything — so an accidental downgrade is never a support incident about lost
+job history.
+
+### 7.4 Rostering stays tier-independent
+
+Since both tiers get rostering, it needs no `requireFeature` call and no upgrade
+prompt. The only place this plan reads `tier` is the month filter in §6.2, and
+the grandfathering default in §7.1 makes that safe before the tier system
+lands: with `tier` absent, month stays available and nothing changes.
+
+The tier system itself — signup picker, onboarding suites, the Settings button,
+server-side feature enforcement — is a **separate project with its own build
+order**. It is described here only where it touches the roster.
+
+### 7.5 `renderTeam`'s bar composition is the tier boundary
+
+Today a Basic org opening the Team page gets a timeline whose three `task`
+pushes contribute nothing, so it renders PTO against empty space. Rostering is
+what fills it.
 
 | Tier | `bars` contains |
 |---|---|
@@ -411,6 +495,27 @@ generic `#Predicate` compiles and then fatals at fetch.
 `MEMBER_TTL_MS`). Not a rostering problem directly, but any permission or tier
 change affecting roster writes takes up to 5 minutes to bite server-side while
 the UI flips instantly.
+
+---
+
+**10.6 The upgrade button gives Business away until pricing exists.**
+Decision 11 flips `tier` on press with no payment step. Deliberate for rollout;
+it must become gated — payment, or a reversion to the request-and-operator-flip
+shape — before pricing launches. Flagged here because nothing in the code will
+fail when that day arrives.
+
+**10.7 Removal-not-disablement makes empty panels a bug, not a cosmetic issue.**
+Decision 10 means every Business-fed panel on a Basic-visible page must be
+conditionally omitted. The known instance is `renderEmployees` (§7.2): six
+panels plus `Performance` currently render empty in a Basic org. Auditing for
+others is part of the tier project, not this one, but the roster work is what
+makes the schedule panels fillable.
+
+**10.8 Two nav arrays and three view toggles.**
+Nav filtering must cover both desktop (`~:9864`) and mobile (`:22012`). The month
+filter applies only to `renderTeam` (`:15149`); the `renderGantt` (`:11466`) and
+`renderSplitGantt` (`:11815`) toggles live on Business-only surfaces and need no
+change. Miss the mobile nav and Basic users reach Jobs on their phone.
 
 ---
 
