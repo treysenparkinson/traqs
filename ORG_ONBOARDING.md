@@ -340,25 +340,32 @@ goes green. Three, all of which must fail first:
   and one carelessly added field later leaks every org's plan.
 - **Q5 panel.hpd vs its ops' sum** — parked. Schedule work, not this workstream.
 
-### OPEN — blocks step 5
+### RULED — the domain gate (option 2)
 
-**The email-domain gate.** `config.domain` is an allowlist dating from the
-initial commit (`0e6811f`), not from any ruling here. `App.jsx:1494` bounces a
-mismatched email to `domain-error` and logs them out; `forgot-org.js` and
-`org-lookup.js` use it so employees other than the single adminEmail can
-recover the code.
+**Closed by default, invites as the exception.** The check becomes *domain match
+OR a valid invite for this org*. An accepted invite exempts that address from
+`App.jsx:1494`; everyone else still has to match the domain.
 
-It collides with invites: invite `sam@contractor.com` to an org whose domain is
-`acmefab.com` and they authenticate, get membership written on first login as
-ruled, and are then bounced by the gate. The invite works and they still cannot
-get in. Three ways out:
+Option 3 (blank domain = no gate) is **closed, do not reopen**: an org that left
+the field empty would have no join gate at all and its signup would be public.
+The SSO hint on wireframe screen 2 is not evidence for it.
 
-1. Domain stays a hard gate — invites only work within the domain.
-2. An accepted invite exempts the holder — the check becomes domain match OR a
-   valid invite. **Recommended:** keeps the existing boundary, smallest change.
-3. Domain becomes optional — blank means no gate, and the check skips when
-   empty rather than failing closed.
+### NOT DOING — the org code as a shared secret
 
+`TRAQS Onboarding Wireframes.html` screen 2 draws the org code as a masked field
+with a Verify box and the warning *“Write this down somewhere safe — it unlocks
+org-level settings.”* That is a different security model from the one built: a
+password shared by everyone who needs settings access, with no per-person
+attribution and no way to revoke one holder.
+
+Not building it. If org settings need a second gate it will be a real permission
+(`PERM_KEYS` already has `orgSettings`), not a password.
+
+### PARKED — restyling Welcome / Login / Domain
+
+The wireframe draws every screen in its own visual language. The wizard steps
+adopt it; the surrounding auth screens are tagged “existing screen” and are left
+alone. Do not start this.
 ## RULINGS — signed off 2026-09-22, do not relitigate
 
 - **§6 accepted. Matrix is NOT re-keyed.** `MTX2026TRAQS` is its org code.

@@ -17,16 +17,50 @@ export const guessTimeZone = () => {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; }
 };
 
-export function StepDots({ current }) {
+
+// Tokens lifted from TRAQS Onboarding Wireframes.html. Scoped to the wizard's
+// card rather than applied globally: the welcome and login screens are tagged
+// “existing screen” in that document and restyling the whole auth flow is a
+// bigger decision than implementing these steps.
+const INK = "#141414";
+const MUTED = "#8a8a86";
+const HAIR = "#d7d3c9";
+const MONO = "'Space Mono', ui-monospace, SFMono-Regular, Menlo, monospace";
+
+// A selectable pill. The wireframe uses these for company size and pay period
+// rather than dropdowns — every option stays visible, which is the point when
+// there are only four.
+function Pill({ on, onClick, children }) {
   return (
-    <div style={{ display: "flex", justifyContent: "center", gap: 6, marginBottom: 18 }}>
-      {SIGNUP_STEPS.map((s) => (
-        <div key={s.id} aria-hidden style={{
-          width: s.id === current ? 22 : 7, height: 7, borderRadius: 4,
-          background: s.id === current ? "#0a84ff" : "#d8d4cc",
-          transition: "width 0.2s, background 0.2s",
-        }} />
-      ))}
+    <button type="button" onClick={onClick} className="tq-noanim" aria-pressed={on}
+      style={{
+        flex: 1, padding: "9px 0", borderRadius: 999, cursor: "pointer",
+        border: `1.5px solid ${on ? INK : HAIR}`,
+        background: on ? INK : "#fff", color: on ? "#fff" : INK,
+        fontSize: 12, fontWeight: on ? 700 : 500, fontFamily: "inherit",
+        transition: "background 0.12s, border-color 0.12s, color 0.12s",
+      }}>{children}</button>
+  );
+}
+
+function PillRow({ children }) {
+  return <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>{children}</div>;
+}
+export function StepDots({ current }) {
+  const i = SIGNUP_STEPS.findIndex((s) => s.id === current);
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 18 }}>
+      <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: 2, color: MUTED, textTransform: "uppercase" }}>
+        {`Step ${i + 1} of ${SIGNUP_STEPS.length}`}
+      </div>
+      <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+        {SIGNUP_STEPS.map((s, j) => (
+          <div key={s.id} aria-hidden style={{
+            width: 7, height: 7, borderRadius: "50%",
+            background: j <= i ? INK : HAIR, transition: "background 0.2s",
+          }} />
+        ))}
+      </div>
     </div>
   );
 }
@@ -99,22 +133,27 @@ export function BasicsStep({ form, set, errors, S }) {
           {INDUSTRIES.map((i) => <option key={i} value={i}>{i}</option>)}
         </select>
       </Field>
+      {/* Pills, not a dropdown: four options, and the wireframe keeps them all
+          visible so the range being chosen is legible without opening anything. */}
       <Field label="Company Size" err={errors.companySize} S={S}>
-        <select style={selectStyle(S)} value={form.companySize} onChange={(e) => set("companySize", e.target.value)}>
-          <option value="">Select…</option>
-          {COMPANY_SIZES.map((c) => <option key={c.value} value={c.value}>{c.label} people</option>)}
-        </select>
+        <PillRow>
+          {COMPANY_SIZES.map((c) => (
+            <Pill key={c.value} on={form.companySize === c.value}
+              onClick={() => set("companySize", c.value)}>{c.label}</Pill>
+          ))}
+        </PillRow>
       </Field>
-      <Field label="Country" err={errors.country} S={S}>
-        <input style={S.INPUT_STYLE} type="text" placeholder="United States"
-          value={form.country} onChange={(e) => set("country", e.target.value)} autoComplete="country-name" />
+      {/* Country and time zone share a row, as drawn. */}
+      <Field label="Country / time zone" hint="Schedules and pay periods are calculated in this zone."
+        err={errors.country || errors.timeZone} S={S}>
+        <div style={{ display: "flex", gap: 10 }}>
+          <input style={{ ...S.INPUT_STYLE, flex: 1 }} type="text" placeholder="United States"
+            value={form.country} onChange={(e) => set("country", e.target.value)} autoComplete="country-name" />
+          <input style={{ ...S.INPUT_STYLE, flex: 1 }} type="text" placeholder="America/Denver"
+            value={form.timeZone} onChange={(e) => set("timeZone", e.target.value)} autoComplete="off" />
+        </div>
       </Field>
-      <Field label="Time Zone" hint="Schedules and pay periods are calculated in this zone."
-        err={errors.timeZone} S={S}>
-        <input style={S.INPUT_STYLE} type="text" placeholder="America/Denver"
-          value={form.timeZone} onChange={(e) => set("timeZone", e.target.value)} autoComplete="off" />
-      </Field>
-      <Field label="Currency" err={errors.currency} S={S}>
+      <Field label="Currency · for HR export" err={errors.currency} S={S}>
         <select style={selectStyle(S)} value={form.currency} onChange={(e) => set("currency", e.target.value)}>
           {CURRENCIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
         </select>
@@ -126,11 +165,21 @@ export function BasicsStep({ form, set, errors, S }) {
 export function PayrollStep({ form, set, errors, S }) {
   return (
     <>
+      {/* Two rows of two, as the wireframe lays them out — four periods on one
+          line would leave each pill too narrow to read its own label. */}
       <Field label="Pay Period" err={errors.payPeriodType} S={S}>
-        <select style={selectStyle(S)} value={form.payPeriodType}
-          onChange={(e) => set("payPeriodType", e.target.value)}>
-          {PAY_PERIODS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-        </select>
+        <PillRow>
+          {PAY_PERIODS.slice(0, 2).map((p) => (
+            <Pill key={p.value} on={form.payPeriodType === p.value}
+              onClick={() => set("payPeriodType", p.value)}>{p.label}</Pill>
+          ))}
+        </PillRow>
+        <PillRow>
+          {PAY_PERIODS.slice(2).map((p) => (
+            <Pill key={p.value} on={form.payPeriodType === p.value}
+              onClick={() => set("payPeriodType", p.value)}>{p.label}</Pill>
+          ))}
+        </PillRow>
       </Field>
       {/* A DATE, not a weekday. Every period boundary is counted forward from
           this anchor, so a day name would leave nothing to count from. */}
@@ -140,6 +189,7 @@ export function PayrollStep({ form, set, errors, S }) {
         <input style={S.INPUT_STYLE} type="date"
           value={form.payPeriodStart} onChange={(e) => set("payPeriodStart", e.target.value)} />
       </Field>
+      <div style={{ ...S.HINT, marginTop: 10 }}>All of this can be changed later in Settings.</div>
     </>
   );
 }
@@ -170,6 +220,8 @@ function Section({ title, onEdit, children, S }) {
 }
 
 export function ConfirmStep({ form, goTo, errors, S }) {
+  const inviteCount = (form.extraAdmins || []).map((a) => (a || "").trim())
+    .filter(Boolean).filter((a) => a.toLowerCase() !== (form.adminEmail || "").trim().toLowerCase()).length;
   const period = PAY_PERIODS.find((p) => p.value === form.payPeriodType);
   const size = COMPANY_SIZES.find((c) => c.value === form.companySize);
   const extras = (form.extraAdmins || []).map((a) => a.trim()).filter(Boolean);
@@ -188,7 +240,7 @@ export function ConfirmStep({ form, goTo, errors, S }) {
         <Row label="Domain" value={form.domain} />
         <Row label="Other admins" value={extras.length ? extras.join(", ") : "None"} />
       </Section>
-      <Section title="Organization" onEdit={() => goTo("basics")} S={S}>
+      <Section title="Organization basics" onEdit={() => goTo("basics")} S={S}>
         <Row label="Industry" value={form.industry} />
         <Row label="Size" value={size ? `${size.label} people` : ""} />
         <Row label="Country" value={form.country} />
@@ -199,6 +251,19 @@ export function ConfirmStep({ form, goTo, errors, S }) {
         <Row label="Pay period" value={period?.label} />
         <Row label="First period starts" value={form.payPeriodStart} />
       </Section>
+      {/* Invites are sent after the org exists — there is nothing to attach them
+          to until it does — so this states what will happen rather than doing it. */}
+      <div style={{
+        border: `1.5px solid ${INK}`, borderRadius: 999, padding: "11px 0",
+        textAlign: "center", fontSize: 13, fontWeight: 700, color: INK, marginTop: 14,
+      }}>
+        {inviteCount > 0
+          ? `✉ ${inviteCount} invite${inviteCount === 1 ? "" : "s"} will be sent`
+          : "✉ No invites to send"}
+      </div>
+      <div style={{ ...S.HINT, textAlign: "center", marginTop: 6 }}>
+        Invites auto-create employee TRAQS accounts on accept.
+      </div>
     </>
   );
 }

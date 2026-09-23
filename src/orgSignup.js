@@ -27,12 +27,13 @@ export const PAY_PERIODS = [
   { value: "monthly", label: "Monthly" },
 ];
 
+// Four buckets, matching the wireframe's pill row exactly. A fifth would wrap
+// the row and the pills are sized to sit on one line.
 export const COMPANY_SIZES = [
   { value: "1-10", label: "1–10" },
   { value: "11-50", label: "11–50" },
   { value: "51-200", label: "51–200" },
-  { value: "201-500", label: "201–500" },
-  { value: "500+", label: "500+" },
+  { value: "200+", label: "200+" },
 ];
 
 export const INDUSTRIES = [
@@ -49,11 +50,16 @@ export const CURRENCIES = [
   { value: "MXN", label: "MXN — Mexican Peso" },
 ];
 
+// The wireframe numbers Identity as STEP 1 OF 5: the welcome screen is an entry
+// point, not a step. Cutting the tier screen makes it 1 of 4. Numbering from the
+// welcome screen instead — which is what this first shipped as — tells someone on
+// the first form they are already a fifth of the way through something they have
+// not started.
 export const SIGNUP_STEPS = [
-  { id: "identity", n: 2, title: "Identity", blurb: "Who you are and who administers the account." },
-  { id: "basics", n: 3, title: "Organization", blurb: "How your company is set up." },
-  { id: "payroll", n: 4, title: "Payroll", blurb: "How your pay periods run." },
-  { id: "confirm", n: 5, title: "Confirm", blurb: "Check it over, then activate." },
+  { id: "identity", n: 1, title: "Identity", blurb: "Identity first — you’ll be the founding admin." },
+  { id: "basics", n: 2, title: "Organization basics", blurb: "A few details to shape TRAQS around you." },
+  { id: "payroll", n: 3, title: "Payroll rhythm", blurb: "How your pay periods run." },
+  { id: "confirm", n: 4, title: "Confirm & activate", blurb: "Everything in one place — edit any section." },
 ];
 
 export const emptySignupForm = () => ({

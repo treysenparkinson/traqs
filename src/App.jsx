@@ -675,9 +675,13 @@ function CreateOrgStep({ onSuccess, onBack }) {
             {isConfirm && <ConfirmStep form={form} goTo={goTo} errors={errors} S={S} />}
 
             <div style={{ marginTop: 18 }}>
-              <BtnPrimary loading={loading} loadingLabel="Activating…">
-                {isConfirm ? "Activate Organization" : "Continue"}
-              </BtnPrimary>
+              <div style={isConfirm ? { borderRadius: 999, boxShadow: "0 0 24px rgba(56,189,248,.65)" } : undefined}>
+                <BtnPrimary loading={loading} loadingLabel="Activating…">
+                  {isConfirm
+                    ? `Activate “${form.name.trim() || "your organization"}” →`
+                    : "Continue"}
+                </BtnPrimary>
+              </div>
             </div>
           </form>
           <div style={{ textAlign: "center", marginTop: 14 }}>

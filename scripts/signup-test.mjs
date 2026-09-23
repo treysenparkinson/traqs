@@ -32,8 +32,8 @@ const filled = () => ({
 
 // ── the wizard's shape ───────────────────────────────────────────────────
 eq("four steps after the welcome screen", SIGNUP_STEPS.length, 4);
-eq("numbered 2 through 5, the welcome screen being 1",
-  SIGNUP_STEPS.map((s) => s.n), [2, 3, 4, 5]);
+eq("numbered 1 through 4 — the welcome screen is an entry point, not a step",
+  SIGNUP_STEPS.map((s) => s.n), [1, 2, 3, 4]);
 eq("a blank form fails every step",
   SIGNUP_STEPS.map((s) => stepIsValid(s.id, emptySignupForm())), [false, false, false, false]);
 eq("a filled form passes every step",
@@ -67,7 +67,7 @@ eq("company size is required", Object.keys(bErr({ companySize: "" })), ["company
 eq("country is required", Object.keys(bErr({ country: "" })), ["country"]);
 eq("time zone is required", Object.keys(bErr({ timeZone: "" })), ["timeZone"]);
 eq("currency must be one we offer", Object.keys(bErr({ currency: "XYZ" })), ["currency"]);
-eq("the size options are stored as ranges", COMPANY_SIZES.map((c) => c.value)[0], "1-10");
+eq("four size buckets, as the wireframe draws them", COMPANY_SIZES.map((c) => c.value), ["1-10", "11-50", "51-200", "200+"]);
 eq("Other is an industry, so nobody is stuck", INDUSTRIES.includes("Other"), true);
 
 // ── payroll ──────────────────────────────────────────────────────────────
