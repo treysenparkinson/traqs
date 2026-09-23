@@ -486,11 +486,33 @@ function OrgCodeStep({ onContinue, onCreateOrg, onForgot }) {
               {loading ? "Looking up…" : "Continue"}
             </button>
           </form>
-          <div style={{ marginTop: 18, textAlign: "center" }}>
-            <span style={{ fontSize: 12.5, color: "#B4B0A7" }}>
-              New organizations coming soon
-            </span>
+          {/* THE NEW-ORG ENTRY POINT, per wireframe screen 1: a divider and a ghost
+              button under the code form. This screen accepted an onCreateOrg prop
+              and both callers passed one, but nothing rendered it -- the slot held
+              static “New organizations coming soon” text instead, so signup was
+              unreachable from the UI no matter what SIGNUPS_ENABLED said.
+
+              Not hidden when signups are disabled: the frontend cannot read a
+              server env var, and adding an endpoint to expose one is more surface
+              than it is worth. With the flag off the server answers with its own
+              message -- “signups are currently disabled, contact your TRAQS
+              administrator” -- which is the accurate thing to say. */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "18px 0 2px" }}>
+            <span style={{ flex: 1, height: 1, background: "#E3E0D8" }} />
+            <span style={{ fontSize: 10, color: "#B4B0A7", letterSpacing: "0.08em" }}>OR</span>
+            <span style={{ flex: 1, height: 1, background: "#E3E0D8" }} />
           </div>
+          <button
+            type="button"
+            className="tq-noanim"
+            onClick={onCreateOrg}
+            style={{
+              ...PAPER_BTN, marginTop: 14, background: "transparent",
+              color: INK, border: `2px solid ${INK}`, cursor: "pointer",
+            }}
+          >
+            Create organization
+          </button>
         </div>
         {/* Last in, once the card has settled. */}
         <div className="tq-fade" style={{ ...PAPER_FOOT, ...FADE(FOOT_AT, 620, "tqFadeIn"), display: "block" }}>
