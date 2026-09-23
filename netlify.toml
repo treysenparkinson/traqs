@@ -22,10 +22,11 @@
 [functions."backup-daily"]
   schedule = "0 5 * * *"
 
-# Daily sweep for forgotten clock-outs: flags pay shifts open > 12h and pushes
-# a reminder to the worker + an alert to admins (once per shift). 5am UTC.
+# Sweep for forgotten clock-outs, every 15 min: flags pay shifts open > 12h and
+# job clocks still running 30 min past the shop's end of day, pushing the worker
+# + admins once per shift/session. Never auto-closes anything.
 [functions."forgot-clockout"]
-  schedule = "0 5 * * *"
+  schedule = "*/15 * * * *"
 
 # Daily cleanup: prune CANCELLED time-off requests older than 30 days from every
 # org's timeoff.json (they're otherwise kept forever). 5am UTC.
