@@ -13,6 +13,10 @@ import {
   isValidOrgCode, orgCodeShape, orgCodePrefix, generateOrgCode,
   orgCodeFromHeader, orgKey, ORG_CODE_SOURCE, CODE_ALPHABET,
 } from "../netlify/functions/_utils/orgcode.js";
+import {
+  resolveOrgAccess, isReservedOrgSegment, orgSegmentFromKey,
+  auth0IndexKey, codeIndexKey, INDEX_PREFIX,
+} from "../netlify/functions/_utils/orgindex.js";
 
 let pass = 0, fail = 0;
 const eq = (label, got, want) => {
@@ -218,6 +222,87 @@ let disabledRedOk = true;
     console.log("red proof: a flipped flag and a 503-after-copy are both detected");
   }
 }
+// ── THE ORG COMES FROM THE TOKEN; THE HEADER ONLY AGREES ────────────────
+// Today the org arrives as a client-supplied header and is trusted because the caller is then
+// checked against THAT org's people file. Real, but it means a user in org A can address org B
+// and is stopped only by B's roster — one stale person row is the whole boundary.
+const OK = (r) => r.ok ? [r.orgCode, r.via] : [r.status, r.message];
+
+eq("claim and header agree: the claim wins and the request proceeds",
+  OK(resolveOrgAccess({ tokenOrgId: "org_abc", indexedCode: "MTX.7K2P.9QX4", headerCode: "MTX.7K2P.9QX4" })),
+  ["MTX.7K2P.9QX4", "claim"]);
+eq("claim with no header at all is fine — the token is enough",
+  OK(resolveOrgAccess({ tokenOrgId: "org_abc", indexedCode: "MTX.7K2P.9QX4", headerCode: null })),
+  ["MTX.7K2P.9QX4", "claim"]);
+
+// THE HOLE THIS CLOSES.
+eq("a header naming a DIFFERENT org than the token is refused, not corrected",
+  OK(resolveOrgAccess({ tokenOrgId: "org_abc", indexedCode: "MTX.7K2P.9QX4", headerCode: "ACM.3F4G.5H6J" })),
+  [403, "Organization mismatch between session and request"]);
+eq("a token naming an org we do not have is refused",
+  OK(resolveOrgAccess({ tokenOrgId: "org_ghost", indexedCode: null, headerCode: "MTX.7K2P.9QX4" })),
+  [403, "Organization is not provisioned"]);
+
+// THE MIGRATION STATE. Auth0 Organizations is not configured, so no token in circulation
+// carries org_id. Requiring it would 403 the entire product on deploy.
+eq("no claim yet: the header still works, and says so",
+  OK(resolveOrgAccess({ tokenOrgId: null, indexedCode: null, headerCode: "MTX2026TRAQS" })),
+  ["MTX2026TRAQS", "header"]);
+eq("no claim and no header is still a 400",
+  OK(resolveOrgAccess({ tokenOrgId: null, indexedCode: null, headerCode: null })),
+  [400, "Missing or invalid X-Org-Code header"]);
+eq("once the claim is REQUIRED, a token without one is refused",
+  OK(resolveOrgAccess({ tokenOrgId: null, indexedCode: null, headerCode: "MTX2026TRAQS", requireClaim: true })),
+  [403, "Token does not identify an organization"]);
+
+// ── the index is not an org ─────────────────────────────────────────────
+eq("the index segment is reserved", isReservedOrgSegment("_index"), true);
+eq("a real org code is not", isReservedOrgSegment("MTX2026TRAQS"), false);
+eq("nor is a new-format one", isReservedOrgSegment("MTX.7K2P.9QX4"), false);
+eq("a code can never start with an underscore, so the two cannot collide",
+  isValidOrgCode("_index"), false);
+eq("org segment is read off the key", orgSegmentFromKey("orgs/MTX.7K2P.9QX4/tasks.json"), "MTX.7K2P.9QX4");
+eq("the index key reports its own segment", orgSegmentFromKey(auth0IndexKey("org_abc")), "_index");
+eq("a non-org key has no segment", orgSegmentFromKey("backups/2026-09-23/x.json"), null);
+eq("a directory-marker key still names its org — it has no file, not no org",
+  orgSegmentFromKey("orgs/MTX2026TRAQS/"), "MTX2026TRAQS");
+eq("a key with no org part at all is null", orgSegmentFromKey("orgs/"), null);
+eq("so is a bare bucket root", orgSegmentFromKey("orgs"), null);
+eq("index keys live under the reserved prefix",
+  [auth0IndexKey("org_abc").startsWith(INDEX_PREFIX), codeIndexKey("MTX.7K2P.9QX4").startsWith(INDEX_PREFIX)],
+  [true, true]);
+eq("an org_id with path characters cannot escape the index",
+  auth0IndexKey("../../etc/passwd").startsWith(INDEX_PREFIX + "auth0/"), true);
+eq("...and encodes rather than nesting", auth0IndexKey("a/b").includes("a%2Fb"), true);
+
+// The background jobs do not need to skip the index, and these pin why. The plan claimed
+// they did; reading them showed otherwise, and an unnecessary change is still a change.
+// Built from a string with no escapes: [.] rather than an escaped dot, because the
+// patch tooling that writes this file strips a backslash level and has silently
+// broken four regexes already.
+const TIMEOFF_KEY = new RegExp("^orgs/[^/]+/timeoff[.]json$");
+eq("timeoff-cleanup's pattern excludes the index on its own",
+  TIMEOFF_KEY.test(auth0IndexKey("org_abc")), false);
+eq("...while still matching a real org",
+  TIMEOFF_KEY.test("orgs/MTX2026TRAQS/timeoff.json"), true);
+eq("backup-daily copies by prefix, so the index IS backed up — it is data",
+  auth0IndexKey("org_abc").startsWith("orgs/"), true);
+
+// RED PROOF: the rule this replaces — trust the header, full stop. It accepts the mismatched
+// request that the new rule refuses, which is the whole defect.
+let crossRedOk = true;
+{
+  const oldRule = ({ headerCode }) => ({ ok: true, orgCode: headerCode });
+  const attack = { tokenOrgId: "org_abc", indexedCode: "MTX.7K2P.9QX4", headerCode: "ACM.3F4G.5H6J" };
+  const before = oldRule(attack);
+  const after = resolveOrgAccess(attack);
+  if (!before.ok || after.ok) {
+    crossRedOk = false;
+    console.error("RED PROOF FAILED: the header-only rule does not accept the mismatch");
+  } else {
+    console.log(`red proof: header-only grants ${before.orgCode} to a session for org_abc; the cross-check refuses it`);
+  }
+}
 console.log(`${pass} passed, ${fail} failed`);
 if (siteFail) console.log(`${siteFail} enforcement point(s) not yet migrated`);
-process.exit(fail === 0 && genRedOk && embedRedOk && sweepRedOk && disabledRedOk ? 0 : 1);
+process.exit(fail === 0 && genRedOk && embedRedOk && sweepRedOk && disabledRedOk && crossRedOk ? 0 : 1);

@@ -2,6 +2,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import { readJson, writeJson } from "./s3.js";
 import { filterLive } from "./entities.js";
 import { isValidOrgCode } from "./orgcode.js";
+import { resolveOrgAccess, auth0IndexKey } from "./orgindex.js";
 
 const domain = process.env.AUTH0_DOMAIN;
 const audience = process.env.AUTH0_AUDIENCE;
@@ -252,12 +253,15 @@ export class AuthError extends Error {
  * changes quickly while not re-reading two S3 objects on every request.
  */
 export async function requireOrgMember(event) {
-  // One definition, in _utils/orgcode.js. This used to be a literal copy, one of
-  // five, and a format change meant finding all of them.
-  const orgCode = event.headers?.["x-org-code"] || event.headers?.["X-Org-Code"] || "";
-  if (!isValidOrgCode(orgCode)) {
-    throw new AuthError(400, "Missing or invalid X-Org-Code header");
-  }
+  // THE TOKEN IS VALIDATED FIRST, because it is what names the org now. The
+  // header used to be checked up here and then trusted; it is a cross-check
+  // against the verified claim, so it cannot be read before there is a claim to
+  // check it against.
+  //
+  // The header is only format-checked here. Whether it is ALLOWED is decided by
+  // resolveOrgAccess below, against the token.
+  const headerCodeRaw = event.headers?.["x-org-code"] || event.headers?.["X-Org-Code"] || "";
+  const headerCode = isValidOrgCode(headerCodeRaw) ? headerCodeRaw : null;
 
   let payload;
   try {
@@ -265,6 +269,26 @@ export async function requireOrgMember(event) {
   } catch (e) {
     throw new AuthError(401, e.message || "Token validation failed");
   }
+
+  // Auth0 Organizations puts the org on the token as `org_id`. Until it is
+  // configured no token carries one, so resolveOrgAccess keeps the header path
+  // working — see the migration note there. The index lookup only happens when
+  // there is a claim, so this costs nothing until the rollout begins.
+  const tokenOrgId = payload?.org_id || null;
+  let indexedCode = null;
+  if (tokenOrgId) {
+    try {
+      indexedCode = (await readJson(auth0IndexKey(tokenOrgId)))?.orgCode || null;
+    } catch {
+      // A missing index entry is "not provisioned", handled below. A read
+      // FAILURE is not, and must not silently degrade to the header path.
+      throw new AuthError(503, "Could not resolve organization — please retry");
+    }
+  }
+
+  const access = resolveOrgAccess({ tokenOrgId, indexedCode, headerCode });
+  if (!access.ok) throw new AuthError(access.status, access.message);
+  const orgCode = access.orgCode;
 
   const sub = payload?.sub;
   if (sub) {

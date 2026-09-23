@@ -149,9 +149,20 @@ orgs/_index/code/{code}.json         → { auth0OrgId }  reverse, for collision
 orgs/{code}/invites.json             → pending invite tokens
 ```
 
-`orgs/_index/` sits under the same prefix the background jobs enumerate, so
-`backup-daily.js` and `timeoff-cleanup.js` must skip a leading `_` segment or
-they will treat the index as an org. **This is a named test case**, not a note.
+`orgs/_index/` sits under the prefix the background jobs enumerate. **The plan
+originally said both jobs must be changed to skip it. On reading them, neither
+does** — that claim was written without checking:
+
+- `backup-daily.js` copies every key under `orgs/` verbatim into
+  `backups/{date}/`. It never treats a path segment as an org, so the index is
+  simply backed up, which is what we want — it is data, and a restore without
+  it would orphan every Auth0 mapping.
+- `timeoff-cleanup.js` filters for `orgs/{x}/timeoff.json`. The index has no
+  `timeoff.json`, so it is excluded by the pattern already.
+
+Both behaviours are pinned by tests so they do not drift, but no code changed.
+The reserved-segment rule still exists in `_utils/orgindex.js` for callers that
+DO enumerate orgs — it is just that today there are none.
 
 ---
 

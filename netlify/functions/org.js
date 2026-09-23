@@ -6,6 +6,7 @@ import { nowIso, stampObject } from "./_utils/timestamps.js";
 import { publishChange } from "./_utils/ably-publish.js";
 import { sendSilentPush } from "./_utils/push.js";
 import { isValidOrgCode, generateOrgCode } from "./_utils/orgcode.js";
+import { codeIndexKey } from "./_utils/orgindex.js";
 
 // isValidCode was a third copy of the org-code rule. It now comes from
 // _utils/orgcode.js, which accepts both the legacy alphanumeric shape and the
@@ -125,6 +126,13 @@ export async function handler(event) {
         writeJson(`orgs/${code}/tasks.json`, []),
         writeJson(`orgs/${code}/people.json`, seedPeople),
         writeJson(`orgs/${code}/clients.json`, []),
+        // The code side of the Auth0 index, written now so the mapping exists
+        // from the moment the org does. auth0OrgId is null until an Auth0
+        // Organization is bound to it: creating one needs the Management API,
+        // which the invite ruling deliberately keeps out of scope. Binding
+        // writes the reverse entry (orgs/_index/auth0/{org_id}.json) and is
+        // what switches this org onto the token-claim path in requireOrgMember.
+        writeJson(codeIndexKey(code), { orgCode: code, auth0OrgId: null, createdAt: config.createdAt }),
       ]);
       await publishChange(code, "orgConfig", { ids: ["*"] });
       await sendSilentPush(code, { entity: "orgConfig" });
