@@ -326,6 +326,39 @@ goes green. Three, all of which must fail first:
 
 ---
 
+## RULINGS — 2026-09-23 (section 8)
+
+- **Q1 re-key Matrix** — no. Grandfathered; tooling built, not run.
+- **Q2 invites** — membership is written AFTER first login. The invite link
+  carries the org code, the user authenticates through Auth0 normally. No
+  Management API, no new secret.
+- **Q3 old prefix deletion** — BY HAND. The tool refuses unless the new prefix
+  verifies clean. No timer: a timer that deletes an org prefix fires unattended
+  at exactly the moment the deferred attachment failure would surface.
+- **Q4 tier field** — a separate `billing.json` behind auth. NOT `config.json`
+  with a field whitelist: `config.json` is public-read through `org-lookup.js`,
+  and one carelessly added field later leaks every org's plan.
+- **Q5 panel.hpd vs its ops' sum** — parked. Schedule work, not this workstream.
+
+### OPEN — blocks step 5
+
+**The email-domain gate.** `config.domain` is an allowlist dating from the
+initial commit (`0e6811f`), not from any ruling here. `App.jsx:1494` bounces a
+mismatched email to `domain-error` and logs them out; `forgot-org.js` and
+`org-lookup.js` use it so employees other than the single adminEmail can
+recover the code.
+
+It collides with invites: invite `sam@contractor.com` to an org whose domain is
+`acmefab.com` and they authenticate, get membership written on first login as
+ruled, and are then bounced by the gate. The invite works and they still cannot
+get in. Three ways out:
+
+1. Domain stays a hard gate — invites only work within the domain.
+2. An accepted invite exempts the holder — the check becomes domain match OR a
+   valid invite. **Recommended:** keeps the existing boundary, smallest change.
+3. Domain becomes optional — blank means no gate, and the check skips when
+   empty rather than failing closed.
+
 ## RULINGS — signed off 2026-09-22, do not relitigate
 
 - **§6 accepted. Matrix is NOT re-keyed.** `MTX2026TRAQS` is its org code.
