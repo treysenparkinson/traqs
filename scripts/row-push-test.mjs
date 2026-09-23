@@ -771,5 +771,53 @@ let schedRedOk = true;
     console.log(`red proof: preserving the source date stores ${kept}, which is behind ${TODAY_DS}`);
   }
 }
+// -- WORKING A JOB SHRINKS IT. IT NEVER GROWS IT. ------------------------
+// Reported: a 37.5h job with 17.7h logged against it drew as 57.3h instead of the ~19.8h
+// left. 57.3 is exactly 37.46 + 19.84 -- the remainder plus an UNCAPPED elapsed term. The
+// cap is what makes this class impossible, so it is stated here as an invariant rather than
+// left implied by the cap's own unit tests.
+
+eq("the reported case: 37.5h estimated, 17.7h worked, nothing behind the cursor",
+  Math.round(barLengthHours({ hpd: 37.5, workedHoursShown: 17.66, teamSize: 1, elapsedToCursorH: 0 }) * 100) / 100, 19.84);
+eq("...and with the elapsed term capped at the hours worked, still under the estimate",
+  barLengthHours({ hpd: 37.5, workedHoursShown: 17.66, teamSize: 1,
+    elapsedToCursorH: Math.min(37.46, 17.66) }) <= 37.5, true);
+
+// THE INVARIANT. While a job is within its estimate, its bar can never be longer than that
+// estimate: behind the cursor is capped at the hours worked, ahead of it is the hours left,
+// and those two sum to the estimate. Growth past it means work is being ADDED to the plan
+// rather than drawn down from it.
+let grows = 0;
+for (const est of [7.5, 22.5, 37.5, 97.5]) {
+  for (const size of [1, 2, 3]) {
+    let prevAhead = Infinity;
+    for (let worked = 0; worked <= est; worked += est / 12) {
+      const elapsedRaw = est * 2;   // a bar sitting well behind the cursor
+      const len = barLengthHours({ hpd: est, workedHoursShown: worked, teamSize: size,
+        elapsedToCursorH: Math.min(elapsedRaw, worked) });
+      if (len > est / size + worked + 1e-9) grows++;
+      const ahead = Math.max(0, est - worked) / size;
+      if (ahead > prevAhead + 1e-9) grows++;
+      prevAhead = ahead;
+    }
+  }
+}
+eq("across estimates and team sizes, logging hours never lengthens the work ahead", grows, 0);
+
+// RED PROOF: the uncapped term, which is what the report describes. Same inputs, cap removed.
+let growRedOk = true;
+{
+  const capped = barLengthHours({ hpd: 37.5, workedHoursShown: 17.66, teamSize: 1,
+    elapsedToCursorH: Math.min(37.46, 17.66) });
+  const uncapped = barLengthHours({ hpd: 37.5, workedHoursShown: 17.66, teamSize: 1,
+    elapsedToCursorH: 37.46 });
+  if (uncapped <= 37.5 || capped > 37.5) {
+    growRedOk = false;
+    console.error("RED PROOF FAILED: the uncapped term does not exceed the estimate");
+  } else {
+    console.log(`red proof: uncapped, a 37.5h job with 17.7h on it draws ${uncapped}h -- `
+      + `the reported number. Capped it draws ${capped}h.`);
+  }
+}
 console.log(`${pass} passed, ${fail} failed`);
-process.exit(fail === 0 && redOk && collideRedOk && slackRedOk && sessionRedOk && shrinkRedOk && overlapRedOk && badgeRedOk && recordRedOk && insetRedOk && recPushRedOk && segRedOk && idleRedOk && stretchRedOk && flushRedOk && rollupRedOk && schedRedOk ? 0 : 1);
+process.exit(fail === 0 && redOk && collideRedOk && slackRedOk && sessionRedOk && shrinkRedOk && overlapRedOk && badgeRedOk && recordRedOk && insetRedOk && recPushRedOk && segRedOk && idleRedOk && stretchRedOk && flushRedOk && rollupRedOk && schedRedOk && growRedOk ? 0 : 1);

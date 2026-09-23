@@ -331,7 +331,15 @@ goes green. Three, all of which must fail first:
   takes the org name and returns the code.
 - §8's open questions are re-raised **before step 5 (invites)** begins.
 
-## STATUS
+## STATUS — 2026-09-23
 
-Plan signed off. Step 2 (multi-tenancy plumbing) in progress.
-Steps 3–6 not started. Nothing committed.
+| Step | State |
+| --- | --- |
+| 1 Plan | done, signed off |
+| 2 Plumbing | **part done** — org code unified, codes server-generated. Auth0 org index and the X-Org-Code cross-check NOT started. |
+| 3 Matrix migration | not started. Rename path DISABLED in the meantime (server 503 + UI flag). |
+| 4 Signup screens | not started |
+| 5 Invite links | not started. Re-raise §8 before beginning. |
+| 6 Upgrade CTA | not started |
+
+Shipped in `539dc33`. Nothing uncommitted.

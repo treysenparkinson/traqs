@@ -62,7 +62,10 @@ for (const person of people) {
     const perPerson = barLengthHours({
       hpd: Number(op.hpd) || 0, workedHoursShown: worked, isFullyWorked: false,
       teamSize: size, fallbackH: PHPD,
-      elapsedToCursorH: op.start <= TODAY ? elapsedH : 0,
+      // Capped at the hours worked, as the shipped rule is. Uncapped, this reports a
+      // 37.5h job with 17.7h on it as 57.3h — longer than its own estimate — so it
+      // would invent overlaps the app never draws.
+      elapsedToCursorH: op.start <= TODAY ? Math.min(elapsedH, worked) : 0,
     });
     const spanBD = Math.max(0, Math.ceil(perPerson / PHPD) - 1);
     const sH = op.startHour ?? WORK_START;

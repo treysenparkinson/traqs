@@ -116,7 +116,12 @@ for (const person of people) {
 
   const iv = ops.map((o) => {
     const s = prodAt(o.start, o.startHour) + (pushes.get(String(o.id)) || 0);
-    const len = barLengthHours({ ...o, elapsedToCursorH: Math.max(0, nowProd - s) });
+    // Capped at the hours worked, as the shipped rule is. An uncapped elapsed term
+    // reports a 37.5h job with 17.7h on it as 57.3h — longer than its own estimate —
+    // and a tool that models a rule the app does not have sends the next diagnosis
+    // somewhere the code never goes.
+    const len = barLengthHours({ ...o,
+      elapsedToCursorH: Math.min(Math.max(0, nowProd - s), o.ownWorkedHours || 0) });
     return { o, s, e: s + len };
   });
 

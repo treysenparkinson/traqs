@@ -132,11 +132,11 @@ console.log("bar".padEnd(28)+"start".padEnd(12)+"sH".padStart(6)+"push".padStart
 for (const o of ops) {
   const push=pushes.get(String(o.id))||0;
   const s=prodAt(o.start,o.startHour)+push;
-  const len=barLengthHours({...o,
-  // Capped at the hours worked, as the shipped rule does -- a pinned bar is not
-    // stretched to the cursor on elapsed time alone.
-    elapsedToCursorH:o.isRecord?null:Math.min(Math.max(0,-rel),o.ownWorkedHours||0)});
   const rel=s-nowProd;
+  // Capped at the hours worked, as the shipped rule does -- a bar is not stretched
+  // back to the cursor on elapsed time alone.
+  const len=barLengthHours({...o,
+    elapsedToCursorH:o.isRecord?null:Math.min(Math.max(0,-rel),o.ownWorkedHours||0)});
   console.log(o.title.padEnd(28)+o.start.padEnd(12)+o.startHour.toFixed(1).padStart(6)+
     push.toFixed(2).padStart(8)+len.toFixed(2).padStart(8)+"   "+(rel>=0?"+":"")+rel.toFixed(2)+"h"+
     (atCursor.has(String(o.id))?"  AT-CURSOR":"")+(push>0?"  (pushed "+(push/PHPD).toFixed(2)+"d)":""));
