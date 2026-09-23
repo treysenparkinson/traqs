@@ -63,7 +63,11 @@ export async function handler(event) {
     // body is ignored — accepting one lets a caller squat a prefix, pick a code
     // that impersonates another org, or probe which codes already exist by
     // watching for 409s.
-    const { name, domain, adminEmail } = body ?? {};
+    const {
+      name, domain, adminEmail,
+      adminName, adminEmails, industry, companySize, country, currency,
+      settings: reqSettings,
+    } = body ?? {};
     if (!name || !domain || !adminEmail) return err(400, "Missing required fields: name, domain, adminEmail");
     // Cap the free-form fields so the gate isn't a path to write giant
     // blobs to S3 even if SIGNUPS_ENABLED is left on.
@@ -91,11 +95,41 @@ export async function handler(event) {
     }
     if (!code) return err(503, "Could not allocate an organization code. Try again.");
 
+    // Enums are re-checked here rather than trusted from the client. The wizard
+    // validates them too, but the wizard is not the only thing that can POST.
+    const PAY_PERIODS = ["weekly", "biweekly", "semi-monthly", "monthly"];
+    const isDateStr = (v) => typeof v === "string" && v.length === 10
+      && Number.isFinite(new Date(v + "T12:00:00").getTime());
+    const s = reqSettings ?? {};
+    if (s.payPeriodType != null && !PAY_PERIODS.includes(s.payPeriodType)) {
+      return err(400, "Invalid payPeriodType");
+    }
+    if (s.payPeriodStart != null && s.payPeriodStart !== "" && !isDateStr(s.payPeriodStart)) {
+      return err(400, "Invalid payPeriodStart — expected YYYY-MM-DD");
+    }
+    const cap = (v, n) => String(v ?? "").slice(0, n);
+
+    // The admin list is what grants access once there are no seeded people:
+    // requireOrgMember accepts an address in adminEmails without a person row.
+    // The primary admin is always first and always present, whatever the client
+    // sent, so an org can never be created that nobody can sign in to.
+    const cleanAdmin = String(adminEmail).toLowerCase().trim();
+    const extraAdmins = Array.isArray(adminEmails)
+      ? adminEmails.map((a) => String(a || "").toLowerCase().trim()).filter((a) => a.includes("@"))
+      : [];
+    const allAdmins = [...new Set([cleanAdmin, ...extraAdmins])].slice(0, 25);
+
     const cleanDomain = domain.toLowerCase().replace(/^@/, "");
     const config = {
       name,
       domain: cleanDomain,
       adminEmail,
+      adminName: cap(adminName, 80),
+      adminEmails: allAdmins,
+      industry: cap(industry, 40),
+      companySize: cap(companySize, 20),
+      country: cap(country, 60),
+      currency: cap(currency, 8) || "USD",
       createdAt: new Date().toISOString(),
       // Brand-new object → seed its delta-sync stamp now so the first /sync
       // after creation sees a lastModifiedAt (rather than treating a fresh
@@ -103,22 +137,24 @@ export async function handler(event) {
       lastModifiedAt: nowIso(),
     };
 
-    // Seed the org creator as the first admin person
-    const adminName = adminEmail.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-    const seedPeople = [{
-      id: 1,
-      name: adminName,
-      email: adminEmail.toLowerCase(),
-      role: "Admin",
-      userRole: "admin",
-      cap: 8,
-      color: "#6366f1",
-      timeOff: [],
-      // Stamp the seed admin like the config above — without this the record
-      // has no lastModifiedAt, so /sync's changedSince treats it as always-new
-      // and re-sends the admin in every delta pull for the life of the org.
-      lastModifiedAt: nowIso(),
-    }];
+    // A NEW ORG BOOTS COMPLETELY EMPTY. No departments, shifts, ops or person
+    // records — not even the creator's. This replaces a seeded admin person.
+    //
+    // Access does not depend on that seed: requireOrgMember admits an address
+    // listed in config.adminEmails whether or not a person row exists, which is
+    // why allAdmins above always contains the creator. Their person record is
+    // written on first login, the same path an invited admin takes.
+    const seedPeople = [];
+
+    // Only the values the signup wizard actually collected. Everything else the
+    // app defaults for itself — writing a full settings object here would freeze
+    // today's defaults into every org created from now on, and they would stop
+    // tracking the app's.
+    const seedSettings = {};
+    if (s.timeZone) seedSettings.timeZone = String(s.timeZone).slice(0, 64);
+    if (s.payPeriodType) seedSettings.payPeriodType = s.payPeriodType;
+    if (s.payPeriodStart) seedSettings.payPeriodStart = s.payPeriodStart;
+    if (Object.keys(seedSettings).length) seedSettings.lastModifiedAt = nowIso();
 
     try {
       await Promise.all([
@@ -126,6 +162,13 @@ export async function handler(event) {
         writeJson(`orgs/${code}/tasks.json`, []),
         writeJson(`orgs/${code}/people.json`, seedPeople),
         writeJson(`orgs/${code}/clients.json`, []),
+        // Written only when the wizard supplied something. timeZone,
+        // payPeriodType and payPeriodStart live HERE, in settings.json, under
+        // the names the app already reads — putting them on config.json would
+        // create a second copy nothing looks at, and the app would keep its
+        // defaults while the confirmation screen showed the admin their choice.
+        ...(Object.keys(seedSettings).length
+          ? [writeJson(`orgs/${code}/settings.json`, seedSettings)] : []),
         // The code side of the Auth0 index, written now so the mapping exists
         // from the moment the org does. auth0OrgId is null until an Auth0
         // Organization is bound to it: creating one needs the Management API,

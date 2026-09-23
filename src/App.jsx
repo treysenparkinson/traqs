@@ -7,6 +7,8 @@ import ErrorBoundary from "./ErrorBoundary.jsx";
 import { UL_LOGO_WHITE } from "./logo.js";
 import TRAQS_BARS from "./traqs-bars.png";
 import { fetchOrgConfig, createOrg, forgotOrgCode, fetchPeople } from "./api.js";
+import { emptySignupForm, buildOrgPayload, validateStep, SIGNUP_STEPS } from "./orgSignup.js";
+import { guessTimeZone, StepDots, IdentityStep, BasicsStep, PayrollStep, ConfirmStep, ActivatedScreen } from "./SignupSteps.jsx";
 
 const LS_CODE = "tq_org_code";
 const LS_CONFIG = "tq_org_config";
@@ -567,34 +569,69 @@ function ForgotOrgStep({ onBack }) {
 }
 
 // ─── Create org form ──────────────────────────────────────────────────────────
+// ─── Signup wizard ────────────────────────────────────────────────────────────
+//
+// Five screens: the welcome screen (OrgCodeStep) is 1, this owns 2–5. The rules
+// it enforces live in orgSignup.js and are tested there; this is navigation,
+// rendering and the one network call.
+//
+// There is no org-code field. The server generates the code and returns it, and
+// ActivatedScreen is the only place it is shown.
 function CreateOrgStep({ onSuccess, onBack }) {
-  const [form, setForm] = useState({ name: "", domain: "", adminEmail: "" });
+  const [form, setForm] = useState(() => ({ ...emptySignupForm(), timeZone: guessTimeZone() }));
+  const [stepId, setStepId] = useState("identity");
+  // Errors appear only after a step has been attempted. Showing them on a form
+  // nobody has touched reads as a list of complaints about not having typed yet.
+  const [touched, setTouched] = useState({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [activated, setActivated] = useState(null);
 
-  function set(field) { return e => setForm(f => ({ ...f, [field]: e.target.value })); }
+  const S = { INPUT_STYLE, LABEL, HINT, LINK_BTN, ERR_BOX };
+  const step = SIGNUP_STEPS.find((s) => s.id === stepId) || SIGNUP_STEPS[0];
+  const idx = SIGNUP_STEPS.findIndex((s) => s.id === stepId);
+  const errors = touched[stepId] ? validateStep(stepId, form) : {};
+  const set = (field, value) => setForm((f) => ({ ...f, [field]: value }));
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    const name = form.name.trim();
-    const domain = form.domain.trim().toLowerCase().replace(/^@/, "");
-    const adminEmail = form.adminEmail.trim();
-    // No org-code field any more: the server generates it. This used to validate
-    // a code the admin typed, which let a caller squat a prefix or pick one that
-    // impersonates another org. The generated code comes back in the response
-    // and is what gets persisted — storing a locally-chosen one would point the
-    // client at a prefix that does not exist.
-    if (!name || !domain || !adminEmail) { setError("All fields are required."); return; }
-    if (!domain.includes(".")) { setError("Please enter a valid domain, e.g. yourcompany.com"); return; }
+  function next(e) {
+    e?.preventDefault?.();
+    setTouched((t) => ({ ...t, [stepId]: true }));
+    if (Object.keys(validateStep(stepId, form)).length) return;
+    setError("");
+    setStepId(SIGNUP_STEPS[Math.min(idx + 1, SIGNUP_STEPS.length - 1)].id);
+  }
+
+  function back() {
+    setError("");
+    if (idx <= 0) { onBack(); return; }
+    setStepId(SIGNUP_STEPS[idx - 1].id);
+  }
+
+  // Edit from the confirmation screen. The step is marked touched so its
+  // problems are visible the moment it opens — the whole reason to be sent back.
+  function goTo(target) {
+    setTouched((t) => ({ ...t, [target]: true }));
+    setStepId(target);
+  }
+
+  async function activate(e) {
+    e?.preventDefault?.();
+    setTouched((t) => ({ ...t, confirm: true }));
+    if (Object.keys(validateStep("confirm", form)).length) return;
     setLoading(true); setError("");
     try {
-      const created = await createOrg({ name, domain, adminEmail });
+      const created = await createOrg(buildOrgPayload(form));
       const code = created?.code;
       if (!code) throw new Error("The server did not return an organization code.");
-      const config = { name, domain, adminEmail, createdAt: new Date().toISOString() };
+      const config = {
+        name: form.name.trim(),
+        domain: form.domain.trim().toLowerCase().replace(/^@/, ""),
+        adminEmail: form.adminEmail.trim(),
+        createdAt: new Date().toISOString(),
+      };
       persist.setItem(LS_CODE, code);
       persist.setItem(LS_CONFIG, JSON.stringify(config));
-      onSuccess(code, config);
+      setActivated({ code, config });
     } catch (err) {
       setError(err.message);
     } finally {
@@ -602,39 +639,51 @@ function CreateOrgStep({ onSuccess, onBack }) {
     }
   }
 
+  if (activated) {
+    return (
+      <div style={PAGE}>
+        <div style={{ ...CARD, maxWidth: 460 }}>
+          <LogoHeader subtitle="Organization Created" />
+          <div style={CARD_BODY}>
+            <ActivatedScreen
+              code={activated.code}
+              orgName={form.name.trim()}
+              onContinue={() => onSuccess(activated.code, activated.config)}
+              S={S}
+            />
+          </div>
+          <div style={CARD_FOOTER}>Secured by Auth0 · TRAQS</div>
+        </div>
+      </div>
+    );
+  }
+
+  const isConfirm = stepId === "confirm";
   return (
     <div style={PAGE}>
       <div style={{ ...CARD, maxWidth: 460 }}>
-        <LogoHeader subtitle="Create Your Organization" />
+        <LogoHeader subtitle={`Step ${step.n} of 5 · ${step.title}`} />
         <div style={CARD_BODY}>
-          <form onSubmit={handleSubmit}>
+          <StepDots current={stepId} />
+          <div style={{ ...HINT, textAlign: "center", marginTop: -8, marginBottom: 16 }}>{step.blurb}</div>
+          <form onSubmit={isConfirm ? activate : next}>
             {error && <div style={ERR_BOX}>{error}</div>}
 
-            <div style={{ marginBottom: 14 }}>
-              <label style={LABEL}>Organization Name</label>
-              <input style={INPUT_STYLE} type="text" placeholder="Acme Corp" value={form.name} onChange={set("name")} autoFocus autoComplete="off" />
+            {stepId === "identity" && <IdentityStep form={form} set={set} errors={errors} S={S} />}
+            {stepId === "basics" && <BasicsStep form={form} set={set} errors={errors} S={S} />}
+            {stepId === "payroll" && <PayrollStep form={form} set={set} errors={errors} S={S} />}
+            {isConfirm && <ConfirmStep form={form} goTo={goTo} errors={errors} S={S} />}
+
+            <div style={{ marginTop: 18 }}>
+              <BtnPrimary loading={loading} loadingLabel="Activating…">
+                {isConfirm ? "Activate Organization" : "Continue"}
+              </BtnPrimary>
             </div>
-
-            {/* No Org Code field: the server generates the code and returns it,
-                and it is shown on the confirmation screen for the admin to copy.
-                An input here would be collected and then ignored. */}
-
-            <div style={{ marginBottom: 14 }}>
-              <label style={LABEL}>Email Domain</label>
-              <input style={INPUT_STYLE} type="text" placeholder="acmecorp.com" value={form.domain} onChange={set("domain")} autoComplete="off" />
-              <div style={HINT}>Only users with this email domain can log in to your organization.</div>
-            </div>
-
-            <div style={{ marginBottom: 20 }}>
-              <label style={LABEL}>Admin Email</label>
-              <input style={INPUT_STYLE} type="email" placeholder="admin@acmecorp.com" value={form.adminEmail} onChange={set("adminEmail")} autoComplete="email" />
-              <div style={HINT}>Used for account recovery and org code lookup emails.</div>
-            </div>
-
-            <BtnPrimary loading={loading} loadingLabel="Creating…">Create Organization</BtnPrimary>
           </form>
           <div style={{ textAlign: "center", marginTop: 14 }}>
-            <button className="tq-noanim" style={LINK_BTN} onClick={onBack}>← Back</button>
+            <button className="tq-noanim" style={LINK_BTN} onClick={back}>
+              {idx <= 0 ? "← Back" : `← ${SIGNUP_STEPS[idx - 1].title}`}
+            </button>
           </div>
         </div>
         <div style={CARD_FOOTER}>Secured by Auth0 · TRAQS</div>
@@ -642,6 +691,7 @@ function CreateOrgStep({ onSuccess, onBack }) {
     </div>
   );
 }
+
 
 // ─── Login step ───────────────────────────────────────────────────────────────
 function LoginStep({ orgCode, orgConfig, onSwitch, loginWithRedirect }) {
