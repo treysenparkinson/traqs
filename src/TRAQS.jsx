@@ -26842,7 +26842,7 @@ ${jobsCtx || "No jobs found."}`;
     } else if (section === "org-permissions") {
       d = { people: people.map(p => ({ ...p, adminPerms: p.adminPerms ? { ...p.adminPerms } : p.adminPerms })) };
     } else if (section === "org-schedule") {
-      d = { workStart: orgSettings.workStart, workEnd: orgSettings.workEnd, hpd: orgSettings.hpd, workDays: [...(orgSettings.workDays || [])], holidays: [...(orgSettings.holidays || [])], breaks: (orgSettings.breaks || []).map(b => ({ ...b })), lunch: { ...(orgSettings.lunch || {}) } };
+      d = { timeZone: orgSettings.timeZone || "", workStart: orgSettings.workStart, workEnd: orgSettings.workEnd, hpd: orgSettings.hpd, workDays: [...(orgSettings.workDays || [])], holidays: [...(orgSettings.holidays || [])], breaks: (orgSettings.breaks || []).map(b => ({ ...b })), lunch: { ...(orgSettings.lunch || {}) } };
     } else if (section === "org-approval-templates") {
       d = { signOffTemplates: (orgSettings.signOffTemplates || []).map(t => ({ ...t, steps: [...(t.steps || [])] })) };
     } else if (section === "org-timeclock") {
@@ -26897,7 +26897,7 @@ ${jobsCtx || "No jobs found."}`;
         setPeople(updated);
       } else if (sec === "org-schedule") {
         const dd = settingsDraft || {};
-        setOrgSettings(s => ({ ...s, workStart: dd.workStart, workEnd: dd.workEnd, hpd: dd.hpd, workDays: [...(dd.workDays || [])], holidays: [...(dd.holidays || [])], breaks: (dd.breaks || []).map(b => ({ ...b })), lunch: { ...(dd.lunch || {}) } }));
+        setOrgSettings(s => ({ ...s, timeZone: dd.timeZone || null, workStart: dd.workStart, workEnd: dd.workEnd, hpd: dd.hpd, workDays: [...(dd.workDays || [])], holidays: [...(dd.holidays || [])], breaks: (dd.breaks || []).map(b => ({ ...b })), lunch: { ...(dd.lunch || {}) } }));
       } else if (sec === "org-approval-templates") {
         setOrgSettings(s => ({ ...s, signOffTemplates: (settingsDraft.signOffTemplates || []).map(t => ({ ...t, steps: [...(t.steps || [])] })) }));
       } else if (sec === "org-timeclock") {
@@ -27265,8 +27265,34 @@ ${jobsCtx || "No jobs found."}`;
     const parseH = t => { const [h, m] = (t || "00:00").split(":").map(Number); return h + m / 60; };
     const timeInput = { padding: "7px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontFamily: T.font, colorScheme: T.colorScheme };
     const xBtn = { background: T.surface, border: "none", color: T.textDim, cursor: "pointer", fontSize: 16, lineHeight: 1, padding: "0 2px" };
+    // The shop's zone. Read server-side (timeclock day stamps, forgot-clockout's
+    // end-of-day alert) where there is no device zone to fall back on — unset,
+    // those treat the day as UTC. Work Hours above are wall-clock times in it.
+    const deviceTz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { return ""; } })();
+    const US_TZ = [["America/Denver", "Mountain"], ["America/Phoenix", "Arizona (no DST)"], ["America/Los_Angeles", "Pacific"], ["America/Chicago", "Central"], ["America/New_York", "Eastern"], ["America/Anchorage", "Alaska"], ["Pacific/Honolulu", "Hawaii"]];
+    const otherTz = (() => { try { return Intl.supportedValuesOf("timeZone").filter(z => !US_TZ.some(([u]) => u === z)); } catch { return []; } })();
+    const tz = d.timeZone || "";
+    const tzKnown = !tz || US_TZ.some(([u]) => u === tz) || otherTz.includes(tz);
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
+        <div className="tq-frost" style={stCard}>
+          <div style={stLabel}>Time Zone</div>
+          <div style={{ fontSize: 12, color: T.textDim, marginBottom: 10 }}>The shop's local time. Work hours, clock-in days, and after-hours job clock alerts all use it.</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <select value={tz} onChange={e => patchDraft({ timeZone: e.target.value })} style={{ ...timeInput, minWidth: 240, cursor: "pointer" }}>
+              <option value="">Not set</option>
+              {!tzKnown && <option value={tz}>{tz}</option>}
+              <optgroup label="United States">
+                {US_TZ.map(([z, label]) => <option key={z} value={z}>{label} — {z}</option>)}
+              </optgroup>
+              {otherTz.length > 0 && <optgroup label="All zones">
+                {otherTz.map(z => <option key={z} value={z}>{z}</option>)}
+              </optgroup>}
+            </select>
+            {deviceTz && deviceTz !== tz && <Btn size="sm" onClick={() => patchDraft({ timeZone: deviceTz })}>Use this device's zone ({deviceTz})</Btn>}
+          </div>
+          {!tz && <div style={{ fontSize: 12, color: T.textDim, marginTop: 10 }}>Not set: the server counts days in UTC, so evening punches can land on the next day, and after-hours alerts only fire once a job clock has run 12 hours.</div>}
+        </div>
         <div className="tq-frost" style={stCard}>
           <div style={stLabel}>Work Hours</div>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
