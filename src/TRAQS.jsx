@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import TRAQS_BARS_STATIC from "./traqs-bars-static.png";
 import TRAQS_BARS_ACCENT from "./traqs-bars-accent.png";
@@ -5339,6 +5339,20 @@ Extraction rules:
   const [personModal, setPersonModal] = useState(null);
   // Add Employee (Employees page). null = closed; otherwise the draft profile.
   const [addEmpDraft, setAddEmpDraft] = useState(null);
+  // Invite draft. `link` is set once the server returns a token and is the only
+  // time that token is ever shown -- the list endpoint does not return it.
+  const [inviteDraft, setInviteDraft] = useState(null);
+  // Loaded from event handlers, never from render. Kicking a fetch off during
+  // render re-fires it on every render until the response lands, which is a
+  // burst of identical GETs rather than one.
+  const loadInviteList = useCallback(async () => {
+    try {
+      const r = await listInvites(getToken, orgCode);
+      setInviteDraft((p) => (p ? { ...p, list: r.invites || [] } : p));
+    } catch {
+      setInviteDraft((p) => (p ? { ...p, list: [] } : p));
+    }
+  }, [getToken, orgCode]);
   const blankEmployee = () => ({ image: null, name: "", email: "", phone: "", department: "", secondaryDepartment: "" });
   // Right-click menu on an employee card: { x, y, person }
   const [empCtx, setEmpCtx] = useState(null);
@@ -19222,8 +19236,21 @@ ${jobsCtx || "No jobs found."}`;
     // `editPeople` was never one of the declared permissions, so this checked a key
     // no toggle could ever set: every admin created since granular permissions
     // shipped had the button permanently hidden, with no way to turn it on.
+    // INVITE. Adding an employee creates a roster row; inviting sends someone a
+    // link so they create their own on first login. They sit together because from
+    // the admin's side they answer one question: how does this person get in.
+    const inviteBtn = !can("manageTeam") ? null : (
+      <Btn size="sm" variant="ghost" onClick={() => { setInviteDraft({ email: "", role: "user", link: "", error: "", busy: false }); loadInviteList(); }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+            <rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 8 9 6 9-6" />
+          </svg>
+          Invite
+        </span>
+      </Btn>
+    );
     const addEmployeeBtn = !can("manageTeam") ? null : (
-      <Btn size="sm" style={{ marginLeft: "auto" }} onClick={() => setAddEmpDraft(blankEmployee())}>
+      <Btn size="sm" onClick={() => setAddEmpDraft(blankEmployee())}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" style={{ flexShrink: 0 }}><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>
           Add Employee
@@ -19247,7 +19274,107 @@ ${jobsCtx || "No jobs found."}`;
     if (!P) {
       const sorted = [...people].sort((a, b) => a.name.localeCompare(b.name));
       return <div>
-        {pageHeader("Employees", addEmployeeBtn)}{employeeCtxMenu}{employeeDeleteModal}
+        {inviteDraft && (() => {
+          const d = inviteDraft;
+          const loadList = loadInviteList;
+          const revoke = async (id) => {
+            setInviteDraft((p) => ({ ...p, revoking: id }));
+            try { await revokeInvite(id, getToken, orgCode); await loadList(); }
+            catch (e) { setInviteDraft((p) => ({ ...p, error: e.message || "Could not revoke." })); }
+            finally { setInviteDraft((p) => (p ? { ...p, revoking: null } : p)); }
+          };
+          // Outstanding first: those are the ones with an action attached.
+          const rows = [...(d.list || [])].sort((a, b) => {
+            const spent = (x) => (x.acceptedAt || x.revokedAt ? 1 : 0);
+            return spent(a) - spent(b) || String(b.createdAt).localeCompare(String(a.createdAt));
+          });
+          const when = (iso) => { try { return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }); } catch { return ""; } };
+          const expired = (i) => !i.acceptedAt && !i.revokedAt && Date.parse(i.expiresAt) < Date.now();
+          const status = (i) => i.acceptedAt ? "Accepted" : i.revokedAt ? "Revoked" : expired(i) ? "Expired" : "Pending";
+          const upd = (patch) => setInviteDraft((p) => ({ ...p, ...patch }));
+          const send = async () => {
+            const email = d.email.trim().toLowerCase();
+            if (!email.includes("@")) { upd({ error: "Enter a valid email address." }); return; }
+            upd({ busy: true, error: "" });
+            try {
+              const r = await createInvite({ email, role: d.role }, getToken, orgCode);
+              // The only moment this token exists outside the server. Built here
+              // rather than server-side so the link carries whatever origin the
+              // admin is actually on -- a hardcoded domain breaks on previews.
+              const link = `${window.location.origin}/?org=${encodeURIComponent(r.orgCode)}&invite=${encodeURIComponent(r.token)}`;
+              upd({ link, busy: false });
+              loadInviteList();
+            } catch (e) {
+              upd({ error: e.message || "Could not create the invite.", busy: false });
+            }
+          };
+          return (
+            <div onMouseDown={() => setInviteDraft(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+              <div onMouseDown={(e) => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, width: "100%", maxWidth: 420, padding: 22, boxShadow: "0 24px 60px rgba(0,0,0,0.3)" }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>Invite to {orgConfig?.name || "this organization"}</div>
+                <div style={{ fontSize: 12, color: T.textDim, marginBottom: 16 }}>
+                  They sign in with their own account. Their record is created when they first log in.
+                </div>
+                {!d.link ? <>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.04em" }}>Email</label>
+                  <input autoFocus type="email" value={d.email} onChange={(e) => upd({ email: e.target.value, error: "" })}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !d.busy) send(); }}
+                    placeholder="sam@contractor.com"
+                    style={{ width: "100%", boxSizing: "border-box", marginTop: 6, marginBottom: 14, padding: "9px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font }} />
+                  <label style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.04em" }}>Role</label>
+                  <div style={{ display: "flex", gap: 8, marginTop: 6, marginBottom: 6 }}>
+                    {[["user", "Team member"], ["admin", "Admin"]].map(([v, label]) => (
+                      <button key={v} onClick={() => upd({ role: v })} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusPill, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: d.role === v ? 700 : 500, border: `1.5px solid ${d.role === v ? T.accent : T.border}`, background: d.role === v ? T.accent + "14" : "transparent", color: d.role === v ? T.accent : T.textDim }}>{label}</button>
+                    ))}
+                  </div>
+                  {d.error && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 8 }}>{d.error}</div>}
+                  <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+                    <Btn variant="ghost" size="sm" style={{ flex: 1 }} onClick={() => setInviteDraft(null)}>Cancel</Btn>
+                    <Btn size="sm" style={{ flex: 1 }} disabled={d.busy} onClick={send}>{d.busy ? "Creating…" : "Create link"}</Btn>
+                  </div>
+                  {/* Outstanding and spent invites. Without this a mistyped
+                      address is unrevokable and stays valid for 14 days. */}
+                  {rows.length > 0 && <div style={{ marginTop: 18, borderTop: `1px solid ${T.border}`, paddingTop: 12 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Invites</div>
+                    <div style={{ maxHeight: 190, overflowY: "auto" }}>
+                      {rows.map((i) => {
+                        const spent = !!(i.acceptedAt || i.revokedAt) || expired(i);
+                        return (
+                          <div key={i.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${T.border}55` }}>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 12.5, color: spent ? T.textDim : T.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.email}</div>
+                              <div style={{ fontSize: 10.5, color: T.textDim }}>
+                                {i.role === "admin" ? "Admin" : "Team member"} · sent {when(i.createdAt)} · {status(i)}
+                              </div>
+                            </div>
+                            {/* Revoke only where there is something to revoke. An
+                                accepted invite is a historical record; a revoked or
+                                expired one is already spent. */}
+                            {!spent && (
+                              <button onClick={() => revoke(i.id)} disabled={d.revoking === i.id}
+                                style={{ flexShrink: 0, padding: "4px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: d.revoking === i.id ? "default" : "pointer", fontFamily: T.font }}>
+                                {d.revoking === i.id ? "…" : "Revoke"}
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>}
+                </> : <>
+                  {/* Shown once. The list endpoint never returns the token again. */}
+                  <div style={{ fontSize: 12, color: T.textDim, marginBottom: 8 }}>Send this link to <b style={{ color: T.text }}>{d.email.trim().toLowerCase()}</b>. It works once, and expires in 14 days.</div>
+                  <div style={{ fontFamily: T.mono, fontSize: 11, wordBreak: "break-all", background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, padding: "10px 12px", color: T.text, userSelect: "all" }}>{d.link}</div>
+                  <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                    <Btn size="sm" style={{ flex: 1 }} onClick={() => { navigator.clipboard?.writeText(d.link).catch(() => {}); upd({ error: "Copied" }); }}>{d.error === "Copied" ? "Copied" : "Copy link"}</Btn>
+                    <Btn variant="ghost" size="sm" style={{ flex: 1 }} onClick={() => setInviteDraft(null)}>Done</Btn>
+                  </div>
+                </>}
+              </div>
+            </div>
+          );
+        })()}
+        {pageHeader("Employees", (inviteBtn || addEmployeeBtn) ? <span style={{ display: "flex", gap: 8, marginLeft: "auto" }}>{inviteBtn}{addEmployeeBtn}</span> : null)}{employeeCtxMenu}{employeeDeleteModal}
         {addEmployeeModal}
         {/* The page title now sits top-left with every other one, so this drops
             to a quiet centred hint rather than competing with it. */}

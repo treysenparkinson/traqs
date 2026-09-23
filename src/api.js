@@ -871,3 +871,54 @@ export async function callNotify(payload, getToken, orgCode) {
     console.warn("callNotify error (non-fatal):", e);
   }
 }
+
+// ─── Invites ──────────────────────────────────────────────────────────────────
+// The token comes back exactly once, from createInvite, and is never returned by
+// any list. It is the link; re-reading it later from an admin session would
+// widen who can replay it.
+export async function createInvite({ email, role }, getToken, orgCode) {
+  const res = await fetch(`${BASE}/invite`, {
+    method: "POST",
+    headers: await authHeaders(getToken, orgCode),
+    body: JSON.stringify({ email, role }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `createInvite failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function listInvites(getToken, orgCode) {
+  const res = await fetch(`${BASE}/invite`, { headers: await authReadHeaders(getToken, orgCode) });
+  if (!res.ok) throw new Error(`listInvites failed: ${res.status}`);
+  return res.json();
+}
+
+export async function revokeInvite(id, getToken, orgCode) {
+  const res = await fetch(`${BASE}/invite`, {
+    method: "DELETE",
+    headers: await authHeaders(getToken, orgCode),
+    body: JSON.stringify({ id }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `revokeInvite failed: ${res.status}`);
+  }
+  return res.json();
+}
+
+// Accept runs AFTER the invitee has authenticated — the server compares the
+// invited address against the identity that just logged in.
+export async function acceptInvite(token, getToken, orgCode) {
+  const res = await fetch(`${BASE}/invite`, {
+    method: "POST",
+    headers: await authHeaders(getToken, orgCode),
+    body: JSON.stringify({ token, accept: true }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `acceptInvite failed: ${res.status}`);
+  }
+  return res.json();
+}

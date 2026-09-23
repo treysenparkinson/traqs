@@ -6,7 +6,7 @@ import ErrorBoundary from "./ErrorBoundary.jsx";
 // the redesigned roster screen sets it as live text — see TraqsLockup.
 import { UL_LOGO_WHITE } from "./logo.js";
 import TRAQS_BARS from "./traqs-bars.png";
-import { fetchOrgConfig, createOrg, forgotOrgCode, fetchPeople } from "./api.js";
+import { fetchOrgConfig, createOrg, forgotOrgCode, fetchPeople, acceptInvite } from "./api.js";
 import { emptySignupForm, buildOrgPayload, validateStep, SIGNUP_STEPS } from "./orgSignup.js";
 import { guessTimeZone, StepDots, IdentityStep, BasicsStep, PayrollStep, ConfirmStep, ActivatedScreen } from "./SignupSteps.jsx";
 
@@ -1433,10 +1433,29 @@ function AuthGate() {
   const { isLoading, isAuthenticated, loginWithRedirect, logout, user, getAccessTokenSilently } = useAuth0();
 
   // "org" | "create-org" | "forgot-org" | "team" | "domain-error" | "not-in-team"
+  // AN INVITE LINK: /?org=CODE&invite=TOKEN.
+  //
+  // Read once, at module-eval time, before any state initialiser runs. An
+  // invitee's browser may already hold another org's code -- a contractor who
+  // belongs somewhere else is the ordinary case -- and initialising from
+  // localStorage first would point them at the wrong org before this could
+  // correct it.
+  //
+  // The token is kept in memory only. It is redeemed once, after login, and
+  // persisting it would leave a working credential in storage.
+  const inviteFromUrl = (() => {
+    try {
+      const q = new URLSearchParams(window.location.search);
+      const org = q.get("org"), token = q.get("invite");
+      return org && token ? { org, token } : null;
+    } catch { return null; }
+  })();
+
   const [step, setStep] = useState(() => {
+    if (inviteFromUrl) return "team";
     return persist.getItem(LS_CODE) ? "team" : "org";
   });
-  const [orgCode, setOrgCode] = useState(() => persist.getItem(LS_CODE) || "");
+  const [orgCode, setOrgCode] = useState(() => inviteFromUrl?.org || persist.getItem(LS_CODE) || "");
   const [orgConfig, setOrgConfig] = useState(() => {
     try { return JSON.parse(persist.getItem(LS_CONFIG) || "null"); } catch { return null; }
   });
@@ -1494,11 +1513,60 @@ function AuthGate() {
       setStep("wrong-user");
       return;
     }
+    // DOMAIN MATCH **OR** MEMBERSHIP. Closed by default, invites the exception.
+    //
+    // An accepted invite writes a person row, and a person row is what makes
+    // isMember true — so "was invited" and "is a member" are the same fact and
+    // there is no second thing to look up here. Everyone else still has to match
+    // the org's domain.
+    //
+    // isMember arrives from /org-config, which resolves after this effect first
+    // runs. Gating on `undefined` rather than falsy is what stops an invited
+    // outside address being bounced in the window before the answer lands —
+    // failing closed on a value we simply do not have yet would lock out exactly
+    // the people invites exist for.
+    if (orgConfig.isMember === undefined) return;
+    if (orgConfig.isMember) return;
     const emailDomain = user.email?.split("@")[1]?.toLowerCase();
     if (emailDomain !== orgConfig.domain?.toLowerCase()) {
       setStep("domain-error");
     }
-  }, [isAuthenticated, user, orgConfig?.domain, selectedPerson]);
+    // isMember is a dependency, not just a read: without it the effect returns
+    // early on `undefined` and never runs again once the answer arrives, so a
+    // non-member with a mismatched domain would never be bounced at all.
+  }, [isAuthenticated, user, orgConfig?.domain, orgConfig?.isMember, selectedPerson]);
+
+  // REDEEM THE INVITE. Runs after authentication and BEFORE the membership
+  // check below, because redeeming is what makes the invitee a member -- run it
+  // after and the /org-config call 403s first and drops them on not-in-team.
+  //
+  // The server compares the invited address against the identity that just
+  // logged in, so a forwarded link still admits nobody. Failures are deliberately
+  // quiet: an expired or already-used link leaves the user on the ordinary
+  // not-in-team screen rather than a dead end that explains a token to them.
+  const [inviteDone, setInviteDone] = useState(!inviteFromUrl);
+  useEffect(() => {
+    if (inviteDone || !isAuthenticated || !inviteFromUrl) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await acceptInvite(inviteFromUrl.token, getAccessTokenSilently, inviteFromUrl.org);
+      } catch (e) {
+        console.warn("[invite] could not redeem:", e?.message || e);
+      } finally {
+        if (cancelled) return;
+        // The token is spent either way. Strip it from the URL so a refresh or a
+        // shared screenshot does not carry it any further.
+        try {
+          const u = new URL(window.location.href);
+          u.searchParams.delete("invite"); u.searchParams.delete("org");
+          window.history.replaceState({}, "", u.pathname + u.search + u.hash);
+        } catch {}
+        setInviteDone(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isAuthenticated, inviteDone]);
 
   // Authenticated server check: who is this user vis-à-vis this org? The
   // /org-config endpoint requires `requireOrgMember`, so a 200 here means
@@ -1507,7 +1575,9 @@ function AuthGate() {
   // Runs once per (isAuthenticated, orgCode) pair to avoid hitting the
   // endpoint on every teamPeople poll.
   useEffect(() => {
-    if (!isAuthenticated || !orgCode) return;
+    // Wait for a pending invite to be redeemed: this endpoint requires
+    // membership, and redeeming is what grants it.
+    if (!isAuthenticated || !orgCode || !inviteDone) return;
     let cancelled = false;
     (async () => {
       try {
@@ -1529,7 +1599,10 @@ function AuthGate() {
       }
     })();
     return () => { cancelled = true; };
-  }, [isAuthenticated, orgCode, getAccessTokenSilently]);
+    // inviteDone is a dependency, not just a guard: without it this returns early
+    // while an invite is pending and never runs again once redemption completes,
+    // leaving the invitee authenticated with membership never resolved.
+  }, [isAuthenticated, orgCode, inviteDone, getAccessTokenSilently]);
 
   // Roster membership re-check: triggers whenever the team roster refreshes
   // (kiosk poll, post-login fetch, admin adds someone). Uses the server-set
