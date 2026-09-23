@@ -7,7 +7,7 @@
 // WHERE THE VALUES GO, which is not obvious and is the thing most likely to be
 // got wrong twice:
 //
-//   config.json     name, domain, adminEmail, adminName, adminEmails,
+//   config.json     name, adminEmail, adminName, adminEmails,
 //                   industry, companySize, country, currency
 //   settings.json   timeZone, payPeriodType, payPeriodStart
 //
@@ -50,22 +50,33 @@ export const CURRENCIES = [
   { value: "MXN", label: "MXN — Mexican Peso" },
 ];
 
-// The wireframe numbers Identity as STEP 1 OF 5: the welcome screen is an entry
-// point, not a step. Cutting the tier screen makes it 1 of 4. Numbering from the
-// welcome screen instead — which is what this first shipped as — tells someone on
-// the first form they are already a fifth of the way through something they have
-// not started.
+// The wireframe numbers Identity as STEP 1 OF 5, and that is what ships: five
+// forms, with the welcome screen counted as an entry point rather than a step.
+// Numbering from the welcome screen instead — which is what this first shipped
+// as — tells someone on the first form they are already a fifth of the way
+// through something they have not started.
+//
+// `heading` is what the screen says; `title` is the short name used by the Back
+// button and the confirmation sections. They differ on the first step, where the
+// wireframe's heading is "Set up your organization" but a back button reading
+// "← Set up your organization" would be absurd.
+//
+// There is no `blurb`. Each step used to carry a line explaining itself; they
+// were cut from the screens, and a field nothing renders is a field that will be
+// edited by someone who thinks it still shows.
 export const SIGNUP_STEPS = [
-  { id: "identity", n: 1, title: "Identity", blurb: "Identity first — you’ll be the founding admin." },
-  { id: "basics", n: 2, title: "Organization basics", blurb: "A few details to shape TRAQS around you." },
-  { id: "payroll", n: 3, title: "Payroll rhythm", blurb: "How your pay periods run." },
-  { id: "confirm", n: 4, title: "Confirm & activate", blurb: "Everything in one place — edit any section." },
+  { id: "identity", n: 1, title: "Identity", heading: "Set up your organization" },
+  { id: "basics", n: 2, title: "Organization basics", heading: "Organization basics" },
+  { id: "tier", n: 3, title: "Tier", heading: "Choose your tier" },
+  { id: "payroll", n: 4, title: "Payroll", heading: "Payroll rhythm" },
+  { id: "confirm", n: 5, title: "Confirm", heading: "Confirm & activate" },
 ];
 
 export const emptySignupForm = () => ({
-  name: "", adminName: "", adminEmail: "", domain: "",
+  name: "", adminName: "", adminEmail: "",
   extraAdmins: [],
   industry: "", companySize: "", country: "", timeZone: "", currency: "USD",
+  tier: "basic",
   payPeriodType: "biweekly", payPeriodStart: "",
 });
 
@@ -82,15 +93,17 @@ const isDate = (v) => typeof v === "string" && v.length === 10 && v[4] === "-" &
 export function validateStep(stepId, form) {
   const e = {};
   const name = (form.name || "").trim();
-  const domain = (form.domain || "").trim().toLowerCase().replace(/^@/, "");
 
   if (stepId === "identity") {
     if (!name) e.name = "Organization name is required.";
     else if (name.length > 80) e.name = "Keep this under 80 characters.";
     if (!(form.adminName || "").trim()) e.adminName = "Your name is required.";
     if (!isEmail(form.adminEmail)) e.adminEmail = "Enter a valid email address.";
-    if (!domain) e.domain = "Email domain is required.";
-    else if (!domain.includes(".") || domain.includes("@")) e.domain = "Enter a domain like yourcompany.com";
+    // NO DOMAIN AT SIGNUP. An email-domain allowlist is a Business-tier control,
+    // not something every new org has to decide before it can exist. Membership
+    // is the real boundary either way: requireOrgMember rejects anyone who is
+    // neither in people.json nor in config.adminEmails, so an org without a
+    // domain is not an open one.
     // Each extra admin gets their own invite, so each address has to be usable
     // on its own. A blank row is just an unused row and is dropped, not an error.
     const extras = (form.extraAdmins || []).map((a) => (a || "").trim()).filter(Boolean);
@@ -106,6 +119,14 @@ export function validateStep(stepId, form) {
     if (!(form.country || "").trim()) e.country = "Country is required.";
     if (!(form.timeZone || "").trim()) e.timeZone = "Time zone is required.";
     if (!CURRENCIES.some((c) => c.value === form.currency)) e.currency = "Pick a currency.";
+  }
+
+  if (stepId === "tier") {
+    // BUSINESS IS NOT SELECTABLE YET. It is shown so the difference is visible
+    // and so the screen does not have to be redesigned when it opens up, but
+    // choosing it is refused here as well as in the UI -- a disabled button is a
+    // suggestion, and this step's value ends up in a POST either way.
+    if (form.tier !== "basic") e.tier = "Business is not available yet. It is coming soon.";
   }
 
   if (stepId === "payroll") {
@@ -145,7 +166,6 @@ export function buildOrgPayload(form) {
 
   return {
     name: clean(form.name),
-    domain: clean(form.domain).toLowerCase().replace(/^@/, ""),
     adminEmail,
     adminName: clean(form.adminName),
     // The primary admin first, then the invitees, de-duplicated.

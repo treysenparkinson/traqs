@@ -28663,27 +28663,23 @@ ${jobsCtx || "No jobs found."}`;
         </div>;
       })()}
 
-      {/* UPGRADE — bottom of Settings, above the org name and profile. Shown only
-          in settings mode, only when the sidebar is open (it is a paragraph of
-          text, not an icon), and only to someone who could actually act on it.
+      {/* UPGRADE — bottom of Settings, above the org name and profile.
 
-          Business is NOT self-serve: this opens a conversation. There is no
-          purchase flow behind it, and provisioning is manual -- which is also
-          how Matrix got its. */}
+          Just the button. The card that was here carried a heading and a
+          feature sentence, which is the comparison modal's job -- saying it
+          twice made the sidebar argue with the dialog it opens.
+
+          Hidden for orgs already on Business: there is nothing to upgrade to,
+          and a live Upgrade button on a paid plan reads as a billing error. */}
       {settingsMode && sidebarExpanded && can("orgSettings") && billingTier !== "business" && (
-        <div style={{ margin: "0 12px 10px", padding: "12px 14px", borderRadius: T.radiusLg,
-          border: `1px solid ${T.accent}55`, background: T.accent + "0e",
-          boxShadow: `0 0 22px ${T.accent}33`, flexShrink: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: T.accent, letterSpacing: "-0.02em" }}>TRAQS Business</div>
-          <div style={{ fontSize: 11, color: T.textDim, marginTop: 4, lineHeight: 1.5 }}>
-            Everything in Basic, plus {BUSINESS_FEATURES.join(", ").toLowerCase()}.
-          </div>
-          <button onClick={() => setUpgradeOpen(true)} style={{ width: "100%", marginTop: 10, padding: "7px 0",
-            borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText,
-            fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
-            Compare plans
-          </button>
-        </div>
+        <button onClick={() => setUpgradeOpen(true)} style={{
+          margin: "0 12px 10px", padding: "9px 0", flexShrink: 0,
+          borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent),
+          color: T.accentText, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+          fontFamily: T.font, boxShadow: `0 0 20px ${T.accent}55`,
+        }}>
+          Upgrade
+        </button>
       )}
       {/* Org name — subtly displayed above the profile, only when sidebar is expanded */}
       <div style={{ padding: "0 16px", flexShrink: 0, overflow: "hidden", maxHeight: sidebarExpanded && orgName ? 22 : 0, opacity: sidebarExpanded && orgName ? 0.55 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s 0.06s ease" }}>

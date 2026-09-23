@@ -1,16 +1,10 @@
-import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import { readJson, listOrgCodes } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
-
-const ses = new SESClient({
-  region: process.env.MY_AWS_REGION,
-  credentials: {
-    accessKeyId: process.env.MY_AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.MY_AWS_SECRET_ACCESS_KEY,
-  },
-});
-
-const FROM_EMAIL = process.env.SEND_FROM_EMAIL || "no-reply@traqs.app";
+// One SES client and one sender for the whole codebase -- see _utils/mail.js.
+// The default that used to sit here was no-reply@traqs.app, a domain that
+// belongs to someone else, so an unset SEND_FROM_EMAIL would have tried to send
+// as a stranger. There is no default now.
+import { sendEmail } from "./_utils/mail.js";
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
@@ -88,22 +82,13 @@ ${matches.map((m) => `<tr><td style="font-weight:600;">${esc(m.name)}</td><td st
 <p>Enter this code on the TRAQS login screen to access your organization.</p>
 <p style="color:#94a3b8;font-size:12px;">If you did not request this, you can safely ignore this email.</p>`;
 
-  try {
-    await ses.send(new SendEmailCommand({
-      Source: FROM_EMAIL,
-      Destination: { ToAddresses: [email] },
-      Message: {
-        Subject: { Data: "Your TRAQS Organization Code" },
-        Body: {
-          Text: { Data: bodyText },
-          Html: { Data: bodyHtml },
-        },
-      },
-    }));
-  } catch (e) {
-    console.error("SES send error:", e);
-    return err(500, "Failed to send email — please contact your administrator");
-  }
+  const sent = await sendEmail({
+    to: email,
+    subject: "Your TRAQS Organization Code",
+    text: bodyText,
+    html: bodyHtml,
+  });
+  if (!sent.ok) return err(500, "Failed to send email — please contact your administrator");
 
   return json(200, { ok: true });
 }

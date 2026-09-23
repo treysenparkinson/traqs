@@ -23,6 +23,8 @@ import {
   makeInvite, checkInvite, publicInviteView, personFromInvite,
   markAccepted, activeInvites,
 } from "./_utils/invite.js";
+import { sendEmail, appBaseUrl } from "./_utils/mail.js";
+import { inviteEmail, inviteAcceptUrl } from "./_utils/email-invite.js";
 
 const invitesKey = (code) => `orgs/${code}/invites.json`;
 const peopleKey = (code) => `orgs/${code}/people.json`;
@@ -114,8 +116,37 @@ export async function handler(event) {
 
     const invite = makeInvite({ email, role: body.role, invitedBy: member.email });
     await writeJson(invitesKey(code), [...invites, invite]);
+
+    // THE INVITE IS SAVED BEFORE THE MAIL GOES OUT, and the send cannot undo it.
+    // An invite that exists but was not delivered is recoverable -- the token
+    // comes back in this response, so the admin can copy the link and send it
+    // themselves. An invite that was mailed but not saved is not recoverable by
+    // anyone: the recipient holds a link that will never be honoured.
+    //
+    // So a failed send is reported, not thrown. The caller gets ok:true with
+    // emailed:false and a reason, because the invite really was created.
+    const base = appBaseUrl();
+    let emailed = { ok: false, reason: "no-base-url" };
+    if (base) {
+      const config = await readJson(`orgs/${code}/config.json`).catch(() => null);
+      const sender = (await readJson(peopleKey(code)).catch(() => null) || [])
+        .find((p) => String(p?.email || "").toLowerCase().trim() === member.email);
+      const { subject, html, text } = inviteEmail({
+        orgName: config?.name,
+        inviterName: sender?.name || member.email,
+        acceptUrl: inviteAcceptUrl(base, code, invite.token),
+        expiresAt: invite.expiresAt,
+      });
+      emailed = await sendEmail({ to: email, subject, html, text });
+    } else {
+      console.error("invite: neither APP_BASE_URL nor URL is set; cannot build an accept link");
+    }
+
     // The token is returned ONCE, here, for the link. It is never listed again.
-    return json(200, { ok: true, token: invite.token, orgCode: code, expiresAt: invite.expiresAt });
+    return json(200, {
+      ok: true, token: invite.token, orgCode: code, expiresAt: invite.expiresAt,
+      emailed: emailed.ok, emailError: emailed.ok ? null : emailed.reason,
+    });
   }
 
   // ── Revoke ───────────────────────────────────────────────────────────

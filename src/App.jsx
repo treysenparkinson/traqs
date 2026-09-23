@@ -5,10 +5,9 @@ import ErrorBoundary from "./ErrorBoundary.jsx";
 // Only the banded header (org-code / login steps) still uses an image wordmark;
 // the redesigned roster screen sets it as live text — see TraqsLockup.
 import { UL_LOGO_WHITE } from "./logo.js";
-import TRAQS_BARS from "./traqs-bars.png";
 import { fetchOrgConfig, createOrg, forgotOrgCode, fetchPeople, acceptInvite } from "./api.js";
 import { emptySignupForm, buildOrgPayload, validateStep, SIGNUP_STEPS } from "./orgSignup.js";
-import { guessTimeZone, StepDots, IdentityStep, BasicsStep, PayrollStep, ConfirmStep, ActivatedScreen } from "./SignupSteps.jsx";
+import { guessTimeZone, StepDots, IdentityStep, BasicsStep, TierStep, PayrollStep, ConfirmStep, ActivatedScreen } from "./SignupSteps.jsx";
 
 const LS_CODE = "tq_org_code";
 const LS_CONFIG = "tq_org_config";
@@ -42,6 +41,37 @@ const LOGIN_BLUE = "#38BDF8";
  * bar. Stroke scales with size the way the spec's ladder does (84px→1.5px,
  * 22px→0.4px); text-stroke is cleared on the image so it isn't outlined.
  */
+// THE BRAND'S FOUR COLOURS, and the four bars of the mark, in order.
+//
+// Measured off TRAQS Scheduling/.../AppIcon.icon/Assets/traqs-candy-bars.png
+// rather than matched by eye -- the sky is #38BDF8, which is exactly the accent
+// the rest of the app already uses, and that would have been easy to miss and
+// then drift from. Widths are fractions of the mark's full width; they match the
+// ratios the iOS lockup has always used.
+const BRAND_BARS = [
+  { c: "#FF6B57", w: 0.552 },   // coral
+  { c: "#F0A819", w: 0.789 },   // amber
+  { c: "#38BDF8", w: 1 },       // sky -- same value as the app's accent
+  { c: "#1D7D5C", w: 0.448 },   // green
+];
+
+// Drawn, not another PNG. The mark is four rounded rectangles; the geometry came
+// off the same file (650 tall, 223 apart, 225 radius, in a 3900x3276 box), and
+// vector means it is sharp at 17px in a footer and at 84px on the auth screen
+// without shipping a cut for each.
+const BARS_BOX = { w: 3900, h: 3276, bar: 650, gap: 223, r: 225 };
+
+function TraqsBars({ style }) {
+  const { w, h, bar, gap, r } = BARS_BOX;
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} style={style} aria-hidden="true" focusable="false">
+      {BRAND_BARS.map((b, i) => (
+        <rect key={b.c} x="0" y={i * (bar + gap)} width={w * b.w} height={bar} rx={r} fill={b.c} />
+      ))}
+    </svg>
+  );
+}
+
 function TraqsLockup({ size = 84, color = INK, stroke = 1.5, bars = true }) {
   return (
     <span
@@ -60,13 +90,13 @@ function TraqsLockup({ size = 84, color = INK, stroke = 1.5, bars = true }) {
     >
       traqs
       {bars && (
-        <img
-          src={TRAQS_BARS}
-          alt=""
-          aria-hidden="true"
+        <TraqsBars
           style={{
             height: ".52em",          // x-height, per the lockup spec
-            width: "auto",
+            // Width stated rather than left to auto: an inline SVG sized only by
+            // height collapses to zero in some engines, and the mark silently
+            // disappears. .52em x the box's 3900/3276 aspect.
+            width: ".619em",
             marginLeft: ".07em",
             transform: "translateY(.01em)",
             WebkitTextStroke: 0,
@@ -87,6 +117,25 @@ const INK = "#0B0B0C";
 const STONE = "#8A867E";
 const HAIRLINE = "rgba(16,24,40,.08)";
 
+// TRAQS HAS ONE TYPEFACE, and the product already decided that: every theme in
+// TRAQS.jsx sets BOTH its font and its mono to DM Sans. There is no second face
+// anywhere in the app.
+//
+// These screens had drifted to three faces, none of which index.html loads -- it
+// fetches DM Sans and Space Grotesk and nothing else -- so the field labels, the
+// step counter and the org code each rendered in whatever the machine happened
+// to have lying around. That is why they looked like they came from a different
+// product than the line above them. Measured in Chrome rather than inferred: a
+// computed style reports the family you asked for whether or not it exists, so
+// this fails in total silence.
+//
+// THE SMALL-CAPS TREATMENT STAYS. Uppercase and wide letterspacing are what make
+// a label read as a label; the typeface was never doing that work.
+//
+// Space Grotesk is the exception and stays: it is the wordmark, per the lockup
+// spec, and it is loaded.
+const FONT = "'DM Sans', system-ui, sans-serif";
+
 const PAGE = {
   minHeight: "100vh",
   position: "relative",
@@ -96,7 +145,7 @@ const PAGE = {
   justifyContent: "center",
   padding: "48px 20px",
   boxSizing: "border-box",
-  fontFamily: "'DM Sans', system-ui, sans-serif",
+  fontFamily: FONT,
 };
 
 const CARD = {
@@ -233,7 +282,7 @@ const PAPER_INPUT = {
 
 const PAPER_LABEL = {
   display: "block",
-  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+  fontFamily: FONT,
   fontSize: 10,
   letterSpacing: ".16em",
   textTransform: "uppercase",
@@ -278,6 +327,185 @@ const PAPER_LINK = {
 // block is vertically centred, so the logo rests roughly a card-height above
 // screen centre — clamped rather than a flat vh, because a percentage that
 // centres the logo on a laptop drops it well below centre on a tall monitor.
+// SCREEN_CSS IS SEPARATE FROM LOADUP_CSS, AND MOUNTED AT THE ROOT.
+//
+// These two keyframes used to live in LOADUP_CSS, whose <style> tag is rendered
+// by OrgCodeStep -- the welcome screen. Navigating away unmounts that component
+// and takes the keyframes with it, so the exit animated (the sheet was still
+// there) and the arrival could not: the incoming screen's computed
+// animation-name read "tqScreenIn" while getAnimations() on the element was
+// empty, and it simply appeared at full opacity. Measured, not guessed.
+//
+// A rule whose lifetime is shorter than the elements that reference it is the
+// bug; mounting this one above every screen is the fix.
+const SCREEN_CSS = `
+/* BIG TO SMALL. The slide arrives oversized and settles to its resting size,
+   so it reads as coming toward you and stopping, rather than growing into
+   place. Paired with the exit, which also leaves oversized, the whole move
+   reads as one push through rather than two unrelated gestures. */
+@keyframes tqScreenIn {
+  from { opacity: 0; transform: scale(1.04); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes tqScreenOut {
+  from { opacity: 1; transform: scale(1); }
+  to   { opacity: 0; transform: scale(1.035); }
+}
+/* Three and a half seconds of movement is a long time to sit through if motion
+   makes you ill. !important is what lets a stylesheet beat the inline animation
+   these elements carry. */
+@media (prefers-reduced-motion: reduce) {
+  .tq-screen { animation: none !important; opacity: 1 !important; transform: none !important; }
+}
+`;
+
+// THE LIQUID GROUND. Four washes in the mark's own colours, drifting across the
+// whole viewport behind the sign-in screens.
+//
+// The colours are read from BRAND_BARS, not typed again -- one palette, and the
+// background cannot drift away from the logo sitting on top of it.
+//
+// SMALL AND SATURATED, NOT LARGE AND PALE. The first cut used blobs near a
+// viewport across; at that size all four overlap everywhere and average out to
+// one muddy orange-brown, which is the opposite of four brand colours. Shrinking
+// them and raising the alpha is what makes them read as distinct -- less of the
+// screen is covered, so the effect is subtler, while each colour is actually
+// identifiable where it does appear.
+//
+// THE CENTRE IS MASKED CLEAR. Colours sliding around behind the wordmark made
+// the lockup look like it was moving; the mark reads as fixed only if what is
+// behind it is. The mask is an ellipse over the content column, transparent in
+// the middle and opaque at the edges, so the wash lives around the content
+// rather than under it. It also keeps the card off a moving ground.
+//
+// Each blob is its own background layer with its own size and position, so they
+// move independently; animating one transform on the whole layer would slide the
+// four of them in lockstep, which reads as a texture being dragged rather than
+// as anything liquid. The paper ground stays underneath: these are washes over
+// #EDEAE3, not a replacement for it.
+const blob = (hex, a) => `radial-gradient(closest-side circle at 50% 50%, ${hex}${a}, ${hex}00)`;
+
+// Transparent in the middle, opaque at the rim. Stated once and used for both
+// the standard property and the WebKit one.
+// THE ORBIT. All four washes travel one shared circle, a quarter turn apart, so
+// the colours sweep continuously past each other and past the content.
+//
+// Generated rather than typed. Thirteen keyframes of four positions each is 52
+// numbers; by hand that is 52 chances to put one blob slightly off the circle,
+// which shows up as a wobble nobody can find the source of. Here the circle is
+// stated once, as an equation.
+//
+// The path is a circle in BACKGROUND-POSITION space, where 0% is flush left and
+// 100% flush right. On a wide screen the horizontal travel is longer than the
+// vertical, so what is drawn as a circle is seen as a wide ellipse -- which is
+// what you want, since it follows the shape of the viewport rather than cutting
+// a round hole out of the middle of it.
+const ORBIT_STOPS = 12;   // 30 degrees apart: smooth enough that the straight
+                          // interpolation between stops is not visible as a corner
+const ORBIT_SECONDS = 54;
+
+const orbitAt = (j) => {
+  const t = (2 * Math.PI * j) / ORBIT_STOPS;
+  // Radius 50 in each axis, so the blobs ride the edge of the viewport and stay
+  // clear of the masked centre the whole way round.
+  return `${(50 + 50 * Math.cos(t)).toFixed(1)}% ${(50 + 50 * Math.sin(t)).toFixed(1)}%`;
+};
+
+// Blob i starts a quarter turn (ORBIT_STOPS / 4) ahead of blob i-1.
+const orbitPositions = (k) =>
+  BRAND_BARS.map((_, i) => orbitAt((k + i * (ORBIT_STOPS / 4)) % ORBIT_STOPS)).join(", ");
+
+const orbitKeyframes = () => {
+  const rows = [];
+  for (let k = 0; k <= ORBIT_STOPS; k++) {
+    // +(...) drops the trailing zeros without a regex.
+    rows.push(`  ${+((k * 100) / ORBIT_STOPS).toFixed(3)}% { background-position: ${orbitPositions(k)}; }`);
+  }
+  return rows.join("\n");
+};
+
+const CENTRE_CLEAR =
+  "radial-gradient(ellipse 40% 44% at 50% 48%, rgba(0,0,0,0) 0%, rgba(0,0,0,0) 58%, rgba(0,0,0,1) 100%)";
+
+const LIQUID_CSS = `
+.tq-page::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    ${blob(BRAND_BARS[0].c, "d9")},
+    ${blob(BRAND_BARS[1].c, "cc")},
+    ${blob(BRAND_BARS[2].c, "e6")},
+    ${blob(BRAND_BARS[3].c, "bf")};
+  background-repeat: no-repeat;
+  background-size: 30vmax 30vmax, 34vmax 34vmax, 38vmax 38vmax, 27vmax 27vmax;
+  /* Where the orbit starts, so there is nothing to jump from on the first frame. */
+  background-position: ${orbitPositions(0)};
+  -webkit-mask-image: ${CENTRE_CLEAR};
+  mask-image: ${CENTRE_CLEAR};
+  /* The gradients are already soft; the blur takes the last of the banding out
+     of them and is what makes the edges read as liquid rather than as circles. */
+  filter: blur(26px);
+  /* LINEAR AND INFINITE, NOT ALTERNATE. A circle wants constant speed -- an
+     eased curve makes the colours surge and stall twice a lap -- and alternate
+     would run the second lap backwards, so they would sweep one way, reverse,
+     and never actually go round. (No backticks in here: this comment lives
+     inside a template literal, and one would end the string.) */
+  animation: tqLiquidIn 900ms ease-out both,
+             tqLiquidOrbit ${ORBIT_SECONDS}s linear infinite;
+}
+/* Everything the screen renders sits above the wash. */
+.tq-page > * { position: relative; z-index: 1; }
+
+@keyframes tqLiquidOrbit {
+${orbitKeyframes()}
+}
+@keyframes tqLiquidIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* DISPERSES LIKE SMOKE. The wash blows outward, thins and clears as the screen
+   leaves. 900ms is not arbitrary: it is SCREEN_OUT_MS + SCREEN_HOLD_MS, so the
+   ground finishes clearing exactly as the next screen arrives on it, and the
+   signup wizard never has to inherit a half-faded one.
+
+   THE ORBIT KEEPS RUNNING THROUGH IT, and that is load-bearing. Replacing the
+   animation list with the dispersal alone stops tqLiquidOrbit, which drops
+   background-position back to the static value in the base rule -- the start of
+   the lap. Every blob snapped to that spot and dispersed from there, wherever it
+   actually was when the button was pressed. Listing the orbit again keeps it
+   animating, so each wash blows apart from where it stands.
+
+   Nothing fights: the orbit owns background-position, the dispersal owns
+   opacity, transform and filter. And 900ms of a 54s lap is six degrees, so the
+   continued travel is not something you can see -- it is there to hold position,
+   not to move. tqLiquidIn is dropped from the list on purpose: it fills opacity
+   at 1 and would outrank the dispersal, which is later but loses to a filled
+   animation earlier in the cascade of the same property. */
+.tq-liquid-disperse::before {
+  animation: tqLiquidOrbit ${ORBIT_SECONDS}s linear infinite,
+             tqLiquidOut 900ms cubic-bezier(.4,0,.6,1) both;
+}
+/* The midpoint is what makes it smoke rather than a fade. Expansion runs ahead
+   of the thinning -- over half the growth is spent in the first 45% while the
+   wash is still more than half there -- so you watch it billow outward and then
+   thin, instead of it simply disappearing at its original size. A straight
+   two-stop version cleared by 400ms and read as a blink. */
+@keyframes tqLiquidOut {
+  0%   { opacity: 1;    transform: scale(1);    filter: blur(26px); }
+  45%  { opacity: 0.66; transform: scale(1.58); filter: blur(56px); }
+  100% { opacity: 0;    transform: scale(2.2);  filter: blur(100px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tq-page::before { animation: tqLiquidIn 900ms ease-out both; }  /* orbit stopped */
+  .tq-liquid-disperse::before { animation: none; opacity: 0; }
+}
+`;
+
 const LOADUP_CSS = `
 @keyframes tqLogoIn {
   0%   { opacity: 0; transform: translateY(var(--tq-rise)) scale(.97); animation-timing-function: cubic-bezier(.33,0,.2,1); }
@@ -291,7 +519,7 @@ const LOADUP_CSS = `
 }
 @keyframes tqFadeIn { from { opacity: 0 } to { opacity: 1 } }
 @media (prefers-reduced-motion: reduce) {
-  .tq-logo-in, .tq-fade { animation: none !important; opacity: 1 !important; transform: none !important; }
+  .tq-logo-in, .tq-fade, .tq-screen-in { animation: none !important; opacity: 1 !important; transform: none !important; }
 }
 `;
 
@@ -319,7 +547,7 @@ const FADE = (delay, ms = 520, name = "tqFadeUp") =>
 const PAPER_FOOT = {
   marginTop: 16,
   textAlign: "center",
-  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+  fontFamily: FONT,
   fontSize: 10,
   letterSpacing: ".08em",
   color: "#B4B0A7",
@@ -420,7 +648,43 @@ function BtnPrimary({ children, loading, loadingLabel, onClick, type = "submit",
 }
 
 // ─── Step 1: Enter org code ───────────────────────────────────────────────────
-function OrgCodeStep({ onContinue, onCreateOrg, onForgot }) {
+// SCREEN TRANSITION — applied to the CONTENT, never to the page.
+//
+// Wrapping each screen's outer PAGE element scaled its background with it, so
+// the entire surface appeared to move. Only the lockup and the card should
+// travel; the paper behind them stays put.
+//
+// BOTH DIRECTIONS ARE KEYFRAMES, and that is not a style preference.
+//
+// A CSS transition only fires when the property has a different value as of the
+// PREVIOUS style flush. React applies the whole inline style object in one
+// commit, so the transition declaration and the new value land together and
+// there is no before-value to start from. Measured in Chrome
+// (tools/verify/probe-screen-fade.mjs): the transition form sits at opacity 1
+// for the whole exit and then cuts, whether or not the entry animation is
+// cleared first -- which is what "still not fading" looked like. Reading
+// computed style between the two writes fixes it and is untenable from React.
+// A keyframe needs no before-value: applying animation-name starts it.
+//
+// Out, hold on empty paper, in. The hold is what makes it read as two separate
+// screens rather than one cross-fade -- without it the arrival starts while the
+// departure is still legible and the two read as a single smear.
+const SCREEN_OUT_MS = 400;
+const SCREEN_HOLD_MS = 500;
+const SCREEN_IN_MS = 400;
+
+// EASE-IN-OUT, NOT THE SHORT-FADE CURVES. At 260ms an accelerating exit
+// (cubic-bezier(.32,0,.67,0)) reads as a snap; at 1500ms it leaves the content
+// at 90% opacity for the first second, which is indistinguishable from nothing
+// happening -- the same thing this animation was reported as doing when it was
+// genuinely broken. A long fade has to spend its opacity evenly to be seen as
+// one. At 800ms the curve matters less than it did at 1500, but an even spend
+// still reads better than a snap at either end.
+const screenContentStyle = (phase) => (phase === "out"
+  ? { animation: `tqScreenOut ${SCREEN_OUT_MS}ms cubic-bezier(.4,0,.6,1) both`,
+      willChange: "opacity, transform" }
+  : { animation: `tqScreenIn ${SCREEN_IN_MS}ms cubic-bezier(.4,0,.6,1) both` });
+function OrgCodeStep({ onContinue, onCreateOrg, onForgot, phase = "in" }) {
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -445,9 +709,8 @@ function OrgCodeStep({ onContinue, onCreateOrg, onForgot }) {
   }
 
   return (
-    <div style={PAGE}>
-      <style>{LOADUP_CSS}</style>
-      <div style={{ width: "100%", maxWidth: 460 }}>
+    <div className={phase === "out" ? "tq-page tq-liquid-disperse" : "tq-page"} style={PAGE}>
+      <div className="tq-screen" style={{ width: "100%", maxWidth: 460, ...screenContentStyle(phase) }}>
         {/* Same brand block as the roster screen — lockup on the paper ground,
             greeting beneath it, card below. Sequenced on first paint: logo in,
             logo up, copy types, card bounces. */}
@@ -599,9 +862,10 @@ function ForgotOrgStep({ onBack }) {
 //
 // There is no org-code field. The server generates the code and returns it, and
 // ActivatedScreen is the only place it is shown.
-function CreateOrgStep({ onSuccess, onBack }) {
+function CreateOrgStep({ onSuccess, onBack, phase: screenPhase = "in" }) {
   const [form, setForm] = useState(() => ({ ...emptySignupForm(), timeZone: guessTimeZone() }));
   const [stepId, setStepId] = useState("identity");
+  const [phase, setPhase] = useState("in");
   // Errors appear only after a step has been attempted. Showing them on a form
   // nobody has touched reads as a list of complaints about not having typed yet.
   const [touched, setTouched] = useState({});
@@ -609,7 +873,13 @@ function CreateOrgStep({ onSuccess, onBack }) {
   const [error, setError] = useState("");
   const [activated, setActivated] = useState(null);
 
-  const S = { INPUT_STYLE, LABEL, HINT, LINK_BTN, ERR_BOX };
+  // Paper tokens, not the gradient-card set. These ARE the wireframe: mono
+  // uppercase micro-labels, an ink pill button, a cream card on cream paper.
+  const S = {
+    INPUT_STYLE: PAPER_INPUT, LABEL: PAPER_LABEL,
+    HINT: { fontSize: 12, color: STONE, marginTop: 6, lineHeight: 1.45 },
+    LINK_BTN: PAPER_LINK, ERR_BOX,
+  };
   const step = SIGNUP_STEPS.find((s) => s.id === stepId) || SIGNUP_STEPS[0];
   const idx = SIGNUP_STEPS.findIndex((s) => s.id === stepId);
   const errors = touched[stepId] ? validateStep(stepId, form) : {};
@@ -620,20 +890,20 @@ function CreateOrgStep({ onSuccess, onBack }) {
     setTouched((t) => ({ ...t, [stepId]: true }));
     if (Object.keys(validateStep(stepId, form)).length) return;
     setError("");
-    setStepId(SIGNUP_STEPS[Math.min(idx + 1, SIGNUP_STEPS.length - 1)].id);
+    goStep(SIGNUP_STEPS[Math.min(idx + 1, SIGNUP_STEPS.length - 1)].id);
   }
 
   function back() {
     setError("");
     if (idx <= 0) { onBack(); return; }
-    setStepId(SIGNUP_STEPS[idx - 1].id);
+    goStep(SIGNUP_STEPS[idx - 1].id);
   }
 
   // Edit from the confirmation screen. The step is marked touched so its
   // problems are visible the moment it opens — the whole reason to be sent back.
   function goTo(target) {
     setTouched((t) => ({ ...t, [target]: true }));
-    setStepId(target);
+    goStep(target);
   }
 
   async function activate(e) {
@@ -647,7 +917,6 @@ function CreateOrgStep({ onSuccess, onBack }) {
       if (!code) throw new Error("The server did not return an organization code.");
       const config = {
         name: form.name.trim(),
-        domain: form.domain.trim().toLowerCase().replace(/^@/, ""),
         adminEmail: form.adminEmail.trim(),
         createdAt: new Date().toISOString(),
       };
@@ -661,12 +930,25 @@ function CreateOrgStep({ onSuccess, onBack }) {
     }
   }
 
+  // The card fades out and back in on every step change. The swap happens at
+  // the midpoint, so the outgoing content is gone before the incoming arrives —
+  // cross-fading two different form heights makes the card jump.
+  const FADE_MS = 190;
+  const goStep = (target) => {
+    if (target === stepId) return;
+    setPhase("out");
+    setTimeout(() => {
+      setStepId(target);
+      setPhase("in");
+    }, FADE_MS);
+  };
+
   if (activated) {
     return (
       <div style={PAGE}>
-        <div style={{ ...CARD, maxWidth: 460 }}>
-          <LogoHeader subtitle="Organization Created" />
-          <div style={CARD_BODY}>
+        <div className="tq-screen" style={{ width: "100%", maxWidth: 440, ...screenContentStyle(screenPhase) }}>
+          <LogoHeader outside subtitle="Organization created" hint={`${form.name.trim()} is live.`} />
+          <div style={{ ...PAPER_CARD, animation: "tqFadeIn 260ms both" }}>
             <ActivatedScreen
               code={activated.code}
               orgName={form.name.trim()}
@@ -674,7 +956,7 @@ function CreateOrgStep({ onSuccess, onBack }) {
               S={S}
             />
           </div>
-          <div style={CARD_FOOTER}>Secured by Auth0 · TRAQS</div>
+          <div style={{ ...PAPER_FOOT, display: "block" }}>Secured by Auth0 · TRAQS</div>
         </div>
       </div>
     );
@@ -683,36 +965,51 @@ function CreateOrgStep({ onSuccess, onBack }) {
   const isConfirm = stepId === "confirm";
   return (
     <div style={PAGE}>
-      <div style={{ ...CARD, maxWidth: 460 }}>
-        <LogoHeader subtitle={`Step ${step.n} of 5 · ${step.title}`} />
-        <div style={CARD_BODY}>
-          <StepDots current={stepId} />
-          <div style={{ ...HINT, textAlign: "center", marginTop: -8, marginBottom: 16 }}>{step.blurb}</div>
+      <div className="tq-screen" style={{ width: "100%", maxWidth: 440, ...screenContentStyle(screenPhase) }}>
+        {/* The lockup sits ON the paper, as drawn. The gradient header that was
+            here appears nowhere in the wireframes, and it carried a second step
+            counter that disagreed with the one below the card — “Step 1 of 5”
+            over “STEP 1 OF 4”. One counter, under the card, where it is drawn. */}
+        <LogoHeader outside subtitle={step.heading} />
+        <div style={{
+          ...PAPER_CARD,
+          opacity: phase === "out" ? 0 : 1,
+          // Big to small here too. The card animates FROM the out state on the
+          // way in, so an oversized out state is what makes the arrival settle
+          // down to size -- and it is the same gesture the screen transition
+          // makes, instead of a slide-up that belongs to neither.
+          transform: phase === "out" ? "scale(1.03)" : "none",
+          transition: `opacity ${FADE_MS}ms cubic-bezier(.4,0,.2,1), transform ${FADE_MS}ms cubic-bezier(.4,0,.2,1)`,
+        }}>
           <form onSubmit={isConfirm ? activate : next}>
             {error && <div style={ERR_BOX}>{error}</div>}
 
             {stepId === "identity" && <IdentityStep form={form} set={set} errors={errors} S={S} />}
             {stepId === "basics" && <BasicsStep form={form} set={set} errors={errors} S={S} />}
+            {stepId === "tier" && <TierStep form={form} set={set} errors={errors} S={S} />}
             {stepId === "payroll" && <PayrollStep form={form} set={set} errors={errors} S={S} />}
             {isConfirm && <ConfirmStep form={form} goTo={goTo} errors={errors} S={S} />}
 
-            <div style={{ marginTop: 18 }}>
-              <div style={isConfirm ? { borderRadius: 999, boxShadow: "0 0 24px rgba(56,189,248,.65)" } : undefined}>
-                <BtnPrimary loading={loading} loadingLabel="Activating…">
-                  {isConfirm
-                    ? `Activate “${form.name.trim() || "your organization"}” →`
-                    : "Continue"}
-                </BtnPrimary>
-              </div>
-            </div>
+            <button type="submit" disabled={loading} style={{
+              ...PAPER_BTN, marginTop: 20,
+              opacity: loading ? 0.6 : 1, cursor: loading ? "default" : "pointer",
+              ...(isConfirm ? { boxShadow: "0 0 24px rgba(56,189,248,.55)" } : null),
+            }}>
+              {loading
+                ? "Activating…"
+                : isConfirm
+                  ? `Activate “${form.name.trim() || "your organization"}” →`
+                  : "Continue"}
+            </button>
           </form>
           <div style={{ textAlign: "center", marginTop: 14 }}>
-            <button className="tq-noanim" style={LINK_BTN} onClick={back}>
+            <button className="tq-noanim" type="button" style={PAPER_LINK} onClick={back}>
               {idx <= 0 ? "← Back" : `← ${SIGNUP_STEPS[idx - 1].title}`}
             </button>
           </div>
         </div>
-        <div style={CARD_FOOTER}>Secured by Auth0 · TRAQS</div>
+        {/* Counter and dots BELOW the card, as drawn — not inside it. */}
+        <StepDots current={stepId} />
       </div>
     </div>
   );
@@ -784,6 +1081,11 @@ function DomainError({ userEmail, orgDomain, onLogout }) {
     </div>
   );
 }
+
+// The roster arrives just behind the greeting. 170ms is enough to read as two
+// beats rather than one; the first-paint constants (TITLE_AT and friends) are
+// tuned to a 2.4s logo rise and would leave this screen empty for two seconds.
+const ROSTER_IN = FADE(170, 420);
 
 // ─── Team roster step ─────────────────────────────────────────────────────────
 // Labels and confirmation copy for every kiosk clock action.
@@ -933,7 +1235,7 @@ function PinKeypad({ value, accent, error, loading, onPress, onBack, onClear, on
   );
 }
 
-function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdminLogin, onSwitch, onRefresh }) {
+function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdminLogin, onSwitch, onRefresh, phase = "in" }) {
   const [clockMode, setClockMode] = useState(null); // null | "clockIn" | "clockOut" | "lunchStart" | "lunchEnd" | "breakStart" | "breakEnd"
   const [view, setView] = useState("login"); // "login" (roster sign-in) | "clock" (clock in/out kiosk) — toggled bottom-right
   const [pinValue, setPinValue] = useState("");
@@ -1033,12 +1335,16 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
 
   return (
     <>
+      {/* NO tq-page HERE. The wash is the front door's -- it disperses on the
+          way in and this screen arrives on clear paper, which is also why the
+          class is absent rather than the rule being overridden: a wash that
+          cleared and then came back would undo the move that just played. */}
       <div style={PAGE}>
-        {/* Flat paper ground, no wash — the design's warmth carries it. */}
-        <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: 1060 }}>
+        <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: 1060,
+          ...screenContentStyle(phase) }}>
           <LogoHeader
             outside
-            subtitle={view === "clock" ? "Clock In / Out" : "Who are you?"}
+            subtitle={view === "clock" ? "Clock In / Out" : `Welcome, ${orgConfig.name}`}
             hint={view === "clock" ? "Pick your name to clock in or out." : "Pick your name to log in or clock in."}
             right={
               <button type="button" onClick={onSwitch} style={{
@@ -1059,7 +1365,8 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
               AND 1px of border per side — 638. Set it to 636 and the row is 2px
               short, which silently wraps the buttons into a stack. 644 leaves a
               few px of slack so a rounding difference can't re-break it. */}
-          <div style={{ background: CARD_BG, borderRadius: 32, border: "1px solid rgba(16,24,40,.07)", boxShadow: "0 30px 70px rgba(16,24,40,.10)", padding: "32px 40px 26px", boxSizing: "border-box", maxWidth: view === "clock" ? 644 : "none", margin: "0 auto", transition: "max-width 0.28s cubic-bezier(0.22, 1, 0.36, 1)" }}>
+          <div style={{ ...(phase === "in" ? { ...ROSTER_IN, display: "block" } : null),
+            background: CARD_BG, borderRadius: 32, border: "1px solid rgba(16,24,40,.07)", boxShadow: "0 30px 70px rgba(16,24,40,.10)", padding: "32px 40px 26px", boxSizing: "border-box", maxWidth: view === "clock" ? 644 : "none", margin: "0 auto", transition: "max-width 0.28s cubic-bezier(0.22, 1, 0.36, 1)" }}>
 
             {view === "login" && (teamPeople.length === 0 ? (
               <div style={{ textAlign: "center", padding: "24px 0" }}>
@@ -1147,7 +1454,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
               // section marker, replacing the plain label + separate divider.
               const SectionLabel = ({ label, first = false }) => (
                 <div style={{
-                  fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+                  fontFamily: FONT,
                   fontSize: 10, letterSpacing: ".16em", textTransform: "uppercase",
                   color: STONE, margin: first ? "0 2px 12px" : "26px 2px 12px",
                   display: "flex", alignItems: "center", gap: 12,
@@ -1222,7 +1529,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
               </div>
             </div>
           </div>
-          <div style={{ marginTop: 16, textAlign: "center", fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: 10, letterSpacing: ".08em", color: "#B4B0A7" }}>
+          <div style={{ marginTop: 16, textAlign: "center", fontFamily: FONT, fontSize: 10, letterSpacing: ".08em", color: "#B4B0A7" }}>
             Org code: {orgCode} · Secured by Auth0
           </div>
         </div>
@@ -1478,6 +1785,16 @@ function AuthGate() {
     return persist.getItem(LS_CODE) ? "team" : "org";
   });
   const [orgCode, setOrgCode] = useState(() => inviteFromUrl?.org || persist.getItem(LS_CODE) || "");
+  const [screenPhase, setScreenPhase] = useState("in");
+  // Fades the current screen out, swaps, fades the next one in. Used for the
+  // moves between welcome, create-org and forgot-org.
+  const goScreen = (next) => {
+    setScreenPhase("out");
+    // The swap happens after the hold, not at the end of the exit: the outgoing
+    // content is held at opacity 0 by the exit keyframe's fill, so the half
+    // second of empty paper costs nothing but the wait.
+    setTimeout(() => { setStep(next); setScreenPhase("in"); }, SCREEN_OUT_MS + SCREEN_HOLD_MS);
+  };
   const [orgConfig, setOrgConfig] = useState(() => {
     try { return JSON.parse(persist.getItem(LS_CONFIG) || "null"); } catch { return null; }
   });
@@ -1549,6 +1866,13 @@ function AuthGate() {
     // the people invites exist for.
     if (orgConfig.isMember === undefined) return;
     if (orgConfig.isMember) return;
+    // NO DOMAIN CONFIGURED MEANS NO DOMAIN GATE. An allowlist is a Business-tier
+    // control and new orgs no longer set one, so there is nothing to compare
+    // against. Failing closed here would bounce the founding admin out of the org
+    // they had just created: the org boots empty, so they have no person row and
+    // isMember is false. Membership is still the real boundary -- requireOrgMember
+    // rejects anyone who is neither in people.json nor in config.adminEmails.
+    if (!orgConfig.domain) return;
     const emailDomain = user.email?.split("@")[1]?.toLowerCase();
     if (emailDomain !== orgConfig.domain?.toLowerCase()) {
       setStep("domain-error");
@@ -1646,16 +1970,28 @@ function AuthGate() {
     }
   }, [isAuthenticated, user, orgConfig, teamPeople]);
 
+  // Entering a code is a screen change like any other: the content fades, the
+  // liquid disperses from wherever it is, and the roster arrives on clear paper.
+  //
+  // The roster fetch is kicked off BEFORE the wait rather than after it. It has
+  // the whole 900ms of fade and hold to come back, so by the time the screen
+  // lands the names are usually already there -- the alternative is arriving on
+  // an empty roster that pops in a moment later, which is the thing the staged
+  // arrival exists to avoid.
   function handleOrgResolved(code, config) {
-    setOrgCode(code);
-    setOrgConfig(config);
+    setScreenPhase("out");
     fetchPeople(null, code)
       .then(people => {
         setTeamPeople(people);
         persist.setItem(LS_PEOPLE, JSON.stringify(people));
       })
       .catch(() => {});
-    setStep("team");
+    setTimeout(() => {
+      setOrgCode(code);
+      setOrgConfig(config);
+      setStep("team");
+      setScreenPhase("in");
+    }, SCREEN_OUT_MS + SCREEN_HOLD_MS);
   }
 
   // Pull the latest people roster — used by polling and by the kiosk clock flow to
@@ -1730,24 +2066,32 @@ function AuthGate() {
   if (isLoading) return <Spinner label="Loading TRAQS…" />;
 
   if (!isAuthenticated) {
+    // THE EXPLICIT STEPS ARE TESTED FIRST. The welcome fallback below fires on
+    // `!orgCode`, which is true for everyone who has not joined an org yet —
+    // that is, everyone who is about to create one. Ordered the other way it
+    // swallowed step === "create-org" entirely: the click set the step, the
+    // render ignored it and returned the welcome screen again, and the button
+    // looked dead.
+    if (step === "create-org") {
+      return <CreateOrgStep phase={screenPhase} onSuccess={handleOrgResolved} onBack={() => goScreen("org")} />;
+    }
+    if (step === "forgot-org") {
+      return <ForgotOrgStep onBack={() => goScreen("org")} />;
+    }
     if (step === "org" || !orgCode || !orgConfig) {
       return (
         <OrgCodeStep
+          phase={screenPhase}
           onContinue={handleOrgResolved}
-          onCreateOrg={() => setStep("create-org")}
-          onForgot={() => setStep("forgot-org")}
+          onCreateOrg={() => goScreen("create-org")}
+          onForgot={() => goScreen("forgot-org")}
         />
       );
-    }
-    if (step === "create-org") {
-      return <CreateOrgStep onSuccess={handleOrgResolved} onBack={() => setStep("org")} />;
-    }
-    if (step === "forgot-org") {
-      return <ForgotOrgStep onBack={() => setStep("org")} />;
     }
     // step === "team" (or "login" as legacy fallback)
     return (
       <TeamSelectStep
+        phase={screenPhase}
         orgCode={orgCode}
         orgConfig={orgConfig}
         teamPeople={teamPeople}
@@ -1850,5 +2194,20 @@ function AuthGate() {
 }
 
 export default function App() {
-  return <AuthGate />;
+  return (
+    <>
+      {/* EVERY SHEET THIS APP DEFINES IS MOUNTED HERE, and that is the rule, not
+          a convenience. LOADUP_CSS was rendered by the welcome screen; leaving
+          it there meant tqFadeUp stopped existing the moment you left that
+          screen, and the first thing to use it elsewhere -- the roster card --
+          rendered at opacity 0 with an animation naming a keyframe that was no
+          longer defined. No error, no warning, just a missing card.
+          scripts/screen-anim-test.mjs now checks every tq* animation in this
+          file against these three. */}
+      <style>{SCREEN_CSS}</style>
+      <style>{LIQUID_CSS}</style>
+      <style>{LOADUP_CSS}</style>
+      <AuthGate />
+    </>
+  );
 }
