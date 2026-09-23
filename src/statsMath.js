@@ -790,6 +790,29 @@ export function shiftRangeForward(startDS, endDS, floorDS) {
     shiftedDays,
   };
 }
+// ONLY THE LOWEST LEVEL IS ASSIGNED. A job holds panels, a panel holds ops, and the thing a
+// person is given is the deepest one -- the op. A parent belongs on the schedule only when it
+// IS the lowest level, that is, when it has nothing beneath it.
+//
+// The rule this replaces also drew a parent when its children belonged to SOMEBODY ELSE,
+// which put a 75-hour panel bar on Draven's row for four ops all assigned to Tyler. He was
+// shown work he does not hold, sized by an estimate stored on the parent, and time logged
+// against the real op made the parent shrink -- so it looked like a job growing and shrinking
+// for reasons nobody on that row could act on.
+//
+// Deleted children do not count: a panel whose ops were all removed is a leaf again.
+export function hasLiveChildren(node) {
+  return (node?.subs || []).some((c) => c && !c.deletedAt);
+}
+
+// Whether this node is the one a person is actually assigned, and therefore the one that gets
+// a bar. `onTeam` is passed in because identity comparison is the caller's business -- person
+// ids are mixed string and number in this data and must never be compared with ===.
+export function isAssignedHere(node, onTeamFn) {
+  if (!node || typeof onTeamFn !== "function") return false;
+  if (hasLiveChildren(node)) return false;
+  return !!onTeamFn(node.team);
+}
 export function barLengthHours({ hpd, workedHoursShown = 0, isFullyWorked = false, teamSize = 1, fallbackH = 7.5, elapsedToCursorH = null }) {
   const size = Math.max(1, teamSize || 1);
   const est = (hpd || 0) > 0 ? hpd : fallbackH * size;

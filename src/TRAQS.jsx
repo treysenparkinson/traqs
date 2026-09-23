@@ -10,7 +10,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
-import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours, dayShiftToClear, rowSlackHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward } from "./statsMath.js";
+import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours, dayShiftToClear, rowSlackHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
@@ -15568,14 +15568,20 @@ ${jobsCtx || "No jobs found."}`;
               const opPersonName = (() => { const pp = people.find(x => x.id === (op.team || [])[0]); return pp ? pp.name : null; })();
               bars.push({ type: "task", id: op.id, start: bStart, end: bEnd, title: `${panel.title} · ${op.title}${opPersonName ? ` · ${opPersonName}` : ""}`, color: barPaint(op, elColor(tc)), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, jobCreatedAt: job.createdAt || null, task: { ...op, start: bStart, end: bEnd, color: barPaint(op, tc), isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
             });
-            // Panel-level assignment: render the panel itself when the user is on the
-            // panel's team but NOT on any of its ops — covers panels with no ops AND
-            // panels whose ops belong to other people (matches what iOS surfaces and
-            // lets you log time against). An undated panel goes to the Project Plan
-            // board, same rule as the ops above.
+            // Panel-level assignment: ONLY when the panel is itself the lowest level, i.e. it
+            // has no ops. The thing a person is assigned is the deepest node; a parent belongs
+            // on the schedule only when there is nothing beneath it.
+            //
+            // This used to also draw a panel whose ops belonged to OTHER people — which put a
+            // 75-hour bar on Draven's row for four ops all assigned to Tyler. He was shown work
+            // he does not hold, sized by an estimate stored on the parent, and time logged
+            // against the real op made that bar shrink: a job apparently growing and shrinking
+            // for reasons nobody on that row could act on. Measured on production data, 22 bars
+            // were being drawn that way against 6 genuinely leaf panels.
+            //
+            // An undated panel goes to the Project Plan board, same rule as the ops above.
             const onPanelTeam = onTeam(panel.team, pid);
-            const onAnyOp = (panel.subs || []).some(op => onTeam(op.team, pid));
-            if (onPanelTeam && !onAnyOp && (showCompleted || panel.status !== "Finished") && isTimelinePlaced(panel)) {
+            if (onPanelTeam && !hasLiveChildren(panel) && (showCompleted || panel.status !== "Finished") && isTimelinePlaced(panel)) {
               const pInView = _visualEnd(panel) >= _winS && panel.start <= _winE;
               if (pInView) {
                 const pStart = panel.start;
@@ -19312,9 +19318,11 @@ ${jobsCtx || "No jobs found."}`;
           ops.forEach((op, oi) => {
             if (onTeam(op.team, P.id)) myOps.push({ op, panel: pn, job: j, stepIdx: oi + 1, stepTotal: ops.length });
           });
-          // Panel-level assignment: on the panel's team but not on any of its ops —
-          // covers panels with no ops and panels whose ops belong to other people.
-          if (onTeam(pn.team, P.id) && !ops.some(op => onTeam(op.team, P.id))) {
+          // Panel-level assignment: only when the panel IS the lowest level. Same rule as the
+          // schedule — the deepest node is the one a person holds. Kept in step deliberately:
+          // if this list offered a panel the schedule refuses to draw, someone could log time
+          // against work the schedule says is not theirs.
+          if (onTeam(pn.team, P.id) && !hasLiveChildren(pn)) {
             myOps.push({ op: pn, panel: pn, job: j, stepIdx: null, stepTotal: null });
           }
         });

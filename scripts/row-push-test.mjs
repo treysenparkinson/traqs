@@ -5,7 +5,7 @@
 //
 //   node scripts/row-push-test.mjs
 
-import { rowPushHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, idleLeftOfCursorH, flushRightWidthPct, rollupLeafHours, shiftRangeForward } from "../src/statsMath.js";
+import { rowPushHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, idleLeftOfCursorH, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren, isAssignedHere } from "../src/statsMath.js";
 
 let pass = 0, fail = 0;
 const eq = (label, got, want) => {
@@ -819,5 +819,48 @@ let growRedOk = true;
       + `the reported number. Capped it draws ${capped}h.`);
   }
 }
+// -- only the lowest level gets a bar ------------------------------------
+// The reported case: panel 401989-02 is on Draven's team, its four ops are all Tyler's, and
+// Draven was given a 75h parent bar for work he does not hold.
+const onTeamOf = (who) => (team) => (team || []).some((t) => String(t) === String(who));
+const panel = { id: "p", team: ["draven"], subs: [
+  { id: "cut", team: ["tyler"] }, { id: "wire", team: ["tyler"] },
+] };
+const loneParent = { id: "solo", team: ["draven"], subs: [] };
+
+eq("a panel with ops is not assigned to anyone, whoever is on its team",
+  isAssignedHere(panel, onTeamOf("draven")), false);
+eq("...not even to the person who owns its ops",
+  isAssignedHere(panel, onTeamOf("tyler")), false);
+eq("a panel with NO ops is the lowest level, so it is assigned",
+  isAssignedHere(loneParent, onTeamOf("draven")), true);
+eq("...and only to its own team",
+  isAssignedHere(loneParent, onTeamOf("tyler")), false);
+eq("an op is assigned to its own team",
+  isAssignedHere(panel.subs[1], onTeamOf("tyler")), true);
+eq("a panel whose ops were all deleted is a leaf again",
+  isAssignedHere({ team: ["draven"], subs: [{ id: "x", team: ["tyler"], deletedAt: "2026-01-01" }] }, onTeamOf("draven")), true);
+eq("ids are compared as strings — 99 and \"99\" are the same person",
+  isAssignedHere({ team: [99], subs: [] }, onTeamOf("99")), true);
+eq("no node is not assigned", isAssignedHere(null, onTeamOf("draven")), false);
+eq("hasLiveChildren ignores deleted ones",
+  hasLiveChildren({ subs: [{ deletedAt: "x" }, { deletedAt: "y" }] }), false);
+
+// RED PROOF: the rule it replaces — on the parent's team AND not on any of its children —
+// which is exactly the condition that put the panel on Draven's row.
+let leafRedOk = true;
+{
+  const oldRule = (node, who) => {
+    const onParent = (node.team || []).some((t) => String(t) === String(who));
+    const onAnyChild = (node.subs || []).some((c) => (c.team || []).some((t) => String(t) === String(who)));
+    return onParent && !onAnyChild;
+  };
+  if (!oldRule(panel, "draven") || isAssignedHere(panel, onTeamOf("draven"))) {
+    leafRedOk = false;
+    console.error("RED PROOF FAILED: the old rule does not schedule the parent");
+  } else {
+    console.log(`red proof: the old rule gives Draven a bar for a panel whose ops are all Tyler's`);
+  }
+}
 console.log(`${pass} passed, ${fail} failed`);
-process.exit(fail === 0 && redOk && collideRedOk && slackRedOk && sessionRedOk && shrinkRedOk && overlapRedOk && badgeRedOk && recordRedOk && insetRedOk && recPushRedOk && segRedOk && idleRedOk && stretchRedOk && flushRedOk && rollupRedOk && schedRedOk && growRedOk ? 0 : 1);
+process.exit(fail === 0 && redOk && collideRedOk && slackRedOk && sessionRedOk && shrinkRedOk && overlapRedOk && badgeRedOk && recordRedOk && insetRedOk && recPushRedOk && segRedOk && idleRedOk && stretchRedOk && flushRedOk && rollupRedOk && schedRedOk && growRedOk && leafRedOk ? 0 : 1);
