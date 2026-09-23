@@ -922,3 +922,27 @@ export async function acceptInvite(token, getToken, orgCode) {
   }
   return res.json();
 }
+
+// ─── Billing / tier ───────────────────────────────────────────────────────────
+// Behind auth deliberately: config.json is public-read through org-lookup.js, so
+// a tier field there would expose every org's plan to anyone walking the code
+// space. See netlify/functions/billing.js.
+export async function fetchBilling(getToken, orgCode) {
+  const res = await fetch(`${BASE}/billing`, { headers: await authReadHeaders(getToken, orgCode) });
+  if (!res.ok) throw new Error(`fetchBilling failed: ${res.status}`);
+  return res.json();
+}
+
+// Registers interest. Does NOT change the tier — Business is not self-serve.
+export async function requestBusinessTier(getToken, orgCode) {
+  const res = await fetch(`${BASE}/billing`, {
+    method: "POST",
+    headers: await authHeaders(getToken, orgCode),
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `requestBusinessTier failed: ${res.status}`);
+  }
+  return res.json();
+}

@@ -386,11 +386,17 @@ alone. Do not start this.
 
 | Step | State |
 | --- | --- |
-| 1 Plan | done, signed off |
-| 2 Plumbing | **part done** — org code unified, codes server-generated. Auth0 org index and the X-Org-Code cross-check NOT started. |
-| 3 Matrix migration | not started. Rename path DISABLED in the meantime (server 503 + UI flag). |
-| 4 Signup screens | not started |
-| 5 Invite links | not started. Re-raise §8 before beginning. |
-| 6 Upgrade CTA | not started |
+| 1 Plan | done |
+| 2 Plumbing | done — org code unified, codes server-generated, Auth0 org index, X-Org-Code cross-check |
+| 3 Matrix migration | tooling built, **not run** (§6: Matrix keeps MTX2026TRAQS). Rename path stays disabled until the tooling replaces it. |
+| 4 Signup screens | done, wireframes implemented |
+| 5 Invite links | done — link, accept on first login, list with revoke |
+| 6 Upgrade CTA | done — tier in billing.json behind auth, contact not checkout |
 
-Shipped in `539dc33`. Nothing uncommitted.
+**All six steps complete.** Remaining work is not in this plan:
+
+- the code-rename path is still disabled; re-enabling it means wiring
+  `tools/rekey-org.mjs`'s verification into `org.js` PATCH.
+- Auth0 Organizations is not configured, so every token still takes the header
+  path. `requireClaim` flips that when rollout happens.
+- invites are created but not emailed; the link is copied by hand.

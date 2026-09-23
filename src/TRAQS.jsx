@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import TRAQS_BARS_STATIC from "./traqs-bars-static.png";
 import TRAQS_BARS_ACCENT from "./traqs-bars-accent.png";
@@ -10,6 +10,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
+import { BASIC_FEATURES, BUSINESS_FEATURES, TIER_LABEL, upgradeMailto } from "./tiers.js";
 import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours, dayShiftToClear, rowSlackHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
@@ -4048,7 +4049,12 @@ function AssigneeSelect({ value, onChange, personOptions, people, extraStyle, co
   const showSearch = opts.length > 5;
   const fs = compact ? 11 : 12;
   return <div ref={ref} style={{ position: "relative", ...(extraStyle || {}) }}>
-    <div className="tq-drop" onClick={() => { if (!open) onOpen?.(); setOpen(o => !o); }}
+    {/* No onOpen call here. This was copied from GroupingSelect, which declares
+        that prop and is passed it; AssigneeSelect declares neither and no caller
+        supplies one, so `onOpen?.()` resolved to nothing — optional chaining on
+        an identifier that does not exist in scope fails SILENTLY rather than
+        throwing, which is why it survived. Found by eslint no-undef. */}
+    <div className="tq-drop" onClick={() => setOpen(o => !o)}
       style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, padding: "5px 7px", borderRadius: T.radiusXs, border: `1px solid ${open ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, cursor: "pointer", userSelect: "none", fontFamily: T.font, boxSizing: "border-box", transition: "border-color 0.15s" }}>
       <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: value ? T.bgText : hexA(T.bgText, 0.55), fontSize: fs }}>
         {value || "(unassigned)"}
@@ -4151,6 +4157,19 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   // the live theme below can read them — T is computed above that point and
   // referencing them later would hit the temporal dead zone.
   const [settingsMode, setSettingsMode] = useState(false);
+  // Tier. Absent billing.json means Basic -- absence IS "never provisioned",
+  // which is exactly Basic, so there is nothing to backfill.
+  const [billingTier, setBillingTier] = useState("basic");
+  const [billingReq, setBillingReq] = useState(null);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
+  useEffect(() => {
+    if (!orgCode) return;
+    let off = false;
+    fetchBilling(getToken, orgCode)
+      .then((b) => { if (!off) { setBillingTier(b?.tier || "basic"); setBillingReq(b?.requestedAt || null); } })
+      .catch(() => {});
+    return () => { off = true; };
+  }, [orgCode, getToken]);
   const [settingsSection, setSettingsSection] = useState("general");
   const [draftMode, setDraftMode] = useState("custom");
   const [draftCustom, setDraftCustom] = useState({ bg: "#1a1a2e", accent: "#e94560", surface: "#24243e", systemColor: "#24243e", text: "#f1f5f9", bgImage: null, cardOpacity: 100, bgOpacity: 100, jobBarMode: "system", jobBarColor: "#e94560", cellColorMode: "system", scheduleGrid: true });
@@ -28598,6 +28617,74 @@ ${jobsCtx || "No jobs found."}`;
           );
         })()}
       </div>
+      {upgradeOpen && (() => {
+        const row = (label, inBasic) => (
+          <div key={label} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", fontSize: 12.5, color: inBasic ? T.text : T.textDim }}>
+            {inBasic
+              ? <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.accent} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12" /></svg>
+              : <span style={{ width: 13, textAlign: "center", color: T.border, flexShrink: 0 }}>—</span>}
+            <span>{label}</span>
+          </div>
+        );
+        return <div onMouseDown={() => setUpgradeOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onMouseDown={(e) => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, width: "100%", maxWidth: 560, padding: 24, boxShadow: "0 24px 60px rgba(0,0,0,0.3)", maxHeight: "86vh", overflowY: "auto" }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: T.text }}>Plans</div>
+            <div style={{ fontSize: 12, color: T.textDim, marginTop: 3, marginBottom: 16 }}>
+              You are on <b style={{ color: T.text }}>{TIER_LABEL[billingTier] || "Basic"}</b>.
+            </div>
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+              <div style={{ flex: "1 1 220px", border: `1px solid ${T.border}`, borderRadius: T.radiusLg, padding: "14px 16px" }}>
+                <div style={{ fontSize: 13.5, fontWeight: 700, color: T.text }}>Basic</div>
+                <div style={{ fontSize: 11, color: T.textDim, marginBottom: 8 }}>For small teams</div>
+                {BASIC_FEATURES.map((f) => row(f, true))}
+                {BUSINESS_FEATURES.map((f) => row(f, false))}
+              </div>
+              <div style={{ flex: "1 1 220px", border: `1.5px solid ${T.accent}`, borderRadius: T.radiusLg, padding: "14px 16px", boxShadow: `0 0 20px ${T.accent}22` }}>
+                <div style={{ fontSize: 13.5, fontWeight: 700, color: T.text }}>Business</div>
+                <div style={{ fontSize: 11, color: T.textDim, marginBottom: 8 }}>Everything in Basic, plus</div>
+                {BASIC_FEATURES.map((f) => row(f, true))}
+                {BUSINESS_FEATURES.map((f) => row(f, true))}
+              </div>
+            </div>
+            {/* No purchase flow. Business is provisioned manually, so this opens
+                a conversation and records that the ask was made. */}
+            <div style={{ fontSize: 11.5, color: T.textDim, marginTop: 14, lineHeight: 1.5 }}>
+              Business is set up with you directly — there is no checkout. We will confirm pricing and switch the organization over.
+            </div>
+            {billingReq && <div style={{ fontSize: 11.5, color: T.accent, marginTop: 8 }}>Request already sent. We will be in touch.</div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <Btn variant="ghost" size="sm" style={{ flex: 1 }} onClick={() => setUpgradeOpen(false)}>Close</Btn>
+              <Btn size="sm" style={{ flex: 1 }} onClick={async () => {
+                try { const r = await requestBusinessTier(getToken, orgCode); setBillingReq(r?.requestedAt || new Date().toISOString()); } catch {}
+                window.open(upgradeMailto(orgName, orgCode), "_blank", "noopener");
+              }}>Contact us</Btn>
+            </div>
+          </div>
+        </div>;
+      })()}
+
+      {/* UPGRADE — bottom of Settings, above the org name and profile. Shown only
+          in settings mode, only when the sidebar is open (it is a paragraph of
+          text, not an icon), and only to someone who could actually act on it.
+
+          Business is NOT self-serve: this opens a conversation. There is no
+          purchase flow behind it, and provisioning is manual -- which is also
+          how Matrix got its. */}
+      {settingsMode && sidebarExpanded && can("orgSettings") && billingTier !== "business" && (
+        <div style={{ margin: "0 12px 10px", padding: "12px 14px", borderRadius: T.radiusLg,
+          border: `1px solid ${T.accent}55`, background: T.accent + "0e",
+          boxShadow: `0 0 22px ${T.accent}33`, flexShrink: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: T.accent, letterSpacing: "-0.02em" }}>TRAQS Business</div>
+          <div style={{ fontSize: 11, color: T.textDim, marginTop: 4, lineHeight: 1.5 }}>
+            Everything in Basic, plus {BUSINESS_FEATURES.join(", ").toLowerCase()}.
+          </div>
+          <button onClick={() => setUpgradeOpen(true)} style={{ width: "100%", marginTop: 10, padding: "7px 0",
+            borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText,
+            fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+            Compare plans
+          </button>
+        </div>
+      )}
       {/* Org name — subtly displayed above the profile, only when sidebar is expanded */}
       <div style={{ padding: "0 16px", flexShrink: 0, overflow: "hidden", maxHeight: sidebarExpanded && orgName ? 22 : 0, opacity: sidebarExpanded && orgName ? 0.55 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s 0.06s ease" }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, letterSpacing: "-0.045em", textTransform: "uppercase", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", lineHeight: "22px" }}>{orgName}</div>
