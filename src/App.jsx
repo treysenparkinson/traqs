@@ -5,6 +5,7 @@ import ErrorBoundary from "./ErrorBoundary.jsx";
 // Only the banded header (org-code / login steps) still uses an image wordmark;
 // the redesigned roster screen sets it as live text — see TraqsLockup.
 import { UL_LOGO_WHITE } from "./logo.js";
+import { BRAND_BARS, TraqsBars } from "./brand.jsx";
 import { fetchOrgConfig, createOrg, forgotOrgCode, fetchPeople, acceptInvite } from "./api.js";
 import { emptySignupForm, buildOrgPayload, validateStep, SIGNUP_STEPS } from "./orgSignup.js";
 import { guessTimeZone, StepDots, IdentityStep, BasicsStep, TierStep, PayrollStep, ConfirmStep, ActivatedScreen } from "./SignupSteps.jsx";
@@ -41,36 +42,8 @@ const LOGIN_BLUE = "#38BDF8";
  * bar. Stroke scales with size the way the spec's ladder does (84px→1.5px,
  * 22px→0.4px); text-stroke is cleared on the image so it isn't outlined.
  */
-// THE BRAND'S FOUR COLOURS, and the four bars of the mark, in order.
-//
-// Measured off TRAQS Scheduling/.../AppIcon.icon/Assets/traqs-candy-bars.png
-// rather than matched by eye -- the sky is #38BDF8, which is exactly the accent
-// the rest of the app already uses, and that would have been easy to miss and
-// then drift from. Widths are fractions of the mark's full width; they match the
-// ratios the iOS lockup has always used.
-const BRAND_BARS = [
-  { c: "#FF6B57", w: 0.552 },   // coral
-  { c: "#F0A819", w: 0.789 },   // amber
-  { c: "#38BDF8", w: 1 },       // sky -- same value as the app's accent
-  { c: "#1D7D5C", w: 0.448 },   // green
-];
-
-// Drawn, not another PNG. The mark is four rounded rectangles; the geometry came
-// off the same file (650 tall, 223 apart, 225 radius, in a 3900x3276 box), and
-// vector means it is sharp at 17px in a footer and at 84px on the auth screen
-// without shipping a cut for each.
-const BARS_BOX = { w: 3900, h: 3276, bar: 650, gap: 223, r: 225 };
-
-function TraqsBars({ style }) {
-  const { w, h, bar, gap, r } = BARS_BOX;
-  return (
-    <svg viewBox={`0 0 ${w} ${h}`} style={style} aria-hidden="true" focusable="false">
-      {BRAND_BARS.map((b, i) => (
-        <rect key={b.c} x="0" y={i * (bar + gap)} width={w * b.w} height={bar} rx={r} fill={b.c} />
-      ))}
-    </svg>
-  );
-}
+// BRAND_BARS / TraqsBars now live in ./brand.jsx, shared with TRAQS.jsx —
+// see that file for the provenance comment.
 
 function TraqsLockup({ size = 84, color = INK, stroke = 1.5, bars = true }) {
   return (
