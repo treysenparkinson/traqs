@@ -111,6 +111,32 @@ export function personFromInvite(invite, existingPeople, nowIso) {
   };
 }
 
+/**
+ * The person row a founding admin gets on their first authenticated visit.
+ * A brand-new org boots with an empty people.json (org.js POST: "not even the
+ * creator's" — access comes from config.adminEmails alone until this runs).
+ * There is no invite record for an org's own creator, so this mirrors
+ * personFromInvite's shape rather than sharing its code — same roster-relative
+ * id assignment, no invite-specific fields (invitedBy, role source).
+ */
+export function personFromAdmin(config, email, existingPeople, nowIso) {
+  const used = new Set((existingPeople || []).map((p) => String(p?.id)));
+  let n = 1;
+  while (used.has(String(n))) n++;
+  return {
+    id: n,
+    name: config?.adminName || email.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+    email,
+    role: "Admin",
+    userRole: "admin",
+    cap: 8,
+    color: "#6366f1",
+    timeOff: [],
+    joinedAt: nowIso,
+    lastModifiedAt: nowIso,
+  };
+}
+
 // An invite is spent, not deleted: the record is what says this address was
 // admitted by invitation rather than by domain, and deleting it would erase the
 // only evidence of how someone got in.
