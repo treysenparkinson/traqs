@@ -568,6 +568,20 @@ const getWorkingDayDuration = (startDate, endDate, workDays = DEFAULT_WORK_DAYS)
   while (d <= end) { if (workDays.includes(d.getDay())) count++; d.setDate(d.getDate() + 1); }
   return count;
 };
+// Whether the inclusive calendar range [startDate, endDate] contains at least one
+// non-working day (weekend, per workDays) or holiday. Used to gate the admin drag-split:
+// a move should only mint a new op record when its destination genuinely crosses a day
+// the schedule can't place work on — an ordinary same-week move never needs to split.
+const spansOffDay = (startDate, endDate, { workDays = DEFAULT_WORK_DAYS, holidays = [] } = {}) => {
+  let d = new Date(startDate + "T12:00:00");
+  const end = new Date(endDate + "T12:00:00");
+  while (d <= end) {
+    const ds = toDS(d);
+    if (!workDays.includes(d.getDay()) || holidays.includes(ds)) return true;
+    d.setDate(d.getDate() + 1);
+  }
+  return false;
+};
 // Given a start date and a count of working days, returns the end date after stepping
 // through exactly numDays working days, starting from and including startDate.
 const countWorkingDays = (startDate, numDays, workDays = DEFAULT_WORK_DAYS) => {
@@ -11820,7 +11834,11 @@ ${jobsCtx || "No jobs found."}`;
             }
           }
         }
-        setGanttDragInfo({ itemId: item.id, snapStart: snapS, snapEnd: snapE, hasOverlap });
+        // Jobs can never be dragged into the past. Day-granularity here (Gantt has no
+        // hour component), so the candidate's own start being today-or-later is sufficient
+        // — an op never runs backward in time, so nothing "behind" a valid start can be past.
+        const beforeNow = snapS < TD;
+        setGanttDragInfo({ itemId: item.id, snapStart: snapS, snapEnd: snapE, hasOverlap, beforeNow });
         // Skip live mutation for partial-drag — original op stays put until commit, where it splits.
         if (_isPartialDrag) return;
         // For moves, use the working-day end so the bar never shrinks as it crosses a non-working day
@@ -11851,10 +11869,18 @@ ${jobsCtx || "No jobs found."}`;
         const actualDelta = diffD(os, newStart);
 
         // ── Auto-split on drag-end for partially-worked ops (Gantt) ──
-        // Only when moving an op (level 2) with logged hours, to a new position.
-        if (mode === "move" && item.level === 2 && newStart !== os) {
+        // Only when moving an op (level 2) with logged hours, to a new position, AND only
+        // when the destination actually crosses a weekend or a day the schedule has
+        // disabled — an ordinary same-week move of a partially-worked op just moves the
+        // whole record; worked spans are recorded independently of where the op sits
+        // (productionhours.json), so relocating it does not corrupt that history.
+        if (mode === "move" && item.level === 2 && newStart !== os && spansOffDay(newStart, newEnd, itemBDOpts)) {
           const _splitWS = deriveWorkedState(item, producedFor(item), liveOpHours(item));
           if (_splitWS.isPartiallyWorked) {
+            // Jobs can never be dragged into the past, split included. Nothing was mutated
+            // live for a partial drag (onM returns early for it, above), so refusing here
+            // needs no revert.
+            if (newStart < TD) { setTimeout(() => setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't schedule in the past", message: "This move would place part of the job before today. Jobs can't be scheduled in the past.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) }), 0); return; }
             const osH = item.startHour ?? workStartH;
             const _calcEnd = (startDate, startHourArg, hpdAmt) => {
               const _clkH = productiveHoursPerDay > 0 ? (hpdAmt / productiveHoursPerDay) * totalWorkH : 0;
@@ -12033,6 +12059,10 @@ ${jobsCtx || "No jobs found."}`;
             if (isOpLocked(op) && opsMoving.some(m => m.opId === op.id)) lockedFound.push({ opTitle: op.title, panelTitle: pnl.title });
           })));
           if (lockedFound.length > 0) { setTimeout(() => showLockedError(lockedFound), 0); return reverted; }
+
+          // Jobs can never be dragged into the past — day-granularity check (Gantt has no
+          // hour component), same rule as the live ghost highlight above.
+          if (newStart < TD) { setTimeout(() => setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't schedule in the past", message: "This move would place part of the job before today. Jobs can't be scheduled in the past.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) }), 0); return reverted; }
 
           // Check PTO conflicts for moving ops
           let ptoConflict = false;
@@ -12331,12 +12361,12 @@ ${jobsCtx || "No jobs found."}`;
               {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !orgSettings.workDays.includes(dt.getDay()); const isMonStart = dt.getDate() === 1; return <div key={day} style={{ minWidth: cW, maxWidth: cW, height: "100%", background: day === TD ? T.accent + "0a" : wk ? T.bg + "aa" : "transparent", borderRight: isMonStart ? `2px solid ${T.border}` : `1px solid ${T.bg}33` }} />; })}
               {/* Drag ghost overlay — snapped destination with overlap coloring */}
               {ganttDragInfo?.itemId === r.id && (() => {
-                const { snapStart, snapEnd, hasOverlap } = ganttDragInfo;
+                const { snapStart, snapEnd, hasOverlap, beforeNow } = ganttDragInfo;
                 if (snapStart > gEnd || snapEnd < gStart) return null;
                 const gs = snapStart < gStart ? gStart : snapStart;
                 const ge = snapEnd   > gEnd   ? gEnd   : snapEnd;
                 const gx = dToX(gs), gw = Math.max(dToX(ge) + cW - gx, cW);
-                const gc = hasOverlap ? "#ef4444" : T.accent;
+                const gc = (hasOverlap || beforeNow) ? "#ef4444" : T.accent;
                 return <div style={{ position: "absolute", top: 3, left: gx - 2, width: gw + 4, height: rH - 6, borderRadius: T.radiusXs + 2, border: `2px solid ${gc}`, background: gc + "18", boxShadow: `0 0 24px ${gc}77, 0 0 8px ${gc}55, 0 0 48px ${gc}33`, pointerEvents: "none", zIndex: 3, animation: "ghost-fade-in 0.22s cubic-bezier(0.34,1.56,0.64,1)" }} />;
               })()}
               {r.start <= gEnd && r.end >= gStart && (() => {
@@ -15881,12 +15911,18 @@ ${jobsCtx || "No jobs found."}`;
         if (Math.abs(dx) > 8 || Math.abs(me.clientY - sy) > 10) moved = true;
         if (!moved) return;
         setDayDragInfo({ itemId: barTask.id, mode });
+        // Day view always shows today (the "Today" toggle is the only place that sets
+        // tStart/tEnd for tMode "day", and it always sets TD) — so the wall-clock hour is
+        // the whole boundary here, no date component needed. Jobs can never be dragged to
+        // start before now.
+        const _nowHForDayDrag = (() => { const _n = new Date(); return _n.getHours() + _n.getMinutes() / 60; })();
         if (mode === "move") {
           // Compute drop hour for tooltip
           const dropHour = Math.max(DHS, Math.min(DHE - origHpd, (DHS + (me.clientX - grabOffsetPx - timelineLeft) / timelineWidth * DNH)));
           const dropH = Math.floor(dropHour), dropM = Math.round((dropHour % 1) * 60);
           const dropLabel = `${dropH > 12 ? dropH - 12 : dropH === 0 ? 12 : dropH}:${String(dropM).padStart(2,"0")} ${dropH >= 12 ? "PM" : "AM"}`;
-          setTeamDayGhost({ left: me.clientX - grabOffsetPx, top: me.clientY - barH / 2, width: barW, height: barH, color: barTask.color, label: `${barTask.title || ""}`, time: dropLabel });
+          const _beforeNowDay = dropHour < _nowHForDayDrag;
+          setTeamDayGhost({ left: me.clientX - grabOffsetPx, top: me.clientY - barH / 2, width: barW, height: barH, color: _beforeNowDay ? "#ef4444" : barTask.color, label: `${barTask.title || ""}`, time: dropLabel });
           const target = getPersonAtY(me.clientY);
           setDayDragTarget(target && target.id !== fromPersonId ? target.id : null);
         } else if (mode === "left") {
@@ -15894,7 +15930,8 @@ ${jobsCtx || "No jobs found."}`;
           const newStart = Math.round(cursorHour * 4) / 4;
           pending.startHour = Math.max(DHS, Math.min(origEnd - 0.25, newStart));
           pending.hpd = Math.round((origEnd - pending.startHour) * 100) / 100;
-          setTeamDayGhost({ left: me.clientX, top: me.clientY - barH / 2, width: 4, height: barH, color: barTask.color, label: barTask.title || "", time: fmTimeH(pending.startHour) });
+          const _beforeNowDay = pending.startHour < _nowHForDayDrag;
+          setTeamDayGhost({ left: me.clientX, top: me.clientY - barH / 2, width: 4, height: barH, color: _beforeNowDay ? "#ef4444" : barTask.color, label: barTask.title || "", time: fmTimeH(pending.startHour) });
         } else {
           const cursorHour = DHS + (me.clientX - timelineLeft) / timelineWidth * DNH;
           const clamped = Math.max(origHour + 0.25, Math.min(DHE, Math.round(cursorHour * 4) / 4));
@@ -15905,16 +15942,27 @@ ${jobsCtx || "No jobs found."}`;
       const onU = (me) => {
         document.removeEventListener("mousemove", onM);
         document.removeEventListener("mouseup", onU);
+        const _nowHOnDrop = (() => { const _n = new Date(); return _n.getHours() + _n.getMinutes() / 60; })();
         if (moved && mode === "move") {
           // Apply ghost's final position to the real task
           const cursorHour = DHS + (me.clientX - timelineLeft) / timelineWidth * DNH;
           const newStart = Math.round((cursorHour - grabOffsetHours) * 4) / 4;
           const clamped = Math.max(DHS, Math.min(DHE - Math.max(origHpd, 0.25), newStart));
-          updTask(barTask.id, { startHour: clamped }, pid);
-          const target = getPersonAtY(me.clientY);
-          if (fromPersonId && target && target.id !== fromPersonId) reassignTask(barTask.id, fromPersonId, target.id, pid);
+          // Jobs can never be dragged to start before now — day view is always today, so
+          // the wall-clock hour alone is the boundary.
+          if (clamped < _nowHOnDrop) {
+            setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't schedule in the past", message: "This move would place part of the job before the current time. Jobs can't be scheduled in the past.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
+          } else {
+            updTask(barTask.id, { startHour: clamped }, pid);
+            const target = getPersonAtY(me.clientY);
+            if (fromPersonId && target && target.id !== fromPersonId) reassignTask(barTask.id, fromPersonId, target.id, pid);
+          }
         } else if (moved && mode === "left") {
-          updTask(barTask.id, { startHour: pending.startHour, hpd: pending.hpd }, pid);
+          if (pending.startHour < _nowHOnDrop) {
+            setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't schedule in the past", message: "This move would place part of the job before the current time. Jobs can't be scheduled in the past.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
+          } else {
+            updTask(barTask.id, { startHour: pending.startHour, hpd: pending.hpd }, pid);
+          }
         } else if (moved && mode === "right") {
           updTask(barTask.id, { hpd: pending.hpd }, pid);
         }
@@ -16125,14 +16173,29 @@ ${jobsCtx || "No jobs found."}`;
                   const offType = pOff ? ((p.timeOff||[]).find(to=>tStart>=to.start&&tStart<=to.end)||{}).type||"PTO" : null;
                   const offR = pOff ? getOffReason(p.id, tStart) : null;
                   const offColor = offType === "UTO" ? "#f59e0b" : "#10b981";
-                  // Stack bars sequentially from workStart; use startHour if manually positioned
+                  // Stack bars sequentially from workStart; use startHour if manually positioned.
+                  // A manual startHour is a PREFERENCE, not an absolute claim on the timeline: two
+                  // bars each manually set to (say) 8am must not render on top of each other, so
+                  // every bar — manual or auto — is packed against one shared cursor. Order by
+                  // preferred hour first so an earlier-preferring bar is placed first and a later
+                  // one that would collide gets pushed past it, never the reverse. Multi-day bars
+                  // are structurally positioned by the day-boundary walk below and stay outside
+                  // this pack, same as before.
                   const _phD = t => { const [h,m]=(t||"0:0").split(":").map(Number); return h+m/60; };
                   const wsH = _phD(orgSettings.workStart||"07:00");
                   const weH = _phD(orgSettings.workEnd||"15:00");
+                  const _packOrder = todayBars.map((bar, _i) => ({ bar, _i, _hasManual: bar.task?.startHour != null }))
+                    .sort((a, b) => {
+                      const _aIsMulti = !a._hasManual && a.bar.task?.start && a.bar.task?.end && a.bar.task.start !== a.bar.task.end;
+                      const _bIsMulti = !b._hasManual && b.bar.task?.start && b.bar.task?.end && b.bar.task.start !== b.bar.task.end;
+                      const ah = !_aIsMulti && a._hasManual ? a.bar.task.startHour : Infinity;
+                      const bh = !_bIsMulti && b._hasManual ? b.bar.task.startHour : Infinity;
+                      if (ah !== bh) return ah - bh;
+                      return a._i - b._i;
+                    });
                   let cumH = wsH;
-                  const barPositions = todayBars.map(bar => {
+                  const barPositions = _packOrder.map(({ bar, _hasManual: hasManual }) => {
                     const hpd = bar.task?.hpd || 0;
-                    const hasManual = bar.task?.startHour != null;
                     const isMultiDay = !hasManual && bar.task?.start && bar.task?.end && bar.task.start !== bar.task.end;
                     let rawS, rawE;
                     if (isMultiDay) {
@@ -16162,10 +16225,16 @@ ${jobsCtx || "No jobs found."}`;
                         rawE = weH;
                       }
                     } else {
-                      rawS = hasManual ? bar.task.startHour : cumH;
+                      // Clamped against the shared cursor even when manual — a preferred hour
+                      // that lands before an already-placed bar's end is pushed to that end,
+                      // which is the only way two bars on one row can never overlap.
+                      rawS = Math.max(hasManual ? bar.task.startHour : cumH, cumH);
                       rawE = hpd > 0 ? Math.min(rawS + hpd, HE) : Math.min(rawS + 2, HE);
                     }
-                    if (!hasManual) cumH = rawE;
+                    // Every bar advances the shared cursor now, manual included — otherwise a
+                    // manual bar pushed forward by an earlier one would leave cumH stale, and
+                    // the next auto bar (which starts FROM cumH) could still land inside it.
+                    cumH = Math.max(cumH, rawE);
                     // Collapsed reservoir glides its left edge with worked time. rawE is
                     // computed from the ORIGINAL rawS above, so the planned right edge stays
                     // put while the left one advances into it. Every other bar is untouched.
@@ -16523,8 +16592,8 @@ ${jobsCtx || "No jobs found."}`;
                 {/* Ghost: dragged bar + dep-group member previews */}
                 {teamDragInfo && (() => {
                   const nDays = days.length;
-                  const { snapStart, snapEnd, hasOverlap, barColor, groupSnaps } = teamDragInfo;
-                  const gc = hasOverlap ? "#ef4444" : barColor || T.accent;
+                  const { snapStart, snapEnd, hasOverlap, beforeNow, barColor, groupSnaps } = teamDragInfo;
+                  const gc = (hasOverlap || beforeNow) ? "#ef4444" : barColor || T.accent;
                   const ghosts = [];
                   if (teamDragInfo.targetPersonId === p.id && teamDragInfo.translateX != null && (Math.abs(teamDragInfo.translateX) > 4 || Math.abs(teamDragInfo.translateY || 0) > 4)) {
                     const _liveRef = teamDragLiveRef.current;
@@ -16584,7 +16653,8 @@ ${jobsCtx || "No jobs found."}`;
                       _wRem = Math.max(0, _wRem - segW);
                       if (segW <= 0) return;
                       const _gi = ghosts.length;
-                      ghosts.push(<div key={`team-ghost-${_gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 26, border: `2px dashed ${gc}`, background: gc + (hasOverlap ? "55" : "18"), boxShadow: `0 0 ${hasOverlap ? 24 : 16}px ${gc}${hasOverlap ? "BB" : "66"}`, pointerEvents: "none", zIndex: 35 }} />);
+                      const _ghostFlagged = hasOverlap || beforeNow;
+                      ghosts.push(<div key={`team-ghost-${_gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 26, border: `2px dashed ${gc}`, background: gc + (_ghostFlagged ? "55" : "18"), boxShadow: `0 0 ${_ghostFlagged ? 24 : 16}px ${gc}${_ghostFlagged ? "BB" : "66"}`, pointerEvents: "none", zIndex: 35 }} />);
                     });
                   }
                   (groupSnaps || []).forEach(gs => {
@@ -17451,13 +17521,21 @@ ${jobsCtx || "No jobs found."}`;
                       if (snapS === null) return;
                       const _mRectForRef = gridAreaEl?.getBoundingClientRect();
                       const _ghostLeftPct = _mRectForRef ? ((me.clientX - _grabPx - _mRectForRef.left) / _mRectForRef.width * 100) : null;
-                      teamDragLiveRef.current = { snapStart: snapS, snapEnd: snapE, dropHour, barHpd: _dragBarHpd, origStart: os, origEnd: oe, grabOffsetPct: _grabOffsetPct, ghostLeftPct: _ghostLeftPct, hasOverlap, overlapInfo };
+                      // Jobs can never be dragged into the past. snapS/_ghostDH is the candidate's
+                      // earliest edge — before today, or today before the current hour, means some
+                      // part of the bar would sit in the past (ops never run backward in time, so
+                      // checking the start alone covers "any bit of it").
+                      const _nowForDrag = new Date();
+                      const _nowDayForDrag = toDS(_nowForDrag);
+                      const _nowHourForDrag = _nowForDrag.getHours() + _nowForDrag.getMinutes() / 60;
+                      const beforeNow = (snapS < _nowDayForDrag) || (snapS === _nowDayForDrag && _ghostDH < _nowHourForDrag);
+                      teamDragLiveRef.current = { snapStart: snapS, snapEnd: snapE, dropHour, barHpd: _dragBarHpd, origStart: os, origEnd: oe, grabOffsetPct: _grabOffsetPct, ghostLeftPct: _ghostLeftPct, hasOverlap, overlapInfo, beforeNow };
                       // Bars that should visually move + fade together with the dragged bar:
                       // multi-select members, plus dep-group members when the group is locked.
                       const _movingBarIds = new Set();
                       if (isMultiDrag) multiDragMembers.forEach(m => _movingBarIds.add(m.id));
                       if (isGroupDrag && depsMode === "locked") groupMembers.forEach(m => _movingBarIds.add(m.id));
-                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, multiDragSnaps, isGroupDrag, multiDragIds: _movingBarIds.size > 0 ? _movingBarIds : null, dropHour, barHpd: _dragBarHpd, hasOverlap, pushBD: _pushBD, pushHourDelta: _pushHourDelta, snapConnector: _snapConnector ? { ..._snapConnector, ghostPersonId: targetPid } : null });
+                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, multiDragSnaps, isGroupDrag, multiDragIds: _movingBarIds.size > 0 ? _movingBarIds : null, dropHour, barHpd: _dragBarHpd, hasOverlap, beforeNow, pushBD: _pushBD, pushHourDelta: _pushHourDelta, snapConnector: _snapConnector ? { ..._snapConnector, ghostPersonId: targetPid } : null });
                     };
                     const onU = me => {
                       cancelAnimationFrame(autoScrollRaf); autoScrollRaf = null;
@@ -17519,6 +17597,12 @@ ${jobsCtx || "No jobs found."}`;
                         showOverlapIfAny([{ person: _personName, opTitle: _info?.opTitle || "", panelTitle: _info?.panelTitle || "", jobTitle: _info?.jobTitle || "", start: _info?.start, end: _info?.end, isPto: false }]);
                         return;
                       }
+                      // Reject drop if the ghost was red for landing in the past — jobs can
+                      // never be scheduled before now, no part of the bar included.
+                      if (teamDragLiveRef.current?.beforeNow) {
+                        setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't schedule in the past", message: "This move would place part of the job before the current time. Jobs can't be scheduled in the past.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
+                        return;
+                      }
                       if (tMode === "month" && bar.task && !isPto) {
                         const _gRect = gridAreaEl?.getBoundingClientRect();
                         if (!_gRect) { console.warn("[schedule-drag] rejected: grid element not measurable"); return; }
@@ -17541,17 +17625,22 @@ ${jobsCtx || "No jobs found."}`;
                         // against that — and if it didn't actually move, do nothing (don't shift the
                         // whole bar via the non-split path below).
                         const _splitWS = deriveWorkedState(bar.task, producedFor(bar.task), liveOpHours(bar.task));
-                        if (_splitWS.isPartiallyWorked) {
+                        // Compute end-date + end-hour for a given hpd starting at (startDate, startHourArg).
+                        const _calcEnd = (startDate, startHourArg, hpdAmt) => {
+                          const _wk = walkProductiveHours(startHourArg, hpdAmt, dayWindowCfg);
+                          return { end: sAddBD(startDate, _wk.days - 1), endHour: _wk.endHour };
+                        };
+                        // Only split when the destination genuinely crosses a weekend or a
+                        // disabled day — an ordinary move of a partially-worked bar just moves
+                        // the whole record; worked spans are recorded independently of the op's
+                        // current position, so relocating it does not corrupt that history.
+                        const _wouldLandOnOffDay = _splitWS.isPartiallyWorked && spansOffDay(effStart, _calcEnd(effStart, finalHour, _splitWS.remainingHpd).end, barBDOpts);
+                        if (_wouldLandOnOffDay) {
                           // A pure vertical drag (straight down onto another person) leaves the
                           // dates identical, so this no-op guard used to swallow the reassign
                           // too — the bar just snapped back. Only bail when nothing changed at
                           // all, person included.
                           if (effStart === _dragBaseStart && finalHour === _dragBaseHour && !isReassign) { console.warn("[schedule-drag] no-op: dates and person unchanged"); return; }
-                          // Compute end-date + end-hour for a given hpd starting at (startDate, startHourArg).
-                          const _calcEnd = (startDate, startHourArg, hpdAmt) => {
-                            const _wk = walkProductiveHours(startHourArg, hpdAmt, dayWindowCfg);
-                            return { end: sAddBD(startDate, _wk.days - 1), endHour: _wk.endHour };
-                          };
                           const osH = bar.task.startHour ?? workStartH;
                           const workedEnds = _calcEnd(os, osH, _splitWS.workedHpd);
                           const remEnds   = _calcEnd(effStart, finalHour, _splitWS.remainingHpd);
@@ -17708,8 +17797,13 @@ ${jobsCtx || "No jobs found."}`;
                       // day or person" is most of the point — and the reassign below is redirected
                       // at the remainder so the history keeps the team that did it. Nobody can be
                       // clocked in here: _someoneOnIt refused the gesture before it began.
+                      //
+                      // Gated on crossing a weekend/disabled day: an ordinary move of a
+                      // partially-worked bar just moves the whole record — worked spans are
+                      // recorded independently of the op's current position (productionhours.json),
+                      // so relocating it does not corrupt that history.
                       const _splitOut = {};
-                      const _splitWorkedMs = (multiDragMembers.length === 0 && bar.task)
+                      const _splitWorkedMs = (multiDragMembers.length === 0 && bar.task && spansOffDay(effStart, effEnd, barBDOpts))
                         ? spansDurationMs(workedSpansStored.get(String(bar.task.id)) || [])
                         : 0;
                       const withMove = _splitWorkedMs > 0
@@ -19565,10 +19659,17 @@ ${jobsCtx || "No jobs found."}`;
       // computing top:0, painted directly on top of each other, and only the last one
       // was visible. renderTeam on the Schedule page already stacks from a running
       // cursor (`hasManual ? startHour : cumH`); this is the same rule.
+      //
+      // A manual hour is clamped against the cursor too, not taken verbatim: the sort
+      // above only orders manual blocks by their OWN hour, so two manual blocks close
+      // together (e.g. 8:00 and 8:30, both preceding whatever's stacked before them)
+      // still landed at their raw hours with no check that the earlier one's end had
+      // already passed 8:30 — painting them on top of each other exactly like the
+      // null-manualH case this comment already describes.
       let cursor = workStartH;
       return sized
         .map(b => {
-          const sH = b.manualH != null ? b.manualH : cursor;
+          const sH = Math.max(b.manualH != null ? b.manualH : cursor, cursor);
           const eH = Math.min(workEndH, sH + b.clockH);
           cursor = Math.max(cursor, eH);
           return { ...b, sH, eH };
