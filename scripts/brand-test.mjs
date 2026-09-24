@@ -13,6 +13,10 @@
 import { readFileSync } from "node:fs";
 
 const SRC = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+// BRAND_BARS/TraqsBars live in a third file shared by App.jsx and TRAQS.jsx
+// (App.jsx already imports FROM TRAQS.jsx, so TRAQS.jsx importing the palette
+// back from App.jsx would be circular) -- see src/brand.jsx's own header.
+const BRAND_SRC = readFileSync(new URL("../src/brand.jsx", import.meta.url), "utf8");
 
 let pass = 0, fail = 0;
 const ok = (msg, cond) => {
@@ -30,7 +34,7 @@ const MEASURED = [
   { c: "#1D7D5C", w: 0.448 },
 ];
 
-const barsBlock = SRC.slice(SRC.indexOf("const BRAND_BARS = ["), SRC.indexOf("];", SRC.indexOf("const BRAND_BARS = [")));
+const barsBlock = BRAND_SRC.slice(BRAND_SRC.indexOf("const BRAND_BARS = ["), BRAND_SRC.indexOf("];", BRAND_SRC.indexOf("const BRAND_BARS = [")));
 ok("BRAND_BARS is declared", barsBlock.length > 0);
 
 const hexes = [...barsBlock.matchAll(/"(#[0-9A-F]{6})"/g)].map((m) => m[1]);
