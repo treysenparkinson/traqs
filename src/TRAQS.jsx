@@ -16667,7 +16667,13 @@ ${jobsCtx || "No jobs found."}`;
                           and that bar shrinks from its left edge as the work is done -- see
                           shrunkStartH, which feeds rawS for this row. The clocked-in indicator
                           is the pulsing dot on the person's row, not a second block here. */}
-                      {isToday && nowH>=HS && nowH<=HE && <div style={{position:"absolute",top:0,bottom:0,left:`${(nowH-HS)/NH*100}%`,width:2,background:T.accent+"bb",zIndex:16,pointerEvents:"none"}}/>}
+                      {isToday && nowH>=HS && nowH<=HE && (() => {
+                        const _tlPct = (nowH-HS)/NH*100;
+                        return <>
+                          <div key="today-dot" style={{position:"absolute",top:-3,left:`calc(${_tlPct}% - 3px)`,width:6,height:6,borderRadius:"50%",background:T.accent,boxShadow:`0 0 4px ${T.accent}aa`,zIndex:13,pointerEvents:"none"}}/>
+                          <div key="today-line" style={{position:"absolute",top:0,bottom:0,left:`${_tlPct}%`,width:2,background:T.accent+"99",boxShadow:`0 0 6px ${T.accent}44`,zIndex:12,pointerEvents:"none"}}/>
+                        </>;
+                      })()}
                     </div>
                   </div>;
                 })}
@@ -18866,7 +18872,11 @@ ${jobsCtx || "No jobs found."}`;
             const _tlH = _tlNow.getHours() + _tlNow.getMinutes() / 60;
             const _tlFrac = Math.max(0, Math.min(1, (_tlH - workStartH) / totalWorkH));
             const _tlDayIdx = diffD(tStart, TD);
-            return <div style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${lW}px + (100% - ${lW}px) * ${(_tlDayIdx + _tlFrac) / days.length})`, width: 2, background: T.accent + "bb", zIndex: 16, pointerEvents: "none" }} />;
+            const _tlLeft = `calc(${lW}px + (100% - ${lW}px) * ${(_tlDayIdx + _tlFrac) / days.length})`;
+            return <>
+              <div key="today-dot" style={{ position: "absolute", top: -3, left: `calc(${_tlLeft} - 3px)`, width: 6, height: 6, borderRadius: "50%", background: T.accent, boxShadow: `0 0 4px ${T.accent}aa`, zIndex: 13, pointerEvents: "none" }} />
+              <div key="today-line" style={{ position: "absolute", top: 0, bottom: 0, left: _tlLeft, width: 2, background: T.accent + "99", boxShadow: `0 0 6px ${T.accent}44`, zIndex: 12, pointerEvents: "none" }} />
+            </>;
           })()}
         </div>
       </div>
