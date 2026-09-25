@@ -19335,7 +19335,7 @@ ${jobsCtx || "No jobs found."}`;
               // rather than server-side so the link carries whatever origin the
               // admin is actually on -- a hardcoded domain breaks on previews.
               const link = `${window.location.origin}/?org=${encodeURIComponent(r.orgCode)}&invite=${encodeURIComponent(r.token)}`;
-              upd({ link, busy: false });
+              upd({ link, emailSent: !!r.emailSent, busy: false });
               loadInviteList();
             } catch (e) {
               upd({ error: e.message || "Could not create the invite.", busy: false });
@@ -19363,7 +19363,7 @@ ${jobsCtx || "No jobs found."}`;
                   {d.error && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 8 }}>{d.error}</div>}
                   <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
                     <Btn variant="ghost" size="sm" style={{ flex: 1 }} onClick={() => setInviteDraft(null)}>Cancel</Btn>
-                    <Btn size="sm" style={{ flex: 1 }} disabled={d.busy} onClick={send}>{d.busy ? "Creating…" : "Create link"}</Btn>
+                    <Btn size="sm" style={{ flex: 1 }} disabled={d.busy} onClick={send}>{d.busy ? "Sending…" : "Send invite"}</Btn>
                   </div>
                   {/* Outstanding and spent invites. Without this a mistyped
                       address is unrevokable and stays valid for 14 days. */}
@@ -19396,7 +19396,11 @@ ${jobsCtx || "No jobs found."}`;
                   </div>}
                 </> : <>
                   {/* Shown once. The list endpoint never returns the token again. */}
-                  <div style={{ fontSize: 12, color: T.textDim, marginBottom: 8 }}>Send this link to <b style={{ color: T.text }}>{d.email.trim().toLowerCase()}</b>. It works once, and expires in 14 days.</div>
+                  <div style={{ fontSize: 12, color: T.textDim, marginBottom: 8 }}>
+                    {d.emailSent
+                      ? <>An email with an Accept button was sent to <b style={{ color: T.text }}>{d.email.trim().toLowerCase()}</b>. It works once, and expires in 14 days.</>
+                      : <>Couldn't send the email — share this link with <b style={{ color: T.text }}>{d.email.trim().toLowerCase()}</b> yourself. It works once, and expires in 14 days.</>}
+                  </div>
                   <div style={{ fontFamily: T.mono, fontSize: 11, wordBreak: "break-all", background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, padding: "10px 12px", color: T.text, userSelect: "all" }}>{d.link}</div>
                   <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
                     <Btn size="sm" style={{ flex: 1 }} onClick={() => { navigator.clipboard?.writeText(d.link).catch(() => {}); upd({ error: "Copied" }); }}>{d.error === "Copied" ? "Copied" : "Copy link"}</Btn>
