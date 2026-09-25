@@ -4160,13 +4160,14 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   // Tier. Absent billing.json means Basic -- absence IS "never provisioned",
   // which is exactly Basic, so there is nothing to backfill.
   const [billingTier, setBillingTier] = useState("basic");
+  const [billingLoaded, setBillingLoaded] = useState(false);
   const [billingReq, setBillingReq] = useState(null);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   useEffect(() => {
     if (!orgCode) return;
     let off = false;
     fetchBilling(getToken, orgCode)
-      .then((b) => { if (!off) { setBillingTier(b?.tier || "basic"); setBillingReq(b?.requestedAt || null); } })
+      .then((b) => { if (!off) { setBillingTier(b?.tier || "basic"); setBillingReq(b?.requestedAt || null); setBillingLoaded(true); } })
       .catch(() => {});
     return () => { off = true; };
   }, [orgCode, getToken]);
@@ -14552,6 +14553,19 @@ ${jobsCtx || "No jobs found."}`;
   const [tStart, setTStart] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth(), 1)); });
   const [tEnd, setTEnd] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth() + 1, 0)); });
   const [tMode, setTMode] = useState("month");
+  // Default granularity is tier-dependent: Basic opens on Week, Business stays
+  // on Month. Applied once, the first time the tier resolves, so it never
+  // clobbers a manual switch made afterward.
+  const tModeTierApplied = useRef(false);
+  useEffect(() => {
+    if (!billingLoaded || tModeTierApplied.current) return;
+    tModeTierApplied.current = true;
+    if (billingTier !== "business") {
+      setTMode("week");
+      const d = new Date(TD + "T12:00:00"); const dow = d.getDay(); const mon = addD(TD, -(dow === 0 ? 6 : dow - 1));
+      setTStart(mon); setTEnd(addD(mon, 6));
+    }
+  }, [billingLoaded, billingTier]);
   const [scheduleHighlightId, setScheduleHighlightId] = useState(null);
   // Jump to a job on the Schedule from anywhere (e.g. the Jobs-list right-click).
   // Switches to the schedule, centers the visible window on the job's dates (or
@@ -17249,7 +17263,7 @@ ${jobsCtx || "No jobs found."}`;
                       const dx = Math.floor(pxDx / liveCW + _origColOffset);
                       let dropHour = null;
                       let snapS = nextBD(addD(_dragBaseStart, dx), barBDOpts);
-                      if (tMode === "month") {
+                      if (tMode === "month" || tMode === "week") {
                         // Derive the intra-day hour offset from the SAME delta-based column value the
                         // day snap (dx) uses — NOT a separate absolute-cursor measurement. Using two
                         // different coordinate bases made the day and hour disagree by a sliver near
@@ -17519,7 +17533,7 @@ ${jobsCtx || "No jobs found."}`;
                         showOverlapIfAny([{ person: _personName, opTitle: _info?.opTitle || "", panelTitle: _info?.panelTitle || "", jobTitle: _info?.jobTitle || "", start: _info?.start, end: _info?.end, isPto: false }]);
                         return;
                       }
-                      if (tMode === "month" && bar.task && !isPto) {
+                      if ((tMode === "month" || tMode === "week") && bar.task && !isPto) {
                         const _gRect = gridAreaEl?.getBoundingClientRect();
                         if (!_gRect) { console.warn("[schedule-drag] rejected: grid element not measurable"); return; }
                         const _cxDrop = (me.clientX - _grabPx) - _gRect.left;
@@ -18401,7 +18415,7 @@ ${jobsCtx || "No jobs found."}`;
       })()}
     {teamDragInfo && teamDragInfo.taskTitle && (() => {
       let label = teamDragInfo.taskTitle;
-      if (tMode === "month" && teamDragInfo.dropHour != null) {
+      if ((tMode === "month" || tMode === "week") && teamDragInfo.dropHour != null) {
         const _sHRounded = Math.round(teamDragInfo.dropHour * 2) / 2;
         const sH = Math.floor(_sHRounded); const sM = (_sHRounded % 1) >= 0.5 ? 30 : 0;
         const sAmpm = sH >= 12 ? "PM" : "AM"; const sH12 = sH > 12 ? sH - 12 : sH === 0 ? 12 : sH;
