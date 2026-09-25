@@ -30,6 +30,11 @@ export async function handler(event) {
     try {
       const config = await readJson(`orgs/${code}/config.json`);
       if (!config) return err(404, "Organization not found");
+      // A soft-deleted org (see PATCH deleteOrg) reads as not-found here —
+      // the welcome screen has no reason to distinguish "never existed" from
+      // "existed and was removed", and this is the same unauthenticated path
+      // that would otherwise let anyone probe for deleted codes.
+      if (config.deletedAt) return err(404, "Organization not found");
       return json(200, {
         name: config.name,
         domain: config.domain,
@@ -68,11 +73,15 @@ export async function handler(event) {
       adminName, adminEmails, industry, companySize, country, currency,
       settings: reqSettings,
     } = body ?? {};
-    if (!name || !domain || !adminEmail) return err(400, "Missing required fields: name, domain, adminEmail");
+    // DOMAIN IS OPTIONAL. An email-domain allowlist is a Business-tier control,
+    // not something a new org must decide before it can exist. Membership is the
+    // real boundary: requireOrgMember rejects anyone who is neither in
+    // people.json nor in config.adminEmails, with or without a domain.
+    if (!name || !adminEmail) return err(400, "Missing required fields: name, adminEmail");
     // Cap the free-form fields so the gate isn't a path to write giant
     // blobs to S3 even if SIGNUPS_ENABLED is left on.
     if (String(name).length > 80) return err(400, "Organization name too long (max 80 chars)");
-    if (String(domain).length > 80) return err(400, "Domain too long (max 80 chars)");
+    if (domain != null && String(domain).length > 80) return err(400, "Domain too long (max 80 chars)");
     if (String(adminEmail).length > 200 || !adminEmail.includes("@")) return err(400, "Invalid adminEmail");
 
     // Generate, checking for collision. The random half is 31^8 wide per prefix,
@@ -119,7 +128,7 @@ export async function handler(event) {
       : [];
     const allAdmins = [...new Set([cleanAdmin, ...extraAdmins])].slice(0, 25);
 
-    const cleanDomain = domain.toLowerCase().replace(/^@/, "");
+    const cleanDomain = domain ? String(domain).toLowerCase().replace(/^@/, "") : "";
     const config = {
       name,
       domain: cleanDomain,
@@ -197,7 +206,34 @@ export async function handler(event) {
     let body;
     try { body = JSON.parse(event.body); } catch { return err(400, "Invalid JSON body"); }
 
-    const { newCode, newName } = body ?? {};
+    const { newCode, newName, deleteOrg } = body ?? {};
+
+    // ── Soft-delete: mark deleted, touch nothing else ──────────────────────
+    // Chosen over actually removing the orgs/{code}/ prefix: this exists to
+    // let an admin clean up a TEST org, not to give a mistyped click a way to
+    // destroy real data with no undo. config.deletedAt is checked in exactly
+    // two places — requireOrgMember (blocks every authenticated path) and the
+    // public GET above (blocks the pre-auth welcome-screen lookup) — so this
+    // one field is the whole gate; no other function needed to change.
+    if (deleteOrg === true) {
+      // Hardcoded, not permission-gated: this must hold regardless of who is
+      // logged in or how permissions are configured, so it is checked before
+      // requirePerm rather than being another toggle someone could grant.
+      if (currentCode === "MTX2026TRAQS") return err(403, "This organization can't be deleted.");
+      try { requirePerm(member, "orgSettings"); } catch (e) { return err(e.statusCode, e.message); }
+      const configKey = `orgs/${currentCode}/config.json`;
+      try {
+        const existing = await readJson(configKey);
+        if (!existing) return err(404, "Organization not found");
+        if (existing.deletedAt) return json(200, { ok: true, deletedAt: existing.deletedAt });
+        const stamped = stampObject({ ...existing, deletedAt: nowIso() }, existing);
+        await writeJson(configKey, stamped);
+        return json(200, { ok: true, deletedAt: stamped.deletedAt });
+      } catch (e) {
+        console.error("org PATCH delete error:", e);
+        return err(500, "Failed to delete organization");
+      }
+    }
 
     // ── Update the display name only (no S3 prefix migration) ──
     if (newName && !newCode) {

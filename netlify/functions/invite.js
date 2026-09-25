@@ -12,7 +12,6 @@
 // the link safe to paste into a chat client, and it is why no Auth0 Management
 // API is needed — the invitee signs in through the ordinary flow first.
 
-import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { requireOrgMember } from "./_utils/auth.js";
@@ -24,74 +23,13 @@ import {
   makeInvite, checkInvite, publicInviteView, personFromInvite,
   markAccepted, activeInvites,
 } from "./_utils/invite.js";
+import { sendEmail, appBaseUrl } from "./_utils/mail.js";
+import { inviteEmail, inviteAcceptUrl } from "./_utils/email-invite.js";
 
 const invitesKey = (code) => `orgs/${code}/invites.json`;
 const peopleKey = (code) => `orgs/${code}/people.json`;
 
 const readInvites = async (code) => (await readJson(invitesKey(code)).catch(() => null)) ?? [];
-
-const ses = new SESClient({
-  region: process.env.MY_AWS_REGION,
-  credentials: {
-    accessKeyId: process.env.MY_AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.MY_AWS_SECRET_ACCESS_KEY,
-  },
-});
-const FROM_EMAIL = process.env.SEND_FROM_EMAIL || "no-reply@traqs.app";
-// Netlify sets URL to the site's canonical origin in every context (prod,
-// branch deploys, and `netlify dev`), so the emailed link matches whichever
-// deploy actually sent it without needing a separate configured value.
-const SITE_URL = process.env.URL || "https://traqs.netlify.app";
-
-const escHtml = (s) => String(s ?? "")
-  .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
-  .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-
-// Best-effort. The invite is already created and its link already returned to
-// the admin (see the create handler) before this runs, so a failed send just
-// falls back to the admin sharing that link themselves — it never costs the
-// invite itself.
-async function sendInviteEmail(invite, code) {
-  const config = await readJson(`orgs/${code}/config.json`).catch(() => null);
-  const orgName = config?.name || "your organization";
-  const link = `${SITE_URL}/?org=${encodeURIComponent(code)}&invite=${encodeURIComponent(invite.token)}`;
-  const expiresLabel = new Date(invite.expiresAt).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-
-  const bodyText = `Hello,
-
-You've been invited to join ${orgName} on TRAQS.
-
-Accept your invitation:
-${link}
-
-This link works once and expires ${expiresLabel}.
-
-If you weren't expecting this, you can safely ignore this email.
-
-— The TRAQS Team`;
-
-  const bodyHtml = `<p>Hello,</p>
-<p>You've been invited to join <strong>${escHtml(orgName)}</strong> on TRAQS.</p>
-<p style="margin:28px 0;">
-  <a href="${link}" style="background:#6366f1;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:12px 28px;border-radius:8px;display:inline-block;">Accept Invitation</a>
-</p>
-<p style="color:#94a3b8;font-size:12px;">This link works once and expires ${expiresLabel}. If you weren't expecting this, you can safely ignore this email.</p>`;
-
-  try {
-    await ses.send(new SendEmailCommand({
-      Source: FROM_EMAIL,
-      Destination: { ToAddresses: [invite.email] },
-      Message: {
-        Subject: { Data: `You're invited to join ${orgName} on TRAQS` },
-        Body: { Text: { Data: bodyText }, Html: { Data: bodyHtml } },
-      },
-    }));
-    return true;
-  } catch (e) {
-    console.error("invite SES send error:", e);
-    return false;
-  }
-}
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
@@ -178,9 +116,37 @@ export async function handler(event) {
 
     const invite = makeInvite({ email, role: body.role, invitedBy: member.email });
     await writeJson(invitesKey(code), [...invites, invite]);
-    const emailSent = await sendInviteEmail(invite, code);
+
+    // THE INVITE IS SAVED BEFORE THE MAIL GOES OUT, and the send cannot undo it.
+    // An invite that exists but was not delivered is recoverable -- the token
+    // comes back in this response, so the admin can copy the link and send it
+    // themselves. An invite that was mailed but not saved is not recoverable by
+    // anyone: the recipient holds a link that will never be honoured.
+    //
+    // So a failed send is reported, not thrown. The caller gets ok:true with
+    // emailed:false and a reason, because the invite really was created.
+    const base = appBaseUrl();
+    let emailed = { ok: false, reason: "no-base-url" };
+    if (base) {
+      const config = await readJson(`orgs/${code}/config.json`).catch(() => null);
+      const sender = (await readJson(peopleKey(code)).catch(() => null) || [])
+        .find((p) => String(p?.email || "").toLowerCase().trim() === member.email);
+      const { subject, html, text } = inviteEmail({
+        orgName: config?.name,
+        inviterName: sender?.name || member.email,
+        acceptUrl: inviteAcceptUrl(base, code, invite.token),
+        expiresAt: invite.expiresAt,
+      });
+      emailed = await sendEmail({ to: email, subject, html, text });
+    } else {
+      console.error("invite: neither APP_BASE_URL nor URL is set; cannot build an accept link");
+    }
+
     // The token is returned ONCE, here, for the link. It is never listed again.
-    return json(200, { ok: true, token: invite.token, orgCode: code, expiresAt: invite.expiresAt, emailSent });
+    return json(200, {
+      ok: true, token: invite.token, orgCode: code, expiresAt: invite.expiresAt,
+      emailed: emailed.ok, emailError: emailed.ok ? null : emailed.reason,
+    });
   }
 
   // ── Revoke ───────────────────────────────────────────────────────────

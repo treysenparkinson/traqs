@@ -23,21 +23,31 @@ const eq = (label, got, want) => {
 
 const filled = () => ({
   name: "Acme Fabrication", adminName: "Dana Reyes",
-  adminEmail: "dana@acmefab.com", domain: "acmefab.com",
+  adminEmail: "dana@acmefab.com",
   extraAdmins: ["sam@acmefab.com"],
   industry: "Fabrication", companySize: "11-50",
   country: "United States", timeZone: "America/Denver", currency: "USD",
+  tier: "basic",
   payPeriodType: "biweekly", payPeriodStart: "2026-10-05",
 });
 
 // ── the wizard's shape ───────────────────────────────────────────────────
-eq("four steps after the welcome screen", SIGNUP_STEPS.length, 4);
-eq("numbered 1 through 4 — the welcome screen is an entry point, not a step",
-  SIGNUP_STEPS.map((s) => s.n), [1, 2, 3, 4]);
-eq("a blank form fails every step",
-  SIGNUP_STEPS.map((s) => stepIsValid(s.id, emptySignupForm())), [false, false, false, false]);
+eq("five steps after the welcome screen", SIGNUP_STEPS.length, 5);
+eq("the first screen's heading is the wireframe's, not its short name",
+  SIGNUP_STEPS[0].heading, "Set up your organization");
+eq("...while its short title stays usable on a back button",
+  SIGNUP_STEPS[0].title, "Identity");
+eq("every step has both", SIGNUP_STEPS.every((x) => x.heading && x.title), true);
+eq("numbered 1 through 5 — the welcome screen is an entry point, not a step",
+  SIGNUP_STEPS.map((s) => s.n), [1, 2, 3, 4, 5]);
+eq("tier sits between the basics and payroll, where the wireframe draws it",
+  SIGNUP_STEPS.map((s) => s.id), ["identity", "basics", "tier", "payroll", "confirm"]);
+// Tier is the one step a blank form passes, and deliberately: it ships with a
+// working default, so nobody has to make a decision to get an account.
+eq("a blank form fails every step that asks for something",
+  SIGNUP_STEPS.map((s) => stepIsValid(s.id, emptySignupForm())), [false, false, true, false, false]);
 eq("a filled form passes every step",
-  SIGNUP_STEPS.map((s) => stepIsValid(s.id, filled())), [true, true, true, true]);
+  SIGNUP_STEPS.map((s) => stepIsValid(s.id, filled())), [true, true, true, true, true]);
 
 // ── identity ─────────────────────────────────────────────────────────────
 const idErr = (over) => validateStep("identity", { ...filled(), ...over });
@@ -45,10 +55,14 @@ eq("organization name is required", Object.keys(idErr({ name: "  " })), ["name"]
 eq("a name over 80 chars is rejected", Object.keys(idErr({ name: "x".repeat(81) })), ["name"]);
 eq("admin name is required", Object.keys(idErr({ adminName: "" })), ["adminName"]);
 eq("admin email must be an email", Object.keys(idErr({ adminEmail: "dana" })), ["adminEmail"]);
-eq("domain must look like a domain", Object.keys(idErr({ domain: "acmefab" })), ["domain"]);
-eq("a domain with an @ is rejected", Object.keys(idErr({ domain: "a@acmefab.com" })), ["domain"]);
-eq("a leading @ on the domain is tolerated, not an error",
-  Object.keys(idErr({ domain: "@acmefab.com" })), []);
+// NO DOMAIN AT SIGNUP. The email-domain allowlist is a Business-tier control now,
+// not something a new org decides before it exists. Membership is the real
+// boundary either way: requireOrgMember rejects anyone who is neither in
+// people.json nor in config.adminEmails.
+eq("there is no domain field to fill in",
+  Object.keys(emptySignupForm()).includes("domain"), false);
+eq("a stray domain value cannot make the step invalid",
+  Object.keys(idErr({ domain: "not a domain" })), []);
 eq("an invalid extra admin is caught",
   Object.keys(idErr({ extraAdmins: ["nope"] })), ["extraAdmins"]);
 eq("a blank extra admin row is just unused, not an error",
@@ -69,6 +83,22 @@ eq("time zone is required", Object.keys(bErr({ timeZone: "" })), ["timeZone"]);
 eq("currency must be one we offer", Object.keys(bErr({ currency: "XYZ" })), ["currency"]);
 eq("four size buckets, as the wireframe draws them", COMPANY_SIZES.map((c) => c.value), ["1-10", "11-50", "51-200", "200+"]);
 eq("Other is an industry, so nobody is stuck", INDUSTRIES.includes("Other"), true);
+
+// ── tier ─────────────────────────────────────────────────────────────────
+// BUSINESS IS NOT SELECTABLE YET. The card is drawn so the comparison is
+// visible, but the rule refuses the value — the UI disables the button, and a
+// disabled button is a suggestion: this field ends up in a POST either way.
+eq("basic is the default", emptySignupForm().tier, "basic");
+eq("basic passes", validateStep("tier", { ...filled(), tier: "basic" }), {});
+eq("business is refused while it is still being built",
+  Object.keys(validateStep("tier", { ...filled(), tier: "business" })), ["tier"]);
+eq("so is anything else", Object.keys(validateStep("tier", { ...filled(), tier: "" })), ["tier"]);
+eq("and confirm re-runs it, so it cannot be skipped past",
+  Object.keys(validateStep("confirm", { ...filled(), tier: "business" })), ["tier"]);
+// The org's tier lives in billing.json, where absence means Basic. Sending it
+// here would be a second place for the same fact to live — and the only value
+// that can reach this point is the one the server would have assumed.
+eq("the payload carries no tier", "tier" in buildOrgPayload(filled()), false);
 
 // ── payroll ──────────────────────────────────────────────────────────────
 const pErr = (over) => validateStep("payroll", { ...filled(), ...over });
@@ -95,7 +125,7 @@ eq("confirm on a good form is clean", validateStep("confirm", filled()), {});
 {
   const p = buildOrgPayload(filled());
   eq("the org name goes to config", p.name, "Acme Fabrication");
-  eq("the domain is normalised", buildOrgPayload({ ...filled(), domain: "@ACMEFAB.com" }).domain, "acmefab.com");
+  eq("no domain is sent — it is not collected at signup", p.domain, undefined);
   eq("the admin email is lowercased", p.adminEmail, "dana@acmefab.com");
   eq("adminEmails leads with the primary admin, then the invitees",
     p.adminEmails, ["dana@acmefab.com", "sam@acmefab.com"]);

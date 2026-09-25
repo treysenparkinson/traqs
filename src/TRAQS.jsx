@@ -1,10 +1,9 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
-import TRAQS_BARS_STATIC from "./traqs-bars-static.png";
-import TRAQS_BARS_ACCENT from "./traqs-bars-accent.png";
+import { TraqsBars, BARS_ASPECT, BRAND_BARS } from "./brand.jsx";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme, setActiveThread } from "./push.js";
 import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
@@ -567,6 +566,20 @@ const getWorkingDayDuration = (startDate, endDate, workDays = DEFAULT_WORK_DAYS)
   const end = new Date(endDate + "T12:00:00");
   while (d <= end) { if (workDays.includes(d.getDay())) count++; d.setDate(d.getDate() + 1); }
   return count;
+};
+// Whether the inclusive calendar range [startDate, endDate] contains at least one
+// non-working day (weekend, per workDays) or holiday. Used to gate the admin drag-split:
+// a move should only mint a new op record when its destination genuinely crosses a day
+// the schedule can't place work on — an ordinary same-week move never needs to split.
+const spansOffDay = (startDate, endDate, { workDays = DEFAULT_WORK_DAYS, holidays = [] } = {}) => {
+  let d = new Date(startDate + "T12:00:00");
+  const end = new Date(endDate + "T12:00:00");
+  while (d <= end) {
+    const ds = toDS(d);
+    if (!workDays.includes(d.getDay()) || holidays.includes(ds)) return true;
+    d.setDate(d.getDate() + 1);
+  }
+  return false;
 };
 // Given a start date and a count of working days, returns the end date after stepping
 // through exactly numDays working days, starting from and including startDate.
@@ -2338,20 +2351,27 @@ function companionHue(hex) {
 // The moving liquid wash, reusable anywhere. `base` paints behind the blobs so
 // the effect works on any page; `fixed` pins it to the viewport for the
 // app-wide background (vs. absolute inside a card for the Dashboard hero).
-function LiquidBackground({ color, companion, base = null, fixed = false, opacity = 1, radius = 0 }) {
+function LiquidBackground({ color, companion, colors = null, base = null, fixed = false, opacity = 1, radius = 0 }) {
+  // `colors` (an array, 2+) cycles blobs through every colour given instead of
+  // just color/companion — used for the Basic-tier default liquid state, which
+  // wants the brand's full four colours (the signup screen's palette), not a
+  // single hue plus its auto-derived companion. `color`/`companion` stay the
+  // path for a user-picked liquid colour (Customize's colour wheel picks one
+  // hue; a second is derived from it, same as always).
   const c = color || "#4169e1";
   const c2 = companion || companionHue(c);
+  const cAt = i => (colors && colors.length ? colors[i % colors.length] : (i % 2 === 0 ? c : c2));
   // Tempos are ~25% quicker than they were. The longer paths above would otherwise
   // read as SLOWER, not livelier — same seconds spread over more distance means a
   // lazier crawl per blob. Still coprime-ish (13/16/14/19/11) so the five never
   // line up into a pattern you can catch, and still slow enough to stay ambient
   // behind content rather than pulling the eye off it.
   const blobs = [
-    { w: "48%", pb: "36%", left: "4%", top: "2%", bg: hexA(c, 0.55), anim: "tqLiquidA 13s" },
-    { w: "40%", pb: "32%", right: "2%", top: "-4%", bg: hexA(c2, 0.5), anim: "tqLiquidB 16s" },
-    { w: "44%", pb: "34%", left: "26%", top: "22%", bg: hexA(c2, 0.34), anim: "tqLiquidC 14s" },
-    { w: "34%", pb: "28%", right: "18%", top: "34%", bg: hexA(c, 0.34), anim: "tqLiquidD 19s" },
-    { w: "30%", pb: "26%", left: "12%", top: "46%", bg: hexA(c, 0.3), anim: "tqLiquidB 11s reverse" },
+    { w: "48%", pb: "36%", left: "4%", top: "2%", bg: hexA(cAt(0), 0.55), anim: "tqLiquidA 13s" },
+    { w: "40%", pb: "32%", right: "2%", top: "-4%", bg: hexA(cAt(1), 0.5), anim: "tqLiquidB 16s" },
+    { w: "44%", pb: "34%", left: "26%", top: "22%", bg: hexA(cAt(2), 0.34), anim: "tqLiquidC 14s" },
+    { w: "34%", pb: "28%", right: "18%", top: "34%", bg: hexA(cAt(3), 0.34), anim: "tqLiquidD 19s" },
+    { w: "30%", pb: "26%", left: "12%", top: "46%", bg: hexA(cAt(4), 0.3), anim: "tqLiquidB 11s reverse" },
   ];
   return (
     // borderRadius matters: the blobs are blurred and GPU-composited, and when
@@ -3143,6 +3163,7 @@ function DateField({ value, onChange, placeholder = "Pick a date", style = {}, w
   const [view, setView] = useState(() => { const d = datePart ? new Date(datePart + "T12:00:00") : new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
   const wrapRef = useRef(null);
   const trigRef = useRef(null);
+  const popRef = useRef(null);
   const [anchor, setAnchor] = useState(null);
   const wrapPop = (node) => (portal ? createPortal(node, document.body) : node);
   useEffect(() => {
@@ -3156,7 +3177,10 @@ function DateField({ value, onChange, placeholder = "Pick a date", style = {}, w
   }, [portal, open]);
   useEffect(() => {
     if (!open) return;
-    const away = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    // In portal mode the popup is a document.body child, not a descendant of
+    // wrapRef, so wrapRef alone would call every click inside it "outside"
+    // and close before the click's own handler (e.g. picking a day) can run.
+    const away = e => { if (wrapRef.current && !wrapRef.current.contains(e.target) && !popRef.current?.contains(e.target)) setOpen(false); };
     const esc = e => { if (e.key === "Escape") setOpen(false); };
     document.addEventListener("mousedown", away);
     document.addEventListener("keydown", esc);
@@ -3182,8 +3206,14 @@ function DateField({ value, onChange, placeholder = "Pick a date", style = {}, w
         <span style={{ lineHeight: 0, flexShrink: 0, color: open ? T.accent : T.textSec }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
         <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
       </button>
+      {/* Portal mode escapes to document.body, becoming a sibling of whatever
+          else is on the page — including a modal overlay, which this app runs
+          at z-index ~10020-10050. 3000 is right for the non-portal case (a
+          local absolute popup competing with ordinary page content), but a
+          portaled popup needs to clear the highest z-index anything else on
+          the page might be using, not just typical page content. */}
       {wrapPop(<FadeOnClose open={open}>{open && (
-        <div className="anim-ctx" style={{ ...(portal ? { position: "fixed", left: anchor?.left ?? 0, top: anchor?.top ?? 0 } : { position: "absolute", top: "calc(100% + 6px)", left: 0 }), zIndex: 3000, width: 258, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 16px 48px rgba(0,0,0,0.45)", padding: 12, fontFamily: T.font }}>
+        <div ref={popRef} className="anim-ctx" style={{ ...(portal ? { position: "fixed", left: anchor?.left ?? 0, top: anchor?.top ?? 0 } : { position: "absolute", top: "calc(100% + 6px)", left: 0 }), zIndex: portal ? 10060 : 3000, width: 258, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 16px 48px rgba(0,0,0,0.45)", padding: 12, fontFamily: T.font }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
             <button type="button" onClick={() => setView(new Date(y, mo - 1, 1))} style={navBtn}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
             <span style={{ fontSize: 13, fontWeight: 800, color: T.text }}>{view.toLocaleDateString("en-US", { month: "long", year: "numeric" })}</span>
@@ -3215,6 +3245,117 @@ function DateField({ value, onChange, placeholder = "Pick a date", style = {}, w
             <button type="button" onClick={() => { emit(TD, timePart); setOpen(false); }} style={{ background: "none", border: "none", color: T.accent, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, padding: 0 }}>Today</button>
             <button type="button" onClick={() => setOpen(false)} style={{ background: "none", border: "none", color: T.textDim, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font, padding: 0 }}>Close</button>
           </div>
+        </div>
+      )}</FadeOnClose>)}
+    </div>
+  );
+}
+
+// Same button-trigger + dropdown-card pattern as DateField (used for the exact
+// same reason: a native <input type="time"> is unthemeable OS chrome). No
+// component like this existed anywhere in the app before — every time-of-day
+// field elsewhere is the native input — so this is new, not a reuse, but it
+// deliberately copies DateField's interaction shape (trigger button, absolute
+// popup, FadeOnClose, click-away, Escape) rather than inventing a different one.
+// `value`/`onChange` are decimal hours (8.5 = 8:30 AM), matching startHour/
+// endHour's existing representation everywhere else in this file.
+function TimeField({ value, onChange, style = {}, stepMinutes = 15, portal = false }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  const trigRef = useRef(null);
+  const [anchor, setAnchor] = useState(null);
+  const wrapPop = (node) => (portal ? createPortal(node, document.body) : node);
+  useEffect(() => {
+    if (!portal || !open) return;
+    const measure = () => { const r = trigRef.current?.getBoundingClientRect(); if (r) setAnchor({ left: r.left, top: r.bottom + 6 }); };
+    measure();
+    window.addEventListener('scroll', measure, true);
+    window.addEventListener('resize', measure);
+    return () => { window.removeEventListener('scroll', measure, true); window.removeEventListener('resize', measure); };
+  }, [portal, open]);
+  const listElRef = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    // In portal mode the popup is a document.body child, not a descendant of
+    // wrapRef, so wrapRef alone would call every click inside it "outside"
+    // and close before the click's own handler (e.g. picking a time) can run.
+    const away = e => { if (wrapRef.current && !wrapRef.current.contains(e.target) && !listElRef.current?.contains(e.target)) setOpen(false); };
+    const esc = e => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", away);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", away); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  // Wheel scrolling for the popup list is wired at `document`, not via a
+  // React onWheel prop or a listener attached to the popup node itself. Two
+  // things ruled that out by direct measurement: (1) in portal mode the popup
+  // is appended straight to document.body, a sibling of the #root container
+  // React delegates events to, not a descendant, so a native wheel event
+  // there never bubbles through #root and React's onWheel never fires; (2) a
+  // listener attached directly to the popup node via a ref callback is
+  // unreliable because the inline callback is a new function every render,
+  // so React re-invokes it (detach/reattach) far more often than the DOM node
+  // actually changes. A single stable document-level listener, hit-tested
+  // against the popup's live rect, sidesteps both.
+  useEffect(() => {
+    if (!open) return;
+    const onWheel = (e) => {
+      const node = listElRef.current;
+      if (!node) return;
+      const r = node.getBoundingClientRect();
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return;
+      e.preventDefault();
+      node.scrollTop += e.deltaY;
+    };
+    document.addEventListener("wheel", onWheel, { passive: false });
+    return () => document.removeEventListener("wheel", onWheel);
+  }, [open]);
+  // Scroll the selected time into view as soon as the popup's DOM node exists,
+  // rather than on an `[open]`-keyed effect: FadeOnClose mounts its children a
+  // render cycle after `open` flips (its own useLayoutEffect sets `mounted`),
+  // so an effect keyed on `open` alone fires before the list is in the DOM and
+  // finds nothing to scroll to. A callback ref fires exactly when the node is
+  // actually attached, which is what this needs. It only runs once per open,
+  // not on every re-render: the callback itself is a new function each render
+  // (so React re-invokes it far more often than the DOM node actually
+  // changes), and re-centering on every one of those calls would fight the
+  // user's own scrolling the moment anything elsewhere causes a re-render.
+  const scrolledOnOpenRef = useRef(false);
+  useEffect(() => { if (open) scrolledOnOpenRef.current = false; }, [open]);
+  const listRefCb = (node) => {
+    listElRef.current = node;
+    if (!node || scrolledOnOpenRef.current) return;
+    scrolledOnOpenRef.current = true;
+    const sel = node.querySelector('[data-selected="true"]');
+    if (sel) sel.scrollIntoView({ block: "center" });
+  };
+  const fmt = (h) => {
+    const H = Math.floor(h), M = Math.round((h % 1) * 60);
+    const hh = H % 12 === 0 ? 12 : H % 12;
+    return `${hh}:${String(M).padStart(2, "0")} ${H < 12 ? "AM" : "PM"}`;
+  };
+  const options = [];
+  for (let m = 0; m < 24 * 60; m += stepMinutes) options.push(m / 60);
+  return (
+    <div ref={wrapRef} style={{ position: "relative", ...style }}>
+      <button ref={trigRef} type="button" className="tq-drop" onClick={() => setOpen(o => !o)}
+        style={{ width: "100%", display: "flex", alignItems: "center", gap: 9, padding: "10px 16px", borderRadius: T.radiusPill, border: `1px solid ${open ? T.accent : T.border}`, background: T.surface, color: T.text, fontSize: 13.5, fontFamily: T.font, cursor: "pointer", textAlign: "left", boxSizing: "border-box" }}>
+        <span style={{ lineHeight: 0, flexShrink: 0, color: open ? T.accent : T.textSec }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 6.6 12 12 15.6 13.8"/></svg></span>
+        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{fmt(value)}</span>
+      </button>
+      {/* See DateField's identical comment: portal mode escapes to document.body
+          as a sibling of the modal overlay (z-index ~10020-10050), so it needs
+          a higher z-index than that, not just the local-popup value. */}
+      {wrapPop(<FadeOnClose open={open}>{open && (
+        <div ref={listRefCb} className="anim-ctx" style={{ ...(portal ? { position: "fixed", left: anchor?.left ?? 0, top: anchor?.top ?? 0 } : { position: "absolute", top: "calc(100% + 6px)", left: 0 }), zIndex: portal ? 10060 : 3000, width: 150, maxHeight: 240, overflowY: "auto", background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, boxShadow: "0 16px 48px rgba(0,0,0,0.45)", padding: 6, fontFamily: T.font }}>
+          {options.map(h => {
+            const sel = Math.abs(h - value) < 0.001;
+            return (
+              <button key={h} type="button" data-selected={sel} onClick={() => { onChange(h); setOpen(false); }}
+                style={{ width: "100%", textAlign: "left", padding: "8px 12px", borderRadius: T.radiusXs, border: "none", background: sel ? brandGrad(T.accent) : "transparent", color: sel ? T.accentText : T.text, fontSize: 13, fontWeight: sel ? 800 : 500, cursor: "pointer", fontFamily: T.font, marginBottom: 2 }}>
+                {fmt(h)}
+              </button>
+            );
+          })}
         </div>
       )}</FadeOnClose>)}
     </div>
@@ -4143,7 +4284,11 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     return (THEMES[saved] || saved === "custom") ? saved : "frost";
   });
   const [customTheme, setCustomTheme] = useState(() => {
-    const def = { bg: "#1a1a2e", accent: "#e94560", text: "#f1f5f9", surface: "#24243e", systemColor: "#24243e", bgImage: null, cardOpacity: 100, bgOpacity: 100, jobBarMode: "system", jobBarColor: "#e94560", cellColorMode: "system", scheduleGrid: true };
+    // Derived from THEMES.frost (Light) rather than an unrelated hardcoded
+    // palette: a user with no saved custom theme opening Customize for the
+    // first time should see something that looks IDENTICAL to Light until
+    // they actually change a value, not jump to a different look entirely.
+    const def = { bg: THEMES.frost.bg, accent: THEMES.frost.accent, text: THEMES.frost.text, surface: THEMES.frost.surface, systemColor: THEMES.frost.surface, bgImage: null, cardOpacity: 100, bgOpacity: 100, jobBarMode: "system", jobBarColor: THEMES.frost.accent, cellColorMode: "system", scheduleGrid: true };
     try {
       const saved = JSON.parse(localStorage.getItem("tq_custom_theme") || "null") || {};
       const merged = { ...def, ...saved };
@@ -4203,12 +4348,16 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     const t = setTimeout(() => setDisplayedPreview(previewView), 230); // remove the old (fading) layer once its fade-out finishes
     return () => clearTimeout(t);
   }, [previewView, displayedPreview]);
+  // Per-org, matching the tq_ui_{orgCode}_* convention elsewhere in this file:
+  // presets saved while using one org must not appear in an unrelated org
+  // sharing the same browser. Without this a brand-new org "starting from
+  // scratch" would inherit whatever the last org's admin had saved.
   const [themePresets, setThemePresets] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("tq_theme_presets") || "null") || []; }
+    try { return JSON.parse(localStorage.getItem(`tq_theme_presets_${orgCode}`) || "null") || []; }
     catch { return []; }
   });
   const [presetNameInput, setPresetNameInput] = useState("");
-  useEffect(() => { localStorage.setItem("tq_theme_presets", JSON.stringify(themePresets)); }, [themePresets]);
+  useEffect(() => { localStorage.setItem(`tq_theme_presets_${orgCode}`, JSON.stringify(themePresets)); }, [themePresets, orgCode]);
   // History of recently-used background images (most-recent first, capped at 5) so the
   // Customize modal can switch back to a previous image without re-uploading it.
   const [bgImageHistory, setBgImageHistory] = useState(() => {
@@ -4527,6 +4676,11 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const handleLogin = () => {};
   const handleLogout = () => logout({ logoutParams: { returnTo: window.location.origin } });
   const switchView = (v) => {
+    // Jobs/Analytics/Clients are Business-only on Basic. Guarded here too (not
+    // just in the nav arrays that normally trigger this) so a stray caller —
+    // e.g. the client quick-search result click below — can't reach a page
+    // Basic has no way to navigate back out of.
+    if (billingTier !== "business" && ["tasks", "analytics", "clients"].includes(v)) return;
     setView(v);
     setJobSelectMode(false);    setSelJobs(new Set());
     setClientSelectMode(false); setSelClients(new Set());
@@ -5419,12 +5573,14 @@ Extraction rules:
   const placeNavPill = () => {
     const pill = navPillRef.current;
     if (!pill) return;
-    // In settings mode the pill follows the active settings section button. Org children live in a
-    // collapsible dropdown — if it's collapsed, point the pill at the Organization parent instead.
+    // In settings mode the pill follows the active settings section button. Org
+    // children only exist in the DOM while their own sidebar page is showing
+    // (settingsOrgExpanded) — otherwise point the pill at the Organization nav
+    // button on the top-level settings page instead.
     let key;
     if (settingsMode) {
       const isOrgChild = settingsSection.startsWith("org-");
-      key = (isOrgChild && !(settingsOrgExpanded && sidebarExpanded)) ? "settings:org-parent" : "settings:" + settingsSection;
+      key = (isOrgChild && !settingsOrgExpanded) ? "settings:org-parent" : "settings:" + settingsSection;
     } else {
       key = view;
     }
@@ -5714,6 +5870,16 @@ Extraction rules:
   const [orgNameSaving, setOrgNameSaving] = useState(false);
   const [orgNameError, setOrgNameError] = useState("");
   const [orgEditing, setOrgEditing] = useState(null); // "name" | "code" | null
+  // Delete Organization — armed by a 10s countdown; null = not started, >0 =
+  // counting down (Confirm not renderable yet), 0 = Confirm has appeared.
+  const [deleteOrgCountdown, setDeleteOrgCountdown] = useState(null);
+  const [deleteOrgBusy, setDeleteOrgBusy] = useState(false);
+  const [deleteOrgError, setDeleteOrgError] = useState("");
+  useEffect(() => {
+    if (deleteOrgCountdown === null || deleteOrgCountdown <= 0) return;
+    const t = setTimeout(() => setDeleteOrgCountdown(c => c - 1), 1000);
+    return () => clearTimeout(t);
+  }, [deleteOrgCountdown]);
   useEffect(() => { setOrgName(orgConfig?.name || ""); }, [orgConfig?.name]);
   const [holidayInput, setHolidayInput] = useState("");
   useEffect(() => { localStorage.setItem("tq_org_settings", JSON.stringify(orgSettings)); }, [orgSettings]);
@@ -10073,7 +10239,52 @@ Extraction rules:
   };
   const delClient = id => { toast("Client deleted"); setClients(p => p.filter(c => c.id !== id)); setTasks(p => p.map(t => t.clientId === id ? { ...t, clientId: null } : t)); };
   const goStep = (next) => { setStepDir(next > modalStep ? 1 : -1); setModalStep(next); };
-  const openNew = (pid = null) => { setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [], color: randomJobColor() }, parentId: pid }); };
+  const openNew = (pid = null) => {
+    // Basic skips the multi-step wizard entirely — a flat, one-step form
+    // (title, who's on it, day, start/end time), no auto-scheduling, no
+    // panels/ops. See renderSimpleJobModal / handleCreateSimpleJob.
+    if (billingTier !== "business") {
+      setModal({ type: "simpleEdit", data: { title: "", team: [], date: TD, startHour: workStartH, endHour: Math.min(workEndH, workStartH + 8) }, parentId: pid });
+      return;
+    }
+    setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [], color: randomJobColor() }, parentId: pid });
+  };
+  // Basic tier: resolve a bar's underlying task (which may be the job itself or
+  // one of its subs/ops) back up to its top-level job — a general/flat Basic
+  // job is job + exactly one flat sub, so this always finds it in one of two
+  // hops. Used both by the job-details replacement (openJobDetailOrEdit) and by
+  // the context-menu Reschedule→Edit action.
+  const jobForBarTask = (t) => {
+    if (!t) return null;
+    if (tasks.some(j => j.id === t.id)) return tasks.find(j => j.id === t.id);
+    for (const j of tasks) {
+      for (const s of (j.subs || [])) {
+        if (s.id === t.id) return j;
+        for (const op of (s.subs || [])) if (op.id === t.id) return j;
+      }
+    }
+    return null;
+  };
+  // Basic tier: open the simple job modal pre-filled from an existing job, for
+  // full editing (name/team/day/time) in place — this is the ONLY edit surface
+  // Basic has (no Job Details page, no separate Edit/Reschedule/Reminder). Team
+  // is flattened across the job's sub(s) the same way the dashboard's "who's on
+  // it" reads it. startHour/endHour invert the same hpd<->time relationship the
+  // create path uses (walkProductiveHours is productiveHoursBetween's inverse),
+  // rather than a naive endHour-startHour which would drift from what hpd
+  // actually encodes whenever lunch/breaks fall inside the window.
+  const openSimpleEditForJob = (job) => {
+    const sub = (job?.subs || [])[0];
+    if (!sub) return;
+    const teamIds = new Set();
+    (job.subs || []).forEach(s => {
+      (s.team || []).forEach(id => teamIds.add(id));
+      (s.subs || []).forEach(op => (op.team || []).forEach(id => teamIds.add(id)));
+    });
+    const startHour = sub.startHour ?? workStartH;
+    const _wk = walkProductiveHours(startHour, sub.hpd || 0, dayWindowCfg);
+    setModal({ type: "simpleEdit", data: { id: job.id, title: job.title || "", team: [...teamIds], date: sub.start || TD, startHour, endHour: _wk.endHour }, parentId: null });
+  };
   // Edit Job opens as its own page. From INSIDE the job details page it stacks, so
   // Back returns to the details; opened from anywhere else it's a single page and
   // Back leaves. `_editEntry` is the stack entry — the draft itself lives in
@@ -10198,6 +10409,19 @@ Extraction rules:
   // Kept as a name for call sites that specifically mean "open the owning job";
   // openDetail resolves the same way now, so they are equivalent.
   const openJobDetail = openDetail;
+  // Basic has no Job Details page ("its just showing visually what it is" — a
+  // flat name/team/day/time job has nothing left to show there that isn't
+  // already on the bar or in the Edit modal). Every call site that opens Job
+  // Details on a plain bar click goes through this instead of openJobDetail
+  // directly, so Basic gets the Edit modal pre-filled and Business is unchanged.
+  const openJobDetailOrEdit = (t) => {
+    if (billingTier !== "business") {
+      const job = jobForBarTask(t);
+      if (job) openSimpleEditForJob(job);
+      return;
+    }
+    openJobDetail(t);
+  };
 
   const AI_TOOLS = [
     { name: "update_job", description: "Update any field of an existing job: status, priority, dates, job number, notes, due date", input_schema: { type: "object", properties: { job_id: { type: "string", description: "The job_id from context" }, status: { type: "string", enum: STATUSES }, priority: { type: "string", enum: PRIORITIES }, start: { type: "string", description: "YYYY-MM-DD" }, end: { type: "string", description: "YYYY-MM-DD" }, due_date: { type: "string", description: "YYYY-MM-DD, or empty string to clear" }, job_number: { type: "string" }, notes: { type: "string" } }, required: ["job_id"] } },
@@ -10550,7 +10774,10 @@ ${jobsCtx || "No jobs found."}`;
     // 2/24 the other icons use, so the outline keeps matching optical weight
     // instead of thickening along with the glyph.
     { id: "messages", icon: <svg width={NAV_ICON} height={NAV_ICON} viewBox="0.9 0.9 22.2 22.2" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5c0 4.29-4.04 7.76-9 7.76-1.08 0-2.12-.17-3.08-.47L4.2 20.8l1.2-3.46C3.9 15.8 3 13.8 3 11.5 3 7.3 7 3.8 12 3.8s9 3.47 9 7.7z"/></svg>, label: "Messages" },
-  ];
+  // Jobs, Analytics and Clients are Business-only. Basic keeps the array
+  // otherwise identical to Business — filtered here rather than left out
+  // above, so nothing else that maps over `views` needs its own tier check.
+  ].filter(v => billingTier === "business" || !["tasks", "analytics", "clients"].includes(v.id));
   const ctxDeps = ctxMenu ? (ctxMenu.item.deps || []).map(did => allItems.find(x => x.id === did)).filter(Boolean) : [];
   const ctxBlocks = ctxMenu ? allItems.filter(x => (x.deps || []).includes(ctxMenu.item.id)) : [];
   const handleCtx = (e, item, source = "gantt") => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, item, source }); };
@@ -11821,7 +12048,11 @@ ${jobsCtx || "No jobs found."}`;
             }
           }
         }
-        setGanttDragInfo({ itemId: item.id, snapStart: snapS, snapEnd: snapE, hasOverlap });
+        // Jobs can never be dragged into the past. Day-granularity here (Gantt has no
+        // hour component), so the candidate's own start being today-or-later is sufficient
+        // — an op never runs backward in time, so nothing "behind" a valid start can be past.
+        const beforeNow = snapS < TD;
+        setGanttDragInfo({ itemId: item.id, snapStart: snapS, snapEnd: snapE, hasOverlap, beforeNow });
         // Skip live mutation for partial-drag — original op stays put until commit, where it splits.
         if (_isPartialDrag) return;
         // For moves, use the working-day end so the bar never shrinks as it crosses a non-working day
@@ -11852,10 +12083,18 @@ ${jobsCtx || "No jobs found."}`;
         const actualDelta = diffD(os, newStart);
 
         // ── Auto-split on drag-end for partially-worked ops (Gantt) ──
-        // Only when moving an op (level 2) with logged hours, to a new position.
-        if (mode === "move" && item.level === 2 && newStart !== os) {
+        // Only when moving an op (level 2) with logged hours, to a new position, AND only
+        // when the destination actually crosses a weekend or a day the schedule has
+        // disabled — an ordinary same-week move of a partially-worked op just moves the
+        // whole record; worked spans are recorded independently of where the op sits
+        // (productionhours.json), so relocating it does not corrupt that history.
+        if (mode === "move" && item.level === 2 && newStart !== os && spansOffDay(newStart, newEnd, itemBDOpts)) {
           const _splitWS = deriveWorkedState(item, producedFor(item), liveOpHours(item));
           if (_splitWS.isPartiallyWorked) {
+            // Jobs can never be dragged into the past, split included. Nothing was mutated
+            // live for a partial drag (onM returns early for it, above), so refusing here
+            // needs no revert.
+            if (newStart < TD) { setTimeout(() => setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't schedule in the past", message: "This move would place part of the job before today. Jobs can't be scheduled in the past.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) }), 0); return; }
             const osH = item.startHour ?? workStartH;
             const _calcEnd = (startDate, startHourArg, hpdAmt) => {
               const _clkH = productiveHoursPerDay > 0 ? (hpdAmt / productiveHoursPerDay) * totalWorkH : 0;
@@ -12034,6 +12273,10 @@ ${jobsCtx || "No jobs found."}`;
             if (isOpLocked(op) && opsMoving.some(m => m.opId === op.id)) lockedFound.push({ opTitle: op.title, panelTitle: pnl.title });
           })));
           if (lockedFound.length > 0) { setTimeout(() => showLockedError(lockedFound), 0); return reverted; }
+
+          // Jobs can never be dragged into the past — day-granularity check (Gantt has no
+          // hour component), same rule as the live ghost highlight above.
+          if (newStart < TD) { setTimeout(() => setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't schedule in the past", message: "This move would place part of the job before today. Jobs can't be scheduled in the past.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) }), 0); return reverted; }
 
           // Check PTO conflicts for moving ops
           let ptoConflict = false;
@@ -12332,12 +12575,12 @@ ${jobsCtx || "No jobs found."}`;
               {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !orgSettings.workDays.includes(dt.getDay()); const isMonStart = dt.getDate() === 1; return <div key={day} style={{ minWidth: cW, maxWidth: cW, height: "100%", background: day === TD ? T.accent + "0a" : wk ? T.bg + "aa" : "transparent", borderRight: isMonStart ? `2px solid ${T.border}` : `1px solid ${T.bg}33` }} />; })}
               {/* Drag ghost overlay — snapped destination with overlap coloring */}
               {ganttDragInfo?.itemId === r.id && (() => {
-                const { snapStart, snapEnd, hasOverlap } = ganttDragInfo;
+                const { snapStart, snapEnd, hasOverlap, beforeNow } = ganttDragInfo;
                 if (snapStart > gEnd || snapEnd < gStart) return null;
                 const gs = snapStart < gStart ? gStart : snapStart;
                 const ge = snapEnd   > gEnd   ? gEnd   : snapEnd;
                 const gx = dToX(gs), gw = Math.max(dToX(ge) + cW - gx, cW);
-                const gc = hasOverlap ? "#ef4444" : T.accent;
+                const gc = (hasOverlap || beforeNow) ? "#ef4444" : T.accent;
                 return <div style={{ position: "absolute", top: 3, left: gx - 2, width: gw + 4, height: rH - 6, borderRadius: T.radiusXs + 2, border: `2px solid ${gc}`, background: gc + "18", boxShadow: `0 0 24px ${gc}77, 0 0 8px ${gc}55, 0 0 48px ${gc}33`, pointerEvents: "none", zIndex: 3, animation: "ghost-fade-in 0.22s cubic-bezier(0.34,1.56,0.64,1)" }} />;
               })()}
               {r.start <= gEnd && r.end >= gStart && (() => {
@@ -14752,6 +14995,16 @@ ${jobsCtx || "No jobs found."}`;
     team.forEach(p => { (byStatus[personStatus(p)] || byStatus.offline).push(p); });
     const onClock = team.length - byStatus.offline.length;
 
+    // ── Basic-tier dashboard layout ──────────────────────────────────────────
+    // Basic drops Analytics, renames/reshapes two panels, and grows Team Right
+    // Now into the vacated slot. Business's dashboard is untouched — every
+    // panel below still computes and renders exactly as it did before this.
+    const isBasic = billingTier !== "business";
+    // "On the clock" is broader than "on a job": anyone with an open session at
+    // all, job-clocked or not (idle = punched into the general time clock with
+    // no job selected; lunch/break are still an open shift, just paused).
+    const onClockNow = [...byStatus.job, ...byStatus.idle, ...byStatus.lunch, ...byStatus.break];
+
     // ── Period + job stats (feed the rotating panel) ─────────────────────────
     const pp = getPayPeriodFromDates(orgSettings.payDates || [5, 20], TD);
     const hoursLogged = timeclock
@@ -14763,6 +15016,14 @@ ${jobsCtx || "No jobs found."}`;
     const dueSoon = activeJobs
       .filter(j => j.end && j.end >= TD && j.end <= addD(TD, 7))
       .sort((a, b) => String(a.end).localeCompare(String(b.end)));
+    // Distinct from dueSoon: a due DATE is a deadline: SCHEDULED work is
+    // whether the job's own date range actually touches the next 7 days at
+    // all, which is what someone opening the Schedule page this week would
+    // see. Same range test the calendar's busyDays dots above use, just
+    // scoped to 7 days instead of the visible month.
+    const scheduledNext7 = activeJobs
+      .filter(j => j.start && j.end && j.start <= addD(TD, 6) && j.end >= TD)
+      .sort((a, b) => String(a.start).localeCompare(String(b.start)));
 
     const STATS = {
       hours:   { label: "Hours logged this pay period", value: (Math.round(hoursLogged * 10) / 10).toFixed(1), unit: "h", color: T.accent },
@@ -15108,8 +15369,10 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ position: "relative", zIndex: 1, flex: 1, marginTop: isMobile ? 56 : 74, display: "grid", gridTemplateColumns: isMobile ? "1fr" : "minmax(0, 1fr) minmax(420px, 680px)", gridTemplateRows: isMobile ? "none" : `minmax(${DASH_ROW_MIN * 3 + 20}px, 1fr) minmax(${DASH_ROW_MIN}px, 0.52fr)`, gap: 10 }}>
             <div style={{ display: "grid", gridTemplateColumns: isMobile ? "1fr" : "repeat(2, minmax(0, 1fr))", gridTemplateRows: isMobile ? "none" : `repeat(3, minmax(${DASH_ROW_MIN}px, 1fr))`, gap: 10 }}>
 
-              {/* Rotating analytics — one box, a new metric every 5s. */}
-              {panel(0, "Analytics",
+              {/* Rotating analytics — one box, a new metric every 5s. Business
+                  only: Basic drops it, and Team Right Now grows into the slot
+                  (see its gridRow below). */}
+              {!isBasic && panel(0, "Analytics",
                 // Wheel/trackpad pages through the stats. No preventDefault —
                 // React's wheel listener is passive, so calling it would only
                 // warn; the panel's own body has nothing to scroll anyway.
@@ -15199,7 +15462,7 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                 </div>,
                 null,
-                {},
+                isBasic ? { gridColumn: "2", gridRow: "1" } : {},
                 // Was overflow:visible, to let the buttons' hover glow spill into
                 // the card padding — on the assumption this panel never has more
                 // content than height. That assumption failed on a short window:
@@ -15212,50 +15475,120 @@ ${jobsCtx || "No jobs found."}`;
                 { margin: -6, padding: 6 }
               )}
 
-              {/* Live team status */}
+              {/* Live team status. On Basic this fills Analytics' vacated slot too
+                  (gridRow "1 / 3" spans both rows in this column) — the status
+                  rows are already flex:1 + centered, so the extra height spreads
+                  them out evenly rather than leaving dead space at the bottom. */}
               {panel(2, "Team right now",
-                team.length ? <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>{["job", "idle", "lunch", "break", "offline"].map(statusRow)}</div> : emptyNote("No team members yet."),
-                <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", fontFamily: T.mono }}>{onClock}/{team.length} in</span>
+                team.length ? <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, justifyContent: isBasic ? "space-evenly" : undefined }}>{["job", "idle", "lunch", "break", "offline"].map(statusRow)}</div> : emptyNote("No team members yet."),
+                <span style={{ fontSize: 11, fontWeight: 700, color: "#10b981", fontFamily: T.mono }}>{onClock}/{team.length} in</span>,
+                isBasic ? { gridColumn: "1", gridRow: "1 / 3" } : {}
               )}
 
-              {/* Who's on what */}
-              {panel(3, "On a job now",
-                byStatus.job.length ? (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {byStatus.job.slice(0, 5).map(p => {
-                      const j = tasks.find(t => t.id === p.activeJobClock?.jobId);
-                      return (
-                        <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          <PersonAvatar person={p} size={28} />
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
-                            <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j ? `${j.jobNumber ? `#${j.jobNumber} · ` : ""}${j.title}` : "Job clock running"}</div>
+              {/* Who's on what. Basic broadens this to anyone clocked in at all
+                  (see onClockNow above), not just an active job clock. */}
+              {panel(3, isBasic ? "On the clock now" : "On a job now",
+                isBasic ? (
+                  onClockNow.length ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {onClockNow.slice(0, 5).map(p => {
+                        const onJob = personStatus(p) === "job";
+                        const j = onJob ? tasks.find(t => t.id === p.activeJobClock?.jobId) : null;
+                        const sub = onJob ? (j ? `${j.jobNumber ? `#${j.jobNumber} · ` : ""}${j.title}` : "Job clock running") : PERSON_STATUS_META[personStatus(p)].label;
+                        return (
+                          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <PersonAvatar person={p} size={28} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                              <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub}</div>
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                    {byStatus.job.length > 5 && <div style={{ fontSize: 11, color: T.textDim }}>+{byStatus.job.length - 5} more</div>}
-                  </div>
-                ) : emptyNote("Nobody is on a job right now.")
+                        );
+                      })}
+                      {onClockNow.length > 5 && <div style={{ fontSize: 11, color: T.textDim }}>+{onClockNow.length - 5} more</div>}
+                    </div>
+                  ) : emptyNote("Nobody is on the clock right now.")
+                ) : (
+                  byStatus.job.length ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {byStatus.job.slice(0, 5).map(p => {
+                        const j = tasks.find(t => t.id === p.activeJobClock?.jobId);
+                        return (
+                          <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <PersonAvatar person={p} size={28} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</div>
+                              <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j ? `${j.jobNumber ? `#${j.jobNumber} · ` : ""}${j.title}` : "Job clock running"}</div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {byStatus.job.length > 5 && <div style={{ fontSize: 11, color: T.textDim }}>+{byStatus.job.length - 5} more</div>}
+                    </div>
+                  ) : emptyNote("Nobody is on a job right now.")
+                ),
+                undefined,
+                isBasic ? { gridColumn: "2", gridRow: "2" } : {}
               )}
 
-              {/* Due soon */}
-              {panel(4, "Due within 7 days",
-                dueSoon.length ? (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {dueSoon.slice(0, 5).map(j => {
-                      const h = healthOf(j);
-                      return (
-                        <div key={j.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          <span style={{ width: 8, height: 8, borderRadius: 8, background: elColorT(HEALTH_DOT[h]) || T.accent, flexShrink: 0 }} />
-                          <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.jobNumber ? `#${j.jobNumber} · ` : ""}{j.title}</div>
-                          <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, flexShrink: 0 }}>{new Date(j.end + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
-                        </div>
-                      );
-                    })}
-                    {dueSoon.length > 5 && <div style={{ fontSize: 11, color: T.textDim }}>+{dueSoon.length - 5} more</div>}
-                  </div>
-                ) : emptyNote("Nothing due in the next week.")
+              {/* Due soon / scheduled soon. Basic shows actual scheduled date-range
+                  overlap with the next 7 days (scheduledNext7), not a due-date
+                  deadline — a job due in 5 days with nothing scheduled this week
+                  reads differently from one with hours scheduled tomorrow. */}
+              {panel(4, isBasic ? "Schedule for the next 7 days" : "Due within 7 days",
+                isBasic ? (
+                  scheduledNext7.length ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {scheduledNext7.slice(0, 5).map(j => {
+                        const h = healthOf(j);
+                        // Who's on it: team lives on the job's subs (a Basic job is
+                        // job + one flat sub carrying the real assignment), not on
+                        // the job itself — flatten subs and their own subs so this
+                        // reads correctly regardless of nesting depth.
+                        const teamIds = new Set();
+                        (j.subs || []).forEach(s => {
+                          (s.team || []).forEach(id => teamIds.add(String(id)));
+                          (s.subs || []).forEach(op => (op.team || []).forEach(id => teamIds.add(String(id))));
+                        });
+                        const jobTeam = [...teamIds].map(id => people.find(p => String(p.id) === id)).filter(Boolean);
+                        return (
+                          <div key={j.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: 8, background: elColorT(HEALTH_DOT[h]) || T.accent, flexShrink: 0 }} />
+                            <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.jobNumber ? `#${j.jobNumber} · ` : ""}{j.title}</div>
+                            {jobTeam.length > 0 && <div style={{ display: "flex", alignItems: "center", flexShrink: 0 }}>
+                              {jobTeam.slice(0, 3).map((p, i) => (
+                                <div key={p.id} style={{ marginLeft: i > 0 ? -6 : 0, border: `1.5px solid ${T.card}`, borderRadius: "50%", lineHeight: 0 }}>
+                                  <PersonAvatar person={p} size={18} />
+                                </div>
+                              ))}
+                              {jobTeam.length > 3 && <span style={{ marginLeft: 2, fontSize: 10, color: T.textDim, fontWeight: 700 }}>+{jobTeam.length - 3}</span>}
+                            </div>}
+                            <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, flexShrink: 0 }}>{new Date((j.start > TD ? j.start : TD) + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                          </div>
+                        );
+                      })}
+                      {scheduledNext7.length > 5 && <div style={{ fontSize: 11, color: T.textDim }}>+{scheduledNext7.length - 5} more</div>}
+                    </div>
+                  ) : emptyNote("Nothing scheduled in the next 7 days.")
+                ) : (
+                  dueSoon.length ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {dueSoon.slice(0, 5).map(j => {
+                        const h = healthOf(j);
+                        return (
+                          <div key={j.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: 8, background: elColorT(HEALTH_DOT[h]) || T.accent, flexShrink: 0 }} />
+                            <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.jobNumber ? `#${j.jobNumber} · ` : ""}{j.title}</div>
+                            <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, flexShrink: 0 }}>{new Date(j.end + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>
+                          </div>
+                        );
+                      })}
+                      {dueSoon.length > 5 && <div style={{ fontSize: 11, color: T.textDim }}>+{dueSoon.length - 5} more</div>}
+                    </div>
+                  ) : emptyNote("Nothing due in the next week.")
+                ),
+                undefined,
+                isBasic ? { gridColumn: "1", gridRow: "3" } : {}
               )}
 
               {/* Reports — no reporting data model exists yet, so this states
@@ -15285,7 +15618,8 @@ ${jobsCtx || "No jobs found."}`;
                     ))}
                   </div>
                 ) : emptyNote("No messages yet."),
-                unreadTotal > 0 ? <span style={{ fontSize: 11, fontWeight: 700, color: T.accentText, background: T.accent, borderRadius: 16, padding: "2px 8px" }}>{unreadTotal}</span> : null
+                unreadTotal > 0 ? <span style={{ fontSize: 11, fontWeight: 700, color: T.accentText, background: T.accent, borderRadius: 16, padding: "2px 8px" }}>{unreadTotal}</span> : null,
+                isBasic ? { gridColumn: "2", gridRow: "3" } : {}
               )}
 
             </div>
@@ -15895,12 +16229,18 @@ ${jobsCtx || "No jobs found."}`;
         if (Math.abs(dx) > 8 || Math.abs(me.clientY - sy) > 10) moved = true;
         if (!moved) return;
         setDayDragInfo({ itemId: barTask.id, mode });
+        // Day view always shows today (the "Today" toggle is the only place that sets
+        // tStart/tEnd for tMode "day", and it always sets TD) — so the wall-clock hour is
+        // the whole boundary here, no date component needed. Jobs can never be dragged to
+        // start before now.
+        const _nowHForDayDrag = (() => { const _n = new Date(); return _n.getHours() + _n.getMinutes() / 60; })();
         if (mode === "move") {
           // Compute drop hour for tooltip
           const dropHour = Math.max(DHS, Math.min(DHE - origHpd, (DHS + (me.clientX - grabOffsetPx - timelineLeft) / timelineWidth * DNH)));
           const dropH = Math.floor(dropHour), dropM = Math.round((dropHour % 1) * 60);
           const dropLabel = `${dropH > 12 ? dropH - 12 : dropH === 0 ? 12 : dropH}:${String(dropM).padStart(2,"0")} ${dropH >= 12 ? "PM" : "AM"}`;
-          setTeamDayGhost({ left: me.clientX - grabOffsetPx, top: me.clientY - barH / 2, width: barW, height: barH, color: barTask.color, label: `${barTask.title || ""}`, time: dropLabel });
+          const _beforeNowDay = dropHour < _nowHForDayDrag;
+          setTeamDayGhost({ left: me.clientX - grabOffsetPx, top: me.clientY - barH / 2, width: barW, height: barH, color: _beforeNowDay ? "#ef4444" : barTask.color, label: `${barTask.title || ""}`, time: dropLabel });
           const target = getPersonAtY(me.clientY);
           setDayDragTarget(target && target.id !== fromPersonId ? target.id : null);
         } else if (mode === "left") {
@@ -15908,7 +16248,8 @@ ${jobsCtx || "No jobs found."}`;
           const newStart = Math.round(cursorHour * 4) / 4;
           pending.startHour = Math.max(DHS, Math.min(origEnd - 0.25, newStart));
           pending.hpd = Math.round((origEnd - pending.startHour) * 100) / 100;
-          setTeamDayGhost({ left: me.clientX, top: me.clientY - barH / 2, width: 4, height: barH, color: barTask.color, label: barTask.title || "", time: fmTimeH(pending.startHour) });
+          const _beforeNowDay = pending.startHour < _nowHForDayDrag;
+          setTeamDayGhost({ left: me.clientX, top: me.clientY - barH / 2, width: 4, height: barH, color: _beforeNowDay ? "#ef4444" : barTask.color, label: barTask.title || "", time: fmTimeH(pending.startHour) });
         } else {
           const cursorHour = DHS + (me.clientX - timelineLeft) / timelineWidth * DNH;
           const clamped = Math.max(origHour + 0.25, Math.min(DHE, Math.round(cursorHour * 4) / 4));
@@ -15919,16 +16260,27 @@ ${jobsCtx || "No jobs found."}`;
       const onU = (me) => {
         document.removeEventListener("mousemove", onM);
         document.removeEventListener("mouseup", onU);
+        const _nowHOnDrop = (() => { const _n = new Date(); return _n.getHours() + _n.getMinutes() / 60; })();
         if (moved && mode === "move") {
           // Apply ghost's final position to the real task
           const cursorHour = DHS + (me.clientX - timelineLeft) / timelineWidth * DNH;
           const newStart = Math.round((cursorHour - grabOffsetHours) * 4) / 4;
           const clamped = Math.max(DHS, Math.min(DHE - Math.max(origHpd, 0.25), newStart));
-          updTask(barTask.id, { startHour: clamped }, pid);
-          const target = getPersonAtY(me.clientY);
-          if (fromPersonId && target && target.id !== fromPersonId) reassignTask(barTask.id, fromPersonId, target.id, pid);
+          // Jobs can never be dragged to start before now — day view is always today, so
+          // the wall-clock hour alone is the boundary.
+          if (clamped < _nowHOnDrop) {
+            setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't schedule in the past", message: "This move would place part of the job before the current time. Jobs can't be scheduled in the past.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
+          } else {
+            updTask(barTask.id, { startHour: clamped }, pid);
+            const target = getPersonAtY(me.clientY);
+            if (fromPersonId && target && target.id !== fromPersonId) reassignTask(barTask.id, fromPersonId, target.id, pid);
+          }
         } else if (moved && mode === "left") {
-          updTask(barTask.id, { startHour: pending.startHour, hpd: pending.hpd }, pid);
+          if (pending.startHour < _nowHOnDrop) {
+            setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't schedule in the past", message: "This move would place part of the job before the current time. Jobs can't be scheduled in the past.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
+          } else {
+            updTask(barTask.id, { startHour: pending.startHour, hpd: pending.hpd }, pid);
+          }
         } else if (moved && mode === "right") {
           updTask(barTask.id, { hpd: pending.hpd }, pid);
         }
@@ -15936,7 +16288,7 @@ ${jobsCtx || "No jobs found."}`;
         setTeamDayGhost(null);
         setDayDragInfo(null);
         setDayDragTarget(null);
-        if (!moved && mode === "move") openJobDetail(barTask);
+        if (!moved && mode === "move") openJobDetailOrEdit(barTask);
       };
       document.addEventListener("mousemove", onM);
       document.addEventListener("mouseup", onU);
@@ -16139,14 +16491,29 @@ ${jobsCtx || "No jobs found."}`;
                   const offType = pOff ? ((p.timeOff||[]).find(to=>tStart>=to.start&&tStart<=to.end)||{}).type||"PTO" : null;
                   const offR = pOff ? getOffReason(p.id, tStart) : null;
                   const offColor = offType === "UTO" ? "#f59e0b" : "#10b981";
-                  // Stack bars sequentially from workStart; use startHour if manually positioned
+                  // Stack bars sequentially from workStart; use startHour if manually positioned.
+                  // A manual startHour is a PREFERENCE, not an absolute claim on the timeline: two
+                  // bars each manually set to (say) 8am must not render on top of each other, so
+                  // every bar — manual or auto — is packed against one shared cursor. Order by
+                  // preferred hour first so an earlier-preferring bar is placed first and a later
+                  // one that would collide gets pushed past it, never the reverse. Multi-day bars
+                  // are structurally positioned by the day-boundary walk below and stay outside
+                  // this pack, same as before.
                   const _phD = t => { const [h,m]=(t||"0:0").split(":").map(Number); return h+m/60; };
                   const wsH = _phD(orgSettings.workStart||"07:00");
                   const weH = _phD(orgSettings.workEnd||"15:00");
+                  const _packOrder = todayBars.map((bar, _i) => ({ bar, _i, _hasManual: bar.task?.startHour != null }))
+                    .sort((a, b) => {
+                      const _aIsMulti = !a._hasManual && a.bar.task?.start && a.bar.task?.end && a.bar.task.start !== a.bar.task.end;
+                      const _bIsMulti = !b._hasManual && b.bar.task?.start && b.bar.task?.end && b.bar.task.start !== b.bar.task.end;
+                      const ah = !_aIsMulti && a._hasManual ? a.bar.task.startHour : Infinity;
+                      const bh = !_bIsMulti && b._hasManual ? b.bar.task.startHour : Infinity;
+                      if (ah !== bh) return ah - bh;
+                      return a._i - b._i;
+                    });
                   let cumH = wsH;
-                  const barPositions = todayBars.map(bar => {
+                  const barPositions = _packOrder.map(({ bar, _hasManual: hasManual }) => {
                     const hpd = bar.task?.hpd || 0;
-                    const hasManual = bar.task?.startHour != null;
                     const isMultiDay = !hasManual && bar.task?.start && bar.task?.end && bar.task.start !== bar.task.end;
                     let rawS, rawE;
                     if (isMultiDay) {
@@ -16175,16 +16542,63 @@ ${jobsCtx || "No jobs found."}`;
                       } else {
                         rawE = weH;
                       }
+                    } else if (billingTier === "business") {
+                      // Clamped against the shared cursor even when manual — a preferred hour
+                      // that lands before an already-placed bar's end is pushed to that end,
+                      // which is the only way two bars on one row can never overlap.
+                      rawS = Math.max(hasManual ? bar.task.startHour : cumH, cumH);
+                      rawE = hpd > 0 ? Math.min(rawS + hpd, HE) : Math.min(rawS + 2, HE);
                     } else {
-                      rawS = hasManual ? bar.task.startHour : cumH;
+                      // Basic: the schedule is visual only. A card paints exactly where its
+                      // own day/time says, full stop — no packing, no collision-avoidance,
+                      // no cursor. Two assignments at the same time on the same row is a
+                      // deliberate, allowed thing here (a normal double-booked shift).
+                      rawS = hasManual ? bar.task.startHour : wsH;
                       rawE = hpd > 0 ? Math.min(rawS + hpd, HE) : Math.min(rawS + 2, HE);
                     }
-                    if (!hasManual) cumH = rawE;
+                    // Every bar advances the shared cursor now, manual included — otherwise a
+                    // manual bar pushed forward by an earlier one would leave cumH stale, and
+                    // the next auto bar (which starts FROM cumH) could still land inside it.
+                    // Basic never reads cumH for placement (above), so this is a no-op there.
+                    cumH = Math.max(cumH, rawE);
                     // Collapsed reservoir glides its left edge with worked time. rawE is
                     // computed from the ORIGINAL rawS above, so the planned right edge stays
                     // put while the left one advances into it. Every other bar is untouched.
                     return { bar, rawS: shrunkStartH(p.activeJobClock, bar.task, rawS), rawE, hpd };
                   });
+                  // Basic only: overlap is allowed in the data (no packing, see above) but
+                  // two bars painted at the same vertical position with one on top of the
+                  // other reads as though only one exists — only a sliver of the covered
+                  // bar shows. Split the row's height into lanes so every overlapping bar
+                  // stays fully visible and independently clickable, without moving anything
+                  // in time. Business never needs this: its packing pass already guarantees
+                  // no same-person overlap exists in the data to begin with.
+                  //
+                  // Lane assignment is a standard greedy interval sweep (sort by start, reuse
+                  // the first lane whose occupant already ended). lanesTotal per bar is the
+                  // max concurrent count across anything it overlaps — not globally optimal
+                  // for pathological overlap graphs, but exactly right for the common case
+                  // (two or three bars sharing a time range), which is what "double-booked"
+                  // actually looks like in practice.
+                  const barLanes = billingTier === "business" ? null : (() => {
+                    const sorted = [...barPositions].sort((a, b) => a.rawS - b.rawS || a.rawE - b.rawE);
+                    const laneEnds = [];
+                    const withLane = sorted.map(item => {
+                      let lane = laneEnds.findIndex(endH => endH <= item.rawS);
+                      if (lane === -1) { lane = laneEnds.length; laneEnds.push(item.rawE); }
+                      else laneEnds[lane] = item.rawE;
+                      return { item, lane };
+                    });
+                    const m = new Map();
+                    withLane.forEach(({ item, lane }) => {
+                      let lanesTotal = 1;
+                      withLane.forEach(({ item: other, lane: otherLane }) => {
+                        if (other !== item && other.rawS < item.rawE && other.rawE > item.rawS) lanesTotal = Math.max(lanesTotal, otherLane + 1, lane + 1);
+                      });
+                      m.set(item.bar.id, { lane, lanesTotal });
+                    });
+                    return m;
+                  })();
                   const isDropTarget = dayDragTarget === p.id;
                   return <div key={p.id} style={{display:"flex",height:row.hidden ? 0 : rH,overflow:"hidden",borderBottom:row.hidden?"none":`1px solid ${T.bg}55`,background:isDropTarget?T.accent+"18":"transparent",outline:isDropTarget?`2px dashed ${T.accent}88`:"none",opacity:row.hidden?0:1,pointerEvents:row.hidden?"none":"auto",transition:"height 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.14s ease, background 0.1s"}}>
                     <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:8,padding:"0 10px 0 8px",borderRight:`1px solid ${T.border}`,background:T.surface,flexShrink:0}}>
@@ -16206,10 +16620,17 @@ ${jobsCtx || "No jobs found."}`;
                         const visS = Math.max(rawS, HS), visE = Math.min(rawE, HE);
                         if (visE <= visS) return null;
                         const isDraggingThis = dayDragInfo?.itemId === bar.task?.id;
+                        // Basic only (barLanes is null on Business): a bar sharing its time
+                        // range with another gets a fraction of the row's height instead of
+                        // painting full-height on top of it — see barLanes above.
+                        const _lane = barLanes?.get(bar.id);
+                        const _laneH = _lane && _lane.lanesTotal > 1 ? (rH - 8) / _lane.lanesTotal : rH - 8;
+                        const _laneTop = _lane && _lane.lanesTotal > 1 ? 4 + _lane.lane * _laneH : 4;
+                        const _laneHeight = _lane && _lane.lanesTotal > 1 ? _laneH - 2 : _laneH;
                         return <div key={bar.id}
                           onMouseDown={e=>{ if(e.button===0) { isDraggingRef.current = true; handleTeamDayBarDrag(e, bar.task, "move", p.id, rawS, rawE); } }}
                           onContextMenu={e=>bar.task&&handleCtx(e,bar.task,"team")}
-                          style={{position:"absolute",top:4,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:rH-8,borderRadius:T.radiusXs,background:bar.task?.status==="Finished"?spentBarFill(T,bar.color):bar.color,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis&&dayDragInfo?.mode==="move"?`0 0 0 2px ${bar.color}88`:`0 2px 8px ${bar.color}33`,opacity:isDraggingThis&&dayDragInfo?.mode==="move"?0.3:dayDragInfo&&!isDraggingThis?0.7:(!hoveredBarPid||bar.task?.pid===hoveredBarPid?1:0.2)*barFade(bar.task),transition:"box-shadow 0.1s,opacity 0.2s"}}
+                          style={{position:"absolute",top:_laneTop,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:_laneHeight,borderRadius:T.radiusXs,background:bar.task?.status==="Finished"?spentBarFill(T,bar.color):bar.color,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis&&dayDragInfo?.mode==="move"?`0 0 0 2px ${bar.color}88`:`0 2px 8px ${bar.color}33`,opacity:isDraggingThis&&dayDragInfo?.mode==="move"?0.3:dayDragInfo&&!isDraggingThis?0.7:(!hoveredBarPid||bar.task?.pid===hoveredBarPid?1:0.2)*barFade(bar.task),transition:"box-shadow 0.1s,opacity 0.2s"}}
                           onMouseEnter={e=>{ if(!dayDragInfo && !isDraggingRef.current){ e.currentTarget.style.filter="brightness(1.1)"; setHoveredBarPid(bar.task?.pid??null); } }} onMouseLeave={e=>{ e.currentTarget.style.filter="none"; setHoveredBarPid(null); }}>
                           <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"left",p.id);}} style={{position:"absolute",left:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
                             <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
@@ -16399,6 +16820,39 @@ ${jobsCtx || "No jobs found."}`;
                 _cursor[d] = Math.max(_cursor[d], _w.days > 1 ? workEndH : _w.endHour);
               });
             }
+            // ── Basic-only: overlap lanes ───────────────────────────────────────
+            // Basic allows two assignments to share a time range on one person's row
+            // (no packing, see the barPositions comment in the day view for the same
+            // rule) — but painting both bars at full row height in the same place
+            // hides one behind the other, reading as though only one exists. Split
+            // the row's vertical space between whatever overlaps, per calendar day.
+            // Independent of the complex push/cursor-anchor maths below (Business
+            // only, and Basic bars never touch it): computed straight from each
+            // bar's own stored start/hpd, which is exactly where a Basic bar paints
+            // since nothing pushes or re-anchors it.
+            const basicOverlapLanes = billingTier === "business" ? null : (() => {
+              const dayBars = allBars.filter(b => b.type === "task" && b.task?.start && b.task?.startHour != null && (b.task?.hpd || 0) > 0);
+              const byDay = {};
+              dayBars.forEach(b => { (byDay[b.task.start] ||= []).push(b); });
+              const m = new Map();
+              Object.values(byDay).forEach(dayList => {
+                const withRange = dayList.map(b => ({ b, s: b.task.startHour, e: b.task.startHour + b.task.hpd }));
+                const sorted = [...withRange].sort((a, b2) => a.s - b2.s || a.e - b2.e);
+                const laneEnds = [];
+                const withLane = sorted.map(item => {
+                  let lane = laneEnds.findIndex(end => end <= item.s);
+                  if (lane === -1) { lane = laneEnds.length; laneEnds.push(item.e); }
+                  else laneEnds[lane] = item.e;
+                  return { ...item, lane };
+                });
+                withLane.forEach(item => {
+                  let lanesTotal = 1;
+                  withLane.forEach(other => { if (other !== item && other.s < item.e && other.e > item.s) lanesTotal = Math.max(lanesTotal, other.lane + 1, item.lane + 1); });
+                  m.set(item.b.task.id, { lane: item.lane, lanesTotal });
+                });
+              });
+              return m;
+            })();
             // ── Overrun push-forward ────────────────────────────────────────────
             // An op past its estimate keeps growing (see _barHpd in the bar render),
             // so the work AFTER it on this person's row has to move out of the way or
@@ -16419,7 +16873,12 @@ ${jobsCtx || "No jobs found."}`;
             // push and the growth it is meant to match could disagree — and it halves
             // the work on the heaviest view.
             const overrunPushH = {}, rowBarWS = {}, cursorAnchored = {};
-            {
+            // Basic: visual only. The whole cursor-push/overrun-cascade computation below
+            // is what slides an unstarted bar forward to "now" and cascades the row behind
+            // it — exactly the "pushed, pulled, switched" behavior Basic must not have.
+            // Skipping it leaves overrunPushH/cursorAnchored empty, so every bar below reads
+            // its own stored start/hpd with no adjustment.
+            if (billingTier === "business") {
               // (see the collision walk below)
               // Accumulated over the person's ENTIRE schedule, not the visible slice.
               //
@@ -16537,8 +16996,8 @@ ${jobsCtx || "No jobs found."}`;
                 {/* Ghost: dragged bar + dep-group member previews */}
                 {teamDragInfo && (() => {
                   const nDays = days.length;
-                  const { snapStart, snapEnd, hasOverlap, barColor, groupSnaps } = teamDragInfo;
-                  const gc = hasOverlap ? "#ef4444" : barColor || T.accent;
+                  const { snapStart, snapEnd, hasOverlap, beforeNow, barColor, groupSnaps } = teamDragInfo;
+                  const gc = (hasOverlap || beforeNow) ? "#ef4444" : barColor || T.accent;
                   const ghosts = [];
                   if (teamDragInfo.targetPersonId === p.id && teamDragInfo.translateX != null && (Math.abs(teamDragInfo.translateX) > 4 || Math.abs(teamDragInfo.translateY || 0) > 4)) {
                     const _liveRef = teamDragLiveRef.current;
@@ -16598,7 +17057,8 @@ ${jobsCtx || "No jobs found."}`;
                       _wRem = Math.max(0, _wRem - segW);
                       if (segW <= 0) return;
                       const _gi = ghosts.length;
-                      ghosts.push(<div key={`team-ghost-${_gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 26, border: `2px dashed ${gc}`, background: gc + (hasOverlap ? "55" : "18"), boxShadow: `0 0 ${hasOverlap ? 24 : 16}px ${gc}${hasOverlap ? "BB" : "66"}`, pointerEvents: "none", zIndex: 35 }} />);
+                      const _ghostFlagged = hasOverlap || beforeNow;
+                      ghosts.push(<div key={`team-ghost-${_gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 26, border: `2px dashed ${gc}`, background: gc + (_ghostFlagged ? "55" : "18"), boxShadow: `0 0 ${_ghostFlagged ? 24 : 16}px ${gc}${_ghostFlagged ? "BB" : "66"}`, pointerEvents: "none", zIndex: 35 }} />);
                     });
                   }
                   (groupSnaps || []).forEach(gs => {
@@ -17004,7 +17464,7 @@ ${jobsCtx || "No jobs found."}`;
                   // sense once nobody is on it.
                   const _someoneOnIt = !isPto && !!bar.task && people.some(lp => lp.activeJobClock?.clockIn && sameId(lp.activeJobClock.opId, bar.task.id));
                   const handleTeamDrag = (e) => {
-                    if (!can("moveJobs")) { if (!isPto && bar.task) openJobDetail(bar.task); return; }
+                    if (!can("moveJobs")) { if (!isPto && bar.task) openJobDetailOrEdit(bar.task); return; }
                     if (_someoneOnIt) { e.preventDefault(); e.stopPropagation(); setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Someone is on this job", message: "Someone is currently working on this. They must be clocked out before you can edit this.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) }); return; }
                     if (isPto) {
                       // PTO drag
@@ -17421,8 +17881,11 @@ ${jobsCtx || "No jobs found."}`;
                       const _ghostEH = _ghostWalk.endHour;
                       snapE = _ghostED;
                       // Lex-order interval overlap on (date, hour) — A overlaps B iff A.start < B.end AND A.end > B.start
+                      // Basic: visual only, no collision-avoidance — a person can be double-booked
+                      // on purpose (a normal double shift), so hasOverlap simply never computes.
                       let hasOverlap = false;
                       let overlapInfo = null;
+                      if (billingTier === "business") {
                       outer: for (const job of tasks) {
                         for (const panel of (job.subs || [])) {
                           for (const op of (panel.subs || [])) {
@@ -17462,23 +17925,34 @@ ${jobsCtx || "No jobs found."}`;
                           }
                         }
                       }
+                      }
                       if (snapS === null) return;
                       const _mRectForRef = gridAreaEl?.getBoundingClientRect();
                       const _ghostLeftPct = _mRectForRef ? ((me.clientX - _grabPx - _mRectForRef.left) / _mRectForRef.width * 100) : null;
-                      teamDragLiveRef.current = { snapStart: snapS, snapEnd: snapE, dropHour, barHpd: _dragBarHpd, origStart: os, origEnd: oe, grabOffsetPct: _grabOffsetPct, ghostLeftPct: _ghostLeftPct, hasOverlap, overlapInfo };
+                      // Jobs can never be dragged into the past. snapS/_ghostDH is the candidate's
+                      // earliest edge — before today, or today before the current hour, means some
+                      // part of the bar would sit in the past (ops never run backward in time, so
+                      // checking the start alone covers "any bit of it").
+                      // Basic: purely visual, nothing is pushed/pulled/refused — a card can be
+                      // dragged anywhere, past included; this restriction is Business-only.
+                      const _nowForDrag = new Date();
+                      const _nowDayForDrag = toDS(_nowForDrag);
+                      const _nowHourForDrag = _nowForDrag.getHours() + _nowForDrag.getMinutes() / 60;
+                      const beforeNow = billingTier === "business" && ((snapS < _nowDayForDrag) || (snapS === _nowDayForDrag && _ghostDH < _nowHourForDrag));
+                      teamDragLiveRef.current = { snapStart: snapS, snapEnd: snapE, dropHour, barHpd: _dragBarHpd, origStart: os, origEnd: oe, grabOffsetPct: _grabOffsetPct, ghostLeftPct: _ghostLeftPct, hasOverlap, overlapInfo, beforeNow };
                       // Bars that should visually move + fade together with the dragged bar:
                       // multi-select members, plus dep-group members when the group is locked.
                       const _movingBarIds = new Set();
                       if (isMultiDrag) multiDragMembers.forEach(m => _movingBarIds.add(m.id));
                       if (isGroupDrag && depsMode === "locked") groupMembers.forEach(m => _movingBarIds.add(m.id));
-                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, multiDragSnaps, isGroupDrag, multiDragIds: _movingBarIds.size > 0 ? _movingBarIds : null, dropHour, barHpd: _dragBarHpd, hasOverlap, pushBD: _pushBD, pushHourDelta: _pushHourDelta, snapConnector: _snapConnector ? { ..._snapConnector, ghostPersonId: targetPid } : null });
+                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, multiDragSnaps, isGroupDrag, multiDragIds: _movingBarIds.size > 0 ? _movingBarIds : null, dropHour, barHpd: _dragBarHpd, hasOverlap, beforeNow, pushBD: _pushBD, pushHourDelta: _pushHourDelta, snapConnector: _snapConnector ? { ..._snapConnector, ghostPersonId: targetPid } : null });
                     };
                     const onU = me => {
                       cancelAnimationFrame(autoScrollRaf); autoScrollRaf = null;
                       document.removeEventListener("mousemove", onM);
                       document.removeEventListener("mouseup", onU);
                       isDraggingRef.current = false; setDropTarget(null); setTeamDragInfo(null);
-                      if (!moved) { if (barSelectMode && !isPto) { setSelBars(prev => { const n = new Set(prev); n.has(bar.id) ? n.delete(bar.id) : n.add(bar.id); return n; }); } else if (bar.task) { openJobDetail(bar.task); } return; }
+                      if (!moved) { if (barSelectMode && !isPto) { setSelBars(prev => { const n = new Set(prev); n.has(bar.id) ? n.delete(bar.id) : n.add(bar.id); return n; }); } else if (bar.task) { openJobDetailOrEdit(bar.task); } return; }
                       // Can't move the SPECIFIC op someone is actively clocked into — they'd be
                       // stranded. Scoped to this op (bar.task.id): a clock on a sibling task in the
                       // same job must not block moving this independent one.
@@ -17533,6 +18007,12 @@ ${jobsCtx || "No jobs found."}`;
                         showOverlapIfAny([{ person: _personName, opTitle: _info?.opTitle || "", panelTitle: _info?.panelTitle || "", jobTitle: _info?.jobTitle || "", start: _info?.start, end: _info?.end, isPto: false }]);
                         return;
                       }
+                      // Reject drop if the ghost was red for landing in the past — jobs can
+                      // never be scheduled before now, no part of the bar included.
+                      if (teamDragLiveRef.current?.beforeNow) {
+                        setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't schedule in the past", message: "This move would place part of the job before the current time. Jobs can't be scheduled in the past.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
+                        return;
+                      }
                       if ((tMode === "month" || tMode === "week") && bar.task && !isPto) {
                         const _gRect = gridAreaEl?.getBoundingClientRect();
                         if (!_gRect) { console.warn("[schedule-drag] rejected: grid element not measurable"); return; }
@@ -17555,17 +18035,22 @@ ${jobsCtx || "No jobs found."}`;
                         // against that — and if it didn't actually move, do nothing (don't shift the
                         // whole bar via the non-split path below).
                         const _splitWS = deriveWorkedState(bar.task, producedFor(bar.task), liveOpHours(bar.task));
-                        if (_splitWS.isPartiallyWorked) {
+                        // Compute end-date + end-hour for a given hpd starting at (startDate, startHourArg).
+                        const _calcEnd = (startDate, startHourArg, hpdAmt) => {
+                          const _wk = walkProductiveHours(startHourArg, hpdAmt, dayWindowCfg);
+                          return { end: sAddBD(startDate, _wk.days - 1), endHour: _wk.endHour };
+                        };
+                        // Only split when the destination genuinely crosses a weekend or a
+                        // disabled day — an ordinary move of a partially-worked bar just moves
+                        // the whole record; worked spans are recorded independently of the op's
+                        // current position, so relocating it does not corrupt that history.
+                        const _wouldLandOnOffDay = _splitWS.isPartiallyWorked && spansOffDay(effStart, _calcEnd(effStart, finalHour, _splitWS.remainingHpd).end, barBDOpts);
+                        if (_wouldLandOnOffDay) {
                           // A pure vertical drag (straight down onto another person) leaves the
                           // dates identical, so this no-op guard used to swallow the reassign
                           // too — the bar just snapped back. Only bail when nothing changed at
                           // all, person included.
                           if (effStart === _dragBaseStart && finalHour === _dragBaseHour && !isReassign) { console.warn("[schedule-drag] no-op: dates and person unchanged"); return; }
-                          // Compute end-date + end-hour for a given hpd starting at (startDate, startHourArg).
-                          const _calcEnd = (startDate, startHourArg, hpdAmt) => {
-                            const _wk = walkProductiveHours(startHourArg, hpdAmt, dayWindowCfg);
-                            return { end: sAddBD(startDate, _wk.days - 1), endHour: _wk.endHour };
-                          };
                           const osH = bar.task.startHour ?? workStartH;
                           const workedEnds = _calcEnd(os, osH, _splitWS.workedHpd);
                           const remEnds   = _calcEnd(effStart, finalHour, _splitWS.remainingHpd);
@@ -17697,20 +18182,25 @@ ${jobsCtx || "No jobs found."}`;
                           return { ...m, newStart: mStart, newEnd: mEnd };
                         }),
                       ];
-                      // Conflict detection — exclude all moving IDs as obstacles for each other
-                      const { pushes: mainPushes, blocked: mainBlocked, lockedOps: mainLocked } = previewPush(tasks, bar.task.id, dropPerson, effStart, effEnd, movingIds);
-                      if (mainBlocked) { showLockedError(mainLocked); return; }
-                      let allPushes = [...mainPushes];
+                      // Conflict detection — exclude all moving IDs as obstacles for each other.
+                      // Basic: visual only — no push cascade, no locked-op refusal. A card just
+                      // goes where it's dropped; nothing else on the board reacts to it.
+                      let allPushes = [];
                       let anyBlocked = false; let allLocked = [];
-                      for (const gm of groupFinalMoves) {
-                        for (const personId of gm.personIds) {
-                          const { pushes: gmPushes, blocked: gmBlocked, lockedOps: gmLocked } = previewPush(tasks, gm.id, personId, gm.newStart, gm.newEnd, movingIds);
-                          if (gmBlocked) { anyBlocked = true; allLocked = [...allLocked, ...gmLocked]; break; }
-                          gmPushes.forEach(push => { if (!allPushes.find(x => x.opId === push.opId)) allPushes.push(push); });
+                      if (billingTier === "business") {
+                        const { pushes: mainPushes, blocked: mainBlocked, lockedOps: mainLocked } = previewPush(tasks, bar.task.id, dropPerson, effStart, effEnd, movingIds);
+                        if (mainBlocked) { showLockedError(mainLocked); return; }
+                        allPushes = [...mainPushes];
+                        for (const gm of groupFinalMoves) {
+                          for (const personId of gm.personIds) {
+                            const { pushes: gmPushes, blocked: gmBlocked, lockedOps: gmLocked } = previewPush(tasks, gm.id, personId, gm.newStart, gm.newEnd, movingIds);
+                            if (gmBlocked) { anyBlocked = true; allLocked = [...allLocked, ...gmLocked]; break; }
+                            gmPushes.forEach(push => { if (!allPushes.find(x => x.opId === push.opId)) allPushes.push(push); });
+                          }
+                          if (anyBlocked) break;
                         }
-                        if (anyBlocked) break;
+                        if (anyBlocked) { showLockedError(allLocked); return; }
                       }
-                      if (anyBlocked) { showLockedError(allLocked); return; }
                       const logBase = { date: TD, movedBy: movedByName, reason: "Moved in schedule" };
                       const allMoves = [
                         { id: bar.task.id, newStart: effStart, newEnd: effEnd, logEntry: { ...logBase, fromStart: os, fromEnd: oe, toStart: effStart, toEnd: effEnd } },
@@ -17722,8 +18212,13 @@ ${jobsCtx || "No jobs found."}`;
                       // day or person" is most of the point — and the reassign below is redirected
                       // at the remainder so the history keeps the team that did it. Nobody can be
                       // clocked in here: _someoneOnIt refused the gesture before it began.
+                      //
+                      // Gated on crossing a weekend/disabled day: an ordinary move of a
+                      // partially-worked bar just moves the whole record — worked spans are
+                      // recorded independently of the op's current position (productionhours.json),
+                      // so relocating it does not corrupt that history.
                       const _splitOut = {};
-                      const _splitWorkedMs = (multiDragMembers.length === 0 && bar.task)
+                      const _splitWorkedMs = (multiDragMembers.length === 0 && bar.task && spansOffDay(effStart, effEnd, barBDOpts))
                         ? spansDurationMs(workedSpansStored.get(String(bar.task.id)) || [])
                         : 0;
                       const withMove = _splitWorkedMs > 0
@@ -18254,11 +18749,19 @@ ${jobsCtx || "No jobs found."}`;
                   const _titleHalo = _leftIsGrey
                     ? (_titleColor === "#ffffff" ? "0 0 3px rgba(0,0,0,0.60)" : "0 0 3px rgba(255,255,255,0.70)")
                     : undefined;
+                  // Basic only (basicOverlapLanes is null on Business): a bar sharing its
+                  // time range with another on this row gets a fraction of the row's
+                  // height instead of painting full-height on top of it. See
+                  // basicOverlapLanes above.
+                  const _bLane = basicOverlapLanes?.get(bar.task?.id);
+                  const _bLaneH = _bLane && _bLane.lanesTotal > 1 ? (rH - 8) / _bLane.lanesTotal : rH - 8;
+                  const _bLaneTop = _bLane && _bLane.lanesTotal > 1 ? 4 + _bLane.lane * _bLaneH : 4;
+                  const _bLaneHeight = _bLane && _bLane.lanesTotal > 1 ? _bLaneH - 2 : _bLaneH;
                   return [<div key={barKey}
                     data-worked-pct={_barWorkedPct} data-divider-pct={_headCursorPct} data-op-divider-pct={_barCursorPct} data-raw-worked-pct={_barRawWorkedPct} data-worked-spans={JSON.stringify(_barSpans)} data-seg-worked-spans={JSON.stringify(_headSpans)} data-seg-divider-pct={_headCursorPct} data-unclosed={_barUnclosed ? "1" : undefined} data-worked-h={_barWorkedH} data-committed-h={_barCommittedH} data-live-h={_barLiveH} data-state={_barState}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: 4, left: x, width: `calc(${w} - ${bar.endsNow ? 0 : 1}px)`, minWidth: _wFirst > 0 ? 2 : 0, height: rH - 8, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: activeBarFill(T, bc, _fillSpans, _fillCursorPct, _barState, _renderPx), border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : `0 12px 0 ${12 + _labelInset}px`, overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
+                    style={{ position: "absolute", top: _bLaneTop, left: x, width: `calc(${w} - ${bar.endsNow ? 0 : 1}px)`, minWidth: _wFirst > 0 ? 2 : 0, height: _bLaneHeight, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: activeBarFill(T, bc, _fillSpans, _fillCursorPct, _barState, _renderPx), border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : `0 12px 0 ${12 + _labelInset}px`, overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
                     onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
                     {!_isNarrowBar && can("moveJobs") && !barLocked && !_dragBlocked && !(ws && ws.workedHpd > 0) && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
                     {!_isNarrowBar && barSegs.length === 1 && _endsInView && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
@@ -19146,7 +19649,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
             <button onClick={() => setEmpDelete(null)}
-              style={{ padding: "11px 24px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.bg, color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+              style={{ padding: "11px 24px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
             <button
               disabled={empDeleteArm > 0}
               onClick={() => { delPerson(empDelete.id); setEmpDelete(null); }}
@@ -19253,7 +19756,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
           <div style={{ padding: "14px 26px 22px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
             <button onClick={() => setAddEmpDraft(null)}
-              style={{ padding: "11px 24px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.bg, color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+              style={{ padding: "11px 24px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
             <button onClick={createEmployee} disabled={!empValid}
               style={{ padding: "11px 26px", borderRadius: T.radiusPill, border: "none", background: empValid ? brandGrad(T.accent) : T.border, color: empValid ? T.accentText : T.textDim, fontSize: 13, fontWeight: 800, cursor: empValid ? "pointer" : "not-allowed", fontFamily: T.font }}>{d.id ? "Save changes" : "Create"}</button>
           </div>
@@ -19335,7 +19838,7 @@ ${jobsCtx || "No jobs found."}`;
               // rather than server-side so the link carries whatever origin the
               // admin is actually on -- a hardcoded domain breaks on previews.
               const link = `${window.location.origin}/?org=${encodeURIComponent(r.orgCode)}&invite=${encodeURIComponent(r.token)}`;
-              upd({ link, emailSent: !!r.emailSent, busy: false });
+              upd({ link, emailSent: !!r.emailed, busy: false });
               loadInviteList();
             } catch (e) {
               upd({ error: e.message || "Could not create the invite.", busy: false });
@@ -19362,7 +19865,7 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                   {d.error && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 8 }}>{d.error}</div>}
                   <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-                    <Btn variant="ghost" size="sm" style={{ flex: 1 }} onClick={() => setInviteDraft(null)}>Cancel</Btn>
+                    <Btn variant="secondary" size="sm" style={{ flex: 1 }} onClick={() => setInviteDraft(null)}>Cancel</Btn>
                     <Btn size="sm" style={{ flex: 1 }} disabled={d.busy} onClick={send}>{d.busy ? "Sending…" : "Send invite"}</Btn>
                   </div>
                   {/* Outstanding and spent invites. Without this a mistyped
@@ -19583,10 +20086,21 @@ ${jobsCtx || "No jobs found."}`;
       // computing top:0, painted directly on top of each other, and only the last one
       // was visible. renderTeam on the Schedule page already stacks from a running
       // cursor (`hasManual ? startHour : cumH`); this is the same rule.
+      //
+      // A manual hour is clamped against the cursor too, not taken verbatim: the sort
+      // above only orders manual blocks by their OWN hour, so two manual blocks close
+      // together (e.g. 8:00 and 8:30, both preceding whatever's stacked before them)
+      // still landed at their raw hours with no check that the earlier one's end had
+      // already passed 8:30 — painting them on top of each other exactly like the
+      // null-manualH case this comment already describes.
       let cursor = workStartH;
       return sized
         .map(b => {
-          const sH = b.manualH != null ? b.manualH : cursor;
+          // Basic: visual only, no packing — a block paints at its own stored hour,
+          // full stop, overlaps allowed (same rule as barPositions on the Team view).
+          const sH = billingTier === "business"
+            ? Math.max(b.manualH != null ? b.manualH : cursor, cursor)
+            : (b.manualH != null ? b.manualH : cursor);
           const eH = Math.min(workEndH, sH + b.clockH);
           cursor = Math.max(cursor, eH);
           return { ...b, sH, eH };
@@ -20135,7 +20649,7 @@ ${jobsCtx || "No jobs found."}`;
 
             {/* Actions */}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, paddingTop: 4 }}>
-              <button onClick={closeSettings} style={{ padding: "8px 18px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+              <button onClick={closeSettings} style={{ padding: "8px 18px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
               <button onClick={saveSettings} disabled={tsSettingsSaving} style={{ padding: "8px 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: tsSettingsSaving ? 0.7 : 1 }}>
                 {tsSettingsSaving ? "Saving…" : "Save Changes"}
               </button>
@@ -21125,7 +21639,7 @@ ${jobsCtx || "No jobs found."}`;
 
             {/* Footer */}
             <div style={{ padding: "16px 24px", borderTop: `1px solid ${T.border}`, display: "flex", justifyContent: "flex-end", gap: 10 }}>
-              <button onClick={() => setTsPersonEditModal(null)} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+              <button onClick={() => setTsPersonEditModal(null)} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
               <button onClick={saveAll} disabled={saving || activeOutInvalid} title={activeOutInvalid ? "The out punch has to be after the clock-in time." : undefined} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: (saving || activeOutInvalid) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: (saving || activeOutInvalid) ? 0.7 : 1 }}>
                 {saving ? "Saving…" : "Save Changes"}
               </button>
@@ -21159,7 +21673,7 @@ ${jobsCtx || "No jobs found."}`;
                   <button
                     onClick={() => setTsPersonEditModal(m => ({ ...m, confirmReopen: null }))}
                     disabled={!!reopeningId}
-                    style={{ padding: "9px 16px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}
+                    style={{ padding: "9px 16px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}
                   >Cancel</button>
                   <button
                     onClick={() => reopenSession(confirmReopen.id)}
@@ -21192,7 +21706,7 @@ ${jobsCtx || "No jobs found."}`;
                   <button
                     onClick={() => setTsPersonEditModal(m => ({ ...m, confirmDelete: null }))}
                     disabled={!!deletingId}
-                    style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.text, fontSize: 13, fontWeight: 600, cursor: deletingId ? "not-allowed" : "pointer", fontFamily: T.font }}
+                    style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 13, fontWeight: 600, cursor: deletingId ? "not-allowed" : "pointer", fontFamily: T.font }}
                   >Cancel</button>
                   <button
                     onClick={() => deleteSession(confirmDelete.id)}
@@ -21935,8 +22449,8 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             )}
 
-            {/* Job Clock — STATE 1 / 2 / 3 */}
-            {isClockedIn && (
+            {/* Job Clock — STATE 1 / 2 / 3 — Business only, Basic has no job clock */}
+            {isClockedIn && billingTier === "business" && (
               <div className="tq-frost" style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, padding: "18px 16px", marginBottom: 16 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 14 }}>Job Clock</div>
 
@@ -22299,7 +22813,7 @@ ${jobsCtx || "No jobs found."}`;
                     <button onClick={() => doReopen(range)} disabled={tsConfirmSaving} style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 13, fontWeight: 700, cursor: tsConfirmSaving ? "not-allowed" : "pointer", fontFamily: T.font, opacity: tsConfirmSaving ? 0.6 : 1 }}>{tsConfirmSaving ? "Re-opening…" : "Re-open to edit"}</button>
                   ) : (
                     <>
-                      <button onClick={closeConfirm} style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                      <button onClick={closeConfirm} style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
                       <button onClick={() => doConfirm(range)} disabled={tsConfirmSaving || entries.length === 0} style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: (tsConfirmSaving || entries.length === 0) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: (tsConfirmSaving || entries.length === 0) ? 0.6 : 1 }}>{tsConfirmSaving ? "Confirming…" : "Confirm Time Sheet"}</button>
                     </>
                   )}
@@ -22443,6 +22957,9 @@ ${jobsCtx || "No jobs found."}`;
                  the job zone takes it instead and runs up to that edge. */
               .tq-tcsession{display:grid;grid-template-columns:1.12fr 1.4fr 0.8fr}
               .tq-tcsession > div + div{border-left:1px solid var(--tq-tc-div)}
+              /* Basic has no job clock — Zone 2 (current job) never renders, so the
+                 grid is 2 columns, keeping Zone 1's ratio and giving Zone 3 the rest. */
+              .tq-tcsession-basic{grid-template-columns:1.12fr 1.08fr}
               @media (max-width:1100px){
                 .tq-tcsession{grid-template-columns:1fr}
                 .tq-tcsession > div + div{border-left:none;border-top:1px solid var(--tq-tc-div)}
@@ -22475,7 +22992,7 @@ ${jobsCtx || "No jobs found."}`;
             })()}
 
             {/* One consolidated session card: today · current job · this period */}
-            <div className="tq-frost tq-tcsession" style={{ "--tq-tc-div": T.border, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: TC_RADIUS, overflow: "hidden" }}>
+            <div className={`tq-frost tq-tcsession${billingTier === "business" ? "" : " tq-tcsession-basic"}`} style={{ "--tq-tc-div": T.border, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: TC_RADIUS, overflow: "hidden" }}>
 
               {/* ── Zone 1 · total time today ── */}
               <div style={tcZone}>
@@ -22511,8 +23028,10 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               </div>
 
-              {/* ── Zone 2 · current job ── */}
-              {(() => {
+              {/* ── Zone 2 · current job ── Business only; Basic has no job clock,
+                  just straight clock in/out, so this zone never renders (see the
+                  tq-tcsession-basic 2-column grid above). */}
+              {billingTier === "business" && (() => {
                 const jc = isClockedIn ? loggedInUser.activeJobClock : null;
                 const green = "#22c55e";
                 // Nothing running: the zone still holds its column, it just states why.
@@ -22837,7 +23356,7 @@ ${jobsCtx || "No jobs found."}`;
                                       <DateField withTime compact value={toLocal(tsEditEntry.clockOut)} onChange={v => setTsEditEntry(x => ({ ...x, clockOut: fromLocal(v) }))} style={{ minWidth: 190 }} />
                                       <span style={{ flex: 1 }} />
                                       <button onClick={saveEditEntry} style={{ padding: "4px 12px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Save</button>
-                                      <button onClick={() => setTsEditEntry(null)} style={{ padding: "4px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "none", color: T.textDim, fontSize: 12, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                                      <button onClick={() => setTsEditEntry(null)} style={{ padding: "4px 10px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 12, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
                                     </div>
                                   );
                                 }
@@ -23269,7 +23788,9 @@ ${jobsCtx || "No jobs found."}`;
           <FadeOnClose open={searchOpen && searchQ.length > 0}>{searchOpen && searchQ.length > 0 && (() => {
             const q = searchQ.toLowerCase();
             const jobResults = allItems.filter(t => t.title.toLowerCase().includes(q) || (t.notes || "").toLowerCase().includes(q));
-            const clientResults = clients.filter(c => c.name.toLowerCase().includes(q) || (c.contact || "").toLowerCase().includes(q));
+            // No Clients page to land on for Basic, so no client results either —
+            // otherwise a result click would be a dead no-op (switchView guards it).
+            const clientResults = billingTier !== "business" ? [] : clients.filter(c => c.name.toLowerCase().includes(q) || (c.contact || "").toLowerCase().includes(q));
             const personResults = people.filter(p => p.name.toLowerCase().includes(q));
             const hasResults = jobResults.length > 0 || clientResults.length > 0 || personResults.length > 0;
             return <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 9999, background: T.glass, border: `1px solid ${T.glassBorder}`, borderRadius: T.radiusSm, boxShadow: "0 8px 32px rgba(0,0,0,0.3)", maxHeight: 300, overflow: "auto" }}>
@@ -23299,7 +23820,8 @@ ${jobsCtx || "No jobs found."}`;
           { id: "schedule",  icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>, label: "Schedule" },
           { id: "messages",  icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Chat", badge: unreadMessages.length },
           { id: "more",      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg>, label: "More" },
-        ]}
+        // Jobs is Business-only on Basic, same rule as the desktop `views` array.
+        ].filter(t => billingTier === "business" || t.id !== "tasks")}
         activeId={moreOpen ? "more" : mobileView}
         onChange={id => { if (id === "more") { setMoreOpen(m => !m); } else { setMoreOpen(false); setView(id === "home" ? "schedule" : id); } }}
       />
@@ -23311,7 +23833,8 @@ ${jobsCtx || "No jobs found."}`;
             {[
               { id: "clients", label: "Clients", icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg> },
               { id: "analytics", label: "Analytics", icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
-            ].map(item => (
+            // Both Business-only on Basic, same rule as the desktop `views` array.
+            ].filter(item => billingTier === "business" || !["clients", "analytics"].includes(item.id)).map(item => (
               <button key={item.id} onClick={() => { setMoreOpen(false); setView(item.id); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 16, padding: "14px 24px", background: "none", border: "none", cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>
                 <span style={{ color: T.textDim, lineHeight: 0 }}>{item.icon}</span>
                 <span style={{ fontSize: 16, fontWeight: 600, color: T.text }}>{item.label}</span>
@@ -23972,7 +24495,7 @@ ${jobsCtx || "No jobs found."}`;
                                   style={{ width: "100%", padding: "10px 12px", borderRadius: T.radiusXs, border: `1px solid ${hasReason ? T.border : "#ef444466"}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, resize: "vertical", boxSizing: "border-box" }}
                                 />
                                 <div style={{ display: "flex", gap: 8 }}>
-                                  <button onClick={() => setFinishDeclineState(prev => ({ ...prev, [m.finishRequestId]: { showInput: false, reason: "" } }))} style={{ flex: 1, padding: "12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                                  <button onClick={() => setFinishDeclineState(prev => ({ ...prev, [m.finishRequestId]: { showInput: false, reason: "" } }))} style={{ flex: 1, padding: "12px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
                                   <button
                                     disabled={!hasReason}
                                     onClick={() => adminDeclineJobFinish(m.jobId, m.panelId, m.opId || null, m.finishRequestId, frDecState.reason || "")}
@@ -24034,7 +24557,7 @@ ${jobsCtx || "No jobs found."}`;
                             ? <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
                                 <input autoFocus value={toDenyReason} onChange={e => setToDenyReason(e.target.value)} placeholder="Reason (optional)…" onKeyDown={e => { if (e.key === "Enter") decideTimeOff(m.timeOffRequestId, "deny", toDenyReason); if (e.key === "Escape") { setToDeny(null); setToDenyReason(""); } }} style={{ padding: "9px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }} />
                                 <div style={{ display: "flex", gap: 8 }}>
-                                  <button onClick={() => { setToDeny(null); setToDenyReason(""); }} style={{ flex: 1, padding: "11px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                                  <button onClick={() => { setToDeny(null); setToDenyReason(""); }} style={{ flex: 1, padding: "11px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
                                   <button disabled={toBusy === m.timeOffRequestId} onClick={() => decideTimeOff(m.timeOffRequestId, "deny", toDenyReason)} style={{ flex: 1, padding: "11px", borderRadius: T.radiusPill, border: "none", background: brandGrad("#ef4444"), color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: T.font, opacity: toBusy === m.timeOffRequestId ? 0.6 : 1 }}>Confirm Deny</button>
                                 </div>
                               </div>
@@ -25010,8 +25533,156 @@ ${jobsCtx || "No jobs found."}`;
       </div>
     );
   };
+  // ── Basic tier: the whole "New Job" flow, one step ──────────────────────────
+  // Title, who's on it, one day, start/end time. No panels, no ops, no
+  // auto-scheduling — writes a single level-0 leaf task directly (no subs),
+  // which the existing "deepest node is the assignable one" rule (see
+  // hasLiveChildren/isAssignedHere in statsMath.js, and commit a4601d8) already
+  // renders as one schedulable bar per team member with no other change needed.
+  // Bypasses saveTask entirely: saveTask rolls a start to the next working day
+  // and refuses to save on any overlap, both of which are exactly the
+  // auto-scheduling/collision-avoidance Basic does not want.
+  const renderSimpleJobModal = () => {
+    const d = modal.data;
+    const patch = (p) => setModal(m => ({ ...m, data: { ...m.data, ...p } }));
+    const toggleTeam = (pid) => patch({ team: d.team.includes(pid) ? d.team.filter(x => x !== pid) : [...d.team, pid] });
+    const valid = d.title.trim().length > 0 && d.team.length > 0 && d.date && d.endHour > d.startHour;
+    const submit = () => {
+      if (!valid) return;
+      // hpd is PRODUCTIVE hours (lunch/breaks excluded), not a raw clock-time span — every
+      // walkProductiveHours call downstream treats it that way. A naive endHour-startHour
+      // (e.g. 8 for an 8am-4pm shift) overstates it whenever lunch falls inside the window,
+      // and the bar visibly overflows into the next day. productiveHoursBetween is the same
+      // helper the rest of the render uses for exactly this conversion.
+      const _hpdCfg = { ...dayWindowCfg, workDays: orgSettings.workDays, holidays: orgSettings.holidays };
+      const _hpd = Math.max(0.25, productiveHoursBetween(hourTs(d.date, d.startHour), hourTs(d.date, d.endHour), _hpdCfg));
+      // Editing: update the existing job + its one flat sub in place, ids
+      // preserved — this is not a delete+recreate, so anything keyed off the
+      // job's id elsewhere (chat threads, messages) stays attached.
+      if (d.id) {
+        setTasks(prev => prev.map(j => j.id !== d.id ? j : {
+          ...j,
+          title: d.title.trim(),
+          subs: (j.subs || []).map((s, i) => i === 0 ? {
+            ...s,
+            title: d.title.trim(),
+            start: d.date, end: d.date,
+            startHour: d.startHour,
+            hpd: _hpd,
+            team: [...d.team],
+          } : s),
+        }));
+        setTimeout(() => doSaveRef.current(), 0);
+        toast("Job updated");
+        closeModal();
+        return;
+      }
+      // getPersonBars only ever draws bars from `job.subs` — for a "panel" job
+      // (the default `jobType`) that means panel-then-op; for a "general" job
+      // it reads job.subs directly as flat leaf assignments (see the `else`
+      // branch beside "General task: flat subtasks assigned directly to
+      // people"). A bare job with subs:[] draws NOTHING — the deepest-node
+      // rule needs an actual node at that depth, so this job carries exactly
+      // one flat sub, which IS the schedulable leaf.
+      const jobColor = randomJobColor();
+      const newTask = {
+        id: uid(),
+        title: d.title.trim(),
+        jobType: "general",
+        start: d.date, end: d.date,
+        status: "Not Started",
+        pri: "Medium",
+        notes: "",
+        deps: [],
+        clientId: null,
+        projectManagerId: loggedInUser?.id || null,
+        color: jobColor,
+        subs: [{
+          id: uid(),
+          title: d.title.trim(),
+          start: d.date, end: d.date,
+          startHour: d.startHour,
+          hpd: _hpd,
+          team: [...d.team],
+          status: "Not Started",
+          color: jobColor,
+        }],
+      };
+      setTasks(prev => [...prev, newTask]);
+      setTimeout(() => doSaveRef.current(), 0);
+      toast("Job created");
+      closeModal();
+    };
+    // 0.55 black + blur(4px) measured (isolated test, a colourful striped
+    // background behind an identical overlay) as dark enough to make the
+    // blur imperceptible -- it read as an opaque panel, not a frosted view
+    // of the page behind it. Lighter tint, more blur: the page stays
+    // readable-but-soft behind the dialog instead of disappearing.
+    // The overlay's own class carries a 0.22s fadeIn (opacity 0→1) shared with
+    // every other modal in the app. Fine when the backdrop underneath it is
+    // still sharp and undimmed for that window; here the backdrop is ALSO the
+    // blur+dark tint, so the fade reads as the schedule page gradually going
+    // soft and dark before the dialog appears -- "the schedule goes away, then
+    // [the dialog] comes up" rather than the dialog simply popping in front of
+    // an unchanged page. `animation: "none"` inline overrides the class's
+    // keyframe for this element only (inline style wins over a stylesheet rule
+    // without touching anim-modal-overlay itself, which every other modal still
+    // uses as before) -- the tint+blur now appears at full strength instantly,
+    // and the dialog's own pop-in (anim-modal-box, untouched) is what animates.
+    return createPortal(
+      <div className="anim-modal-overlay" onClick={closeModal} style={{ position: "fixed", inset: 0, zIndex: 10020, background: "rgba(0,0,0,0.28)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, animation: "none" }}>
+        <div onClick={e => e.stopPropagation()} className="anim-modal-box" style={{ background: T.card, borderRadius: 30, width: "100%", maxWidth: 440, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", padding: 26, fontFamily: T.font, maxHeight: "86vh", overflowY: "auto", boxSizing: "border-box" }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: T.text, marginBottom: 18 }}>{d.id ? "Edit Job" : "New Job"}</div>
+
+          <div style={{ fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 600 }}>Assignment name</div>
+          <input autoFocus value={d.title} onChange={e => patch({ title: e.target.value })} placeholder="e.g. Cabinet install" style={{ ...stInput, marginBottom: 16 }} />
+
+          <div style={{ fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 600 }}>Who's on it</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 16, maxHeight: 160, overflowY: "auto" }}>
+            {people.map(p => {
+              const on = d.team.includes(p.id);
+              return <button key={p.id} onClick={() => toggleTeam(p.id)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusPill, border: `1.5px solid ${on ? T.accent : T.border}`, background: on ? T.accent + "18" : T.surface, color: on ? T.accent : T.text, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>
+                <PersonAvatar person={p} size={16} />{p.name}
+              </button>;
+            })}
+            {people.length === 0 && <div style={{ fontSize: 12, color: T.textDim }}>No employees yet.</div>}
+          </div>
+
+          <div style={{ fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 600 }}>Day</div>
+          {/* Same calendar-dropdown DateField the rest of the app uses (timesheet
+              edit, etc.) instead of the native <input type="date">, whose picker
+              chrome can't be themed. TimeField (below) is the same idea applied
+              to time-of-day, which had no themed equivalent anywhere before. */}
+          {/* portal: this modal's box scrolls (overflowY: auto, it can exceed
+              86vh), and an absolutely-positioned popup is clipped/scrolled by
+              its own scrolling ancestor rather than floating freely above it.
+              DateField already had this mode built in; it just wasn't turned
+              on here. */}
+          <DateField value={d.date} onChange={v => patch({ date: v })} style={{ marginBottom: 16 }} portal />
+
+          <div style={{ display: "flex", gap: 12, marginBottom: 22 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 600 }}>Start time</div>
+              <TimeField value={d.startHour} onChange={h => patch({ startHour: h })} portal />
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 600 }}>End time</div>
+              <TimeField value={d.endHour} onChange={h => patch({ endHour: h })} portal />
+            </div>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
+            <button onClick={closeModal} style={{ padding: "11px 24px", borderRadius: T.radiusPill, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, ...outlineBtnStyle(T.accent) }}>Cancel</button>
+            <Btn disabled={!valid} onClick={submit}>{d.id ? "Save" : "Schedule"}</Btn>
+          </div>
+        </div>
+      </div>,
+      document.body
+    );
+  };
   const renderModal = () => {
     if (!modal) return null;
+    if (modal.type === "simpleEdit") return renderSimpleJobModal();
     // Desktop renders content popups as full pages inside the content panel — the
     // rounded header and sidebar stay put, only the page body swaps. Mobile keeps
     // the original centred overlay, which is already a full-screen sheet there.
@@ -25972,7 +26643,7 @@ ${jobsCtx || "No jobs found."}`;
                           </button>
                           <button
                             onClick={()=>{ setOverrideOpen(prev=>({...prev,[panel.id]:false})); setOverrideError(prev=>({...prev,[panel.id]:null})); }}
-                            style={{ background:"none", border:"none", color:T.textDim, fontSize:12, cursor:"pointer", fontFamily:T.font, padding:"7px 0" }}
+                            style={{ background:T.card, border:`1.5px solid ${T.accent}`, borderRadius:T.radiusXs, color:T.accent, fontSize:12, cursor:"pointer", fontFamily:T.font, padding:"7px 14px" }}
                           >Cancel</button>
                         </div>
                       </div>}
@@ -26313,7 +26984,7 @@ ${jobsCtx || "No jobs found."}`;
             shape. */}
         <div style={{ padding:"16px 32px", background:"transparent", flexShrink:0, display:"flex", gap:12, justifyContent:"space-between", alignItems:"center" }}>
           {modalStep === 1 && <>
-            <Btn variant="ghost" onClick={closeModal}>Cancel</Btn>
+            <Btn variant="secondary" onClick={closeModal}>Cancel</Btn>
             <Btn disabled={!ed.title.trim()||!ed.projectManagerId} onClick={() => { if(ed.title.trim()&&ed.projectManagerId) goStep(2); }} style={{ opacity:(!ed.title.trim()||!ed.projectManagerId)?0.4:1, cursor:(!ed.title.trim()||!ed.projectManagerId)?"not-allowed":"pointer" }}>Next: Operations →</Btn>
           </>}
           {modalStep === 2 && <>
@@ -26950,7 +27621,10 @@ ${jobsCtx || "No jobs found."}`;
     { key: "org-schedule", label: "Schedule Preferences" },
     { key: "org-approval-templates", label: "Approval Queue Templates" },
     { key: "org-timeclock", label: "Time Clock" },
-  ];
+  // Approval Queue Templates is Business-only on Basic. renderSettingsBody's
+  // "org-approval-templates" case and renderSettingsApprovalTemplates stay —
+  // Business still routes there, this only removes the nav entry.
+  ].filter(c => billingTier === "business" || c.key !== "org-approval-templates");
   // `group` is the sidebar entry you're under and becomes the page title;
   // `sub` is the specific page within it, shown small underneath. The two
   // top-level sections have no sub — their group IS the page, so nothing is
@@ -27116,12 +27790,16 @@ ${jobsCtx || "No jobs found."}`;
     setSettingsSection("general");
     loadSectionDraft("general");
     setSettingsMode(true);
+    // Always opens on the top-level settings nav, never straight into the
+    // Organization sub-page from a previous visit.
+    setSettingsOrgExpanded(false);
     runSettingsCrossfade();
   };
   const doExitSettings = () => {
     // Keep settingsDraft/pristine intact so the fading-out settings layer still shows its
     // content; the next enterSettings reloads the draft fresh.
     setSettingsMode(false);
+    setSettingsOrgExpanded(false);
     setSettingsGuard(null);
     setView(priorView || "tasks");
     runSettingsCrossfade();
@@ -27161,7 +27839,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ fontSize: 17, fontWeight: 800, color: T.text, marginBottom: 8 }}>Unsaved changes</div>
           <div style={{ fontSize: 13, color: T.textSec, lineHeight: 1.5, marginBottom: 22 }}>You have unsaved changes in <strong style={{ color: T.text }}>{settingsSectionMeta[settingsSection]?.title}</strong>. Save them before leaving?</div>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", flexWrap: "wrap" }}>
-            <button onClick={() => setSettingsGuard(null)} style={ghost}>Cancel</button>
+            <button onClick={() => setSettingsGuard(null)} style={{ ...ghost, background: T.card, border: `1.5px solid ${T.accent}`, color: T.accent }}>Cancel</button>
             <button onClick={proceed} style={{ ...ghost, color: "#ef4444", borderColor: "#ef444455" }}>Discard</button>
             <Btn size="sm" disabled={settingsSaving} onClick={async () => { const ok = await saveSection(); if (ok) proceed(); }}>{settingsSaving ? "Saving…" : "Save & continue"}</Btn>
           </div>
@@ -27278,11 +27956,51 @@ ${jobsCtx || "No jobs found."}`;
             <input autoFocus value={orgCodeInput} onChange={e => { setOrgCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setOrgCodeError(""); }} placeholder="NEW CODE" maxLength={20} style={{ ...stInput, fontFamily: T.mono, fontWeight: 700, letterSpacing: "-0.045em", marginBottom: 8, textTransform: "uppercase" }} />
             {orgCodeError && <div style={{ fontSize: 12, color: "#ef4444", marginBottom: 8 }}>{orgCodeError}</div>}
             <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => { setOrgEditing(null); setOrgCodeError(""); }} style={stGhostBtn}>Cancel</button>
+              <button onClick={() => { setOrgEditing(null); setOrgCodeError(""); }} style={outlineBtnStyle(T.accent)}>Cancel</button>
               <Btn size="sm" disabled={orgCodeSaving || !orgCodeInput.trim() || orgCodeInput.trim() === orgCode} onClick={async () => { const newCode = orgCodeInput.trim(); if (!newCode) return; setOrgCodeSaving(true); setOrgCodeError(""); try { await updateOrgCode(newCode, getToken, orgCode); const config = await fetchOrgConfig(newCode); sessionStorage.setItem("tq_org_code", newCode); sessionStorage.setItem("tq_org_config", JSON.stringify(config)); window.location.reload(); } catch (e) { setOrgCodeError(e.message || "Failed to update org code"); } finally { setOrgCodeSaving(false); } }}>{orgCodeSaving ? "Changing…" : "Change code & reload"}</Btn>
             </div>
           </div>}
         </div>
+        {can("orgSettings") && <div style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: 10, paddingTop: 20 }}>
+          {orgCode === "MTX2026TRAQS" ? (
+            <div style={{ fontSize: 12, color: T.textDim }}>This organization can't be deleted.</div>
+          ) : <>
+            {deleteOrgError && <div style={{ fontSize: 12, color: "#ef4444" }}>{deleteOrgError}</div>}
+            {deleteOrgCountdown === null ? (
+              <button onClick={() => { setDeleteOrgError(""); setDeleteOrgCountdown(10); }} style={{ background: "none", border: "none", color: "#ef4444", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font, textDecoration: "underline", textUnderlineOffset: 3 }}>Delete Organization</button>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 10 }}>
+                <div style={{ fontSize: 12, color: T.textDim, maxWidth: 320 }}>
+                  Blocks sign-in for everyone in this organization. Nothing is erased.
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <button onClick={() => { setDeleteOrgCountdown(null); setDeleteOrgError(""); }} disabled={deleteOrgBusy} style={outlineBtnStyle(T.accent)}>Cancel</button>
+                  <button
+                    disabled={deleteOrgCountdown > 0 || deleteOrgBusy}
+                    onClick={async () => {
+                      setDeleteOrgBusy(true); setDeleteOrgError("");
+                      try {
+                        await deleteOrg(getToken, orgCode);
+                        localStorage.removeItem("tq_org_code");
+                        localStorage.removeItem("tq_org_config");
+                        localStorage.removeItem("tq_team_people");
+                        sessionStorage.removeItem("tq_org_code");
+                        sessionStorage.removeItem("tq_org_config");
+                        sessionStorage.removeItem("tq_selected_person");
+                        window.location.reload();
+                      } catch (e) {
+                        setDeleteOrgError(e.message || "Failed to delete organization");
+                        setDeleteOrgBusy(false);
+                      }
+                    }}
+                    style={{ padding: "11px 26px", borderRadius: T.radiusPill, border: "none", background: (deleteOrgCountdown > 0 || deleteOrgBusy) ? T.border : "#ef4444", color: (deleteOrgCountdown > 0 || deleteOrgBusy) ? T.textDim : "#fff", fontSize: 13, fontWeight: 800, cursor: (deleteOrgCountdown > 0 || deleteOrgBusy) ? "not-allowed" : "pointer", fontFamily: T.font, minWidth: 132 }}>
+                    {deleteOrgBusy ? "Deleting…" : deleteOrgCountdown > 0 ? `Confirm in ${deleteOrgCountdown}s` : "Confirm Delete"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </>}
+        </div>}
       </div>
     );
   };
@@ -27563,7 +28281,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 18, justifyContent: "flex-end" }}>
-              <button onClick={() => setSignOffTemplateEditing(null)} style={stGhostBtn}>Cancel</button>
+              <button onClick={() => setSignOffTemplateEditing(null)} style={outlineBtnStyle(T.accent)}>Cancel</button>
               <Btn size="sm" onClick={() => { const name = (ed.name || "").trim(); const steps = (ed.steps || []).map(s => s.trim()).filter(Boolean); if (!name || steps.length === 0) return; if (ed.id) { patchDraft(dd => ({ signOffTemplates: (dd.signOffTemplates || []).map(t => t.id === ed.id ? { ...t, name, steps } : t) })); } else { patchDraft(dd => ({ signOffTemplates: [...(dd.signOffTemplates || []), { id: uid(), name, steps }] })); } setSignOffTemplateEditing(null); }}>{ed.id ? "Save Changes" : "Create Template"}</Btn>
             </div>
           </div>
@@ -27902,7 +28620,15 @@ ${jobsCtx || "No jobs found."}`;
                       </div>
                     </div>
                     <div style={{ position: "relative", height: 104, borderRadius: T.radius, overflow: "hidden", background: dc.bg }}>
-                      <LiquidBackground color={lc} companion={comp} />
+                      {/* Basic tier's untouched default: the signup screen's own four
+                          brand colours, not a single hue + auto companion — the colour
+                          wheel above still starts somewhere (dc.accent) so it has a
+                          value to show, but nothing has been PICKED yet, so the preview
+                          doesn't commit to that one hue either. Picking a colour sets
+                          dc.liquidColor and collapses this to the normal 2-colour mode. */}
+                      {billingTier !== "business" && !dc.liquidColor
+                        ? <LiquidBackground colors={BRAND_BARS.map(b => b.c)} />
+                        : <LiquidBackground color={lc} companion={comp} />}
                     </div>
                   </div>;
                 })()}
@@ -28042,7 +28768,9 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                 </div>
                 <div style={{ flex: 1, minHeight: 0, minWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: "hidden", position: "relative", background: pT.bg }}>
-                  {isCustom && (dc.bgMode || "color") === "liquid" && <LiquidBackground color={dc.liquidColor || dc.accent} companion={companionHue(dc.liquidColor || dc.accent || "#4169e1")} />}
+                  {isCustom && (dc.bgMode || "color") === "liquid" && (billingTier !== "business" && !dc.liquidColor
+                    ? <LiquidBackground colors={BRAND_BARS.map(b => b.c)} />
+                    : <LiquidBackground color={dc.liquidColor || dc.accent} companion={companionHue(dc.liquidColor || dc.accent || "#4169e1")} />)}
                   {pAdaptive && <>
                     <div key={dc.bgImage} aria-hidden="true" style={{ position: "absolute", inset: -40, backgroundImage: `url(${dc.bgImage})`, backgroundSize: "cover", backgroundPosition: "center", animation: "tqFadeOnly 0.35s ease" }} />
                     <div aria-hidden="true" style={{ position: "absolute", inset: 0, background: pT.bg, opacity: 1 - (dc.bgOpacity ?? 100) / 100 }} />
@@ -28286,29 +29014,26 @@ ${jobsCtx || "No jobs found."}`;
         }}
       >
         traqs
-        {/* Two layers, because only ONE bar is meant to track the theme. The
-            art is grey #747070 bars plus a single #38BDF8 bar; a mask over the
-            whole PNG would flatten every bar to the accent. So the grey bars
-            stay a plain <img> with their baked colour, and only the accent bar
-            is a mask box painted in Tc.accent. The two were split pixel-exact
-            from the original, so they recomposite seamlessly.
-            Sized by the PNG's own 1300x1058 ratio — "auto" means nothing to a
-            mask box, which has no intrinsic size. */}
-        <span aria-hidden="true"
-          style={{
-            position: "relative", display: "inline-block",
-            height: ".52em", width: "calc(.52em * 1.2287)",
-            marginLeft: ".07em", transform: "translateY(.01em)", WebkitTextStroke: 0,
-          }}>
-          <img src={TRAQS_BARS_STATIC} alt="" style={{ display: "block", width: "100%", height: "100%" }} />
-          <span style={{
-            position: "absolute", inset: 0, background: Tc.accent,
-            maskImage: `url(${TRAQS_BARS_ACCENT})`, WebkitMaskImage: `url(${TRAQS_BARS_ACCENT})`,
-            maskSize: "contain", WebkitMaskSize: "contain",
-            maskRepeat: "no-repeat", WebkitMaskRepeat: "no-repeat",
-            maskPosition: "center", WebkitMaskPosition: "center",
-          }} />
-        </span>
+        {/* The brand's 4-colour mark (coral/amber/sky/green — same asset the
+            signup/auth screens use, src/brand.jsx), replacing the old
+            grey-bars-plus-one-theme-accent-bar PNG. Fixed brand colours now,
+            not theme-derived, so no per-theme mask layer is needed. */}
+        {/* Sized and positioned to match the "s" glyph's own ink bounds exactly —
+            top of the mark at the top of the "s", bottom at its baseline — rather
+            than the auth lockup's ".52em" x-height ratio, which at this header's
+            smaller fontSize (40 vs the auth screen's 84) left a visible gap
+            against the letters. Measured directly: with Space Grotesk 700 40px,
+            canvas actualBoundingBoxAscent/Descent on "s" gives a 22px glyph
+            (baseline-21 to baseline+1); a zero-size baseline-aligned marker
+            placed the true baseline at screen Y, and the SVG's own rendered
+            rect was matched against it empirically rather than assumed —
+            baseline-alignment's synthesized baseline for a block-level SVG
+            shifts with the element's own height, so a value tuned at one size
+            does not carry over to another. */}
+        <TraqsBars style={{
+          height: ".55em", width: `calc(.55em * ${BARS_ASPECT})`,
+          marginLeft: ".07em", transform: "translateY(.025em)", WebkitTextStroke: 0,
+        }} />
       </span>
       {/* LEFT: Undo / Redo */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
@@ -28535,6 +29260,8 @@ ${jobsCtx || "No jobs found."}`;
             </button>
           );
         })}
+        {/* Divider — separates the main nav from Admin/Settings below it */}
+        <div aria-hidden="true" style={{ height: 1, background: T.border + "55", margin: "6px 12px 6px", opacity: sidebarExpanded ? 1 : 0.4, transition: "opacity 0.2s ease" }} />
         {/* Admin — live worker-status board (admins only) */}
         {isAdmin && (() => {
           const active = view === "admin";
@@ -28576,7 +29303,40 @@ ${jobsCtx || "No jobs found."}`;
               <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
             </button>
           ); };
-          const orgActive = SETTINGS_ORG_CHILDREN.some(c => c.key === settingsSection);
+          // Organization is its own full sidebar page now, not an inline dropdown —
+          // the same "swap the whole nav list" pattern Settings itself uses to
+          // replace the main app nav. settingsOrgExpanded is the page flag; entering
+          // and exiting Settings both reset it (enterSettings/doExitSettings) so a
+          // stale "on the Organization page" state never survives a re-entry.
+          if (settingsOrgExpanded) {
+            return (
+              <div style={settingsNavLayer(true)}>
+                {/* Back — returns to the top-level settings nav, not out of Settings.
+                    No dirty-guard needed: this only changes which nav list renders,
+                    the same as the old dropdown's expand/collapse never guarded either
+                    — navigateSection is what guards, and it still runs on every actual
+                    section click below. */}
+                <button onClick={() => setSettingsOrgExpanded(false)}
+                  onMouseEnter={e => { e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show("Back", e.clientX, e.clientY); }}
+                  onMouseLeave={e => { e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
+                  onMouseDown={() => tipCtx.hide()}
+                  style={navBtn(false, { color: T.textSec, fw: 600, extra: { marginBottom: 6 } })}>
+                  <span style={navIcon}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg></span>
+                  <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis" }}>Back</span>
+                </button>
+                <div aria-hidden="true" style={{ height: 1, background: T.border + "55", margin: "6px 12px 8px", opacity: sidebarExpanded ? 1 : 0.4, transition: "opacity 0.2s ease" }} />
+                {SETTINGS_ORG_CHILDREN.map(c => { const a = settingsSection === c.key; return (
+                  <button key={c.key} ref={el => { navBtnRefs.current["settings:" + c.key] = el; }} onClick={() => navigateSection(c.key)}
+                    onMouseEnter={e => { if (!a) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show(c.label, e.clientX, e.clientY); }}
+                    onMouseLeave={e => { if (!a) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
+                    onMouseDown={() => tipCtx.hide()}
+                    style={navBtn(a)}>
+                    <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.label}</span>
+                  </button>
+                ); })}
+              </div>
+            );
+          }
           return (
             <div style={settingsNavLayer(true)}>
               {/* Back — exits the full-page settings (guards unsaved changes) */}
@@ -28591,35 +29351,17 @@ ${jobsCtx || "No jobs found."}`;
               {/* Divider — separates Back from the settings sections */}
               <div aria-hidden="true" style={{ height: 1, background: T.border + "55", margin: "6px 12px 8px", opacity: sidebarExpanded ? 1 : 0.4, transition: "opacity 0.2s ease" }} />
               {navItem("general", "General", <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>)}
-              {/* Organization + its children are wrapped as ONE child of the nav
-                  layer, with a tight internal gap. Left as siblings they'd each
-                  take the layer's full 8px gap, so the sub-items floated away
-                  from the tab they belong to instead of reading as its contents. */}
-              {can("orgSettings") && <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                <button ref={el => { navBtnRefs.current["settings:org-parent"] = el; }} onClick={() => { if (!sidebarExpanded) setSidebarExpanded(true); setSettingsOrgExpanded(o => !o); }}
-                  onMouseEnter={e => { if (!orgActive) e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show("Organization", e.clientX, e.clientY); }}
-                  onMouseLeave={e => { if (!orgActive) e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
-                  onMouseDown={() => tipCtx.hide()}
-                  style={navBtn(orgActive)}>
-                  <span style={navIcon}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></span>
-                  <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis" }}>Organization</span>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: settingsOrgExpanded ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.18s cubic-bezier(0.4,0,0.2,1)", flexShrink: 0, opacity: sidebarExpanded ? 1 : 0 }}><polyline points="9 18 15 12 9 6"/></svg>
-                </button>
-                <div style={{ display: "grid", gridTemplateRows: settingsOrgExpanded && sidebarExpanded ? "1fr" : "0fr", transition: "grid-template-rows 0.22s cubic-bezier(0.4,0,0.2,1), opacity 0.16s ease", opacity: settingsOrgExpanded && sidebarExpanded ? 1 : 0, pointerEvents: settingsOrgExpanded && sidebarExpanded ? "auto" : "none" }}>
-                  <div style={{ overflow: "hidden", minHeight: 0 }}>
-                    <div style={{ paddingLeft: 14, paddingTop: 2, paddingBottom: 2, display: "flex", flexDirection: "column", gap: 2 }}>
-                      {SETTINGS_ORG_CHILDREN.map(c => { const a = settingsSection === c.key; return (
-                        <button key={c.key} ref={el => { navBtnRefs.current["settings:" + c.key] = el; }} onClick={() => navigateSection(c.key)}
-                          onMouseEnter={e => { if (!a) e.currentTarget.style.background = T.hover; }}
-                          onMouseLeave={e => { if (!a) e.currentTarget.style.background = "transparent"; }}
-                          style={navBtn(a, { h: 34, fs: 12, extra: { width: NAV_W - 14 } })}>
-                          <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.label}</span>
-                        </button>
-                      ); })}
-                    </div>
-                  </div>
-                </div>
-              </div>}
+              {/* Organization now NAVIGATES to its own sidebar page (see the
+                  settingsOrgExpanded branch above) rather than expanding in place. */}
+              {can("orgSettings") && <button ref={el => { navBtnRefs.current["settings:org-parent"] = el; }} onClick={() => setSettingsOrgExpanded(true)}
+                onMouseEnter={e => { e.currentTarget.style.background = T.hover; if (!sidebarExpanded) tipCtx.show("Organization", e.clientX, e.clientY); }}
+                onMouseLeave={e => { e.currentTarget.style.background = "transparent"; tipCtx.hide(); }}
+                onMouseDown={() => tipCtx.hide()}
+                style={navBtn(false)}>
+                <span style={navIcon}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg></span>
+                <span style={{ flex: 1, textAlign: "left", overflow: "hidden", textOverflow: "ellipsis" }}>Organization</span>
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ transform: "rotate(0deg)", flexShrink: 0, opacity: sidebarExpanded ? 1 : 0 }}><polyline points="9 18 15 12 9 6"/></svg>
+              </button>}
               {navItem("customization", "Customization", <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.06 11.9l8.07-8.06a2.85 2.85 0 1 1 4.03 4.03l-8.06 8.08"/><path d="M7.07 14.94c-1.66 0-3 1.35-3 3.02 0 1.33-2.5 1.52-2 2.02 1.08 1.1 2.49 2.02 4 2.02 2.22 0 4-1.8 4-4.04a3.01 3.01 0 0 0-3-3.02z"/></svg>)}
               {/* Divider — sets FAST TRAQS apart from the settings sections */}
               {can("editJobs") && <div aria-hidden="true" style={{ height: 1, background: T.border + "55", margin: "8px 12px 4px", opacity: sidebarExpanded ? 1 : 0.4, transition: "opacity 0.2s ease" }} />}
@@ -28681,27 +29423,23 @@ ${jobsCtx || "No jobs found."}`;
         </div>;
       })()}
 
-      {/* UPGRADE — bottom of Settings, above the org name and profile. Shown only
-          in settings mode, only when the sidebar is open (it is a paragraph of
-          text, not an icon), and only to someone who could actually act on it.
+      {/* UPGRADE — bottom of Settings, above the org name and profile.
 
-          Business is NOT self-serve: this opens a conversation. There is no
-          purchase flow behind it, and provisioning is manual -- which is also
-          how Matrix got its. */}
+          Just the button. The card that was here carried a heading and a
+          feature sentence, which is the comparison modal's job -- saying it
+          twice made the sidebar argue with the dialog it opens.
+
+          Hidden for orgs already on Business: there is nothing to upgrade to,
+          and a live Upgrade button on a paid plan reads as a billing error. */}
       {settingsMode && sidebarExpanded && can("orgSettings") && billingTier !== "business" && (
-        <div style={{ margin: "0 12px 10px", padding: "12px 14px", borderRadius: T.radiusLg,
-          border: `1px solid ${T.accent}55`, background: T.accent + "0e",
-          boxShadow: `0 0 22px ${T.accent}33`, flexShrink: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: T.accent, letterSpacing: "-0.02em" }}>TRAQS Business</div>
-          <div style={{ fontSize: 11, color: T.textDim, marginTop: 4, lineHeight: 1.5 }}>
-            Everything in Basic, plus {BUSINESS_FEATURES.join(", ").toLowerCase()}.
-          </div>
-          <button onClick={() => setUpgradeOpen(true)} style={{ width: "100%", marginTop: 10, padding: "7px 0",
-            borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText,
-            fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
-            Compare plans
-          </button>
-        </div>
+        <button onClick={() => setUpgradeOpen(true)} style={{
+          margin: "0 12px 10px", padding: "9px 0", flexShrink: 0,
+          borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent),
+          color: T.accentText, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+          fontFamily: T.font, boxShadow: `0 0 20px ${T.accent}55`,
+        }}>
+          Upgrade
+        </button>
       )}
       {/* Org name — subtly displayed above the profile, only when sidebar is expanded */}
       <div style={{ padding: "0 16px", flexShrink: 0, overflow: "hidden", maxHeight: sidebarExpanded && orgName ? 22 : 0, opacity: sidebarExpanded && orgName ? 0.55 : 0, transition: "max-height 0.28s cubic-bezier(0.22,1,0.36,1), opacity 0.2s 0.06s ease" }}>
@@ -28734,7 +29472,9 @@ ${jobsCtx || "No jobs found."}`;
       {/* base fills the layer with the page colour so the blurred blobs composite
           over something OPAQUE. Without it, blur() samples the transparent pixels
           at the panel's rounded clip edge and darkens the corners. */}
-      {T.bgMode === "liquid" && <LiquidBackground color={T.liquidColor} companion={T.liquidCompanion} base={T.bg} radius={isMobile ? 0 : SHELL_RADIUS} />}
+      {T.bgMode === "liquid" && (billingTier !== "business" && !T.liquidColor
+        ? <LiquidBackground colors={BRAND_BARS.map(b => b.c)} base={T.bg} radius={isMobile ? 0 : SHELL_RADIUS} />
+        : <LiquidBackground color={T.liquidColor} companion={T.liquidCompanion} base={T.bg} radius={isMobile ? 0 : SHELL_RADIUS} />)}
       {/* Sharp background-image layer for views that DON'T provide their own pinned background.
           Every card/grid view (jobs, schedule, clients, analytics, admin, timestamp)
           renders its own pinned bg inside its scroller (so backdrop-filter can sample it); only
@@ -28765,7 +29505,13 @@ ${jobsCtx || "No jobs found."}`;
           // controls the modal's own chrome, this one controls whether the page
           // behind it is hidden and where the modal is mounted. Setting only the
           // first is what made it render as a bare page with nothing behind it.
-          const modalIsPopup = !!modal && modal.type === "edit" && !isMobile;
+          // "simpleEdit" (Basic's create/edit job dialog) is a small centered
+          // popup, same as "edit" is on desktop — it must NOT trip showModalPage,
+          // which is what was hiding the whole app (opacity:0 + visibility:hidden,
+          // see below) behind it. This is exactly the trap the comment above once
+          // warned about: the type has to be added here, not just wherever the
+          // dialog's own chrome is decided.
+          const modalIsPopup = !!modal && (modal.type === "edit" || modal.type === "simpleEdit") && !isMobile;
           const showModalPage = !!modal && !modalIsPopup;
           // opacity:0 is what actually hides it. `visibility: hidden` alone leaks, because
           // visibility is inherited and a descendant may set `visibility: visible` to win
@@ -28927,7 +29673,7 @@ ${jobsCtx || "No jobs found."}`;
                 <input autoFocus value={orgNameInput} onChange={e => { setOrgNameInput(e.target.value); setOrgNameError(""); }} placeholder="Company name" maxLength={80} style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusPill, border: `1.5px solid ${orgNameError ? "#ef4444" : T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, outline: "none", boxSizing: "border-box", marginBottom: 6, fontFamily: T.font }} />
                 {orgNameError && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 6 }}>{orgNameError}</div>}
                 <div style={{ display: "flex", gap: 6 }}>
-                  <button onClick={() => { setOrgEditing(null); setOrgNameError(""); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                  <button onClick={() => { setOrgEditing(null); setOrgNameError(""); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
                   <button disabled={orgNameSaving || !orgNameInput.trim() || orgNameInput.trim() === orgName} onClick={async () => { const newName = orgNameInput.trim(); if (!newName) return; setOrgNameSaving(true); setOrgNameError(""); try { const res = await updateOrgName(newName, getToken, orgCode); setOrgName(res.config?.name || newName); toast("Organization name saved"); setOrgEditing(null); try { const cur = JSON.parse(sessionStorage.getItem("tq_org_config") || "null") || {}; sessionStorage.setItem("tq_org_config", JSON.stringify({ ...cur, name: newName })); } catch {} } catch (e) { setOrgNameError(e.message || "Failed to update name"); } finally { setOrgNameSaving(false); } }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusPill, border: "none", background: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.border : T.accent, color: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? T.textDim : "#fff", fontSize: 11, fontWeight: 700, cursor: (!orgNameInput.trim() || orgNameInput.trim() === orgName) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgNameSaving ? 0.7 : 1 }}>{orgNameSaving ? "Saving…" : "Save"}</button>
                 </div>
               </div>}
@@ -28946,7 +29692,7 @@ ${jobsCtx || "No jobs found."}`;
                 <input autoFocus value={orgCodeInput} onChange={e => { setOrgCodeInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "")); setOrgCodeError(""); }} placeholder="New code" maxLength={20} style={{ width: "100%", padding: "6px 10px", borderRadius: T.radiusPill, border: `1.5px solid ${orgCodeError ? "#ef4444" : T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 13, fontFamily: T.mono, fontWeight: 700, letterSpacing: "-0.045em", outline: "none", boxSizing: "border-box", marginBottom: 6, textTransform: "uppercase" }} />
                 {orgCodeError && <div style={{ fontSize: 11, color: "#ef4444", marginBottom: 6 }}>{orgCodeError}</div>}
                 <div style={{ display: "flex", gap: 6 }}>
-                  <button onClick={() => { setOrgEditing(null); setOrgCodeError(""); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+                  <button onClick={() => { setOrgEditing(null); setOrgCodeError(""); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
                   <button disabled={orgCodeSaving || !orgCodeInput.trim() || orgCodeInput.trim() === orgCode} onClick={async () => { const newCode = orgCodeInput.trim(); if (!newCode) return; setOrgCodeSaving(true); setOrgCodeError(""); try { await updateOrgCode(newCode, getToken, orgCode); const config = await fetchOrgConfig(newCode); sessionStorage.setItem("tq_org_code", newCode); sessionStorage.setItem("tq_org_config", JSON.stringify(config)); window.location.reload(); } catch (e) { setOrgCodeError(e.message || "Failed to update org code"); } finally { setOrgCodeSaving(false); } }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusPill, border: "none", background: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.border : T.accent, color: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? T.textDim : T.accentText, fontSize: 11, fontWeight: 700, cursor: (!orgCodeInput.trim() || orgCodeInput.trim() === orgCode) ? "not-allowed" : "pointer", fontFamily: T.font, opacity: orgCodeSaving ? 0.7 : 1 }}>{orgCodeSaving ? "Saving…" : "Save"}</button>
                 </div>
               </div>}
@@ -29225,7 +29971,9 @@ ${jobsCtx || "No jobs found."}`;
                       SHELL_RADIUS: the mock is about a fifth of the real panel's size, so the
                       panel's corner copied literally would read as a blob at this scale. */}
                   <div style={{ flex: 1, minHeight: 0, minWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: "hidden", position: "relative", background: pT.bg }}>
-                  {isCustom && (dc.bgMode || "color") === "liquid" && <LiquidBackground color={dc.liquidColor || dc.accent} companion={companionHue(dc.liquidColor || dc.accent || "#4169e1")} />}
+                  {isCustom && (dc.bgMode || "color") === "liquid" && (billingTier !== "business" && !dc.liquidColor
+                    ? <LiquidBackground colors={BRAND_BARS.map(b => b.c)} />
+                    : <LiquidBackground color={dc.liquidColor || dc.accent} companion={companionHue(dc.liquidColor || dc.accent || "#4169e1")} />)}
                     {pAdaptive && <>
                       {/* Sharp background image — blur is applied via backdropFilter on each card element
                           so non-card areas show the image cleanly, and only behind cards does the frosted
@@ -29361,7 +30109,7 @@ ${jobsCtx || "No jobs found."}`;
           {/* Footer */}
           <div style={{ padding: "14px 22px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
             <span style={{ fontSize: 12, color: T.textDim, flex: 1 }}>Changes preview live and apply only when you save.</span>
-            <Btn variant="ghost" onClick={() => setCustomizationOpen(false)}>Cancel</Btn>
+            <Btn variant="secondary" onClick={() => setCustomizationOpen(false)}>Cancel</Btn>
             <Btn onClick={() => { setThemeMode(draftMode); if (draftMode === "custom") setCustomTheme(draftCustom); setSidebarMode(draftSidebar); setCustomizationOpen(false); }}>Save Changes</Btn>
           </div>
         </div>
@@ -29548,7 +30296,7 @@ ${jobsCtx || "No jobs found."}`;
               {exportSelRows.size > 0 ? <><strong style={{ color: T.accent }}>{exportSelRows.size}</strong> job{exportSelRows.size !== 1 ? "s" : ""} selected for export</> : <><strong style={{ color: T.text }}>{visibleJobs.length}</strong> job{visibleJobs.length !== 1 ? "s" : ""} — click rows to select a subset</>}
             </span>
             <div style={{ flex: 1 }} />
-            <button onClick={closeExportSheet} style={{ padding: "7px 18px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+            <button onClick={closeExportSheet} style={{ padding: "7px 18px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
           </div>
         </div>
       </div>;
@@ -29881,7 +30629,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ fontSize: 12, color: T.textDim, marginBottom: 16 }}>Give this export layout a name so you can reuse it later.</div>
           <input autoFocus value={exportTplName} onChange={e => setExportTplName(e.target.value)} onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") setExportTplNameOpen(false); }} placeholder="Template name" style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 14, fontFamily: T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 20 }}>
-            <button onClick={() => setExportTplNameOpen(false)} style={{ padding: "8px 16px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+            <button onClick={() => setExportTplNameOpen(false)} style={{ padding: "8px 16px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
             <button onClick={commit} disabled={!exportTplName.trim()} style={{ padding: "8px 16px", borderRadius: T.radiusPill, border: "none", background: exportTplName.trim() ? T.accent : T.border, color: exportTplName.trim() ? T.accentText : T.textDim, fontSize: 13, fontWeight: 700, cursor: exportTplName.trim() ? "pointer" : "default", fontFamily: T.font }}>Save</button>
           </div>
         </div>
@@ -29962,7 +30710,7 @@ ${jobsCtx || "No jobs found."}`;
           const body = <div style={{ background: T.surface, borderTop: `1px solid ${T.border}`, padding: "8px 10px", display: "flex", flexDirection: "column", gap: 5 }}>
             <div key={optEditSeq} className="tq-opt-scroll" style={{ display: "flex", flexDirection: "column", gap: 5, maxHeight: 280 }}>{rows}</div>
             <div style={{ display: "flex", gap: 6, marginTop: 4, paddingTop: 8, borderTop: `1px solid ${T.border}`, ...rowAnim(draft.length + 2) }}>
-              <button onClick={closeEditor} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.bg} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>Cancel</button>
+              <button onClick={closeEditor} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }} onMouseEnter={e => e.currentTarget.style.background = T.hover} onMouseLeave={e => e.currentTarget.style.background = T.card}>Cancel</button>
               <button onClick={save} disabled={!dirty} title={dirty ? "Apply changes" : "No changes to save"} style={{ flex: 1, padding: "7px 0", borderRadius: T.radiusPill, border: "none", background: dirty ? T.accent : T.border, color: dirty ? T.accentText : T.textDim, fontSize: 12, fontWeight: 700, cursor: dirty ? "pointer" : "default", fontFamily: T.font, opacity: dirty ? 1 : 0.7 }}>Save{dirty ? " •" : ""}</button>
             </div>
           </div>;
@@ -30524,7 +31272,7 @@ ${jobsCtx || "No jobs found."}`;
         {/* Cancel and a destructive confirm shouldn't sit 8px apart — that's close
             enough to mis-tap. Also spaced off the date field above it. */}
         <div style={{ display: "flex", gap: 14, justifyContent: "flex-end", marginTop: 18 }}>
-          <button onClick={() => setClockTimeModal(null)} style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+          <button onClick={() => setClockTimeModal(null)} style={{ padding: "9px 18px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
           <button onClick={async () => {
             const { personId, action, ts } = clockTimeModal;
             if (!ts) return;
@@ -30568,7 +31316,7 @@ ${jobsCtx || "No jobs found."}`;
           A detailed notification will be sent to all admins for <strong style={{ color: T.text }}>{finishApproval.title}</strong>. They can approve or decline directly inside TRAQS.
         </div>
         <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={() => setFinishApproval(null)} style={{ flex: 1, padding: "10px", border: `1px solid ${T.border}`, borderRadius: T.radiusPill, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+          <button onClick={() => setFinishApproval(null)} style={{ flex: 1, padding: "10px", border: `1.5px solid ${T.accent}`, borderRadius: T.radiusPill, background: T.card, color: T.accent, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
           <button onClick={() => { requestFinishApproval(finishApproval.id); setFinishApproval(null); }} style={{ flex: 1, padding: "11px", border: "none", borderRadius: T.radiusPill, background: brandGrad(T.accent), color: T.accentText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Send Request</button>
         </div>
       </div>
@@ -30636,7 +31384,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           </div>
           <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={() => setSplitModal(null)} style={{ flex: 1, padding: "10px", border: `1px solid ${T.border}`, borderRadius: T.radiusPill, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+            <button onClick={() => setSplitModal(null)} style={{ flex: 1, padding: "10px", border: `1.5px solid ${T.accent}`, borderRadius: T.radiusPill, background: T.card, color: T.accent, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
             <button onClick={doSplit} style={{ flex: 1, padding: "10px", border: "none", borderRadius: T.radiusPill, background: brandGrad(T.accent), color: T.accentText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Split</button>
           </div>
         </div>
@@ -30793,7 +31541,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           </div>
           <div style={{ display: "flex", gap: 10 }}>
-            <button onClick={() => setWorkedHoursModal(null)} style={{ flex: 1, padding: "10px", border: `1px solid ${T.border}`, borderRadius: T.radiusPill, background: "transparent", color: T.text, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+            <button onClick={() => setWorkedHoursModal(null)} style={{ flex: 1, padding: "10px", border: `1.5px solid ${T.accent}`, borderRadius: T.radiusPill, background: T.card, color: T.accent, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
             <button onClick={applyWorked} style={{ flex: 1, padding: "10px", border: "none", borderRadius: T.radiusPill, background: brandGrad(T.accent), color: T.accentText, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Set</button>
           </div>
         </div>
@@ -31068,7 +31816,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
             <div />
             <div style={{ display: "flex", gap: 10 }}>
-              <Btn variant="ghost" onClick={() => setApprovalModal(null)}>Cancel</Btn>
+              <Btn variant="secondary" onClick={() => setApprovalModal(null)}>Cancel</Btn>
               <Btn onClick={save} disabled={!valid}>Save</Btn>
             </div>
           </div>
@@ -31133,7 +31881,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-              <button onClick={() => setSignOffTemplateEditing(null)} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+              <button onClick={() => setSignOffTemplateEditing(null)} style={{ flex: 1, padding: "9px 0", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
               <button onClick={() => {
                 const name = (signOffTemplateEditing.name || "").trim();
                 const steps = (signOffTemplateEditing.steps || []).map(s => s.trim()).filter(Boolean);
@@ -31233,7 +31981,7 @@ ${jobsCtx || "No jobs found."}`;
               ))}
             </div>
             <div style={{ padding: "8px 14px 14px", display: "flex", gap: 8 }}>
-              <button onClick={() => setPendingActions(null)} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+              <button onClick={() => setPendingActions(null)} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
               <button onClick={executeConfirmedActions} style={{ flex: 2, padding: "8px 0", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Confirm & Apply</button>
             </div>
           </div>
@@ -31265,7 +32013,7 @@ ${jobsCtx || "No jobs found."}`;
             placeholder='e.g. Standard 3-Op, Riverside Job' />
           <div style={{ display: "flex", gap: 10, marginTop: 16 }}>
             <button onClick={() => setSaveTemplateModal(false)} style={{ flex: 1, padding: "10px 0", borderRadius: T.radiusPill,
-              border: `1px solid ${T.border}`, background: "transparent", color: T.textSec,
+              border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent,
               fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
             <button disabled={!templateNameInput.trim()}
               onClick={() => {
@@ -31556,7 +32304,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
             <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic", display: "flex", alignItems: "center", gap: 4 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>You'll review extracted jobs before they're added.</span>
             <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-              <Btn size="sm" variant="ghost" onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }}>Cancel</Btn>
+              <Btn size="sm" variant="secondary" onClick={() => { if (!uploadProcessing) { setUploadModal(false); setFastTraqsPhase("intro"); setUploadResult(null); setUploadText(""); setUploadFiles([]); } }}>Cancel</Btn>
               <Btn size="sm" onClick={processUpload} disabled={uploadProcessing || (uploadFiles.length === 0 && !uploadText.trim())}>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                   {uploadProcessing
@@ -31747,7 +32495,7 @@ ${jobsCtx || "No jobs found."}`;
           <br /><span style={{ color: T.danger, fontSize: 12 }}>This cannot be undone.</span>
         </p>
         <div style={{ display: "flex", gap: 12 }}>
-          <button onClick={() => setConfirmClearChat(null)} style={{ flex: 1, padding: "11px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+          <button onClick={() => setConfirmClearChat(null)} style={{ flex: 1, padding: "11px 0", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
           <button onClick={async () => {
             const { threadKey, isGroup, groupId } = confirmClearChat;
             try { await deleteThread(threadKey, getToken, orgCode); } catch {}
@@ -32094,9 +32842,11 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ fontSize: 11, color: T.textDim }}>{fm(it.start)} → {fm(it.end)}{it.hpd > 0 ? ` · ${it.hpd}h/day` : ""}</div>
             </div>
             <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
-              {can("editJobs") && <Tip label="Edit"><button onClick={() => { setCtxMenu(null); openEdit(it); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></Tip>}
+              {/* Basic: this pencil "Edit" folds into the Reschedule→Edit context-menu
+                  item below, which opens the simple modal — no separate button. */}
+              {billingTier === "business" && can("editJobs") && <Tip label="Edit"><button onClick={() => { setCtxMenu(null); openEdit(it); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></Tip>}
               <Tip label="Open Chat"><button onClick={() => { openChat(it); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0.9 0.9 22.2 22.2" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5c0 4.29-4.04 7.76-9 7.76-1.08 0-2.12-.17-3.08-.47L4.2 20.8l1.2-3.46C3.9 15.8 3 13.8 3 11.5 3 7.3 7 3.8 12 3.8s9 3.47 9 7.7z"/></svg></button></Tip>
-              {can("editJobs") && <Tip label="Send Reminder"><button onClick={() => { setReminderModal({ item: it }); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button></Tip>}
+              {billingTier === "business" && can("editJobs") && <Tip label="Send Reminder"><button onClick={() => { setReminderModal({ item: it }); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button></Tip>}
               {showDepToggle && <button
                 onClick={(e) => { e.stopPropagation(); e.preventDefault(); setTasks(prev => { const next = prev.map(job => ({ ...job, subs: (job.subs || []).map(panel => { if (panel.id !== panelId) return panel; const siblings = panel.subs || []; const allSubIds = siblings.map(s => s.id); if (toggleNext === "unlocked") return { ...panel, depsMode: "unlocked", subs: siblings.map(s => ({ ...s, deps: allSubIds.filter(id => id !== s.id) })) }; if (toggleNext === "locked") return { ...panel, depsMode: "locked" }; return { ...panel, depsMode: undefined, subs: siblings.map(s => ({ ...s, deps: [] })) }; }) })); saveTasks(next, getToken, orgCode).catch(console.warn); toast("Dependencies updated"); return next; }); }}
                 title={toggleTitle}
@@ -32114,8 +32864,10 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>;
       })()}
-      {/* View Details */}
-      <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>} label="View Details" onClick={() => {
+      {/* View Details — Business only. Basic has no Job Details page at all ("its
+          just showing visually what it is" — nothing left to show there once a
+          job is just a name/team/day/time). */}
+      {billingTier === "business" && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>} label="View Details" onClick={() => {
         // Schedule (team/gantt) bars are ops/panels — resolve up to the parent JOB so this opens
         // the same full job-details page as the job list, not just the op/panel detail.
         let target = it;
@@ -32125,18 +32877,22 @@ ${jobsCtx || "No jobs found."}`;
           if (job) target = job;
         }
         openDetail(target); setCtxMenu(null);
-      }} animIdx={ci()} />
+      }} animIdx={ci()} />}
       {/* Take me to schedule — jump to this job on the schedule and highlight it */}
       <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="12" cy="15" r="2"/></svg>} label="Take me to schedule" sub="Jump to this job on the schedule" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } setCtxMenu(null); if (job) goToScheduleJob(job.id); }} animIdx={ci()} />
       {/* Add/Edit Dependencies — ops with sibling ops */}
       {isOp && (() => { let panel = null, parentJobId = null; for (const job of tasks) { for (const pnl of (job.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { panel = pnl; parentJobId = job.id; break; } } if (panel) break; } return panel && (panel.subs||[]).length >= 2 ? <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>} label="Add/Edit Dependencies" sub="Manage dependency links between sub-ops" onClick={() => { setCtxMenu(null); setDepsModal({ item: it, panelSubs: panel.subs||[], panelId: panel.id, jobId: parentJobId, panelTitle: panel.title, depsMode: panel.depsMode||"unlocked" }); }} animIdx={ci()} /> : null; })()}
       {/* Reschedule */}
-      {can("editJobs") && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01"/></svg>} label="Reschedule" sub="Reopen job to pick a new start date" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } if (!job) return; setModalStep(2); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setRescheduleSelection((job.subs || []).map(p => p.id)); setModal({ type: "edit", data: { ...job, isReschedule: true, _rescheduleStartDate: TD }, parentId: null }); setCtxMenu(null); }} animIdx={ci()} />}
+      {/* Reschedule (Business) / Edit (Basic) — Basic has no multi-step wizard to
+          reopen, so this becomes the one edit surface: same job-resolution logic,
+          opens the simple modal pre-filled for a full edit (name/team/day/time)
+          instead. Folds in what the separate pencil "Edit" button did on Basic. */}
+      {can("editJobs") && (billingTier === "business" ? <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01"/></svg>} label="Reschedule" sub="Reopen job to pick a new start date" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } if (!job) return; setModalStep(2); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setRescheduleSelection((job.subs || []).map(p => p.id)); setModal({ type: "edit", data: { ...job, isReschedule: true, _rescheduleStartDate: TD }, parentId: null }); setCtxMenu(null); }} animIdx={ci()} /> : <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>} label="Edit" sub="Change name, team, day or time" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } if (!job) return; openSimpleEditForJob(job); setCtxMenu(null); }} animIdx={ci()} />)}
       {/* Split Job */}
       {can("editJobs") && isOp && (it.hpd || 0) > 1 && it.status !== "Finished" && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>} label="Split Job" sub="Divide this op into two at a set hour" onClick={() => { let panel = null, parentJob = null, freshOp = null; for (const j of tasks) { for (const pnl of (j.subs||[])) { const found = (pnl.subs||[]).find(o => o.id === it.id); if (found) { panel = pnl; parentJob = j; freshOp = found; break; } } if (panel) break; } if (!panel || !parentJob || !freshOp) return; setSplitHour(Math.round((freshOp.hpd || productiveHoursPerDay) / 2)); setSplitModal({ op: freshOp, panel, parentJob }); setCtxMenu(null); }} animIdx={ci()} />}
       {can("editJobs") && isOp && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 13.5"/></svg>} label="Set Worked Hours" sub="Manually mark hours done (greys out that portion)" onClick={() => { let panel = null, parentJob = null, freshOp = null; for (const j of tasks) { for (const pnl of (j.subs||[])) { const found = (pnl.subs||[]).find(o => o.id === it.id); if (found) { panel = pnl; parentJob = j; freshOp = found; break; } } if (panel) break; } if (!panel || !parentJob || !freshOp) return; setWorkedHoursInput(Math.round((Math.max(freshOp.loggedHours || 0, producedFor(freshOp)) + liveOpHours(freshOp)) * 100) / 100); setWorkedHoursWho(String((freshOp.team || [])[0] ?? "")); setWorkedHoursDate(TD); setWorkedHoursModal({ op: freshOp, panel, parentJob }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Request Completion — lowest level bar with no children */}
-      {liveChildCount === 0 && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>} label="Request Completion" sub="Send to all admins for review and approval" onClick={() => { setFinishApproval({ id: it.id, pid: it.pid || null, title: it.title, jobNumber: it.jobNumber || null }); setCtxMenu(null); }} animIdx={ci()} />}
+      {billingTier === "business" && liveChildCount === 0 && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>} label="Request Completion" sub="Send to all admins for review and approval" onClick={() => { setFinishApproval({ id: it.id, pid: it.pid || null, title: it.title, jobNumber: it.jobNumber || null }); setCtxMenu(null); }} animIdx={ci()} />}
       {/* Complete Now (admin) — the counterpart to Request Completion directly above it:
           same outcome, without the approval round-trip. Sits last before the Delete
           divider so the two admin-only destructive-ish actions group together.
@@ -32144,7 +32900,7 @@ ${jobsCtx || "No jobs found."}`;
           No liveChildCount guard, unlike Request Completion: completing a job or panel
           cascades Finished to everything under it, so it is useful precisely at the levels
           a request cannot be raised from. */}
-      {canQuickComplete && it.status !== "Finished" && <CtxMenuItem
+      {billingTier === "business" && canQuickComplete && it.status !== "Finished" && <CtxMenuItem
         icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>}
         label="Complete Now"
         sub={(it.subs || []).length ? "Admin — marks this and everything under it complete, no approval" : "Admin — marks complete without an approval request"}
@@ -32230,7 +32986,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ marginBottom:8 }} />
           </>}
           <div style={{ display:"flex",gap:8 }}>
-            <button onClick={()=>setDepsModal(null)} style={{ flex:1,padding:"9px",borderRadius:T.radiusSm,border:`1px solid ${T.border}`,background:"transparent",color:T.text,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:T.font }}>Cancel</button>
+            <button onClick={()=>setDepsModal(null)} style={{ flex:1,padding:"9px",borderRadius:T.radiusSm,border: `1.5px solid ${T.accent}`,background: T.card,color: T.accent,fontSize:13,fontWeight:600,cursor:"pointer",fontFamily:T.font }}>Cancel</button>
             <button onClick={save} style={{ flex:2,padding:"9px",borderRadius:T.radiusSm,border:"none",background:T.accent,color:T.accentText,fontSize:13,fontWeight:700,cursor:"pointer",fontFamily:T.font }}>Save</button>
           </div>
         </div>
@@ -32287,7 +33043,7 @@ ${jobsCtx || "No jobs found."}`;
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => setQuickAddSub(null)} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 13, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+          <button onClick={() => setQuickAddSub(null)} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 13, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
           <button onClick={() => {
             if (!quickAddSub.title.trim()) return;
             const newItem = { id: uid(), title: quickAddSub.title.trim(), start: quickAddSub.start, end: quickAddSub.end, status: "Not Started", pri: "Medium", team: quickAddSub.team || [], hpd: 7.5, notes: "", deps: [] };
@@ -32376,7 +33132,7 @@ ${jobsCtx || "No jobs found."}`;
             {/* Delete lives on the profile page, not in the editor. Cancel takes the
                 far-left slot it used to hold, leaving Save at the right — the same
                 split the Edit Job footer uses. */}
-            <Btn variant="ghost" onClick={closeClientEdit} style={{ marginRight: "auto" }}>Cancel</Btn>
+            <Btn variant="secondary" onClick={closeClientEdit} style={{ marginRight: "auto" }}>Cancel</Btn>
             <Btn onClick={() => saveClient(ed)}>Save Client</Btn>
           </div>
           </div>
@@ -32497,7 +33253,7 @@ ${jobsCtx || "No jobs found."}`;
               {invalid && <div style={{ marginBottom: 10, padding: "8px 12px", background: T.danger + "12", border: `1px solid ${T.danger}44`, borderRadius: T.radiusXs, fontSize: 12, color: T.danger, fontWeight: 500 }}>{msg}</div>}
               <div style={{ display: "flex", gap: 12, justifyContent: "space-between" }}>
                 <div>{ed.id && <Btn variant="danger" onClick={() => { delPerson(ed.id); setPersonModal(null); }}>Delete Member</Btn>}</div>
-                <div style={{ display: "flex", gap: 12 }}><Btn variant="ghost" onClick={() => setPersonModal(null)}>Cancel</Btn><Btn onClick={() => savePerson(ed)} disabled={invalid}>Save</Btn></div>
+                <div style={{ display: "flex", gap: 12 }}><Btn variant="secondary" onClick={() => setPersonModal(null)}>Cancel</Btn><Btn onClick={() => savePerson(ed)} disabled={invalid}>Save</Btn></div>
               </div>
             </>;
           })()}
@@ -32535,7 +33291,7 @@ ${jobsCtx || "No jobs found."}`;
           <input value={timeOffEdit.reason} onChange={e => setTimeOffEdit(p => ({ ...p, reason: e.target.value }))} placeholder="Vacation, sick leave, etc." style={{ width: "100%", padding: "10px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box" }} />
         </div>
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <Btn variant="ghost" onClick={() => setTimeOffEdit(null)}>Cancel</Btn>
+          <Btn variant="secondary" onClick={() => setTimeOffEdit(null)}>Cancel</Btn>
           <Btn onClick={() => { updTimeOff(timeOffEdit.personId, timeOffEdit.idx, { start: timeOffEdit.start, end: timeOffEdit.end, reason: timeOffEdit.reason, type: timeOffEdit.type }); syncTimeOffEntry({ ...timeOffEntryAt(timeOffEdit.personId, timeOffEdit.idx), start: timeOffEdit.start, end: timeOffEdit.end, reason: timeOffEdit.reason, type: timeOffEdit.type }); setTimeOffEdit(null); }}>Save</Btn>
         </div>
       </div>
@@ -32559,7 +33315,7 @@ ${jobsCtx || "No jobs found."}`;
               : `You are signed in as ${loggedInUser?.name || ""}. Are you sure you want to log out?`}
           </p>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <button onClick={() => setConfirmLogout(false)} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+            <button onClick={() => setConfirmLogout(false)} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
             <button onClick={() => { setConfirmLogout(false); handleLogout(); }} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "none", background: "#ef4444", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Log Out</button>
           </div>
         </div>
@@ -32575,7 +33331,7 @@ ${jobsCtx || "No jobs found."}`;
           <span style={{ fontSize: 15, fontWeight: 700, color: T.text }}>{templateDeleteConfirm.name}</span>
         </div>
         <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-          <Btn variant="ghost" onClick={() => setTemplateDeleteConfirm(null)} style={{ minWidth: 100 }}>Cancel</Btn>
+          <Btn variant="secondary" onClick={() => setTemplateDeleteConfirm(null)} style={{ minWidth: 100 }}>Cancel</Btn>
           <Btn variant="danger" onClick={() => { deleteTemplate(templateDeleteConfirm.id); setTemplateDeleteConfirm(null); }} style={{ minWidth: 100, background: T.danger, color: "#fff", border: "none" }}>Delete</Btn>
         </div>
       </div>
@@ -32593,7 +33349,7 @@ ${jobsCtx || "No jobs found."}`;
           <span style={{ display: "block", fontSize: 12, color: T.textDim, marginTop: 4 }}>All subtasks, dependencies, and associated data will be permanently removed.</span>
         </div>
         <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-          <Btn variant="ghost" onClick={() => setConfirmDelete(null)} style={{ minWidth: 120 }}>Cancel</Btn>
+          <Btn variant="secondary" onClick={() => setConfirmDelete(null)} style={{ minWidth: 120 }}>Cancel</Btn>
           <Btn variant="danger" onClick={() => { delTask(confirmDelete.id, confirmDelete.pid); if (confirmDelete.extra) confirmDelete.extra(); setConfirmDelete(null); }} style={{ minWidth: 120, background: T.danger, color: "#fff", border: "none" }}>Delete Forever</Btn>
         </div>
       </div>
@@ -32628,7 +33384,7 @@ ${jobsCtx || "No jobs found."}`;
             {started && <div style={{ fontSize: 12, color: T.textDim, marginTop: 6 }}>Since {started.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} · {elapsed} so far</div>}
           </div>
           <div style={{ display: "flex", gap: 12 }}>
-            <button onClick={() => setConfirmEndJob(null)} disabled={endJobBusy} style={{ flex: 1, padding: "11px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 14, fontWeight: 600, cursor: endJobBusy ? "default" : "pointer", fontFamily: T.font, opacity: endJobBusy ? 0.6 : 1 }}>Cancel</button>
+            <button onClick={() => setConfirmEndJob(null)} disabled={endJobBusy} style={{ flex: 1, padding: "11px 0", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 14, fontWeight: 600, cursor: endJobBusy ? "default" : "pointer", fontFamily: T.font, opacity: endJobBusy ? 0.6 : 1 }}>Cancel</button>
             <button onClick={doAdminEndJobClock} disabled={endJobBusy} style={{ flex: 1, padding: "11px 0", borderRadius: T.radiusPill, border: "none", background: T.danger, color: "#fff", fontSize: 14, fontWeight: 700, cursor: endJobBusy ? "default" : "pointer", fontFamily: T.font, opacity: endJobBusy ? 0.7 : 1 }}>{endJobBusy ? "Ending…" : "End Job"}</button>
           </div>
         </div>
@@ -32660,7 +33416,7 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
           {/* A refusal has nothing to confirm, so it shows one button. Offering "Cancel / Yes,
               Move It" for a message that just said no would invite the move it refused. */}
-          {!confirmMove.ackOnly && <Btn variant="ghost" onClick={() => { if (confirmMove.onCancel) confirmMove.onCancel(); }} style={{ minWidth: 120 }}>Cancel</Btn>}
+          {!confirmMove.ackOnly && <Btn variant="secondary" onClick={() => { if (confirmMove.onCancel) confirmMove.onCancel(); }} style={{ minWidth: 120 }}>Cancel</Btn>}
           <Btn onClick={() => { if (confirmMove.onConfirm) confirmMove.onConfirm(); }} style={{ minWidth: 120 }}>{confirmMove.confirmLabel || "Yes, Move It"}</Btn>
         </div>
       </div>
@@ -32742,7 +33498,7 @@ ${jobsCtx || "No jobs found."}`;
 
           {/* Footer */}
           <div style={{ padding: "16px 28px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 10, background: T.card }}>
-            <Btn variant="ghost" onClick={() => setOptimizePreview(null)} style={{ flex: 1 }}>Cancel</Btn>
+            <Btn variant="secondary" onClick={() => setOptimizePreview(null)} style={{ flex: 1 }}>Cancel</Btn>
             <Btn onClick={() => {
               setTasks(newTasks);
               setOptimizePreview(null);
@@ -32769,7 +33525,7 @@ ${jobsCtx || "No jobs found."}`;
           style={{ width: "100%", padding: "10px 14px", borderRadius: 16, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 14, fontFamily: T.font, resize: "vertical", outline: "none", boxSizing: "border-box", lineHeight: 1.6 }}
         />
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
-          <Btn variant="ghost" onClick={() => setEditNotesModal(null)}>Cancel</Btn>
+          <Btn variant="secondary" onClick={() => setEditNotesModal(null)}>Cancel</Btn>
           <Btn onClick={() => {
             updTask(editNotesModal.op.id, { notes: editNotesModal.notes }, editNotesModal.panelId);
             setEditNotesModal(null);
@@ -32843,7 +33599,7 @@ ${jobsCtx || "No jobs found."}`;
           </button>}
 
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <Btn variant="ghost" onClick={() => setRescheduleModal(null)}>Cancel</Btn>
+            <Btn variant="secondary" onClick={() => setRescheduleModal(null)}>Cancel</Btn>
             <Btn onClick={() => {
               const movedByName = loggedInUser ? loggedInUser.name : "Admin";
               const personId = (op.team || [])[0];
@@ -32907,7 +33663,7 @@ ${jobsCtx || "No jobs found."}`;
             <Btn onClick={() => confirmPush.onConfirmSingle()} style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, color: T.text }}>Move Just This Job</Btn>
             <Btn onClick={() => confirmPush.onConfirm()} style={{ flex: 1, background: "#f59e0b", border: "none" }}>Move All Jobs</Btn>
           </div>
-          <Btn variant="ghost" onClick={() => confirmPush.onCancel()} style={{ width: "100%" }}>Cancel</Btn>
+          <Btn variant="secondary" onClick={() => confirmPush.onCancel()} style={{ width: "100%" }}>Cancel</Btn>
         </div>
       </div>
     </div>}</FadeOnClose>
@@ -32919,7 +33675,7 @@ ${jobsCtx || "No jobs found."}`;
         <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 19, fontWeight: 700, textAlign: "center" }}>Delete {selBars.size} {selBars.size === 1 ? "item" : "items"}?</h3>
         <p style={{ margin: "0 0 24px", fontSize: 13, color: T.textSec, textAlign: "center", lineHeight: 1.55 }}>This will permanently remove the selected bars from the schedule. This action cannot be undone.</p>
         <div style={{ display: "flex", gap: 10 }}>
-          <Btn variant="ghost" style={{ flex: 1 }} onClick={() => setBarDeleteConfirmOpen(false)}>Cancel</Btn>
+          <Btn variant="secondary" style={{ flex: 1 }} onClick={() => setBarDeleteConfirmOpen(false)}>Cancel</Btn>
           <Btn style={{ flex: 1 }} onClick={() => {
             const ids = selBars;
             setTasks(prev => prev.map(job => ({ ...job, subs: (job.subs || []).filter(panel => !ids.has(panel.id)).map(panel => ({ ...panel, subs: (panel.subs || []).filter(op => !ids.has(op.id)) })) })));
@@ -32967,7 +33723,7 @@ ${jobsCtx || "No jobs found."}`;
           <textarea value={m.body || ""} onChange={e => set({ body: e.target.value })} rows={5} placeholder="What happened, what was agreed, what to follow up on…" style={{ ...field, resize: "vertical", lineHeight: 1.55, marginBottom: 22 }} />
 
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <Btn variant="ghost" onClick={() => setEmpNoteModal(null)}>Cancel</Btn>
+            <Btn variant="secondary" onClick={() => setEmpNoteModal(null)}>Cancel</Btn>
             <Btn onClick={saveEmpNote} disabled={!m.title.trim() || empNoteSaving}>{empNoteSaving ? "Saving…" : "Save"}</Btn>
           </div>
         </div>
@@ -33010,7 +33766,7 @@ ${jobsCtx || "No jobs found."}`;
           })}
         </div>
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <Btn variant="ghost" onClick={() => { setNewGroupModal(false); setNewGroupPeople([]); setNewGroupName(""); }}>Cancel</Btn>
+          <Btn variant="secondary" onClick={() => { setNewGroupModal(false); setNewGroupPeople([]); setNewGroupName(""); }}>Cancel</Btn>
           <Btn onClick={saveNewGroup} disabled={!newGroupPeople.length || newGroupSaving}>{newGroupSaving ? "Creating…" : "Create Group"}</Btn>
         </div>
       </div>
@@ -33052,7 +33808,7 @@ ${jobsCtx || "No jobs found."}`;
           })}
         </div>
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-          <Btn variant="ghost" onClick={() => setEditGroupModal(null)}>Cancel</Btn>
+          <Btn variant="secondary" onClick={() => setEditGroupModal(null)}>Cancel</Btn>
           <Btn onClick={saveEditGroup} disabled={!editGroupModal.memberIds.length}>Save Changes</Btn>
         </div>
       </div>
@@ -33526,7 +34282,7 @@ ${jobsCtx || "No jobs found."}`;
                 left, Save far right. The overlay keeps its divider, its own
                 padding and the right-aligned pair. */}
             <div style={{ padding: _ejPage ? "4px 0 0" : "18px 32px", borderTop: _ejPage ? "none" : `1px solid ${T.border}`, display: "flex", justifyContent: _ejPage ? "space-between" : "flex-end", gap: 10, flexShrink: 0 }}>
-              <button onClick={closeEditJob} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "1px solid transparent", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+              <button onClick={closeEditJob} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
               <button onClick={saveEditJob} disabled={!ej.title.trim()} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "none", background: ej.title.trim() ? T.accent : T.border, color: ej.title.trim() ? T.accentText : T.textDim, fontSize: 13, fontWeight: 700, cursor: ej.title.trim() ? "pointer" : "not-allowed", fontFamily: T.font, transition: "background 0.15s" }}>Save</button>
             </div>
             </div>
@@ -33576,7 +34332,7 @@ ${jobsCtx || "No jobs found."}`;
             <textarea value={reminderNote} onChange={e => setReminderNote(e.target.value)} placeholder="Please complete this job." rows={3} style={{ width: "100%", background: `var(--tq-field-bg, ${T.surface})`, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, color: T.text, fontSize: 13, padding: "10px 12px", fontFamily: T.font, resize: "vertical", outline: "none", boxSizing: "border-box" }} />
           </div>
           <div style={{ padding: "0 24px 20px", display: "flex", gap: 10, justifyContent: "flex-end" }}>
-            <button onClick={() => { setReminderModal(null); setReminderNote(""); }} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textSec, fontSize: 13, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+            <button onClick={() => { setReminderModal(null); setReminderNote(""); }} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 13, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
             <button onClick={() => sendReminder(reminderModal.item, reminderNote)} disabled={reminderSending || recipients.length === 0} style={{ padding: "9px 20px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: reminderSending || recipients.length === 0 ? "not-allowed" : "pointer", fontFamily: T.font, opacity: reminderSending || recipients.length === 0 ? 0.6 : 1 }}>{reminderSending ? "Sending…" : "Send Reminder"}</button>
           </div>
         </div>
@@ -33595,7 +34351,7 @@ ${jobsCtx || "No jobs found."}`;
         <h3 style={{ margin: "0 0 8px", color: T.danger, fontSize: 20, fontWeight: 700 }}>Delete {bulkDeleteConfirm.count} {bulkDeleteConfirm.type === "jobs" ? "Job" : bulkDeleteConfirm.type === "clients" ? "Client" : "Person"}{bulkDeleteConfirm.count !== 1 ? "s" : ""}?</h3>
         <p style={{ margin: "0 0 24px", fontSize: 14, color: T.textSec, lineHeight: 1.6 }}>This will permanently delete {bulkDeleteConfirm.count} selected {bulkDeleteConfirm.type === "jobs" ? "job" : bulkDeleteConfirm.type === "clients" ? "client" : "team member"}{bulkDeleteConfirm.count !== 1 ? "s" : ""}. This cannot be undone.</p>
         <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-          <Btn variant="ghost" onClick={() => setBulkDeleteConfirm(null)}>Cancel</Btn>
+          <Btn variant="secondary" onClick={() => setBulkDeleteConfirm(null)}>Cancel</Btn>
           <Btn variant="danger" onClick={() => { const { type, ids } = bulkDeleteConfirm; if (type === "jobs") { ids.forEach(id => delTask(id)); setSelJobs(new Set()); setJobSelectMode(false); } else if (type === "clients") { ids.forEach(id => delClient(id)); setSelClients(new Set()); setClientSelectMode(false); } else if (type === "people") { ids.forEach(id => delPerson(id)); setSelPeople(new Set()); setTeamSelectMode(false); } setBulkDeleteConfirm(null); }}>Delete All</Btn>
         </div>
       </div>
@@ -33762,7 +34518,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>
         {/* Footer */}
         <div style={{ padding: "12px 24px 20px", display: "flex", gap: 8, justifyContent: "flex-end", borderTop: `1px solid ${T.border}` }}>
-          <button onClick={() => setConditionsOpen(true)} style={{ padding: "8px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.textSec, fontSize: 12, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
+          <button onClick={() => setConditionsOpen(true)} style={{ padding: "8px 14px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 12, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
           {condWizard.step > 1 && <button onClick={() => setCondWizard(w => ({ ...w, step: w.step - 1 }))} style={{ padding: "8px 16px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.surface, color: T.text, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Back</button>}
           {condWizard.step < 3 && <button onClick={() => setCondWizard(w => ({ ...w, step: w.step + 1 }))} style={{ padding: "8px 18px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Next →</button>}
           {condWizard.step === 3 && <button onClick={() => {
@@ -33869,7 +34625,7 @@ function AvailModal({ people, allItems, bookedHrs, onClose, isMobile, onStartTas
 
       {/* Action bar */}
       <div style={{ display: "flex", gap: 12, justifyContent: "flex-end", paddingTop: 16, borderTop: `1px solid ${T.border}`, marginTop: 8 }}>
-        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn variant="secondary" onClick={onClose}>Cancel</Btn>
         <Btn onClick={() => { if (selectedPerson) onStartTask(selectedPerson, aS, aE, aH); }} style={{ opacity: selectedPerson ? 1 : 0.4, pointerEvents: selectedPerson ? "auto" : "none" }}>Start New Job →</Btn>
       </div>
     </div>

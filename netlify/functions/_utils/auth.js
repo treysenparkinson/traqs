@@ -316,6 +316,14 @@ export async function requireOrgMember(event) {
     readJson(`orgs/${orgCode}/config.json`).catch(() => null),
   ]);
 
+  // A soft-deleted org (config.deletedAt set — see org.js PATCH deleteOrg)
+  // blocks every authenticated path through this one gate, same as a
+  // tombstoned person blocks membership above. Data is untouched; only
+  // access is refused.
+  if (config?.deletedAt) {
+    throw new AuthError(403, "This organization has been deleted");
+  }
+
   const me = (people || []).find(p => String(p.email || "").toLowerCase().trim() === email);
   const adminEmail = String(config?.adminEmail || "").toLowerCase().trim();
   const adminList = [adminEmail, ...((config?.adminEmails || []).map(e => String(e || "").toLowerCase().trim()))].filter(Boolean);

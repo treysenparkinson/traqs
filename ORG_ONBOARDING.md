@@ -389,14 +389,160 @@ alone. Do not start this.
 | 1 Plan | done |
 | 2 Plumbing | done — org code unified, codes server-generated, Auth0 org index, X-Org-Code cross-check |
 | 3 Matrix migration | tooling built, **not run** (§6: Matrix keeps MTX2026TRAQS). Rename path stays disabled until the tooling replaces it. |
-| 4 Signup screens | done, wireframes implemented |
-| 5 Invite links | done — link, accept on first login, list with revoke |
+| 4 Signup screens | done — 5 steps, tier page included, wireframes implemented |
+| 5 Invite links | done — link, accept on first login, list with revoke, **and now emailed** |
 | 6 Upgrade CTA | done — tier in billing.json behind auth, contact not checkout |
 
-**All six steps complete.** Remaining work is not in this plan:
+---
+
+## PICK UP HERE — end of 2026-09-23
+
+Everything below is built and verified on `feature/dynamic-schedule`. Nothing is
+half-done in the code; what remains is **configuration and one purchase**, in
+this order.
+
+### 1. Blocked on you, not on code
+
+| # | Action | Why |
+| --- | --- | --- |
+| 1 | **Buy `traqs.dev`** | Confirmed available by RDAP on 2026-09-23. `traqs.com`, `.app`, `.io`, `.net` and `traqsapp.com` all belong to other people. IONOS quoted $37/yr renewal; Cloudflare sells at cost and `matrixsystems.com` already lives there, which puts the DKIM records you are about to add in one panel. **Domain only** — decline the Email / Hosting / MyWebsite upsells: sending needs DNS records, not a mailbox. |
+| 2 | **Verify the domain in SES**, region `us-west-1` (matches `MY_AWS_REGION`) | 3 DKIM CNAMEs + an SPF TXT. No mailbox required. |
+| 3 | **Request SES production access** | THE ONE PEOPLE SKIP. Measured 2026-09-23: 0 verified identities in us-east-1/2, us-west-1/2, eu-west-1, and a 200/day quota in all five = still in the sandbox. In the sandbox SES only delivers to addresses that are *themselves* verified, so a real invite just vanishes. |
+| 4 | **Set the env vars below** | |
+| 5 | **Restart `netlify dev`** | `SIGNUPS_ENABLED=true` is already in `.env`. The dev server that was running had started five minutes *before* that edit, so it never saw it — that was the entire cause of "Organization signups are currently disabled". |
+
+### 2. Env vars to set (Netlify dashboard + local `.env`)
+
+```
+SEND_FROM_EMAIL=support@traqs.dev      # a domain you control AND have verified
+MAIL_REPLY_TO=<a real monitored mailbox>
+APP_BASE_URL=https://traqs.matrixsystems.com
+MAIL_POSTAL_ADDRESS=<real street address>
+```
+
+- `MAIL_REPLY_TO` is not cosmetic. A send-only domain has no MX, so a reply to
+  `support@traqs.dev` bounces — on an address literally named "support". The
+  reply button follows Reply-To, so point it at an existing Matrix mailbox; it
+  does not have to be on the same domain. Unset = no header = replies bounce.
+- `APP_BASE_URL` must be **production**. `mail.js` deliberately ignores
+  `DEPLOY_PRIME_URL`: on a branch deploy that points at the preview, and an
+  invite mailed from a preview sends a real employee to a throwaway host.
+- `MAIL_POSTAL_ADDRESS` unset means the block is omitted entirely. CAN-SPAM
+  wants a real address, and a placeholder that looks deliberate is worse
+  than none.
+
+### 3. What was built on 2026-09-23
+
+**Signup wizard — 5 steps.** Identity → Organization basics → **Tier** →
+Payroll → Confirm. Business is drawn at full fidelity but greyed with a
+COMING SOON badge, and `validateStep("tier", …)` refuses the value as well as
+the UI — that field ends up in a POST either way, and Confirm re-runs every
+step's rules so it cannot be skipped past.
+
+**Screen transitions.** 400ms out → 500ms hold on empty paper → 400ms in;
+arrivals come in oversized (scale 1.04) and settle to size. Two traps are
+documented in code and pinned by `scripts/screen-anim-test.mjs`:
+
+1. *A CSS transition cannot be driven from a React inline style object.* A
+   transition only fires when the property differed as of the PREVIOUS style
+   flush; React applies the whole style object in one commit, so there is no
+   before-value. Measured: opacity sat at 1 for the entire duration, then cut.
+   Both directions are keyframes now.
+2. *A `<style>` tag rendered by a screen dies with that screen.* This bit
+   **twice** — first with `tqScreenIn/Out`, then again with `tqFadeUp` on the
+   roster card, which rendered at opacity 0 naming a keyframe that no longer
+   existed. All three sheets (`SCREEN_CSS`, `LIQUID_CSS`, `LOADUP_CSS`) are now
+   mounted by the root `App()`, and the test enumerates *every* `tq*` animation
+   rather than the two names I first thought of. The tell for this bug: computed
+   `animation-name` reads correctly while `getAnimations()` on the element is
+   empty.
+
+**Brand.** The mark is the 4-colour candy bars — `#FF6B57` coral, `#F0A819`
+amber, `#38BDF8` sky, `#1D7D5C` green, widths 0.552 / 0.789 / 1.0 / 0.448,
+sampled from the app icon rather than eyeballed. **The sky bar is exactly the
+app's existing accent**, which was easy to get slightly wrong. Drawn as SVG, not
+a PNG, so it is sharp at 17px and at 84px.
+
+**Liquid background.** Four washes in those colours orbiting one shared circle a
+quarter-turn apart, 54s a lap, linear and infinite. Only on the org-code screen —
+everything downstream arrives clear, because a wash that dispersed and came back
+would undo the move that just played. On leaving it disperses like smoke
+(scale → 2.2, blur 26 → 100px) over exactly `SCREEN_OUT_MS + SCREEN_HOLD_MS`, so
+it finishes clearing as the next screen lands. The orbit is **listed again in the
+disperse rule**: dropping it stopped the animation, `background-position` fell
+back to the static start-of-lap value, and every wash jumped 70.76% of the
+viewport before dispersing.
+
+**Typography — one typeface.** Three faces had drifted in (`JetBrains Mono` on
+field labels, `Space Mono` on the step counter, a bare `ui-monospace` on the org
+code) and **none of them is loaded** — `index.html` fetches DM Sans and Space
+Grotesk only, so each rendered in whatever face the machine happened to have. It
+fails silently: computed style reports the family you asked for whether or not it
+exists. Every theme in `TRAQS.jsx` already sets both `font` and `mono` to DM
+Sans. Two rules in `brand-test` now: every stack must *lead* with a face that
+exists, and the auth screens may name nothing but DM Sans and the wordmark's
+face.
+
+**Email.** `_utils/mail.js` (one SES client for the whole repo, Reply-To support)
++ `_utils/email-invite.js` (the template) + `invite.js` sends on create.
+`forgot-org.js` now uses the shared mailer, so there is exactly one
+`new SESClient` in the repo.
+
+The design wireframe (`TRAQS Invite Email.html` in the Claude Design project) was
+**out of date in four ways**, all corrected and all pinned by
+`scripts/email-test.mjs`:
+
+| Wireframe said | Reality |
+| --- | --- |
+| link to `app.traqs.com/invite/accept?token=…` | **that host is someone else's server** (54.36.216.237). The app reads `?org=CODE&invite=TOKEN` off the root. |
+| old mark: 3 grey bars + 1 sky, widths 22/30/19/12 | 4-colour mark, widths 0.552/0.789/1.0/0.448 |
+| "expires in 7 days" | `INVITE_TTL_MS` is 14 — the copy is generated from the invite's own `expiresAt`, so it cannot drift again |
+| `123 Example St` | omitted entirely unless `MAIL_POSTAL_ADDRESS` is set |
+
+Also removed: the `no-reply@traqs.app` fallback sender. **traqs.app is not ours
+either** — an unset `SEND_FROM_EMAIL` would have tried to send as a stranger's
+domain, which SES refuses, so the symptom would have been mail that silently
+never arrived. There is no default now; it logs and refuses.
+
+**A failed send does not fail the request.** The invite is written to S3 first
+and the response carries `emailed:false` with a reason. An invite that exists but
+was not delivered is recoverable — the token comes back, so the link can be
+copied by hand. An invite that was mailed but not saved is recoverable by nobody.
+
+**The mark is drawn with table cells, not an `<img>`.** Most clients block remote
+images by default, so an image logo is a grey box on first open. Arial/DM Sans
+stack rather than DM Sans alone is deliberate and is *not* a violation of the
+one-typeface rule: Outlook renders with Word's engine and will not load a
+webfont.
+
+### 4. Test suites (all run in `npm run build`)
+
+```
+screen-anim-test  39   keyframe scope, transition timings, big-to-small
+brand-test        25   palette, mark, orbit, dispersal, fonts, email/app palettes agree
+email-test        28   the four wireframe corrections, escaping, text+html parts
+signup-test       55   5 steps, Business refused, payload placement
+tiers-test        16   invite-test 44   orgcode-test 70   rekey-test 20
+no-overlap-test   44   row-push-test 133   worked-spans-test 94
+```
+
+Every one was red-proofed — the defect reintroduced and the suite watched to
+fail — before being relied on. If you add to them, do the same; a check that has
+never been seen to fail is not evidence.
+
+Local-only probes (in `tools/verify/`, git-excluded) drive real Chrome against
+the dev server: `probe-screen-fade.mjs` measures the exit fade with the two
+broken forms as canaries.
+
+### 5. Still open (not from this session)
 
 - the code-rename path is still disabled; re-enabling it means wiring
   `tools/rekey-org.mjs`'s verification into `org.js` PATCH.
 - Auth0 Organizations is not configured, so every token still takes the header
   path. `requireClaim` flips that when rollout happens.
-- invites are created but not emailed; the link is copied by hand.
+- Business tier is deliberately not selectable. To *see* an org on Business, set
+  `orgs/{code}/billing.json` to `{"tier":"business"}` — absence means Basic.
+- 537 past-dated unworked ops (45,693h) still want a dry-run repair tool.
+- mobile Settings is still on the old modals; desktop is the full-page rebuild.
+- `src/traqs-bars.png` is now unreferenced (the mark is SVG). Harmless; delete
+  when convenient.
