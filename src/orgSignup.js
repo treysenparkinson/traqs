@@ -42,12 +42,12 @@ export const INDUSTRIES = [
 ];
 
 export const CURRENCIES = [
-  { value: "USD", label: "USD — US Dollar" },
-  { value: "CAD", label: "CAD — Canadian Dollar" },
-  { value: "EUR", label: "EUR — Euro" },
-  { value: "GBP", label: "GBP — British Pound" },
-  { value: "AUD", label: "AUD — Australian Dollar" },
-  { value: "MXN", label: "MXN — Mexican Peso" },
+  { value: "USD", label: "USD · US Dollar" },
+  { value: "CAD", label: "CAD · Canadian Dollar" },
+  { value: "EUR", label: "EUR · Euro" },
+  { value: "GBP", label: "GBP · British Pound" },
+  { value: "AUD", label: "AUD · Australian Dollar" },
+  { value: "MXN", label: "MXN · Mexican Peso" },
 ];
 
 // The wireframe numbers Identity as STEP 1 OF 5, and that is what ships: five

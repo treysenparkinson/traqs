@@ -39,7 +39,7 @@ export const TIER_LABEL = { basic: "Basic", business: "Business" };
 export const UPGRADE_CONTACT = "sales@matrixsystems.com";
 
 export const upgradeMailto = (orgName, orgCode) => {
-  const subject = `TRAQS Business — ${orgName || "upgrade enquiry"}`;
+  const subject = `TRAQS Business: ${orgName || "upgrade enquiry"}`;
   const body = [
     "Hello,",
     "",

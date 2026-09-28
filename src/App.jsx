@@ -1624,7 +1624,7 @@ function TeamSelectStep({ orgCode, orgConfig, teamPeople, onSelectPerson, onAdmi
                           style={{ padding: "15px 20px", background: "linear-gradient(135deg, #f59e0b, #d97706)", border: "none", borderRadius: 999, color: "#fff", cursor: pinLoading ? "default" : "pointer", fontFamily: "inherit", boxShadow: "0 6px 20px rgba(245,158,11,0.32)", textAlign: "left", opacity: pinLoading ? 0.7 : 1 }}
                         >
                           <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: "0.02em" }}>Lunch</div>
-                          <div style={{ fontSize: 12, opacity: 0.92, marginTop: 3 }}>Clock out — coming back later</div>
+                          <div style={{ fontSize: 12, opacity: 0.92, marginTop: 3 }}>Clock out, coming back later</div>
                         </button>
                         <button
                           type="button"
