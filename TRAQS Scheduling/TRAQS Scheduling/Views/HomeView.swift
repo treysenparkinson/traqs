@@ -419,18 +419,17 @@ private struct BasicShiftsCard: View {
             .min { ($0.start, $0.startHour) < ($1.start, $1.startHour) }
 
         return VStack(alignment: .leading, spacing: 14) {
-            Text("Shifts")
+            // The card's title, in the same style as the other Home cards'.
+            Text("Today")
                 .font(.custom(TFontName.bold.rawValue, size: 15))
                 .foregroundStyle(Color(hex: T.ink))
 
-            section("TODAY") {
-                if todays.isEmpty {
-                    Text("No shift today")
-                        .font(TTypo.sm(14))
-                        .foregroundStyle(Color(hex: T.muted))
-                } else {
-                    ForEach(todays) { shiftRow($0, showDate: !$0.isOneDay) }
-                }
+            if todays.isEmpty {
+                Text("No shift today")
+                    .font(TTypo.sm(14))
+                    .foregroundStyle(Color(hex: T.muted))
+            } else {
+                ForEach(todays) { shiftRow($0, showDate: !$0.isOneDay) }
             }
 
             if let next {
