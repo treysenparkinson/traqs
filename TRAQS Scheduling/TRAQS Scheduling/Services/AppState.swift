@@ -3497,6 +3497,16 @@ extension AppState {
         }
     }
 
+    /// Seconds into the lunch or break the current user is on right now — the
+    /// open lunchStart/breakStart that `myShiftStatus` reads. 0 when neither is
+    /// open, so a caller can't mistake it for shift time.
+    func livePauseSeconds(now: Date) -> Double {
+        guard let last = currentPerson?.activeClockIn?.events.last,
+              last.type == "lunchStart" || last.type == "breakStart",
+              let start = parsedISO(last.ts) else { return 0 }
+        return max(0, now.timeIntervalSince(start))
+    }
+
     // ── Assigned tasks (mirrors TasksView.myTasks, no search filter) ──
 
     /// Every (job → panel → op) the current user is on the team for.

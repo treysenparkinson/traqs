@@ -50,7 +50,8 @@ struct HomeView: View {
                         HStack(spacing: 12) {
                             LiveClock(every: 1, tab: .home) { now in
                                 ShiftStatusHero(status: appState.myShiftStatus,
-                                                liveHours: appState.liveShiftHours(now: now)) {
+                                                liveHours: appState.liveShiftHours(now: now),
+                                                pauseSeconds: appState.livePauseSeconds(now: now)) {
                                     withAnimation(.easeInOut(duration: 0.22)) { appNav.selected = .hours }
                                 }
                             }
@@ -220,11 +221,25 @@ private struct TodayDateCard: View {
 private struct ShiftStatusHero: View {
     let status: ShiftStatus
     let liveHours: Double
+    /// How long the open lunch or break has run. On lunch or break THAT is the
+    /// clock worth reading — the shift total is paused (lunch) or beside the
+    /// point (break) until they're back.
+    let pauseSeconds: Double
     /// Taps jump to the Time Clock tab, where the shift can actually be acted on.
     let onOpen: () -> Void
 
+    private var isPaused: Bool { status == .lunch || status == .onBreak }
+
+    private var title: String {
+        switch status {
+        case .lunch:   return "On lunch"
+        case .onBreak: return "On break"
+        default:       return "This shift"
+        }
+    }
+
     private var elapsed: String {
-        let secs = max(0, Int(liveHours * 3600))
+        let secs = max(0, Int(isPaused ? pauseSeconds : liveHours * 3600))
         return String(format: "%d:%02d:%02d", secs / 3600, (secs % 3600) / 60, secs % 60)
     }
 
@@ -234,7 +249,7 @@ private struct ShiftStatusHero: View {
                 // Title sits at the box's leading edge like every other card's.
                 // The clock and pill below stay centred — that's the VStack's own
                 // alignment, which this frame deliberately overrides only here.
-                Text("This shift")
+                Text(title)
                     .font(.custom(TFontName.bold.rawValue, size: 15))
                     .foregroundStyle(Color(hex: T.ink))
                     .frame(maxWidth: .infinity, alignment: .leading)
