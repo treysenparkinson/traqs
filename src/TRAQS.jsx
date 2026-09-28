@@ -4314,13 +4314,14 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   // Tier. Absent billing.json means Basic -- absence IS "never provisioned",
   // which is exactly Basic, so there is nothing to backfill.
   const [billingTier, setBillingTier] = useState("basic");
+  const [billingLoaded, setBillingLoaded] = useState(false);
   const [billingReq, setBillingReq] = useState(null);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   useEffect(() => {
     if (!orgCode) return;
     let off = false;
     fetchBilling(getToken, orgCode)
-      .then((b) => { if (!off) { setBillingTier(b?.tier || "basic"); setBillingReq(b?.requestedAt || null); } })
+      .then((b) => { if (!off) { setBillingTier(b?.tier || "basic"); setBillingReq(b?.requestedAt || null); setBillingLoaded(true); } })
       .catch(() => {});
     return () => { off = true; };
   }, [orgCode, getToken]);
@@ -15015,19 +15016,19 @@ ${jobsCtx || "No jobs found."}`;
   const [tStart, setTStart] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth(), 1)); });
   const [tEnd, setTEnd] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth() + 1, 0)); });
   const [tMode, setTMode] = useState("month");
-  // Basic defaults to week (Business keeps month) — but billingTier resolves
-  // asynchronously after mount, so this can't be decided in the useState
-  // initializer above. Flips once, the first time the tier is known to be
-  // Basic, and only if the view hasn't been touched by hand yet (tModeTouchedRef,
-  // set by the actual view-toggle buttons) so a deliberate switch back to month
-  // is never clobbered by a late-arriving billing fetch.
-  const tModeTouchedRef = useRef(false);
+  // Default granularity is tier-dependent: Basic opens on Week, Business stays
+  // on Month. Applied once, the first time the tier resolves, so it never
+  // clobbers a manual switch made afterward.
+  const tModeTierApplied = useRef(false);
   useEffect(() => {
-    if (billingTier === "business" || tModeTouchedRef.current) return;
-    setTMode("week");
-    const d = new Date(TD + "T12:00:00"); const dow = d.getDay(); const mon = addD(TD, -(dow === 0 ? 6 : dow - 1));
-    setTStart(mon); setTEnd(addD(mon, 6));
-  }, [billingTier]);
+    if (!billingLoaded || tModeTierApplied.current) return;
+    tModeTierApplied.current = true;
+    if (billingTier !== "business") {
+      setTMode("week");
+      const d = new Date(TD + "T12:00:00"); const dow = d.getDay(); const mon = addD(TD, -(dow === 0 ? 6 : dow - 1));
+      setTStart(mon); setTEnd(addD(mon, 6));
+    }
+  }, [billingLoaded, billingTier]);
   const [scheduleHighlightId, setScheduleHighlightId] = useState(null);
   // Jump to a job on the Schedule from anywhere (e.g. the Jobs-list right-click).
   // Switches to the schedule, centers the visible window on the job's dates (or
@@ -16556,7 +16557,6 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>View</div>
                 <div style={{ display: "flex", gap: 4 }}>
                   {["day","week","month"].map(m => <button key={m} onClick={() => {
-                    tModeTouchedRef.current = true;
                     setTMode(m);
                     if (m === "day") { setTStart(TD); setTEnd(TD); }
                     else if (m === "week") { const d = new Date(TD + "T12:00:00"); const dow = d.getDay(); const mon = addD(TD, -(dow === 0 ? 6 : dow - 1)); setTStart(mon); setTEnd(addD(mon, 6)); }
@@ -16897,7 +16897,13 @@ ${jobsCtx || "No jobs found."}`;
                           and that bar shrinks from its left edge as the work is done -- see
                           shrunkStartH, which feeds rawS for this row. The clocked-in indicator
                           is the pulsing dot on the person's row, not a second block here. */}
-                      {isToday && nowH>=HS && nowH<=HE && <div style={{position:"absolute",top:0,bottom:0,left:`${(nowH-HS)/NH*100}%`,width:2,background:T.accent+"bb",zIndex:16,pointerEvents:"none"}}/>}
+                      {isToday && nowH>=HS && nowH<=HE && (() => {
+                        const _tlPct = (nowH-HS)/NH*100;
+                        return <>
+                          <div key="today-dot" style={{position:"absolute",top:-3,left:`calc(${_tlPct}% - 3px)`,width:6,height:6,borderRadius:"50%",background:T.accent,boxShadow:`0 0 4px ${T.accent}aa`,zIndex:13,pointerEvents:"none"}}/>
+                          <div key="today-line" style={{position:"absolute",top:0,bottom:0,left:`${_tlPct}%`,width:2,background:T.accent+"99",boxShadow:`0 0 6px ${T.accent}44`,zIndex:12,pointerEvents:"none"}}/>
+                        </>;
+                      })()}
                     </div>
                   </div>;
                 })}
@@ -17957,7 +17963,7 @@ ${jobsCtx || "No jobs found."}`;
                       const dx = Math.floor(pxDx / liveCW + _origColOffset);
                       let dropHour = null;
                       let snapS = nextBD(addD(_dragBaseStart, dx), barBDOpts);
-                      if (tMode === "month") {
+                      if (tMode === "month" || tMode === "week") {
                         // Derive the intra-day hour offset from the SAME delta-based column value the
                         // day snap (dx) uses — NOT a separate absolute-cursor measurement. Using two
                         // different coordinate bases made the day and hour disagree by a sliver near
@@ -18247,7 +18253,7 @@ ${jobsCtx || "No jobs found."}`;
                         setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't schedule in the past", message: "This move would place part of the job before the current time. Jobs can't be scheduled in the past.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
                         return;
                       }
-                      if (tMode === "month" && bar.task && !isPto) {
+                      if ((tMode === "month" || tMode === "week") && bar.task && !isPto) {
                         const _gRect = gridAreaEl?.getBoundingClientRect();
                         if (!_gRect) { console.warn("[schedule-drag] rejected: grid element not measurable"); return; }
                         const _cxDrop = (me.clientX - _grabPx) - _gRect.left;
@@ -19100,7 +19106,11 @@ ${jobsCtx || "No jobs found."}`;
             const _tlH = _tlNow.getHours() + _tlNow.getMinutes() / 60;
             const _tlFrac = Math.max(0, Math.min(1, (_tlH - workStartH) / totalWorkH));
             const _tlDayIdx = diffD(tStart, TD);
-            return <div style={{ position: "absolute", top: 0, bottom: 0, left: `calc(${lW}px + (100% - ${lW}px) * ${(_tlDayIdx + _tlFrac) / days.length})`, width: 2, background: T.accent + "bb", zIndex: 16, pointerEvents: "none" }} />;
+            const _tlLeft = `calc(${lW}px + (100% - ${lW}px) * ${(_tlDayIdx + _tlFrac) / days.length})`;
+            return <>
+              <div key="today-dot" style={{ position: "absolute", top: -3, left: `calc(${_tlLeft} - 3px)`, width: 6, height: 6, borderRadius: "50%", background: T.accent, boxShadow: `0 0 4px ${T.accent}aa`, zIndex: 13, pointerEvents: "none" }} />
+              <div key="today-line" style={{ position: "absolute", top: 0, bottom: 0, left: _tlLeft, width: 2, background: T.accent + "99", boxShadow: `0 0 6px ${T.accent}44`, zIndex: 12, pointerEvents: "none" }} />
+            </>;
           })()}
         </div>
       </div>
@@ -19152,7 +19162,7 @@ ${jobsCtx || "No jobs found."}`;
       })()}
     {teamDragInfo && teamDragInfo.taskTitle && (() => {
       let label = teamDragInfo.taskTitle;
-      if (tMode === "month" && teamDragInfo.dropHour != null) {
+      if ((tMode === "month" || tMode === "week") && teamDragInfo.dropHour != null) {
         const _sHRounded = Math.round(teamDragInfo.dropHour * 2) / 2;
         const sH = Math.floor(_sHRounded); const sM = (_sHRounded % 1) >= 0.5 ? 30 : 0;
         const sAmpm = sH >= 12 ? "PM" : "AM"; const sH12 = sH > 12 ? sH - 12 : sH === 0 ? 12 : sH;
@@ -20072,7 +20082,7 @@ ${jobsCtx || "No jobs found."}`;
               // rather than server-side so the link carries whatever origin the
               // admin is actually on -- a hardcoded domain breaks on previews.
               const link = `${window.location.origin}/?org=${encodeURIComponent(r.orgCode)}&invite=${encodeURIComponent(r.token)}`;
-              upd({ link, busy: false });
+              upd({ link, emailSent: !!r.emailed, busy: false });
               loadInviteList();
             } catch (e) {
               upd({ error: e.message || "Could not create the invite.", busy: false });
@@ -20100,7 +20110,7 @@ ${jobsCtx || "No jobs found."}`;
                   {d.error && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 8 }}>{d.error}</div>}
                   <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
                     <Btn variant="secondary" size="sm" style={{ flex: 1 }} onClick={() => setInviteDraft(null)}>Cancel</Btn>
-                    <Btn size="sm" style={{ flex: 1 }} disabled={d.busy} onClick={send}>{d.busy ? "Creating…" : "Create link"}</Btn>
+                    <Btn size="sm" style={{ flex: 1 }} disabled={d.busy} onClick={send}>{d.busy ? "Sending…" : "Send invite"}</Btn>
                   </div>
                   {/* Outstanding and spent invites. Without this a mistyped
                       address is unrevokable and stays valid for 14 days. */}
@@ -20133,7 +20143,11 @@ ${jobsCtx || "No jobs found."}`;
                   </div>}
                 </> : <>
                   {/* Shown once. The list endpoint never returns the token again. */}
-                  <div style={{ fontSize: 12, color: T.textDim, marginBottom: 8 }}>Send this link to <b style={{ color: T.text }}>{d.email.trim().toLowerCase()}</b>. It works once, and expires in 14 days.</div>
+                  <div style={{ fontSize: 12, color: T.textDim, marginBottom: 8 }}>
+                    {d.emailSent
+                      ? <>An email with an Accept button was sent to <b style={{ color: T.text }}>{d.email.trim().toLowerCase()}</b>. It works once, and expires in 14 days.</>
+                      : <>Couldn't send the email — share this link with <b style={{ color: T.text }}>{d.email.trim().toLowerCase()}</b> yourself. It works once, and expires in 14 days.</>}
+                  </div>
                   <div style={{ fontFamily: T.mono, fontSize: 11, wordBreak: "break-all", background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, padding: "10px 12px", color: T.text, userSelect: "all" }}>{d.link}</div>
                   <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
                     <Btn size="sm" style={{ flex: 1 }} onClick={() => { navigator.clipboard?.writeText(d.link).catch(() => {}); upd({ error: "Copied" }); }}>{d.error === "Copied" ? "Copied" : "Copy link"}</Btn>
