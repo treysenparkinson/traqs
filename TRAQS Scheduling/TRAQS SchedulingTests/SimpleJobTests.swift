@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import TRAQS_Scheduling
 
-@Suite("Simple job")
+@Suite("Simple job") @MainActor
 struct SimpleJobTests {
 
     /// 07:00–16:00, breaks at 09:00 and 14:00 (15m), lunch at 12:00 (1h).

@@ -22,6 +22,10 @@ struct WelcomeView: View {
     /// Human-readable explanation when the email→org auto-link couldn't resolve
     /// an org. Shown above the code field.
     var autoLinkError: String? = nil
+    /// Arriving from IntroView, whose logo is already big and centred exactly
+    /// where this screen's load-up starts it. Skips the fade and most of the
+    /// hold, so the mark just carries on to its resting place.
+    var logoAlreadyShown: Bool = false
 
     // MARK: Palette
     //
@@ -44,9 +48,10 @@ struct WelcomeView: View {
     // place. Only once it has landed does anything else arrive, and then all at
     // once — Welcome, the instruction, the card — 0.15s apart, so they read as
     // one gesture rather than four separate events.
-    private let logoFadeDur = 0.85
-    /// The beat where the mark just sits there, big and still.
-    private let logoHold = 0.50
+    private var logoFadeDur: Double { logoAlreadyShown ? 0 : 0.85 }
+    /// The beat where the mark just sits there, big and still. Short when the
+    /// intro has already held it.
+    private var logoHold: Double { logoAlreadyShown ? 0.12 : 0.50 }
     /// Long enough for the ease to read. A heavy slow-fast-slow curve needs the
     /// duration to show it off — at 0.75s the middle was over before you saw it
     /// accelerate, which is what made the move feel snapped rather than carried.
@@ -66,8 +71,10 @@ struct WelcomeView: View {
     /// Last, and gently — this one is a whisper, not an entrance.
     private var footAt: Double { landsAt + 0.75 }
 
-    /// How much bigger the mark is at the centre than at rest.
-    private let logoBigScale: CGFloat = 1.75
+    /// How much bigger the mark is at the centre than at rest. Static, with the
+    /// resting size, so IntroView can draw the mark at exactly this size.
+    static let logoBigScale: CGFloat = 1.75
+    static let logoSize: CGFloat = 62
 
     // MARK: State
     private enum Stage: Equatable { case code, signIn }
@@ -76,6 +83,10 @@ struct WelcomeView: View {
 
     @State private var code = ""
     @State private var isChecking = false
+    /// Which screen is up: this one, or the signup wizard in its place.
+    @State private var showSignup = false
+    /// The current screen is faded out — mid screen-change. See `goScreen`.
+    @State private var screenOut = false
     @State private var error: String?
     @FocusState private var codeFocused: Bool
 
@@ -84,6 +95,10 @@ struct WelcomeView: View {
     /// content height happens to put it, which is what made the web's earlier
     /// attempts drift past centre.
     @State private var rise: CGFloat = 0
+    /// `rise` is measured on the first layout pass. Until then the mark would
+    /// draw at its RESTING spot, which is fine while it's invisible and a jump
+    /// when it arrives from the intro already showing — so it waits for this.
+    @State private var measured = false
     /// Two separate beats, deliberately: the mark FADES first (still big, still
     /// centred) and only later TRAVELS. One flag driving both would tie the
     /// journey to the fade and lose the hold between them.
@@ -98,18 +113,37 @@ struct WelcomeView: View {
         ZStack {
             paper.ignoresSafeArea()
 
-            GeometryReader { screen in
-                VStack(spacing: 0) {
-                    Spacer(minLength: 0)
-                    lockup(screen: screen)
-                    copy
-                    card
-                    footer
-                    Spacer(minLength: 0)
+            Group {
+                if showSignup {
+                    OrgSignupView(onActivated: { newCode, name in
+                        goScreen(signup: false) {
+                            // Same as entering the new code by hand: remembered
+                            // now, configured once Auth0 returns a token.
+                            appState.rememberOrg(code: newCode)
+                            org = OrgInfo(name: name, domain: nil, adminEmail: nil, connection: nil)
+                            code = newCode
+                            stage = .signIn
+                        }
+                    }, onCancel: { goScreen(signup: false) })
+                } else {
+                    GeometryReader { screen in
+                        VStack(spacing: 0) {
+                            Spacer(minLength: 0)
+                            lockup(screen: screen)
+                            copy
+                            card
+                            footer
+                            Spacer(minLength: 0)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 28)
+                    }
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.horizontal, 28)
             }
+            // The web's tqScreenOut / tqScreenIn: out grows a touch as it goes,
+            // in settles down to size. The paper behind never moves.
+            .opacity(screenOut ? 0 : 1)
+            .scaleEffect(screenOut ? 1.035 : 1)
         }
         .preferredColorScheme(.light)
         .onAppear(perform: start)
@@ -124,7 +158,7 @@ struct WelcomeView: View {
     // MARK: - Brand
 
     private func lockup(screen: GeometryProxy) -> some View {
-        TRAQSHeaderLogo(size: 62)
+        TRAQSHeaderLogo(size: Self.logoSize)
             .background {
                 // Reports where the lockup RESTS, so the rise can be computed
                 // against the screen's true centre.
@@ -132,15 +166,16 @@ struct WelcomeView: View {
                     Color.clear.onAppear {
                         let mid = g.frame(in: .global).midY
                         rise = screen.frame(in: .global).midY - mid
+                        measured = true
                     }
                 }
             }
             // Scale and offset move together on the same curve, so the mark
             // shrinks INTO its resting place rather than arriving and then
             // settling.
-            .scaleEffect(landed ? 1 : logoBigScale)
+            .scaleEffect(landed ? 1 : Self.logoBigScale)
             .offset(y: landed ? 0 : rise)
-            .opacity(logoVisible ? 1 : 0)
+            .opacity(logoVisible && measured ? 1 : 0)
             .padding(.bottom, 22)
     }
 
@@ -230,12 +265,35 @@ struct WelcomeView: View {
 
             continueButton.padding(.top, 18)
 
-            Text("New organizations coming soon")
-                .font(TTypo.xs(12.5))
-                .foregroundStyle(Color(hex: "#B4B0A7"))
-                .frame(maxWidth: .infinity)
-                .padding(.top, 18)
+            // The new-org entry point, as the web's first screen has it: a
+            // divider and a secondary button under the code form.
+            HStack(spacing: 10) {
+                Rectangle().fill(Color(hex: "#E3E0D8")).frame(height: 1)
+                Text("OR")
+                    .font(TTypo.xs(10))
+                    .tracking(0.8)
+                    .foregroundStyle(Color(hex: "#B4B0A7"))
+                Rectangle().fill(Color(hex: "#E3E0D8")).frame(height: 1)
+            }
+            .padding(.top, 18)
+
+            createOrgButton.padding(.top, 14)
         }
+    }
+
+    /// Opens the signup wizard. Clear glass: Continue is the primary action on
+    /// this card, and this is the other way in.
+    private var createOrgButton: some View {
+        Button { goScreen(signup: true) } label: {
+            Text("Create organization")
+                .font(TTypo.smBold(15))
+                .foregroundStyle(ink)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .glassControl(in: Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(isChecking || screenOut)
     }
 
     private var signInStage: some View {
@@ -373,13 +431,42 @@ struct WelcomeView: View {
             .opacity(showFoot ? 1 : 0)
     }
 
+    // MARK: - Screen change
+
+    /// SCREEN_OUT_MS / SCREEN_HOLD_MS / SCREEN_IN_MS from the web, with its
+    /// even-spend curve: a long fade eased hard at either end reads as a snap.
+    private let screenOutDur = 0.4
+    private let screenHold = 0.5
+    private let screenInDur = 0.4
+
+    /// Out, hold on empty paper, in — what the web's goScreen does between the
+    /// welcome screen and Create organization. The hold is what makes it read
+    /// as two screens rather than one cross-fade. `then` runs during the hold,
+    /// so anything it changes is already in place when the next screen arrives.
+    private func goScreen(signup: Bool, then: (() -> Void)? = nil) {
+        withAnimation(.timingCurve(0.4, 0, 0.6, 1, duration: screenOutDur)) { screenOut = true }
+        schedule(screenOutDur + screenHold) {
+            var t = Transaction()
+            t.disablesAnimations = true
+            withTransaction(t) {
+                showSignup = signup
+                then?()
+            }
+            withAnimation(.timingCurve(0.4, 0, 0.6, 1, duration: screenInDur)) { screenOut = false }
+        }
+    }
+
     // MARK: - Sequence
 
     /// Fade the mark in large at the centre · hold · travel to rest · then the
     /// rest of the screen in quick succession.
     private func start() {
         guard !logoVisible else { return }
-        withAnimation(.easeOut(duration: logoFadeDur)) { logoVisible = true }
+        if logoAlreadyShown {
+            logoVisible = true
+        } else {
+            withAnimation(.easeOut(duration: logoFadeDur)) { logoVisible = true }
+        }
         // The journey starts only after the hold, so the mark is genuinely still
         // for that beat rather than easing the whole way.
         schedule(logoFadeDur + logoHold) {

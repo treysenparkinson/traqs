@@ -1,5 +1,13 @@
 import Foundation
 
+/// A `POST /org` failure, carrying the server's message as the description.
+enum CreateOrgError: LocalizedError {
+    case server(String)
+    var errorDescription: String? {
+        switch self { case .server(let m): return m }
+    }
+}
+
 enum APIError: LocalizedError {
     case noToken
     case noOrgCode
@@ -689,6 +697,32 @@ struct APIService {
             throw APIError.httpError(http.statusCode)
         }
         return try JSONDecoder().decode(OrgInfo.self, from: data)
+    }
+
+    /// `POST /org` — create an organization (the signup wizard's Activate). Also
+    /// UNAUTHENTICATED: signup comes before sign-in, and the creator is let in
+    /// afterwards because their address is in the new org's `adminEmails`.
+    ///
+    /// Returns the org code, which the server generates. Failures carry the
+    /// server's own message (e.g. "signups are currently disabled"), which is
+    /// what the wizard shows — the web does the same.
+    static func createOrg(_ payload: OrgSignup.Payload) async throws -> String {
+        guard let url = URL(string: "\(AppConfig.netlifyBase)/org") else { throw URLError(.badURL) }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONEncoder().encode(payload)
+        let (data, response) = try await URLSession.shared.data(for: req)
+
+        struct Reply: Decodable { let code: String?; let error: String? }
+        let reply = try? JSONDecoder().decode(Reply.self, from: data)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw CreateOrgError.server(reply?.error ?? "Couldn't create the organization (\(http.statusCode)).")
+        }
+        guard let code = reply?.code, !code.isEmpty else {
+            throw CreateOrgError.server("The server did not return an organization code.")
+        }
+        return code
     }
 
     // MARK: - Kiosk time clock (UNAUTHENTICATED)
