@@ -217,4 +217,19 @@ enum WorkDayClock {
 
         return Span(days: days, endHour: clock, columns: max(0, columns))
     }
+
+    /// `productiveHoursBetween` (statsMath.js) for two wall-clock hours on ONE
+    /// day — the inverse of `walk`. Clipped to the working day, and only the part
+    /// of a dead window the span actually reaches comes off, so 07:00–11:00
+    /// around a 09:00 break is 3.75h, not 4 and not 4 minus the whole lunch.
+    static func productiveHours(from startHour: Double, to endHour: Double,
+                                in day: DayWindow) -> Double {
+        let a = max(startHour, day.workStart)
+        let b = min(endHour, day.workEnd)
+        guard b > a else { return 0 }
+        let dead = day.dead.reduce(0.0) { acc, w in
+            acc + max(0, min(b, w.end) - max(a, w.start))
+        }
+        return max(0, (b - a) - dead)
+    }
 }

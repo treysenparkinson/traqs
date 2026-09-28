@@ -1,0 +1,133 @@
+import SwiftUI
+
+/// The Jobs header's "+": a simple task — name, who's on it, and when.
+///
+/// One day → pick the start and end time. More than one day → no times; each
+/// day is a full `SimpleJob.fullDayHours`. The job it writes is the web's
+/// simple-job shape, so the desktop schedules and draws it the same way — see
+/// `SimpleJob`.
+struct AddJobSheet: View {
+    @Environment(AppState.self) private var appState
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var title = ""
+    @State private var team: [String] = []
+    @State private var startDate = Calendar.current.startOfDay(for: Date())
+    @State private var endDate = Calendar.current.startOfDay(for: Date())
+    /// Only the time-of-day is read from these two.
+    @State private var startTime = Date()
+    @State private var endTime = Date()
+    @State private var showTeamPicker = false
+    @FocusState private var titleFocused: Bool
+
+    private var day: DayWindow { WorkDayClock.day(from: appState.orgSettings) }
+
+    private var isOneDay: Bool { Calendar.current.isDate(startDate, inSameDayAs: endDate) }
+
+    private var draft: SimpleJob.Draft {
+        SimpleJob.Draft(title: title, team: team,
+                        start: AppState.ymd(startDate),
+                        end: AppState.ymd(isOneDay ? startDate : endDate),
+                        startHour: Self.hour(of: startTime),
+                        endHour: Self.hour(of: endTime))
+    }
+
+    private var valid: Bool {
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !team.isEmpty
+            && (!isOneDay || draft.endHour > draft.startHour)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Task") {
+                    TextField("e.g. Cabinet install", text: $title)
+                        .focused($titleFocused)
+                        .submitLabel(.done)
+                }
+
+                Section("Who's on it") {
+                    Button { showTeamPicker = true } label: {
+                        HStack {
+                            TeamSummary(ids: team)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.tertiary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Section("Dates") {
+                    DatePicker("Start", selection: $startDate, displayedComponents: .date)
+                    DatePicker("End", selection: $endDate, in: startDate..., displayedComponents: .date)
+                }
+
+                if isOneDay {
+                    Section("Time") {
+                        DatePicker("Start", selection: $startTime, displayedComponents: .hourAndMinute)
+                        DatePicker("End", selection: $endTime, displayedComponents: .hourAndMinute)
+                    }
+                }
+            }
+            .navigationTitle("New Job")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") { add() }
+                        .disabled(!valid)
+                }
+            }
+            .sheet(isPresented: $showTeamPicker) {
+                TeamPicker(title: "Who's on it", initial: team) { picked in
+                    // Keep the roster's order rather than the Set's.
+                    team = appState.people.map(\.id).filter(picked.contains)
+                }
+            }
+            .onChange(of: startDate) { _, new in
+                if endDate < new { endDate = new }
+            }
+            .onAppear {
+                // The web's defaults: start of the working day, eight hours on
+                // (or the end of the day, whichever comes first).
+                let s = appState.orgSettings.workStartHour
+                startTime = Self.time(s)
+                endTime = Self.time(min(appState.orgSettings.workEndHour, s + 8))
+                titleFocused = true
+            }
+        }
+    }
+
+    private func add() {
+        guard valid else { return }
+        let job = SimpleJob.makeJob(draft, day: day, color: JobColors.next(),
+                                    createdBy: appState.currentPersonId)
+        // No client-side notify, same as the web's simple job: tasks.js pushes
+        // "assigned" server-side when it sees the new team.
+        appState.updateJob(job)
+        dismiss()
+    }
+
+    // MARK: - Time ↔ hours
+
+    /// 1:30pm → 13.5.
+    private static func hour(of date: Date) -> Double {
+        let c = Calendar.current.dateComponents([.hour, .minute], from: date)
+        return Double(c.hour ?? 0) + Double(c.minute ?? 0) / 60
+    }
+
+    /// 13.5 → today at 1:30pm.
+    private static func time(_ hour: Double) -> Date {
+        let minutes = Int((hour * 60).rounded())
+        return Calendar.current.date(bySettingHour: minutes / 60, minute: minutes % 60,
+                                     second: 0, of: Date()) ?? Date()
+    }
+}

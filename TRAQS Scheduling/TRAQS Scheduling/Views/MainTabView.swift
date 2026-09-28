@@ -128,6 +128,7 @@ struct MainTabView: View {
         .fullScreenCover(isPresented: Bindable(appNav).showAdmin) {
             AdminView().edgeSwipeBack { appNav.showAdmin = false }
         }
+        .sheet(isPresented: Bindable(appNav).showAddJob) { AddJobSheet() }
         .sheet(isPresented: Bindable(appNav).showCustomize) { CustomizeView() }
         .sheet(isPresented: Bindable(appNav).showProfile) {
             EditProfileView().edgeSwipeBack { appNav.showProfile = false }
@@ -209,7 +210,17 @@ private struct HeaderHost: View {
             ])
 
         case .jobs:
-            var pills: [HeaderPill] = [
+            var pills: [HeaderPill] = []
+            if appState.currentPerson?.isAdmin == true {
+                // Leftmost in the cluster. It used to stand alone where "+" is
+                // now; creating a job is the page's primary action, so it takes
+                // the prominent slot and this joins the cluster.
+                pills.append(HeaderPill(
+                    slot: .availability,
+                    content: .symbol("clock.arrow.circlepath", tint: nil),
+                    action: .menu(.availability)))
+            }
+            pills += [
                 // Just an eye. The old label ("List"/"Gantt") named the mode you
                 // were LEAVING as often as the one you were in.
                 HeaderPill(slot: .viewMode, content: .icon(.eye),
@@ -225,14 +236,12 @@ private struct HeaderHost: View {
                                }
                            }))
             ]
-            if appState.currentPerson?.isAdmin == true {
-                // Alone, not in the cluster: it asks about PEOPLE, where the
-                // other three act on the jobs list.
+            if appState.can(.editJobs) {
+                // Alone: the cluster looks at the jobs list, this MAKES a job —
+                // the same split as Messages' compose.
                 pills.append(HeaderPill(
-                    slot: .availability,
-                    content: .symbol("clock.arrow.circlepath", tint: Color(hex: T.accent)),
-                    style: .prominent,
-                    action: .menu(.availability)))
+                    slot: .addJob, content: .icon(.plus), style: .prominent,
+                    action: .tap({ appNav.showAddJob = true })))
             }
             return HeaderConfig(pills: pills)
 

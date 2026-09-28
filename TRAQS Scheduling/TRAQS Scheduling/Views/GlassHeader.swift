@@ -15,7 +15,7 @@ import SwiftUI
 /// both pages keeps its glass shape and swaps the glyph inside it; a slot on
 /// only one side materializes or dissolves.
 enum HeaderSlot: String, Hashable {
-    case viewMode, search, availability              // Jobs
+    case viewMode, search, availability, addJob      // Jobs
     case profile                                     // Home
     case worker, week, admin                         // Analytics
     case timeOff                                     // Time clock
@@ -296,7 +296,6 @@ struct GlassHeader: View {
                 Button { appNav.showProfile = true } label: {
                     Label("Profile", systemImage: "person.crop.circle")
                 }
-                Divider()
                 Button { appNav.showCustomize = true } label: {
                     Label("Customization", systemImage: "sparkles")
                 }

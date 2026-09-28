@@ -92,6 +92,8 @@ final class AppNav {
     /// but rendered by MainTabView ABOVE the glass header rather than inside the
     /// page — see the popup block in MainTabView's body for why.
     var showAvailability = false
+    /// The simple New Job sheet, from the Jobs header's "+".
+    var showAddJob = false
 
     // Messages
     var chatSearchOpen = false
