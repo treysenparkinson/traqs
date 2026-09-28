@@ -16181,7 +16181,13 @@ ${jobsCtx || "No jobs found."}`;
             //
             // An undated panel goes to the Project Plan board, same rule as the ops above.
             const onPanelTeam = onTeam(panel.team, pid);
-            if (onPanelTeam && !hasLiveChildren(panel) && (showCompleted || panel.status !== "Finished") && isTimelinePlaced(panel)) {
+            // HISTORY IS NOT ON THE SCHEDULE, at this level too. The rule was
+            // written only for ops, so a leaf panel whose window closed stayed
+            // drawn while an op with the same dates was hidden. Same live
+            // exception: somebody clocked into it keeps it visible.
+            const _pnIsHistory = !!(panel.end && panel.end < toDS(new Date()));
+            const _pnIsLive = people.some(lp => lp.activeJobClock?.clockIn && sameId(lp.activeJobClock.opId, panel.id));
+            if (onPanelTeam && !(_pnIsHistory && !_pnIsLive) && !hasLiveChildren(panel) && (showCompleted || panel.status !== "Finished") && isTimelinePlaced(panel)) {
               const pInView = _visualEnd(panel) >= _winS && panel.start <= _winE;
               if (pInView) {
                 const pStart = panel.start;
@@ -16199,6 +16205,10 @@ ${jobsCtx || "No jobs found."}`;
             if (!showCompleted && sub.status === "Finished") return;
             // Same rule as the panel-job branch above — undated goes to the board.
             if (!isTimelinePlaced(sub)) return;
+            // Same rule again for a general job's flat subtasks.
+            const _subIsHistory = !!(sub.end && sub.end < toDS(new Date()));
+            const _subIsLive = people.some(lp => lp.activeJobClock?.clockIn && sameId(lp.activeJobClock.opId, sub.id));
+            if (_subIsHistory && !_subIsLive) return;
             if (_visualEnd(sub) < _winS || sub.start > _winE) return;
             const bStart = sub.start;
             const bEnd = sub.end;
@@ -32798,6 +32808,89 @@ ${jobsCtx || "No jobs found."}`;
         const _setUpdate = (i, patch) => setPreviewData(p => ({ ...p, updates: p.updates.map((u, idx) => idx === i ? { ...u, ...patch } : u) }));
         const _setNewPerson = (i, patch) => setPreviewData(p => ({ ...p, newPeople: p.newPeople.map((np, idx) => idx === i ? { ...np, ...patch } : np) }));
         const _setNewClient = (i, patch) => setPreviewData(p => ({ ...p, newClients: p.newClients.map((nc, idx) => idx === i ? { ...nc, ...patch } : nc) }));
+
+        // WHAT WILL NOT REACH THE SCHEDULE, counted before anyone commits.
+        //
+        // The schedule is organised BY PERSON: a bar lives on somebody's row.
+        // isTimelinePlaced is dated AND assigned, so an operation nobody is on
+        // has nowhere to be drawn and goes to the Project Plan board instead.
+        //
+        // That is correct behaviour, but it used to happen in silence -- the
+        // import reported "Imported 12 jobs" and the schedule stayed empty,
+        // which reads as the import having failed. A spreadsheet of jobs and
+        // dates with no names in it does exactly this.
+        //
+        // An op inherits its panel's assignee, and a panel its job's, so this
+        // asks the same question commitImport will: is there anybody at any
+        // level above this operation?
+        const _nameResolves = (nm) => {
+          if (!nm) return false;
+          const lo = String(nm).trim().toLowerCase();
+          if (!lo) return false;
+          if (people.some(p => p.name.toLowerCase() === lo)) return true;
+          // A name the import will CREATE counts, as long as it is still ticked.
+          return _checkedPeople.some(np => String(np.name).trim().toLowerCase() === lo);
+        };
+        const _unplaceable = [];
+        _checkedJobs.forEach(j => {
+          (j.panels || []).filter(p => p._checked).forEach(pn => {
+            (pn.ops || []).filter(o => o._checked).forEach(op => {
+              if (!_nameResolves(op.assigneeName) && !_nameResolves(pn.assigneeName) && !_nameResolves(j.assigneeName)) {
+                _unplaceable.push({ job: j, panel: pn, op });
+              }
+            });
+          });
+        });
+
+        // Fill every one of them with whoever is least booked over its own dates.
+        // Deliberately the same bookedHrs the availability strike-out uses, so a
+        // suggestion here cannot contradict what the assign popover would say.
+        // Skips anyone fully off or fully booked for the window.
+        const _autoAssign = () => {
+          if (!_unplaceable.length) return;
+          const roster = people.filter(p => p && !p.deletedAt);
+          if (!roster.length) { toast("No people to assign to"); return; }
+          // Running tally so a batch does not put everything on one person: each
+          // pick adds its own hours to that person's load for the next decision.
+          const extra = new Map();
+          const load = (pid, start, end) => {
+            let h = extra.get(String(pid)) || 0;
+            for (let d = start; d <= end; d = addD(d, 1)) {
+              if (!isWorkDay(d, orgSettings.workDays)) continue;
+              if (isOff(pid, d)) return Infinity;              // off for the window
+              h += bookedHrs(pid, d);
+            }
+            return h;
+          };
+          const picks = [];
+          _unplaceable.forEach(({ job, panel, op }) => {
+            const start = op.start || panel.start || job.start;
+            const end = op.end || panel.end || job.end;
+            if (!start || !end) return;
+            let best = null, bestLoad = Infinity;
+            for (const pp of roster) {
+              const l = load(pp.id, start, end);
+              if (l < bestLoad) { bestLoad = l; best = pp; }
+            }
+            if (!best || bestLoad === Infinity) return;
+            extra.set(String(best.id), (extra.get(String(best.id)) || 0) + (Number(op.hpd) || 0));
+            picks.push({ jobId: job._id, panelId: panel._id, opId: op._id, name: best.name });
+          });
+          if (!picks.length) { toast("Nobody is free for those dates"); return; }
+          setPreviewData(p => ({ ...p, jobs: p.jobs.map(j => {
+            const forJob = picks.filter(x => x.jobId === j._id);
+            if (!forJob.length) return j;
+            return { ...j, panels: (j.panels || []).map(pn => {
+              const forPanel = forJob.filter(x => x.panelId === pn._id);
+              if (!forPanel.length) return pn;
+              return { ...pn, ops: (pn.ops || []).map(op => {
+                const hit = forPanel.find(x => x.opId === op._id);
+                return hit ? { ...op, assigneeName: hit.name } : op;
+              }) };
+            }) };
+          }) }));
+          toast(`Assigned ${picks.length} operation${picks.length === 1 ? "" : "s"} by availability`);
+        };
         const inpStyle = { padding: "5px 7px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.bg, color: T.bgText, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" };
         const labelStyle = { fontSize: 10, color: T.textDim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 2 };
         // Unified person options for assignee dropdowns: existing team + names proposed for creation by Fast TRAQS.
@@ -32937,6 +33030,31 @@ ${jobsCtx || "No jobs found."}`;
                 </div>
               )}
             </div>
+
+            {/* Said BEFORE the import, not after. Once it is committed the work is
+                spread across the Project Plan and finding it is the user's problem. */}
+            {_unplaceable.length > 0 && (
+              <div style={{ margin: "0 24px 12px", padding: "12px 14px", borderRadius: T.radiusLg,
+                background: "#f59e0b12", border: "1px solid #f59e0b44", display: "flex", alignItems: "center", gap: 12 }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                  <path d="M12 9v5" /><circle cx="12" cy="17" r="0.6" fill="#f59e0b" /><path d="M10.3 3.5 2.4 18a1.8 1.8 0 0 0 1.6 2.7h16a1.8 1.8 0 0 0 1.6-2.7L13.7 3.5a1.8 1.8 0 0 0-3.4 0z" />
+                </svg>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: T.text }}>
+                    {_unplaceable.length} operation{_unplaceable.length === 1 ? "" : "s"} have nobody assigned
+                  </div>
+                  <div style={{ fontSize: 11.5, color: T.textSec, marginTop: 2, lineHeight: 1.45 }}>
+                    The schedule is laid out by person, so these will import to the Project Plan
+                    instead of appearing on it. Assign them here, or let TRAQS pick whoever is most free.
+                  </div>
+                </div>
+                <button type="button" onClick={_autoAssign}
+                  style={{ flexShrink: 0, padding: "8px 14px", borderRadius: T.radiusPill, border: "none",
+                    background: brandGrad(T.accent), color: T.accentText, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>
+                  Auto-assign
+                </button>
+              </div>
+            )}
 
             {/* Footer */}
             <div style={{ padding: "14px 24px", borderTop: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexShrink: 0 }}>
