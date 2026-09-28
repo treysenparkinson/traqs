@@ -5,6 +5,10 @@ struct RootView: View {
     @Environment(AppState.self) private var appState
     @Environment(ThemeSettings.self) private var themeSettings
     @State private var showSplash = true
+    /// The intro (logo + liquid + Get Started) plays once per launch in front of
+    /// Welcome. Signed-in launches never see it: auth is restored synchronously
+    /// when AuthManager is created, so there's no signed-out first frame.
+    @State private var introDone = false
 
     // Email-based org auto-link state. We try once per login session.
     // `attempted` gates the lookup so a re-render doesn't re-fire it.
@@ -23,7 +27,14 @@ struct RootView: View {
                 // signing in to. WelcomeView covers both stages and carries its
                 // own load-up.
                 if appState.orgCode.isEmpty || !auth.isAuthenticated {
-                    WelcomeView(autoLinkError: lookupError)
+                    if introDone || auth.isAuthenticated {
+                        WelcomeView(autoLinkError: lookupError, logoAlreadyShown: introDone)
+                    } else {
+                        // Swapped with no transition: both screens are the same
+                        // paper with the logo in the same spot, so a cut IS the
+                        // seamless version.
+                        IntroView { withTransaction(.noAnimation) { introDone = true } }
+                    }
                 } else if lookupInFlight {
                     OrgLinkingView()
                 } else if lookupMatches.count > 1 && appState.orgCode.isEmpty {
