@@ -149,6 +149,15 @@ class AppState {
     /// Synced from the web; falls back to `OrgSettings.default` until first fetch.
     var orgSettings: OrgSettings = .default { didSet { dataRevision &+= 1 } }
 
+    /// "basic" | "business", from `GET /billing`. Basic until told otherwise —
+    /// the web's default too, and what an org with no billing record IS.
+    ///
+    /// Remembered per org, so a Business org opens as Business instead of
+    /// flashing the Basic layout until the fetch lands.
+    var billingTier: String = "basic"
+    var isBusinessTier: Bool { billingTier == "business" }
+    private static func billingTierKey(_ org: String) -> String { "billingTier.\(org)" }
+
     // MARK: - UI State
     var isLoading = false
     var saveStatus: SaveStatus = .idle
@@ -328,6 +337,7 @@ class AppState {
         if configuredOrgCode == orgCode, api != nil { return }
         configuredOrgCode = orgCode
         self.orgCode = orgCode
+        billingTier = UserDefaults.standard.string(forKey: Self.billingTierKey(orgCode)) ?? "basic"
         let apiInstance = APIService(auth: auth, orgCode: orgCode)
         self.api = apiInstance
         KeychainHelper.save(orgCode, forKey: KeychainHelper.orgCodeKey)
@@ -762,6 +772,7 @@ class AppState {
             withoutAnimation { groups = r }
         }
         if let r = try? await api.fetchOrgSettings() { withoutAnimation { orgSettings = r } }
+        await refreshBilling()
         withoutAnimation { autoMatchPerson() }
 
         // Race guard: if a live delta (Ably) advanced the sync cursor WHILE we were
@@ -1920,6 +1931,14 @@ class AppState {
     /// Netlify desktop (workdays, holidays, hpd, etc.) show up
     /// immediately on iOS instead of waiting up to 15s for the next
     /// global auto-refresh.
+    /// Re-read the tier. A failed fetch keeps whatever was known — dropping a
+    /// Business org to Basic over a network blip would rearrange the app.
+    func refreshBilling() async {
+        guard let api, let tier = try? await api.fetchBilling().tier, !tier.isEmpty else { return }
+        if tier != billingTier { withoutAnimation { billingTier = tier } }
+        UserDefaults.standard.set(tier, forKey: Self.billingTierKey(orgCode))
+    }
+
     func refreshOrgSettings() async {
         guard let api else { return }
         if let s = try? await api.fetchOrgSettings() { withoutAnimation { orgSettings = s } }

@@ -8,6 +8,11 @@ import SwiftUI
 /// `TTab` itself lives in Services/NavigationTypes — AppNav stores it. This is
 /// the half that needs a view type.
 extension TTab {
+    /// On Basic the Analytics slot is the Employees directory — Analytics is
+    /// Business-only, as on the web. Same tab, same position, different page.
+    func icon(business: Bool) -> TIcon { self == .stats && !business ? .employees : icon }
+    func label(business: Bool) -> String { self == .stats && !business ? "Employees" : label }
+
     var icon: TIcon {
         switch self {
         case .home:     return .home
@@ -138,6 +143,11 @@ struct MainTabView: View {
             appNav.logoutRequested = false
             auth.logout()
         }
+        // Basic has no Gantt toggle, so never leave it stranded in Gantt — a
+        // mode picked while the org was Business, or before the tier loaded.
+        .onChange(of: appState.isBusinessTier, initial: true) { _, business in
+            if !business, appNav.jobsMode != .list { appNav.jobsMode = .list }
+        }
         .onChange(of: appNav.openTimeOffPage, initial: true) { _, open in
             if open {
                 showTimeOff = true
@@ -211,7 +221,10 @@ private struct HeaderHost: View {
 
         case .jobs:
             var pills: [HeaderPill] = []
-            if appState.currentPerson?.isAdmin == true {
+            // Availability and the list/Gantt eye are Business-only. Basic has
+            // the list alone — it's where the job clock lives.
+            let business = appState.isBusinessTier
+            if business, appState.currentPerson?.isAdmin == true {
                 // Leftmost in the cluster. It used to stand alone where "+" is
                 // now; creating a job is the page's primary action, so it takes
                 // the prominent slot and this joins the cluster.
@@ -220,11 +233,13 @@ private struct HeaderHost: View {
                     content: .symbol("clock.arrow.circlepath", tint: nil),
                     action: .menu(.availability)))
             }
-            pills += [
+            if business {
                 // Just an eye. The old label ("List"/"Gantt") named the mode you
                 // were LEAVING as often as the one you were in.
-                HeaderPill(slot: .viewMode, content: .icon(.eye),
-                           action: .tap({ appNav.jobsMode.toggle() })),
+                pills.append(HeaderPill(slot: .viewMode, content: .icon(.eye),
+                                        action: .tap({ appNav.jobsMode.toggle() })))
+            }
+            pills += [
                 // Search is list-only, but stays MOUNTED in gantt and just fades
                 // — removing it resizes the cluster on every mode flip.
                 HeaderPill(slot: .search, content: .icon(.search),
@@ -253,11 +268,16 @@ private struct HeaderHost: View {
 
         case .stats:
             var pills: [HeaderPill] = []
-            if appState.isAdmin {
+            // Basic: the Employees directory. Worker and week scope Analytics,
+            // so they go with it; Admin stays for admins.
+            let business = appState.isBusinessTier
+            if business, appState.isAdmin {
                 pills.append(HeaderPill(slot: .worker, content: .icon(.person),
                                         action: .menu(.worker)))
             }
-            pills.append(HeaderPill(slot: .week, content: .icon(.cal), action: .menu(.week)))
+            if business {
+                pills.append(HeaderPill(slot: .week, content: .icon(.cal), action: .menu(.week)))
+            }
             if appState.isAdmin {
                 // Alone: Admin goes somewhere else entirely, where worker and
                 // week both scope THIS page.
@@ -328,6 +348,8 @@ private struct HeaderHost: View {
 
 private struct TabHost: View {
     @Environment(AppNav.self) private var appNav
+    /// Read for the tier only, which picks the fourth tab's page.
+    @Environment(AppState.self) private var appState
 
     /// Reserves bottom space so a page's content ends at the TOP of the floating
     /// nav pill. Used by Home/TimeClock/Stats — the tabs without their own
@@ -353,8 +375,11 @@ private struct TabHost: View {
                 .toolbar(.hidden, for: .tabBar)
             reserveBar(TimeClockView()).tag(TTab.hours)
                 .toolbar(.hidden, for: .tabBar)
-            reserveBar(MoreView()).tag(TTab.stats)
-                .toolbar(.hidden, for: .tabBar)
+            Group {
+                if appState.isBusinessTier { reserveBar(MoreView()) } else { reserveBar(EmployeesView()) }
+            }
+            .tag(TTab.stats)
+            .toolbar(.hidden, for: .tabBar)
             MessagesView().tag(TTab.chat)           // reserves pill space inside its own NavigationStack
                 .toolbar(.hidden, for: .tabBar)
         }
@@ -570,7 +595,7 @@ struct TRAQSTabBar: View {
         // Floating "which page" label that tracks the finger while dragging.
         .overlay(alignment: .top) {
             if let x = dragX {
-                Text(tab(atX: x).label)
+                Text(tab(atX: x).label(business: appState.isBusinessTier))
                     .font(.custom(TFontName.bold.rawValue, size: 13))
                     .foregroundStyle(Color(hex: T.ink))
                     .fixedSize()
@@ -635,6 +660,7 @@ private struct TabHop {
 }
 
 private struct TabBarIcon: View {
+    @Environment(AppState.self) private var appState
     let tab: TTab
     let isSelected: Bool
     var badge: Int
@@ -645,7 +671,7 @@ private struct TabBarIcon: View {
         // traced from the desktop sidebar and Messages is still an SF Symbol, so
         // the dispatch has to stay in one place. For the traced glyphs the
         // weight becomes a stroke width; for Messages it stays a symbol weight.
-        TIconView(icon: tab.icon,
+        TIconView(icon: tab.icon(business: appState.isBusinessTier),
                   size: 21,
                   // Readable on the accent fill when the highlighter is on this
                   // tab; primary ink otherwise.

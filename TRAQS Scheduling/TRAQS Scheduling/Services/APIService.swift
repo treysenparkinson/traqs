@@ -1,5 +1,11 @@
 import Foundation
 
+/// `/billing`'s body. Only the tier is read; an org with no billing record is
+/// Basic, and the server already fills that default in.
+struct BillingInfo: Decodable {
+    let tier: String?
+}
+
 /// A `POST /org` failure, carrying the server's message as the description.
 enum CreateOrgError: LocalizedError {
     case server(String)
@@ -318,6 +324,14 @@ struct APIService {
         let req = try await request("settings")
         let data = try await perform(req)
         return try decoder.decode(OrgSettings.self, from: data)
+    }
+
+    /// `GET /billing` — the org's tier. Behind auth on purpose (see billing.js):
+    /// config.json is public-read, so the plan doesn't live there.
+    func fetchBilling() async throws -> BillingInfo {
+        let req = try await request("billing")
+        let data = try await perform(req)
+        return try decoder.decode(BillingInfo.self, from: data)
     }
 
     func saveOrgSettings(_ settings: OrgSettings) async throws {

@@ -18,6 +18,8 @@ enum TIcon: String {
     case clients, team
     case select, trash, admin
     case gantt, eye
+    /// The Basic tier's directory tab — traced from the web sidebar's Employees.
+    case employees
 
     var sfName: String {
         switch self {
@@ -58,6 +60,7 @@ enum TIcon: String {
         case .admin:     return "shield.lefthalf.filled"
         case .gantt:     return "chart.bar.xaxis"
         case .eye:       return "eye"
+        case .employees: return "person.2"
         }
     }
 
@@ -66,7 +69,7 @@ enum TIcon: String {
     /// and then reverted to SF Symbols' `message` by preference.
     var isNavGlyph: Bool {
         switch self {
-        case .home, .jobs, .hours, .stats: return true
+        case .home, .jobs, .hours, .stats, .employees: return true
         default: return false
         }
     }
@@ -181,6 +184,8 @@ struct NavGlyph: View {
                 ClockGlyph().stroke(color, style: style)
             case .stats:
                 BarsGlyph().stroke(color, style: style)
+            case .employees:
+                EmployeesGlyph().stroke(color, style: style)
             default:
                 EmptyView()
             }
@@ -271,6 +276,40 @@ private struct BarsGlyph: Shape {
                 p.move(to: CGPoint(x: x, y: 21))
                 p.addLine(to: CGPoint(x: x, y: top))
             }
+        }
+    }
+}
+
+// Employees — a person with a second one behind their shoulder.
+// <circle cx="9.4" cy="7.4" r="4.4"/>
+// <path d="M3 21a6.4 6.4 0 0 1 12.8 0"/>
+// <path d="M15.6 5.6a3.1 3.1 0 0 1 0 6.2"/>
+// <path d="M17.2 14.6a6.2 6.2 0 0 1 3.8 6.4"/>
+// Arcs as cubics, solved from the SVG's endpoints, radius and flags (the last
+// one is a 74° arc, so a single cubic with the tan(θ/4) handle).
+private struct EmployeesGlyph: Shape {
+    func path(in rect: CGRect) -> Path {
+        navGlyphPath(in: rect) { p in
+            p.addEllipse(in: CGRect(x: 5.0, y: 3.0, width: 8.8, height: 8.8))
+
+            // Shoulders: a half circle, centre (9.4, 21), over the top.
+            p.move(to: CGPoint(x: 3, y: 21))
+            p.addCurve(to: CGPoint(x: 9.4, y: 14.6),
+                       control1: CGPoint(x: 3, y: 17.465), control2: CGPoint(x: 5.865, y: 14.6))
+            p.addCurve(to: CGPoint(x: 15.8, y: 21),
+                       control1: CGPoint(x: 12.935, y: 14.6), control2: CGPoint(x: 15.8, y: 17.465))
+
+            // Second head: a half circle, centre (15.6, 8.7), bulging right.
+            p.move(to: CGPoint(x: 15.6, y: 5.6))
+            p.addCurve(to: CGPoint(x: 18.7, y: 8.7),
+                       control1: CGPoint(x: 17.312, y: 5.6), control2: CGPoint(x: 18.7, y: 6.988))
+            p.addCurve(to: CGPoint(x: 15.6, y: 11.8),
+                       control1: CGPoint(x: 18.7, y: 10.412), control2: CGPoint(x: 17.312, y: 11.8))
+
+            // Second shoulder.
+            p.move(to: CGPoint(x: 17.2, y: 14.6))
+            p.addCurve(to: CGPoint(x: 21, y: 21),
+                       control1: CGPoint(x: 19.749, y: 15.651), control2: CGPoint(x: 21.297, y: 18.259))
         }
     }
 }
