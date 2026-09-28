@@ -21,7 +21,7 @@ enum SimpleJob {
     static let fullDayHours = 7.5
 
     /// What the form hands over. `startHour`/`endHour` are wall-clock hours
-    /// (13.5 = 1:30pm) and only mean anything when `start == end`.
+    /// (13.5 = 1:30pm) and only mean anything for a one-day task.
     struct Draft {
         var title: String
         var team: [String]
@@ -29,8 +29,11 @@ enum SimpleJob {
         var end: String             // yyyy-MM-dd
         var startHour: Double
         var endHour: Double
+        /// The form's "One day" toggle turned OFF: full days, no times — even
+        /// if the two dates happen to be the same day.
+        var fullDays: Bool = false
 
-        var isOneDay: Bool { start == end }
+        var isOneDay: Bool { !fullDays && start == end }
     }
 
     /// Productive hours a day of this task takes. One day: what the chosen

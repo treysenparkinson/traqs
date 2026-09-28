@@ -166,10 +166,19 @@ struct JobDetailPopup: View {
             head
             LiveHeightScroll(animation: disclosure) {
                 VStack(alignment: .leading, spacing: 14) {
-                    titleBlock
-                    detailsCard
-                    if !job.subs.isEmpty { panelsSection }
-                    if !job.notes.isEmpty { notesCard }
+                    if appState.isBusinessTier {
+                        titleBlock
+                        detailsCard
+                        if !job.subs.isEmpty { panelsSection }
+                        if !job.notes.isEmpty { notesCard }
+                    } else {
+                        // Basic: a job is a shift. What, when, and who else is
+                        // working that day — no progress, priority, status or
+                        // panels, none of which Basic tracks.
+                        basicTitle
+                        basicDetails
+                        workingThatDay
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -205,12 +214,12 @@ struct JobDetailPopup: View {
                 .tLabel(tracking: 1.4)
                 .foregroundStyle(Color(hex: T.muted))
             HStack(spacing: 10) {
-                if let n = job.jobNumber, !n.isEmpty {
+                if appState.isBusinessTier, let n = job.jobNumber, !n.isEmpty {
                     Text("#\(n)")
                         .font(TTypo.mono(13)).tnum()
                         .foregroundStyle(Color(hex: T.ink))
                 }
-                if let po = job.poNumber, !po.isEmpty {
+                if appState.isBusinessTier, let po = job.poNumber, !po.isEmpty {
                     Text("PO \(po)")
                         .font(TTypo.mono(13)).tnum()
                         .foregroundStyle(Color(hex: T.muted))
@@ -482,6 +491,135 @@ struct JobDetailPopup: View {
                 Rectangle().fill(Color(hex: T.sky)).frame(width: 3)
             }
         }
+    }
+
+    // MARK: Basic — the job as a shift
+
+    private var workDay: DayWindow { WorkDayClock.day(from: appState.orgSettings) }
+
+    /// The shift this job is FOR the viewer: their own unit on it if they're
+    /// on it, else its first scheduled unit. A simple job has exactly one.
+    private var myShift: JobShifts.Shift? {
+        let mine = JobShifts.all(in: [job], day: workDay)
+        return mine.first { $0.personId == appState.currentPersonId } ?? mine.first
+    }
+
+    /// The job's own dates, which is what "the same day" is measured against.
+    private var jobRange: (start: String, end: String) {
+        if let s = myShift { return (s.start, s.end) }
+        return (job.start, job.end.isEmpty ? job.start : job.end)
+    }
+
+    private var basicTitle: some View {
+        Text(job.title)
+            .font(.custom(TFontName.bold.rawValue, size: 22))
+            .foregroundStyle(Color(hex: T.ink))
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var basicDetails: some View {
+        let r = jobRange
+        let oneDay = r.start == r.end
+        var items: [(String, String)] = []
+        if oneDay {
+            items.append(("Date", JobShifts.dateLabel(start: r.start, end: r.start)))
+        } else {
+            items.append(("Start", JobShifts.dateLabel(start: r.start, end: r.start)))
+            items.append(("End", JobShifts.dateLabel(start: r.end, end: r.end)))
+        }
+        if let s = myShift {
+            items.append(("Time", JobShifts.timeLabel(start: s.startHour, end: s.endHour)))
+        }
+        return SBox(size: .lg) {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
+                    if idx > 0 { SLine() }
+                    HStack(alignment: .top, spacing: 12) {
+                        Text(item.0.uppercased())
+                            .font(TTypo.xsBold(10))
+                            .tLabel(tracking: 0.8)
+                            .foregroundStyle(Color(hex: T.muted))
+                            .frame(width: 60, alignment: .leading)
+                        Text(item.1)
+                            .font(TTypo.sm(14))
+                            .foregroundStyle(Color(hex: T.ink))
+                            .tnum()
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(.vertical, 10)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 6)
+        }
+    }
+
+    /// Everyone else scheduled on any of this job's days — on this job or any
+    /// other — and when. Shift workers want to know who they're working with.
+    private var workingThatDay: some View {
+        let r = jobRange
+        let others = JobShifts.sameDays(JobShifts.all(in: appState.jobs, day: workDay),
+                                        start: r.start, end: r.end,
+                                        excluding: appState.currentPersonId)
+        let multiDay = r.start != r.end
+        return VStack(alignment: .leading, spacing: 10) {
+            sectionLabel(multiDay ? "WORKING THOSE DAYS" : "WORKING THAT DAY")
+                .padding(.horizontal, 2)
+            if others.isEmpty {
+                Text("No one else is scheduled.")
+                    .font(TTypo.sm(13))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 18)
+                    .frostedCard(radius: T.cornerMd)
+            } else {
+                SBox(size: .lg) {
+                    VStack(spacing: 0) {
+                        ForEach(Array(others.enumerated()), id: \.element.id) { idx, shift in
+                            if idx > 0 { SLine() }
+                            coworkerRow(shift, showDate: multiDay || !shift.isOneDay)
+                        }
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+    }
+
+    private func coworkerRow(_ shift: JobShifts.Shift, showDate: Bool) -> some View {
+        let person = appState.person(id: shift.personId)
+        let sameJob = shift.jobId == job.id
+        return HStack(spacing: 12) {
+            Avatar(initials: Initials.from(person?.name ?? "?"), size: 34,
+                   fill: .personFill(person?.color ?? "#94a3b8"), imageData: person?.image)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(person?.name ?? "Someone")
+                    .font(TTypo.smBold(14))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .lineLimit(1)
+                Text(sameJob ? "On this job" : shift.jobTitle)
+                    .font(TTypo.xs(12))
+                    .foregroundStyle(Color(hex: T.muted))
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(JobShifts.timeLabel(start: shift.startHour, end: shift.endHour))
+                    .font(TTypo.smBold(12))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .tnum()
+                    .lineLimit(1)
+                if showDate {
+                    Text(JobShifts.dateLabel(start: shift.start, end: shift.end))
+                        .font(TTypo.xs(11))
+                        .foregroundStyle(Color(hex: T.muted))
+                        .lineLimit(1)
+                }
+            }
+        }
+        .padding(.vertical, 10)
     }
 
     // MARK: Notes

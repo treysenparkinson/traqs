@@ -64,7 +64,14 @@ struct HomeView: View {
 
                         // Today's job. The section header above this is gone — the
                         // card titles itself, matching the two square cards above.
-                        if let s = suggested {
+                        if !appState.isBusinessTier {
+                            // Basic: a schedule, not a job clock — today's shift
+                            // and the next one, and a way to the full list.
+                            BasicShiftsCard(onJump: jumpToJobs)
+                                .padding(.horizontal, 16)
+                                .padding(.top, 14)
+                                .padding(.bottom, 28)
+                        } else if let s = suggested {
                             SuggestedJobCard(task: s, isActive: isActive(s), onJump: jumpToJobs)
                                 .padding(.horizontal, 16)
                                 .padding(.top, 14)
@@ -385,6 +392,91 @@ private struct SuggestedJobCard: View {
         }
         .padding(T.insetHero)
         .frostedCard()
+    }
+}
+
+// MARK: - Basic: today's shift and the next one
+
+private struct BasicShiftsCard: View {
+    @Environment(AppState.self) private var appState
+    let onJump: () -> Void
+
+    private var myShifts: [JobShifts.Shift] {
+        let me = appState.currentPersonId
+        return JobShifts.all(in: appState.jobs.filter { $0.status != .finished },
+                             day: WorkDayClock.day(from: appState.orgSettings))
+            .filter { $0.personId == me }
+    }
+
+    var body: some View {
+        let today = AppState.ymd(Date())
+        let mine = myShifts
+        // Covering today, earliest first — a multi-day shift that started
+        // yesterday is still today's.
+        let todays = mine.filter { $0.start <= today && $0.end >= today }
+            .sorted { $0.startHour < $1.startHour }
+        let next = mine.filter { $0.start > today }
+            .min { ($0.start, $0.startHour) < ($1.start, $1.startHour) }
+
+        return VStack(alignment: .leading, spacing: 14) {
+            Text("Shifts")
+                .font(.custom(TFontName.bold.rawValue, size: 15))
+                .foregroundStyle(Color(hex: T.ink))
+
+            section("TODAY") {
+                if todays.isEmpty {
+                    Text("No shift today")
+                        .font(TTypo.sm(14))
+                        .foregroundStyle(Color(hex: T.muted))
+                } else {
+                    ForEach(todays) { shiftRow($0, showDate: !$0.isOneDay) }
+                }
+            }
+
+            if let next {
+                SLine()
+                section("NEXT SHIFT") { shiftRow(next, showDate: true) }
+            }
+
+            GradientCTA(glass: true, verticalPadding: 12, action: onJump) {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.forward")
+                    Text("See my schedule")
+                        .font(TTypo.smBold(14))
+                }
+            }
+            .padding(.top, 2)
+        }
+        .padding(T.insetHero)
+        .frostedCard()
+    }
+
+    private func section<Content: View>(_ label: String, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(label)
+                .font(TTypo.xsBold(10))
+                .tLabel(tracking: 1.2)
+                .foregroundStyle(Color(hex: T.muted))
+            content()
+        }
+    }
+
+    private func shiftRow(_ s: JobShifts.Shift, showDate: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(s.jobTitle)
+                .font(.custom(TFontName.bold.rawValue, size: 18))
+                .foregroundStyle(Color(hex: T.ink))
+                .lineLimit(1)
+            VStack(alignment: .leading, spacing: 3) {
+                if showDate {
+                    Label(JobShifts.dateLabel(start: s.start, end: s.end), systemImage: "calendar")
+                }
+                Label(JobShifts.timeLabel(start: s.startHour, end: s.endHour), systemImage: "clock")
+            }
+            .font(TTypo.sm(13))
+            .foregroundStyle(Color(hex: T.muted))
+            .labelStyle(BasicCardLabelStyle())
+        }
     }
 }
 

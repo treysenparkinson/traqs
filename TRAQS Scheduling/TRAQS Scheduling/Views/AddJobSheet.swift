@@ -18,18 +18,21 @@ struct AddJobSheet: View {
     @State private var startTime = Date()
     @State private var endTime = Date()
     @State private var showTeamPicker = false
+    /// On: one date and a start/end time. Off: start and end dates, full days.
+    @State private var oneDay = true
     @FocusState private var titleFocused: Bool
 
     private var day: DayWindow { WorkDayClock.day(from: appState.orgSettings) }
 
-    private var isOneDay: Bool { Calendar.current.isDate(startDate, inSameDayAs: endDate) }
+    private var isOneDay: Bool { oneDay }
 
     private var draft: SimpleJob.Draft {
         SimpleJob.Draft(title: title, team: team,
                         start: AppState.ymd(startDate),
                         end: AppState.ymd(isOneDay ? startDate : endDate),
                         startHour: Self.hour(of: startTime),
-                        endHour: Self.hour(of: endTime))
+                        endHour: Self.hour(of: endTime),
+                        fullDays: !oneDay)
     }
 
     private var valid: Bool {
@@ -62,8 +65,13 @@ struct AddJobSheet: View {
                 }
 
                 Section("Dates") {
-                    DatePicker("Start", selection: $startDate, displayedComponents: .date)
-                    DatePicker("End", selection: $endDate, in: startDate..., displayedComponents: .date)
+                    Toggle("One day", isOn: $oneDay.animation(.easeInOut(duration: 0.2)))
+                    if oneDay {
+                        DatePicker("Date", selection: $startDate, displayedComponents: .date)
+                    } else {
+                        DatePicker("Start", selection: $startDate, displayedComponents: .date)
+                        DatePicker("End", selection: $endDate, in: startDate..., displayedComponents: .date)
+                    }
                 }
 
                 if isOneDay {
@@ -94,6 +102,12 @@ struct AddJobSheet: View {
             }
             .onChange(of: startDate) { _, new in
                 if endDate < new { endDate = new }
+            }
+            .onChange(of: oneDay) { _, on in
+                // Off means a run of days, so offer one: end the day after.
+                if !on, !(endDate > startDate) {
+                    endDate = Calendar.current.date(byAdding: .day, value: 1, to: startDate) ?? startDate
+                }
             }
             .onAppear {
                 // The web's defaults: start of the working day, eight hours on

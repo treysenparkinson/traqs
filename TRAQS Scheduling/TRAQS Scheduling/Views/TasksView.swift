@@ -73,7 +73,10 @@ struct TasksView: View {
                 // Hoisting it is safe because the bucket was never range-bound:
                 // In Progress is "started, any date, until complete", so it read
                 // the same in every segment.
-                if !workingTasks.isEmpty || !inProgressTasks.isEmpty || !inProgressJobs.isEmpty {
+                // Business only. Basic doesn't track work against jobs, so there
+                // is no "in progress" — its list is the schedule and nothing else.
+                if appState.isBusinessTier,
+                   !workingTasks.isEmpty || !inProgressTasks.isEmpty || !inProgressJobs.isEmpty {
                   VStack(spacing: 0) {
                     sectionHeader("In Progress")
                         .padding(.horizontal, 16)
@@ -361,22 +364,28 @@ struct TasksView: View {
         // window", which silently filed weeks-old unstarted work above genuinely
         // future work and called it upcoming.
         let mine = myActiveTasks
+        // BASIC is a schedule, not a tracker: no In Progress section above to
+        // hand anything to, and no Overdue — nothing in Basic ever marks a shift
+        // done, so every past shift would sit in Overdue forever. A shift the
+        // web happens to have flagged in-progress just shows under its dates,
+        // and past shifts drop off.
+        let basic = !appState.isBusinessTier
         // In Progress is rendered at PAGE level now, above the job being
         // worked — see the body. Only the not-started split is needed here.
-        let notStarted = mine.filter { $0.status != .inProgress }
+        let notStarted = basic ? mine : mine.filter { $0.status != .inProgress }
         let today = notStarted.filter { overlapsRange($0, range) }
         let outsideRange = notStarted.filter { !overlapsRange($0, range) }
-        let overdue = outsideRange.filter { isPast($0, range) }
+        let overdue = basic ? [] : outsideRange.filter { isPast($0, range) }
         let upcoming = outsideRange.filter { !isPast($0, range) }
         // Job-level ("owner") assignments — bucketed by the JOB's own status/dates
         // and shown alongside your panel/op tasks in the same Overdue/Today/
         // In Progress/Upcoming sections so a job assigned to you at the job level
         // appears.
         let jobLevel = myJobLevelJobs
-        let jobRest = jobLevel.filter { $0.status != .inProgress }
+        let jobRest = basic ? jobLevel : jobLevel.filter { $0.status != .inProgress }
         let jobToday = jobRest.filter { jobOverlapsRange($0, range) }
         let jobOutside = jobRest.filter { !jobOverlapsRange($0, range) }
-        let jobOverdue = jobOutside.filter { jobIsPast($0, range) }
+        let jobOverdue = basic ? [] : jobOutside.filter { jobIsPast($0, range) }
         let jobUpcoming = jobOutside.filter { !jobIsPast($0, range) }
         let others = allJobsList
         return VStack(spacing: 16) {
@@ -1340,7 +1349,19 @@ struct TaskCardV1: View {
         return String(format: "%dh %dm %ds", secs / 3600, (secs % 3600) / 60, secs % 60)
     }
 
+    /// Basic doesn't clock time to jobs — a job there is a shift — so its card
+    /// is just the title, the day and the time. No pills, no clock, no menu.
+    /// Every card in the app goes through here, so this is the one switch.
+    @ViewBuilder
     var body: some View {
+        if appState.isBusinessTier {
+            businessCard
+        } else {
+            BasicJobCard(task: task)
+        }
+    }
+
+    private var businessCard: some View {
         // Keep the rectangular "square" card footprint but round the corners
         // a lot more so it reads as a soft rounded-square, not a boxy panel.
         // Uses the shared hero radius so every page's cards match.
@@ -1832,6 +1853,61 @@ private struct AllJobsCard: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: isExpanded)
+    }
+}
+
+// MARK: - Basic job card
+
+/// A job as a shift: what, which day, what time.
+private struct BasicJobCard: View {
+    @Environment(AppState.self) private var appState
+    let task: TaskAssignment
+
+    private var unit: (start: String, end: String, startHour: Double?, hpd: Double) {
+        if let op = task.op {
+            return (op.start, op.end.isEmpty ? op.start : op.end, JobShifts.startHour(op.extras), op.hpd)
+        }
+        let p = task.panel
+        return (p.start, p.end.isEmpty ? p.start : p.end, JobShifts.startHour(p.extras), p.hpd)
+    }
+
+    var body: some View {
+        let u = unit
+        let w = JobShifts.window(startHour: u.startHour, hpd: u.hpd,
+                                 day: WorkDayClock.day(from: appState.orgSettings))
+        SBox(size: .lg, radius: T.cornerHero, frosted: true) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(task.job.title.isEmpty ? task.title : task.job.title)
+                    .font(.custom(TFontName.bold.rawValue, size: 20))
+                    .foregroundStyle(Color(hex: T.ink))
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Label(JobShifts.dateLabel(start: u.start, end: u.end), systemImage: "calendar")
+                    Label(JobShifts.timeLabel(start: w.start, end: w.end), systemImage: "clock")
+                }
+                .font(TTypo.sm(14))
+                .foregroundStyle(Color(hex: T.muted))
+                .labelStyle(BasicCardLabelStyle())
+            }
+            .padding(.horizontal, 22)
+            .padding(.vertical, 20)
+        }
+    }
+}
+
+/// Icon and text on one baseline, the icon in a fixed column so the date and
+/// time line up however wide their glyphs are.
+struct BasicCardLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 8) {
+            configuration.icon
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 18)
+            configuration.title
+                .tnum()
+        }
     }
 }
 
