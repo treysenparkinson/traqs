@@ -60,7 +60,37 @@ for (const c of BRAND) ok(`the mark uses ${c}`, mail.html.toUpperCase().includes
 ok("and no grey bar survives from the old mark", !/#8a8a86/i.test(mail.html));
 // Remote images are blocked by default in most clients, so the logo has to be
 // drawn with table cells or it is a grey box on first open.
-ok("the mark is drawn, not an <img> that clients will block", !/<img/i.test(mail.html));
+// THE BARS ARE DRAWN. The WORDMARK is an image, deliberately -- it is Space
+// Grotesk and no client loads a webfont -- so "no <img> anywhere" is not the
+// invariant and never was. What matters is that a blocked image still leaves the
+// brand on screen: four correct colours in table cells, plus alt text.
+//
+// This assertion used to read !/<img/ against whatever the ambient environment
+// produced, which passed locally and FAILED on Netlify -- Netlify sets URL, the
+// lockup then emits the real wordmark, and the test caught its own feature. The
+// environment is now set explicitly per case instead of inherited.
+const renderWith = (base) => {
+  const had = process.env.MAIL_ASSET_BASE, hadUrl = process.env.URL;
+  if (base) { process.env.MAIL_ASSET_BASE = base; } else { delete process.env.MAIL_ASSET_BASE; delete process.env.URL; }
+  const m = inviteEmail({ orgName: "Acme", inviterName: "Dana", acceptUrl: url, expiresAt: invite.expiresAt });
+  if (had === undefined) delete process.env.MAIL_ASSET_BASE; else process.env.MAIL_ASSET_BASE = had;
+  if (hadUrl === undefined) delete process.env.URL; else process.env.URL = hadUrl;
+  return m.html;
+};
+const withImg = renderWith("https://example.test");
+const noImg = renderWith(null);
+
+ok("with an asset base, the wordmark is a real image", /<img[^>]+traqs-wordmark.png/i.test(withImg));
+ok("...and it is the ONLY image in the mail", (withImg.match(/<img/gi) || []).length === 1);
+ok("...carrying alt text, so a blocked image still says traqs", /<img[^>]+alt="traqs"/i.test(withImg));
+ok("without one, it falls back to type rather than a broken src", !/<img/i.test(noImg));
+
+// The bars are never an image, in either case. This is the real protection: a
+// client that blocks the wordmark still shows four correct brand colours.
+for (const [label, html] of [["with the image", withImg], ["without it", noImg]]) {
+  const bars = (html.match(/background:#[0-9A-F]{6}/gi) || []).map((m) => m.split(":")[1].toUpperCase());
+  ok(`the four bars are drawn cells, ${label}`, BRAND.every((c) => bars.includes(c)));
+}
 
 // ── the expiry ───────────────────────────────────────────────────────────────
 const days = Math.round(INVITE_TTL_MS / 86400000);
@@ -130,10 +160,18 @@ if (existsSync(ASSET)) {
 const LAYOUT = rf(new URL("../netlify/functions/_utils/email-layout.js", import.meta.url), "utf8");
 ok("the HTML points at the path the file actually sits on",
   LAYOUT.includes("/email/traqs-wordmark.png"));
-ok("it falls back to type when no public base is configured",
-  LAYOUT.includes("const base = assetBase();") && /bases*?/.test(LAYOUT));
-ok("the bars stay drawn, so a blocked image still shows the brand",
-  LAYOUT.includes("export const mark = ()"));
+// Rendered output is asserted above; this only checks the source has not grown a
+// second image source that the render-time checks would miss.
+//
+// Comments are stripped first. The file explains in prose why the bars are NOT
+// an <img>, and counting that sentence as code is the same mistake as reading a
+// comment for a call site.
+const NL = String.fromCharCode(10);
+const LAYOUT_CODE = LAYOUT
+  .split(NL)
+  .filter((l) => !l.trimStart().startsWith("//") && !l.trimStart().startsWith("*"))
+  .join(NL);
+ok("only the wordmark is ever an image", (LAYOUT_CODE.match(/<img/g) || []).length === 1);
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
