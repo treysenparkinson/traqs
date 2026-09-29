@@ -206,7 +206,7 @@ export async function handler(event) {
     let body;
     try { body = JSON.parse(event.body); } catch { return err(400, "Invalid JSON body"); }
 
-    const { newCode, newName, deleteOrg } = body ?? {};
+    const { newCode, newName, newDomain, deleteOrg } = body ?? {};
 
     // ── Soft-delete: mark deleted, touch nothing else ──────────────────────
     // Chosen over actually removing the orgs/{code}/ prefix: this exists to
@@ -256,6 +256,69 @@ export async function handler(event) {
       } catch (e) {
         console.error("org PATCH name error:", e);
         return err(500, "Failed to update organization name");
+      }
+    }
+
+    // ── Set the email domain that may join this org — BUSINESS ONLY ──────
+    //
+    // The tier is checked HERE and not only in the UI. Hiding a control is a
+    // suggestion; this endpoint is reachable with a token and a curl, and a
+    // Basic org quietly acquiring a domain restriction would lock its own
+    // people out with nothing on screen to explain why.
+    //
+    // Written as the bare domain, no "@". The UI shows a fixed @ that cannot be
+    // deleted, so what arrives here may or may not carry one, and storing both
+    // shapes would mean every comparison had to normalise first.
+    if (typeof newDomain === "string" && !newCode && !newName) {
+      try { requirePerm(member, "orgSettings"); } catch (e) { return err(e.statusCode, e.message); }
+
+      const billing = (await readJson(`orgs/${currentCode}/billing.json`).catch(() => null)) ?? {};
+      if ((billing.tier || "basic") !== "business") {
+        return err(403, "Restricting sign-in by email domain is a Business feature.");
+      }
+
+      // Empty clears the restriction, which has to stay possible: a domain
+      // typed wrong is a locked-out organization, and the way back must not
+      // itself require being signed in as somebody at that domain.
+      const clean = String(newDomain).trim().toLowerCase().replace(/^@+/, "");
+      if (clean) {
+        if (clean.length > 253) return err(400, "Domain too long");
+        // Labels of letters, digits and hyphens, at least two of them, not
+        // starting or ending with a hyphen. Deliberately not an email regex --
+        // this is a domain, and accepting "user@acme.com" here would store a
+        // value that can never match anything.
+        // Built from a string so the escaped dot survives: this file gets
+        // patched through shells that eat backslashes, and an unescaped dot
+        // means "any character" -- which accepted "user@acme.com", the exact
+        // value the comment above says must be refused.
+        const LABEL = "[a-z0-9]([a-z0-9-]*[a-z0-9])?";
+        const ok = new RegExp("^" + LABEL + "([.]" + LABEL + ")+$").test(clean);
+        if (!ok) return err(400, "Enter a domain like acmefab.com, without the @");
+      }
+
+      const configKey = `orgs/${currentCode}/config.json`;
+      try {
+        const existing = await readJson(configKey);
+        if (!existing) return err(404, "Organization not found");
+        // THE ADMIN MUST NOT LOCK THEMSELVES OUT. Setting a domain nobody in
+        // adminEmails belongs to leaves an org whose own administrators fail
+        // the gate, and the only fix is this endpoint they can no longer reach.
+        if (clean) {
+          const admins = [existing.adminEmail, ...(existing.adminEmails || [])].filter(Boolean);
+          const anyAdminFits = admins.some((a) => String(a).toLowerCase().endsWith("@" + clean));
+          if (!anyAdminFits) {
+            return err(400, "No administrator of this organization uses @" + clean
+              + ". Setting it would lock every admin out.");
+          }
+        }
+        const stamped = stampObject({ ...existing, domain: clean }, existing);
+        await writeJson(configKey, stamped);
+        await publishChange(currentCode, "orgConfig", { ids: ["*"] });
+        await sendSilentPush(currentCode, { entity: "orgConfig" });
+        return json(200, { ok: true, config: stamped });
+      } catch (e) {
+        console.error("org PATCH domain error:", e);
+        return err(500, "Failed to update the organization domain");
       }
     }
 

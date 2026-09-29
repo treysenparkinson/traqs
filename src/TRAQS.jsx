@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { TraqsBars, BARS_ASPECT, BRAND_BARS } from "./brand.jsx";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme, setActiveThread } from "./push.js";
@@ -135,7 +135,36 @@ const STD_COL_DEFS = [
   { id: "progress", label: "Progress", align: "left",   i: 9 },
   { id: "team",     label: "Team",     align: "left",   i: 10 },
   { id: "appr",     label: "Approval", align: "left",   i: 11 },
+  // Who the work is actually on. Distinct from Team, which reads the row's OWN
+  // team array: assignment happens on the operations, so a job created through
+  // the new-job modal carries no job-level team at all and the Team cell on a job
+  // row comes back empty for work that is fully assigned. This one rolls the
+  // leaves up, so a job row answers "who is on this" and a job saved with Skip
+  // Assignee reads Unassigned instead of blank.
+  { id: "assignee", label: "Assignee", align: "left",   i: 12 },
 ];
+// colWidths on the Jobs page is POSITIONAL: [0] is the chevron, [1 .. n] the
+// standard columns in STD_COL_DEFS order, then one entry per custom column, then
+// the actions column last. Adding a standard column moves where the custom ones
+// begin, and that boundary was written as a bare 13 in six places. Derived here
+// instead, so the next column added to STD_COL_DEFS cannot desync the widths
+// from the headers.
+const CUSTOM_W0 = 1 + STD_COL_DEFS.length;
+// A SAVED column order predates any standard column shipped after it was written --
+// it is a plain id list, so a new column is simply absent from it rather than marked
+// hidden. Back-filling every unknown id in STD_COL_DEFS order is what makes a newly
+// shipped default column visible to people who already have an order stored.
+//
+// This has to be applied wherever a stored order is read, and there are TWO places:
+// the localStorage cache that paints first, and the per-account copy that arrives
+// from the server a moment later and REPLACES it. Applied to only the first -- which
+// is how it was -- the column appears on load and is then stripped again the instant
+// the account settings land, which looks exactly like the column never shipped.
+const backfillColOrder = (saved) => {
+  const known = STD_COL_DEFS.map(c => c.id);
+  const kept = saved.filter(id => known.includes(id));
+  return [...kept, ...known.filter(id => !kept.includes(id))];
+};
 // Std columns offered in the Jobs "Grouping" dropdown (Columns section). Excludes
 // name (one section per job), progress/team (don't bucket well), and client (the
 // dropdown's dedicated Clients section already covers per-client grouping).
@@ -3084,7 +3113,10 @@ const Card = ({ children, style: sx = {}, delay = 0, onClick }) => <div classNam
 // translucent. Real frost rather than a faked tint: the jobs scroller pins its
 // background layer in the SAME stacking context, so backdrop-filter has something
 // to sample and the blur is aligned by construction.
-const FrostCard = ({ children, onClick, border, style: sx = {} }) => (
+// `scrollRef` hands the caller the inner scrolling box. The Jobs list uses it to
+// tie every grid card's horizontal position together; everywhere else leaves it off
+// and the card scrolls on its own as before.
+const FrostCard = ({ children, onClick, border, scrollRef, style: sx = {} }) => (
   <div className="tq-lglass tq-lglass-card" style={{
     position: "relative", overflow: "hidden", borderRadius: T.radiusLg,
     border: border || `1px solid ${T.border}`, minWidth: 0,
@@ -3100,7 +3132,7 @@ const FrostCard = ({ children, onClick, border, style: sx = {} }) => (
     background: T.card,
     ...sx,
   }}>
-    <div className="tq-card-scroll" style={{ position: "relative", overflow: "auto", borderRadius: T.radiusLg }} onClick={onClick}>{children}</div>
+    <div ref={scrollRef} className="tq-card-scroll" style={{ position: "relative", overflow: "auto", borderRadius: T.radiusLg }} onClick={onClick}>{children}</div>
   </div>
 );
 const InputField = ({ label, value, onChange, type = "text", placeholder, id }) => type === "date"
@@ -5725,10 +5757,50 @@ Extraction rules:
       const n = new Set(prev); n.add(id); return n;
     });
   }, []);
-  const [colWidths, setColWidths] = useState([26, 200, 80, 120, 132, 80, 100, 100, 100, 70, 130, 140, 200, 36]);
+  const [colWidths, setColWidths] = useState([26, 200, 80, 120, 132, 80, 100, 100, 100, 70, 130, 140, 200, 150, 36]);
   const [engColWidths, setEngColWidths] = useState([26, 200, 80, 120, 110, 80, 100, 100, 100, 340]);
   const [toolbarExpanded, setToolbarExpanded] = useState(false);
   const [cellAlign, setCellAlign] = useState("left");
+  // ── The Jobs list's grid cards scroll sideways as ONE ───────────────────────
+  // Every section on the page is its own card with its own horizontal scroller, so
+  // scrolling right to reach a late column moved that one section and left every
+  // other section behind, with the columns no longer lining up down the page.
+  //
+  // They are tied together rather than merged into a single outer scroller: the
+  // column headers are `position: sticky` against each card's own box, and each
+  // section's collapse animation needs its `overflow: hidden` wrapper. Lifting the
+  // scroll to an ancestor would take both of those apart.
+  const jobsHScrollers = useRef(new Set());
+  const jobsHScrollLeft = useRef(0);
+  const jobsHSyncing = useRef(false);
+  const registerJobsHScroll = useCallback((el) => {
+    // React 18 calls a callback ref with null on unmount and does not hand back the
+    // element, so there is nothing to detach from here. Detached nodes are instead
+    // dropped on the next pass below, which is also what keeps the set from growing.
+    if (!el || jobsHScrollers.current.has(el)) return;
+    jobsHScrollers.current.add(el);
+    // A card that mounts later -- a section expanding, a filter changing, Finished
+    // appearing -- has to arrive where everything else already is, or it renders at
+    // column zero while its neighbours are scrolled right.
+    if (el.scrollLeft !== jobsHScrollLeft.current) el.scrollLeft = jobsHScrollLeft.current;
+    el.addEventListener("scroll", () => {
+      // Assigning scrollLeft below fires `scroll` on each of the others, so without
+      // this they would answer back and fight the card the user is actually on.
+      if (jobsHSyncing.current) return;
+      const x = el.scrollLeft;
+      if (x === jobsHScrollLeft.current) return; // a vertical scroll; nothing to mirror
+      jobsHScrollLeft.current = x;
+      jobsHSyncing.current = true;
+      for (const other of jobsHScrollers.current) {
+        if (!other.isConnected) { jobsHScrollers.current.delete(other); continue; }
+        if (other !== el && other.scrollLeft !== x) other.scrollLeft = x;
+      }
+      // Next frame, not synchronously: those scroll events are delivered async, and
+      // clearing the guard now would let the first of them re-enter.
+      requestAnimationFrame(() => { jobsHSyncing.current = false; });
+    }, { passive: true });
+  }, []);
+
   const [colPickerOpen, setColPickerOpen] = useState(false);
   const [colPickerAnchor, setColPickerAnchor] = useState(null);
   const [colPickerExiting, setColPickerExiting] = useState(false);
@@ -5815,7 +5887,7 @@ Extraction rules:
   // with a default width, trim removed ones — so the grid never desyncs from the headers/cells.
   useEffect(() => {
     const n = customCols.length;
-    setColWidths(prev => { const cur = prev.slice(13, prev.length - 1); if (cur.length === n) return prev; return [...prev.slice(0, 13), ...Array.from({ length: n }, (_, i) => cur[i] ?? 120), prev[prev.length - 1]]; });
+    setColWidths(prev => { const cur = prev.slice(CUSTOM_W0, prev.length - 1); if (cur.length === n) return prev; return [...prev.slice(0, CUSTOM_W0), ...Array.from({ length: n }, (_, i) => cur[i] ?? 120), prev[prev.length - 1]]; });
     setEngColWidths(prev => { const cur = prev.slice(9, prev.length - 1); if (cur.length === n) return prev; return [...prev.slice(0, 9), ...Array.from({ length: n }, (_, i) => cur[i] ?? 120), prev[prev.length - 1]]; });
   }, [customCols.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const parseWorkHour = t => { const [h, m] = (t || "08:00").split(":").map(Number); return h + m / 60; };
@@ -5939,17 +6011,9 @@ Extraction rules:
   const [editingColHeader, setEditingColHeader] = useState(null); // colId being renamed (eng columns)
   const [renameCol, setRenameCol] = useState(null); // { colId, isCustom, value, x, y } — small draggable rename popover
   const [colOrder, setColOrder] = useState(() => {
-    // A saved order predates any std column added later (it is a plain id list written
-    // before that column existed), so back-fill every missing id in STD_COL_DEFS order.
-    // Without this a newly shipped default column is invisible to every existing user.
-    const backfill = (saved) => {
-      const known = STD_COL_DEFS.map(c => c.id);
-      const kept = saved.filter(id => known.includes(id));
-      return [...kept, ...known.filter(id => !kept.includes(id))];
-    };
     try {
       const saved = JSON.parse(localStorage.getItem("tq_col_order") || "null");
-      return Array.isArray(saved) && saved.length ? backfill(saved) : STD_COL_DEFS.map(c => c.id);
+      return Array.isArray(saved) && saved.length ? backfillColOrder(saved) : STD_COL_DEFS.map(c => c.id);
     }
     catch { return STD_COL_DEFS.map(c => c.id); }
   });
@@ -5973,16 +6037,26 @@ Extraction rules:
   const toggleColGroupable = (key) => setGroupColPref(prev => ({ ...prev, [key]: !(key in prev ? prev[key] : colGroupDefault(key)) }));
   const [colCtxMenu, setColCtxMenu] = useState(null); // { x, y, colId, isCustom }
   // Editable built-in list columns (Status / Priority). Each option carries its color (+ icon for status).
-  const [statusOpts, setStatusOpts] = useState(() => {
-    try { const s = JSON.parse(localStorage.getItem("tq_status_opts") || "null"); if (Array.isArray(s) && s.length) return s; } catch {}
-    return DEFAULT_STATUSES.map(n => ({ name: n, color: DEFAULT_STA_C[n] || "#94a3b8", icon: DEFAULT_STA_ICON[n] || "○" }));
-  });
-  useEffect(() => { localStorage.setItem("tq_status_opts", JSON.stringify(statusOpts)); }, [statusOpts]);
-  const [priOpts, setPriOpts] = useState(() => {
-    try { const s = JSON.parse(localStorage.getItem("tq_pri_opts") || "null"); if (Array.isArray(s) && s.length) return s; } catch {}
-    return DEFAULT_PRIORITIES.map(n => ({ name: n, color: DEFAULT_PRI_C[n] || "#94a3b8" }));
-  });
-  useEffect(() => { localStorage.setItem("tq_pri_opts", JSON.stringify(priOpts)); }, [priOpts]);
+  //
+  // ORG-WIDE, in orgSettings, for the same reason customCols are: these lists say
+  // which statuses exist and what colour each one is, and every status pill in the
+  // app -- jobs grid, job details, schedule bars, filters, the AI's vocabulary --
+  // reads them. Held per-account (which is where they used to live: localStorage
+  // plus the per-user S3 blob) an admin's rename was invisible to everybody else,
+  // and two people could disagree about which statuses the organization has.
+  //
+  // Derived, not mirrored. A useState seeded from orgSettings would need an effect
+  // to follow it, and that effect is exactly how the old copy went stale.
+  const statusOpts = useMemo(() => {
+    const s = orgSettings.statusOpts;
+    return Array.isArray(s) && s.length ? s : DEFAULT_STATUSES.map(n => ({ name: n, color: DEFAULT_STA_C[n] || "#94a3b8", icon: DEFAULT_STA_ICON[n] || "○" }));
+  }, [orgSettings.statusOpts]);
+  const setStatusOpts = useCallback((v) => setOrgSettings(s => ({ ...s, statusOpts: typeof v === "function" ? v(s.statusOpts || []) : v })), []);
+  const priOpts = useMemo(() => {
+    const s = orgSettings.priOpts;
+    return Array.isArray(s) && s.length ? s : DEFAULT_PRIORITIES.map(n => ({ name: n, color: DEFAULT_PRI_C[n] || "#94a3b8" }));
+  }, [orgSettings.priOpts]);
+  const setPriOpts = useCallback((v) => setOrgSettings(s => ({ ...s, priOpts: typeof v === "function" ? v(s.priOpts || []) : v })), []);
   // Dynamic shadows of the module defaults — every in-component usage resolves to these.
   const STATUSES = useMemo(() => statusOpts.map(o => o.name), [statusOpts]);
   const PRIORITIES = useMemo(() => priOpts.map(o => o.name), [priOpts]);
@@ -6358,6 +6432,26 @@ Extraction rules:
   // everywhere inside the component; bare getHealth is for module scope, which cannot
   // reach the session rows or the live clocks.
   const healthOf = (t) => getHealth(t, _pctForItem(t) / 100);
+  // Everyone actually on a node, at whatever level it sits. Assignment lives on the
+  // LEAVES -- a job and a phase carry no team of their own once a job is created
+  // through the new-job modal -- so reading node.team alone answers empty for work
+  // that is fully assigned. Walk to the leaves, then fall back to the node's own team
+  // for the legacy single-level tasks that predate phases.
+  //
+  // sameId, not ===: person ids are mixed string/number across web and iOS, so a
+  // dedupe on === would list the same person twice.
+  const _assigneesOf = (node) => {
+    const ids = [];
+    const push = (v) => { if (v == null || v === "") return; if (!ids.some(x => sameId(x, v))) ids.push(v); };
+    const walk = (n) => {
+      const kids = (n.subs || []).filter(k => k && !k.deletedAt);
+      if (kids.length) kids.forEach(walk);
+      else (n.team || []).forEach(push);
+    };
+    walk(node);
+    if (!ids.length) (node.team || []).forEach(push);
+    return ids.map(id => people.find(p => sameId(p.id, id))).filter(Boolean);
+  };
   // ─── Freeform export designer: shared block renderer + page/layout builders ──
   const EXPORT_PAGE = (orientation) => orientation === "landscape" ? { w: 1056, h: 816 } : { w: 816, h: 1056 };
   const escHtml = s => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -7022,7 +7116,7 @@ Extraction rules:
     const idx = customCols.findIndex(c => c.id === colId);
     if (idx < 0) return;
     setCustomCols(prev => prev.filter(c => c.id !== colId));
-    setColWidths(prev => { const n = [...prev]; n.splice(13 + idx, 1); return n; });
+    setColWidths(prev => { const n = [...prev]; n.splice(CUSTOM_W0 + idx, 1); return n; });
     setEngColWidths(prev => { const n = [...prev]; n.splice(9 + idx, 1); return n; });
   };
   const updateCustomCol = (colId, patch) => setCustomCols(prev => prev.map(c => c.id === colId ? { ...c, ...patch } : c));
@@ -7577,6 +7671,10 @@ Extraction rules:
   // reverts and never reaches S3. Tasks/people/clients are protected by busy();
   // settings had no equivalent because it is not save-tracked.
   const orgSettingsDirty = useRef(false);
+  // Set once the server has answered, however it answered. The status/priority
+  // migration below has to wait for it: firing against the local cache alone would
+  // read "the org has no list yet" from a copy that simply had not loaded.
+  const orgSettingsLoadedRef = useRef(false);
   useEffect(() => {
     if (!orgCode) return;
     fetchOrgSettings(getToken, orgCode)
@@ -7596,9 +7694,56 @@ Extraction rules:
           return merged;
         });
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => { orgSettingsLoadedRef.current = true; });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ONE-TIME MIGRATION of the status/priority lists, which used to be per-account.
+  //
+  // It MERGES rather than seeds. Every admin customised their own copy while these
+  // were personal, so they hold different lists -- one added Paused and Late, another
+  // added Crated. Seeding the org from whoever happened to load first would throw the
+  // others away, and there is no getting them back: user-settings.js replaces the blob
+  // wholesale, so the first preference an admin changes on the new build wipes their
+  // old list from S3 forever. Each admin's list is therefore folded in, by name, the
+  // first time they load, and anything genuinely unwanted is deleted once in the UI.
+  //
+  // Their account's SERVER copy is preferred over this machine's localStorage: it is
+  // the authoritative one, it is the one about to be destroyed, and localStorage is
+  // empty on a machine they have not used before.
+  //
+  // Gated on the orgSettings permission: the list is everybody's now, and a member's
+  // local experiment must not become org policy.
+  const optsMigratedRef = useRef(false);
+  // The account's own pre-move lists, captured off the user-settings read above.
+  const legacyOptsRef = useRef({ statusOpts: null, priOpts: null });
+  const OPTS_MIGRATED_KEY = "tq_opts_merged_v1";
+  useEffect(() => {
+    if (optsMigratedRef.current || !orgCode) return;
+    if (!orgSettingsLoadedRef.current || !userSettingsLoadedRef.current) return;
+    if (!can("orgSettings")) return; // retried when loggedInUser resolves
+    // Once per browser, ever. Without this the localStorage copy would be re-merged
+    // on every load and keep resurrecting options an admin has since deleted.
+    try { if (localStorage.getItem(OPTS_MIGRATED_KEY)) { optsMigratedRef.current = true; return; } } catch { /* private mode */ }
+    const cached = (k) => { try { const v = JSON.parse(localStorage.getItem(k) || "null"); return Array.isArray(v) && v.length ? v : null; } catch { return null; } };
+    // Union by name, the org's list first so its order and colours win. Returns null
+    // when there is nothing new to add, so an admin who already agrees writes nothing.
+    const fold = (orgList, mine) => {
+      if (!mine || !mine.length) return null;
+      const base = Array.isArray(orgList) && orgList.length ? orgList : null;
+      if (!base) return mine;
+      const have = new Set(base.map(o => String(o?.name || "").trim().toLowerCase()));
+      const added = mine.filter(o => o && !have.has(String(o.name || "").trim().toLowerCase()));
+      return added.length ? [...base, ...added] : null;
+    };
+    const sOpts = fold(orgSettings.statusOpts, legacyOptsRef.current.statusOpts || cached("tq_status_opts"));
+    const pOpts = fold(orgSettings.priOpts, legacyOptsRef.current.priOpts || cached("tq_pri_opts"));
+    optsMigratedRef.current = true;
+    try { localStorage.setItem(OPTS_MIGRATED_KEY, "1"); localStorage.removeItem("tq_status_opts"); localStorage.removeItem("tq_pri_opts"); } catch { /* private mode */ }
+    if (!sOpts && !pOpts) return;
+    setOrgSettings(prev => ({ ...prev, ...(sOpts ? { statusOpts: sOpts } : {}), ...(pOpts ? { priOpts: pOpts } : {}) }));
+  }, [orgCode, loggedInUser, orgSettings.statusOpts, orgSettings.priOpts]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep loggedInUser in sync with the live people array (e.g. after toggling isEngineer, role changes, etc.)
   useEffect(() => {
@@ -8444,11 +8589,23 @@ Extraction rules:
         if (remote.customTheme && typeof remote.customTheme === "object") setCustomTheme(ct => ({ ...ct, ...remote.customTheme }));
         if (Array.isArray(remote.themePresets)) setThemePresets(remote.themePresets);
         if (remote.sidebarMode != null) setSidebarMode(remote.sidebarMode);
-        if (Array.isArray(remote.colOrder) && remote.colOrder.length) setColOrder(remote.colOrder);
+        // Back-filled, exactly like the localStorage copy above. This is the read that
+        // wins -- it lands after first paint and replaces whatever was painted -- so
+        // without it a column shipped after this account last saved its order is
+        // stripped a moment after appearing, on every single load.
+        if (Array.isArray(remote.colOrder) && remote.colOrder.length) setColOrder(backfillColOrder(remote.colOrder));
         if (remote.colLabels && typeof remote.colLabels === "object") setColLabels(remote.colLabels);
         if (remote.groupColPref && typeof remote.groupColPref === "object") setGroupColPref(remote.groupColPref);
-        if (Array.isArray(remote.statusOpts) && remote.statusOpts.length) setStatusOpts(remote.statusOpts);
-        if (Array.isArray(remote.priOpts) && remote.priOpts.length) setPriOpts(remote.priOpts);
+        // statusOpts/priOpts are NOT applied here any more: they are org-wide now,
+        // and writing this account's old copy straight in would hand the whole
+        // organization one user's stale list on every sign-in.
+        //
+        // They are CAPTURED, though, because this read is the last chance to see
+        // them. The bundle no longer carries them and user-settings.js replaces the
+        // blob wholesale, so the next preference this admin changes deletes their old
+        // list from S3. The migration below folds it into the org's list first.
+        if (Array.isArray(remote.statusOpts) && remote.statusOpts.length) legacyOptsRef.current.statusOpts = remote.statusOpts;
+        if (Array.isArray(remote.priOpts) && remote.priOpts.length) legacyOptsRef.current.priOpts = remote.priOpts;
       })
       .catch(e => console.warn("fetchUserSettings failed:", e))
       .finally(() => { if (!cancelled) userSettingsLoadedRef.current = true; });
@@ -8459,7 +8616,7 @@ Extraction rules:
     // Gate on the initial load so default state can never clobber the account
     // before we've read it (same guard the tasks/orgSettings loads use).
     if (!userSettingsLoadedRef.current || !orgCode) return;
-    const bundle = { themeMode, customTheme, themePresets, sidebarMode, colOrder, colLabels, groupColPref, statusOpts, priOpts };
+    const bundle = { themeMode, customTheme, themePresets, sidebarMode, colOrder, colLabels, groupColPref };
     const snapshot = JSON.stringify(bundle);
     if (snapshot === lastSyncedUserSettingsRef.current) return; // unchanged since last sync/load
     const t = setTimeout(() => {
@@ -8468,7 +8625,7 @@ Extraction rules:
         .catch(e => console.warn("saveUserSettings failed:", e));
     }, 900);
     return () => clearTimeout(t);
-  }, [themeMode, customTheme, themePresets, sidebarMode, colOrder, colLabels, groupColPref, statusOpts, priOpts, orgCode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [themeMode, customTheme, themePresets, sidebarMode, colOrder, colLabels, groupColPref, orgCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Live sync: IndexedDB rehydrate bus + Ably realtime ──────────────────────
   // Keep the sync context fresh so Ably handlers can call deltaSync() with no args.
@@ -10511,7 +10668,7 @@ Extraction rules:
       setModal({ type: "simpleEdit", data: { title: "", team: [], date: TD, startHour: workStartH, endHour: Math.min(workEndH, workStartH + 8) }, parentId: pid });
       return;
     }
-    setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: null, customOps: [], color: randomJobColor() }, parentId: pid });
+    setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 0, notes: "", subs: [], deps: [], clientId: null, customOps: [], color: randomJobColor() }, parentId: pid });
   };
   // Basic tier: resolve a bar's underlying task (which may be the job itself or
   // one of its subs/ops) back up to its top-level job — a general/flat Basic
@@ -10793,7 +10950,7 @@ ${jobsCtx || "No jobs found."}`;
           break;
         }
         case "create_job":
-          setTasks(prev => [...prev, { id: uid(), title: input.title, start: input.start, end: input.end, status: "Not Started", pri: input.priority || "Medium", team: input.team_ids || [], subs: [], deps: [], hpd: 7.5, notes: input.notes || "", ...(input.job_number ? { jobNumber: input.job_number } : {}) }]);
+          setTasks(prev => [...prev, { id: uid(), title: input.title, start: input.start, end: input.end, status: "Not Started", pri: input.priority || "Medium", team: input.team_ids || [], subs: [], deps: [], hpd: 0, notes: input.notes || "", ...(input.job_number ? { jobNumber: input.job_number } : {}) }]);
           break;
         case "delete_job":
           delTask(input.job_id);
@@ -10818,7 +10975,7 @@ ${jobsCtx || "No jobs found."}`;
         case "reschedule_task":    updTask(input.task_id, { ...(input.start && { start: input.start }), ...(input.end && { end: input.end }) }); break;
         case "assign_person":      setTasks(prev => prev.map(t => t.id === input.task_id ? { ...t, team: [...new Set([...(t.team || []), input.person_id])] } : t)); break;
         case "remove_person":      setTasks(prev => prev.map(t => t.id === input.task_id ? { ...t, team: (t.team || []).filter(id => id !== input.person_id) } : t)); break;
-        case "create_task":        setTasks(prev => [...prev, { id: uid(), title: input.title, start: input.start, end: input.end, status: "Not Started", team: input.team_ids || [], pri: input.priority || "Medium", subs: [], deps: [], hpd: 7.5, notes: "", customOps: [] }]); break;
+        case "create_task":        setTasks(prev => [...prev, { id: uid(), title: input.title, start: input.start, end: input.end, status: "Not Started", team: input.team_ids || [], pri: input.priority || "Medium", subs: [], deps: [], hpd: 0, notes: "", customOps: [] }]); break;
       }
     }
     // Trigger an immediate save so changes persist to S3 right away
@@ -13129,6 +13286,9 @@ ${jobsCtx || "No jobs found."}`;
         if (id === "hrs")      { return mul * (_jobHrs(a) - _jobHrs(b)); }
         if (id === "progress") { return mul * (_jobPct(a) - _jobPct(b)); }
         if (id === "team")     { const ta = a.team?.length ? (people.find(p => p.id === a.team[0])?.name || "") : ""; const tb = b.team?.length ? (people.find(p => p.id === b.team[0])?.name || "") : ""; return mul * ta.localeCompare(tb); }
+        // Unassigned sorts first ascending -- "" compares before any name -- which is
+        // the order the column is worth sorting by: the jobs still waiting on somebody.
+        if (id === "assignee") { const na = (_assigneesOf(a)[0] || {}).name || ""; const nb = (_assigneesOf(b)[0] || {}).name || ""; return mul * na.localeCompare(nb); }
         return 0;
       });
     }
@@ -13606,6 +13766,32 @@ ${jobsCtx || "No jobs found."}`;
       {(colPickerOpen || colPickerExiting) && createPortal(<>
         {colPickerOpen && <div onMouseDown={() => setColPickerOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 9998 }} />}
         <div className={colPickerExiting ? undefined : "anim-drop"} onMouseDown={e => e.stopPropagation()} onClick={e => e.stopPropagation()} style={{ position: "fixed", top: colPickerAnchor?.top ?? 100, right: colPickerAnchor?.right ?? 100, width: 300, maxHeight: colPickerAnchor?.maxHeight ?? "70vh", overflowY: "auto", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 12px 36px rgba(0,0,0,0.4)", zIndex: 9999, animation: colPickerExiting ? "fadeOutDrop 0.2s ease-out both" : undefined, pointerEvents: colPickerExiting ? "none" : "auto", fontFamily: T.font, color: T.text }}>
+        {/* Section: Standard columns that are currently hidden.
+            Hiding a standard column used to be a ONE-WAY DOOR on this page: the
+            context menu's Add only builds new custom columns and this picker only
+            offered job fields and templates, so nothing anywhere put a hidden one
+            back. Rendered only when something is actually hidden, so the picker is
+            unchanged for anyone who has not hidden one. */}
+        {(() => {
+          const hidden = STD_COL_DEFS.filter(c => !colOrder.includes(c.id));
+          if (!hidden.length) return null;
+          return (
+            <div style={{ padding: "10px 14px 6px", borderBottom: `1px solid ${T.border}` }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>Standard Columns</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {hidden.map((c, ci) => (
+                  <button key={c.id} onClick={() => { setColOrder(prev => [...prev, c.id]); setColPickerOpen(false); }}
+                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "7px 10px", borderRadius: T.radiusXs, border: "none", background: "transparent", cursor: "pointer", fontFamily: T.font, transition: "background 0.12s", animation: `toolDrop 0.14s ${ci * 38}ms both ease-out` }}
+                    onMouseEnter={e => { e.currentTarget.style.background = T.hoverStrong; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: T.text }}>{colLabels[c.id] || c.label}</span>
+                    <span style={{ fontSize: 11, color: T.accent, fontWeight: 700 }}>+ Add</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
         {/* Section: Link to Job Field */}
         <div style={{ padding: "10px 14px 6px", borderBottom: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 8 }}>Link to Job Field</div>
@@ -14004,7 +14190,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* ── List View (Grid) ── */}
       {taskSubView === "list" && (() => {
         const orderedStdCols = colOrder.map(id => STD_COL_DEFS.find(c => c.id === id)).filter(Boolean);
-        const customWidths = colWidths.slice(13, colWidths.length - 1);
+        const customWidths = colWidths.slice(CUSTOM_W0, colWidths.length - 1);
         const COL = [...orderedStdCols.map(c => colWidths[1 + c.i] + "px"), ...customWidths.map(w => w + "px"), "36px"].join(" ");
         const cellAlignJc = cellAlign === "right" ? "flex-end" : cellAlign === "center" ? "center" : "flex-start";
         const cellBase = { padding: "7px 10px", fontSize: 13, color: T.text, fontFamily: T.font, borderRight: `1px solid ${T.border}`, display: "flex", alignItems: "center", justifyContent: cellAlignJc, minWidth: 0, overflow: "hidden" };
@@ -14219,6 +14405,42 @@ ${jobsCtx || "No jobs found."}`;
                 {level > 0 && !assigneePerson && <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic" }}>—</span>}
               </div>
             );
+            // Rolled up from the operations, so a job row says who is on it.
+            // "Unassigned" rather than a dash: a job saved with Skip Assignee is waiting
+            // to be given out, which is a state worth reading across a column at a glance.
+            //
+            // Split by HOW MANY, not by level. A row with a crew on it shows the faces
+            // stacked -- the count is the thing being read, and names would not fit
+            // anyway -- while a row that is one person's work names them. A phase with
+            // a single operator reads like the operation under it, which is what it is.
+            case "assignee": {
+              const who = _assigneesOf(item);
+              if (!who.length) return (
+                <div style={{ ...cellBase }}>
+                  <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic" }}>Unassigned</span>
+                </div>
+              );
+              const title = who.map(p => p.name).join(", ");
+              if (who.length === 1) return (
+                <div style={{ ...cellBase, gap: 6, overflow: "hidden" }} title={title}>
+                  <PersonAvatar person={who[0]} size={22} ring={T.card} />
+                  <span style={{ fontSize: 11.5, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{who[0].name}</span>
+                </div>
+              );
+              // Overlapped, and drawn front-to-back so each face sits over the one after
+              // it rather than being clipped by it. The ring is what separates them.
+              const shown = who.slice(0, 5);
+              return (
+                <div style={{ ...cellBase, gap: 0, overflow: "hidden" }} title={title}>
+                  {shown.map((p, i) => (
+                    <div key={p.id} style={{ display: "flex", flexShrink: 0, marginLeft: i === 0 ? 0 : -8, zIndex: shown.length - i }}>
+                      <PersonAvatar person={p} size={22} ring={T.card} />
+                    </div>
+                  ))}
+                  {who.length > shown.length && <span style={{ fontSize: 10, fontWeight: 700, color: T.textDim, marginLeft: 6, flexShrink: 0 }}>+{who.length - shown.length}</span>}
+                </div>
+              );
+            }
             case "appr": {
               const st = apprStateFor(item, level, jobId, panelId);
               if (!st) return <div style={{ ...cellBase }} />;
@@ -14497,7 +14719,7 @@ ${jobsCtx || "No jobs found."}`;
                   );
                 })}
                 {customCols.map((c, i) => {
-                  const widthIdx = 13 + i;
+                  const widthIdx = CUSTOM_W0 + i;
                   const isDragOverCustom = colDropIdx === (orderedStdCols.length + i) && colDragRef.current !== c.id;
                   return (
                     <div key={c.id}
@@ -14562,7 +14784,7 @@ ${jobsCtx || "No jobs found."}`;
                     {activeJobs.length === 0 && finishedJobs.length === 0
                       ? <div style={{ padding: "10px 12px", fontSize: 12, color: T.textDim, fontStyle: "italic", border: `1px dashed ${T.border}`, borderRadius: T.radius, background: T.card }}>(no jobs)</div>
                       : <>
-                        {activeJobs.length > 0 && <FrostCard onClick={gridOnClick}>
+                        {activeJobs.length > 0 && <FrostCard onClick={gridOnClick} scrollRef={registerJobsHScroll}>
                           <div style={{ minWidth: minW }}>
                             {ColHeaders(sKey + ":a")}
                             {activeJobs.map(job => GridRow({ item: trim(job), level: 0, jobColor: "#94a3b8", isFinished: false, alwaysExpand: false, groupPrefix }))}
@@ -14573,7 +14795,7 @@ ${jobsCtx || "No jobs found."}`;
                             <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981" }}>✓ Finished</span>
                             <span style={{ fontSize: 10, fontWeight: 700, color: "#10b981", background: "#10b98120", borderRadius: 16, padding: "1px 7px" }}>{finishedJobs.length}</span>
                           </div>
-                          <FrostCard onClick={gridOnClick} border={`1px solid #10b98133`}>
+                          <FrostCard onClick={gridOnClick} border={`1px solid #10b98133`} scrollRef={registerJobsHScroll}>
                             <div style={{ minWidth: minW }}>
                               {ColHeaders(sKey + ":f")}
                               {finishedJobs.map(job => GridRow({ item: trim(job), level: 0, jobColor: "#10b981", isFinished: true, alwaysExpand: false, groupPrefix }))}
@@ -14698,7 +14920,7 @@ ${jobsCtx || "No jobs found."}`;
                   {/* Grid — grid-template-rows 0fr↔1fr animates retract */}
                   <div style={{ display: "grid", gridTemplateRows: isCollapsed ? "0fr" : "1fr", transition: "grid-template-rows 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.12s ease", opacity: isCollapsed ? 0 : 1, pointerEvents: isCollapsed ? "none" : "auto" }}>
                     <div style={{ overflow: "hidden", minHeight: 0 }}>
-                      <FrostCard onClick={gridOnClick}>
+                      <FrostCard onClick={gridOnClick} scrollRef={registerJobsHScroll}>
                         <div style={{ minWidth: minW }}>
                           {ColHeaders("pm:" + (pm?.id ?? pmLabel))}
                           {pmJobs.map(job => GridRow({ item: job, level: 0, jobColor: "#94a3b8", isFinished: false }))}
@@ -14715,7 +14937,7 @@ ${jobsCtx || "No jobs found."}`;
                   <span style={{ fontSize: 13, fontWeight: 700, color: "#10b981" }}>✓ Finished</span>
                   <span style={{ fontSize: 11, fontWeight: 600, color: "#10b981", background: "#10b98120", borderRadius: 16, padding: "1px 8px" }}>{finishedTasks.length}</span>
                 </div>
-                <FrostCard onClick={gridOnClick} border={`1px solid #10b98133`}>
+                <FrostCard onClick={gridOnClick} border={`1px solid #10b98133`} scrollRef={registerJobsHScroll}>
                   <div style={{ minWidth: minW }}>
                     {ColHeaders("finished-all")}
                     {finishedTasks.map(job => GridRow({ item: job, level: 0, jobColor: "#10b981", isFinished: true }))}
@@ -15006,7 +15228,7 @@ ${jobsCtx || "No jobs found."}`;
             return <>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                 <h4 style={{ margin: 0, fontSize: 15, fontWeight: 700, color: T.text }}>Active Jobs ({activeJobs.length})</h4>
-                {can("editJobs") && <Btn size="sm" onClick={() => { const m = { type: "edit", data: { id: null, title: "", start: TD, end: addD(TD, 3), pri: "Medium", status: "Not Started", team: [], hpd: 7.5, notes: "", subs: [], deps: [], clientId: sel.id }, parentId: null }; setSelClient(null); setModal(m); }}>+ Add Job</Btn>}
+                {can("editJobs") && <Btn size="sm" onClick={() => { const m = { type: "edit", data: { id: null, title: "", start: TD, end: addD(TD, 3), pri: "Medium", status: "Not Started", team: [], hpd: 0, notes: "", subs: [], deps: [], clientId: sel.id }, parentId: null }; setSelClient(null); setModal(m); }}>+ Add Job</Btn>}
               </div>
               {activeJobs.length === 0 && <div className="tq-frost" style={{ textAlign: "center", padding: 20, color: T.textDim, fontSize: 13, background: T.surface, borderRadius: T.radiusSm, border: `1px solid ${T.border}`, marginBottom: 16 }}>No active jobs for this client.</div>}
               <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
@@ -25726,6 +25948,18 @@ ${jobsCtx || "No jobs found."}`;
           </button>
         </span>;
       }
+      // Assignee: the same rollup the Jobs list shows, and read-only here -- the Team
+      // cell beside it is the control, and a phase has no team of its own to write to.
+      // Caught BEFORE the fallback below, which would read node.assignee and offer an
+      // edit that wrote a junk property onto the row.
+      if (col.id === "assignee") {
+        const who = _assigneesOf(node);
+        if (!who.length) return <span key={key} style={{ ...pad, color: T.textDim, fontStyle: "italic" }}>Unassigned</span>;
+        const label = who.length === 1 ? who[0].name : `${who[0].name.split(" ")[0]} +${who.length - 1}`;
+        return <span key={key} style={{ ...pad, color: T.textSec }} title={who.map(p => p.name).join(", ")}>
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+        </span>;
+      }
       // Select columns open the shared picker popover -- the same one the Jobs
       // grid's select cells use, so options and the apprLog side effect behave
       // identically here.
@@ -26661,8 +26895,6 @@ ${jobsCtx || "No jobs found."}`;
                         : <input type="number" min="0" max="24" step="0.5" value={panel.hpd??0} onChange={e => { setAvailCheckPassed(false); updatePanel({hpd:parseFloat(e.target.value)||7.5}); }} style={{ width:52, padding:"7px 6px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
                       }
                       <Tip label="Estimated total hours for this operation"><span style={{ fontSize:11, color:hasSubs?T.accent:T.textDim, whiteSpace:"nowrap", width:24 }}>hrs</span></Tip>
-                      <Tip label="Hours the crew has actually worked, summed across this operation&#39;s sub-operations"><div style={{ width:52, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.bg, color:T.textDim, fontSize:13, fontFamily:T.font, textAlign:"center", fontWeight:600 }}>{actualHoursFor(panel).toFixed(1)}</div></Tip>
-                      <Tip label="Hours actually worked. The cell beside it is the estimate, and progress is worked over estimate."><span style={{ fontSize:11, color:T.textDim, whiteSpace:"nowrap", width:24 }}>act</span></Tip>
                       {!hasSubs && <div style={{ position:"relative", flexShrink:0 }}>
                         <button onClick={e => { e.stopPropagation(); const opening=deptDropId!==panel.id; setDeptDropId(opening?panel.id:null); if(opening){ setDeptAddInput(""); setDeptAddMode(false); } }}
                           style={{ display:"flex", alignItems:"center", gap:6, padding:"7px 12px", borderRadius:T.radiusPill, minWidth:92, justifyContent:"space-between", border:`1px solid ${panel.requiredDepartment?T.accent+"55":T.border}`, background:panel.requiredDepartment?T.accent+"10":"transparent", cursor:"pointer", fontFamily:T.font, transition:"all 0.15s" }}>
@@ -26712,8 +26944,6 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{ display:"flex", alignItems:"center", gap:4, flexShrink:0 }}>
                           <input type="number" min="0" max="24" step="0.5" value={sub.hpd??0} onChange={e => { setAvailCheckPassed(false); updateSub({hpd:parseFloat(e.target.value)||7.5}); }} style={{ width:52, padding:"7px 6px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
                           <Tip label="Estimated total hours for this operation"><span style={{ fontSize:11, color:T.textDim, whiteSpace:"nowrap", width:24 }}>hrs</span></Tip>
-                          <Tip label="Hours the crew has actually worked on this sub-operation"><div style={{ width:52, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.bg, color:T.textDim, fontSize:13, fontFamily:T.font, textAlign:"center", fontWeight:600 }}>{actualHoursFor(sub).toFixed(1)}</div></Tip>
-                          <Tip label="Hours actually worked. The cell beside it is the estimate, and progress is worked over estimate."><span style={{ fontSize:11, color:T.textDim, whiteSpace:"nowrap", width:24 }}>act</span></Tip>
                           <div style={{ position:"relative", flexShrink:0 }}>
                             <button onClick={e => { e.stopPropagation(); const opening=deptDropId!==sub.id; setDeptDropId(opening?sub.id:null); if(opening){ setDeptAddInput(""); setDeptAddMode(false); } }}
                               // Pill, and sized to match the hours and title inputs beside it
@@ -27355,7 +27585,35 @@ ${jobsCtx || "No jobs found."}`;
               const hasAnyAssignment=(ed.subs||[]).some(panel => (panel.subs||[]).length>0?(panel.subs||[]).some(sub => (sub.team||[]).length>0):(panel.team||[]).length>0);
               const saveOk=scheduleConfirmed && hasAnyAssignment;
               const cleanDeps=deps=>(deps||[]).filter(d=>d!=='__pending__');
-              return <Btn disabled={!saveOk} onClick={saveOk?() => { const resolvedSubs=(ed.subs||[]).map(panel=>{ const allSubOps=panel.subs||[]; const linkedIds=new Set(); allSubOps.forEach(sub=>{ const realDeps=(sub.deps||[]).filter(d=>d!=='__pending__'&&allSubOps.find(o=>o.id===d)); if(realDeps.length>0){ linkedIds.add(sub.id); realDeps.forEach(d=>linkedIds.add(d)); } }); const resolvedSubOps=allSubOps.map(sub=>{ if(!linkedIds.has(sub.id)) return{...sub,deps:[]}; const myDeps=[...linkedIds].filter(id=>id!==sub.id); return{...sub,deps:myDeps}; }); return{...panel,subs:resolvedSubOps}; }); const expanded={...ed,subs:resolvedSubs.flatMap(op => { const qty=Math.max(1,Math.min(999,parseInt(op.qty)||1)); const baseTitle=op.title.replace(/-\d+$/,"").trimEnd(); if(qty===1) { const {qty:_q,...rest}=op; return [{...rest,depsMode:op.depsMode,deps:cleanDeps(rest.deps),subs:(rest.subs||[]).map(sub=>({...sub,deps:cleanDeps(sub.deps)}))}]; } return Array.from({length:qty},(_,i) => { const {qty:_q,...rest}=op; const subIdMap={}; (rest.subs||[]).forEach(sub => { subIdMap[sub.id]=i===0?sub.id:uid(); }); return {...rest,id:i===0?op.id:uid(),title:`${baseTitle}-${String(i+1).padStart(3,"0")}`,depsMode:op.depsMode,deps:cleanDeps(rest.deps),subs:(rest.subs||[]).map(sub => ({...sub,id:subIdMap[sub.id],deps:cleanDeps((sub.deps||[]).map(d=>subIdMap[d]||d))}))}; }); })}; saveTask(expanded,modal.parentId); }:undefined} style={{ opacity:saveOk?1:0.4, cursor:saveOk?"pointer":"not-allowed", pointerEvents:saveOk?"auto":"none" }}>Save Job</Btn>;
+              // ONE BUILDER, TWO BUTTONS. The expansion below (dependency
+              // resolution, quantity fan-out, id remapping) is the same work
+              // whether or not anybody is assigned, so it is named once rather
+              // than pasted into a second handler where the two would drift.
+              const buildExpanded = () => {  const resolvedSubs=(ed.subs||[]).map(panel=>{ const allSubOps=panel.subs||[]; const linkedIds=new Set(); allSubOps.forEach(sub=>{ const realDeps=(sub.deps||[]).filter(d=>d!=='__pending__'&&allSubOps.find(o=>o.id===d)); if(realDeps.length>0){ linkedIds.add(sub.id); realDeps.forEach(d=>linkedIds.add(d)); } }); const resolvedSubOps=allSubOps.map(sub=>{ if(!linkedIds.has(sub.id)) return{...sub,deps:[]}; const myDeps=[...linkedIds].filter(id=>id!==sub.id); return{...sub,deps:myDeps}; }); return{...panel,subs:resolvedSubOps}; }); const expanded={...ed,subs:resolvedSubs.flatMap(op => { const qty=Math.max(1,Math.min(999,parseInt(op.qty)||1)); const baseTitle=op.title.replace(/-\d+$/,"").trimEnd(); if(qty===1) { const {qty:_q,...rest}=op; return [{...rest,depsMode:op.depsMode,deps:cleanDeps(rest.deps),subs:(rest.subs||[]).map(sub=>({...sub,deps:cleanDeps(sub.deps)}))}]; } return Array.from({length:qty},(_,i) => { const {qty:_q,...rest}=op; const subIdMap={}; (rest.subs||[]).forEach(sub => { subIdMap[sub.id]=i===0?sub.id:uid(); }); return {...rest,id:i===0?op.id:uid(),title:`${baseTitle}-${String(i+1).padStart(3,"0")}`,depsMode:op.depsMode,deps:cleanDeps(rest.deps),subs:(rest.subs||[]).map(sub => ({...sub,id:subIdMap[sub.id],deps:cleanDeps((sub.deps||[]).map(d=>subIdMap[d]||d))}))}; }); })}; return expanded; };
+              // SKIP ASSIGNEE. Saves the job with nobody on it and no dates, so
+              // it lands in the jobs list as work still to be given out rather
+              // than on the schedule. The schedule is laid out BY PERSON, so an
+              // unassigned op has no row to be drawn on -- which is exactly
+              // what is wanted for a job that is not meant to be scheduled yet.
+              const stripAssignment = (job) => ({
+                ...job, team: [], start: null, end: null,
+                subs: (job.subs || []).map(panel => ({
+                  ...panel, team: [], start: null, end: null, startHour: null, endHour: null,
+                  subs: (panel.subs || []).map(op => ({
+                    ...op, team: [], start: null, end: null, startHour: null, endHour: null,
+                  })),
+                })),
+              });
+              const skipOk = (ed.subs || []).length > 0;
+              return <div style={{ display: "flex", gap: 8 }}>
+                <Btn variant="secondary" disabled={!skipOk}
+                  onClick={skipOk ? () => { saveTask(stripAssignment(buildExpanded()), modal.parentId); } : undefined}
+                  style={{ background: T.bg, border: `1.5px solid ${T.accent}`, color: T.accent,
+                    opacity: skipOk ? 1 : 0.4, cursor: skipOk ? "pointer" : "not-allowed",
+                    pointerEvents: skipOk ? "auto" : "none" }}>Skip Assignee</Btn>
+                <Btn disabled={!saveOk} onClick={saveOk ? () => { saveTask(buildExpanded(), modal.parentId); } : undefined}
+                  style={{ opacity:saveOk?1:0.4, cursor:saveOk?"pointer":"not-allowed", pointerEvents:saveOk?"auto":"none" }}>Save Job</Btn>
+              </div>;
             })()}
           </>}
         </div>
@@ -28188,6 +28446,20 @@ ${jobsCtx || "No jobs found."}`;
           setOrgName(res?.config?.name || newName);
           try { const cur = JSON.parse(sessionStorage.getItem("tq_org_config") || "null") || {}; sessionStorage.setItem("tq_org_config", JSON.stringify({ ...cur, name: newName })); } catch {}
         }
+        // Domain, Business only. Sent whenever it differs, INCLUDING when it
+        // has been emptied -- clearing the restriction has to stay possible,
+        // because a domain typed wrong is a locked-out organization.
+        if (billingTier === "business") {
+          const nextDomain = String(dd.domain || "").trim().toLowerCase().replace(/^@+/, "");
+          const curDomain = String(orgConfig?.domain || "").toLowerCase();
+          if (nextDomain !== curDomain) {
+            const res = await updateOrgDomain(nextDomain, getToken, orgCode);
+            try {
+              const cur = JSON.parse(sessionStorage.getItem("tq_org_config") || "null") || {};
+              sessionStorage.setItem("tq_org_config", JSON.stringify({ ...cur, domain: res?.config?.domain ?? nextDomain }));
+            } catch { /* private mode */ }
+          }
+        }
       } else if (sec === "org-departments") {
         setOrgSettings(s => ({ ...s, roles: [...(settingsDraft.roles || [])] }));
       } else if (sec === "org-permissions") {
@@ -28375,6 +28647,51 @@ ${jobsCtx || "No jobs found."}`;
           <input value={d.orgName || ""} onChange={e => patchDraft({ orgName: e.target.value })} onFocus={stInputFocus} onBlur={stInputBlur} maxLength={80} placeholder="Company name" style={stInput} />
           <div style={{ fontSize: 12, color: T.textDim, marginTop: 8 }}>Shown across the app and on exports. Saved with the Save button below.</div>
         </div>
+        {/* SIGN-IN DOMAIN — Business only.
+            The @ is a fixed prefix, not part of the value: it is rendered
+            beside the field rather than inside it, so there is nothing to
+            delete and nothing to type twice. What is stored is the bare
+            domain, which is also what every comparison against an email
+            wants -- keeping the @ would mean stripping it at every use. */}
+        {billingTier === "business" && (
+          <div className="tq-frost" style={stCard}>
+            <div style={stLabel}>Sign-in Domain</div>
+            {/* ONE PILL, not two. Every input in settings is a full pill, so a
+                prefix chip beside the field read as two disconnected controls
+                with a seam between them. The @ is an adornment INSIDE the
+                field: the container carries the border, background and focus
+                ring that stInput would, and the input itself is borderless. */}
+            <div
+              style={{
+                display: "flex", alignItems: "center", gap: 2,
+                padding: "11px 18px", borderRadius: T.radiusPill,
+                border: `1px solid ${T.glassBorder}`, background: T.glass,
+                boxSizing: "border-box", colorScheme: T.colorScheme,
+                transition: "border 0.2s, box-shadow 0.2s",
+              }}
+              onFocus={e => { const c = e.currentTarget; c.style.borderColor = T.accent + "66"; c.style.boxShadow = `0 0 0 3px ${T.accent}15`; }}
+              onBlur={e => { const c = e.currentTarget; c.style.borderColor = T.glassBorder; c.style.boxShadow = "none"; }}>
+              {/* Not selectable and not part of the value, so there is nothing
+                  to delete and nothing to type twice. */}
+              <span style={{ color: T.textDim, fontSize: 14, fontFamily: T.font, userSelect: "none", flexShrink: 0 }}>@</span>
+              <input
+                value={d.domain || ""}
+                onChange={e => patchDraft({ domain: e.target.value.trim().toLowerCase().replace(/^@+/, "") })}
+                maxLength={253} placeholder="acmefab.com"
+                autoCapitalize="off" autoCorrect="off" spellCheck={false}
+                style={{
+                  flex: 1, minWidth: 0, padding: 0, border: "none", outline: "none",
+                  background: "transparent", color: T.text, fontSize: 14, fontFamily: T.font,
+                }} />
+            </div>
+            <div style={{ fontSize: 12, color: T.textDim, marginTop: 8, lineHeight: 1.5 }}>
+              Only people with an email at this domain can sign in to{" "}
+              <b style={{ color: T.textSec }}>{orgName || "this organization"}</b>.
+              Leave it empty to allow any address.
+              {" "}Anyone already on the team keeps their access.
+            </div>
+          </div>
+        )}
         <div className="tq-frost" style={stCard}>
           <div style={stLabel}>Organization Logo</div>
           <div style={{ display: "flex", gap: 22, alignItems: "flex-start", flexWrap: "wrap" }}>
@@ -31160,6 +31477,12 @@ ${jobsCtx || "No jobs found."}`;
           const col = colCtxMenu.isCustom ? customCols.find(c => c.id === cid) : null;
           const isCustomSelect = !!(col && col.type === "select" && !col.fieldKey);
           if (!isStd && !isCustomSelect) return null;
+          // Status and Priority are the ORGANIZATION's lists now, and settings.js
+          // already refuses a write from anyone without the orgSettings permission.
+          // Offering the editor anyway would let a member rearrange the list, watch
+          // it apply, and find it reverted on the next load with nothing said --
+          // saveOrgSettings only console.warns on a 403.
+          if (isStd && !can("orgSettings")) return null;
           const open = colCtxMenu.subMenu === "edit";
           const inputBase = { flex: 1, minWidth: 0, padding: "5px 11px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: T.card, color: T.text, fontSize: 12, fontFamily: T.font, outline: "none", boxSizing: "border-box" };
           const delBtn = (onClick, disabled) => <button onClick={onClick} disabled={disabled} title={disabled ? "At least one option required" : "Delete option"} style={{ flexShrink: 0, width: 22, height: 22, borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: disabled ? T.textDim : "#ef4444", cursor: disabled ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, lineHeight: 1, opacity: disabled ? 0.4 : 1 }} onMouseEnter={e => { if (!disabled) { e.currentTarget.style.background = "#ef444415"; e.currentTarget.style.borderColor = "#ef4444"; } }} onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = T.border; }}>×</button>;
@@ -31239,7 +31562,7 @@ ${jobsCtx || "No jobs found."}`;
                   // Standard col: insert at start (left) or end (right) of customCols
                   if (side === "left") {
                     setCustomCols(prev => [newCol, ...prev]);
-                    setColWidths(prev => { const n = [...prev]; n.splice(13, 0, w); return n; });
+                    setColWidths(prev => { const n = [...prev]; n.splice(CUSTOM_W0, 0, w); return n; });
                     setEngColWidths(prev => { const n = [...prev]; n.splice(9, 0, w); return n; });
                   } else {
                     setCustomCols(prev => [...prev, newCol]);
@@ -31250,7 +31573,7 @@ ${jobsCtx || "No jobs found."}`;
                   const idx = customCols.findIndex(c => c.id === colCtxMenu.colId);
                   const ins = side === "left" ? Math.max(0, idx) : idx + 1;
                   setCustomCols(prev => { const n = [...prev]; n.splice(ins, 0, newCol); return n; });
-                  setColWidths(prev => { const n = [...prev]; n.splice(13 + ins, 0, w); return n; });
+                  setColWidths(prev => { const n = [...prev]; n.splice(CUSTOM_W0 + ins, 0, w); return n; });
                   setEngColWidths(prev => { const n = [...prev]; n.splice(9 + ins, 0, w); return n; });
                 }
                 setEditingColHeader(newId);

@@ -186,6 +186,27 @@ export async function updateOrgCode(newCode, getToken, orgCode) {
   return res.json();
 }
 
+/**
+ * Set (or clear) the email domain allowed to join this org. Business only --
+ * the server checks the tier too, because hiding a control is a suggestion and
+ * this endpoint is reachable with a token and a curl.
+ *
+ * Pass the bare domain, no "@". An empty string clears the restriction.
+ */
+export async function updateOrgDomain(newDomain, getToken, orgCode) {
+  const headers = await authHeaders(getToken, orgCode);
+  const res = await fetch(`${BASE}/org`, {
+    method: "PATCH",
+    headers,
+    body: JSON.stringify({ newDomain }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `updateOrgDomain failed: ${res.status}`);
+  }
+  return res.json();
+}
+
 export async function updateOrgName(newName, getToken, orgCode) {
   const headers = await authHeaders(getToken, orgCode);
   const res = await fetch(`${BASE}/org`, {
