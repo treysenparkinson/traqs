@@ -109,6 +109,21 @@ export async function sendEmail({ to, subject, html, text, replyTo }) {
         + "recipient is not verified either. From=" + FROM_EMAIL, e.message);
       return { ok: false, reason: "not-verified", detail: e.message };
     }
+    // Credentials that can reach S3 but not SES. Easy to end up with, because
+    // an IAM policy written for storage has no reason to mention email, and the
+    // symptom is identical to every other send failure: the app reads and writes
+    // fine, and only mail is broken.
+    if (name === "AccessDenied" || name === "AccessDeniedException"
+        || /not authorized|AccessDenied/i.test(e?.message || "")) {
+      console.error("mail: SES refused the credentials. The access key can reach "
+        + "S3 but is missing ses:SendEmail. name=" + name, e?.message);
+      return { ok: false, reason: "no-ses-permission", detail: e?.message };
+    }
+    // Nothing signed the request at all.
+    if (name === "CredentialsProviderError" || /credential/i.test(e?.message || "")) {
+      console.error("mail: no AWS credentials reached the SES client.", e?.message);
+      return { ok: false, reason: "no-credentials", detail: e?.message };
+    }
     console.error("mail: SES send error", name, e?.message);
     return { ok: false, reason: "send-failed", detail: e?.message };
   }

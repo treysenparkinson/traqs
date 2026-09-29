@@ -81,7 +81,19 @@ export async function handler(event) {
   const { subject, html, text } = orgCodeEmail({ orgs: matches, esc });
 
   const sent = await sendEmail({ to: email, subject, text, html });
-  if (!sent.ok) return err(500, "Failed to send email — please contact your administrator");
+  if (!sent.ok) {
+    // THE REASON, NOT JUST THE FAILURE. "Failed to send email" is the same
+    // sentence whether the sender is unset, the sender is unverified, the
+    // credentials lack ses:SendEmail, or SES is down -- four different fixes
+    // behind one message, and the only way to tell them apart was the function
+    // log, which nobody reads while an admin is standing there.
+    //
+    // The reasons are fixed strings about OUR configuration (no-sender,
+    // not-verified, send-failed). They say nothing about which addresses exist,
+    // so this does not weaken the enumeration guard above.
+    return err(500, "Failed to send email (" + (sent.reason || "unknown") + ")"
+      + " — please contact your administrator");
+  }
 
   return json(200, { ok: true });
 }
