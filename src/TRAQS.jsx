@@ -4313,7 +4313,23 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [settingsMode, setSettingsMode] = useState(false);
   // Tier. Absent billing.json means Basic -- absence IS "never provisioned",
   // which is exactly Basic, so there is nothing to backfill.
-  const [billingTier, setBillingTier] = useState("basic");
+  // SEEDED FROM THE LAST KNOWN TIER, not from "basic".
+  //
+  // billing.json is fetched after the first paint, so starting at "basic" meant
+  // a Business org rendered as Basic for as long as that round trip took and
+  // then rearranged itself: tabs appeared, the schedule switched from Week to
+  // Month, bar lanes changed. It read as the app forgetting what it was.
+  //
+  // Absence still means Basic -- that part was right, and it is why a brand new
+  // org is not wrong here. What was wrong is treating "not fetched yet" as if it
+  // were "fetched, and the answer is Basic". The cached value is per org, so
+  // switching orgs cannot show the previous one's tier, and the fetch below
+  // still overwrites it either way.
+  const tierCacheKey = orgCode ? "tq_tier_" + orgCode : null;
+  const [billingTier, setBillingTier] = useState(() => {
+    try { return (tierCacheKey && localStorage.getItem(tierCacheKey)) || "basic"; }
+    catch { return "basic"; }
+  });
   const [billingLoaded, setBillingLoaded] = useState(false);
   const [billingReq, setBillingReq] = useState(null);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
@@ -4321,7 +4337,16 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     if (!orgCode) return;
     let off = false;
     fetchBilling(getToken, orgCode)
-      .then((b) => { if (!off) { setBillingTier(b?.tier || "basic"); setBillingReq(b?.requestedAt || null); setBillingLoaded(true); } })
+      .then((b) => {
+        if (off) return;
+        const tier = b?.tier || "basic";
+        setBillingTier(tier);
+        setBillingReq(b?.requestedAt || null);
+        setBillingLoaded(true);
+        // Remembered for the next load, so the answer is already on screen
+        // before the request finishes.
+        try { localStorage.setItem("tq_tier_" + orgCode, tier); } catch { /* private mode */ }
+      })
       .catch(() => {});
     return () => { off = true; };
   }, [orgCode, getToken]);

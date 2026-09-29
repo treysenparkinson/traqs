@@ -182,6 +182,15 @@ struct TRAQSNavLogo: View {
 struct TRAQSBarsMark: View {
     @Environment(ThemeSettings.self) private var themeSettings
     var size: CGFloat = 22
+    /// Forces the icon's four colours regardless of the saved accent.
+    ///
+    /// Inside the app the mark follows the accent, and that is right: a mark in
+    /// four unrelated hues sitting in an app somebody has deliberately turned
+    /// purple would be a lie. The SIGN-IN surfaces are the exception. Nobody has
+    /// signed in yet, so there is no "their app" to belong to -- the theme being
+    /// read there is just whoever used this device last. TRAQS should introduce
+    /// itself in its own colours every time.
+    var fixedBrand: Bool = false
 
     // Bar widths as a fraction of the mark's full width, top → bottom, measured
     // from the original artwork. The 3rd (full-width) bar is the accent bar.
@@ -190,7 +199,7 @@ struct TRAQSBarsMark: View {
     var body: some View {
         // Read accent AND bgPresetId so the mark re-renders live when the
         // customizer changes either.
-        let bars = LogoPalette.bars(for: themeSettings.accent)
+        let bars = fixedBrand ? LogoPalette.ordered : LogoPalette.bars(for: themeSettings.accent)
         let _ = themeSettings.bgPresetId
 
         let aspect: CGFloat = 184.0 / 150.0
@@ -222,6 +231,10 @@ struct TRAQSBarsMark: View {
 struct TRAQSHeaderLogo: View {
     /// Rendered HEIGHT of the wordmark in points.
     var size: CGFloat = 44
+    /// Sign-in surfaces pass true: always the icon's four colours, and always
+    /// the dark wordmark, because the ground there is paper whatever theme the
+    /// last person left behind. See TRAQSBarsMark.fixedBrand.
+    var fixedBrand: Bool = false
 
     var body: some View {
         // The bars mark as a trailing "=" — scaled from the tuned size-64 lockup:
@@ -239,8 +252,8 @@ struct TRAQSHeaderLogo: View {
         // there was enough to start squeezing the logo. Now the lockup measures
         // exactly as wide as it looks.
         HStack(spacing: -size * (15.0 / 64.0)) {
-            TRAQSWordmark(size: size)
-            TRAQSBarsMark(size: size * (21.0 / 64.0))
+            TRAQSWordmark(size: size, onLightBackground: fixedBrand ? true : nil)
+            TRAQSBarsMark(size: size * (21.0 / 64.0), fixedBrand: fixedBrand)
                 .offset(y: -size * (1.0 / 64.0))
         }
     }

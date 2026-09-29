@@ -158,7 +158,7 @@ struct WelcomeView: View {
     // MARK: - Brand
 
     private func lockup(screen: GeometryProxy) -> some View {
-        TRAQSHeaderLogo(size: Self.logoSize)
+        TRAQSHeaderLogo(size: Self.logoSize, fixedBrand: true)
             .background {
                 // Reports where the lockup RESTS, so the rise can be computed
                 // against the screen's true centre.

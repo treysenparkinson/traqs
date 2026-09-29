@@ -26,7 +26,7 @@ struct IntroView: View {
             paper.ignoresSafeArea()
             BrandWash(dispersing: dispersing).ignoresSafeArea()
 
-            TRAQSHeaderLogo(size: WelcomeView.logoSize)
+            TRAQSHeaderLogo(size: WelcomeView.logoSize, fixedBrand: true)
                 .scaleEffect(WelcomeView.logoBigScale)
                 .opacity(shown ? 1 : 0)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

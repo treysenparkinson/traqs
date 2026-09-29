@@ -63,7 +63,7 @@ struct OrgSignupView: View {
             GeometryReader { screen in
                 ScrollView {
                     VStack(spacing: 0) {
-                        TRAQSHeaderLogo(size: 52)
+                        TRAQSHeaderLogo(size: 52, fixedBrand: true)
                             .padding(.top, 24)
                             .padding(.bottom, 14)
                         Text(activatedCode == nil ? step.heading : "Organization created")
