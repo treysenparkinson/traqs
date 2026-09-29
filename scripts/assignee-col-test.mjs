@@ -14,8 +14,19 @@ const ok = (m, c) => { if (c) { pass++; console.log("ok    " + m); } else { fail
 // ── the column ───────────────────────────────────────────────────────────────
 ok("the column is declared", /\{ id: "assignee", label: "Assignee",/.test(S));
 ok("it renders in the Jobs grid", S.includes('case "assignee": {'));
-ok("...and is not the empty default cell", S.includes("const who = _assigneesOf(item);"));
-ok("it is sortable by clicking the header", S.includes('if (id === "assignee")'));
+// The rollup is computed with the rest of the row's context, not inside the cell:
+// the cell renderer runs once per COLUMN, so computing it there walked the job's
+// whole subtree thirteen times per row.
+ok("...and is not the empty default cell", /who: showAssigneeCol \? _assigneesOf\(item\) : EMPTY_ARR,/.test(S));
+ok("...with the rollup done once per row, not once per column",
+  (S.match(/_assigneesOf\(item\)/g) || []).length === 1);
+// It walks the subtree for a single cell, so it must not run for people who have
+// hidden the column -- that would hand them a walk per row they never had before.
+ok("...and not at all when the column is hidden",
+  S.includes('const showAssigneeCol = orderedStdCols.some(c => c.id === "assignee");'));
+// The sort keys are decorated now -- computed once per job rather than inside the
+// comparator -- so this is a key builder, not a branch.
+ok("it is sortable by clicking the header", /assignee: t => \(_assigneesOf\(t\)\[0\] \|\| \{\}\)\.name \|\| "",/.test(S));
 
 // ── how the cell reads ───────────────────────────────────────────────────────
 // Split by HOW MANY, not by level: a crew shows stacked faces and no names, one
@@ -133,7 +144,12 @@ ok("the rollup exists in the source", !!src);
 const make = (people) => {
   // sameId as the app defines it: ids are mixed string/number across web and iOS.
   const sameId = (a, b) => String(a) === String(b);
-  return new Function("people", "sameId", src + " return _assigneesOf;")(people, sameId);
+  // personOf as the app builds it -- a Map keyed by String(id), which is sameId's
+  // rule as a key, so the same mixed-type ids still resolve to the same person.
+  const byId = new Map();
+  people.forEach((p) => { const k = String(p.id); if (!byId.has(k)) byId.set(k, p); });
+  const personOf = (id) => (id == null ? null : byId.get(String(id)) || null);
+  return new Function("people", "sameId", "personOf", src + " return _assigneesOf;")(people, sameId, personOf);
 };
 const PEOPLE = [{ id: 1, name: "Ana Cruz" }, { id: "2", name: "Ben Ito" }, { id: 3, name: "Cy Dole" }];
 const f = make(PEOPLE);

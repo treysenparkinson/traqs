@@ -150,6 +150,9 @@ const STD_COL_DEFS = [
 // instead, so the next column added to STD_COL_DEFS cannot desync the widths
 // from the headers.
 const CUSTOM_W0 = 1 + STD_COL_DEFS.length;
+// One frozen empty array, shared. A fresh [] per row is a new identity every render,
+// which is exactly what defeats a memo comparison later on.
+const EMPTY_ARR = Object.freeze([]);
 // A SAVED column order predates any standard column shipped after it was written --
 // it is a plain id list, so a new column is simply absent from it rather than marked
 // hidden. Back-filling every unknown id in STD_COL_DEFS order is what makes a newly
@@ -6312,6 +6315,45 @@ Extraction rules:
     }
     return byOp;
   }, [people]);
+  // Ops somebody is clocked into, as a set of ids.
+  //
+  // The schedule asked this with `people.some(...)` for EVERY node it considered, and
+  // it considers every node once per person row -- so the roster was scanned
+  // people x nodes times per render. Same predicate, exactly: clocked in, and the
+  // clock names this op. Deliberately keyed on opId alone and NOT on the deepest
+  // target `_activeJobClocksByOp` uses, so that a leaf panel somebody is clocked into
+  // keeps behaving exactly as it does today rather than quietly changing visibility
+  // inside a performance change.
+  const _liveOpIds = useMemo(() => {
+    const s = new Set();
+    for (const p of people) { const jc = p.activeJobClock; if (jc?.clockIn && jc.opId != null) s.add(String(jc.opId)); }
+    return s;
+  }, [people]);
+  const isLiveOpId = useCallback((id) => id != null && _liveOpIds.has(String(id)), [_liveOpIds]);
+  // WORKED TIME IS ONLY COUNTED WHILE SOMEBODY IS ACTUALLY ON THE JOB.
+  //
+  // This read raw wall-clock elapsed -- now minus clock-in -- which is not a measure
+  // of work. A session nobody closed kept accruing through the evening, the night and
+  // the weekend, so the bar quietly converted unworked time into worked time around
+  // the clock: a clock left open on Friday afternoon reads about 64 hours by Monday,
+  // and the hatch eats the whole bar with work nobody did.
+  //
+  // It was also the wrong UNIT. `hpd` is productive hours -- the app computes
+  // `productiveHoursPerDay = workday - breaks - lunch` and draws the bar's length from
+  // it -- while workedFraction is shown/hpd. Wall-clock over productive hours is not a
+  // fraction of anything.
+  //
+  // openSessionEnd is the bound the codebase already defined for this (Q7b): end of the
+  // working day the clock STARTED on, so a session left open for three days is one
+  // unclosed Tuesday session rather than a daily one that renews. Its own doc says that
+  // bound "bounds both the hours and the geometry" -- the geometry adopted it and drew
+  // the hatch against it, and this, the hours, never did. That disagreement is what was
+  // on screen. productiveHoursBetween then takes off lunch, breaks, weekends and
+  // holidays, so what is left is time somebody could actually have been working.
+  //
+  // The session is NOT closed here, deliberately: people do work late, and the
+  // after-hours push in forgot-clockout.js stays the way that gets noticed.
+  const liveJobCfg = { ...dayWindowCfg, workDays: orgSettings.workDays || DEFAULT_WORK_DAYS, holidays: orgSettings.holidays || [] };
   const liveOpHours = (op) => {
     if (!op?.id) return 0;
     const clocks = _activeJobClocksByOp.get(String(op.id));
@@ -6319,10 +6361,15 @@ Extraction rules:
     const now = Date.now();
     let total = 0;
     for (const jc of clocks) {
-      total += liveElapsedHours({
-        clockIn: jc.clockIn, pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs,
-        totalPausedMs: jc.totalPausedMs, now,
+      const startMs = Date.parse(jc.clockIn);
+      if (!Number.isFinite(startMs)) continue;
+      const { endMs } = openSessionEnd({
+        clockInMs: startMs, pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs,
+        nowMs: now, cfg: liveJobCfg,
       });
+      // Closed pauses (totalPausedMs) are not subtracted again: pauses here are lunch
+      // and breaks, and those windows are already outside the productive total.
+      total += productiveHoursBetween(startMs, endMs, liveJobCfg);
     }
     return total;
   };
@@ -6440,9 +6487,15 @@ Extraction rules:
   //
   // sameId, not ===: person ids are mixed string/number across web and iOS, so a
   // dedupe on === would list the same person twice.
+  // A Set keyed by String(id) rather than a scan of `ids` per entry, and a Map for
+  // the roster rather than a scan of `people` per id -- both are sameId's rule
+  // (String(a) === String(b)) expressed as a key, so mixed number/string ids still
+  // collapse to one person. On a job with 24 operations and a 40-person roster this
+  // is the difference between ~1,000 comparisons and 25 lookups, per row, per render.
   const _assigneesOf = (node) => {
     const ids = [];
-    const push = (v) => { if (v == null || v === "") return; if (!ids.some(x => sameId(x, v))) ids.push(v); };
+    const seen = new Set();
+    const push = (v) => { if (v == null || v === "") return; const k = String(v); if (seen.has(k)) return; seen.add(k); ids.push(v); };
     const walk = (n) => {
       const kids = (n.subs || []).filter(k => k && !k.deletedAt);
       if (kids.length) kids.forEach(walk);
@@ -6450,7 +6503,7 @@ Extraction rules:
     };
     walk(node);
     if (!ids.length) (node.team || []).forEach(push);
-    return ids.map(id => people.find(p => sameId(p.id, id))).filter(Boolean);
+    return ids.map(id => personOf(id)).filter(Boolean);
   };
   // ─── Freeform export designer: shared block renderer + page/layout builders ──
   const EXPORT_PAGE = (orientation) => orientation === "landscape" ? { w: 1056, h: 816 } : { w: 816, h: 1056 };
@@ -9210,6 +9263,22 @@ Extraction rules:
     people.forEach(pp => { const k = idKey(pp.id); if (!m.has(k)) m.set(k, pp); });
     return m;
   }, [people]);
+  // ── Row lookups, by id, for the grids ───────────────────────────────────────
+  // The Jobs list ran `people.find` / `clients.find` / `tasks.find` inside the cell
+  // renderer, which is called once per COLUMN -- so a linear scan of the roster for
+  // every cell of every row, thirteen times over per row. These are the same lookups
+  // in constant time.
+  //
+  // Keyed by String(id), NOT idKey: idKey is `typeof v + ":" + v`, so it files the
+  // number 1 and the string "1" separately. Person ids are mixed number and string
+  // across web and iOS, which is why the app compares with sameId, and a type-tagged
+  // key would miss exactly the rows sameId was introduced to catch. First one wins,
+  // which is what .find did.
+  const byStrId = (list) => { const m = new Map(); (list || []).forEach(x => { if (x == null) return; const k = String(x.id); if (!m.has(k)) m.set(k, x); }); return m; };
+  const peopleById = useMemo(() => byStrId(people), [people]); // eslint-disable-line react-hooks/exhaustive-deps
+  const clientsById = useMemo(() => byStrId(clients), [clients]); // eslint-disable-line react-hooks/exhaustive-deps
+  const tasksById = useMemo(() => byStrId(tasks), [tasks]); // eslint-disable-line react-hooks/exhaustive-deps
+  const personOf = useCallback((id) => (id == null ? null : peopleById.get(String(id)) || null), [peopleById]);
   const isOff = useCallback((pid, date) => { const p = personByIdKey.get(idKey(pid)); if (!p) return false; return (p.timeOff || []).some(to => date >= to.start && date <= to.end); }, [personByIdKey]);
   const getOffReason = useCallback((pid, date) => { const p = people.find(x => x.id === pid); if (!p) return null; const to = (p.timeOff || []).find(to => date >= to.start && date <= to.end); return to ? to.reason : null; }, [people]);
   // Every assignment that contributes booked hours, grouped by person: one pass over the
@@ -13274,23 +13343,38 @@ ${jobsCtx || "No jobs found."}`;
       const mul = dir === "asc" ? 1 : -1;
       const STATUS_ORDER = STATUSES;
       const PRI_ORDER = PRIORITIES;
-      return [...arr].sort((a, b) => {
-        if (id === "name")     { return mul * (a.title || "").toLowerCase().localeCompare((b.title || "").toLowerCase()); }
-        if (id === "jobNum")   { return mul * (a.jobNumber || "").localeCompare(b.jobNumber || "", undefined, { numeric: true }); }
-        if (id === "client")   { const ca = a.clientId ? (clients.find(c => c.id === a.clientId)?.name || "") : ""; const cb = b.clientId ? (clients.find(c => c.id === b.clientId)?.name || "") : ""; return mul * ca.localeCompare(cb); }
-        if (id === "status")   { return mul * (STATUS_ORDER.indexOf(a.status || "Not Started") - STATUS_ORDER.indexOf(b.status || "Not Started")); }
-        if (id === "pri")      { return mul * (PRI_ORDER.indexOf(a.pri || "Medium") - PRI_ORDER.indexOf(b.pri || "Medium")); }
-        if (id === "start")    { return mul * (a.start || "").localeCompare(b.start || ""); }
-        if (id === "end")      { return mul * (a.end || "").localeCompare(b.end || ""); }
-        if (id === "due")      { return mul * (a.dueDate || "9999-99").localeCompare(b.dueDate || "9999-99"); }
-        if (id === "hrs")      { return mul * (_jobHrs(a) - _jobHrs(b)); }
-        if (id === "progress") { return mul * (_jobPct(a) - _jobPct(b)); }
-        if (id === "team")     { const ta = a.team?.length ? (people.find(p => p.id === a.team[0])?.name || "") : ""; const tb = b.team?.length ? (people.find(p => p.id === b.team[0])?.name || "") : ""; return mul * ta.localeCompare(tb); }
+      // DECORATE, SORT, UNDECORATE.
+      //
+      // Every one of these keys used to be computed inside the comparator, so sorting
+      // by Hrs, Progress or Assignee walked a job's whole subtree twice per COMPARISON
+      // -- n log n walks of the tree instead of n -- and sorting by Client or Team
+      // scanned the client list or the roster just as often. Each key is now computed
+      // once per job. Same keys, same operands, same order.
+      const keyOf = {
+        name:     t => (t.title || "").toLowerCase(),
+        jobNum:   t => t.jobNumber || "",
+        client:   t => (t.clientId ? (clientsById.get(String(t.clientId))?.name || "") : ""),
+        status:   t => STATUS_ORDER.indexOf(t.status || "Not Started"),
+        pri:      t => PRI_ORDER.indexOf(t.pri || "Medium"),
+        start:    t => t.start || "",
+        end:      t => t.end || "",
+        due:      t => t.dueDate || "9999-99",
+        hrs:      t => _jobHrs(t),
+        progress: t => _jobPct(t),
+        team:     t => (t.team?.length ? (personOf(t.team[0])?.name || "") : ""),
         // Unassigned sorts first ascending -- "" compares before any name -- which is
         // the order the column is worth sorting by: the jobs still waiting on somebody.
-        if (id === "assignee") { const na = (_assigneesOf(a)[0] || {}).name || ""; const nb = (_assigneesOf(b)[0] || {}).name || ""; return mul * na.localeCompare(nb); }
-        return 0;
-      });
+        assignee: t => (_assigneesOf(t)[0] || {}).name || "",
+      }[id];
+      if (!keyOf) return [...arr];
+      const numeric = id === "status" || id === "pri" || id === "hrs" || id === "progress";
+      const dec = arr.map((t, i) => ({ t, i, k: keyOf(t) }));
+      // The trailing index keeps equal keys in their original order, which is what the
+      // old comparator got from returning 0 into a stable sort.
+      dec.sort((x, y) => (mul * (numeric ? x.k - y.k
+        : id === "jobNum" ? x.k.localeCompare(y.k, undefined, { numeric: true })
+        : x.k.localeCompare(y.k))) || (x.i - y.i));
+      return dec.map(d => d.t);
     }
     if (jobSort === "project") return [...arr].sort((a, b) => String(a.jobNumber || a.title).localeCompare(String(b.jobNumber || b.title), undefined, { numeric: true }));
     if (jobSort === "client") { return [...arr].sort((a, b) => { const ca = a.clientId ? (clients.find(c => c.id === a.clientId)?.name || "") : ""; const cb = b.clientId ? (clients.find(c => c.id === b.clientId)?.name || "") : ""; return ca.localeCompare(cb) || (a.start || "").localeCompare(b.start || ""); }); }
@@ -14190,6 +14274,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* ── List View (Grid) ── */}
       {taskSubView === "list" && (() => {
         const orderedStdCols = colOrder.map(id => STD_COL_DEFS.find(c => c.id === id)).filter(Boolean);
+        const showAssigneeCol = orderedStdCols.some(c => c.id === "assignee");
         const customWidths = colWidths.slice(CUSTOM_W0, colWidths.length - 1);
         const COL = [...orderedStdCols.map(c => colWidths[1 + c.i] + "px"), ...customWidths.map(w => w + "px"), "36px"].join(" ");
         const cellAlignJc = cellAlign === "right" ? "flex-end" : cellAlign === "center" ? "center" : "flex-start";
@@ -14265,28 +14350,56 @@ ${jobsCtx || "No jobs found."}`;
         const jobPct = _jobPct;
         const pctColor = (pct) => pctRampColor(pct, "#94a3b8");
 
-        const renderStdCell = (colId, item, level, pid, jobId, panelId, jobColor, alwaysExpand = false, groupPrefix = "") => {
-          const client = level === 0 && item.clientId ? clients.find(c => sameId(c.id, item.clientId)) : null;
+        // EVERYTHING BELOW IS PER ROW, NOT PER CELL.
+        //
+        // These fifteen lines used to open renderStdCell, which is called once per
+        // COLUMN -- so every row walked its own subtree three times over (health,
+        // hours, percent) and scanned the roster and the client list, and then did the
+        // whole thing again for each of the other twelve columns. Measured on 120 jobs
+        // it cost 12ms a render, most of a 60fps frame, before React had reconciled a
+        // single node; and with 441 pieces of state in this component and no memo
+        // boundary, every hover, keystroke and 60-second clock tick paid it again.
+        //
+        // Computed once in GridRow and handed down. Same expressions, same operands --
+        // this moves when the work happens, not what it produces.
+        const stdCellCtx = (item, level, jobId, alwaysExpand = false, groupPrefix = "") => {
           const assignee = level > 0 ? (item.team || [])[0] : null;
-          const assigneePerson = assignee ? people.find(p => p.id === assignee) : null;
-          const teamMembers = level === 0 ? (item.team || []).map(id => people.find(p => p.id === id)).filter(Boolean) : [];
-          const health = healthOf(item);
-          const healthColor = HEALTH_DOT[health];
           const dispStatus = level === 2 ? getOpDisplayStatus(item) : level === 1 ? getPanelDisplayStatus(item) : (item.status || "Not Started");
-          const staColor = staColorOf(dispStatus);
-          const priColor = priColorOf(item.pri);
-          const hrs = level === 2 ? opHrs(item) : level === 1 ? panelHrs(item) : jobHrs(item);
           const pct = level === 2 ? opPct(item) : level === 1 ? panelPct(item) : jobPct(item);
-          const pc = pctColor(pct);
-          const indent = level * 20;
+          const health = healthOf(item);
+          const groupExpKey = groupPrefix ? `${groupPrefix}:${item.id}` : item.id;
+          return {
+            client: level === 0 && item.clientId ? clientsById.get(String(item.clientId)) || null : null,
+            assigneePerson: personOf(assignee),
+            teamMembers: level === 0 ? (item.team || []).map(id => personOf(id)).filter(Boolean) : [],
+            health,
+            healthColor: HEALTH_DOT[health],
+            dispStatus,
+            staColor: staColorOf(dispStatus),
+            priColor: priColorOf(item.pri),
+            hrs: level === 2 ? opHrs(item) : level === 1 ? panelHrs(item) : jobHrs(item),
+            pct,
+            pc: pctColor(pct),
+            indent: level * 20,
+            isScheduledLater: level === 0 ? !!item.scheduledLater : !!(tasksById.get(String(jobId))?.scheduledLater),
+            nameHasSubs: (item.subs || []).length > 0,
+            groupExpKey,
+            nameIsExpanded: alwaysExpand ? !groupCollapsed.has(groupExpKey) : expandedJobs.has(item.id),
+            // Only when the column is actually on screen. Everything else here is read
+            // by several columns, but this one walks the subtree for a single cell, and
+            // computing it for a column nobody is showing would hand the people who
+            // hide it a walk per row that they never had before.
+            who: showAssigneeCol ? _assigneesOf(item) : EMPTY_ARR,
+          };
+        };
+        const renderStdCell = (colId, item, level, pid, jobId, panelId, jobColor, alwaysExpand = false, groupPrefix = "", ctx = null) => {
+          const { client, assigneePerson, teamMembers, health, healthColor, dispStatus, staColor, priColor,
+                  hrs, pct, pc, indent, isScheduledLater, nameHasSubs, groupExpKey, nameIsExpanded, who }
+            = ctx || stdCellCtx(item, level, jobId, alwaysExpand, groupPrefix);
           const cycleStatus = (job) => { const i = STATUSES.indexOf(job.status || "Not Started"); const next = STATUSES[(i + 1) % STATUSES.length]; if (next === "Finished") { setFinishApproval({ id: job.id, pid: null, title: job.title, jobNumber: job.jobNumber || null }); } else { updTask(job.id, { status: next }); } };
           const cyclePri = (job) => { const opts = PRIORITIES.length ? PRIORITIES : ["Medium"]; const i = opts.indexOf(job.pri || "Medium"); updTask(job.id, { pri: opts[(i + 1) % opts.length] }); };
           const cycleStatusSub = (item2, pid2) => { const i = STATUSES.indexOf(item2.status || "Not Started"); const next = STATUSES[(i + 1) % STATUSES.length]; if (next === "Finished") { setFinishApproval({ id: item2.id, pid: pid2 || null, title: item2.title, jobNumber: null }); } else { updTask(item2.id, { status: next }, pid2); } };
-          const isScheduledLater = level === 0 ? !!item.scheduledLater : !!(tasks.find(t => t.id === jobId)?.scheduledLater);
           const safeDate = ds => { if (!ds) return "—"; const d = new Date(ds + "T12:00:00"); return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" }); };
-          const nameHasSubs = (item.subs || []).length > 0;
-          const groupExpKey = groupPrefix ? `${groupPrefix}:${item.id}` : item.id;
-          const nameIsExpanded = alwaysExpand ? !groupCollapsed.has(groupExpKey) : expandedJobs.has(item.id);
           switch (colId) {
             case "name": return (
               <div style={{ ...cellBase, justifyContent: "flex-start", gap: 7, paddingLeft: (level === 0 ? 22 : 20) + indent, position: "relative" }}
@@ -14414,7 +14527,6 @@ ${jobsCtx || "No jobs found."}`;
             // anyway -- while a row that is one person's work names them. A phase with
             // a single operator reads like the operation under it, which is what it is.
             case "assignee": {
-              const who = _assigneesOf(item);
               if (!who.length) return (
                 <div style={{ ...cellBase }}>
                   <span style={{ fontSize: 11, color: T.textDim, fontStyle: "italic" }}>Unassigned</span>
@@ -14549,6 +14661,9 @@ ${jobsCtx || "No jobs found."}`;
           const isDragTarget = level === 0 && rowDragOverId === item.id && rowDragRef.current && rowDragRef.current !== item.id;
           const parentId = level === 1 ? jobId : level === 2 ? panelId : null;
           const parentCloseKey = groupPrefix && parentId != null ? `${groupPrefix}:${parentId}` : parentId;
+          // Once for the whole row. Every standard cell below reads from this rather
+          // than recomputing the row's rollups and lookups for itself.
+          const cellCtx = stdCellCtx(item, level, jobId, alwaysExpand, groupPrefix);
           const immediateParentClosing = parentId != null && (alwaysExpand ? groupClosing.has(parentCloseKey) : closingJobs.has(parentId));
           // Any ancestor closing → this row plays the exit animation too (prevents a panel
           // sliding out while its ops are still mid-enter, which read as a glitch).
@@ -14570,7 +14685,7 @@ ${jobsCtx || "No jobs found."}`;
               {/* Dynamic standard columns */}
               {orderedStdCols.map(col => {
                 const cs = getCellCondStyle(col.id);
-                const cell = renderStdCell(col.id, item, level, pid, jobId, panelId, jobColor, alwaysExpand, groupPrefix);
+                const cell = renderStdCell(col.id, item, level, pid, jobId, panelId, jobColor, alwaysExpand, groupPrefix, cellCtx);
                 return cloneElement(cell, { key: col.id, ...(Object.keys(cs).length ? { style: { ...cell.props.style, ...cs } } : {}) });
               })}
 
@@ -16385,7 +16500,11 @@ ${jobsCtx || "No jobs found."}`;
         return addBD(op.start, days - 1, bdOpts);
       };
       // PTO bars
-      const person = people.find(x => x.id === pid);
+      const person = personOf(pid);
+      // TODAY, once. The three history tests below sit inside the walk over every
+      // job, phase and operation, and each one was building a Date and formatting it
+      // -- per node, per person row, per render.
+      const _today = toDS(new Date());
       if (person) (person.timeOff || []).forEach((to, i) => {
         if (to.end < _winS || to.start > _winE) return;
         const ptoColor = to.type === "UTO" ? "#f59e0b" : "#10b981";
@@ -16425,15 +16544,15 @@ ${jobsCtx || "No jobs found."}`;
               // visible whatever its dates say. Hiding the bar a worker is actively on would
               // take away the thing they are looking at, and a job running past its planned end
               // is exactly when that happens.
-              const _opIsHistory = op.end < toDS(new Date());
-              const _opIsLive = people.some(lp => lp.activeJobClock?.clockIn && sameId(lp.activeJobClock.opId, op.id));
+              const _opIsHistory = op.end < _today;
+              const _opIsLive = isLiveOpId(op.id);
               if (_opIsHistory && !_opIsLive) return;
               if (_visualEnd(op) < _winS || op.start > _winE) return;
               const bStart = op.start;
               const bEnd = op.end;
-              const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
+              const cl = job.clientId ? clientsById.get(String(job.clientId)) || null : null;
               const tc = panel.color || "#94a3b8";
-              const opPersonName = (() => { const pp = people.find(x => x.id === (op.team || [])[0]); return pp ? pp.name : null; })();
+              const opPersonName = (() => { const pp = personOf((op.team || [])[0]); return pp ? pp.name : null; })();
               bars.push({ type: "task", id: op.id, start: bStart, end: bEnd, title: `${panel.title} · ${op.title}${opPersonName ? ` · ${opPersonName}` : ""}`, color: barPaint(op, elColor(tc)), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, jobCreatedAt: job.createdAt || null, task: { ...op, start: bStart, end: bEnd, color: barPaint(op, tc), isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
             });
             // Panel-level assignment: ONLY when the panel is itself the lowest level, i.e. it
@@ -16453,14 +16572,14 @@ ${jobsCtx || "No jobs found."}`;
             // written only for ops, so a leaf panel whose window closed stayed
             // drawn while an op with the same dates was hidden. Same live
             // exception: somebody clocked into it keeps it visible.
-            const _pnIsHistory = !!(panel.end && panel.end < toDS(new Date()));
-            const _pnIsLive = people.some(lp => lp.activeJobClock?.clockIn && sameId(lp.activeJobClock.opId, panel.id));
+            const _pnIsHistory = !!(panel.end && panel.end < _today);
+            const _pnIsLive = isLiveOpId(panel.id);
             if (onPanelTeam && !(_pnIsHistory && !_pnIsLive) && !hasLiveChildren(panel) && (showCompleted || panel.status !== "Finished") && isTimelinePlaced(panel)) {
               const pInView = _visualEnd(panel) >= _winS && panel.start <= _winE;
               if (pInView) {
                 const pStart = panel.start;
                 const pEnd = panel.end;
-                const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
+                const cl = job.clientId ? clientsById.get(String(job.clientId)) || null : null;
                 const tc = panel.color || "#94a3b8";
                 bars.push({ type: "task", id: panel.id, start: pStart, end: pEnd, title: `${job.title} · ${panel.title}`, color: barPaint(panel, elColor(tc)), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: panel.status, jobCreatedAt: job.createdAt || null, task: { ...panel, start: pStart, end: pEnd, color: barPaint(panel, tc), isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
               }
@@ -16474,13 +16593,13 @@ ${jobsCtx || "No jobs found."}`;
             // Same rule as the panel-job branch above — undated goes to the board.
             if (!isTimelinePlaced(sub)) return;
             // Same rule again for a general job's flat subtasks.
-            const _subIsHistory = !!(sub.end && sub.end < toDS(new Date()));
-            const _subIsLive = people.some(lp => lp.activeJobClock?.clockIn && sameId(lp.activeJobClock.opId, sub.id));
+            const _subIsHistory = !!(sub.end && sub.end < _today);
+            const _subIsLive = isLiveOpId(sub.id);
             if (_subIsHistory && !_subIsLive) return;
             if (_visualEnd(sub) < _winS || sub.start > _winE) return;
             const bStart = sub.start;
             const bEnd = sub.end;
-            const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
+            const cl = job.clientId ? clientsById.get(String(job.clientId)) || null : null;
             const tc = sub.color || "#94a3b8";
             bars.push({ type: "task", id: sub.id, start: bStart, end: bEnd, title: `${job.title} · ${sub.title}`, color: barPaint(sub, elColor(tc)), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: sub.status, jobCreatedAt: job.createdAt || null, task: { ...sub, start: bStart, end: bEnd, color: barPaint(sub, tc), isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
           });
@@ -17969,7 +18088,7 @@ ${jobsCtx || "No jobs found."}`;
                   // §3c. An op cannot be rescheduled out from under the person working it: their
                   // clock is running against a block that would move, and the split rules only make
                   // sense once nobody is on it.
-                  const _someoneOnIt = !isPto && !!bar.task && people.some(lp => lp.activeJobClock?.clockIn && sameId(lp.activeJobClock.opId, bar.task.id));
+                  const _someoneOnIt = !isPto && !!bar.task && isLiveOpId(bar.task.id);
                   const handleTeamDrag = (e) => {
                     if (!can("moveJobs")) { if (!isPto && bar.task) openJobDetailOrEdit(bar.task); return; }
                     if (_someoneOnIt) { e.preventDefault(); e.stopPropagation(); setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Someone is on this job", message: "Someone is currently working on this. They must be clocked out before you can edit this.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) }); return; }
@@ -30360,7 +30479,7 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, letterSpacing: "-0.045em", textTransform: "uppercase", marginBottom: 4 }}>Pending Scheduling — {laterJobs.length} job{laterJobs.length !== 1 ? "s" : ""}</div>
                 {laterJobs.map(job => {
-                  const cl = job.clientId ? clients.find(x => x.id === job.clientId) : null;
+                  const cl = job.clientId ? clientsById.get(String(job.clientId)) || null : null;
                   return (
                     <div key={job.id}
                       onClick={() => {

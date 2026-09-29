@@ -6,7 +6,11 @@
 // they are reproduced here verbatim from the call sites they came from and the
 // helper is diffed against each across a grid of inputs.
 //
-//   A  liveOpHours (TRAQS.jsx)          — open pause subtracted, FLOORED
+//   A  (was liveOpHours, TRAQS.jsx)     — open pause subtracted, FLOORED
+//      liveOpHours has since moved off this helper entirely: job hours are
+//      productive hours bounded by openSessionEnd, not wall clock. See
+//      scripts/job-live-hours-test.mjs. Shape A is still the right thing to hold
+//      this helper to for the payroll-clock callers that remain on it.
 //   B  payProdByDay / End Job / job timer — open pause subtracted, UNFLOORED
 //   C  current-work card / op-progress   — no open-pause term at all
 //
