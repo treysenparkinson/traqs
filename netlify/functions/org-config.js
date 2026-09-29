@@ -1,7 +1,7 @@
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { requireOrgMember } from "./_utils/auth.js";
-import { personFromAdmin } from "./_utils/invite.js";
+import { personFromAdmin, settleInvitesOnLogin } from "./_utils/invite.js";
 import { nowIso } from "./_utils/timestamps.js";
 
 // Authenticated mirror of the public `/org?code=…` endpoint that the login
@@ -51,6 +51,23 @@ export async function handler(event) {
         // Non-fatal: worst case the client sees isMember:false again and
         // retries next load, same as any other transient S3 hiccup.
         console.error("org-config: self-provision failed:", e);
+      }
+    }
+
+    // SIGNING IN SPENDS THE INVITE. This is the once-per-login call on the web
+    // (App.jsx's gate) and on iOS (RootView), so it is where an invitee who
+    // got in without pressing Accept -- Add Employee already put them on the
+    // roster -- stops showing as Pending Invitation. See settleInvitesOnLogin.
+    // Non-fatal, like the self-provision above: a failed write just leaves the
+    // card pending until the next sign-in.
+    if (personId != null) {
+      const invitesKey = `orgs/${member.orgCode}/invites.json`;
+      try {
+        const invites = (await readJson(invitesKey).catch(() => null)) ?? [];
+        const settled = settleInvitesOnLogin(invites, member.email, nowIso());
+        if (settled.changed) await writeJson(invitesKey, settled.invites);
+      } catch (e) {
+        console.error("org-config: invite settle failed:", e);
       }
     }
 

@@ -31,13 +31,20 @@ export const INVITE_TTL_MS = 14 * 24 * 60 * 60 * 1000;   // 14 days
 //
 // Revoking by token would mean the list had to hand tokens back to do its job,
 // which is the thing not listing them was for.
-export function makeInvite({ email, role = "user", invitedBy, nowMs = Date.now() }) {
+//
+// `personId` and `name` are set when the invite comes from Add Employee, which
+// writes the roster row FIRST. They are a link to that row, not a second copy
+// of it: accept still resolves the person by EMAIL (see invite.js POST accept),
+// so an admin editing the card before it is accepted changes nothing here.
+export function makeInvite({ email, role = "user", invitedBy, personId = null, name = "", nowMs = Date.now() }) {
   return {
     id: randomBytes(9).toString("base64url"),
     token: newInviteToken(),
     email: String(email || "").toLowerCase().trim(),
     role: role === "admin" ? "admin" : "user",
     invitedBy: String(invitedBy || "").toLowerCase().trim(),
+    personId: personId == null || personId === "" ? null : String(personId),
+    name: String(name || "").trim().slice(0, 200),
     createdAt: new Date(nowMs).toISOString(),
     expiresAt: new Date(nowMs + INVITE_TTL_MS).toISOString(),
     acceptedAt: null,
@@ -150,4 +157,25 @@ export function activeInvites(invites, nowMs = Date.now()) {
     const exp = Date.parse(i.expiresAt);
     return !Number.isFinite(exp) || nowMs <= exp;
   });
+}
+
+/**
+ * Spend every live invite for an address that has just signed in as a member.
+ *
+ * Add Employee writes the roster row BEFORE the invite goes out, and a roster
+ * row is all the sign-in gate asks for. So an invitee can get in without ever
+ * pressing Accept -- they install the app, or open the site, and sign in with
+ * the invited address -- and the invite would then read "Pending" forever on a
+ * card belonging to somebody who has been working for a month.
+ *
+ * Signing in as that address IS acceptance: it is the same identity check the
+ * accept path makes. Returns { changed, invites } so the caller writes only
+ * when something moved.
+ */
+export function settleInvitesOnLogin(invites, email, nowIso, nowMs = Date.now()) {
+  const who = String(email || "").toLowerCase().trim();
+  if (!who) return { changed: false, invites: invites || [] };
+  const live = new Set(activeInvites(invites, nowMs).filter((i) => i.email === who));
+  if (!live.size) return { changed: false, invites: invites || [] };
+  return { changed: true, invites: invites.map((i) => (live.has(i) ? markAccepted(i, nowIso) : i)) };
 }

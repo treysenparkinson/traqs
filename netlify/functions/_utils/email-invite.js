@@ -41,21 +41,38 @@ const daysUntil = (iso) => {
  * @param {string} a.inviterName who sent it (falls back to their email)
  * @param {string} a.acceptUrl   the full link, built by the caller
  * @param {string} a.expiresAt   ISO, straight off the invite
+ * @param {string} [a.inviteeName]  the name the admin typed on Add Employee
+ * @param {string} [a.appStoreUrl]  IOS_APP_STORE_URL; empty = no download line
  * @returns {{subject: string, html: string, text: string}}
  */
-export function inviteEmail({ orgName, inviterName, acceptUrl, expiresAt }) {
+export function inviteEmail({ orgName, inviterName, acceptUrl, expiresAt, inviteeName, appStoreUrl }) {
   const org = orgName || "your organization";
   const who = inviterName || "An administrator";
   const days = daysUntil(expiresAt);
   const expiryLine = days ? `This invitation expires in ${days} day${days === 1 ? "" : "s"}.` : "";
+  // First name only: "Hi Sam," not "Hi Sam Rivera,". Absent for an invite sent
+  // without a roster row, where all we know is the address.
+  const first = String(inviteeName || "").trim().split(/\s+/)[0] || "";
+  const greeting = first ? `Hi ${first},` : "";
+
+  // THE iPHONE LINE. The Accept button is a universal link: with TRAQS
+  // installed, iOS opens the app on it instead of Safari, so the same button
+  // serves both. Only the download half depends on a store listing, and it is
+  // left out entirely until there is one -- a "get the app" line with nowhere to
+  // go is worse than none.
+  const appLine = "On your iPhone? Accept opens the TRAQS app if you have it installed.";
 
   const subject = `You're invited to join ${org} on TRAQS`;
 
   const text = [
+    ...(greeting ? [greeting, ""] : []),
     `${who} has invited you to join ${org} on TRAQS.`,
     "",
     "Accept the invitation to create your employee account:",
     acceptUrl,
+    "",
+    appLine,
+    ...(appStoreUrl ? ["Don't have it yet? Download TRAQS for iPhone:", appStoreUrl] : []),
     "",
     expiryLine,
     "",
@@ -64,9 +81,11 @@ export function inviteEmail({ orgName, inviterName, acceptUrl, expiresAt }) {
     textFooter(),
   ].join(String.fromCharCode(10));
 
-  const rows = `
+  const rows = `${greeting ? `
+<tr><td style="font-family:${FONT};font-size:15px;color:${INK};mso-line-height-rule:exactly;line-height:23px;padding-bottom:12px">${esc(greeting)}</td></tr>` : ""}
 <tr><td style="font-family:${FONT};font-size:15px;color:${BODY};mso-line-height-rule:exactly;line-height:23px;padding-bottom:28px"><strong style="color:${INK}">${esc(who)}</strong> has invited you to join <strong style="color:${INK}">${esc(org)}</strong> on TRAQS. Accept the invitation to create your employee account and get started.</td></tr>
 ${button(acceptUrl, "Accept invitation", esc)}
+<tr><td style="font-family:${FONT};font-size:13px;color:${BODY};mso-line-height-rule:exactly;line-height:20px;padding-bottom:24px">${esc(appLine)}${appStoreUrl ? `<br>Don't have it yet? <a href="${esc(appStoreUrl)}" style="color:${LINK};font-weight:600">Download TRAQS for iPhone</a>` : ""}</td></tr>
 <tr><td style="border-top:1px solid ${RULE};padding-top:20px;font-family:${FONT};font-size:12px;color:${MUTED};mso-line-height-rule:exactly;line-height:19px">Button not working? Paste this link into your browser:<br><a href="${esc(acceptUrl)}" style="color:${LINK};word-break:break-all">${esc(acceptUrl)}</a>${expiryLine ? `<br><br>${esc(expiryLine)}` : ""}</td></tr>`;
 
   const html = shell({

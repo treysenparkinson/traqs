@@ -10,7 +10,7 @@
 
 import {
   makeInvite, checkInvite, publicInviteView, personFromInvite,
-  markAccepted, activeInvites, newInviteToken, INVITE_TTL_MS,
+  markAccepted, activeInvites, newInviteToken, INVITE_TTL_MS, settleInvitesOnLogin,
 } from "../netlify/functions/_utils/invite.js";
 
 let pass = 0, fail = 0;
@@ -148,6 +148,36 @@ let mismatchRedOk = true;
     console.log(`red proof: without the email check a forwarded link admits ${stranger}; `
       + `the check refuses it as ${actual.reason}`);
   }
+}
+
+// ── Add Employee's link to the roster row ────────────────────────────────
+{
+  const i = makeInvite({ email: "sam@contractor.com", personId: 7, name: "  Sam Rivera ", nowMs: T0 });
+  eq("the roster row it was sent for is recorded, as a string like every person id", i.personId, "7");
+  eq("the name is kept, trimmed", i.name, "Sam Rivera");
+  const bare = makeInvite({ email: "sam@contractor.com", nowMs: T0 });
+  eq("an invite with no roster row says so rather than inventing an id", bare.personId, null);
+  eq("...and has an empty name", bare.name, "");
+}
+
+// ── signing in spends the invite ─────────────────────────────────────────
+// Add Employee puts them on the roster before the mail goes out, so they can
+// get in without pressing Accept. Their card must stop reading Pending.
+{
+  const mine = inv({ id: "a" });
+  const theirs = inv({ id: "b", email: "other@contractor.com" });
+  const stale = inv({ id: "c", expiresAt: new Date(T0 - 1000).toISOString() });
+  const r = settleInvitesOnLogin([mine, theirs, stale], " SAM@contractor.com ", "2026-09-24T00:00:00Z", T0);
+  eq("signing in as the invited address accepts its live invite", r.invites[0].acceptedAt, "2026-09-24T00:00:00Z");
+  eq("...and reports that something changed, so the caller writes", r.changed, true);
+  eq("somebody else's invite is untouched", r.invites[1].acceptedAt, null);
+  eq("an expired invite stays expired rather than reading as accepted", r.invites[2].acceptedAt, null);
+  eq("nothing live for this address is not a change, so nothing is written",
+    settleInvitesOnLogin([theirs], "sam@contractor.com", "x", T0).changed, false);
+  eq("a revoked invite is not resurrected as accepted",
+    settleInvitesOnLogin([inv({ revokedAt: "r" })], "sam@contractor.com", "x", T0).changed, false);
+  eq("no identity settles nothing", settleInvitesOnLogin([mine], "", "x", T0).changed, false);
+  eq("a missing invites file is fine", settleInvitesOnLogin(null, "sam@contractor.com", "x", T0).changed, false);
 }
 
 console.log(`${pass} passed, ${fail} failed`);

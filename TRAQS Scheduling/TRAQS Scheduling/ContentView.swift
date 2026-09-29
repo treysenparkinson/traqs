@@ -17,8 +17,28 @@ struct RootView: View {
     @State private var lookupInFlight = false
     @State private var lookupMatches: [OrgMatch] = []
     @State private var lookupError: String?
+    /// Orgs this launch has already told the server "signed in" (see
+    /// `announceSignIn`). Per org, so switching orgs announces the new one.
+    @State private var announcedOrgs: Set<String> = []
+
+    /// Whether the logged-out gate (Intro / Welcome / signup / code recovery)
+    /// is what's on screen. ONE definition, read by the branch below, by the
+    /// window style, and by the app root's colour scheme, so the three can't
+    /// disagree about whether somebody is signed in.
+    ///
+    /// The gate always draws in TRAQS's default light look. The saved theme is
+    /// device-wide, so before anybody has signed in it is only whatever the
+    /// last person left behind, and it must not reach this screen. Left to the
+    /// theme, a dark preset pinned the WINDOWS dark (ThemeStyleSync) and the app
+    /// root dark (`.preferredColorScheme`), which beat the screens' own
+    /// `.preferredColorScheme(.light)`: dark Liquid Glass buttons, a dark
+    /// keyboard, dark system menus and a dark Auth0 sheet on the paper ground.
+    static func showsSignIn(auth: AuthManager, appState: AppState) -> Bool {
+        appState.orgCode.isEmpty || !auth.isAuthenticated
+    }
 
     var body: some View {
+        let signIn = Self.showsSignIn(auth: auth, appState: appState)
         ZStack(alignment: .top) {
             Group {
                 // Org FIRST, sign-in second — the order the web's AuthGate uses.
@@ -26,7 +46,7 @@ struct RootView: View {
                 // signed in before the app knew which organization they were
                 // signing in to. WelcomeView covers both stages and carries its
                 // own load-up.
-                if appState.orgCode.isEmpty || !auth.isAuthenticated {
+                if signIn {
                     if introDone || auth.isAuthenticated {
                         WelcomeView(autoLinkError: lookupError, logoAlreadyShown: introDone)
                     } else {
@@ -50,6 +70,8 @@ struct RootView: View {
             .onAppear { handleAuthState() }
             .onChange(of: auth.isAuthenticated) { _, _ in handleAuthState() }
             .onChange(of: auth.userEmail) { _, _ in handleAuthState() }
+            // The invite email's Accept button, when TRAQS is installed. See InviteLink.
+            .onOpenURL { url in openInvite(url) }
 
             ErrorBanner()
                 .zIndex(2)
@@ -76,8 +98,9 @@ struct RootView: View {
         // Pin the scene's windows to the theme's interface style so presented
         // sheets/covers inherit it instead of following the device's Dark Mode
         // (which made `.primary` text render white on our light sheet bg). Reads
-        // `isLightTheme` so it re-applies live when the theme changes.
-        .background(ThemeStyleSync(isLight: themeSettings.isLightTheme))
+        // `isLightTheme` so it re-applies live when the theme changes. Always
+        // light at the sign-in gate — see `showsSignIn`.
+        .background(ThemeStyleSync(isLight: signIn || themeSettings.isLightTheme))
     }
 
     private func handleAuthState() {
@@ -89,7 +112,9 @@ struct RootView: View {
         if !appState.orgCode.isEmpty {
             appState.matchEmail = auth.userEmail
             appState.configure(auth: auth, orgCode: appState.orgCode)
+            announceSignIn(orgCode: appState.orgCode, token: token)
         }
+        redeemPendingInvite(token: token)
 
         // Run the email→org lookup once per session. Even when we already have
         // an orgCode, we re-verify so a stale Keychain entry (the symptom
@@ -127,10 +152,71 @@ struct RootView: View {
     }
 
     private func applyOrg(code: String) {
-        guard auth.accessToken != nil else { return }
+        guard let token = auth.accessToken else { return }
         appState.matchEmail = auth.userEmail
         appState.configure(auth: auth, orgCode: code)
+        announceSignIn(orgCode: code, token: token)
         lookupMatches = []
+    }
+
+    // MARK: - Invites
+
+    /// An invite link arrived. Signed out, the invite names the org, so it
+    /// replaces any remembered code and Welcome goes straight to "Sign in";
+    /// the token is redeemed once Auth0 returns (`redeemPendingInvite`).
+    ///
+    /// Already signed in to THAT org, it is redeemed now. Signed in to a
+    /// different one, it is NOT acted on: the person holding this phone may not
+    /// be the person invited, and silently switching them into another org would
+    /// be worse than asking them to sign out.
+    private func openInvite(_ url: URL) {
+        guard let link = InviteLink.parse(url) else { return }
+        if !auth.isAuthenticated {
+            appState.pendingInvite = link
+            appState.rememberOrg(code: link.orgCode)
+            return
+        }
+        guard appState.orgCode.isEmpty || appState.orgCode.caseInsensitiveCompare(link.orgCode) == .orderedSame else {
+            appState.errorMessage = "This invitation is for another organization. Sign out, then tap Accept in the email again."
+            return
+        }
+        appState.pendingInvite = link
+        if appState.orgCode.isEmpty { applyOrg(code: link.orgCode) }
+        if let token = auth.accessToken { redeemPendingInvite(token: token) }
+    }
+
+    /// Spend the pending invite. Most failures are left quiet, as on the web:
+    /// Add Employee already put the invitee on the roster, so signing in is what
+    /// actually lets them in, and a stale link should not stand in their way.
+    /// The two that ARE said out loud are the ones the person can do something
+    /// about.
+    private func redeemPendingInvite(token: String) {
+        guard let link = appState.pendingInvite else { return }
+        appState.pendingInvite = nil
+        Task {
+            do {
+                try await APIService.acceptInvite(inviteToken: link.token, orgCode: link.orgCode, token: token)
+            } catch let failure as APIService.ServerMessageError {
+                if failure.message.contains("email-mismatch") {
+                    appState.errorMessage = "This invitation was sent to a different email address. Sign out and sign in with that address."
+                } else if failure.message.contains("expired") {
+                    appState.errorMessage = "This invitation has expired. Ask your administrator to send a new one."
+                }
+            } catch {
+                // Network: harmless. announceSignIn spends the invite next time.
+            }
+        }
+    }
+
+    /// Tell the server this person has signed in to `orgCode`, once per org per
+    /// launch. `/org-config` is the web's once-per-login call; iOS never made
+    /// it, and it is where an invite is marked accepted for somebody who got in
+    /// without pressing Accept (settleInvitesOnLogin) — without it their card on
+    /// the web would say Pending Invitation forever. Fire and forget.
+    private func announceSignIn(orgCode: String, token: String) {
+        guard !orgCode.isEmpty, !announcedOrgs.contains(orgCode) else { return }
+        announcedOrgs.insert(orgCode)
+        Task { _ = try? await APIService.orgConfig(token: token, orgCode: orgCode) }
     }
 }
 

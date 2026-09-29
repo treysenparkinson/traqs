@@ -428,8 +428,20 @@ struct APIService {
 
     // MARK: - Forgot org code (unauthenticated)
 
+    /// A failure the server explained in words — `{ "error": "..." }`.
+    struct ServerMessageError: LocalizedError {
+        let status: Int
+        let message: String
+        var errorDescription: String? { message }
+    }
+
     /// Trigger a "your org codes" recovery email. Server is silent about
     /// whether the email matched anything, to prevent enumeration.
+    ///
+    /// A failure throws `ServerMessageError` carrying the server's own sentence
+    /// when it sent one. forgot-org names WHY a send failed (no-sender,
+    /// not-verified, send-failed) — four different fixes that a bare
+    /// "Server error 500" would collapse into one.
     static func forgotOrgCode(email: String) async throws {
         guard let url = URL(string: "\(AppConfig.netlifyBase)/forgot-org") else {
             throw URLError(.badURL)
@@ -438,9 +450,11 @@ struct APIService {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = try JSONSerialization.data(withJSONObject: ["email": email])
-        let (_, response) = try await URLSession.shared.data(for: req)
+        let (data, response) = try await URLSession.shared.data(for: req)
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            throw APIError.httpError(http.statusCode)
+            let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let message = (body?["error"] as? String) ?? "Server error \(http.statusCode)"
+            throw ServerMessageError(status: http.statusCode, message: message)
         }
     }
 
@@ -867,6 +881,28 @@ struct APIService {
             throw APIError.httpError(http.statusCode)
         }
         return try JSONDecoder().decode(OrgConfigResponse.self, from: data)
+    }
+
+    /// Redeem an invite link (`/?org=CODE&invite=TOKEN`) after signing in. The
+    /// server compares the invited address with the identity on `token`, so a
+    /// forwarded link admits nobody. Add Employee has already put the invitee on
+    /// the roster, so this mostly just spends the invite; see invite.js.
+    static func acceptInvite(inviteToken: String, orgCode: String, token: String) async throws {
+        guard let url = URL(string: "\(AppConfig.netlifyBase)/invite") else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url, timeoutInterval: 30)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue(orgCode, forHTTPHeaderField: "X-Org-Code")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["token": inviteToken, "accept": true])
+        let (data, response) = try await URLSession.shared.data(for: req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+            let message = (body?["error"] as? String) ?? "Server error \(http.statusCode)"
+            throw ServerMessageError(status: http.statusCode, message: message)
+        }
     }
 
     /// Resolve which orgs an authenticated user belongs to, by email. Used by

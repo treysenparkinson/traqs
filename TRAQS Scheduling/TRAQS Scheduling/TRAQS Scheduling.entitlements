@@ -6,5 +6,9 @@
 	<string>development</string>
 	<key>com.apple.developer.aps-environment</key>
 	<string>development</string>
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:traqs.netlify.app</string>
+	</array>
 </dict>
 </plist>

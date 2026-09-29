@@ -33,6 +33,15 @@
 [functions."timeoff-cleanup"]
   schedule = "0 5 * * *"
 
+# ── Universal links ──────────────────────────────────────────────────────────
+# iOS fetches this (through Apple's CDN) to learn that invite links belong to
+# the TRAQS app. It has no file extension, so without this Netlify serves it as
+# application/octet-stream and Apple ignores it. See public/.well-known/.
+[[headers]]
+  for = "/.well-known/apple-app-site-association"
+  [headers.values]
+    Content-Type = "application/json"
+
 # ── Security headers ─────────────────────────────────────────────────────────
 # Applied to every response Netlify serves from the SPA build. Keep them
 # permissive enough not to break the existing toolchain (DM Sans from Google

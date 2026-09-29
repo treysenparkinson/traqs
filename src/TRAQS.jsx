@@ -3558,7 +3558,13 @@ function PersonAvatar({ person, size = 40, ring = null, label = null, style: sx 
 // One employee tile on the Employees picker wall. 3:4 portrait, heavily rounded,
 // photo edge-to-edge. No photo → the card is frosted glass with their initial.
 // Rendered as a <button> so it inherits the app-wide hover lift/glow.
-function EmployeeCard({ person, img, dot, onOpen, onCtx }) {
+//
+// `pending`: they have been invited and have not signed in yet. Amber ring and
+// a label, amber because it is the app's "waiting on someone" colour (the
+// on-break dot, pending time off) -- not the accent, which would read as
+// selected.
+const PENDING_AMBER = "#f59e0b";
+function EmployeeCard({ person, img, dot, onOpen, onCtx, pending = false }) {
   const luma = useBottomLuma(img);
   // Over a photo: black on a light lower half, white on a dark one (or while the
   // sample is still pending). Without a photo the card is a normal themed
@@ -3572,13 +3578,15 @@ function EmployeeCard({ person, img, dot, onOpen, onCtx }) {
   const shadow = onPhoto ? (light ? "0 1px 2px rgba(255,255,255,0.5)" : "0 1px 3px rgba(0,0,0,0.55)") : "none";
   return (
     <button className="tq-frost" onClick={onOpen} onContextMenu={onCtx}
-      style={{ position: "relative", aspectRatio: "3 / 4", width: "100%", padding: 0, borderRadius: 30, overflow: "hidden", border: `1px solid ${T.border}`, background: T.card, cursor: "pointer", fontFamily: T.font, display: "block" }}>
+      style={{ position: "relative", aspectRatio: "3 / 4", width: "100%", padding: 0, borderRadius: 30, overflow: "hidden", border: pending ? `2px solid ${PENDING_AMBER}` : `1px solid ${T.border}`, boxShadow: pending ? `0 0 0 4px ${PENDING_AMBER}26, 0 8px 28px ${PENDING_AMBER}33` : undefined, background: T.card, cursor: "pointer", fontFamily: T.font, display: "block" }}>
       {img
         ? <div style={{ position: "absolute", inset: 0, backgroundImage: `url(${img})`, backgroundSize: "cover", backgroundPosition: "center" }} />
         : <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", paddingBottom: 26 }}>
             <PersonAvatar person={person} size={96} />
           </div>}
       {dot && <span style={{ position: "absolute", top: 12, right: 12, width: 11, height: 11, borderRadius: "50%", background: dot, boxShadow: `0 0 0 2.5px ${hexA(T.card, 0.9)}` }} />}
+      {/* Solid, not tinted: it has to read over a photo as well as a bare card. */}
+      {pending && <span style={{ position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)", padding: "4px 11px", borderRadius: 999, background: PENDING_AMBER, color: "#1f1400", fontSize: 10.5, fontWeight: 800, letterSpacing: "0.02em", whiteSpace: "nowrap", boxShadow: "0 2px 8px rgba(0,0,0,0.18)" }}>Pending Invitation</span>}
       <div style={{ position: "absolute", left: 10, right: 10, bottom: 12, textAlign: "center" }}>
         <div style={{ fontSize: 14.5, fontWeight: 800, color: nameColor, textShadow: shadow, lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.name}</div>
         <div style={{ fontSize: 11, color: subColor, textShadow: shadow, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{person.title || person.department || "—"}</div>
@@ -5547,20 +5555,30 @@ Extraction rules:
   const [personModal, setPersonModal] = useState(null);
   // Add Employee (Employees page). null = closed; otherwise the draft profile.
   const [addEmpDraft, setAddEmpDraft] = useState(null);
-  // Invite draft. `link` is set once the server returns a token and is the only
-  // time that token is ever shown -- the list endpoint does not return it.
-  const [inviteDraft, setInviteDraft] = useState(null);
-  // Loaded from event handlers, never from render. Kicking a fetch off during
-  // render re-fires it on every render until the response lands, which is a
-  // burst of identical GETs rather than one.
-  const loadInviteList = useCallback(async () => {
-    try {
-      const r = await listInvites(getToken, orgCode);
-      setInviteDraft((p) => (p ? { ...p, list: r.invites || [] } : p));
-    } catch {
-      setInviteDraft((p) => (p ? { ...p, list: [] } : p));
-    }
+  // This org's invites, tokens stripped by the server. What paints a card as
+  // Pending Invitation: a person is pending while a live invite exists for
+  // their address. Signing in spends it (org-config, settleInvitesOnLogin), so
+  // the highlight clears on its own once they are in.
+  const [invites, setInvites] = useState([]);
+  // Loaded from effects and event handlers, never from render. Kicking a fetch
+  // off during render re-fires it on every render until the response lands,
+  // which is a burst of identical GETs rather than one.
+  const loadInvites = useCallback(async () => {
+    try { const r = await listInvites(getToken, orgCode); setInvites(r.invites || []); }
+    catch { /* keep what we had: a failed refresh must not un-highlight cards */ }
   }, [getToken, orgCode]);
+  // Add Employee's Invite confirmation. null = closed; otherwise
+  // { busy, error, link, emailSent }. `link` is set only when the mail could not
+  // be sent -- it is the one time the token is shown, so the admin can pass it
+  // on by hand.
+  const [invitePrompt, setInvitePrompt] = useState(null);
+  // Refreshed each time the Employees page opens, so a card whose invitee has
+  // since signed in stops reading Pending without a reload. Only for people who
+  // can manage the team: it is the only thing the list is used for.
+  const canManageTeam = can("manageTeam");
+  useEffect(() => {
+    if (view === "employees" && canManageTeam) loadInvites();
+  }, [view, canManageTeam, loadInvites]);
   const blankEmployee = () => ({ image: null, name: "", email: "", phone: "", department: "", secondaryDepartment: "" });
   // Right-click menu on an employee card: { x, y, person }
   const [empCtx, setEmpCtx] = useState(null);
@@ -10234,7 +10252,9 @@ Extraction rules:
   const timeOffEntryAt = (pid, idx) => (latestPeopleRef.current.find(x => x.id === pid)?.timeOff || [])[idx];
   const [ptoCtx, setPtoCtx] = useState(null); // { x, y, bar, personId, toIdx }
   const [timeOffEdit, setTimeOffEdit] = useState(null); // { personId, idx, start, end, reason }
-  const addPerson = (data) => { const { color: _dropColor, ...rest } = data; setPeople(p => [...p, { ...rest, id: uid() }]); setPersonModal(null); };
+  // Returns the new id: Add Employee's Invite needs it to link the invite to the
+  // card it just created.
+  const addPerson = (data) => { const { color: _dropColor, ...rest } = data; const id = uid(); setPeople(p => [...p, { ...rest, id }]); setPersonModal(null); return id; };
   const delPerson = (id) => { toast("Person removed"); setPeople(p => p.filter(x => x.id !== id)); setTasks(p => p.map(t => ({ ...t, team: (t.team || []).filter(x => x !== id), subs: (t.subs || []).map(s => ({ ...s, team: (s.team || []).filter(x => x !== id), subs: (s.subs || []).map(op => ({ ...op, team: (op.team || []).filter(x => x !== id) })) })) }))); };
   const savePerson = (ed) => {
     if (!ed.name.trim()) return;
@@ -19866,6 +19886,30 @@ ${jobsCtx || "No jobs found."}`;
     const P = people.find(x => String(x.id) === String(empPersonId)) || null;
 
 
+    // ── Invite ──────────────────────────────────────────────────────────────
+    // An invite always belongs to a card. Add Employee writes the roster row,
+    // then the invite links to it, so the admin has already said who this is --
+    // name, email, phone -- and the card appears at once, highlighted as Pending
+    // Invitation until they sign in.
+    const liveInviteFor = (email) => {
+      const e = String(email || "").toLowerCase().trim();
+      if (!e) return null;
+      return invites.find(i => i.email === e && !i.acceptedAt && !i.revokedAt
+        && !(Date.parse(i.expiresAt) < Date.now())) || null;
+    };
+    // Sends (or re-sends) the invitation for a person already on the roster.
+    // Re-sending revokes the live one first: the server allows one live invite
+    // per address, so two tokens can never admit the same person.
+    const invitePerson = async ({ id, name, email, userRole }) => {
+      const addr = String(email || "").toLowerCase().trim();
+      const existing = liveInviteFor(addr);
+      if (existing) await revokeInvite(existing.id, getToken, orgCode);
+      const r = await createInvite({
+        email: addr, role: userRole === "admin" ? "admin" : "user", personId: id, name: String(name || "").trim(),
+      }, getToken, orgCode);
+      loadInvites();
+      return r;
+    };
     // ── Right-click menu + delete confirmation ───────────────────────────────
     const editEmployee = (person) => {
       setEmpCtx(null);
@@ -19879,11 +19923,12 @@ ${jobsCtx || "No jobs found."}`;
         secondaryDepartment: person.secondaryDepartment || "",
       });
     };
+    const empCtxInvite = empCtx ? liveInviteFor(empCtx.person.email) : null;
     const employeeCtxMenu = (
       <FadeOnClose open={!!empCtx}>{empCtx && (
         <div onClick={() => setEmpCtx(null)} onContextMenu={e => { e.preventDefault(); setEmpCtx(null); }} style={{ position: "fixed", inset: 0, zIndex: 9998 }}>
           <div onClick={e => e.stopPropagation()} className="anim-ctx"
-            style={{ position: "fixed", left: Math.min(empCtx.x, window.innerWidth - 240), top: Math.min(empCtx.y, window.innerHeight - 160), zIndex: 9999, minWidth: 216, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 16px 48px rgba(0,0,0,0.45)", padding: "4px 0", fontFamily: T.font }}>
+            style={{ position: "fixed", left: Math.min(empCtx.x, window.innerWidth - 240), top: Math.min(empCtx.y, window.innerHeight - (empCtxInvite ? 290 : 160)), zIndex: 9999, minWidth: 216, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow: "0 16px 48px rgba(0,0,0,0.45)", padding: "4px 0", fontFamily: T.font }}>
             <div style={{ padding: "10px 16px 8px", borderBottom: `1px solid ${T.border}`, marginBottom: 4, display: "flex", alignItems: "center", gap: 9 }}>
               <PersonAvatar person={empCtx.person} size={22} />
               <div style={{ fontSize: 13, fontWeight: 700, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{empCtx.person.name}</div>
@@ -19894,6 +19939,26 @@ ${jobsCtx || "No jobs found."}`;
             <CtxMenuItem animIdx={1} label="Delete" sub="Remove permanently"
               icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#ef4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>}
               onClick={() => { const per = empCtx.person; setEmpCtx(null); setEmpDelete(per); }} />
+            {/* Only on a card that is still Pending Invitation. */}
+            {empCtxInvite && <>
+              <div style={{ height: 1, background: T.border, margin: "4px 0" }} />
+              <CtxMenuItem animIdx={2} label="Resend invitation" sub="New link; the old one stops working"
+                icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 8 9 6 9-6" /></svg>}
+                onClick={async () => {
+                  const per = empCtx.person; setEmpCtx(null);
+                  try {
+                    const r = await invitePerson(per);
+                    toast(r.emailed ? `Invitation re-sent to ${per.email}` : "Invite saved, but the email couldn't be sent");
+                  } catch (e) { toast(e.message || "Could not resend the invitation"); }
+                }} />
+              <CtxMenuItem animIdx={3} label="Cancel invitation" sub="Keeps the employee card"
+                icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><path d="m15 9-6 6M9 9l6 6" /></svg>}
+                onClick={async () => {
+                  const inv = empCtxInvite; setEmpCtx(null);
+                  try { await revokeInvite(inv.id, getToken, orgCode); await loadInvites(); toast("Invitation cancelled"); }
+                  catch (e) { toast(e.message || "Could not cancel the invitation"); }
+                }} />
+            </>}
           </div>
         </div>
       )}</FadeOnClose>
@@ -19944,8 +20009,10 @@ ${jobsCtx || "No jobs found."}`;
       try { empPatch({ image: await downscaleImage(file, 512, 0.85, "image/jpeg") }); }
       catch (e) { console.error("Employee photo resize failed:", e); }
     };
-    const createEmployee = () => {
-      if (!empValid) return;
+    // Writes the draft to the roster and returns the person's id. Shared by
+    // Create and by Invite, which needs the row to exist before the mail goes
+    // out so the card is there to highlight.
+    const saveEmployeeDraft = () => {
       // Editing keeps every field the form does not expose (cap, role, PIN,
       // timeOff, colour...) by merging onto the stored record rather than
       // replacing it — a create builds a fresh one.
@@ -19961,10 +20028,9 @@ ${jobsCtx || "No jobs found."}`;
           secondaryDepartment: d.secondaryDepartment.trim(),
           image: d.image || null,
         });
-        setAddEmpDraft(null);
-        return;
+        return d.id;
       }
-      addPerson({
+      return addPerson({
         name: d.name.trim(),
         email: d.email.trim().toLowerCase(),
         phone: d.phone.trim(),
@@ -19974,8 +20040,80 @@ ${jobsCtx || "No jobs found."}`;
         // Defaults matching a person created anywhere else in the app.
         cap: 8, userRole: "user", teamNumber: null, isEngineer: false,
       });
+    };
+    const createEmployee = () => {
+      if (!empValid) return;
+      saveEmployeeDraft();
       setAddEmpDraft(null);
     };
+
+    // The popup's Send. Saves the card FIRST and adopts its id into the draft,
+    // so a failed send followed by a retry updates that card rather than
+    // creating a second one.
+    const sendInviteFromDraft = async () => {
+      if (!empValid) return;
+      const email = d.email.trim().toLowerCase();
+      if (!email.includes("@")) { setInvitePrompt(p => ({ ...p, error: "Enter a valid email address." })); return; }
+      setInvitePrompt(p => ({ ...p, busy: true, error: "" }));
+      const existingRole = d.id ? people.find(x => String(x.id) === String(d.id))?.userRole : "user";
+      const id = saveEmployeeDraft();
+      setAddEmpDraft(v => (v ? { ...v, id } : v));
+      try {
+        const r = await invitePerson({ id, name: d.name, email, userRole: existingRole });
+        if (r.emailed) {
+          setInvitePrompt(null);
+          setAddEmpDraft(null);
+          toast(`Invitation sent to ${email}`);
+        } else {
+          // Saved, but not delivered. The token comes back once, here -- show the
+          // link so the admin can send it themselves.
+          const link = `${window.location.origin}/?org=${encodeURIComponent(r.orgCode)}&invite=${encodeURIComponent(r.token)}`;
+          setInvitePrompt({ busy: false, error: "", link, email, emailError: r.emailError || "" });
+        }
+      } catch (e) {
+        setInvitePrompt(p => ({ ...p, busy: false, error: e.message || "Could not send the invitation." }));
+      }
+    };
+    const draftInvite = d ? liveInviteFor(d.email) : null;
+    const invitePopup = createPortal(
+      <FadeOnClose open={!!(invitePrompt && d)} duration={200}>{invitePrompt && d && (<div className="anim-modal-overlay" onClick={() => !invitePrompt.busy && setInvitePrompt(null)}
+        style={{ position: "fixed", inset: 0, zIndex: 10030, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+        <div onClick={e => e.stopPropagation()} className="anim-modal-box"
+          style={{ background: T.card, borderRadius: 30, width: "100%", maxWidth: 420, border: `1px solid ${T.borderLight}`, boxShadow: "0 32px 80px rgba(0,0,0,0.55)", padding: 24, fontFamily: T.font }}>
+          <div style={{ fontSize: 17, fontWeight: 800, color: T.text, letterSpacing: "-0.045em", marginBottom: 10 }}>
+            {invitePrompt.link ? "Invitation saved" : draftInvite ? "Resend invitation?" : "Send invitation?"}
+          </div>
+          {!invitePrompt.link ? <>
+            <div style={{ fontSize: 13.5, lineHeight: 1.6, color: T.textSec }}>
+              We will send <b style={{ color: T.text }}>{d.name.trim()}</b> an invite to <b style={{ color: T.text }}>{d.email.trim().toLowerCase()}</b>.
+            </div>
+            <div style={{ fontSize: 12, lineHeight: 1.55, color: T.textDim, marginTop: 8 }}>
+              {draftInvite
+                ? "Their earlier link stops working. The new one expires in 14 days."
+                : "Their card shows as Pending Invitation until they sign in. On iPhone, Accept opens the TRAQS app."}
+            </div>
+            {invitePrompt.error && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 12 }}>{invitePrompt.error}</div>}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginTop: 20 }}>
+              <button onClick={() => setInvitePrompt(null)} disabled={invitePrompt.busy}
+                style={{ padding: "11px 24px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 13, fontWeight: 700, cursor: invitePrompt.busy ? "default" : "pointer", fontFamily: T.font }}>Cancel</button>
+              <button onClick={sendInviteFromDraft} disabled={invitePrompt.busy}
+                style={{ padding: "11px 26px", borderRadius: T.radiusPill, border: "none", background: brandGrad(T.accent), color: T.accentText, fontSize: 13, fontWeight: 800, cursor: invitePrompt.busy ? "default" : "pointer", opacity: invitePrompt.busy ? 0.6 : 1, fontFamily: T.font }}>{invitePrompt.busy ? "Sending…" : "Send invite"}</button>
+            </div>
+          </> : <>
+            {/* Shown once. The list endpoint never returns the token again. */}
+            <div style={{ fontSize: 13, lineHeight: 1.6, color: T.textSec, marginBottom: 10 }}>
+              {d.name.trim()} is on the team and their card shows as Pending Invitation, but the email couldn't be sent{invitePrompt.emailError ? ` (${invitePrompt.emailError})` : ""}. Share this link with <b style={{ color: T.text }}>{invitePrompt.email}</b> yourself. It works once, and expires in 14 days.
+            </div>
+            <div style={{ fontFamily: T.mono, fontSize: 11, wordBreak: "break-all", background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, padding: "10px 12px", color: T.text, userSelect: "all" }}>{invitePrompt.link}</div>
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <Btn size="sm" style={{ flex: 1 }} onClick={() => { navigator.clipboard?.writeText(invitePrompt.link).catch(() => {}); setInvitePrompt(p => ({ ...p, copied: true })); }}>{invitePrompt.copied ? "Copied" : "Copy link"}</Btn>
+              <Btn variant="ghost" size="sm" style={{ flex: 1 }} onClick={() => { setInvitePrompt(null); setAddEmpDraft(null); }}>Done</Btn>
+            </div>
+          </>}
+        </div>
+      </div>)}</FadeOnClose>,
+      document.body
+    );
     const addEmployeeModal = createPortal(
       <FadeOnClose open={!!d} duration={220}>{d && (<div className="anim-modal-overlay" onClick={() => setAddEmpDraft(null)}
         style={{ position: "fixed", inset: 0, zIndex: 10015, background: "rgba(0,0,0,0.6)", backdropFilter: "blur(6px)", display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 20px", overflowY: "auto" }}>
@@ -20026,8 +20164,23 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ padding: "14px 26px 22px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
             <button onClick={() => setAddEmpDraft(null)}
               style={{ padding: "11px 24px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}`, background: T.card, color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>Cancel</button>
-            <button onClick={createEmployee} disabled={!empValid}
-              style={{ padding: "11px 26px", borderRadius: T.radiusPill, border: "none", background: empValid ? brandGrad(T.accent) : T.border, color: empValid ? T.accentText : T.textDim, fontSize: 13, fontWeight: 800, cursor: empValid ? "pointer" : "not-allowed", fontFamily: T.font }}>{d.id ? "Save changes" : "Create"}</button>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {/* INVITE, left of Create. It lives here rather than on the page
+                  header so that an invitation always comes with a name, an email
+                  and a number: it saves this card and then emails them. */}
+              {canManageTeam && (
+                <button onClick={() => empValid && setInvitePrompt({ busy: false, error: "" })} disabled={!empValid}
+                  title={empValid ? undefined : "Add a name and email first"}
+                  style={{ padding: "11px 20px", borderRadius: T.radiusPill, border: `1.5px solid ${empValid ? T.accent : T.border}`, background: T.card, color: empValid ? T.accent : T.textDim, fontSize: 13, fontWeight: 700, cursor: empValid ? "pointer" : "not-allowed", fontFamily: T.font, display: "inline-flex", alignItems: "center", gap: 7 }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                    <rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 8 9 6 9-6" />
+                  </svg>
+                  {draftInvite ? "Resend invite" : "Invite"}
+                </button>
+              )}
+              <button onClick={createEmployee} disabled={!empValid}
+                style={{ padding: "11px 26px", borderRadius: T.radiusPill, border: "none", background: empValid ? brandGrad(T.accent) : T.border, color: empValid ? T.accentText : T.textDim, fontSize: 13, fontWeight: 800, cursor: empValid ? "pointer" : "not-allowed", fontFamily: T.font }}>{d.id ? "Save changes" : "Create"}</button>
+            </div>
           </div>
         </div>
       </div>)}</FadeOnClose>,
@@ -20041,19 +20194,8 @@ ${jobsCtx || "No jobs found."}`;
     // `editPeople` was never one of the declared permissions, so this checked a key
     // no toggle could ever set: every admin created since granular permissions
     // shipped had the button permanently hidden, with no way to turn it on.
-    // INVITE. Adding an employee creates a roster row; inviting sends someone a
-    // link so they create their own on first login. They sit together because from
-    // the admin's side they answer one question: how does this person get in.
-    const inviteBtn = !can("manageTeam") ? null : (
-      <Btn size="sm" variant="ghost" onClick={() => { setInviteDraft({ email: "", role: "user", link: "", error: "", busy: false }); loadInviteList(); }}>
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-            <rect x="3" y="5" width="18" height="14" rx="2" /><path d="m3 8 9 6 9-6" />
-          </svg>
-          Invite
-        </span>
-      </Btn>
-    );
+    // No Invite button here any more: it moved into Add Employee, next to
+    // Create, so every invitation comes with the person's details and a card.
     const addEmployeeBtn = !can("manageTeam") ? null : (
       <Btn size="sm" onClick={() => setAddEmpDraft(blankEmployee())}>
         <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
@@ -20079,112 +20221,8 @@ ${jobsCtx || "No jobs found."}`;
     if (!P) {
       const sorted = [...people].sort((a, b) => a.name.localeCompare(b.name));
       return <div>
-        {inviteDraft && (() => {
-          const d = inviteDraft;
-          const loadList = loadInviteList;
-          const revoke = async (id) => {
-            setInviteDraft((p) => ({ ...p, revoking: id }));
-            try { await revokeInvite(id, getToken, orgCode); await loadList(); }
-            catch (e) { setInviteDraft((p) => ({ ...p, error: e.message || "Could not revoke." })); }
-            finally { setInviteDraft((p) => (p ? { ...p, revoking: null } : p)); }
-          };
-          // Outstanding first: those are the ones with an action attached.
-          const rows = [...(d.list || [])].sort((a, b) => {
-            const spent = (x) => (x.acceptedAt || x.revokedAt ? 1 : 0);
-            return spent(a) - spent(b) || String(b.createdAt).localeCompare(String(a.createdAt));
-          });
-          const when = (iso) => { try { return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" }); } catch { return ""; } };
-          const expired = (i) => !i.acceptedAt && !i.revokedAt && Date.parse(i.expiresAt) < Date.now();
-          const status = (i) => i.acceptedAt ? "Accepted" : i.revokedAt ? "Revoked" : expired(i) ? "Expired" : "Pending";
-          const upd = (patch) => setInviteDraft((p) => ({ ...p, ...patch }));
-          const send = async () => {
-            const email = d.email.trim().toLowerCase();
-            if (!email.includes("@")) { upd({ error: "Enter a valid email address." }); return; }
-            upd({ busy: true, error: "" });
-            try {
-              const r = await createInvite({ email, role: d.role }, getToken, orgCode);
-              // The only moment this token exists outside the server. Built here
-              // rather than server-side so the link carries whatever origin the
-              // admin is actually on -- a hardcoded domain breaks on previews.
-              const link = `${window.location.origin}/?org=${encodeURIComponent(r.orgCode)}&invite=${encodeURIComponent(r.token)}`;
-              upd({ link, emailSent: !!r.emailed, busy: false });
-              loadInviteList();
-            } catch (e) {
-              upd({ error: e.message || "Could not create the invite.", busy: false });
-            }
-          };
-          return (
-            <div onMouseDown={() => setInviteDraft(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 400, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-              <div onMouseDown={(e) => e.stopPropagation()} style={{ background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, width: "100%", maxWidth: 420, padding: 22, boxShadow: "0 24px 60px rgba(0,0,0,0.3)" }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: T.text, marginBottom: 4 }}>Invite to {orgConfig?.name || "this organization"}</div>
-                <div style={{ fontSize: 12, color: T.textDim, marginBottom: 16 }}>
-                  They sign in with their own account. Their record is created when they first log in.
-                </div>
-                {!d.link ? <>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.04em" }}>Email</label>
-                  <input autoFocus type="email" value={d.email} onChange={(e) => upd({ email: e.target.value, error: "" })}
-                    onKeyDown={(e) => { if (e.key === "Enter" && !d.busy) send(); }}
-                    placeholder="sam@contractor.com"
-                    style={{ width: "100%", boxSizing: "border-box", marginTop: 6, marginBottom: 14, padding: "9px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font }} />
-                  <label style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.04em" }}>Role</label>
-                  <div style={{ display: "flex", gap: 8, marginTop: 6, marginBottom: 6 }}>
-                    {[["user", "Team member"], ["admin", "Admin"]].map(([v, label]) => (
-                      <button key={v} onClick={() => upd({ role: v })} style={{ flex: 1, padding: "8px 0", borderRadius: T.radiusPill, cursor: "pointer", fontFamily: T.font, fontSize: 12, fontWeight: d.role === v ? 700 : 500, border: `1.5px solid ${d.role === v ? T.accent : T.border}`, background: d.role === v ? T.accent + "14" : "transparent", color: d.role === v ? T.accent : T.textDim }}>{label}</button>
-                    ))}
-                  </div>
-                  {d.error && <div style={{ fontSize: 12, color: "#ef4444", marginTop: 8 }}>{d.error}</div>}
-                  <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-                    <Btn variant="secondary" size="sm" style={{ flex: 1 }} onClick={() => setInviteDraft(null)}>Cancel</Btn>
-                    <Btn size="sm" style={{ flex: 1 }} disabled={d.busy} onClick={send}>{d.busy ? "Sending…" : "Send invite"}</Btn>
-                  </div>
-                  {/* Outstanding and spent invites. Without this a mistyped
-                      address is unrevokable and stays valid for 14 days. */}
-                  {rows.length > 0 && <div style={{ marginTop: 18, borderTop: `1px solid ${T.border}`, paddingTop: 12 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Invites</div>
-                    <div style={{ maxHeight: 190, overflowY: "auto" }}>
-                      {rows.map((i) => {
-                        const spent = !!(i.acceptedAt || i.revokedAt) || expired(i);
-                        return (
-                          <div key={i.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: `1px solid ${T.border}55` }}>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 12.5, color: spent ? T.textDim : T.text, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{i.email}</div>
-                              <div style={{ fontSize: 10.5, color: T.textDim }}>
-                                {i.role === "admin" ? "Admin" : "Team member"} · sent {when(i.createdAt)} · {status(i)}
-                              </div>
-                            </div>
-                            {/* Revoke only where there is something to revoke. An
-                                accepted invite is a historical record; a revoked or
-                                expired one is already spent. */}
-                            {!spent && (
-                              <button onClick={() => revoke(i.id)} disabled={d.revoking === i.id}
-                                style={{ flexShrink: 0, padding: "4px 10px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 11, fontWeight: 600, cursor: d.revoking === i.id ? "default" : "pointer", fontFamily: T.font }}>
-                                {d.revoking === i.id ? "…" : "Revoke"}
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>}
-                </> : <>
-                  {/* Shown once. The list endpoint never returns the token again. */}
-                  <div style={{ fontSize: 12, color: T.textDim, marginBottom: 8 }}>
-                    {d.emailSent
-                      ? <>An email with an Accept button was sent to <b style={{ color: T.text }}>{d.email.trim().toLowerCase()}</b>. It works once, and expires in 14 days.</>
-                      : <>Couldn't send the email — share this link with <b style={{ color: T.text }}>{d.email.trim().toLowerCase()}</b> yourself. It works once, and expires in 14 days.</>}
-                  </div>
-                  <div style={{ fontFamily: T.mono, fontSize: 11, wordBreak: "break-all", background: T.bg, border: `1px solid ${T.border}`, borderRadius: T.radiusXs, padding: "10px 12px", color: T.text, userSelect: "all" }}>{d.link}</div>
-                  <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-                    <Btn size="sm" style={{ flex: 1 }} onClick={() => { navigator.clipboard?.writeText(d.link).catch(() => {}); upd({ error: "Copied" }); }}>{d.error === "Copied" ? "Copied" : "Copy link"}</Btn>
-                    <Btn variant="ghost" size="sm" style={{ flex: 1 }} onClick={() => setInviteDraft(null)}>Done</Btn>
-                  </div>
-                </>}
-              </div>
-            </div>
-          );
-        })()}
-        {pageHeader("Employees", (inviteBtn || addEmployeeBtn) ? <span style={{ display: "flex", gap: 8, marginLeft: "auto" }}>{inviteBtn}{addEmployeeBtn}</span> : null)}{employeeCtxMenu}{employeeDeleteModal}
-        {addEmployeeModal}
+        {pageHeader("Employees", addEmployeeBtn ? <span style={{ display: "flex", gap: 8, marginLeft: "auto" }}>{addEmployeeBtn}</span> : null)}{employeeCtxMenu}{employeeDeleteModal}
+        {addEmployeeModal}{invitePopup}
         {/* The page title now sits top-left with every other one, so this drops
             to a quiet centred hint rather than competing with it. */}
         <div style={{ margin: "-6px 0 22px", fontSize: 13, fontWeight: 500, color: T.textDim, textAlign: "center", letterSpacing: "-0.045em" }}>
@@ -20195,6 +20233,7 @@ ${jobsCtx || "No jobs found."}`;
             {sorted.map(p => {
               const st = effectiveClockState(p);
               return <EmployeeCard key={p.id} person={p} img={p.avatar || p.image}
+                pending={!!liveInviteFor(p.email)}
                 dot={st.isOnBreak ? "#f59e0b" : st.isClocked ? "#10b981" : null}
                 onOpen={() => { setEmpPersonId(p.id); setEmpWeekOffset(0); }}
                 onCtx={e => { e.preventDefault(); e.stopPropagation(); setEmpCtx({ x: e.clientX, y: e.clientY, person: p }); }} />;
@@ -20501,7 +20540,7 @@ ${jobsCtx || "No jobs found."}`;
     const clockedColor = cs.isOnBreak ? "#f59e0b" : cs.isClocked ? "#10b981" : T.textDim;
 
     return <div>
-      {pageHeader("Employees", null, {}, picker)}{addEmployeeModal}{employeeCtxMenu}{employeeDeleteModal}
+      {pageHeader("Employees", null, {}, picker)}{addEmployeeModal}{invitePopup}{employeeCtxMenu}{employeeDeleteModal}
 
       {/* ── Header card ── */}
       <div className="tq-frost" style={card({ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap", marginBottom: 14 })}>

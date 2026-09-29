@@ -319,6 +319,12 @@ class AppState {
         _ = KeychainHelper.save(code, forKey: KeychainHelper.orgCodeKey)
     }
 
+    /// An invite link that opened the app, waiting for sign-in to redeem it.
+    /// Memory only — see `InviteLink`. RootView sets it from `.onOpenURL` and
+    /// spends it once Auth0 returns; WelcomeView reads it to say "You're
+    /// invited" instead of "You're in".
+    var pendingInvite: InviteLink?
+
     /// "Switch organization" — drop the remembered code and go back to asking.
     func forgetOrg() {
         orgCode = ""

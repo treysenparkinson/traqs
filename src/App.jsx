@@ -7,6 +7,9 @@ import ErrorBoundary from "./ErrorBoundary.jsx";
 import { UL_LOGO_WHITE } from "./logo.js";
 import { BRAND_BARS, TraqsBars } from "./brand.jsx";
 import { fetchOrgConfig, createOrg, forgotOrgCode, fetchPeople, acceptInvite } from "./api.js";
+// The same constant the invite email reads, so the two can't point at
+// different places. Empty until the app is published.
+import { IOS_APP_STORE_URL } from "../netlify/functions/_utils/app-links.js";
 import { emptySignupForm, buildOrgPayload, validateStep, SIGNUP_STEPS } from "./orgSignup.js";
 import { guessTimeZone, StepDots, IdentityStep, BasicsStep, TierStep, PayrollStep, ConfirmStep, ActivatedScreen } from "./SignupSteps.jsx";
 
@@ -778,6 +781,45 @@ function OrgCodeStep({ onContinue, onCreateOrg, onForgot, phase = "in" }) {
           Secured by Auth0 · TRAQS
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Get the iPhone app ───────────────────────────────────────────────────────
+// Shown over the invite landing screen on an iPhone. Somebody lands here from
+// the invite email only when the app did NOT open it -- the Accept button is a
+// universal link, so with TRAQS installed iOS never loads this page -- which
+// makes "you don't have the app" the likely reason they are looking at it.
+//
+// Renders nothing until IOS_APP_STORE_URL is set: an App Store button with no
+// listing behind it would be a dead end. Continuing in the browser always works.
+const isIOSDevice = () => {
+  try {
+    const ua = navigator.userAgent || "";
+    // iPadOS reports itself as a Mac; the touch points give it away.
+    return /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  } catch { return false; }
+};
+function IOSAppBanner() {
+  const [hidden, setHidden] = useState(false);
+  if (hidden || !IOS_APP_STORE_URL || !isIOSDevice()) return null;
+  return (
+    <div style={{
+      position: "fixed", top: 0, left: 0, right: 0, zIndex: 50,
+      padding: "calc(env(safe-area-inset-top, 0px) + 10px) 16px 10px",
+      background: CARD_BG, borderBottom: "1px solid rgba(16,24,40,.08)",
+      boxShadow: "0 6px 20px rgba(0,0,0,.06)", display: "flex", alignItems: "center", gap: 12,
+    }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: INK }}>TRAQS for iPhone</div>
+        <div style={{ fontSize: 12, color: STONE }}>Get the app, then tap Accept in your email again.</div>
+      </div>
+      <a href={IOS_APP_STORE_URL} style={{
+        flexShrink: 0, padding: "8px 16px", borderRadius: 999, background: LOGIN_BLUE,
+        color: "#fff", fontSize: 13, fontWeight: 700, textDecoration: "none",
+      }}>Get</a>
+      <button type="button" aria-label="Dismiss" className="tq-noanim" onClick={() => setHidden(true)}
+        style={{ flexShrink: 0, background: "none", border: "none", color: STONE, fontSize: 20, lineHeight: 1, cursor: "pointer", padding: 4 }}>×</button>
     </div>
   );
 }
@@ -2120,7 +2162,8 @@ function AuthGate() {
       );
     }
     // step === "team" (or "login" as legacy fallback)
-    return (
+    return (<>
+      {inviteFromUrl && <IOSAppBanner />}
       <TeamSelectStep
         phase={screenPhase}
         orgCode={orgCode}
@@ -2131,7 +2174,7 @@ function AuthGate() {
         onSwitch={handleSwitch}
         onRefresh={refreshTeamPeople}
       />
-    );
+    </>);
   }
 
   if (step === "wrong-user") {

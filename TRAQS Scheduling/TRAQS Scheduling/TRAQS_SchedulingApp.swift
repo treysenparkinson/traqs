@@ -60,7 +60,11 @@ struct TRAQS_SchedulingApp: App {
                 // that sets its own .tracking (uppercase eyebrow labels, the
                 // PageTitle wordmarks) overrides this — innermost wins.
                 .tracking(-0.5)
-                .preferredColorScheme(themeSettings.isLightTheme ? .light : .dark)
+                // Light at the sign-in gate whatever the saved theme says —
+                // see RootView.showsSignIn.
+                .preferredColorScheme(
+                    RootView.showsSignIn(auth: auth, appState: appState) || themeSettings.isLightTheme
+                        ? .light : .dark)
                 .id(themeSettings.version)
                 .task {
                     // Register the notification-tap listener once. OneSignal

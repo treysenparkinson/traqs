@@ -83,8 +83,10 @@ struct WelcomeView: View {
 
     @State private var code = ""
     @State private var isChecking = false
-    /// Which screen is up: this one, or the signup wizard in its place.
-    @State private var showSignup = false
+    /// Which screen is up: this one, or the signup wizard / code recovery in
+    /// its place.
+    private enum Screen { case welcome, signup, forgot }
+    @State private var screen: Screen = .welcome
     /// The current screen is faded out — mid screen-change. See `goScreen`.
     @State private var screenOut = false
     @State private var error: String?
@@ -114,9 +116,10 @@ struct WelcomeView: View {
             paper.ignoresSafeArea()
 
             Group {
-                if showSignup {
+                switch screen {
+                case .signup:
                     OrgSignupView(onActivated: { newCode, name in
-                        goScreen(signup: false) {
+                        goScreen(.welcome) {
                             // Same as entering the new code by hand: remembered
                             // now, configured once Auth0 returns a token.
                             appState.rememberOrg(code: newCode)
@@ -124,8 +127,10 @@ struct WelcomeView: View {
                             code = newCode
                             stage = .signIn
                         }
-                    }, onCancel: { goScreen(signup: false) })
-                } else {
+                    }, onCancel: { goScreen(.welcome) })
+                case .forgot:
+                    ForgotOrgView(onBack: { goScreen(.welcome) })
+                case .welcome:
                     GeometryReader { screen in
                         VStack(spacing: 0) {
                             Spacer(minLength: 0)
@@ -150,6 +155,13 @@ struct WelcomeView: View {
         // A code already remembered (a returning user who signed out) skips
         // straight to the sign-in stage, so they aren't asked to retype it.
         .task { await adoptRememberedOrg() }
+        // An invite link opened the app while this screen was already up:
+        // RootView remembered the invite's org, so go to its sign-in, from
+        // whichever screen is showing.
+        .onChange(of: appState.orgCode) { _, code in
+            guard appState.pendingInvite != nil, !code.isEmpty else { return }
+            Task { await adoptInvitedOrg(code) }
+        }
         #if os(macOS)
         .frame(minWidth: 400, minHeight: 400)
         #endif
@@ -184,13 +196,15 @@ struct WelcomeView: View {
     /// sequence, and copy sliding up under it competed with it.
     private var copy: some View {
         VStack(spacing: 5) {
-            Text(stage == .code ? "Welcome" : "You're in")
+            Text(stage == .code ? "Welcome" : invited ? "You're invited" : "You're in")
                 .font(TTypo.h3(20))
                 .tracking(-0.4)
                 .foregroundStyle(ink)
                 .opacity(showWelcome ? 1 : 0)
             Text(stage == .code
                  ? "Enter your organization code to get started."
+                 : invited
+                 ? "Sign in with the email address your invitation was sent to."
                  : "Sign in to access your schedule.")
                 .font(TTypo.sm(13.5))
                 .foregroundStyle(stone)
@@ -278,13 +292,31 @@ struct WelcomeView: View {
             .padding(.top, 18)
 
             createOrgButton.padding(.top, 14)
+            forgotLink.padding(.top, 14)
         }
+    }
+
+    /// Code recovery, as the web's welcome card has it: a quiet text link, not
+    /// a third button. Continue and Create organization are the things you came
+    /// here to do; a recovery path that competes with them visually makes the
+    /// card read as three equal choices.
+    private var forgotLink: some View {
+        Button { goScreen(.forgot) } label: {
+            Text("Forgot your organization code?")
+                .font(TTypo.sm(13))
+                .underline()
+                .foregroundStyle(stone)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 4)
+        }
+        .buttonStyle(.plain)
+        .disabled(isChecking || screenOut)
     }
 
     /// Opens the signup wizard. Clear glass: Continue is the primary action on
     /// this card, and this is the other way in.
     private var createOrgButton: some View {
-        Button { goScreen(signup: true) } label: {
+        Button { goScreen(.signup) } label: {
             Text("Create organization")
                 .font(TTypo.smBold(15))
                 .foregroundStyle(ink)
@@ -334,6 +366,9 @@ struct WelcomeView: View {
             Button("Switch organization") {
                 withAnimation(.easeInOut(duration: 0.22)) {
                     appState.forgetOrg()
+                    // Switching away abandons the invite: its token is for
+                    // the org being left.
+                    appState.pendingInvite = nil
                     org = nil
                     code = ""
                     stage = .code
@@ -440,16 +475,16 @@ struct WelcomeView: View {
     private let screenInDur = 0.4
 
     /// Out, hold on empty paper, in — what the web's goScreen does between the
-    /// welcome screen and Create organization. The hold is what makes it read
+    /// welcome screen and Create organization (or code recovery). The hold is what makes it read
     /// as two screens rather than one cross-fade. `then` runs during the hold,
     /// so anything it changes is already in place when the next screen arrives.
-    private func goScreen(signup: Bool, then: (() -> Void)? = nil) {
+    private func goScreen(_ next: Screen, then: (() -> Void)? = nil) {
         withAnimation(.timingCurve(0.4, 0, 0.6, 1, duration: screenOutDur)) { screenOut = true }
         schedule(screenOutDur + screenHold) {
             var t = Transaction()
             t.disablesAnimations = true
             withTransaction(t) {
-                showSignup = signup
+                screen = next
                 then?()
             }
             withAnimation(.timingCurve(0.4, 0, 0.6, 1, duration: screenInDur)) { screenOut = false }
@@ -484,6 +519,27 @@ struct WelcomeView: View {
     }
 
     // MARK: - Org resolution
+
+    /// Came here from an invite link, not a typed code.
+    private var invited: Bool { appState.pendingInvite != nil }
+
+    /// The invite's org replaces whatever this screen was showing. It arrives
+    /// already remembered (RootView), so this only resolves the name and moves
+    /// to sign-in, from the welcome screen or from signup / code recovery.
+    private func adoptInvitedOrg(_ code: String) async {
+        let info = try? await APIService.lookupOrg(code: code)
+        let apply = {
+            org = info
+            self.code = code
+            error = nil
+            stage = .signIn
+        }
+        if screen == .welcome {
+            withAnimation(.easeInOut(duration: 0.28)) { apply() }
+        } else {
+            goScreen(.welcome, then: apply)
+        }
+    }
 
     /// A remembered code means the org step is already done — resolve its name
     /// so the confirmation reads properly, and go straight to signing in.

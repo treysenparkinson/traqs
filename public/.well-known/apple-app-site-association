@@ -1,0 +1,16 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["AT8N877SPR.TRAQS.TRAQS-Scheduling"],
+        "components": [
+          {
+            "/": "/",
+            "?": { "invite": "?*" },
+            "comment": "Invite links only: /?org=CODE&invite=TOKEN. Every other traqs.netlify.app URL stays in Safari."
+          }
+        ]
+      }
+    ]
+  }
+}

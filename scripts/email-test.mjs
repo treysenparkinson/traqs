@@ -173,5 +173,24 @@ const LAYOUT_CODE = LAYOUT
   .join(NL);
 ok("only the wordmark is ever an image", (LAYOUT_CODE.match(/<img/g) || []).length === 1);
 
+// ── the iPhone app ───────────────────────────────────────────────────────────
+// Accept is a universal link: with the app installed it opens the app. The
+// download line depends on a store listing and must vanish without one -- a
+// "get the app" line with nowhere to go is worse than none.
+{
+  const STORE = "https://apps.apple.com/app/id1234567890";
+  const withStore = inviteEmail({ orgName: "Acme Fabrication", inviterName: "Dana Reyes",
+    acceptUrl: url, expiresAt: invite.expiresAt, inviteeName: "Sam Rivera", appStoreUrl: STORE });
+  ok("the mail says Accept opens the app on an iPhone", /opens the TRAQS app/.test(withStore.html + withStore.text));
+  ok("with a store link, the HTML offers the download", withStore.html.includes(`href="${STORE}"`));
+  ok("...and so does the plain text", withStore.text.includes(STORE));
+  ok("without one, no download line at all", !/Download TRAQS/.test(mail.html + mail.text));
+  ok("the invitee is greeted by first name", withStore.html.includes("Hi Sam,") && withStore.text.startsWith("Hi Sam,"));
+  ok("...and not by full name", !withStore.html.includes("Hi Sam Rivera"));
+  ok("no name, no greeting", !/Hi [A-Z]/.test(mail.text));
+  const nasty = inviteEmail({ orgName: "Acme", acceptUrl: url, expiresAt: invite.expiresAt, inviteeName: "<b>x</b>" });
+  ok("the name is escaped, it is admin-typed free text", !nasty.html.includes("<b>x</b>"));
+}
+
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

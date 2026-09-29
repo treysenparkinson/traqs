@@ -2,7 +2,9 @@
 //
 //   GET    ?token=…            public — what the landing screen needs to log in
 //   GET                        auth   — list this org's invites
-//   POST   { email, role }     auth + manageTeam — create one
+//   POST   { email, role, personId?, name? }
+//                              auth + manageTeam — create one (Add Employee
+//                              writes the roster row first and passes its id)
 //   POST   { token, accept }   auth   — accept, AFTER the invitee has logged in
 //   DELETE { token }           auth + manageTeam — revoke
 //
@@ -25,6 +27,7 @@ import {
 } from "./_utils/invite.js";
 import { sendEmail, appBaseUrl } from "./_utils/mail.js";
 import { inviteEmail, inviteAcceptUrl } from "./_utils/email-invite.js";
+import { IOS_APP_STORE_URL } from "./_utils/app-links.js";
 
 const invitesKey = (code) => `orgs/${code}/invites.json`;
 const peopleKey = (code) => `orgs/${code}/people.json`;
@@ -114,7 +117,10 @@ export async function handler(event) {
     const live = activeInvites(invites).find((i) => i.email === email);
     if (live) return err(409, "That address already has a pending invite");
 
-    const invite = makeInvite({ email, role: body.role, invitedBy: member.email });
+    const invite = makeInvite({
+      email, role: body.role, invitedBy: member.email,
+      personId: body.personId, name: body.name,
+    });
     await writeJson(invitesKey(code), [...invites, invite]);
 
     // THE INVITE IS SAVED BEFORE THE MAIL GOES OUT, and the send cannot undo it.
@@ -136,6 +142,8 @@ export async function handler(event) {
         inviterName: sender?.name || member.email,
         acceptUrl: inviteAcceptUrl(base, code, invite.token),
         expiresAt: invite.expiresAt,
+        inviteeName: invite.name,
+        appStoreUrl: IOS_APP_STORE_URL,
       });
       // REPLIES GO TO THE ORGANISATION, not to TRAQS. Somebody who receives an
       // unexpected invite answers the person who added them, and that has to be

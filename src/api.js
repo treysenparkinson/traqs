@@ -890,11 +890,12 @@ export async function callNotify(payload, getToken, orgCode) {
 // The token comes back exactly once, from createInvite, and is never returned by
 // any list. It is the link; re-reading it later from an admin session would
 // widen who can replay it.
-export async function createInvite({ email, role }, getToken, orgCode) {
+// `personId` / `name` link the invite to the roster row Add Employee just wrote.
+export async function createInvite({ email, role, personId, name }, getToken, orgCode) {
   const res = await fetch(`${BASE}/invite`, {
     method: "POST",
     headers: await authHeaders(getToken, orgCode),
-    body: JSON.stringify({ email, role }),
+    body: JSON.stringify({ email, role, personId, name }),
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
