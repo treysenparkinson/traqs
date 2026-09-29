@@ -71,7 +71,7 @@ export const esc = (s) => String(s ?? "")
  * back from a state that is actually fine. The caller decides what a failed
  * send means for its own response.
  */
-export async function sendEmail({ to, subject, html, text }) {
+export async function sendEmail({ to, subject, html, text, replyTo }) {
   if (!FROM_EMAIL) {
     console.error("mail: SEND_FROM_EMAIL is not set; refusing to send");
     return { ok: false, reason: "no-sender" };
@@ -82,7 +82,11 @@ export async function sendEmail({ to, subject, html, text }) {
     await ses.send(new SendEmailCommand({
       Source: FROM_EMAIL,
       Destination: { ToAddresses: [to] },
-      ...(REPLY_TO ? { ReplyToAddresses: [REPLY_TO] } : null),
+      // Per-message reply-to wins over the environment default. An invite is
+      // sent on behalf of an ORGANISATION, so a reply belongs with that org's
+      // admin rather than in a shared TRAQS inbox that cannot answer "who is
+      // this and why am I being added?".
+      ...((replyTo || REPLY_TO) ? { ReplyToAddresses: [replyTo || REPLY_TO] } : null),
       Message: {
         Subject: { Data: subject },
         Body: {

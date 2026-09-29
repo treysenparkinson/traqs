@@ -21,9 +21,27 @@ export async function handler(event) {
   const email = (body.email || "").trim().toLowerCase();
   if (!email || !email.includes("@")) return err(400, "Valid email address required");
 
-  const emailDomain = email.split("@")[1];
+  // ADMINS ONLY. The org code is the first factor for signing in, so the recovery
+  // path has to be no weaker than the thing it recovers.
+  //
+  // This used to match on the org's DOMAIN as well, which meant anybody able to
+  // receive mail at a matching domain could ask for the code and be sent it.
+  // Measured against live data: MTX2026TRAQS carries domain "matrixpci.com", so
+  // every address at the company qualified -- and a domain is not a secret, it is
+  // printed on the website.
+  //
+  // It also only ever checked the singular adminEmail, so a second admin listed in
+  // adminEmails could not recover the code for their own organization. Both halves
+  // are fixed here: every listed admin, and nobody else.
+  const isOrgAdmin = (config) => {
+    if (!config) return false;
+    const listed = Array.isArray(config.adminEmails) ? config.adminEmails : [];
+    return [config.adminEmail, ...listed]
+      .filter(Boolean)
+      .some((a) => String(a).trim().toLowerCase() === email);
+  };
 
-  // Scan all orgs and find any where adminEmail or domain matches
+  // Scan all orgs and find any the requester is an admin of
   let codes;
   try {
     codes = await listOrgCodes();
@@ -37,9 +55,10 @@ export async function handler(event) {
     codes.map(async (code) => {
       const config = await readJson(`orgs/${code}/config.json`).catch(() => null);
       if (!config) return;
-      const isAdmin = config.adminEmail?.toLowerCase() === email;
-      const isDomainMatch = config.domain?.toLowerCase() === emailDomain;
-      if (isAdmin || isDomainMatch) {
+      // A deleted organization is not recoverable and must not be named in mail:
+      // its code still resolves here even though org.js 404s on it.
+      if (config.deletedAt) return;
+      if (isOrgAdmin(config)) {
         matches.push({ code, name: config.name });
       }
     })

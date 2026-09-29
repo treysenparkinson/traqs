@@ -749,6 +749,29 @@ function OrgCodeStep({ onContinue, onCreateOrg, onForgot, phase = "in" }) {
           >
             Create organization
           </button>
+          {/* FORGOT THE CODE. onForgot was declared as a prop and passed by both
+              callers, but nothing rendered it -- the recovery screen existed with
+              no way to reach it, the same way the Create organization button was
+              once missing from this card.
+
+              A quiet text link, not a third button: the two buttons above are the
+              things you came here to do, and a recovery path that competes with
+              them visually makes the screen read as three equal choices. */}
+          <button
+            type="button"
+            className="tq-noanim"
+            onClick={onForgot}
+            style={{
+              display: "block", width: "100%", marginTop: 14, padding: "4px 0",
+              background: "none", border: "none", cursor: "pointer",
+              fontFamily: "inherit", fontSize: 13, color: STONE, textDecoration: "underline",
+              textUnderlineOffset: 3,
+            }}
+            onMouseEnter={e => { e.currentTarget.style.color = INK; }}
+            onMouseLeave={e => { e.currentTarget.style.color = STONE; }}
+          >
+            Forgot your organization code?
+          </button>
         </div>
         {/* Last in, once the card has settled. */}
         <div className="tq-fade" style={{ ...PAPER_FOOT, ...FADE(FOOT_AT, 620, "tqFadeIn"), display: "block" }}>
@@ -760,7 +783,15 @@ function OrgCodeStep({ onContinue, onCreateOrg, onForgot, phase = "in" }) {
 }
 
 // ─── Forgot org code ──────────────────────────────────────────────────────────
-function ForgotOrgStep({ onBack }) {
+// Recovering an org code. Rebuilt on the paper set the welcome and signup
+// screens use -- it was the last screen still on the old CARD/CARD_BODY/LABEL
+// styling, so reaching it from the welcome card dropped you into a different
+// looking product.
+//
+// It takes `phase` like the other screens so it fades in and out with them
+// rather than cutting. No liquid wash: it is a destination of the dispersal,
+// same as the signup wizard.
+function ForgotOrgStep({ onBack, phase = "in" }) {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -783,44 +814,71 @@ function ForgotOrgStep({ onBack }) {
 
   return (
     <div style={PAGE}>
-      <div style={CARD}>
-        <LogoHeader subtitle="Forgot Organization Code" />
-        <div style={CARD_BODY}>
+      <div className="tq-screen" style={{ width: "100%", maxWidth: 460, ...screenContentStyle(phase) }}>
+        <LogoHeader
+          outside
+          subtitle={sent ? "Check your email" : "Find your organization"}
+          hint={sent ? undefined : "We'll send the code to the administrator's address."}
+        />
+        <div style={{ ...PAPER_CARD, display: "block" }}>
           {sent ? (
             <>
-              <div style={SUCCESS_BOX}>
-                If an organization is associated with that email address, you will receive your org code shortly.
-              </div>
-              <BtnPrimary type="button" onClick={onBack}>Back to Sign In</BtnPrimary>
+              {/* Deliberately says "if": the endpoint answers the same way whether
+                  or not anything matched, so that a stranger cannot use it to find
+                  out which addresses run an organization. Promising delivery here
+                  would give that away in the UI instead. */}
+              <p style={{ margin: "0 0 18px", fontSize: 13.5, color: STONE, lineHeight: 1.6 }}>
+                If that address is an administrator of a TRAQS organization, its code
+                is on its way. It can take a minute to arrive.
+              </p>
+              <button type="button" onClick={onBack} style={PAPER_BTN}>Back to sign in</button>
             </>
           ) : (
             <form onSubmit={handleSubmit}>
-              {error && <div style={ERR_BOX}>{error}</div>}
-              <p style={{ margin: "0 0 20px", fontSize: 14, color: "#94a3b8", lineHeight: 1.6 }}>
-                Enter your work email address and we'll send your organization code to that address.
-              </p>
-              <div style={{ marginBottom: 20 }}>
-                <label style={LABEL}>Work Email Address</label>
-                <input
-                  style={INPUT_STYLE}
-                  type="email"
-                  placeholder="you@yourcompany.com"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  autoFocus
-                  autoComplete="email"
-                />
-              </div>
-              <BtnPrimary loading={loading} loadingLabel="Sending…">Send My Org Code</BtnPrimary>
+              {error && (
+                <div style={{
+                  background: "rgba(239,68,68,.08)", border: "1px solid rgba(239,68,68,.28)",
+                  borderRadius: 12, padding: "10px 14px", color: "#B42318", fontSize: 13, marginBottom: 16,
+                }}>{error}</div>
+              )}
+              <label style={PAPER_LABEL}>Work Email Address</label>
+              <input
+                style={PAPER_INPUT}
+                type="email"
+                placeholder="you@yourcompany.com"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                onFocus={e => { e.currentTarget.style.borderColor = LOGIN_BLUE; }}
+                onBlur={e => { e.currentTarget.style.borderColor = "rgba(16,24,40,.12)"; }}
+                autoFocus
+                autoComplete="email"
+              />
+              <button
+                type="submit"
+                disabled={loading}
+                style={{ ...PAPER_BTN, marginTop: 18, opacity: loading ? 0.6 : 1, cursor: loading ? "default" : "pointer" }}
+              >
+                {loading ? "Sending…" : "Send my org code"}
+              </button>
+              <button
+                type="button"
+                className="tq-noanim"
+                onClick={onBack}
+                style={{
+                  display: "block", width: "100%", marginTop: 14, padding: "4px 0",
+                  background: "none", border: "none", cursor: "pointer",
+                  fontFamily: "inherit", fontSize: 13, color: STONE, textDecoration: "underline",
+                  textUnderlineOffset: 3,
+                }}
+                onMouseEnter={e => { e.currentTarget.style.color = INK; }}
+                onMouseLeave={e => { e.currentTarget.style.color = STONE; }}
+              >
+                Back to sign in
+              </button>
             </form>
           )}
-          {!sent && (
-            <div style={{ textAlign: "center", marginTop: 16 }}>
-              <button className="tq-noanim" style={LINK_BTN} onClick={onBack}>← Back</button>
-            </div>
-          )}
         </div>
-        <div style={CARD_FOOTER}>Secured by Auth0 · TRAQS</div>
+        <div style={{ ...PAPER_FOOT, display: "block" }}>Secured by Auth0 · TRAQS</div>
       </div>
     </div>
   );
@@ -2049,7 +2107,7 @@ function AuthGate() {
       return <CreateOrgStep phase={screenPhase} onSuccess={handleOrgResolved} onBack={() => goScreen("org")} />;
     }
     if (step === "forgot-org") {
-      return <ForgotOrgStep onBack={() => goScreen("org")} />;
+      return <ForgotOrgStep phase={screenPhase} onBack={() => goScreen("org")} />;
     }
     if (step === "org" || !orgCode || !orgConfig) {
       return (

@@ -137,7 +137,17 @@ export async function handler(event) {
         acceptUrl: inviteAcceptUrl(base, code, invite.token),
         expiresAt: invite.expiresAt,
       });
-      emailed = await sendEmail({ to: email, subject, html, text });
+      // REPLIES GO TO THE ORGANISATION, not to TRAQS. Somebody who receives an
+      // unexpected invite answers the person who added them, and that has to be
+      // a real inbox at their own company -- support@ on the sending domain is
+      // send-only and cannot tell them anything useful.
+      //
+      // The org's own admin first, then whoever actually sent this invite (they
+      // hold manageTeam, so they can explain it too), then the environment
+      // default. The invite still goes to the INVITEE; only the reply path
+      // changes.
+      const replyTo = config?.adminEmail || member.email || undefined;
+      emailed = await sendEmail({ to: email, subject, html, text, replyTo });
     } else {
       console.error("invite: neither APP_BASE_URL nor URL is set; cannot build an accept link");
     }
