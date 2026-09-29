@@ -126,7 +126,9 @@ ok("the welcome screen triggers it on the way out",
 // restates the four colours. Two copies of a palette is exactly the drift this
 // file exists to stop, so they are compared here -- the only place that sees
 // both.
-const EMAIL = readFileSync(new URL("../netlify/functions/_utils/email-invite.js", import.meta.url), "utf8");
+// The palette now lives in the shared email SHELL, not in the invite -- both
+// emails are built on it, so that is the one place it can drift from the app.
+const EMAIL = readFileSync(new URL("../netlify/functions/_utils/email-layout.js", import.meta.url), "utf8");
 const emailBars = EMAIL.slice(EMAIL.indexOf("const BARS = ["), EMAIL.indexOf("];", EMAIL.indexOf("const BARS = [")));
 const emailHexes = [...emailBars.matchAll(/"(#[0-9A-F]{6})"/g)].map((m) => m[1]);
 const emailWidths = [...emailBars.matchAll(/w: ([\d.]+)/g)].map((m) => +m[1]);

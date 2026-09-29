@@ -5,6 +5,7 @@ import { preflight, json, err } from "./_utils/cors.js";
 // belongs to someone else, so an unset SEND_FROM_EMAIL would have tried to send
 // as a stranger. There is no default now.
 import { sendEmail } from "./_utils/mail.js";
+import { orgCodeEmail } from "./_utils/email-orgcode.js";
 
 export async function handler(event) {
   if (event.httpMethod === "OPTIONS") return preflight();
@@ -77,36 +78,9 @@ export async function handler(event) {
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
-  const orgList = matches
-    .map((m) => `  • ${m.name}  —  Code: ${m.code}`)
-    .join("\n");
+  const { subject, html, text } = orgCodeEmail({ orgs: matches, esc });
 
-  const bodyText = `Hello,
-
-You requested your TRAQS organization code. Here ${matches.length === 1 ? "it is" : "are your codes"}:
-
-${orgList}
-
-Enter this code on the TRAQS login screen to access your organization.
-
-If you did not request this, you can safely ignore this email.
-
-— The TRAQS Team`;
-
-  const bodyHtml = `<p>Hello,</p>
-<p>You requested your TRAQS organization code. Here ${matches.length === 1 ? "it is" : "are your codes"}:</p>
-<table cellpadding="12" style="border-collapse:collapse;margin:16px 0;">
-${matches.map((m) => `<tr><td style="font-weight:600;">${esc(m.name)}</td><td style="font-family:monospace;font-size:16px;background:#f1f5f9;padding:8px 16px;border-radius:6px;">${esc(m.code)}</td></tr>`).join("")}
-</table>
-<p>Enter this code on the TRAQS login screen to access your organization.</p>
-<p style="color:#94a3b8;font-size:12px;">If you did not request this, you can safely ignore this email.</p>`;
-
-  const sent = await sendEmail({
-    to: email,
-    subject: "Your TRAQS Organization Code",
-    text: bodyText,
-    html: bodyHtml,
-  });
+  const sent = await sendEmail({ to: email, subject, text, html });
   if (!sent.ok) return err(500, "Failed to send email — please contact your administrator");
 
   return json(200, { ok: true });

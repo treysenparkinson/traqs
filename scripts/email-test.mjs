@@ -76,13 +76,17 @@ ok("a different expiry produces different copy", short.html.includes("expires in
 // ── the postal address ───────────────────────────────────────────────────────
 // CAN-SPAM wants a real one. Absent is honest; a placeholder is not.
 ok("no placeholder address is shipped", !/123 Example St|Example St|City, ST/.test(mail.html));
+// The postal address is rendered when configured, and omitted when not -- a
+// fake one is worse than none. CAN-SPAM exempts transactional mail, but the
+// invite's category is arguable and CASL is stricter, so the line stays.
 const withAddr = (() => {
   process.env.MAIL_POSTAL_ADDRESS = "TRAQS, 100 Real Street, Springfield, OH 45501";
   const m = inviteEmail({ orgName: "X", inviterName: "Y", acceptUrl: url, expiresAt: invite.expiresAt });
   delete process.env.MAIL_POSTAL_ADDRESS;
   return m;
 })();
-ok("a configured address is included", withAddr.html.includes("100 Real Street"));
+ok("a configured address IS included", withAddr.html.includes("100 Real Street"));
+ok("...and in the plain text too", withAddr.text.includes("100 Real Street"));
 
 // ── escaping ─────────────────────────────────────────────────────────────────
 // Org and inviter names are user input, and they land in HTML.
@@ -108,6 +112,28 @@ ok("no flexbox or grid, which Outlook silently drops",
 const bare = inviteEmail({ acceptUrl: url, expiresAt: invite.expiresAt });
 ok("a missing org name does not print 'undefined'", !/undefined/.test(bare.html + bare.text));
 ok("a missing inviter does not either", bare.html.includes("An administrator"));
+
+// ── the logo asset ───────────────────────────────────────────────────────────
+// The lockup uses the REAL wordmark, which means an image, which means a file
+// that has to exist and be deployed. A missing one shows a broken icon where the
+// logo should be, and nothing else in the pipeline would notice.
+import { existsSync, readFileSync as rf } from "node:fs";
+const ASSET = new URL("../public/email/traqs-wordmark.png", import.meta.url);
+ok("the wordmark asset exists", existsSync(ASSET));
+if (existsSync(ASSET)) {
+  const head = rf(ASSET).subarray(0, 8);
+  ok("...and it is a real PNG", head[0] === 0x89 && head.subarray(1, 4).toString() === "PNG");
+  ok("...and is small enough to mail", rf(ASSET).length < 60000);
+}
+// It is served from public/, so the published path must match what the HTML asks
+// for. A rename on one side only is the obvious way to break this.
+const LAYOUT = rf(new URL("../netlify/functions/_utils/email-layout.js", import.meta.url), "utf8");
+ok("the HTML points at the path the file actually sits on",
+  LAYOUT.includes("/email/traqs-wordmark.png"));
+ok("it falls back to type when no public base is configured",
+  LAYOUT.includes("const base = assetBase();") && /bases*?/.test(LAYOUT));
+ok("the bars stay drawn, so a blocked image still shows the brand",
+  LAYOUT.includes("export const mark = ()"));
 
 console.log(`${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);
