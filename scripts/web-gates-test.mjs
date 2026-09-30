@@ -33,34 +33,34 @@ const check = (label, text, { has = [], not = [] }) => {
 };
 
 console.log("\n1. Task writes — guards inside the function that writes");
-check("Gantt Day-view drag/resize needs moveJobs", body("const handleDayBarDrag = (e, item"), { has: ['if (!can("moveJobs")) return;'] });
-check("Drop in Schedule needs moveJobs and reassign", body("const placeTaskAt = (personId, dayStr)"), { has: ['if (!can("moveJobs") || !can("reassign")) return;'] });
-check("Pending tray drop needs editJobs, moveJobs and reassign", body("const handlePendingItemDrop = (itemId"), { has: ['if (!can("editJobs") || !can("moveJobs") || !can("reassign")) return;'] });
-check("Reassigning (any bar drag onto another row) needs reassign", body("const reassignTask = (taskId"), { has: ['if (!can("reassign")) return;'] });
-check("Inline cell edits ask for the key of the field", body("const commitCellEdit = (id, key, val, pid)"), { has: ['if (!can(need)) return;', '"moveJobs"', '"reassign"'] });
+check("Gantt Day-view drag/resize needs moveJobs", body("const handleDayBarDrag = (e, item"), { has: ['if (!can("moveJobs")) return'] });
+check("Drop in Schedule needs moveJobs and reassign", body("const placeTaskAt = (personId, dayStr)"), { has: ['"moveJobs"', '"reassign"', 'can('] });
+check("Pending tray drop needs editJobs, moveJobs and reassign", body("const handlePendingItemDrop = (itemId"), { has: ['"editJobs"', '"moveJobs"', '"reassign"', 'can('] });
+check("Reassigning (any bar drag onto another row) needs reassign", body("const reassignTask = (taskId"), { has: ['if (!can("reassign")) return'] });
+check("Inline cell edits ask for the key of the field", body("const commitCellEdit = (id, key, val, pid)"), { has: ['if (!can(need)) return', '"moveJobs"', '"reassign"'] });
 check("Edit Job save asks the shared classifier what the edit needs", body("const saveTask = (ed, parentId)"), { has: ["classifyTaskActions("] });
-check("Engineering sign-off needs admin or engineer (as the server)", body("const signOffEngineering = (jobId"), { has: ["if (!canEngineer) return;"], not: ["if (!canApprove) return;"] });
-check("Engineering revert needs admin or engineer", body("const revertEngineering = (jobId"), { has: ["if (!canEngineer) return;"], not: ["if (!canApprove) return;"] });
-check("Hours → Admin Approve needs approveCompletions", body("const approveFinish = (job, panel, op)"), { has: ['if (!can("approveCompletions")) return;'] });
-check("Hours → Admin Decline needs approveCompletions", body("const rejectFinish = (job, panel, op)"), { has: ['if (!can("approveCompletions")) return;'] });
+check("Engineering sign-off needs admin or engineer (as the server)", body("const signOffEngineering = (jobId"), { has: ["if (!canEngineer) return"], not: ["if (!canApprove) return;"] });
+check("Engineering revert needs admin or engineer", body("const revertEngineering = (jobId"), { has: ["if (!canEngineer) return"], not: ["if (!canApprove) return;"] });
+check("Hours → Admin Approve needs approveCompletions", body("const approveFinish = (job, panel, op)"), { has: ['if (!can("approveCompletions")) return'] });
+check("Hours → Admin Decline needs approveCompletions", body("const rejectFinish = (job, panel, op)"), { has: ['if (!can("approveCompletions")) return'] });
 check("Undo approval needs approveCompletions (as its button)", body("const adminUndoJobFinish = async (jobId"), { has: ['!can("approveCompletions")'], not: ["if (!isAdmin || !loggedInUser) return;"] });
 
 console.log("\n2. Task writes — UI gates");
 check("Engineering buttons show for admin or engineer", SRC, { not: ["isActive && canApprove) return <button key={step.key} onClick={() => signOffEngineering("] });
-check("Status → Finished needs approveCompletions", SRC, { has: ['if (s === "Finished" && !can("approveCompletions")) return;'], not: ['if (s === "Finished" && !isAdmin) return;'] });
+check("Status → Finished needs approveCompletions", SRC, { has: ['if (s === "Finished" && !can("approveCompletions")) return'], not: ['if (s === "Finished" && !isAdmin) return;'] });
 check("Schedule bulk Select needs editJobs", SRC, { has: ['{can("editJobs") && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>\n          <Btn size="sm" variant={barSelectMode'],
   not: ['{isAdmin && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>\n          <Btn size="sm" variant={barSelectMode'] });
 check("Jobs bulk Select needs editJobs (list and cards)", SRC, { has: ['{can("editJobs") && <Btn size="sm" variant={jobSelectMode ? "primary" : "secondary"} style={{ minWidth: 78 }}', '{can("editJobs") && <Btn size="sm" variant={jobSelectMode ? "primary" : "secondary"} onClick'] });
 check("Dependencies toggle and editor need editJobs", SRC, { has: ["{showDepToggle && can(\"editJobs\") && <button", '{isOp && can("editJobs") && (() => {'] });
 
-check("Panel approval-step menu (edit / remove the chain) needs editJobs", SRC, { has: ['const openApprCtx = (ev) => {\n                // Editing or removing a panel\'s steps changes the chain itself: editJobs.\n                if (!can("editJobs")) return;'] });
+check("Panel approval-step menu (edit / remove the chain) needs editJobs", SRC, { has: ['const openApprCtx = (ev) => {\n                // Editing or removing a panel\'s steps changes the chain itself: editJobs.\n                if (!can("editJobs")) return'] });
 check("Project Plan Assign needs reassign", SRC.slice(SRC.indexOf("Same assign control the Gantt rows use"), SRC.indexOf("Same assign control the Gantt rows use") + 1500), { has: ['<button disabled={!can("reassign")}'], not: ['<button disabled={!can("editJobs")}'] });
 
 console.log("\n3. People, clients, settings");
 check("+ Add Member needs manageTeam", SRC, { has: ["{canManageTeam && <Btn style={{ marginTop: 8 }} onClick={() => setPersonModal({ id: null"], not: ["{isAdmin && <Btn style={{ marginTop: 8 }} onClick={() => setPersonModal({ id: null"] });
 check("Mobile Add Member / person edit need manageTeam", SRC, { not: ['{can("editJobs") && <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>\n        <button onClick={() => setPersonModal(', '{can("editJobs") && <div style={{ marginTop: 10 }}>\n              <button onClick={() => setPersonModal({ ...p })}'] });
 check("Employees card menu (Edit / Delete) needs manageTeam", SRC, { has: ["if (canManageTeam) setEmpCtx({ x: e.clientX, y: e.clientY, person: p });"] });
-check("PTO bar drag/resize needs manageTeam", SRC, { has: ['if (!can(isPto ? "manageTeam" : "moveJobs")) { if (!isPto && bar.task)', 'const handleTeamResize = (e, side) => {\n                    if (!can(isPto ? "manageTeam" : "moveJobs")) return;'] });
+check("PTO bar drag/resize needs manageTeam", SRC, { has: ['if (!can(isPto ? "manageTeam" : "moveJobs")) {', 'const handleTeamResize = (e, side) => {\n                    if (!can(isPto ? "manageTeam" : "moveJobs")) return'] });
 check("User Permissions needs manageTeam", SRC, { has: ["{canManageTeam && <button onClick={() => { setSettingsOpen(false); setUsersOpen(true);"] });
 check("Mobile client add/edit need manageClients", SRC, { not: ['{can("editJobs") && <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>\n        <button onClick={() => openClientEdit(', '{can("editJobs") && <button onClick={() => openClientEdit({ ...c })}'] });
 check("Mobile Scheduling / Sign Off / Departments settings need orgSettings", SRC, { has: ['{can("orgSettings") && <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setOrgSettingsOpen(true); }}',
@@ -75,6 +75,24 @@ check("No-approvers fallback uses approveCompletions (as the audience)", SRC, { 
 console.log("\n4. Chat groups — creator or admin");
 check("Group menu Edit / Delete need creator or admin", SRC, { has: ["{canManageGroup(groups.find(g => g.id === groupCtxMenu.groupId)) && <>"] });
 check("Clear Chat on a group needs creator or admin", SRC, { has: ["canManageGroup(groupOfThread(threadCtxMenu.threadKey))"] });
+
+console.log("\n5. A refused action says so — a toast, never a silent no-op or a hidden control");
+check("denied() helper toasts \"You don't have permission to <action>.\"", SRC, { has: ["const denied = (action) => toast(`You don't have permission to ${action}.`);"] });
+check("Approve (Hours → Admin) toasts when refused", body("const approveFinish = (job, panel, op)"), { has: ['if (!can("approveCompletions")) return denied("approve completions");'] });
+check("Decline (Hours → Admin) toasts when refused", body("const rejectFinish = (job, panel, op)"), { has: ['if (!can("approveCompletions")) return denied("decline completions");'] });
+check("Jobs List inline cell edit toasts when refused", body("const commitCellEdit = (id, key, val, pid)"), { has: ["if (!can(need)) return denied(PERM_VERB[need]);"] });
+check("Drop in Schedule toasts when refused", body("const placeTaskAt = (personId, dayStr)"), { has: ["return denied(PERM_VERB[", 'const lacking = ["moveJobs", "reassign"].find(k => !can(k));'] });
+check("Pending-tray drop toasts when refused", body("const handlePendingItemDrop = (itemId"), { has: ["return denied(PERM_VERB[", 'const lacking = ["editJobs", "moveJobs", "reassign"].find(k => !can(k));'] });
+check("Day-view drag toasts when refused", body("const handleDayBarDrag = (e, item"), { has: ['if (!can("moveJobs")) return denied(PERM_VERB.moveJobs);'] });
+check("Reassign toasts when refused", body("const reassignTask = (taskId"), { has: ['if (!can("reassign")) return denied(PERM_VERB.reassign);'] });
+check("Engineering sign-off / revert toast when refused", body("const signOffEngineering = (jobId") + body("const revertEngineering = (jobId"), { has: ['if (!canEngineer) return denied("sign off engineering steps");'] });
+check("Chat Approve toasts when refused", body("const adminApproveJobFinish = async (jobId"), { has: ['denied("approve completions")'] });
+check("Chat Decline toasts when refused", body("const adminDeclineJobFinish = async (jobId"), { has: ['denied("decline completions")'] });
+check("Undo approval toasts when refused", body("const adminUndoJobFinish = async (jobId"), { has: ['denied("undo an approval")'] });
+check("Status → Finished toasts when refused", SRC, { has: ['if (s === "Finished" && !can("approveCompletions")) return denied("mark work Finished");'] });
+check("Approval-step menu toasts when refused", SRC, { has: ['if (!can("editJobs")) return denied("edit approval steps");'] });
+check("PTO drag / resize toast when refused", SRC, { has: ['if (isPto) denied(PERM_VERB.manageTeam);', 'if (!can(isPto ? "manageTeam" : "moveJobs")) return denied(isPto ? PERM_VERB.manageTeam : PERM_VERB.moveJobs);'] });
+check("Edit Job save toasts (not alert) when refused", body("const saveTask = (ed, parentId)"), { has: ["return denied(missing.map(k => PERM_VERB[k] || k).join(\" or \"));"], not: ["alert(`You don't have permission to save this change"] });
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (pass + fail === 0) { console.error("no checks ran"); process.exit(2); }

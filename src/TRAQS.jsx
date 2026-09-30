@@ -201,6 +201,12 @@ const ADMIN_PERMS = [
 // Once every live record carries the keys, this set can be emptied and they
 // become ordinary opt-in toggles like the rest.
 const PERMS_GRANTED_WHEN_ABSENT = new Set(["approveCompletions", "approveTimeOff"]);
+// The action each permission allows, for "You don't have permission to <action>."
+const PERM_VERB = {
+  editJobs: "edit jobs", moveJobs: "move or resize jobs", reassign: "reassign operations",
+  manageTeam: "manage the team", manageClients: "manage clients", undoHistory: "undo schedule history",
+  orgSettings: "change organization settings", approveCompletions: "approve completions", approveTimeOff: "approve time off",
+};
 // Single source of truth for "does this adminPerms object grant `key`".
 // `perms == null` is the legacy unrestricted admin.
 const permGranted = (perms, key) =>
@@ -7922,6 +7928,8 @@ Extraction rules:
     setEditToast({ msg, key });
     setTimeout(() => setEditToast(t => (t && t.key === key) ? null : t), 1800);
   }, []);
+  // A refused action says so. A missing control reads as a bug; a message reads as a policy.
+  const denied = (action) => toast(`You don't have permission to ${action}.`);
   const [editPopBtn, setEditPopBtn] = useState(null); // id of the add button currently doing a pop animation
   // Floating "Pending Schedule" tray — populated when the edit-job modal is saved with newly
   // added ops. The tray shows one card per pending op; user drags each card onto a person row +
@@ -10693,7 +10701,8 @@ Extraction rules:
     const it = placingTask;
     if (!it || !personId || !dayStr) return;
     // The drop picks the dates AND the assignee.
-    if (!can("moveJobs") || !can("reassign")) return;
+    const lacking = ["moveJobs", "reassign"].find(k => !can(k));
+    if (lacking) return denied(PERM_VERB[lacking]);
     // HOW LONG, from whichever source the task has. Hours win when present --
     // they are the estimate somebody entered. Otherwise the existing date span is
     // preserved, so dropping a dated task MOVES it rather than resizing it to a
@@ -10724,7 +10733,8 @@ Extraction rules:
     const item = pendingScheduleItems.find(i => i.id === itemId);
     if (!item) return;
     // The drop sets the dates, the assignee and the status.
-    if (!can("editJobs") || !can("moveJobs") || !can("reassign")) return;
+    const lacking = ["editJobs", "moveJobs", "reassign"].find(k => !can(k));
+    if (lacking) return denied(PERM_VERB[lacking]);
     // Compute true duration from hpd (total hours / productive hours per workday).
     // sub-1-day stays on a single day (partial-width bar via startHour/endHour); multi-day
     // spans the right number of business days so the bar lands at its real length immediately.
@@ -10750,7 +10760,7 @@ Extraction rules:
 
   const reassignTask = (taskId, fromPersonId, toPersonId, parentId = null) => {
     if (fromPersonId === toPersonId) return;
-    if (!can("reassign")) return;
+    if (!can("reassign")) return denied(PERM_VERB.reassign);
     setTasks(p => p.map(t => {
       if (parentId) {
         // Check if parentId is a panel inside this job
@@ -11192,10 +11202,7 @@ ${jobsCtx || "No jobs found."}`;
       if (before) {
         const wrap = (n) => (parentId ? [{ id: "__edit", subs: [n] }] : [n]);
         const missing = [...classifyTaskActions(wrap(ed), wrap(before)).perms].filter(k => !can(k));
-        if (missing.length) {
-          alert(`You don't have permission to save this change — it needs: ${missing.map(k => ADMIN_PERMS.find(x => x.key === k)?.label || k).join(", ")}.`);
-          return;
-        }
+        if (missing.length) return denied(missing.map(k => PERM_VERB[k] || k).join(" or "));
       }
     }
     // Can't restructure a job while someone is actively clocked into it (only guards edits to an
@@ -11734,7 +11741,8 @@ ${jobsCtx || "No jobs found."}`;
   };
 
   const adminApproveJobFinish = async (jobId, panelId, opId, requestId) => {
-    if (!can("approveCompletions") || !loggedInUser) return;
+    if (!loggedInUser) return;
+    if (!can("approveCompletions")) return denied("approve completions");
     const job = tasks.find(t => sameId(t.id, jobId));
     if (!job) return;
     const now = new Date().toISOString();
@@ -11788,7 +11796,8 @@ ${jobsCtx || "No jobs found."}`;
   };
 
   const adminDeclineJobFinish = async (jobId, panelId, opId, requestId, reason) => {
-    if (!can("approveCompletions") || !loggedInUser) return;
+    if (!loggedInUser) return;
+    if (!can("approveCompletions")) return denied("decline completions");
     const job = tasks.find(t => sameId(t.id, jobId));
     if (!job) return;
     const now = new Date().toISOString();
@@ -11838,7 +11847,8 @@ ${jobsCtx || "No jobs found."}`;
   // (the gantt hides only Finished items, so reopening re-adds it). Best-effort:
   // finished items go back to "In Progress" since prior statuses aren't stored.
   const adminUndoJobFinish = async (jobId, panelId, opId, requestId) => {
-    if (!can("approveCompletions") || !loggedInUser) return;
+    if (!loggedInUser) return;
+    if (!can("approveCompletions")) return denied("undo an approval");
     const job = tasks.find(t => sameId(t.id, jobId));
     if (!job) return;
     const jobLevel = !panelId && !opId;
@@ -12042,7 +12052,7 @@ ${jobsCtx || "No jobs found."}`;
   };
 
   const signOffEngineering = (jobId, panelId, step) => {
-    if (!canEngineer) return;
+    if (!canEngineer) return denied("sign off engineering steps");
     const record = { by: loggedInUser.id, byName: loggedInUser.name, at: new Date().toISOString() };
     setTasks(prev => {
       const next = prev.map(job =>
@@ -12074,7 +12084,7 @@ ${jobsCtx || "No jobs found."}`;
     });
   };
   const revertEngineering = (jobId, panelId, step) => {
-    if (!canEngineer) return;
+    if (!canEngineer) return denied("sign off engineering steps");
     const stepOrder = ["designed", "verified", "sentToPerforex"];
     const stepIdx = stepOrder.indexOf(step);
     const toRevert = stepOrder.slice(stepIdx);
@@ -12914,7 +12924,7 @@ ${jobsCtx || "No jobs found."}`;
     // Day-view bar drag — move, left-resize (start), right-resize (end/hpd)
     const handleDayBarDrag = (e, item, mode = "move") => {
       e.preventDefault(); e.stopPropagation();
-      if (!can("moveJobs")) return;
+      if (!can("moveJobs")) return denied(PERM_VERB.moveJobs);
       const DHS = 5, DHE = 21, DNH = 16;
       const origHour = item.startHour ?? 8;
       const origHpd = item.hpd || 0;
@@ -13651,7 +13661,7 @@ ${jobsCtx || "No jobs found."}`;
   const commitCellEdit = (id, key, val, pid) => {
     // The key the server enforces for this field (src/taskActions.js).
     const need = key === "start" || key === "end" ? "moveJobs" : key === "team" ? "reassign" : "editJobs";
-    if (!can(need)) return;
+    if (!can(need)) return denied(PERM_VERB[need]);
     const patch = { [key]: val };
     if (apprSelectKeys.has(key)) {
       // "—" is the dropdown's own empty option, so choosing it reads as a clear
@@ -14673,7 +14683,7 @@ ${jobsCtx || "No jobs found."}`;
               const firstOpen = st.steps.findIndex(x => !x.rec);
               const openApprCtx = (ev) => {
                 // Editing or removing a panel's steps changes the chain itself: editJobs.
-                if (!can("editJobs")) return;
+                if (!can("editJobs")) return denied("edit approval steps");
                 ev.preventDefault(); ev.stopPropagation();
                 setApprovalCtx({
                   x: ev.clientX, y: ev.clientY, kind: "panel",
@@ -18190,7 +18200,7 @@ ${jobsCtx || "No jobs found."}`;
                   // sense once nobody is on it.
                   const _someoneOnIt = !isPto && !!bar.task && isLiveOpId(bar.task.id);
                   const handleTeamDrag = (e) => {
-                    if (!can(isPto ? "manageTeam" : "moveJobs")) { if (!isPto && bar.task) openJobDetailOrEdit(bar.task); return; }
+                    if (!can(isPto ? "manageTeam" : "moveJobs")) { if (isPto) denied(PERM_VERB.manageTeam); else if (bar.task) openJobDetailOrEdit(bar.task); return; }
                     if (_someoneOnIt) { e.preventDefault(); e.stopPropagation(); setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Someone is on this job", message: "Someone is currently working on this. They must be clocked out before you can edit this.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) }); return; }
                     if (isPto) {
                       // PTO drag
@@ -19050,7 +19060,7 @@ ${jobsCtx || "No jobs found."}`;
                     autoScrollRaf = requestAnimationFrame(autoScrollStep);
                   };
                   const handleTeamResize = (e, side) => {
-                    if (!can(isPto ? "manageTeam" : "moveJobs")) return;
+                    if (!can(isPto ? "manageTeam" : "moveJobs")) return denied(isPto ? PERM_VERB.manageTeam : PERM_VERB.moveJobs);
                     if (_someoneOnIt) { e.preventDefault(); e.stopPropagation(); setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Someone is on this job", message: "Someone is currently working on this. They must be clocked out before you can edit this.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) }); return; }
                     if (isPto) {
                       e.preventDefault(); e.stopPropagation();
@@ -21752,7 +21762,7 @@ ${jobsCtx || "No jobs found."}`;
     };
 
     const approveFinish = (job, panel, op) => {
-      if (!can("approveCompletions")) return;
+      if (!can("approveCompletions")) return denied("approve completions");
       toast("Completion approved");
       const session = op.pendingSession;
       // Placement, actualHours and the moveLog entry all live in finishedOpFields, shared with
@@ -21772,7 +21782,7 @@ ${jobsCtx || "No jobs found."}`;
       if (session) setPeople(pp => pp.map(p => p.activeJobClock?.sessionId === session.sessionId ? { ...p, activeJobClock: null } : p));
     };
     const rejectFinish = (job, panel, op) => {
-      if (!can("approveCompletions")) return;
+      if (!can("approveCompletions")) return denied("decline completions");
       toast("Completion declined");
       const session = op.pendingSession;
       let newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : { ...o, pendingFinish: false, pendingSession: undefined }) }) });
@@ -31858,7 +31868,7 @@ ${jobsCtx || "No jobs found."}`;
           return (
             <div key={s} onClick={() => {
               if (isCurrent) return;
-              if (s === "Finished" && !can("approveCompletions")) return; // marking Finished is an approval; others use right-click > Request Finish Approval
+              if (s === "Finished" && !can("approveCompletions")) return denied("mark work Finished"); // an approval; others use right-click > Request Finish Approval
               setDropFlashKey(fk);
               setTimeout(() => { updTask(statusPopover.id, { status: s }, statusPopover.pid || undefined); setStatusPopover(null); setDropFlashKey(null); }, 150);
             }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: isCurrent ? "default" : "pointer", userSelect: "none", animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `${statusPopover.up ? "toolDropUp" : "toolDrop"} 0.14s ${(statusPopover.up ? STATUSES.length - 1 - si : si) * 38}ms both ease-out`, background: isCurrent ? sc + "12" : "transparent" }}
