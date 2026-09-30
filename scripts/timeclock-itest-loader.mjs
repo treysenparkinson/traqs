@@ -1,10 +1,33 @@
 // ESM resolve hook: redirect timeclock.js's (and tasks.js's) _utils/* imports to in-memory stubs
 // so the REAL handler runs against a fake S3 and fake auth.
-const STUBS = {
-  "./_utils/s3.js": `
-    export const readJson  = async (key) => (globalThis.__S3[key] === undefined ? null : JSON.parse(JSON.stringify(globalThis.__S3[key])));
-    export const writeJson = async (key, v) => { globalThis.__S3[key] = JSON.parse(JSON.stringify(v)); globalThis.__WRITES.push(key); };
-  `,
+// In-memory S3 with S3's conditional-write semantics: every stored key has an
+// ETag that changes on each write, writeJsonIfMatch fails with PreconditionFailed
+// when the ETag moved since the read (or, for etag null, when the key now
+// exists). globalThis.__BEFORE_WRITE(key), when set, runs before each
+// conditional write's check, so a test can land a competing write inside another
+// handler's read-modify-write window.
+const S3_STUB = `
+  const clone = (v) => JSON.parse(JSON.stringify(v));
+  const tags = () => (globalThis.__ETAGS ??= {});
+  const bump = (key) => { tags()[key] = String(Number(tags()[key] ?? 0) + 1); };
+  const tagOf = (key) => (globalThis.__S3[key] === undefined ? null : String(tags()[key] ?? 0));
+  export const readJson  = async (key) => (globalThis.__S3[key] === undefined ? null : clone(globalThis.__S3[key]));
+  export const writeJson = async (key, v) => { globalThis.__S3[key] = clone(v); bump(key); globalThis.__WRITES.push(key); };
+  export const readJsonVersioned = async (key) => ({ data: globalThis.__S3[key] === undefined ? null : clone(globalThis.__S3[key]), etag: tagOf(key) });
+  export class PreconditionFailed extends Error {
+    constructor(key) { super("Precondition failed: " + key); this.name = "PreconditionFailed"; this.preconditionFailed = true; }
+  }
+  export const writeJsonIfMatch = async (key, v, etag) => {
+    const hook = globalThis.__BEFORE_WRITE; if (hook) await hook(key);
+    if (tagOf(key) !== (etag ?? null)) { (globalThis.__PRECONDITION_FAILURES ??= []).push(key); throw new PreconditionFailed(key); }
+    globalThis.__S3[key] = clone(v); bump(key); globalThis.__WRITES.push(key);
+  };
+`;
+
+export const STUBS = {
+  "./_utils/s3.js": S3_STUB,
+  // _utils/update-json.js imports the same module by its sibling path.
+  "./s3.js": S3_STUB,
   "./_utils/auth.js": `
     export const requireOrgMember = async () => ({ ...globalThis.__AUTH });
   `,
@@ -35,7 +58,11 @@ const STUBS = {
     export const sendSilentPush = async () => {};
     export const sendVisiblePush = async () => {};
   `,
-  "./_utils/pin.js": `export const verifyPin = async () => true;`,
+  "./_utils/pin.js": `
+    export const verifyPin = async () => true;
+    export const encryptPin = (p) => p;
+    export const decryptPin = (p) => p;
+  `,
 };
 
 export async function resolve(specifier, context, next) {

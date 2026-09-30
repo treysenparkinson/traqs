@@ -1,13 +1,17 @@
 import { requireOrgMember } from "./_utils/auth.js";
 import { can, requirePerm, canApprove, canEngineer } from "./_utils/can.js";
 import { classifyTaskChanges } from "./_utils/task-perms.js";
-import { readJson, writeJson } from "./_utils/s3.js";
+import { readJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
 import { stampArray, reconcileDeletions, changedIds } from "./_utils/timestamps.js";
 import { filterLive } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
 import { diffTaskEvents } from "./_utils/task-events.js";
+import { updateJson } from "./_utils/update-json.js";
+import { ruleMode, logRule } from "./_utils/rule-mode.js";
+import { scheduleRuleViolations } from "../../src/scheduleRules.js";
+import { localDay } from "../../src/localDay.js";
 import { sendVisiblePush, sendSilentPush } from "./_utils/push.js";
 
 export async function handler(event) {
@@ -44,68 +48,138 @@ export async function handler(event) {
       try { tasks = JSON.parse(event.body); } catch { return err(400, "Invalid JSON"); }
       if (!Array.isArray(tasks)) return err(400, "Invalid tasks data");
 
-      // Read the current version once. It serves double duty: the empty-overwrite
-      // guard's reference below, AND the `previous` that stampArray diffs against
-      // so unchanged jobs keep their existing lastModifiedAt (only genuinely
-      // changed jobs get a fresh timestamp, which is what delta-sync relies on).
-      const existing = await readJson(s3Key);
-
-      // Refuse to overwrite a non-empty tasks.json with an empty array.
-      // Why: a client bug (failed initial fetch → React resets state → autosave fires)
-      // wiped MTX2026TRAQS/tasks.json on 2026-06-03. This guard makes that race fatal
-      // on the server instead of silently destroying data. To intentionally clear all
-      // tasks, delete the S3 object directly or pass ?force=1.
-      // Empty-array safeguard: run on the RAW incoming array, before deletion
-      // reconciliation, or an empty POST would tombstone every live record. Only
-      // NON-tombstoned records count — once all live records are deleted, the
-      // leftover tombstones must not make a legitimately-empty roster get refused.
+      // Rule context, read once: who is clocked in (activeClock) and the org's work
+      // week, holidays and timezone (businessDay, past). A read failure disables
+      // those rules for this write rather than failing a save that used to work.
+      const orgCode = orgCodeFromHeader(event);
+      const rulesMode = ruleMode("SCHEDULE_RULES_MODE");
+      const conflictMode = ruleMode("TASK_CONFLICT_MODE");
+      let rulePeople = [], ruleSettings = null;
+      if (rulesMode !== "off") {
+        try { rulePeople = filterLive((await readJson(`orgs/${orgCode}/people.json`)) || []); } catch { rulePeople = []; }
+        try { ruleSettings = await readJson(`orgs/${orgCode}/settings.json`); } catch { ruleSettings = null; }
+      }
       const force = event.queryStringParameters?.force === "1";
-      if (tasks.length === 0 && !force) {
-        if (Array.isArray(existing) && existing.some(r => r && !r.deletedAt)) {
-          return err(409, "Refusing to overwrite non-empty tasks with empty array");
-        }
-      }
 
-      // ── Permission check ────────────────────────────────────────────────
-      // This endpoint takes a whole-array replace, so the only way to tell a
-      // job creation from a bar drag is to diff against what is stored and
-      // demand the permission that matches. Before this, membership alone was
-      // enough: any worker could POST a replacement schedule, and the Jobs
-      // page hiding its buttons was the only thing stopping them.
-      //
-      // An unchanged tree is always allowed — autosave re-POSTs constantly and
-      // a no-op save must never 403.
-      try {
-        const cls = classifyTaskChanges(tasks, Array.isArray(existing) ? existing : []);
-        if (cls.changed) {
-          for (const key of cls.perms) requirePerm(member, key);
-          if (cls.needsApprove && !canApprove(member)) {
-            return err(403, "You do not have permission to sign off work");
-          }
-          if (cls.needsEngineer && !canEngineer(member)) {
-            return err(403, "Only engineers can change engineering steps");
-          }
-          // Raising a finish request needs no permission, but only for yourself:
-          // a request on someone else's behalf is theirs to raise, or an approver's.
-          const me = member.personId != null ? String(member.personId) : null;
-          if ([...cls.raisedBy].some(by => by !== me) && !can(member, "approveCompletions")) {
-            return err(403, "You can only raise a finish request for yourself");
+      // Everything that depends on what is stored runs inside updateJson: it reads
+      // the file with its ETag, builds the write, and writes only if nobody wrote in
+      // between — otherwise it re-reads and runs this again. tasks.json has two
+      // writers (this and timeclock.js), and with a plain PUT a clock action landing
+      // between our read and our write was silently undone (SCHEDULE_MAP #185).
+      // `attempt` is per pass; nothing here may have side effects.
+      let attempt;
+      const result = await updateJson(s3Key, (stored) => {
+        const existing = stored;
+        attempt = { conflicts: [], violations: [] };
+
+        // Refuse to overwrite a non-empty tasks.json with an empty array.
+        // Why: a client bug (failed initial fetch → React resets state → autosave fires)
+        // wiped MTX2026TRAQS/tasks.json on 2026-06-03. This guard makes that race fatal
+        // on the server instead of silently destroying data. To intentionally clear all
+        // tasks, delete the S3 object directly or pass ?force=1.
+        // Empty-array safeguard: run on the RAW incoming array, before deletion
+        // reconciliation, or an empty POST would tombstone every live record. Only
+        // NON-tombstoned records count — once all live records are deleted, the
+        // leftover tombstones must not make a legitimately-empty roster get refused.
+        if (tasks.length === 0 && !force) {
+          if (Array.isArray(existing) && existing.some(r => r && !r.deletedAt)) {
+            return { abort: err(409, "Refusing to overwrite non-empty tasks with empty array") };
           }
         }
-      } catch (e) {
-        if (e?.statusCode) return err(e.statusCode, e.message);
-        throw e;
-      }
 
-      // Turn client-side deletions (ids in `existing` but absent from the
-      // incoming array) into tombstones so delta-sync can propagate them.
-      const reconciled = reconcileDeletions(tasks, existing);
-      await writeJson(s3Key, stampArray(reconciled, existing));
+        // ── Stale job copies ──────────────────────────────────────────────
+        // Every job carries the server's lastModifiedAt. A POSTed job whose stamp is
+        // not the stored one was copied before the stored version was written, so
+        // writing it would undo that write — the clock-in status, clock-out hours or
+        // finish request someone else just made. When its content differs too, it is
+        // a conflict: in enforce the stored job is kept and the id is reported back;
+        // in log the write goes through as before and the conflict is only recorded.
+        let incoming = tasks;
+        if (conflictMode !== "off" && Array.isArray(existing)) {
+          const storedById = new Map(existing.filter(r => r && r.id != null).map(r => [String(r.id), r]));
+          for (const job of tasks) {
+            if (!job || job.id == null) continue;
+            const was = storedById.get(String(job.id));
+            if (!was || (job.lastModifiedAt ?? null) === (was.lastModifiedAt ?? null)) continue;
+            if (changedIds([job], [was]).length === 0) continue;   // stale stamp, same content
+            attempt.conflicts.push({ id: String(job.id), incomingStamp: job.lastModifiedAt ?? null, storedStamp: was.lastModifiedAt ?? null });
+          }
+          if (conflictMode === "enforce" && attempt.conflicts.length) {
+            const stale = new Set(attempt.conflicts.map(c => c.id));
+            incoming = tasks.map(job => (job && job.id != null && stale.has(String(job.id))) ? storedById.get(String(job.id)) : job);
+          }
+        }
+        const prev = Array.isArray(existing) ? existing : [];
+
+        // ── Permission check ────────────────────────────────────────────────
+        // This endpoint takes a whole-array replace, so the only way to tell a
+        // job creation from a bar drag is to diff against what is stored and
+        // demand the permission that matches. Before this, membership alone was
+        // enough: any worker could POST a replacement schedule, and the Jobs
+        // page hiding its buttons was the only thing stopping them.
+        //
+        // An unchanged tree is always allowed — autosave re-POSTs constantly and
+        // a no-op save must never 403.
+        try {
+          const cls = classifyTaskChanges(incoming, prev);
+          if (cls.changed) {
+            for (const key of cls.perms) requirePerm(member, key);
+            if (cls.needsApprove && !canApprove(member)) {
+              return { abort: err(403, "You do not have permission to sign off work") };
+            }
+            if (cls.needsEngineer && !canEngineer(member)) {
+              return { abort: err(403, "Only engineers can change engineering steps") };
+            }
+            // Raising a finish request needs no permission, but only for yourself:
+            // a request on someone else's behalf is theirs to raise, or an approver's.
+            const me = member.personId != null ? String(member.personId) : null;
+            if ([...cls.raisedBy].some(by => by !== me) && !can(member, "approveCompletions")) {
+              return { abort: err(403, "You can only raise a finish request for yourself") };
+            }
+          }
+        } catch (e) {
+          if (e?.statusCode) return { abort: err(e.statusCode, e.message) };
+          throw e;
+        }
+
+        // ── Schedule rules (src/scheduleRules.js, shared with the web) ─────
+        if (rulesMode !== "off") {
+          attempt.violations = scheduleRuleViolations(incoming, prev, {
+            people: rulePeople,
+            workDays: ruleSettings?.workDays,
+            holidays: ruleSettings?.holidays,
+            today: localDay(new Date(), ruleSettings?.timeZone || null),
+            isAdmin: !!member.isAdmin,
+          });
+          if (rulesMode === "enforce" && attempt.violations.length) {
+            return { abort: json(422, {
+              error: attempt.violations.map(v => v.detail).join("; "),
+              violations: attempt.violations,
+            }) };
+          }
+        }
+
+        // Turn client-side deletions (ids in `existing` but absent from the
+        // incoming array) into tombstones so delta-sync can propagate them.
+        const reconciled = reconcileDeletions(incoming, existing);
+        return { value: stampArray(reconciled, existing), reconciled, existing };
+      });
+
+      // Logged once, for the pass that decided the outcome (never per retry).
+      const who = { personId: member.personId != null ? String(member.personId) : null, isAdmin: !!member.isAdmin };
+      if (conflictMode !== "off") {
+        for (const c of attempt.conflicts) logRule("task-conflict", { mode: conflictMode, jobId: c.id, incomingStamp: c.incomingStamp, storedStamp: c.storedStamp, ...who });
+      }
+      if (rulesMode !== "off") {
+        for (const v of attempt.violations) logRule("schedule-rule", { mode: rulesMode, rule: v.rule, id: v.id, jobId: v.jobId, detail: v.detail, ...who });
+      }
+      if ("abort" in result) return result.abort;
+
+      const { reconciled, existing } = result;
       // Real-time: signal which jobs changed AFTER the write succeeds. Awaited
       // (serverless freezes post-response) but never throws, so it can't fail
       // the save.
       const changed = changedIds(reconciled, existing);
-      const orgCode = orgCodeFromHeader(event);
       await publishChange(orgCode, "tasks", { ids: changed });
 
       // Phase 5 push. Only when something actually changed — a no-op autosave
@@ -125,8 +199,12 @@ export async function handler(event) {
           console.error("tasks push notify failed (save still succeeded):", e);
         }
       }
-      return json(200, { ok: true });
+      // `conflicts` only in enforce: a client that sees it rolls those jobs back.
+      return json(200, conflictMode === "enforce"
+        ? { ok: true, conflicts: attempt.conflicts.map(c => c.id) }
+        : { ok: true });
     } catch (e) {
+      if (e?.statusCode === 503) return err(503, e.message);
       console.error("tasks POST error:", e);
       return err(500, "Failed to save tasks");
     }

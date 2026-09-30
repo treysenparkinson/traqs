@@ -41,6 +41,58 @@ export async function writeJson(key, value) {
   );
 }
 
+/**
+ * Read a JSON file with its ETag, for a conditional write back.
+ * Returns { data, etag }; both null when the key does not exist.
+ */
+export async function readJsonVersioned(key) {
+  try {
+    const res = await client.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+    const body = await streamToString(res.Body);
+    return { data: JSON.parse(body), etag: res.ETag ?? null };
+  } catch (e) {
+    if (e.name === "NoSuchKey" || e.$metadata?.httpStatusCode === 404) {
+      return { data: null, etag: null };
+    }
+    throw e;
+  }
+}
+
+/** Thrown by writeJsonIfMatch when the object changed since it was read. */
+export class PreconditionFailed extends Error {
+  constructor(key) {
+    super(`Precondition failed: ${key}`);
+    this.name = "PreconditionFailed";
+    this.preconditionFailed = true;
+  }
+}
+
+/**
+ * Write JSON only if the object is still the version that was read: If-Match on
+ * `etag`, or If-None-Match: * when it did not exist (etag null). S3 answers 412
+ * when someone wrote in between, and 409 when a conflicting conditional write is
+ * in flight; both become PreconditionFailed so the caller re-reads and retries.
+ */
+export async function writeJsonIfMatch(key, value, etag) {
+  try {
+    await client.send(
+      new PutObjectCommand({
+        Bucket: BUCKET,
+        Key: key,
+        Body: JSON.stringify(value),
+        ContentType: "application/json",
+        ...(etag ? { IfMatch: etag } : { IfNoneMatch: "*" }),
+      })
+    );
+  } catch (e) {
+    const status = e.$metadata?.httpStatusCode;
+    if (e.name === "PreconditionFailed" || e.name === "ConditionalRequestConflict" || status === 412 || status === 409) {
+      throw new PreconditionFailed(key);
+    }
+    throw e;
+  }
+}
+
 // List all org codes by scanning orgs/{code}/config.json keys in S3.
 export async function listOrgCodes() {
   const codes = [];

@@ -8,6 +8,7 @@ import { filterLive } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
 import { sendSilentPush } from "./_utils/push.js";
 import { encryptPin, decryptPin } from "./_utils/pin.js";
+import { ruleMode, logRule } from "./_utils/rule-mode.js";
 
 // Escalation-sensitive person fields a non-admin must never set on themselves
 // or anyone: PTO must flow through timeoff.js approval, and pay/permissions/
@@ -43,8 +44,13 @@ const PROTECTED_PERSON_FIELDS = [
 //     that is what it exists for — so a POST has no business carrying it.
 //
 // activeClockIn/activeJobClock were already pinned; these two belong with them.
-// Deliberately NOT applied to PATCH: a PATCH names the one field it means to
-// change, so it can't carry a stale value it never looked at.
+// Not applied to PATCH as a whole: a PATCH names the one field it means to change,
+// so it can't carry a stale value it never looked at, and pushToken is exactly
+// what PATCH is for. The three session fields are pinned on PATCH separately
+// (PATCH_PINNED_SESSION_FIELDS) — not because they go stale, but because nothing
+// but a timeclock action may set them.
+const PATCH_PINNED_SESSION_FIELDS = ["activeJobClock", "activeClockIn", "activeBreak"];
+
 export function serverOwnedPersonFields(stored) {
   return {
     activeClockIn:  stored.activeClockIn  ?? null,
@@ -260,6 +266,21 @@ export async function handler(event) {
       // self-PATCH can't bypass the timeoff.js approval flow or grant permissions.
       if (!can(member, "manageTeam")) {
         for (const k of PROTECTED_PERSON_FIELDS) delete allowedFields[k];
+      }
+
+      // #198: the live session fields belong to the timeclock actions, which check
+      // what they write. Through PATCH, any caller could set their own
+      // activeJobClock/activeClockIn/activeBreak and forge a session. Pinned for
+      // every caller, admins included — admin corrections have their own actions.
+      // Stripped in enforce; recorded in log (see _utils/rule-mode.js).
+      const sessionGuardMode = ruleMode("SCHEDULE_RULES_MODE");
+      if (sessionGuardMode !== "off") {
+        for (const k of PATCH_PINNED_SESSION_FIELDS) {
+          if (!(k in allowedFields)) continue;
+          logRule("session-guard", { mode: sessionGuardMode, guard: "peoplePatch", field: k,
+            personId: String(personId), by: member.personId != null ? String(member.personId) : null });
+          if (sessionGuardMode === "enforce") delete allowedFields[k];
+        }
       }
 
       existing[idx] = withBreakStart({ ...existing[idx], ...allowedFields }, existing[idx]);

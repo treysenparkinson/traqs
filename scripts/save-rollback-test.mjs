@@ -151,6 +151,24 @@ console.log("\n4. An edit made during the rollback fetch is not clobbered");
   ok("the newer edit survives and its own save is left to run", [c.st.tasks, c.saveStatusRef.current], [NEWER, "unsaved"]);
 }
 
+console.log("\n4b. A save that lands with conflicts (TASK_CONFLICT_MODE=enforce)");
+{
+  // The server kept its own copy of the stale jobs and saved the rest, so the
+  // server's copy IS the result: roll back to it and say which jobs were kept.
+  const c = client({ saveTasks: async () => ({ ok: true, conflicts: ["j1"] }) });
+  c.saveStatusRef.current = "unsaved";
+  await c.doSave(); await settle();
+  ok("local tasks replaced by the server's copy", c.st.tasks, SERVER.tasks);
+  ok("not \"unsaved\"", c.saveStatusRef.current !== "unsaved", true);
+  ok("banner names the conflict", [c.st.error?.endpoint, c.st.error?.status, /changed/i.test(c.st.error?.message || "")], ["saveTasks", 409, true]);
+}
+{
+  const c = client({ saveTasks: async () => ({ ok: true, conflicts: [] }) });
+  c.saveStatusRef.current = "unsaved";
+  await c.doSave(); await settle();
+  ok("control: an empty conflicts list is a plain success", [c.saveStatusRef.current, c.st.tasks, c.st.error], ["saved", EDITED, null]);
+}
+
 console.log("\n5. Control: a save that succeeds");
 {
   const c = client({ saveTasks: async () => ({ ok: true }) });

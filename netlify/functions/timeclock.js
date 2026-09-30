@@ -1,5 +1,7 @@
 import { requireOrgMember } from "./_utils/auth.js";
 import { canClockIn, personCan } from "./_utils/can.js";
+import { updateJson } from "./_utils/update-json.js";
+import { ruleMode, logRule } from "./_utils/rule-mode.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgCodeFromHeader } from "./_utils/org.js";
@@ -180,6 +182,47 @@ const parseWorkHour = (t, dflt) => {
   const [h, m] = String(t || dflt).split(":").map(Number);
   return Number.isFinite(h) ? h + (Number.isFinite(m) ? m : 0) / 60 : null;
 };
+// #195: which of updateJobSession's fields are not believable for this session.
+// Every instant must be a real time inside the session: not before its clock-in,
+// not after now (plus a few minutes of device clock skew). The paused total can't
+// be negative or exceed the time elapsed. null clears a field and is allowed.
+const SESSION_SKEW_MS = 5 * 60 * 1000;
+function invalidSessionFields(jc, fields, nowMs) {
+  const bad = [];
+  const clockInMs = new Date(jc?.clockIn).getTime();
+  const latest = nowMs + SESSION_SKEW_MS;
+  const instant = (field, v, asMs) => {
+    if (v === undefined || v === null) return;
+    const t = asMs ? (typeof v === "number" ? v : NaN) : (typeof v === "string" ? new Date(v).getTime() : NaN);
+    if (!Number.isFinite(t)) bad.push({ field, why: asMs ? "not a number" : "not a time" });
+    else if (Number.isFinite(clockInMs) && t < clockInMs) bad.push({ field, why: "before clock-in" });
+    else if (t > latest) bad.push({ field, why: "in the future" });
+  };
+  instant("drainCheckpoint", fields.drainCheckpoint, false);
+  instant("frozenAtMs", fields.frozenAtMs, true);
+  instant("unclosedAt", fields.unclosedAt, false);
+  const p = fields.pausedMsAtCheckpoint;
+  if (p !== undefined && p !== null) {
+    if (typeof p !== "number" || !Number.isFinite(p)) bad.push({ field: "pausedMsAtCheckpoint", why: "not a number" });
+    else if (p < 0) bad.push({ field: "pausedMsAtCheckpoint", why: "negative" });
+    else if (Number.isFinite(clockInMs) && p > nowMs - clockInMs + SESSION_SKEW_MS) bad.push({ field: "pausedMsAtCheckpoint", why: "more than the session's elapsed time" });
+  }
+  return bad;
+}
+
+// Any node (job, panel or op) by id.
+function findNode(tasks, id) {
+  if (id == null) return null;
+  for (const job of tasks || []) {
+    if (String(job?.id) === String(id)) return job;
+    for (const panel of job?.subs || []) {
+      if (String(panel?.id) === String(id)) return panel;
+      for (const op of panel?.subs || []) if (String(op?.id) === String(id)) return op;
+    }
+  }
+  return null;
+}
+
 function applyShrinkStartHour(tasks, { opId, proposed, workStartH, workEndH, logBase }) {
   if (opId == null || typeof proposed !== "number" || !Number.isFinite(proposed)) return tasks;
   return (tasks || []).map(job => ({
@@ -222,6 +265,26 @@ async function writeStampedArray(key, nextArr) {
   let prev = null;
   try { prev = await readJson(key); } catch { prev = null; }
   await writeJson(key, stampArray(nextArr, prev));
+  await publishWrite(key, nextArr, prev);
+}
+
+// writeStampedArray's read-modify-write form, for files more than one handler
+// writes (tasks.json: tasks.js and this file; people.json: every clock action).
+// `mutate(stored)` returns the next array, or null to write nothing. It re-runs
+// on a fresh read whenever another write landed first (see _utils/update-json),
+// so it must not have side effects; the publish happens once, after the write.
+// Throws WriteContention (statusCode 503) if it never gets a clean write.
+async function updateStampedArray(key, mutate) {
+  const out = await updateJson(key, (stored) => {
+    const next = mutate(stored);
+    return next == null ? { abort: null } : { value: stampArray(next, stored), next };
+  });
+  if (!out || "abort" in out) return null;
+  await publishWrite(key, out.next, out.previous);
+  return out.next;
+}
+
+async function publishWrite(key, nextArr, prev) {
   // Real-time: signal the change on this dataset's org channel. The S3 key is
   // `orgs/{orgCode}/{file}`, so org + entity come straight from it — no need to
   // thread state through the ~30 call sites. Only the changed ids, only after
@@ -450,9 +513,7 @@ export async function handler(event) {
   const creditPanel = async (panelId, delta) => {
     if (!delta || panelId == null) return;
     try {
-      const tasks = await readJson(tasksKey) ?? [];
-      if (!Array.isArray(tasks)) return;
-      await writeStampedArray(tasksKey, creditPanelHours(tasks, panelId, delta));
+      await updateStampedArray(tasksKey, (tasks) => Array.isArray(tasks) ? creditPanelHours(tasks, panelId, delta) : null);
     } catch { /* non-fatal */ }
   };
 
@@ -587,13 +648,11 @@ export async function handler(event) {
         // Update loggedHours on each job in tasks.json
         if (jobRefs.length > 0 && hours > 0) {
           try {
-            let tasks = await readJson(tasksKey) ?? [];
-            tasks = tasks.map(job => {
+            await updateStampedArray(tasksKey, (stored) => (stored ?? []).map(job => {
               const ref = jobRefs.find(r => String(r.jobId) === String(job.id));
               if (!ref) return job;
               return { ...job, loggedHours: Math.round(((job.loggedHours || 0) + hours) * 100) / 100 };
-            });
-            await writeStampedArray(tasksKey, tasks);
+            }));
           } catch { /* non-fatal */ }
         }
 
@@ -1094,25 +1153,45 @@ export async function handler(event) {
       const jciEffReservoirOpId   = jciReservoirOpId !== undefined ? jciReservoirOpId : jciDerived?.reservoirOpId;
       const jciEffSessionSnapshot = Array.isArray(jciSessionSnapshot) ? jciSessionSnapshot : jciDerived?.sessionSnapshot;
 
-      jciPeople[jciIdx] = {
-        ...jciPerson,
-        activeJobClock: {
-          clockIn: jciClockIn, jobId, panelId, opId, jobTitle, panelTitle, opTitle,
-          // drainCheckpoint's initial value is always clockIn by construction (nothing has
-          // drained yet) — server-derived here rather than trusted from the client, same as
-          // clockIn itself. updateJobSession is the only path that advances it afterward.
-          ...(jciEffSessionId ? { sessionId: jciEffSessionId, drainCheckpoint: jciClockIn } : {}),
-          ...(jciEffReservoirOpId !== undefined ? { reservoirOpId: jciEffReservoirOpId } : {}),
-          ...(Array.isArray(jciEffSessionSnapshot) ? { sessionSnapshot: jciEffSessionSnapshot } : {}),
-        },
-      };
-      try { await writeStampedArray(peopleKey, jciPeople); } catch { return err(500, "Failed to save"); }
+      // The checks above ran on a read that may already be stale: a second clock-in
+      // (another device, a double tap) could have landed since. They are repeated on
+      // the fresh read inside the conditional write, so only one session can win.
+      let jciFail = null;
+      try {
+        await updateStampedArray(peopleKey, (stored) => {
+          jciFail = null;
+          const people = [...(stored ?? [])];
+          const idx = people.findIndex(p => String(p.id) === String(jciPersonId));
+          if (idx === -1) { jciFail = err(404, "Person not found"); return null; }
+          const person = people[idx];
+          if (ENFORCE_CLOCK_JOB_DEPENDENCY && String(person.payType || "hourly") !== "salary" && !person.activeClockIn) {
+            jciFail = err(409, "You must clock in before working on a job."); return null;
+          }
+          if (person.activeJobClock) { jciFail = err(409, "Already clocked into a job"); return null; }
+          people[idx] = {
+            ...person,
+            activeJobClock: {
+              clockIn: jciClockIn, jobId, panelId, opId, jobTitle, panelTitle, opTitle,
+              // drainCheckpoint's initial value is always clockIn by construction (nothing has
+              // drained yet) — server-derived here rather than trusted from the client, same as
+              // clockIn itself. updateJobSession is the only path that advances it afterward.
+              ...(jciEffSessionId ? { sessionId: jciEffSessionId, drainCheckpoint: jciClockIn } : {}),
+              ...(jciEffReservoirOpId !== undefined ? { reservoirOpId: jciEffReservoirOpId } : {}),
+              ...(Array.isArray(jciEffSessionSnapshot) ? { sessionSnapshot: jciEffSessionSnapshot } : {}),
+            },
+          };
+          return people;
+        });
+      } catch (e) { return err(e.statusCode === 503 ? 503 : 500, e.statusCode === 503 ? e.message : "Failed to save"); }
+      if (jciFail) return jciFail;
 
       // Update job and sub-operation status to "In Progress" in tasks.json
       try {
-        let jciTasks = await readJson(tasksKey) ?? [];
+        await updateStampedArray(tasksKey, (stored) => {
+        const jciTasks = [...(stored ?? [])];
         const jciTaskIdx = jciTasks.findIndex(t => t.id === jobId);
-        if (jciTaskIdx !== -1) {
+        if (jciTaskIdx === -1) return null;
+        {
           const jciJob = jciTasks[jciTaskIdx];
           jciTasks[jciTaskIdx] = {
             ...jciJob,
@@ -1131,8 +1210,9 @@ export async function handler(event) {
               };
             }),
           };
-          await writeStampedArray(tasksKey, jciTasks);
         }
+        return jciTasks;
+        });
       } catch (e) { console.warn("jobClockIn: failed to update task status", e); }
 
       return json(200, { ok: true, clockIn: jciClockIn });
@@ -1216,43 +1296,64 @@ export async function handler(event) {
       const jcoShrinkOpId = jcoPerson.activeJobClock.reservoirOpId ?? null;
       const jcoWantsShrink = typeof jcoProposedSH === "number" && jcoShrinkOpId != null;
       if ((jcoHours > 0 && jcoJobId) || jcoWantsShrink) {
+        let jcoSettings = null;
+        if (jcoWantsShrink) { try { jcoSettings = await readJson(settingsKey); } catch { jcoSettings = null; } }
+        const jcoWorkStartH = parseWorkHour(jcoSettings?.workStart, "08:00");
+        const jcoWorkEndH = parseWorkHour(jcoSettings?.workEnd, "17:00");
+        // #287: the proposed edge is the client's number. The server does not redo the
+        // shrink math, but it knows how long the session ran, and the edge cannot have
+        // worked down further than that. Capped in enforce; in log, recorded and applied.
+        const jcoGuardMode = ruleMode("SCHEDULE_RULES_MODE");
+        let jcoOverCap = null;
         try {
-          let tasks = await readJson(tasksKey) ?? [];
-          if (jcoWantsShrink) {
-            let jcoSettings = null;
-            try { jcoSettings = await readJson(settingsKey); } catch { jcoSettings = null; }
-            tasks = applyShrinkStartHour(tasks, {
-              opId: jcoShrinkOpId,
-              proposed: jcoProposedSH,
-              workStartH: parseWorkHour(jcoSettings?.workStart, "08:00"),
-              workEndH: parseWorkHour(jcoSettings?.workEnd, "17:00"),
-              logBase: {
-                date: localDayOf(jcoClockOut),
-                movedBy: jcoPerson.name || "Field",
-                reason: "Worked down by clock-in session",
-                ...(jcoPerson.activeJobClock.sessionId ? { sessionId: jcoPerson.activeJobClock.sessionId } : {}),
-              },
+          await updateStampedArray(tasksKey, (stored) => {
+            let tasks = stored ?? [];
+            jcoOverCap = null;
+            if (jcoWantsShrink) {
+              const shrinkOp = findNode(tasks, jcoShrinkOpId);
+              const storedSH = shrinkOp?.startHour ?? jcoWorkStartH;
+              const capSH = Math.round((storedSH + jcoHours) * 100) / 100 + 0.01;
+              let proposed = jcoProposedSH;
+              if (jcoGuardMode !== "off" && proposed > capSH) {
+                jcoOverCap = { proposed, storedSH, sessionHours: jcoHours };
+                if (jcoGuardMode === "enforce") proposed = Math.round((storedSH + jcoHours) * 100) / 100;
+              }
+              tasks = applyShrinkStartHour(tasks, {
+                opId: jcoShrinkOpId,
+                proposed,
+                workStartH: jcoWorkStartH,
+                workEndH: jcoWorkEndH,
+                logBase: {
+                  date: localDayOf(jcoClockOut),
+                  movedBy: jcoPerson.name || "Field",
+                  reason: "Worked down by clock-in session",
+                  ...(jcoPerson.activeJobClock.sessionId ? { sessionId: jcoPerson.activeJobClock.sessionId } : {}),
+                },
+              });
+            }
+            if (jcoHours > 0 && jcoJobId) tasks = tasks.map(job => {
+              if (job.id !== jcoJobId) return job;
+              const newJobHours = Math.round(((job.loggedHours || 0) + jcoHours) * 100) / 100;
+              const newSubs = jcoOpId ? (job.subs || []).map(panel => {
+                if (panel.id !== jcoPanelId) return panel;
+                return {
+                  ...panel,
+                  subs: (panel.subs || []).map(op => {
+                    if (op.id !== jcoOpId) return op;
+                    return { ...op, loggedHours: Math.round(((op.loggedHours || 0) + jcoHours) * 100) / 100 };
+                  }),
+                };
+              }) : job.subs;
+              return { ...job, loggedHours: newJobHours, subs: newSubs };
             });
-          }
-          if (jcoHours > 0 && jcoJobId) tasks = tasks.map(job => {
-            if (job.id !== jcoJobId) return job;
-            const newJobHours = Math.round(((job.loggedHours || 0) + jcoHours) * 100) / 100;
-            const newSubs = jcoOpId ? (job.subs || []).map(panel => {
-              if (panel.id !== jcoPanelId) return panel;
-              return {
-                ...panel,
-                subs: (panel.subs || []).map(op => {
-                  if (op.id !== jcoOpId) return op;
-                  return { ...op, loggedHours: Math.round(((op.loggedHours || 0) + jcoHours) * 100) / 100 };
-                }),
-              };
-            }) : job.subs;
-            return { ...job, loggedHours: newJobHours, subs: newSubs };
+            // Panels were never credited by anything — see creditPanelHours.
+            return creditPanelHours(tasks, jcoPanelId, jcoHours);
           });
-          // Panels were never credited by anything — see creditPanelHours.
-          tasks = creditPanelHours(tasks, jcoPanelId, jcoHours);
-          await writeStampedArray(tasksKey, tasks);
         } catch { /* non-fatal */ }
+        if (jcoOverCap) {
+          logRule("session-guard", { mode: jcoGuardMode, guard: "shrinkStartHour", field: "startHour",
+            personId: String(jcoPId), opId: String(jcoShrinkOpId), ...jcoOverCap });
+        }
       }
 
       return json(200, { ok: true, hours: jcoHours });
@@ -1275,64 +1376,86 @@ export async function handler(event) {
       if (!ujsSessionId) return err(400, "Missing sessionId");
       if (!_ujs.isAdmin && String(_ujs.personId) !== String(ujsPId)) return err(403, "Can only update your own job session");
 
-      let ujsPeople;
-      try { ujsPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
-
-      const ujsIdx = ujsPeople.findIndex(p => String(p.id) === String(ujsPId));
-      if (ujsIdx === -1) return err(404, "Person not found");
-
-      const ujsPerson = ujsPeople[ujsIdx];
-      if (!ujsPerson.activeJobClock) return err(409, "Not clocked into any job");
-      if (ujsPerson.activeJobClock.sessionId !== ujsSessionId) return err(409, "Session mismatch — a newer session is active");
-
-      ujsPeople[ujsIdx] = {
-        ...ujsPerson,
-        activeJobClock: {
-          ...ujsPerson.activeJobClock,
-          ...(ujsDrainCheckpoint !== undefined ? { drainCheckpoint: ujsDrainCheckpoint } : {}),
-          ...(ujsFrozenAtMs !== undefined ? { frozenAtMs: ujsFrozenAtMs } : {}),
-          // Cumulative paused total as of drainCheckpoint. Moves with the checkpoint
-          // and only with it, so the client can tell how much of totalPausedMs
-          // already fell before the current drain window opened.
-          ...(ujsPausedMsAtCp !== undefined ? { pausedMsAtCheckpoint: ujsPausedMsAtCp } : {}),
-          // Q7b. The instant a session stopped accruing because the working day closed rather
-          // than because anyone stopped it -- the admin resolve queue reads this to find the
-          // punches nobody closed. Distinct from frozenAtMs, which is a HELD session somebody
-          // deliberately paused: one is a decision, the other is a thing nobody noticed, and
-          // collapsing them would bury the second in the first.
-          ...(ujsUnclosedAt !== undefined ? { unclosedAt: ujsUnclosedAt } : {}),
-        },
-      };
-      try { await writeStampedArray(peopleKey, ujsPeople); } catch { return err(500, "Failed to save"); }
+      // #195: every field is checked against the stored session before it is merged —
+      // this path used to take anything, so a bad value froze, drained or flagged a
+      // session at a time it never reached. Refused in enforce; recorded in log.
+      const ujsGuardMode = ruleMode("SCHEDULE_RULES_MODE");
+      let ujsFail = null, ujsBad = [], ujsJc = null;
+      try {
+        await updateStampedArray(peopleKey, (stored) => {
+          ujsFail = null; ujsBad = []; ujsJc = null;
+          const people = [...(stored ?? [])];
+          const idx = people.findIndex(p => String(p.id) === String(ujsPId));
+          if (idx === -1) { ujsFail = err(404, "Person not found"); return null; }
+          const person = people[idx];
+          if (!person.activeJobClock) { ujsFail = err(409, "Not clocked into any job"); return null; }
+          if (person.activeJobClock.sessionId !== ujsSessionId) { ujsFail = err(409, "Session mismatch — a newer session is active"); return null; }
+          if (ujsGuardMode !== "off") {
+            ujsBad = invalidSessionFields(person.activeJobClock, {
+              drainCheckpoint: ujsDrainCheckpoint, frozenAtMs: ujsFrozenAtMs,
+              pausedMsAtCheckpoint: ujsPausedMsAtCp, unclosedAt: ujsUnclosedAt,
+            }, Date.now());
+            if (ujsBad.length && ujsGuardMode === "enforce") {
+              ujsFail = err(400, `Invalid session field${ujsBad.length > 1 ? "s" : ""}: ${ujsBad.map(b => `${b.field} (${b.why})`).join(", ")}`);
+              return null;
+            }
+          }
+          people[idx] = {
+            ...person,
+            activeJobClock: {
+              ...person.activeJobClock,
+              ...(ujsDrainCheckpoint !== undefined ? { drainCheckpoint: ujsDrainCheckpoint } : {}),
+              ...(ujsFrozenAtMs !== undefined ? { frozenAtMs: ujsFrozenAtMs } : {}),
+              // Cumulative paused total as of drainCheckpoint. Moves with the checkpoint
+              // and only with it, so the client can tell how much of totalPausedMs
+              // already fell before the current drain window opened.
+              ...(ujsPausedMsAtCp !== undefined ? { pausedMsAtCheckpoint: ujsPausedMsAtCp } : {}),
+              // Q7b. The instant a session stopped accruing because the working day closed rather
+              // than because anyone stopped it -- the admin resolve queue reads this to find the
+              // punches nobody closed. Distinct from frozenAtMs, which is a HELD session somebody
+              // deliberately paused: one is a decision, the other is a thing nobody noticed, and
+              // collapsing them would bury the second in the first.
+              ...(ujsUnclosedAt !== undefined ? { unclosedAt: ujsUnclosedAt } : {}),
+            },
+          };
+          ujsJc = people[idx].activeJobClock;
+          return people;
+        });
+      } catch (e) { return err(e.statusCode === 503 ? 503 : 500, e.statusCode === 503 ? e.message : "Failed to save"); }
+      for (const bad of ujsBad) {
+        logRule("session-guard", { mode: ujsGuardMode, guard: "updateJobSession", field: bad.field, why: bad.why,
+          personId: String(ujsPId), sessionId: String(ujsSessionId) });
+      }
+      if (ujsFail) return ujsFail;
 
       // Freezing a held session also stamps op.pendingSession — everything approve/deny
       // needs. The web used to stamp it and POST the tree, which 403'd every worker.
       // Built from the server's own copy of the session, so the caller supplies only
       // the instant. Best-effort: the freeze on the session is what stops the clock.
       if (typeof ujsFrozenAtMs === "number") {
-        const ujsJc = ujsPeople[ujsIdx].activeJobClock;
         try {
-          const ujsTasks = await readJson(tasksKey) ?? [];
-          let ujsStamped = false;
-          const ujsNext = ujsTasks.map(job => ({
-            ...job,
-            subs: (job?.subs || []).map(panel => ({
-              ...panel,
-              subs: (panel?.subs || []).map(op => {
-                if (!op || String(op.id) !== String(ujsJc.opId)) return op;
-                ujsStamped = true;
-                return { ...op, pendingSession: {
-                  sessionId: ujsJc.sessionId, clockIn: ujsJc.clockIn, frozenAtMs: ujsFrozenAtMs,
-                  reservoirOpId: ujsJc.reservoirOpId, sessionSnapshot: ujsJc.sessionSnapshot || [],
-                } };
-              }),
-            })),
-          }));
-          if (ujsStamped) await writeStampedArray(tasksKey, ujsNext);
+          await updateStampedArray(tasksKey, (stored) => {
+            let stamped = false;
+            const next = (stored ?? []).map(job => ({
+              ...job,
+              subs: (job?.subs || []).map(panel => ({
+                ...panel,
+                subs: (panel?.subs || []).map(op => {
+                  if (!op || String(op.id) !== String(ujsJc.opId)) return op;
+                  stamped = true;
+                  return { ...op, pendingSession: {
+                    sessionId: ujsJc.sessionId, clockIn: ujsJc.clockIn, frozenAtMs: ujsFrozenAtMs,
+                    reservoirOpId: ujsJc.reservoirOpId, sessionSnapshot: ujsJc.sessionSnapshot || [],
+                  } };
+                }),
+              })),
+            }));
+            return stamped ? next : null;
+          });
         } catch (e) { console.warn("updateJobSession: failed to stamp pendingSession", e); }
       }
 
-      return json(200, { ok: true, activeJobClock: ujsPeople[ujsIdx].activeJobClock });
+      return json(200, { ok: true, activeJobClock: ujsJc });
     }
 
     // ── Job Pause (Bearer token, no PIN) ──────────────────────────────────────
@@ -1717,13 +1840,11 @@ export async function handler(event) {
       // Mirror the kiosk clockOut: bump loggedHours on each referenced job.
       if (jobRefs.length > 0 && hours > 0) {
         try {
-          let tasks = await readJson(tasksKey) ?? [];
-          tasks = tasks.map(job => {
+          await updateStampedArray(tasksKey, (stored) => (stored ?? []).map(job => {
             const ref = jobRefs.find(r => String(r.jobId) === String(job.id));
             if (!ref) return job;
             return { ...job, loggedHours: Math.round(((job.loggedHours || 0) + hours) * 100) / 100 };
-          });
-          await writeStampedArray(tasksKey, tasks);
+          }));
         } catch { /* non-fatal */ }
       }
 
@@ -1878,13 +1999,11 @@ export async function handler(event) {
       // Update loggedHours on each job in tasks.json
       if (jobRefs.length > 0 && hours > 0) {
         try {
-          let tasks = await readJson(tasksKey) ?? [];
-          tasks = tasks.map(job => {
+          await updateStampedArray(tasksKey, (stored) => (stored ?? []).map(job => {
             const ref = jobRefs.find(r => String(r.jobId) === String(job.id));
             if (!ref) return job;
             return { ...job, loggedHours: Math.round(((job.loggedHours || 0) + hours) * 100) / 100 };
-          });
-          await writeStampedArray(tasksKey, tasks);
+          }));
         } catch { /* non-fatal */ }
       }
 
@@ -1956,9 +2075,6 @@ export async function handler(event) {
       const { jobId, panelId, opId } = body;
       if (!jobId || !panelId || !opId) return err(400, "Missing jobId, panelId, or opId");
 
-      let tasks;
-      try { tasks = await readJson(tasksKey) ?? []; } catch { return err(500, "Failed to read tasks"); }
-
       // A finishRequests[] entry is what the chat bubble reads to render its
       // Complete/Deny pills. Writing only `pendingFinish` left an iOS request
       // visible in the Time Stamp Requests tab and NOWHERE else — no bubble, so
@@ -1978,8 +2094,11 @@ export async function handler(event) {
       let byName = body.personName ?? null;
       let updated = false;
       let jobTitle = "", panelTitle = "", opTitle = "", jobNumber = null;
+      const frById = byId;
 
-      tasks = tasks.map(job => {
+      const frMutate = (stored) => {
+      updated = false; byId = frById;
+      const tasks = (stored ?? []).map(job => {
         if (String(job.id) !== String(jobId)) return job;
         jobTitle = job.title || ""; jobNumber = job.jobNumber ?? null;
         return {
@@ -2007,8 +2126,11 @@ export async function handler(event) {
         };
       });
 
+      return updated ? tasks : null;
+      };
+      try { await updateStampedArray(tasksKey, frMutate); }
+      catch (e) { return err(e.statusCode === 503 ? 503 : 500, e.statusCode === 503 ? e.message : "Failed to save tasks"); }
       if (!updated) return err(404, "Operation not found");
-      try { await writeStampedArray(tasksKey, tasks); } catch { return err(500, "Failed to save tasks"); }
 
       byName = byName || nameOf(byId) || "Field";
 

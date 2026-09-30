@@ -1,6 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
+import { personDeptMatch, unitDepartment } from "./scheduleRules.js";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { TraqsBars, BARS_ASPECT, BRAND_BARS } from "./brand.jsx";
@@ -8600,6 +8601,21 @@ Extraction rules:
         return;
       }
       lastSaveTime.current = Date.now();
+      // The server kept its own copy of any job we held a stale copy of (someone
+      // clocked in, out or asked to finish since we loaded it) and saved the rest.
+      // Its copy is therefore the result: roll back to it and say what was kept.
+      const conflicts = results[0].value?.conflicts;
+      if (Array.isArray(conflicts) && conflicts.length > 0) {
+        const titles = conflicts.map(id => (tasks.find(t => String(t.id) === String(id))?.title) || id);
+        setSaveError({
+          endpoint: "saveTasks",
+          status: 409,
+          message: `${titles.join(", ")} changed on the server while you were editing — your change${conflicts.length > 1 ? "s to those jobs weren't" : " to it wasn't"} saved. Everything else was.`,
+          at: Date.now(),
+        });
+        await rollbackToServerRef.current();
+        return;
+      }
       protectedJobIds.current.clear();
       setSaveError(null);
       setTimeout(() => setSaveStatus("saved"), 600);
@@ -9468,19 +9484,13 @@ Extraction rules:
   // would have silently re-departmented that panel's ops and changed who the
   // scheduler picks for them. The only behaviour change intended here is the
   // no-department case.
+  // unitDepartment and personDeptMatch are the server's department rule too
+  // (src/scheduleRules.js). The title fallback — an op named like a department
+  // requires it — is web-only, so the server is never stricter than this.
   const deptOfUnit = (n, panel, job) =>
-    (n && n.requiredDepartment)
-    || (panel && panel.requiredDepartment)
-    || (job && job.requiredDepartment)
+    unitDepartment(n, panel, job)
     || (deptNamesLower.has(String((n && n.title) || "").trim().toLowerCase()) ? String(n.title).trim() : "")
     || "";
-
-  const personDeptMatch = (p, reqDept) => {
-    if (!reqDept) return "primary";
-    if ((p.department || "") === reqDept) return "primary";
-    if ((p.secondaryDepartment || "") === reqDept) return "secondary";
-    return false;
-  };
 
   // Unique roles and hpd values for filter panel
   const uniqueRoles = useMemo(() => [...new Set(people.map(p => p.department).filter(Boolean))].sort(), [people]);

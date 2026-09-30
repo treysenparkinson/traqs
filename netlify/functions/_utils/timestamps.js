@@ -75,8 +75,20 @@ export function stampArray(next, previous) {
       // the current time so the record still gets one.
       return { ...rec, lastModifiedAt: prev.lastModifiedAt ?? stamp };
     }
-    return { ...rec, lastModifiedAt: stamp };
+    return { ...rec, lastModifiedAt: prev ? laterThan(prev.lastModifiedAt, stamp) : stamp };
   });
+}
+
+// A changed record's new stamp must be LATER than its old one. Stamps have
+// millisecond resolution, so two writes to one record inside the same
+// millisecond used to get the same stamp — and a stamp that doesn't move can't
+// tell a stale copy from a fresh one (tasks.js conflict check, SCHEDULE_MAP
+// #185), nor tell delta-sync the record changed again. Nudged 1ms past the old
+// stamp in that case; normally `stamp` is already later and is used as is.
+function laterThan(prevStamp, stamp) {
+  const p = Date.parse(prevStamp ?? "");
+  if (!Number.isFinite(p) || Date.parse(stamp) > p) return stamp;
+  return new Date(p + 1).toISOString();
 }
 
 /**
