@@ -1,6 +1,7 @@
 import { requireOrgMember } from "./_utils/auth.js";
 import { canClockIn, personCan } from "./_utils/can.js";
 import { updateJson } from "./_utils/update-json.js";
+import { DEFAULT_ORG_SETTINGS } from "../../src/orgDefaults.js";
 import { ruleMode, logRule } from "./_utils/rule-mode.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
@@ -1298,8 +1299,8 @@ export async function handler(event) {
       if ((jcoHours > 0 && jcoJobId) || jcoWantsShrink) {
         let jcoSettings = null;
         if (jcoWantsShrink) { try { jcoSettings = await readJson(settingsKey); } catch { jcoSettings = null; } }
-        const jcoWorkStartH = parseWorkHour(jcoSettings?.workStart, "08:00");
-        const jcoWorkEndH = parseWorkHour(jcoSettings?.workEnd, "17:00");
+        const jcoWorkStartH = parseWorkHour(jcoSettings?.workStart, DEFAULT_ORG_SETTINGS.workStart);
+        const jcoWorkEndH = parseWorkHour(jcoSettings?.workEnd, DEFAULT_ORG_SETTINGS.workEnd);
         // #287: the proposed edge is the client's number. The server does not redo the
         // shrink math, but it knows how long the session ran, and the edge cannot have
         // worked down further than that. Capped in enforce; in log, recorded and applied.

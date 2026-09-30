@@ -22,7 +22,7 @@ struct WorkDayClockTests {
         WorkDayClock.day(workStart: 7, workEnd: 16, breaks: breaks, lunch: lunch)
     }
     /// A lunch of zero, to isolate a case from the implicit one — see
-    /// `aMissingLunchIsStillAnHourAtNoon`.
+    /// `aMissingLunchIsTheDefaultHalfHourAtNoon`.
     private var noLunch: OrgBreak { OrgBreak(time: "12:00", durationMinutes: 0) }
 
     private func near(_ a: Double, _ b: Double, _ tol: Double = 0.001) -> Bool {
@@ -112,12 +112,35 @@ struct WorkDayClockTests {
         #expect(WorkDayClock.walk(from: 8, hours: 40, in: silly).days > 1)
     }
 
-    /// `lunch?.durationMinutes ?? 60` — a MISSING lunch is an hour at noon, not no
-    /// lunch. Surprising enough to pin: it is what makes an org that never
-    /// configured one still lose an hour a day.
-    @Test func aMissingLunchIsStillAnHourAtNoon() {
+    /// A MISSING lunch is the org default's — 30 minutes at noon (orgDefaults.js),
+    /// not no lunch, and no longer the hour it used to be on iOS alone.
+    @Test func aMissingLunchIsTheDefaultHalfHourAtNoon() {
         let implied = WorkDayClock.day(workStart: 8, workEnd: 16, breaks: [], lunch: nil)
-        #expect(implied.dead == [DeadWindow(start: 12, duration: 1)])
+        #expect(WorkDayClock.defaultLunchMinutes == 30)
+        #expect(implied.dead == [DeadWindow(start: 12, duration: 0.5)])
+    }
+
+    /// A malformed workStart / workEnd opens and closes the day at the org
+    /// defaults, 07:00–15:00 — not noon, which is only a lunch or break's fallback.
+    @Test func aMalformedDayFallsBackToTheOrgDefaults() {
+        var s = OrgSettings.default
+        s.workStart = "soon"
+        s.workEnd = ""
+        let d = WorkDayClock.day(from: s)
+        #expect(near(d.workStart, 7))
+        #expect(near(d.workEnd, 15))
+        #expect(near(WorkDayClock.hour(from: "bad"), 12))
+        #expect(near(WorkDayClock.hour(from: "07:30", fallback: 7), 7.5))
+    }
+
+    /// `OrgSettings.default` is orgDefaults.js: 07:00–15:00, lunch 12:00 for 30,
+    /// one 15-minute break at 10:00.
+    @Test func theOrgDefaultMatchesTheWeb() {
+        let d = OrgSettings.default
+        #expect(d.workStart == "07:00" && d.workEnd == "15:00")
+        #expect(d.lunch == OrgBreak(time: "12:00", durationMinutes: 30))
+        #expect(d.breaks == [OrgBreak(time: "10:00", durationMinutes: 15)])
+        #expect(d.workDays == [1, 2, 3, 4, 5])
     }
 
     /// An entry timed outside the working day is still time that comes off it —

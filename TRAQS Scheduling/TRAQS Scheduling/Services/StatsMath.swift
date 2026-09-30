@@ -127,12 +127,30 @@ enum StatsMath {
     /// window's own work days gives the same answer as before for a full week.
     ///
     /// `workDays` uses the JS convention the org settings store: Sun=0…Sat=6.
+    /// A raw set, taken literally — an empty one counts zero.
     static func workDayCount(in interval: DateInterval, workDays: Set<Int>, calendar: Calendar) -> Int {
+        workDayCount(in: interval, calendar: calendar) {
+            workDays.contains(calendar.component(.weekday, from: $0) - 1)
+        }
+    }
+
+    /// The same count on the org's calendar, holidays excluded — what capacity
+    /// is measured in. A holiday used to count as a day of capacity nobody could
+    /// work, so utilization read low every week that had one.
+    static func workDayCount(in interval: DateInterval, workCalendar: WorkCalendar, calendar: Calendar) -> Int {
+        workDayCount(in: interval, calendar: calendar) { workCalendar.isWorkDay($0, in: calendar) }
+    }
+
+    private static func workDayCount(in interval: DateInterval, calendar: Calendar,
+                                     isWorkDay: (Date) -> Bool) -> Int {
         guard interval.end > interval.start else { return 0 }
         var count = 0
         var d = calendar.startOfDay(for: interval.start)
-        while d < interval.end {
-            if workDays.contains(calendar.component(.weekday, from: d) - 1) { count += 1 }
+        // Bounded: a pay period is weeks, and a corrupt one must not hang the page.
+        var guardCount = 0
+        while d < interval.end && guardCount < 4000 {
+            guardCount += 1
+            if isWorkDay(d) { count += 1 }
             guard let next = calendar.date(byAdding: .day, value: 1, to: d) else { break }
             d = next
         }

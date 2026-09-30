@@ -27,6 +27,85 @@ export function isWorkingDay(ds, { workDays = DEFAULT_WORK_DAYS, holidays = [] }
   return days.includes(dow) && !(Array.isArray(holidays) && holidays.includes(day));
 }
 
+// ── The working calendar (SCHEDULE_MAP root cause 6) ─────────────────────────
+// The ONE answer to "is this a working day, and how many working days apart are
+// two dates" — the org's work week AND its holidays, every loop bounded. Working-day
+// math used to read org config only when a caller remembered to pass it, fell back
+// to Mon–Fri with no holidays when it didn't, and some helpers never took holidays
+// at all: a holiday was painted over, moves landed on weekends, and an empty work
+// week hung every open session. An empty or missing work week reads as Mon–Fri.
+const CAL_BOUND = 5000;
+const dayStep = (ds, n) => { const d = new Date(`${ds.slice(0, 10)}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
+
+/**
+ * @param settings { workDays?, holidays? } — org settings (or a subset)
+ * @returns {{ isWorkDay, add, next, diff, diffSigned, span, countForward, segments, spansOffDay }}
+ *   add(ds, n)          n working days after (or before, n < 0) ds, not counting ds
+ *   next(ds)            ds when it is a working day, else the next one
+ *   diff(a, b)          working days in (a, b]; 0 when b <= a
+ *   diffSigned(a, b)    diff, negative when b is before a
+ *   span(a, b)          working days in [a, b]
+ *   countForward(s, n)  the day on which the n-th working day counting from s (inclusive) falls
+ *   segments(start, end, clampStart, clampEnd, noClampStart)  runs of consecutive working days
+ *   spansOffDay(a, b)   whether [a, b] contains a non-working day or holiday
+ */
+export function workCalendar({ workDays, holidays } = {}) {
+  const days = Array.isArray(workDays) && workDays.some(d => Number.isInteger(d) && d >= 0 && d <= 6)
+    ? workDays.filter(d => Number.isInteger(d) && d >= 0 && d <= 6) : DEFAULT_WORK_DAYS;
+  const off = new Set(Array.isArray(holidays) ? holidays.map(h => String(h).slice(0, 10)) : []);
+  const isWorkDay = (ds) => typeof ds === "string" && /^\d{4}-\d{2}-\d{2}/.test(ds)
+    && days.includes(new Date(`${ds.slice(0, 10)}T12:00:00Z`).getUTCDay()) && !off.has(ds.slice(0, 10));
+  const add = (ds, n) => {
+    if (!ds) return ds;
+    let d = ds.slice(0, 10), left = Math.abs(n);
+    const dir = n >= 0 ? 1 : -1;
+    for (let g = 0; left > 0 && g < CAL_BOUND; g++) { d = dayStep(d, dir); if (isWorkDay(d)) left--; }
+    return d;
+  };
+  const next = (ds) => {
+    if (!ds) return ds;
+    let d = ds.slice(0, 10);
+    for (let g = 0; !isWorkDay(d) && g < CAL_BOUND; g++) d = dayStep(d, 1);
+    return d;
+  };
+  const diff = (a, b) => {
+    if (!a || !b) return 0;
+    let n = 0;
+    for (let d = a.slice(0, 10), g = 0; d < b.slice(0, 10) && g < CAL_BOUND; g++) { d = dayStep(d, 1); if (isWorkDay(d)) n++; }
+    return n;
+  };
+  const span = (a, b) => {
+    if (!a || !b) return 0;
+    let n = 0;
+    for (let d = a.slice(0, 10), g = 0; d <= b.slice(0, 10) && g < CAL_BOUND; g++, d = dayStep(d, 1)) if (isWorkDay(d)) n++;
+    return n;
+  };
+  const countForward = (start, numDays) => {
+    if (!start || numDays <= 0) return start;
+    let d = start.slice(0, 10), c = 0;
+    for (let g = 0; g < CAL_BOUND; g++) { if (isWorkDay(d) && ++c >= numDays) break; d = dayStep(d, 1); }
+    return d;
+  };
+  const segments = (start, end, clampStart, clampEnd, noClampStart = false) => {
+    const s = (!noClampStart && start < clampStart) ? clampStart : start;
+    const e = end > clampEnd ? clampEnd : end;
+    if (!s || !e || s > e) return [];
+    const out = []; let segStart = null;
+    for (let d = s, g = 0; d <= e && g < CAL_BOUND; g++, d = dayStep(d, 1)) {
+      const wd = isWorkDay(d);
+      if (wd && segStart === null) segStart = d;
+      else if (!wd && segStart !== null) { out.push({ start: segStart, end: dayStep(d, -1) }); segStart = null; }
+    }
+    if (segStart !== null) out.push({ start: segStart, end: e });
+    return out;
+  };
+  const spansOffDay = (a, b) => {
+    for (let d = a, g = 0; d <= b && g < CAL_BOUND; g++, d = dayStep(d, 1)) if (!isWorkDay(d)) return true;
+    return false;
+  };
+  return { isWorkDay, add, next, diff, diffSigned: (a, b) => (a <= b ? diff(a, b) : -diff(b, a)), span, countForward, segments, spansOffDay };
+}
+
 /** "primary" / "secondary" when the person holds the department, false otherwise. */
 export function personDeptMatch(p, reqDept) {
   if (!reqDept) return "primary";

@@ -702,13 +702,10 @@ struct TasksView: View {
         return out
     }
 
-    /// Mirrors the desktop's `isWorkDay`: a date is a work day iff its weekday
-    /// (0=Sun … 6=Sat) is in `orgSettings.workDays`. Calendar reports weekday
-    /// 1=Sun … 7=Sat, so subtract 1 to align with the JS convention the org
-    /// settings use.
+    /// Mirrors the desktop's `isWorkDay`: the org's `workDays` (empty → Mon–Fri)
+    /// AND its `holidays`, through the same `WorkCalendar` the Schedule page uses.
     private func isWorkDay(_ day: Date) -> Bool {
-        let jsDay = cal.component(.weekday, from: day) - 1
-        return appState.orgSettings.workDays.contains(jsDay)
+        GanttView.isWorkDay(day, org: appState.orgSettings, in: cal)
     }
 
     /// Pre-computed map of `startOfDay → task count`. One pass through
@@ -717,12 +714,16 @@ struct TasksView: View {
     /// clipped to `orgSettings.workDays`.
     private var dayCountMap: [Date: Int] {
         var map: [Date: Int] = [:]
+        let workCal = WorkCalendar(org: appState.orgSettings)   // built once, not per day
         for task in allTasks {
             guard let s = task.startDate, let e = task.endDate, e >= s else { continue }
             var day = cal.startOfDay(for: s)
             let end = cal.startOfDay(for: e)
-            while day <= end {
-                if isWorkDay(day) {
+            // Bounded: a mistyped year would otherwise walk thousands of days.
+            var guardCount = 0
+            while day <= end && guardCount < 4000 {
+                guardCount += 1
+                if workCal.isWorkDay(day, in: cal) {
                     map[day, default: 0] += 1
                 }
                 guard let next = cal.date(byAdding: .day, value: 1, to: day) else { break }
@@ -794,7 +795,9 @@ struct TasksView: View {
             guard let s = task.startDate, let e = task.endDate, e >= s else { continue }
             var day = cal.startOfDay(for: s)
             let end = cal.startOfDay(for: e)
-            while day <= end {
+            var guardCount = 0   // bounded, as in dayCountMap
+            while day <= end && guardCount < 4000 {
+                guardCount += 1
                 if bounds.contains(day) && isWorkDay(day) {
                     map[day, default: []].append(task)
                 }
@@ -887,8 +890,9 @@ private struct WeekStrip: View {
     let selected: Date
     let countFor: (Date) -> Int
     let onPick: (Date) -> Void
-    /// Returns true when the date is part of `orgSettings.workDays`. Non-work
-    /// days are shown muted and aren't tappable (and never display dots).
+    /// Returns true when the date is an org working day (in workDays, not a
+    /// holiday). Non-work days are shown muted and aren't tappable (and never
+    /// display dots).
     let isWorkDay: (Date) -> Bool
     private let cal = Calendar.current
 

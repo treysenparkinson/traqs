@@ -317,7 +317,7 @@ struct MoreView: View {
     /// full week and the right one for any other span.
     private func capacityHours(in interval: DateInterval) -> Double {
         let s = appState.orgSettings
-        let days = StatsMath.workDayCount(in: interval, workDays: Set(s.workDays),
+        let days = StatsMath.workDayCount(in: interval, workCalendar: WorkCalendar(org: s),
                                           calendar: Calendar.current)
         return max(1.0, s.productiveHoursPerDay * Double(days))
     }

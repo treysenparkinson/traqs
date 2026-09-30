@@ -14,10 +14,13 @@
 // With no org timeZone configured there is no way to know when the shop's day
 // ends (the server runs on UTC), so only the backstop applies.
 
+import { DEFAULT_ORG_SETTINGS } from "../../../src/orgDefaults.js";
+
 export const GRACE_MS = 30 * 60 * 1000;
 export const BACKSTOP_MS = 12 * 60 * 60 * 1000;
 // Matches the web app's fallback when an org has never set working hours.
-export const DEFAULT_WORK_END = "15:00";
+// The org default (src/orgDefaults.js) — one value on every surface.
+export const DEFAULT_WORK_END = DEFAULT_ORG_SETTINGS.workEnd;
 
 // Offset (ms) of `timeZone` from UTC at instant `ms`: local wall clock minus UTC.
 function tzOffsetMs(ms, timeZone) {

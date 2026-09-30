@@ -3,6 +3,7 @@
 // report the same numbers only if they run the same algorithm.
 
 import { localDay } from "./localDay.js";
+import { DEFAULT_ORG_SETTINGS } from "./orgDefaults.js";
 
 /**
  * Hours accrued on ONE open job clock, net of paused time.
@@ -766,7 +767,11 @@ export function rollupLeafHours(node, leafHours) {
 //
 // A range already at or after the floor is returned untouched, so this is safe to apply to
 // everything and only moves what breaks the rule.
-export function shiftRangeForward(startDS, endDS, floorDS) {
+const _hh = (t) => { const [h, m] = t.split(":").map(Number); return h + m / 60; };
+// The org defaults (src/orgDefaults.js), for a caller that passes no work window.
+const _defStartH = _hh(DEFAULT_ORG_SETTINGS.workStart), _defEndH = _hh(DEFAULT_ORG_SETTINGS.workEnd);
+
+export function shiftRangeForward(startDS, endDS, floorDS, cal = null) {
   const DAY = 86400000;
   const parse = (ds) => {
     if (typeof ds !== "string" || ds.length !== 10 || ds[4] !== "-" || ds[7] !== "-") return null;
@@ -783,6 +788,13 @@ export function shiftRangeForward(startDS, endDS, floorDS) {
   const s = parse(startDS), f = parse(floorDS);
   if (s == null || f == null || s >= f) return { start: startDS, end: endDS, shiftedDays: 0 };
   const shiftedDays = Math.round((f - s) / DAY);
+  // With the org's calendar (scheduleRules.workCalendar), the range keeps its WORKING-day
+  // length: a shift by calendar days only did that for multiples of a week, so a Mon–Fri
+  // range moved to a Wednesday ended on a Sunday, three working days long (#86).
+  if (cal && parse(endDS) != null) {
+    const start = cal.next(floorDS);
+    return { start, end: cal.countForward(start, Math.max(1, cal.span(startDS, endDS))), shiftedDays };
+  }
   const e = parse(endDS);
   return {
     start: floorDS,
@@ -996,7 +1008,7 @@ export function dayHourMs(ds, h) {
  * arguing about different rectangles.
  */
 export function opInterval(op, cfg) {
-  const { workStartH = 8, workEndH = 16 } = cfg || {};
+  const { workStartH = _defStartH, workEndH = _defEndH } = cfg || {};
   if (!op || !op.start || !op.end) return null;
   const sH = op.startHour ?? workStartH;
   const eH = op.start === op.end
@@ -1056,7 +1068,7 @@ export function firstFreeStart(desiredStart, durationMs, occupied) {
  * the schedule can only place work when the shop is open.
  */
 export function normalizeToWorkTime(ms, cfg) {
-  const { workStartH = 8, workEndH = 16, workDays = [1, 2, 3, 4, 5], holidays = [] } = cfg || {};
+  const { workStartH = _defStartH, workEndH = _defEndH, workDays = [1, 2, 3, 4, 5], holidays = [] } = cfg || {};
   if (!Number.isFinite(ms)) return ms;
   const holidaySet = new Set(holidays || []);
   const workDaySet = new Set(workDays || []);
@@ -1214,7 +1226,7 @@ export const buildDayWindows = (workStartH, workEndH, breaks, lunch) => {
   const raw = (breaks || [])
     .filter(b => (b?.durationMinutes || 0) > 0)
     .map(b => ({ start: _phW(b.time), dur: b.durationMinutes / 60 }));
-  const lnchMin = lunch?.durationMinutes ?? 60;
+  const lnchMin = lunch?.durationMinutes ?? DEFAULT_ORG_SETTINGS.lunch.durationMinutes;
   if (lnchMin > 0) raw.push({ start: _phW(lunch?.time), dur: lnchMin / 60 });
   // Total configured unproductive time — the number that must come off the day.
   // Never so much that the day has under an hour of work left in it.

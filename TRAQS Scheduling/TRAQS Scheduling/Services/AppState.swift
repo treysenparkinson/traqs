@@ -1654,23 +1654,30 @@ class AppState {
             for o in p.subs { for s in [o.start, o.end] { if let d = s.asDate { allDates.append(d) } } }
         }
         if let maxEnd = allDates.max(), let minStart = allDates.min(), maxEnd < todayStart {
-            func isWork(_ d: Date) -> Bool { orgSettings.workDays.contains(cal.component(.weekday, from: d) - 1) }
-            var target = todayStart
-            var g = 0
-            while !isWork(target) && g < 14 { target = cal.date(byAdding: .day, value: 1, to: target) ?? target; g += 1 }
-            let delta = cal.dateComponents([.day], from: minStart, to: target).day ?? 0
-            if delta > 0 {
-                let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"
-                func shift(_ s: String) -> String { guard let dt = s.asDate else { return s }; return f.string(from: cal.date(byAdding: .day, value: delta, to: dt) ?? dt) }
-                job.start = shift(job.start); job.end = shift(job.end)
+            // Shifted by WORKING days on the org's calendar (weekends and holidays),
+            // not calendar days: each range keeps its working-day length and its
+            // working-day offset from the job's earliest date. See
+            // `WorkCalendar.shiftingRange`.
+            let workCal = WorkCalendar(org: orgSettings)
+            let f = DateFormatter(); f.locale = Locale(identifier: "en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"
+            let anchor = f.string(from: minStart)
+            let target = workCal.nextWorkDay(from: f.string(from: todayStart))
+            if target > anchor {
+                // A date that doesn't parse is left exactly as it was, as before.
+                func shift(_ start: inout String, _ end: inout String) {
+                    let s = start.asDate.map { f.string(from: $0) } ?? ""
+                    let e = end.asDate.map { f.string(from: $0) } ?? ""
+                    let moved = workCal.shiftingRange(start: s, end: e, from: anchor, to: target)
+                    if !s.isEmpty { start = moved.start }
+                    if !e.isEmpty { end = moved.end }
+                }
+                shift(&job.start, &job.end)
                 job.subs = job.subs.map { p in
                     var p = p
-                    if !p.start.isEmpty { p.start = shift(p.start) }
-                    if !p.end.isEmpty { p.end = shift(p.end) }
+                    shift(&p.start, &p.end)
                     p.subs = p.subs.map { o in
                         var o = o
-                        if !o.start.isEmpty { o.start = shift(o.start) }
-                        if !o.end.isEmpty { o.end = shift(o.end) }
+                        shift(&o.start, &o.end)
                         return o
                     }
                     return p

@@ -30,6 +30,8 @@
 // Basic tier allows overlap by design (a double-booked shift). Callers apply this
 // rule on Business only — here, the web and the server alike.
 import { opDaySegments, personShareHours, capacityOf, buildDayWindows, walkProductiveHours, productiveClockHours } from "./statsMath.js";
+import { workCalendar } from "./scheduleRules.js";
+import { withOrgDefaults } from "./orgDefaults.js";
 
 const EPS = 1e-6;
 const nextDay = (ds) => { const d = new Date(ds + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
@@ -44,13 +46,12 @@ const ids = (team) => (Array.isArray(team) ? team.map(String) : []);
  * an overworked op's overrun, which the server can't see.
  */
 export function overlapContext(settings = {}, today = null) {
-  const ph = (t, d) => { const [h, m] = String(t || d).split(":").map(Number); return h + (m || 0) / 60; };
-  const cfg = buildDayWindows(ph(settings.workStart, "07:00"), ph(settings.workEnd, "15:00"), settings.breaks || [], settings.lunch || { time: "12:00", durationMinutes: 30 });
+  const o = withOrgDefaults(settings);
+  const ph = (t) => { const [h, m] = String(t).split(":").map(Number); return h + (m || 0) / 60; };
+  const cfg = buildDayWindows(ph(o.workStart), ph(o.workEnd), o.breaks, o.lunch);
   const productiveHoursPerDay = Math.max(1, (cfg.workEndH - cfg.workStartH) - cfg.deadH);
-  const workDays = Array.isArray(settings.workDays) && settings.workDays.length ? settings.workDays : [1, 2, 3, 4, 5];
-  const holidays = Array.isArray(settings.holidays) ? settings.holidays : [];
-  const isWorkDay = (ds) => workDays.includes(new Date(ds + "T12:00:00Z").getUTCDay()) && !holidays.includes(ds);
-  return { cfg, productiveHoursPerDay, isWorkDay, today };
+  const cal = workCalendar(o);
+  return { cfg, productiveHoursPerDay, isWorkDay: cal.isWorkDay, today };
 }
 
 /** The unit's blocks per day (for one assignee), from today on when `ctx.today` is set. */

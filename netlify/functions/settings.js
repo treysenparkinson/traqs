@@ -42,6 +42,15 @@ export async function handler(event) {
       if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
         return err(400, "Body must be an object");
       }
+      // An empty work week isn't a setting, it's a crash: every working-day loop on an
+      // open web session stepped forever looking for a working day (SCHEDULE_MAP #82).
+      // The web's settings screens already refuse to untick the last day; this stops the
+      // API or a client round-tripping [] from storing it. Refused outright, not logged.
+      if ("workDays" in settings) {
+        const wd = settings.workDays;
+        const valid = Array.isArray(wd) ? wd.filter(d => Number.isInteger(d) && d >= 0 && d <= 6) : [];
+        if (!valid.length) return err(400, "workDays must include at least one working day (0 = Sunday … 6 = Saturday)");
+      }
 
       // Read the current version once. It serves double duty: the empty-overwrite
       // guard's reference below, AND the `previous` that stampObject diffs against

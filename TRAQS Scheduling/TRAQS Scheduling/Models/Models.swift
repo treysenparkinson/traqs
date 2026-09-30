@@ -1434,13 +1434,13 @@ struct OrgSettings: Codable, Equatable {
     /// `workStart` parsed as decimal hours (e.g. "07:30" → 7.5).
     var workStartHour: Double {
         let p = workStart.split(separator: ":").compactMap { Int($0) }
-        guard p.count == 2 else { return 8.0 }
+        guard p.count == 2 else { return 7.0 }   // orgDefaults.js workStart
         return Double(p[0]) + Double(p[1]) / 60.0
     }
 
     var workEndHour: Double {
         let p = workEnd.split(separator: ":").compactMap { Int($0) }
-        guard p.count == 2 else { return 17.0 }
+        guard p.count == 2 else { return 15.0 }  // orgDefaults.js workEnd
         return Double(p[0]) + Double(p[1]) / 60.0
     }
 

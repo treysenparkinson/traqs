@@ -175,11 +175,16 @@ struct GanttView: View {
 
     // MARK: Week dates (Mon→Sun around selectedDate, filtered to work days)
 
-    /// Mirrors the desktop's `isWorkDay`. orgSettings.workDays uses
-    /// JS day-of-week (0=Sun…6=Sat); Calendar uses 1=Sun…7=Sat.
+    /// Mirrors the desktop's `isWorkDay` — the org's `workDays` AND `holidays`,
+    /// through `WorkCalendar`, so hours never pack onto a holiday and an empty
+    /// `workDays` means Mon–Fri.
     private func isWorkDay(_ date: Date) -> Bool {
-        let jsDay = cal.component(.weekday, from: date) - 1
-        return appState.orgSettings.workDays.contains(jsDay)
+        Self.isWorkDay(date, org: appState.orgSettings, in: cal)
+    }
+
+    /// The predicate itself, static so it can be tested without a view.
+    static func isWorkDay(_ date: Date, org: OrgSettings, in calendar: Calendar) -> Bool {
+        WorkCalendar(org: org).isWorkDay(date, in: calendar)
     }
 
     private var weekDates: [Date] {
@@ -189,9 +194,9 @@ struct GanttView: View {
         else { return [] }
         let allSeven = (0..<7).compactMap { cal.date(byAdding: .day, value: $0, to: mon) }
         // Hide non-work days from the week grid — the user's org setting
-        // says Mon–Fri only, so Sat/Sun columns shouldn't even appear.
-        // If somehow workDays is empty (mis-saved config), fall back to
-        // showing all 7 so the view never collapses to nothing.
+        // says Mon–Fri only, so Sat/Sun columns shouldn't even appear. An empty
+        // workDays is Mon–Fri (WorkCalendar); a week that is ALL holidays
+        // still shows all 7 so the view never collapses to nothing.
         let filtered = allSeven.filter(isWorkDay)
         return filtered.isEmpty ? allSeven : filtered
     }
@@ -272,13 +277,14 @@ struct GanttView: View {
                 earliest: max(lookbackFloor, item.taskStart.map { cal.startOfDay(for: $0) } ?? lookbackFloor))
         }
 
+        let workCal = WorkCalendar(org: appState.orgSettings)   // once, not per day walked
         let sliced = SchedulePacker.allocate(
             tasks: tasks,
             from: tasks.map(\.earliest).min() ?? firstVisible,
             through: lastVisible,
             keep: wanted,
             capacity: dayCapacity,
-            isWorkDay: { isWorkDay($0) },
+            isWorkDay: { workCal.isWorkDay($0, in: cal) },
             nextDay: { cal.date(byAdding: .day, value: 1, to: $0) },
             // Belt-and-braces bound: the lookback plus a generous visible span, so
             // a corrupt date can never turn the walk into an unbounded loop.

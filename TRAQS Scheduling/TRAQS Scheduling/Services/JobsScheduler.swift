@@ -229,8 +229,18 @@ struct WorkCalendar {
     var holidays: Set<String> = []
 
     init(workDays: [Int] = [1, 2, 3, 4, 5], holidays: [String] = []) {
-        self.workDays = workDays.isEmpty ? [1, 2, 3, 4, 5] : Set(workDays)
-        self.holidays = Set(holidays)
+        // `workCalendar` (scheduleRules.js): out-of-range entries are dropped, and
+        // a week left with none is Mon–Fri — never a calendar with no working day.
+        let valid = workDays.filter { (0...6).contains($0) }
+        self.workDays = valid.isEmpty ? [1, 2, 3, 4, 5] : Set(valid)
+        self.holidays = Set(holidays.map { String($0.prefix(10)) })
+    }
+
+    /// The org's calendar — its `workDays` AND its `holidays`. Every "is this a
+    /// working day" question on iOS goes through here, so a holiday can't be a
+    /// weekend on one screen and a working day on the next.
+    init(org: OrgSettings) {
+        self.init(workDays: org.workDays, holidays: org.holidays)
     }
 
     private static let calendar = Calendar(identifier: .gregorian)
@@ -239,6 +249,38 @@ struct WorkCalendar {
         guard let date = JobsScheduler.date(from: day) else { return false }
         let weekday = Self.calendar.component(.weekday, from: date) - 1   // 0 = Sunday
         return workDays.contains(weekday) && !holidays.contains(day)
+    }
+
+    /// The same question for a `Date` — the day it falls on in `calendar`, which
+    /// is the calendar the caller laid its columns out in.
+    func isWorkDay(_ date: Date, in calendar: Calendar) -> Bool {
+        let c = calendar.dateComponents([.year, .month, .day], from: date)
+        guard let y = c.year, let m = c.month, let d = c.day else { return false }
+        return isWorkDay(String(format: "%04d-%02d-%02d", y, m, d))
+    }
+
+    /// `span` — working days from `start` through `end`, both inclusive.
+    func workDaysInclusive(from start: String, through end: String) -> Int {
+        var n = 0
+        var current = start
+        for _ in 0..<4000 where current <= end {
+            if isWorkDay(current) { n += 1 }
+            current = JobsScheduler.adding(days: 1, to: current)
+        }
+        return n
+    }
+
+    /// `countForward` — the day on which the `count`th working day is reached,
+    /// counting `start` itself when it works. `start` for a count below 1.
+    func dayCountingForward(_ count: Int, from start: String) -> String {
+        guard count > 0 else { return start }
+        var current = start
+        var seen = 0
+        for _ in 0..<4000 {
+            if isWorkDay(current) { seen += 1; if seen >= count { break } }
+            current = JobsScheduler.adding(days: 1, to: current)
+        }
+        return current
     }
 
     /// `nextBD` — `day` itself when it already works, else the next one that does.
@@ -267,6 +309,34 @@ struct WorkCalendar {
             guardCount += 1
         }
         return current
+    }
+}
+
+extension WorkCalendar {
+
+    /// A range pulled forward with the rest of its tree, keeping its WORKING-day
+    /// length — `shiftRangeForward` with a calendar (statsMath.js). `anchor` is the
+    /// tree's earliest day and `target` the working day it moves to. The range
+    /// starts as many working days after `target` as it started after `anchor`, and
+    /// ends on the day its original working-day count (inclusive) is reached. A
+    /// shift by calendar days kept that only for multiples of a week: a Mon–Fri
+    /// range moved to a Wednesday ended on a Sunday, three working days long.
+    ///
+    /// Either end may be empty (unscheduled) and stays so; a lone end moves as a
+    /// one-day range.
+    func shiftingRange(start: String, end: String,
+                       from anchor: String, to target: String) -> (start: String, end: String) {
+        func moved(_ day: String) -> String {
+            let offset = day > anchor
+                ? workDaysInclusive(from: JobsScheduler.adding(days: 1, to: anchor), through: day)
+                : 0
+            return addingWorkDays(offset, to: nextWorkDay(from: target))
+        }
+        guard !start.isEmpty else { return (start, end.isEmpty ? end : moved(end)) }
+        let newStart = moved(start)
+        guard !end.isEmpty else { return (newStart, end) }
+        let count = max(1, workDaysInclusive(from: start, through: end))
+        return (newStart, dayCountingForward(count, from: newStart))
     }
 }
 

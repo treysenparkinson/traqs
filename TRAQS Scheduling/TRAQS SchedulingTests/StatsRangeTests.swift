@@ -99,6 +99,15 @@ struct StatsRangeTests {
         #expect(StatsMath.workDayCount(in: i, workDays: [], calendar: cal) == 0)
     }
 
+    // Capacity is counted on the org's calendar: a holiday is not a day anyone
+    // can be scheduled, so it isn't a day of capacity either.
+    @Test func aHolidayIsNotAWorkDay() {
+        let week = StatsMath.weekInterval(containing: day(5), calendar: cal)
+        let withHoliday = WorkCalendar(workDays: [1, 2, 3, 4, 5], holidays: ["2026-08-05"])
+        #expect(StatsMath.workDayCount(in: week, workCalendar: withHoliday, calendar: cal) == 4)
+        #expect(StatsMath.workDayCount(in: week, workCalendar: WorkCalendar(), calendar: cal) == 5)
+    }
+
     @Test func anEmptyIntervalCountsZero() {
         let empty = DateInterval(start: day(3), end: day(3))
         #expect(StatsMath.workDayCount(in: empty, workDays: monToFri, calendar: cal) == 0)

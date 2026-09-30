@@ -57,14 +57,24 @@ enum WorkDayClock {
     /// onto the next day.
     static let epsilon = 1.0 / 60.0
 
-    /// `"HH:mm"` as hours since midnight. A malformed time reads as noon, which
-    /// is what the web's `|| "12:00"` default does.
-    static func hour(from time: String?) -> Double {
-        let parts = (time ?? "12:00").split(separator: ":")
-        let h = Double(parts.first ?? "12") ?? 12
-        let m = parts.count > 1 ? (Double(parts[1]) ?? 0) : 0
-        return h + m / 60
+    /// `"HH:mm"` as hours since midnight. A missing or malformed time reads as
+    /// `fallback` — noon for a lunch or break, the web's `|| "12:00"`. The day's
+    /// own ends pass the org defaults (orgDefaults.js, 07:00 and 15:00) instead,
+    /// or a malformed workStart would open the day at noon.
+    static func hour(from time: String?, fallback: Double = 12) -> Double {
+        guard let time else { return fallback }
+        let parts = time.split(separator: ":", omittingEmptySubsequences: false)
+        guard parts.count == 2, let h = Int(parts[0]), let m = Int(parts[1]) else {
+            return fallback
+        }
+        return Double(h) + Double(m) / 60
     }
+
+    /// `DEFAULT_ORG_SETTINGS.workStart` / `workEnd` as hours.
+    static let defaultWorkStart = 7.0
+    static let defaultWorkEnd = 15.0
+    /// `DEFAULT_ORG_SETTINGS.lunch.durationMinutes`.
+    static let defaultLunchMinutes = 30
 
     // MARK: Building the day
 
@@ -86,7 +96,8 @@ enum WorkDayClock {
             .filter { $0.durationMinutes > 0 }
             .map { DeadWindow(start: hour(from: $0.time),
                               duration: Double($0.durationMinutes) / 60) }
-        let lunchMinutes = lunch?.durationMinutes ?? 60
+        // A missing lunch is the org default's — 30 minutes at noon, not an hour.
+        let lunchMinutes = lunch?.durationMinutes ?? defaultLunchMinutes
         if lunchMinutes > 0 {
             raw.append(DeadWindow(start: hour(from: lunch?.time),
                                   duration: Double(lunchMinutes) / 60))
@@ -134,8 +145,8 @@ enum WorkDayClock {
 
     /// From org settings, which is where every caller gets it.
     static func day(from settings: OrgSettings) -> DayWindow {
-        day(workStart: hour(from: settings.workStart),
-            workEnd: hour(from: settings.workEnd),
+        day(workStart: hour(from: settings.workStart, fallback: defaultWorkStart),
+            workEnd: hour(from: settings.workEnd, fallback: defaultWorkEnd),
             breaks: settings.breaks,
             lunch: settings.lunch)
     }

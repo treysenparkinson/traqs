@@ -55,13 +55,6 @@ enum AvailabilityEngine {
         return f.string(from: date)
     }
 
-    /// Mirrors GanttView.isWorkDay: workDays uses JS weekday (0=Sun…6=Sat);
-    /// Calendar uses 1=Sun…7=Sat. Holidays are excluded too.
-    private static func isWorkDay(_ date: Date, _ org: OrgSettings) -> Bool {
-        let jsDay = cal.component(.weekday, from: date) - 1
-        return org.workDays.contains(jsDay) && !org.holidays.contains(ymd(date))
-    }
-
     /// Free = no time-off and no non-finished scheduled panel/op overlapping `day`.
     /// Collapses the desktop's overlap test to a single day (start == end == day).
     /// String dates ("yyyy-MM-dd") compare correctly lexicographically.
@@ -126,15 +119,20 @@ enum AvailabilityEngine {
         var soonest: (person: AvailPerson, start: String, doneBy: String)?
         var doneByPerson: [(person: AvailPerson, start: String, doneBy: String)] = []
 
+        // The org's calendar: workDays (empty → Mon–Fri) and holidays. Read raw,
+        // an empty workDays had no working day, and the walk below never ended.
+        let workCal = WorkCalendar(org: org)
         for p in eligible {
             var run = 0
             var runStart: String?
             var finished: String?
             var startOfFinished: String?
             var scanned = 0
+            var steps = 0   // `scanned` counts working days only; this bounds the walk itself
             var day = startFrom
-            while scanned < 400 {
-                if isWorkDay(day, org) {
+            while scanned < 400 && steps < 4000 {
+                steps += 1
+                if workCal.isWorkDay(day, in: cal) {
                     scanned += 1
                     let dstr = ymd(day)
                     if isFree(p, on: dstr, jobs: jobs) {
