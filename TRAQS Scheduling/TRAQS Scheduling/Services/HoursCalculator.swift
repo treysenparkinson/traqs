@@ -42,11 +42,19 @@ enum HoursCalculator {
 
     /// Hours accrued on an open job clock, net of paused time.
     /// Returns 0 for a clock that never started or is currently paused out.
-    static func liveElapsedHours(clockIn: String, totalPausedMs: Double?, now: Date) -> Double {
+    ///
+    /// Mirrors `liveElapsedHours` in `statsMath.js`. Subtracts the OPEN pause as
+    /// well as the closed `totalPausedMs` total — `totalPausedMs` only takes a
+    /// pause in when it ends, so without `pausedAt` a lunch keeps counting. The
+    /// open-pause term is floored at 0: a `pausedAt` ahead of `now` (clock skew)
+    /// can only ever remove time, never add it.
+    static func liveElapsedHours(clockIn: String, pausedAt: String?, totalPausedMs: Double?, now: Date) -> Double {
         guard let started = Date.fromFlexibleISO8601(clockIn) else { return 0 }
-        let elapsedH = now.timeIntervalSince(started) / 3600
-        let pausedH = (totalPausedMs ?? 0) / 3_600_000
-        return max(0, elapsedH - pausedH)
+        var ms = now.timeIntervalSince(started) * 1000 - (totalPausedMs ?? 0)
+        if let pa = pausedAt, let pausedSince = Date.fromFlexibleISO8601(pa) {
+            ms -= max(0, now.timeIntervalSince(pausedSince) * 1000)
+        }
+        return max(0, ms) / 3_600_000
     }
 
     /// (logged, estimated) for an operation.

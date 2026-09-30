@@ -30,73 +30,45 @@ const parseNative = (s) => {
   return Number.isFinite(t) ? t : null;
 };
 
+// Every native live-hours site now routes through one helper per platform, so
+// each platform is a single variant. The call sites are listed so the grid
+// still names every place a divergence would reach.
 const variants = [
   {
-    id: "iOS HoursCalculator.swift:45  (the shared helper)",
-    kind: "C",
-    // guard let started = ... else { return 0 }
-    // let elapsedH = now.timeIntervalSince(started) / 3600
-    // let pausedH  = (totalPausedMs ?? 0) / 3_600_000
-    // return max(0, elapsedH - pausedH)
-    fn: ({ clockIn, totalPausedMs = 0, now }) => {
-      const started = parseNative(clockIn);
-      if (started === null) return 0;
-      return Math.max(0, (now - started) / H - (totalPausedMs || 0) / H);
-    },
-  },
-  {
-    id: "iOS AppState.swift:3273       (op-progress)",
-    kind: "C",
-    // let elapsedH = Date().timeIntervalSince(started) / 3600
-    // let pausedH  = (jc.totalPausedMs ?? 0) / 3_600_000
-    // return acc + max(0, elapsedH - pausedH)
-    fn: ({ clockIn, totalPausedMs = 0, now }) => {
-      const started = parseNative(clockIn);
-      if (started === null) return 0;
-      return Math.max(0, (now - started) / H - (totalPausedMs || 0) / H);
-    },
-  },
-  {
-    id: "iOS MoreView.swift:571/727/1220, TasksView.swift:1335",
-    kind: "B",
-    // var ms = now.timeIntervalSince(s) * 1000
-    // ms -= (jc.totalPausedMs ?? 0)
-    // if let pa = jc.pausedAt, let ps = ... { ms -= now.timeIntervalSince(ps) * 1000 }
-    // max(0, ms / 1000 / 3600)
+    id: "iOS HoursCalculator.swift:51  (shared helper)\n" +
+        "    callers: AppState.swift:3255/3299, AppState+JobsProgress.swift:51,\n" +
+        "             MoreView.swift:570/723/1214, TasksView.swift:1343",
+    kind: "helper",
+    // guard let started = Date.fromFlexibleISO8601(clockIn) else { return 0 }
+    // var ms = now.timeIntervalSince(started) * 1000 - (totalPausedMs ?? 0)
+    // if let pa = pausedAt, let pausedSince = ... {
+    //     ms -= max(0, now.timeIntervalSince(pausedSince) * 1000) }
+    // return max(0, ms) / 3_600_000
     fn: ({ clockIn, pausedAt, totalPausedMs = 0, now }) => {
-      const s = parseNative(clockIn);
-      if (s === null) return 0;
-      let ms = now - s - (totalPausedMs || 0);
+      const started = parseNative(clockIn);
+      if (started === null) return 0;
+      let ms = now - started - (totalPausedMs || 0);
       const ps = pausedAt ? parseNative(pausedAt) : null;
-      if (ps !== null) ms -= now - ps;          // unfloored
+      if (ps !== null) ms -= Math.max(0, now - ps);
       return Math.max(0, ms) / H;
     },
   },
   {
-    id: "Android TimeClockScreen.kt:142/:410, JobsScreen.kt:1259",
-    kind: "B",
-    // var ms = (now - start).toDouble(); ms -= jc.totalPausedMs ?: 0.0
-    // pausedAt -> parseFlexibleISO(p)?.let { ms -= (now - it).toDouble() }
-    // max(0.0, ms / 1000 / 3600)
+    id: "Android HoursCalculator.kt:35  (shared helper)\n" +
+        "    callers: AppState.kt:621, TimeClockScreen.kt:141/408, JobsScreen.kt:1259",
+    kind: "helper",
+    // val started = parseFlexibleISO(clockIn) ?: return 0.0
+    // var ms = (now - started).toDouble() - (totalPausedMs ?: 0.0)
+    // val pausedSince = parseFlexibleISO(pausedAt)
+    // if (pausedSince != null) ms -= maxOf(0.0, (now - pausedSince).toDouble())
+    // return maxOf(0.0, ms) / 3_600_000.0
     fn: ({ clockIn, pausedAt, totalPausedMs = 0, now }) => {
-      const s = parseNative(clockIn);
-      if (s === null) return 0;
-      let ms = now - s - (totalPausedMs || 0);
-      const ps = pausedAt ? parseNative(pausedAt) : null;
-      if (ps !== null) ms -= now - ps;          // unfloored
-      return Math.max(0, ms) / H;
-    },
-  },
-  {
-    id: "Android AppState.kt:624       (op-progress)",
-    kind: "C",
-    // val elapsedH = (System.currentTimeMillis() - started) / 3_600_000.0
-    // val pausedH  = (jc.totalPausedMs ?: 0.0) / 3_600_000.0
-    // live = maxOf(0.0, elapsedH - pausedH)
-    fn: ({ clockIn, totalPausedMs = 0, now }) => {
       const started = parseNative(clockIn);
       if (started === null) return 0;
-      return Math.max(0, (now - started) / H - (totalPausedMs || 0) / H);
+      let ms = now - started - (totalPausedMs || 0);
+      const ps = pausedAt ? parseNative(pausedAt) : null;
+      if (ps !== null) ms -= Math.max(0, now - ps);
+      return Math.max(0, ms) / H;
     },
   },
 ];

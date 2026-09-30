@@ -49,6 +49,7 @@ extension AppState {
                 defaultHpd: defaultHpd,
                 liveElapsed: clocks[op.id].map {
                     HoursCalculator.liveElapsedHours(clockIn: $0.clockIn,
+                                                     pausedAt: $0.pausedAt,
                                                      totalPausedMs: $0.totalPausedMs,
                                                      now: now)
                 } ?? 0)

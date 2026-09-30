@@ -567,12 +567,10 @@ private extension MoreView {
                 out.append((s, max(0, ms / 1000 / 3600), 0))
             }
             if let jc = p.activeJobClock, !jc.clockIn.isEmpty, let s = Date.fromFlexibleISO8601(jc.clockIn) {
-                var ms = now.timeIntervalSince(s) * 1000
-                ms -= (jc.totalPausedMs ?? 0)
-                if let pa = jc.pausedAt, let ps = Date.fromFlexibleISO8601(pa) {
-                    ms -= now.timeIntervalSince(ps) * 1000
-                }
-                out.append((s, 0, max(0, ms / 1000 / 3600)))
+                out.append((s, 0, HoursCalculator.liveElapsedHours(clockIn: jc.clockIn,
+                                                                   pausedAt: jc.pausedAt,
+                                                                   totalPausedMs: jc.totalPausedMs,
+                                                                   now: now)))
             }
         }
         return out
@@ -721,14 +719,11 @@ private extension MoreView {
 
     /// Live hours of the in-progress job clock (independent of the pay clock).
     var liveJobHours: Double {
-        guard let jc = activeJobClock, let s = Date.fromFlexibleISO8601(jc.clockIn) else { return 0 }
-        let nowDate = Date()
-        var ms = nowDate.timeIntervalSince(s) * 1000
-        ms -= (jc.totalPausedMs ?? 0)
-        if let p = jc.pausedAt, let pStart = Date.fromFlexibleISO8601(p) {
-            ms -= nowDate.timeIntervalSince(pStart) * 1000
-        }
-        return max(0, ms / 1000 / 3600)
+        guard let jc = activeJobClock else { return 0 }
+        return HoursCalculator.liveElapsedHours(clockIn: jc.clockIn,
+                                                pausedAt: jc.pausedAt,
+                                                totalPausedMs: jc.totalPausedMs,
+                                                now: Date())
     }
 
     /// My completed job sessions inside the pay period, newest first.
@@ -1215,13 +1210,12 @@ private struct RunningEntryCard: View {
     let onStop: () -> Void
 
     private var elapsedLabel: String {
-        guard let s = Date.fromFlexibleISO8601(jobClock.clockIn) else { return "—" }
-        var ms = now.timeIntervalSince(s) * 1000
-        ms -= (jobClock.totalPausedMs ?? 0)
-        if let p = jobClock.pausedAt, let pStart = Date.fromFlexibleISO8601(p) {
-            ms -= now.timeIntervalSince(pStart) * 1000
-        }
-        let secs = max(0, Int(ms / 1000))
+        guard Date.fromFlexibleISO8601(jobClock.clockIn) != nil else { return "—" }
+        let hours = HoursCalculator.liveElapsedHours(clockIn: jobClock.clockIn,
+                                                     pausedAt: jobClock.pausedAt,
+                                                     totalPausedMs: jobClock.totalPausedMs,
+                                                     now: now)
+        let secs = Int(hours * 3600)
         return String(format: "%d:%02d:%02d", secs / 3600, (secs % 3600) / 60, secs % 60)
     }
 

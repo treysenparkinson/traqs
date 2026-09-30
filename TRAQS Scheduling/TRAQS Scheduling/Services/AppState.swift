@@ -3253,6 +3253,7 @@ class AppState {
         guard let activeP = people.first(where: { $0.activeJobClock?.opId == op.id && !($0.activeJobClock?.clockIn.isEmpty ?? true) }),
               let jc = activeP.activeJobClock else { return 0 }
         return HoursCalculator.liveElapsedHours(clockIn: jc.clockIn,
+                                                pausedAt: jc.pausedAt,
                                                 totalPausedMs: jc.totalPausedMs,
                                                 now: Date())
     }
@@ -3295,9 +3296,10 @@ class AppState {
             guard let jc = p.activeJobClock, jc.opId == op.id, !jc.clockIn.isEmpty,
                   let started = Date.fromFlexibleISO8601(jc.clockIn),
                   cal.isDate(started, inSameDayAs: day) else { return acc }
-            let elapsedH = Date().timeIntervalSince(started) / 3600
-            let pausedH = (jc.totalPausedMs ?? 0) / 3_600_000
-            return acc + max(0, elapsedH - pausedH)
+            return acc + HoursCalculator.liveElapsedHours(clockIn: jc.clockIn,
+                                                          pausedAt: jc.pausedAt,
+                                                          totalPausedMs: jc.totalPausedMs,
+                                                          now: Date())
         }
     }
 

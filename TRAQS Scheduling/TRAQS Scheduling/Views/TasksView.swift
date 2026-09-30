@@ -1339,13 +1339,12 @@ struct TaskCardV1: View {
     /// "0h 0m 5s" — explicit unit letters so the user can read it at a glance.
     private func elapsedLabel(at ref: Date) -> String {
         guard let jc = appState.myActiveJobClock,
-              let started = Date.fromFlexibleISO8601(jc.clockIn) else { return "—" }
-        var ms = ref.timeIntervalSince(started) * 1000
-        ms -= (jc.totalPausedMs ?? 0)
-        if let p = jc.pausedAt, let pStart = Date.fromFlexibleISO8601(p) {
-            ms -= ref.timeIntervalSince(pStart) * 1000
-        }
-        let secs = max(0, Int(ms / 1000))
+              Date.fromFlexibleISO8601(jc.clockIn) != nil else { return "—" }
+        let hours = HoursCalculator.liveElapsedHours(clockIn: jc.clockIn,
+                                                     pausedAt: jc.pausedAt,
+                                                     totalPausedMs: jc.totalPausedMs,
+                                                     now: ref)
+        let secs = Int(hours * 3600)
         return String(format: "%dh %dm %ds", secs / 3600, (secs % 3600) / 60, secs % 60)
     }
 
