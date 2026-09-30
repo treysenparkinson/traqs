@@ -140,3 +140,4 @@ for (const v of variants) {
 const nativeNullSafe = variants.every(v => near(v.fn({ clockIn: "", now: NOW }), 0));
 console.log(`null/empty clockIn safe on native without an added guard: ${nativeNullSafe ? "yes" : "NO"}`);
 console.log(`\n${totalChanges} behaviour change(s) across ${variants.length} native variants`);
+process.exit(totalChanges === 0 && nativeNullSafe ? 0 : 1);
