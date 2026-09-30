@@ -1,4 +1,4 @@
-// ESM resolve hook: redirect timeclock.js's _utils/* imports to in-memory stubs
+// ESM resolve hook: redirect timeclock.js's (and tasks.js's) _utils/* imports to in-memory stubs
 // so the REAL handler runs against a fake S3 and fake auth.
 const STUBS = {
   "./_utils/s3.js": `
@@ -15,6 +15,7 @@ const STUBS = {
   `,
   "./_utils/org.js": `
     export const orgCodeFromHeader = () => "TESTORG";
+    export const orgKey = (event, file) => "orgs/TESTORG/" + file;
   `,
   // Identity stamping: the test asserts on hours/dates/counters, not on stamps.
   "./_utils/timestamps.js": `

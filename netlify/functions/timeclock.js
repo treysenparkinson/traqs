@@ -164,6 +164,45 @@ function creditPanelHours(tasks, panelId, delta) {
   });
 }
 
+// The web's persistShrink bakes the live bar's worked-down left edge into
+// op.startHour at clock-out. It used to POST that through /tasks, which 403'd
+// every worker (startHour needs moveJobs), so the edge now rides jobClockOut.
+//
+// The server does NOT recompute the edge — that math lives in the client
+// (persistShrink, J:9914) — so the value is trusted within bounds that match the
+// client's own clamp: it may only move the edge LATER than stored, and never
+// past endHour minus the same 5-minute floor. Hours are credited from the
+// server's session, not from this value, so a wrong one misplaces a bar but
+// cannot add hours. Anything outside the bounds is ignored, not an error: the
+// clock-out itself must never fail over a bar position.
+const SHRINK_MIN_REMAINDER_H = 5 / 60;
+const parseWorkHour = (t, dflt) => {
+  const [h, m] = String(t || dflt).split(":").map(Number);
+  return Number.isFinite(h) ? h + (Number.isFinite(m) ? m : 0) / 60 : null;
+};
+function applyShrinkStartHour(tasks, { opId, proposed, workStartH, workEndH, logBase }) {
+  if (opId == null || typeof proposed !== "number" || !Number.isFinite(proposed)) return tasks;
+  return (tasks || []).map(job => ({
+    ...job,
+    subs: (job?.subs || []).map(panel => ({
+      ...panel,
+      subs: (panel?.subs || []).map(op => {
+        if (!op || String(op.id) !== String(opId) || op.status === "Finished") return op;
+        const storedSH = op.startHour ?? workStartH;
+        const plannedEnd = op.endHour ?? workEndH;
+        if (!(proposed > storedSH) || !(proposed <= plannedEnd - SHRINK_MIN_REMAINDER_H)) return op;
+        const entry = {
+          fromStart: op.start, fromEnd: op.end, toStart: op.start, toEnd: op.end,
+          fromStartHour: storedSH, toStartHour: proposed,
+          fromEndHour: op.endHour ?? null, toEndHour: op.endHour ?? null,
+          ...logBase,
+        };
+        return { ...op, startHour: proposed, moveLog: [...(op.moveLog || []), entry] };
+      }),
+    })),
+  }));
+}
+
 // Stamp entity-array writes so timeclock's server-side mutations (clock
 // state on people, logged hours on tasks, punches on the clock log) advance
 // lastModifiedAt and propagate through /sync. Re-reads the previous version
@@ -1078,13 +1117,19 @@ export async function handler(event) {
           jciTasks[jciTaskIdx] = {
             ...jciJob,
             status: jciJob.status === "In Progress" ? jciJob.status : "In Progress",
-            subs: (jciJob.subs || []).map(panel => ({
-              ...panel,
-              subs: (panel.subs || []).map(op => {
-                if (op.id !== opId) return op;
-                return { ...op, status: "In Progress" };
-              }),
-            })),
+            // The panel holding the op goes In Progress too. The web used to set it
+            // itself and POST the tree, which 403'd every worker (no editJobs).
+            subs: (jciJob.subs || []).map(panel => {
+              const hasOp = (panel.subs || []).some(op => op.id === opId);
+              return {
+                ...panel,
+                ...(hasOp ? { status: "In Progress" } : {}),
+                subs: (panel.subs || []).map(op => {
+                  if (op.id !== opId) return op;
+                  return { ...op, status: "In Progress" };
+                }),
+              };
+            }),
           };
           await writeStampedArray(tasksKey, jciTasks);
         }
@@ -1164,10 +1209,32 @@ export async function handler(event) {
         } catch { /* non-fatal */ }
       }
 
-      if (jcoHours > 0 && jcoJobId) {
+      // The proposed shrink edge (see applyShrinkStartHour) lands in the same tasks
+      // write as the hours credit. It targets the session's reservoir op — the one
+      // persistShrink moves — read from the server's copy of the session.
+      const jcoProposedSH = body.startHour;
+      const jcoShrinkOpId = jcoPerson.activeJobClock.reservoirOpId ?? null;
+      const jcoWantsShrink = typeof jcoProposedSH === "number" && jcoShrinkOpId != null;
+      if ((jcoHours > 0 && jcoJobId) || jcoWantsShrink) {
         try {
           let tasks = await readJson(tasksKey) ?? [];
-          tasks = tasks.map(job => {
+          if (jcoWantsShrink) {
+            let jcoSettings = null;
+            try { jcoSettings = await readJson(settingsKey); } catch { jcoSettings = null; }
+            tasks = applyShrinkStartHour(tasks, {
+              opId: jcoShrinkOpId,
+              proposed: jcoProposedSH,
+              workStartH: parseWorkHour(jcoSettings?.workStart, "08:00"),
+              workEndH: parseWorkHour(jcoSettings?.workEnd, "17:00"),
+              logBase: {
+                date: localDayOf(jcoClockOut),
+                movedBy: jcoPerson.name || "Field",
+                reason: "Worked down by clock-in session",
+                ...(jcoPerson.activeJobClock.sessionId ? { sessionId: jcoPerson.activeJobClock.sessionId } : {}),
+              },
+            });
+          }
+          if (jcoHours > 0 && jcoJobId) tasks = tasks.map(job => {
             if (job.id !== jcoJobId) return job;
             const newJobHours = Math.round(((job.loggedHours || 0) + jcoHours) * 100) / 100;
             const newSubs = jcoOpId ? (job.subs || []).map(panel => {
@@ -1237,6 +1304,33 @@ export async function handler(event) {
         },
       };
       try { await writeStampedArray(peopleKey, ujsPeople); } catch { return err(500, "Failed to save"); }
+
+      // Freezing a held session also stamps op.pendingSession — everything approve/deny
+      // needs. The web used to stamp it and POST the tree, which 403'd every worker.
+      // Built from the server's own copy of the session, so the caller supplies only
+      // the instant. Best-effort: the freeze on the session is what stops the clock.
+      if (typeof ujsFrozenAtMs === "number") {
+        const ujsJc = ujsPeople[ujsIdx].activeJobClock;
+        try {
+          const ujsTasks = await readJson(tasksKey) ?? [];
+          let ujsStamped = false;
+          const ujsNext = ujsTasks.map(job => ({
+            ...job,
+            subs: (job?.subs || []).map(panel => ({
+              ...panel,
+              subs: (panel?.subs || []).map(op => {
+                if (!op || String(op.id) !== String(ujsJc.opId)) return op;
+                ujsStamped = true;
+                return { ...op, pendingSession: {
+                  sessionId: ujsJc.sessionId, clockIn: ujsJc.clockIn, frozenAtMs: ujsFrozenAtMs,
+                  reservoirOpId: ujsJc.reservoirOpId, sessionSnapshot: ujsJc.sessionSnapshot || [],
+                } };
+              }),
+            })),
+          }));
+          if (ujsStamped) await writeStampedArray(tasksKey, ujsNext);
+        } catch (e) { console.warn("updateJobSession: failed to stamp pendingSession", e); }
+      }
 
       return json(200, { ok: true, activeJobClock: ujsPeople[ujsIdx].activeJobClock });
     }

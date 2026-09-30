@@ -6271,11 +6271,15 @@ Extraction rules:
           return { ...op, pendingSession: { sessionId: jc.sessionId, clockIn: jc.clockIn, frozenAtMs: nowMs, reservoirOpId: jc.reservoirOpId, sessionSnapshot: jc.sessionSnapshot || [] } };
         }) })) }));
       });
-      saveTasks(updated, getToken, orgCode).catch(console.warn);
+      // Local render only. updateJobSession below stamps the same pendingSession on
+      // the server; POSTing it through /tasks 403'd every worker (no editJobs).
+      // Marked as a server write so the autosave effect does not POST it anyway.
+      pollAppliedRef.current.tasks = updated;
       return updated;
     });
     // updateJobSession is the authorized path for frozenAtMs — savePeople can't touch it
-    // (activeJobClock is server-owned and pinned on every generic /people POST).
+    // (activeJobClock is server-owned and pinned on every generic /people POST) — and,
+    // given frozenAtMs, it also stamps op.pendingSession.
     toFreeze.forEach(p => {
       updateJobSessionAction({ personId: p.id, sessionId: p.activeJobClock.sessionId, frozenAtMs: nowMs }, getToken, orgCode).catch(console.warn);
     });
@@ -8584,6 +8588,14 @@ Extraction rules:
           allEndpoints: failures.map(x => x.endpoint),
           at: Date.now(),
         });
+        // A 4xx is the server's verdict on the change itself, so retrying can only
+        // resend it: every later save POSTs the whole array, rejected change and
+        // all, and "unsaved" kept the poll and Ably slices from ever refreshing.
+        // Roll back to the server's copy instead, which clears "unsaved"; the
+        // banner above stays up to say what was refused. A 401 is not a verdict
+        // (the token expired) and a 5xx may be transient, so those keep the edit.
+        const rejected = failures.some(x => x.error?.status >= 400 && x.error?.status < 500 && x.error?.status !== 401);
+        if (rejected) { await rollbackToServerRef.current(); return; }
         setSaveStatus("unsaved");
         return;
       }
@@ -8602,6 +8614,43 @@ Extraction rules:
       setSaveStatus("unsaved");
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Replace local tasks/people/clients with the server's copy after a rejected
+  // save (see doSave). Installed exactly as the poll installs server data —
+  // marked in pollAppliedRef so the autosave effect does not read it as an edit
+  // and POST it straight back. Rebuilt every render and reached through a ref,
+  // because doSave's closure is frozen at first render and the normalizers here
+  // are not.
+  const rollbackToServer = async () => {
+    try {
+      const [srvTasks, srvPeople, srvClients] = await Promise.all([
+        fetchTasks(getTokenRef.current, orgCodeRef.current),
+        fetchPeople(getTokenRef.current, orgCodeRef.current),
+        fetchClients(getTokenRef.current, orgCodeRef.current),
+      ]);
+      // An edit made while this fetch was in flight has queued its own save; let
+      // that save run rather than overwrite the edit with what we just fetched.
+      if (saveStatusRef.current === "unsaved") return;
+      const normTasks = normalizeTasks(srvTasks);
+      const normPeople = normalizePeople(srvPeople);
+      pollAppliedRef.current.tasks = normTasks;
+      pollAppliedRef.current.people = normPeople;
+      pollAppliedRef.current.clients = srvClients;
+      setTasks(() => normTasks);
+      setPeople(() => normPeople);
+      setClients(() => srvClients);
+      // A job created locally and refused is gone from the server's copy; its
+      // protection would otherwise stop every later poll from applying.
+      protectedJobIds.current.clear();
+      cacheFullSlices(srvTasks, srvPeople, srvClients);
+      setSaveStatus("saved");
+    } catch (e) {
+      console.warn("Rollback after rejected save failed:", e);
+      setSaveStatus("unsaved");
+    }
+  };
+  const rollbackToServerRef = useRef(rollbackToServer);
+  rollbackToServerRef.current = rollbackToServer;
 
   // Step 2: store doSave in a ref so the unsaved useEffect never needs it as a dependency
   const doSaveRef = useRef(doSave);
@@ -11614,7 +11663,7 @@ ${jobsCtx || "No jobs found."}`;
     });
     const newTasks = addFinishReq(tasks);
     setTasks(newTasks);
-    saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+    setTimeout(() => doSaveRef.current(), 0);
     toast("Completion requested");
 
     const adminParticipants = people.filter(p => p.userRole === "admin");
@@ -11692,7 +11741,7 @@ ${jobsCtx || "No jobs found."}`;
       label = opId ? `${panel.title} › ${target.title}` : target.title;
     }
     setTasks(newTasks);
-    saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+    setTimeout(() => doSaveRef.current(), 0);
     toast("Completion approved");
     // No follow-up message is posted. The decision belongs ON the request bubble,
     // which now reads "APPROVED BY <name>" from resolvedByName/resolvedAt — a
@@ -11740,7 +11789,7 @@ ${jobsCtx || "No jobs found."}`;
       label = opId ? `${panel.title} › ${target.title}` : target.title;
     }
     setTasks(newTasks);
-    saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+    setTimeout(() => doSaveRef.current(), 0);
     toast("Completion denied");
     // No follow-up message — see adminApproveJobFinish. The bubble carries
     // "DENIED BY <name>" plus the reason.
@@ -11799,7 +11848,7 @@ ${jobsCtx || "No jobs found."}`;
       label = opId ? `${panel.title} › ${target.title}` : target.title;
     }
     setTasks(newTasks);
-    saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+    setTimeout(() => doSaveRef.current(), 0);
     toast("Completion reopened");
     // No follow-up message, same as approve and decline. Undoing returns the
     // request to pending, so the bubble drops its decision pill and shows the
@@ -11868,7 +11917,7 @@ ${jobsCtx || "No jobs found."}`;
     });
     const next = applyAt(tasks);
     setTasks(next);
-    saveTasks(next, getToken, orgCode).catch(console.warn);
+    setTimeout(() => doSaveRef.current(), 0);
     toast(`${label} marked complete`);
   };
 
@@ -12146,7 +12195,7 @@ ${jobsCtx || "No jobs found."}`;
       });
       return nextTasks;
     });
-    if (nextTasks) saveTasks(nextTasks, getToken, orgCode).catch(console.warn);
+    if (nextTasks) setTimeout(() => doSaveRef.current(), 0);
     return meta;
   };
   // <input onChange> handler for panel photo capture (modal + per-panel Add).
@@ -12174,7 +12223,7 @@ ${jobsCtx || "No jobs found."}`;
       });
       return nextTasks;
     });
-    if (nextTasks) saveTasks(nextTasks, getToken, orgCode).catch(console.warn);
+    if (nextTasks) setTimeout(() => doSaveRef.current(), 0);
   };
 
   // Unread: messages where user is participant, author is not self, newer than lastRead[threadKey]
@@ -21526,11 +21575,11 @@ ${jobsCtx || "No jobs found."}`;
                       }),
                     };
                   });
-                  const jc = { clockIn: jres.clockIn, sessionId, reservoirOpId, drainCheckpoint: jres.clockIn };
                   // No teleport, no initial cascade. The op stays where it is scheduled — today or on a
                   // future day — and its left edge starts moving right as work accrues. Behaviour A and B
                   // are the same path now, so there is nothing to reposition at clock-in.
-                  saveTasks(updated, getToken, orgCode).catch(console.warn);
+                  // Local render only — see the job-picker clock-in: jobClockIn writes these.
+                  pollAppliedRef.current.tasks = updated;
                   return updated;
                 });
               }
@@ -21661,7 +21710,7 @@ ${jobsCtx || "No jobs found."}`;
       const updated = { ...op, ...finishedOpFields(op, loggedInUser?.name || "Admin") };
       const newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : updated) }) });
       const finalTasks = session ? recalcBounds(newTasks, loggedInUser?.name || "Admin") : newTasks;
-      setTasks(finalTasks); saveTasks(finalTasks, getToken, orgCode).catch(console.warn);
+      setTasks(finalTasks); setTimeout(() => doSaveRef.current(), 0);
       // Optimistic-only: clearing activeJobClock entirely isn't something updateJobSession
       // supports (it only merges drainCheckpoint/frozenAtMs), and savePeople can't touch it
       // either (server-owned, pinned on every generic POST). If the worker approved-while-
@@ -21675,7 +21724,7 @@ ${jobsCtx || "No jobs found."}`;
       const session = op.pendingSession;
       let newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : { ...o, pendingFinish: false, pendingSession: undefined }) }) });
       if (session) newTasks = revertSession(newTasks, session, loggedInUser?.name || "Admin");
-      setTasks(newTasks); saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+      setTasks(newTasks); setTimeout(() => doSaveRef.current(), 0);
       // See approveFinish — optimistic-only, same reason.
       if (session) setPeople(pp => pp.map(p => p.activeJobClock?.sessionId === session.sessionId ? { ...p, activeJobClock: null } : p));
     };
@@ -22577,11 +22626,13 @@ ${jobsCtx || "No jobs found."}`;
                 }),
               };
             });
-            const jc = { clockIn: res.clockIn, sessionId, reservoirOpId, drainCheckpoint: res.clockIn };
             // No teleport, no initial cascade. The op stays where it is scheduled — today or on a
             // future day — and its left edge starts moving right as work accrues. Behaviour A and B
             // are the same path now, so there is nothing to reposition at clock-in.
-            saveTasks(updatedTasks, getToken, orgCode).catch(console.warn);
+            // Local render only: jobClockIn already set these statuses on the server, and
+            // POSTing them through /tasks 403'd every worker. Marked as a server write so the
+            // autosave effect does not POST it anyway.
+            pollAppliedRef.current.tasks = updatedTasks;
             return updatedTasks;
           });
           closeStartJobPicker();
@@ -22622,34 +22673,26 @@ ${jobsCtx || "No jobs found."}`;
 
     const handleEndJob = async () => {
       const jc = loggedInUser.activeJobClock;
+      // Clock-out is a write event: the edge the session reached is baked into op.startHour
+      // so the stored schedule matches what the admin has been looking at. persistShrink
+      // computes it here and jobClockOut writes it (raise-only, bounded) — POSTing it through
+      // /tasks 403'd every worker. No checkpoint advance is needed: the session is ending.
+      const shrink = jc ? persistShrink(tasks, jc, Date.now(), loggedInUser.name) : null;
+      const shrunkOp = shrink?.changed ? findOp(shrink.tasks, jc.reservoirOpId) : null;
       setJobClockLoading(true);
       try {
-        const res = await jobClockOutAction({ personId: loggedInUser.id }, getToken, orgCode);
+        const res = await jobClockOutAction({ personId: loggedInUser.id, ...(shrunkOp ? { startHour: shrunkOp.startHour } : {}) }, getToken, orgCode);
         if (res.ok) {
           // Server calculates net hours (subtracts totalPausedMs) — use directly
           toast("Job time logged");
           setPeople(pp => pp.map(p => p.id === loggedInUser.id ? { ...p, activeJobClock: null } : p));
-          if (jc) {
-            // Final cascade write: drain the reservoir to its clock-out position and cascade
-            // any op the session's full growth now overlaps. Does NOT convert the live bar to
-            // a finished scheduled block — that's Phase 4's approve step.
-            // Clock-out is a write event: bake the edge the session reached into op.startHour so the
-            // stored schedule matches what the admin has been looking at. No checkpoint advance is
-            // needed — the session is ending and activeJobClock is dropped whole.
-            let finalTasks = persistShrink(tasks, jc, Date.now(), loggedInUser.name).tasks;
-            if (res.hours > 0) {
-              finalTasks = finalTasks.map(job => {
-                if (job.id !== jc.jobId) return job;
-                const newJobHours = Math.round(((job.loggedHours || 0) + res.hours) * 100) / 100;
-                const newSubs = jc.opId ? (job.subs || []).map(panel => {
-                  if (panel.id !== jc.panelId) return panel;
-                  return { ...panel, subs: (panel.subs || []).map(op => op.id !== jc.opId ? op : { ...op, loggedHours: Math.round(((op.loggedHours || 0) + res.hours) * 100) / 100 }) };
-                }) : job.subs;
-                return { ...job, loggedHours: newJobHours, subs: newSubs };
-              });
-            }
-            setTasks(finalTasks);
-            saveTasks(finalTasks, getToken, orgCode).catch(console.warn);
+          // Hours are credited by jobClockOut itself (job, panel and op) and arrive with the
+          // tasks delta. Only the shrink edge is shown ahead of it, so the bar does not spring
+          // back for the moment activeJobClock is gone and the delta has not landed; marked as
+          // a server write so the autosave effect does not POST it.
+          if (shrink?.changed) {
+            pollAppliedRef.current.tasks = shrink.tasks;
+            setTasks(() => shrink.tasks);
           }
           // Prompt to photograph the panel just finished (phones only). The job
           // clock knows the exact panel, so no guessing. Skippable — runs after
@@ -32350,7 +32393,7 @@ ${jobsCtx || "No jobs found."}`;
             })};
           });
           const newTasks = recalcBounds(updated, loggedInUser?.name || "Split");
-          saveTasks(newTasks, getToken, orgCode).catch(console.warn);
+          setTimeout(() => doSaveRef.current(), 0);
           toast("Operation split");
           return newTasks;
         });
@@ -32443,7 +32486,7 @@ ${jobsCtx || "No jobs found."}`;
               return { ...pnl, subs: (pnl.subs || []).map(o => o.id === op.id ? { ...o, loggedHours: committedTarget } : o) };
             })};
           });
-          saveTasks(updated, getToken, orgCode).catch(console.warn);
+          setTimeout(() => doSaveRef.current(), 0);
           return updated;
         });
         // Credit (or walk back) the CHANGE as production time, so the person's
@@ -33954,7 +33997,7 @@ ${jobsCtx || "No jobs found."}`;
               <Tip label="Open Chat"><button onClick={() => { openChat(it); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0.9 0.9 22.2 22.2" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5c0 4.29-4.04 7.76-9 7.76-1.08 0-2.12-.17-3.08-.47L4.2 20.8l1.2-3.46C3.9 15.8 3 13.8 3 11.5 3 7.3 7 3.8 12 3.8s9 3.47 9 7.7z"/></svg></button></Tip>
               {billingTier === "business" && can("editJobs") && <Tip label="Send Reminder"><button onClick={() => { setReminderModal({ item: it }); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button></Tip>}
               {showDepToggle && <button
-                onClick={(e) => { e.stopPropagation(); e.preventDefault(); setTasks(prev => { const next = prev.map(job => ({ ...job, subs: (job.subs || []).map(panel => { if (panel.id !== panelId) return panel; const siblings = panel.subs || []; const allSubIds = siblings.map(s => s.id); if (toggleNext === "unlocked") return { ...panel, depsMode: "unlocked", subs: siblings.map(s => ({ ...s, deps: allSubIds.filter(id => id !== s.id) })) }; if (toggleNext === "locked") return { ...panel, depsMode: "locked" }; return { ...panel, depsMode: undefined, subs: siblings.map(s => ({ ...s, deps: [] })) }; }) })); saveTasks(next, getToken, orgCode).catch(console.warn); toast("Dependencies updated"); return next; }); }}
+                onClick={(e) => { e.stopPropagation(); e.preventDefault(); setTasks(prev => { const next = prev.map(job => ({ ...job, subs: (job.subs || []).map(panel => { if (panel.id !== panelId) return panel; const siblings = panel.subs || []; const allSubIds = siblings.map(s => s.id); if (toggleNext === "unlocked") return { ...panel, depsMode: "unlocked", subs: siblings.map(s => ({ ...s, deps: allSubIds.filter(id => id !== s.id) })) }; if (toggleNext === "locked") return { ...panel, depsMode: "locked" }; return { ...panel, depsMode: undefined, subs: siblings.map(s => ({ ...s, deps: [] })) }; }) })); setTimeout(() => doSaveRef.current(), 0); toast("Dependencies updated"); return next; }); }}
                 title={toggleTitle}
                 style={{ flexShrink: 0, width: 30, height: 30, borderRadius: "50%", border: `1px solid ${toggleBorder}`, background: toggleBg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: toggleColor, transition: "all 0.15s" }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hoverStrong; }}
@@ -34043,7 +34086,7 @@ ${jobsCtx || "No jobs found."}`;
       ps.forEach(sub => { if((sub.deps||[]).length>0){ checkedIds.add(sub.id); (sub.deps||[]).forEach(d=>checkedIds.add(d)); } });
       const isLinked = sid => checkedIds.has(sid);
       const toggle = sibId => { const next=new Set(checkedIds); if(next.has(sibId)){next.delete(sibId);}else{next.add(sibId);} const ns=ps.map(s=>next.has(s.id)?{...s,deps:[...next].filter(id=>id!==s.id)}:{...s,deps:[]}); setDepsModal(p=>({...p,panelSubs:ns})); };
-      const save=()=>{ const anyLinked=ps.some(s=>(s.deps||[]).length>0); const next=tasks.map(job=>({...job,subs:(job.subs||[]).map(panel=>panel.id!==depsModal.panelId?panel:{...panel,subs:ps,...(anyLinked?{depsMode:depsModal.depsMode||"unlocked"}:{depsMode:undefined})})})); setTasks(next); saveTasks(next,getToken,orgCode).catch(console.warn); toast("Dependencies saved"); setDepsModal(null); };
+      const save=()=>{ const anyLinked=ps.some(s=>(s.deps||[]).length>0); const next=tasks.map(job=>({...job,subs:(job.subs||[]).map(panel=>panel.id!==depsModal.panelId?panel:{...panel,subs:ps,...(anyLinked?{depsMode:depsModal.depsMode||"unlocked"}:{depsMode:undefined})})})); setTasks(next); setTimeout(() => doSaveRef.current(), 0); toast("Dependencies saved"); setDepsModal(null); };
       return <div onClick={()=>setDepsModal(null)} style={{ position:"fixed",inset:0,zIndex:10005,background:"rgba(0,0,0,0.6)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:T.font }}>
         <div onClick={e=>e.stopPropagation()} style={{ background:T.card,border:`1px solid ${T.borderLight}`,borderRadius:T.radiusSm,boxShadow:"0 24px 64px rgba(0,0,0,0.6)",width:"min(440px, calc(100vw - 32px))",padding:"24px 24px 20px",animation:"slideUp 0.22s ease-out" }}>
           <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6 }}>

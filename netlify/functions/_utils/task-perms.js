@@ -13,7 +13,9 @@
 // Three fields are written by NON-admins in the normal course of work, and
 // gating them behind editJobs would break the floor:
 //   finishRequests — a worker asking for their work to be marked done
-//                    (AppState.swift requestJobCompletion/requestTaskCompletion)
+//                    (AppState.swift requestJobCompletion/requestTaskCompletion),
+//                    with its singular finishRequest pointer; raise-only, and
+//                    only as yourself (tasks.js checks raisedBy)
 //   signOffs       — sign-off steps, held by anyone with canSignOff/isEngineer
 //   engineering    — designed / verified / sent to Perforex ticks
 // They are classified separately and checked against approve/engineer rights.
@@ -32,6 +34,9 @@ const TEAM_FIELD = "team";
 const APPROVAL_FIELD = "signOffs";
 const ENGINEERING_FIELD = "engineering";
 const REQUEST_FIELD = "finishRequests";
+// The singular pointer to the latest request, written beside finishRequests
+// whenever one is raised (web requestFinishApproval, timeclock finishRequest).
+const REQUEST_POINTER_FIELD = "finishRequest";
 const LOG_FIELD = "apprLog";
 
 // Server-owned bookkeeping. The server stamps these itself, so a client echoing
@@ -44,6 +49,14 @@ const teamEq = (a, b) => {
   const norm = t => (Array.isArray(t) ? t.map(String).sort() : []);
   return eq(norm(a), norm(b));
 };
+
+/**
+ * Entries in `nextList` whose id was not in `prevList` — requests being raised.
+ */
+function newlyRaised(prevList, nextList) {
+  const before = new Set((Array.isArray(prevList) ? prevList : []).filter(r => r && r.id != null).map(r => String(r.id)));
+  return (Array.isArray(nextList) ? nextList : []).filter(r => r && r.id != null && !before.has(String(r.id)));
+}
 
 /**
  * True when a completion request that already existed has been resolved —
@@ -90,18 +103,21 @@ function indexNodes(jobs) {
 }
 
 /**
- * @returns {{ perms: Set<string>, needsApprove: boolean, needsEngineer: boolean, changed: boolean }}
+ * @returns {{ perms: Set<string>, needsApprove: boolean, needsEngineer: boolean, changed: boolean, raisedBy: Set<string> }}
  *   perms         — permission keys this write requires (editJobs/moveJobs/reassign)
  *   needsApprove  — touched signOffs
  *   needsEngineer — touched engineering
  *   changed       — false when the arrays are equivalent, so the constant
  *                   autosave of an unchanged tree is never rejected
+ *   raisedBy      — the `by` of every finish request this write raises; the
+ *                   caller checks they are all the requester themselves
  */
 export function classifyTaskChanges(nextTasks, prevTasks) {
   const perms = new Set();
   let needsApprove = false;
   let needsEngineer = false;
   let changed = false;
+  const raisedBy = new Set();
 
   const next = indexNodes(nextTasks);
   const prev = indexNodes(prevTasks);
@@ -151,6 +167,27 @@ export function classifyTaskChanges(nextTasks, prevTasks) {
         if (!eq(a[key], b[key])) {
           changed = true;
           if (resolvesExistingRequest(a[key], b[key])) perms.add("approveCompletions");
+          // A raise is a new PENDING entry. One that arrives already approved or
+          // declined is a resolution, whoever wrote it.
+          for (const r of newlyRaised(a[key], b[key])) {
+            if (r.status !== "pending") perms.add("approveCompletions");
+            raisedBy.add(String(r.by));
+          }
+        }
+        continue;
+      }
+      if (key === REQUEST_POINTER_FIELD) {
+        // Same raise-only rule as finishRequests: the pointer may be SET to a
+        // request raised in this same write, by the same person. Any other change
+        // (clearing it, pointing it elsewhere) is part of resolving one.
+        if (!eq(a[key], b[key])) {
+          changed = true;
+          const ptr = b[key];
+          const raised = ptr && ptr.requestId != null
+            ? newlyRaised(a[REQUEST_FIELD], b[REQUEST_FIELD]).find(r => String(r.id) === String(ptr.requestId) && r.status === "pending")
+            : null;
+          if (raised && String(ptr.by) === String(raised.by)) raisedBy.add(String(ptr.by));
+          else perms.add("approveCompletions");
         }
         continue;
       }
@@ -166,5 +203,5 @@ export function classifyTaskChanges(nextTasks, prevTasks) {
     if (!next.has(id) && !node.deletedAt) { changed = true; perms.add("editJobs"); }
   }
 
-  return { perms, needsApprove, needsEngineer, changed };
+  return { perms, needsApprove, needsEngineer, changed, raisedBy };
 }

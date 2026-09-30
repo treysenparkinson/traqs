@@ -1,5 +1,5 @@
 import { requireOrgMember } from "./_utils/auth.js";
-import { requirePerm, canApprove, canEngineer } from "./_utils/can.js";
+import { can, requirePerm, canApprove, canEngineer } from "./_utils/can.js";
 import { classifyTaskChanges } from "./_utils/task-perms.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
@@ -84,6 +84,12 @@ export async function handler(event) {
           }
           if (cls.needsEngineer && !canEngineer(member)) {
             return err(403, "Only engineers can change engineering steps");
+          }
+          // Raising a finish request needs no permission, but only for yourself:
+          // a request on someone else's behalf is theirs to raise, or an approver's.
+          const me = member.personId != null ? String(member.personId) : null;
+          if ([...cls.raisedBy].some(by => by !== me) && !can(member, "approveCompletions")) {
+            return err(403, "You can only raise a finish request for yourself");
           }
         }
       } catch (e) {
