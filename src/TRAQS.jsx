@@ -5,7 +5,7 @@ import { personDeptMatch, unitDepartment, workCalendar } from "./scheduleRules.j
 import { DEFAULT_ORG_SETTINGS, withOrgDefaults } from "./orgDefaults.js";
 import { setShopZone, shopDay, shopHour, shopMs } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
-import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessage } from "./dragMove.js";
+import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessage, shiftStart, resizeShare } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, shiftWorkingDays, nextFreeStart, schedulerAvailability } from "./overlapRules.js";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
@@ -16706,37 +16706,46 @@ ${jobsCtx || "No jobs found."}`;
       if (r.type === "subtask") return s + subH;
       return s + rH;
     }, 0) + 56;
-    // Team day-view bar drag
-    // rawBarS/rawBarE: actual visual start/end hours from barPositions (may differ from barTask.startHour/hpd when auto-stacked)
-    const handleTeamDayBarDrag = (e, barTask, mode = "move", fromPersonId = null, rawBarS = null, rawBarE = null) => {
+    // Team day-view bar drag and resize (root cause 7, chunk B).
+    //
+    // The SAME landing and the SAME checks as week/month (dragMove.js), not a second set: every
+    // permission, lock, live-clock, record, department, time-off, past and overlap rule the week
+    // view applies, applied here. It used to check none of them but overlap and an hour-only past
+    // test that assumed the view showed today (#5 #8).
+    //
+    // rawS/rawE: the bar's PAINTED start/end hour on the day shown (packing, the reservoir
+    // shrink and a multi-day op's segment all move it off the stored hour). Every mode anchors
+    // on them (#10). meta: { isRecord, isFirstSeg, isLastSeg }.
+    const handleTeamDayBarDrag = (e, barTask, mode = "move", fromPersonId = null, rawS = null, rawE = null, meta = {}) => {
       if (!barTask) return;
       e.preventDefault(); e.stopPropagation();
+      // Permission at the grab, as week/month: without moveJobs a click still opens the job.
+      if (!can("moveJobs")) { isDraggingRef.current = false; if (mode === "move") openJobDetailOrEdit(barTask); else denied(PERM_VERB.moveJobs); return; }
       const DHS = 5, DHE = 21, DNH = 16;
-      const origHour = rawBarS ?? (barTask.startHour ?? 8);
-      const origHpd = rawBarE != null ? (rawBarE - origHour) : (barTask.hpd || 0);
-      const origEnd = origHour + origHpd;
+      const day = tStart;
+      const _dayIsWork = (d) => isWorkDay(d, orgSettings.workDays) && !(orgSettings.holidays || []).includes(d);
+      const _teamSize = Math.max(1, (barTask.team || []).length);
+      const _share0 = personShareHours(barTask.hpd || 0, _teamSize, productiveHoursPerDay);
+      const _isMulti = !!(barTask.start && barTask.end && barTask.start !== barTask.end);
+      const _segs = _isMulti ? opDaySegments(barTask, { cfg: dayWindowCfg, productiveHoursPerDay, isWorkDay: _dayIsWork }) : [];
+      const origHour = rawS ?? (barTask.startHour ?? workStartH);
+      const origEnd = rawE ?? (origHour + _share0);
+      // Where the op is painted as a WHOLE: its first day's start and its last day's end.
+      const paintedStart = _isMulti && _segs.length ? { day: _segs[0].day, hour: _segs[0].startH } : { day, hour: origHour };
+      const paintedEnd = _isMulti && _segs.length ? { day: _segs[_segs.length - 1].day, hour: _segs[_segs.length - 1].endH } : { day, hour: origEnd };
+      const origSpan = Math.max(0.25, origEnd - origHour);
       const sx = e.clientX, sy = e.clientY;
       let moved = false;
-      const pid = barTask.isSub ? barTask.pid : null;
-      // A resize writes the team's total: this person's productive hours × team size.
-      const _dayTeamSize = Math.max(1, (barTask.team || []).length);
-      // Measure the timeline area (right side of the row) at drag start
-      const timelineEl = e.currentTarget.parentElement; // position:relative flex div
+      const timelineEl = e.currentTarget.parentElement;
       const rowRect = timelineEl.getBoundingClientRect();
       const timelineLeft = rowRect.left;
       const timelineWidth = Math.max(rowRect.width, 1);
-      // Compute where within the bar we grabbed (in hours)
       const cursorHourAtStart = DHS + (sx - timelineLeft) / timelineWidth * DNH;
-      const grabOffsetHours = mode === "move" ? Math.max(0, Math.min(origHpd, cursorHourAtStart - origHour)) : 0;
+      const grabOffsetHours = mode === "move" ? Math.max(0, Math.min(origSpan, cursorHourAtStart - origHour)) : 0;
       const grabOffsetPx = grabOffsetHours / DNH * timelineWidth;
       const barH = rH - 8;
-      // Use actual visual duration (origHpd from rawBarE-rawBarS, or 2h fallback for no-hours bars)
-      const visualDuration = origHpd > 0 ? origHpd : 2;
-      const barW = Math.max(32, visualDuration / DNH * timelineWidth - 4);
-      // Pending values for left/right resize — only commit to state on mouseup to prevent jump
-      const pending = { startHour: origHour, hpd: origHpd };
+      const barW = Math.max(32, origSpan / DNH * timelineWidth - 4);
       const fmTimeH = h => { const H = Math.floor(h), M = Math.round((h % 1) * 60); return `${H > 12 ? H - 12 : H === 0 ? 12 : H}:${String(M).padStart(2, "0")} ${H >= 12 ? "PM" : "AM"}`; };
-      // Helper: which person row is under a given clientY
       const getPersonAtY = (clientY) => {
         const el = teamContainerRef.current; if (!el) return null;
         const rect = el.getBoundingClientRect();
@@ -16749,85 +16758,82 @@ ${jobsCtx || "No jobs found."}`;
         }
         return null;
       };
+      const _cal = calOf(orgSettings.workDays, orgSettings.holidays);
+      const _live = blockedByActiveClock(jobIdOfNode(barTask.id), barTask.id);
+      const _refuseCtx = {
+        isLocked: n => !!n?.locked,
+        isLive: n => sameId(n?.id, barTask.id) && _live,
+        isOverdue: () => false,
+        timeOff: pid => (people.find(x => sameId(x.id, pid))?.timeOff || []),
+        business: billingTier === "business",
+        tasks, overlapCtx, people,
+      };
+      // The landing for the gesture so far. A move shifts the op's own first day by the hour
+      // change (a multi-day op grabbed on a later day shifts as a whole, as writing startHour
+      // always did); a resize keeps the fixed edge and measures the op across every day (#9).
+      const planFor = (clientX, targetId) => {
+        const cursorHour = DHS + (clientX - timelineLeft) / timelineWidth * DNH;
+        if (mode === "move") {
+          const newStart = Math.max(DHS, Math.min(DHE - 0.25, Math.round((cursorHour - grabOffsetHours) * 4) / 4));
+          const drop = shiftStart(paintedStart, { bdDelta: 0, hourDelta: newStart - origHour }, { workStartH, workEndH, cal: _cal });
+          return { label: fmTimeH(newStart), plan: planDragMove({
+            grabbed: { id: barTask.id, node: barTask, fromDay: paintedStart.day, fromHour: paintedStart.hour, shareH: _share0, isRecord: !!meta.isRecord },
+            drop, origPerson: fromPersonId, dropPerson: targetId ?? fromPersonId, cfg: dayWindowCfg, cal: _cal, workStartH, workEndH }) };
+        }
+        const h = Math.round(cursorHour * 4) / 4;
+        const hour = mode === "left" ? Math.max(DHS, Math.min(origEnd - 0.25, h)) : Math.max(origHour + 0.25, Math.min(DHE, h));
+        const share = resizeShare({ side: mode, paintedStart, paintedEnd, day, hour, cfg: liveJobCfg });
+        const from = mode === "left" ? { day, hour } : paintedStart;
+        return { label: fmTimeH(hour), plan: planDragMove({
+          grabbed: { id: barTask.id, node: barTask, fromDay: from.day, fromHour: from.hour, shareH: share, hpd: Math.round(share * _teamSize * 100) / 100, isRecord: !!meta.isRecord },
+          drop: from, origPerson: fromPersonId, dropPerson: fromPersonId, cfg: dayWindowCfg, cal: _cal, workStartH, workEndH }) };
+      };
+      const _refuse = (plan) => refuseDragMove(plan, { ..._refuseCtx, nowDay: shopDay(), nowHour: shopHour() });
       const onM = me => {
         const dx = me.clientX - sx;
         if (Math.abs(dx) > 8 || Math.abs(me.clientY - sy) > 10) moved = true;
         if (!moved) return;
         setDayDragInfo({ itemId: barTask.id, mode });
-        // Day view always shows today (the "Today" toggle is the only place that sets
-        // tStart/tEnd for tMode "day", and it always sets TD) — so the wall-clock hour is
-        // the whole boundary here, no date component needed. Jobs can never be dragged to
-        // start before now.
-        const _nowHForDayDrag = shopHour();
+        const target = mode === "move" ? getPersonAtY(me.clientY) : null;
+        const toOther = !!(target && fromPersonId && !sameId(target.id, fromPersonId));
+        const { plan, label } = planFor(me.clientX, toOther ? target.id : null);
+        const red = !!_refuse(plan);
         if (mode === "move") {
-          // Compute drop hour for tooltip
-          const dropHour = Math.max(DHS, Math.min(DHE - origHpd, (DHS + (me.clientX - grabOffsetPx - timelineLeft) / timelineWidth * DNH)));
-          const dropH = Math.floor(dropHour), dropM = Math.round((dropHour % 1) * 60);
-          const dropLabel = `${dropH > 12 ? dropH - 12 : dropH === 0 ? 12 : dropH}:${String(dropM).padStart(2,"0")} ${dropH >= 12 ? "PM" : "AM"}`;
-          const _beforeNowDay = dropHour < _nowHForDayDrag;
-          setTeamDayGhost({ left: me.clientX - grabOffsetPx, top: me.clientY - barH / 2, width: barW, height: barH, color: _beforeNowDay ? "#ef4444" : barTask.color, label: `${barTask.title || ""}`, time: dropLabel });
-          const target = getPersonAtY(me.clientY);
-          setDayDragTarget(target && target.id !== fromPersonId ? target.id : null);
-        } else if (mode === "left") {
-          const cursorHour = DHS + (me.clientX - timelineLeft) / timelineWidth * DNH;
-          const newStart = Math.round(cursorHour * 4) / 4;
-          pending.startHour = Math.max(DHS, Math.min(origEnd - 0.25, newStart));
-          pending.hpd = Math.round(productiveClockHours(pending.startHour, origEnd, dayWindowCfg) * _dayTeamSize * 100) / 100;
-          const _beforeNowDay = pending.startHour < _nowHForDayDrag;
-          setTeamDayGhost({ left: me.clientX, top: me.clientY - barH / 2, width: 4, height: barH, color: _beforeNowDay ? "#ef4444" : barTask.color, label: barTask.title || "", time: fmTimeH(pending.startHour) });
+          setTeamDayGhost({ left: me.clientX - grabOffsetPx, top: me.clientY - barH / 2, width: barW, height: barH, color: red ? "#ef4444" : barTask.color, label: `${barTask.title || ""}`, time: label });
+          setDayDragTarget(toOther ? target.id : null);
         } else {
-          const cursorHour = DHS + (me.clientX - timelineLeft) / timelineWidth * DNH;
-          const clamped = Math.max(origHour + 0.25, Math.min(DHE, Math.round(cursorHour * 4) / 4));
-          pending.hpd = Math.round(productiveClockHours(origHour, clamped, dayWindowCfg) * _dayTeamSize * 100) / 100;
-          setTeamDayGhost({ left: me.clientX, top: me.clientY - barH / 2, width: 4, height: barH, color: barTask.color, label: barTask.title || "", time: fmTimeH(clamped) });
+          setTeamDayGhost({ left: me.clientX, top: me.clientY - barH / 2, width: 4, height: barH, color: red ? "#ef4444" : barTask.color, label: barTask.title || "", time: label });
         }
-      };
-      // The day view had no overlap check at all. The unit at its new hour (and, for a resize,
-      // its new hours) is checked against everyone else on the person's row.
-      const dayOverlapBlocked = (patch, team) => {
-        if (billingTier !== "business") return false;
-        const _dayUnit = { ...barTask, ...patch, team: team || barTask.team || [] };
-        const hit = overlapsWith(_dayUnit, occupyingUnits(tasks, overlapCtx), overlapCtx)[0];
-        if (!hit) return false;
-        const who = people.find(x => sameId(x.id, hit.personId));
-        showOverlapIfAny([{ person: who?.name || "", opTitle: hit.other.unit.title || "", panelTitle: hit.other.panel?.title || "", jobTitle: hit.other.job?.title || "", start: hit.at.day, end: hit.at.day }]);
-        return true;
       };
       const onU = (me) => {
         document.removeEventListener("mousemove", onM);
         document.removeEventListener("mouseup", onU);
-        const _nowHOnDrop = shopHour();
-        if (moved && mode === "move") {
-          // Apply ghost's final position to the real task
-          const cursorHour = DHS + (me.clientX - timelineLeft) / timelineWidth * DNH;
-          const newStart = Math.round((cursorHour - grabOffsetHours) * 4) / 4;
-          const clamped = Math.max(DHS, Math.min(DHE - Math.max(origHpd, 0.25), newStart));
-          // Jobs can never be dragged to start before now — day view is always today, so
-          // the wall-clock hour alone is the boundary.
-          if (clamped < _nowHOnDrop) {
-            setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't schedule in the past", message: "This move would place part of the job before the current time. Jobs can't be scheduled in the past.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
-          } else {
-            const target = getPersonAtY(me.clientY);
-            const toOther = fromPersonId && target && target.id !== fromPersonId;
-            if (!dayOverlapBlocked({ startHour: clamped }, toOther ? [target.id] : null)) {
-              updTask(barTask.id, { startHour: clamped }, pid);
-              if (toOther) reassignTask(barTask.id, fromPersonId, target.id, pid);
-            }
-          }
-        } else if (moved && mode === "left") {
-          if (pending.startHour < _nowHOnDrop) {
-            setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't schedule in the past", message: "This move would place part of the job before the current time. Jobs can't be scheduled in the past.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
-          } else if (!dayOverlapBlocked({ startHour: pending.startHour, hpd: pending.hpd })) {
-            updTask(barTask.id, { startHour: pending.startHour, hpd: pending.hpd }, pid);
-          }
-        } else if (moved && mode === "right") {
-          if (!dayOverlapBlocked({ hpd: pending.hpd })) updTask(barTask.id, { hpd: pending.hpd }, pid);
-        }
         isDraggingRef.current = false;
         setTeamDayGhost(null);
         setDayDragInfo(null);
         setDayDragTarget(null);
-        if (!moved && mode === "move") openJobDetailOrEdit(barTask);
+        if (!moved) { if (mode === "move") openJobDetailOrEdit(barTask); return; }
+        const target = mode === "move" ? getPersonAtY(me.clientY) : null;
+        const toOther = !!(target && fromPersonId && !sameId(target.id, fromPersonId));
+        if (toOther && !can("reassign")) { denied(PERM_VERB.reassign); return; }
+        const { plan } = planFor(me.clientX, toOther ? target.id : null);
+        const refusal = _refuse(plan);
+        if (refusal) {
+          setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: refusal.kind === "past" ? "Can't schedule in the past" : "Can't move here",
+            message: refusalMessage(refusal), onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
+          return;
+        }
+        const movedByName = loggedInUser ? loggedInUser.name : "Admin";
+        const build = (list) => recalcBounds(applyDragMove(list, plan, { date: TD, movedBy: movedByName, ...(mode === "move" ? {} : { reason: "Resized in schedule" }) }), movedByName);
+        // Backstop, as week/month: if the no-overlap guard would move anything, refuse instead.
+        const { moved: _bumped, refused: _stuck } = enforceNoOverlap(build(tasks), plan.map(m => m.id));
+        if (_bumped.length || _stuck.length) {
+          console.warn("[schedule-day-drag] refused by the no-overlap guard", { bumped: _bumped, stuck: _stuck });
+          setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't move here", message: refusalMessage({ kind: "overlap", title: barTask.title || "", other: null }), onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
+          return;
+        }
+        setTasks(prev => build(prev));
+        setTimeout(() => doSaveRef.current(), 0);
       };
       document.addEventListener("mousemove", onM);
       document.addEventListener("mouseup", onU);
@@ -17059,12 +17065,16 @@ ${jobsCtx || "No jobs found."}`;
                     // through lunch, and a multi-day op with a start hour ran to 21:00 every day.
                     const _share = personShareHours(hpd, (bar.task?.team || []).length, productiveHoursPerDay);
                     const isMultiDay = bar.task?.start && bar.task?.end && bar.task.start !== bar.task.end;
-                    let rawS, rawE;
+                    let rawS, rawE, isFirstSeg = true, isLastSeg = true;
                     if (isMultiDay) {
                       // Positioned by the walk across its days, outside the pack, as before.
-                      const seg = opDaySegments(bar.task, { cfg: dayWindowCfg, productiveHoursPerDay, isWorkDay: _isDayWork }).find(x => x.day === tStart);
+                      const _allSegs = opDaySegments(bar.task, { cfg: dayWindowCfg, productiveHoursPerDay, isWorkDay: _isDayWork });
+                      const seg = _allSegs.find(x => x.day === tStart);
                       if (!seg) return null;   // its hours ran out before this day
                       rawS = seg.startH; rawE = seg.endH;
+                      // The resize handles belong where the op really starts and ends (#9 #10).
+                      isFirstSeg = _allSegs[0].day === tStart;
+                      isLastSeg = _allSegs[_allSegs.length - 1].day === tStart;
                     } else if (billingTier === "business") {
                       // Clamped against the shared cursor even when manual — a preferred hour
                       // that lands before an already-placed bar's end is pushed to that end,
@@ -17089,7 +17099,7 @@ ${jobsCtx || "No jobs found."}`;
                     // Collapsed reservoir glides its left edge with worked time. rawE is
                     // computed from the ORIGINAL rawS above, so the planned right edge stays
                     // put while the left one advances into it. Every other bar is untouched.
-                    return { bar, rawS: shrunkStartH(p.activeJobClock, bar.task, rawS), rawE, hpd };
+                    return { bar, rawS: shrunkStartH(p.activeJobClock, bar.task, rawS), rawE, hpd, isFirstSeg, isLastSeg };
                   }).filter(Boolean);
                   // Basic only: overlap is allowed in the data (no packing, see above) but
                   // two bars painted at the same vertical position with one on top of the
@@ -17141,7 +17151,7 @@ ${jobsCtx || "No jobs found."}`;
                         {pOff && <div style={{position:"absolute",inset:0,background:`repeating-linear-gradient(135deg,${offColor}12,${offColor}12 4px,transparent 4px,transparent 8px)`,pointerEvents:"none"}}/>}
                         <div style={{position:"absolute",top:0,bottom:0,left:"50%",width:1,background:T.bg+"55",pointerEvents:"none"}}/>
                       </div>)}
-                      {!pOff && barPositions.map(({bar, rawS, rawE, hpd}) => {
+                      {!pOff && barPositions.map(({bar, rawS, rawE, hpd, isFirstSeg, isLastSeg}) => {
                         const visS = Math.max(rawS, HS), visE = Math.min(rawE, HE);
                         if (visE <= visS) return null;
                         const isDraggingThis = dayDragInfo?.itemId === bar.task?.id;
@@ -17153,19 +17163,21 @@ ${jobsCtx || "No jobs found."}`;
                         const _laneTop = _lane && _lane.lanesTotal > 1 ? 4 + _lane.lane * _laneH : 4;
                         const _laneHeight = _lane && _lane.lanesTotal > 1 ? _laneH - 2 : _laneH;
                         return <div key={bar.id}
-                          onMouseDown={e=>{ if(e.button===0) { isDraggingRef.current = true; handleTeamDayBarDrag(e, bar.task, "move", p.id, rawS, rawE); } }}
+                          onMouseDown={e=>{ if(e.button===0) { isDraggingRef.current = true; handleTeamDayBarDrag(e, bar.task, "move", p.id, rawS, rawE, { isRecord: !!bar.crossRow }); } }}
                           onContextMenu={e=>bar.task&&handleCtx(e,bar.task,"team")}
                           style={{position:"absolute",top:_laneTop,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:_laneHeight,borderRadius:T.radiusXs,background:bar.task?.status==="Finished"?spentBarFill(T,bar.color):bar.color,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis&&dayDragInfo?.mode==="move"?`0 0 0 2px ${bar.color}88`:`0 2px 8px ${bar.color}33`,opacity:isDraggingThis&&dayDragInfo?.mode==="move"?0.3:dayDragInfo&&!isDraggingThis?0.7:(!hoveredBarPid||bar.task?.pid===hoveredBarPid?1:0.2)*barFade(bar.task),transition:"box-shadow 0.1s,opacity 0.2s"}}
                           onMouseEnter={e=>{ if(!dayDragInfo && !isDraggingRef.current){ e.currentTarget.style.filter="brightness(1.1)"; setHoveredBarPid(bar.task?.pid??null); } }} onMouseLeave={e=>{ e.currentTarget.style.filter="none"; setHoveredBarPid(null); }}>
-                          <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"left",p.id);}} style={{position:"absolute",left:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
+                          {/* Handles: only where the op starts / ends, never on a record bar or a locked op,
+                              and only for someone who may move jobs (#5 #9 #10 #17). */}
+                          {can("moveJobs") && isFirstSeg && !bar.crossRow && !bar.task?.locked && <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"left",p.id,rawS,rawE);}} style={{position:"absolute",left:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
                             <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
-                          </div>
+                          </div>}
                           {(() => { const _lb = liveBadgeFor(p.activeJobClock, bar.task); return _lb && <span style={{fontSize:9,fontWeight:800,color:liveBarTextColor(T,bar.color,_lb),letterSpacing:"0.05em",flexShrink:0,marginRight:6,opacity:0.85}}>{LIVE_BADGE_LABEL[_lb]}</span>; })()}
                           {bar.task?.status==="Finished" && <span style={{fontSize:9,fontWeight:800,color:liveBarTextColor(T,bar.color,"held"),letterSpacing:"0.05em",flexShrink:0,marginRight:6,opacity:0.85}}>DONE</span>}
                           <span style={{fontSize:10,color:accentText(bar.color),fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,textAlign:"left",position:"relative",zIndex:5}}>{hpd > 0 ? `${hpd}h · ` : ""}{bar.task?.title || bar.title}</span>
-                          <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"right",p.id);}} style={{position:"absolute",right:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
+                          {can("moveJobs") && isLastSeg && !bar.crossRow && !bar.task?.locked && <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"right",p.id,rawS,rawE);}} style={{position:"absolute",right:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
                             <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
-                          </div>
+                          </div>}
                           {personShareHours(hpd, (bar.task?.team || []).length, productiveHoursPerDay) >= productiveHoursPerDay && (() => {
                             const _ph = t => { const [h,m]=(t||"0:0").split(":").map(Number); return h+m/60; };
                             const wsH = _ph(orgSettings.workStart||"07:00");
@@ -18131,7 +18143,7 @@ ${jobsCtx || "No jobs found."}`;
                     })();
                     const _dragCal = calOf(orgSettings.workDays, orgSettings.holidays);
                     const _planAt = (day, hour, toPerson) => planDragMove({
-                      grabbed: { id: bar.task.id, node: bar.task, fromDay: _dragBaseStart, fromHour: _dragBaseHour, shareH: _dragBarHpd },
+                      grabbed: { id: bar.task.id, node: bar.task, fromDay: _dragBaseStart, fromHour: _dragBaseHour, shareH: _dragBarHpd, isRecord: !!bar.crossRow },
                       members: _memberInputs, drop: { day, hour }, origPerson, dropPerson: toPerson ?? origPerson,
                       cfg: dayWindowCfg, cal: _dragCal, workStartH, workEndH,
                     });
@@ -18144,7 +18156,7 @@ ${jobsCtx || "No jobs found."}`;
                       isOverdue: n => _overdueIds.has(String(n?.id)),
                       timeOff: pid => (people.find(x => sameId(x.id, pid))?.timeOff || []),
                       business: billingTier === "business",
-                      tasks, overlapCtx,
+                      tasks, overlapCtx, people,
                     };
                     const _refuse = (plan) => refuseDragMove(plan, { ..._refuseCtx, nowDay: shopDay(), nowHour: shopHour() });
                     // Member ghosts come from the same plan, so they preview where members land.

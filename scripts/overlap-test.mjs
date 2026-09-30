@@ -196,7 +196,8 @@ const run = (name, anchor) => { const src = slice(anchor); if (!src) { ok(`${nam
   const _dragSrc = readFileSync(new URL("../src/dragMove.js", import.meta.url), "utf8");
   ok("drag ghost asks the shared rule", SRC.includes("const _refusal = _refuse(_plan);") && _dragSrc.includes("overlapsWith(unit, standing"), true);
   ok("week/month drop re-checks the result", (SRC.match(/const _refusal = _refuse\(_plan\);/g) || []).length === 2 && SRC.includes("enforceNoOverlap(_build(tasks)"), true);
-  ok("day-view drag checks overlap", SRC.includes("overlapsWith(_dayUnit"), true);
+  // Root cause 7 B: the day view goes through the same refuseDragMove as week/month.
+  ok("day-view drag checks overlap", SRC.includes("const refusal = _refuse(plan);") && SRC.includes("refuseDragMove(plan, { ..._refuseCtx"), true);
   ok("the auto-schedulers' free checks use the shared rule (all three)", (SRC.match(/schedulerAvailability\(tasks, overlapCtx/g) || []).length, 3);
   ok("…and no longer compare whole days themselves", /const isPersonFree(Local|Global)?\s*=\s*\(pid,\s*(checkStart|s)\b[^\n]*\n\s*const pp\s*=/.test(SRC), false);
   ok("the save seeds start hours from the shared rule, siblings included", SRC.includes("nextFreeStart(") && SRC.includes("_seeded.push("), true);

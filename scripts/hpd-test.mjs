@@ -74,7 +74,9 @@ hasNot("no cap fallback of a flat 8", /\.cap\s*\|\|\s*8\b/);
 has("the team day view draws each op from opDaySegments", "opDaySegments(");
 has("the gantt resize writes the team total (× team size), left edge", "_computeHpd(_finalDay, _finalHour, oe, oeH) * _resizeTeamSize");
 has("the gantt resize writes the team total (× team size), right edge", "_computeHpd(os, osH, targetDay, clampedHour) * _resizeTeamSize");
-has("day-view resizes write productive hours × team, not a clock span", "productiveClockHours(pending.startHour, origEnd, dayWindowCfg) * _dayTeamSize");
+// Root cause 7 B: the share comes from resizeShare (productive hours across every day the op
+// spans, dragMove.js) and is written × team size.
+has("day-view resizes write productive hours × team, not a clock span", "hpd: Math.round(share * _teamSize * 100) / 100");
 hasNot("labels no longer call hpd a per-day number", /"Hours per day"|Hrs\/Day|Hours \/ Day/);
 has("the AI import asks for total hours", "total estimated hours for the operation across its whole team");
 has("admins get a list of estimates to check", "Estimates to check");

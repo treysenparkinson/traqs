@@ -8,8 +8,10 @@
 // Pure: no React, no clock reads. The caller passes the calendar, the day windows, "now" and
 // the predicates that need app state (locked / live / overdue / time off).
 
-import { walkProductiveHours, personShareHours } from "./statsMath.js";
+import { walkProductiveHours, personShareHours, productiveHoursBetween } from "./statsMath.js";
 import { overlapsWith, occupyingUnits } from "./overlapRules.js";
+import { unitDepartment, personDeptMatch } from "./scheduleRules.js";
+import { shopMs } from "./shopTime.js";
 
 const sid = (x) => String(x);
 const same = (a, b) => a != null && b != null && sid(a) === sid(b);
@@ -40,7 +42,9 @@ export function shiftStart({ day, hour }, { bdDelta, hourDelta }, { workStartH, 
 /**
  * Every mover's landing.
  *
- * grabbed: { id, node, fromDay, fromHour, shareH }  — from = where the bar is PAINTED (#25)
+ * grabbed: { id, node, fromDay, fromHour, shareH, hpd?, isRecord? }
+ *   from = where the bar is PAINTED (#25). hpd: a RESIZE's new total (the team's), written
+ *   with the landing. isRecord: a cross-row bar, a record of work done — never movable.
  * members: [{ id, node, day, hour, shareH }]          — dep-group (locked) and multi-select
  * drop:    { day, hour }                              — the grabbed bar's landing start
  * origPerson / dropPerson: the grabbed bar's row, and the row it was dropped on.
@@ -61,10 +65,11 @@ export function planDragMove({ grabbed, members = [], drop, origPerson, dropPers
   const mover = (m, at) => {
     const team = newTeam(m.node.team);
     const n = m.node;
+    const resized = m.hpd != null;
     return {
-      id: sid(m.id), node: n, shareH: m.shareH,
-      from: { start: n.start, end: n.end, startHour: n.startHour ?? null, endHour: n.endHour ?? null, team: n.team || [] },
-      to: { ...landUnit({ day: at.day, hour: at.hour, shareH: m.shareH, cfg, cal }), team: team || (n.team || []) },
+      id: sid(m.id), node: n, shareH: m.shareH, isRecord: !!m.isRecord,
+      from: { start: n.start, end: n.end, startHour: n.startHour ?? null, endHour: n.endHour ?? null, team: n.team || [], ...(resized ? { hpd: n.hpd ?? null } : {}) },
+      to: { ...landUnit({ day: at.day, hour: at.hour, shareH: m.shareH, cfg, cal }), team: team || (n.team || []), ...(resized ? { hpd: m.hpd } : {}) },
       reassigned: !!team,
     };
   };
@@ -80,6 +85,7 @@ export function planDragMove({ grabbed, members = [], drop, origPerson, dropPers
  *
  * ctx: {
  *   isLocked(node), isLive(node), isOverdue(node),   — app-state predicates
+ *   people,                                           — for the department rule
  *   timeOff(personId) → [{ start, end, reason? }],
  *   nowDay, nowHour, business,                        — past + overlap are Business-only
  *   tasks, overlapCtx                                 — for the one overlap rule
@@ -88,9 +94,25 @@ export function planDragMove({ grabbed, members = [], drop, origPerson, dropPers
 export function refuseDragMove(movers, ctx) {
   const title = (m) => m.node?.title || "";
   for (const m of movers) {
+    if (m.isRecord) return { kind: "record", id: m.id, title: title(m) };
     if (ctx.isLive?.(m.node)) return { kind: "live", id: m.id, title: title(m) };
     if (ctx.isLocked?.(m.node)) return { kind: "locked", id: m.id, title: title(m) };
     if (ctx.isOverdue?.(m.node)) return { kind: "overdue", id: m.id, title: title(m) };
+  }
+  // The department rule (scheduleRules): a unit with a required department only takes people
+  // in it, primary or secondary. Only the people a drop ADDS are checked — a unit that already
+  // has someone out of department can still move along its own row.
+  for (const m of movers) {
+    if (!m.reassigned) continue;
+    const dept = requiredDepartmentOf(ctx.tasks, m.id);
+    if (!dept) continue;
+    for (const pid of m.to.team) {
+      if ((m.from.team || []).some(x => same(x, pid))) continue;
+      const person = (ctx.people || []).find(p => same(p.id, pid));
+      if (person && !personDeptMatch(person, dept)) {
+        return { kind: "department", id: m.id, title: title(m), personId: pid, personName: person.name || "", department: dept };
+      }
+    }
   }
   for (const m of movers) {
     for (const pid of m.to.team || []) {
@@ -123,6 +145,31 @@ export function refuseDragMove(movers, ctx) {
   return null;
 }
 
+/** The department a unit requires, read from the tree: its own, else its panel's, else its job's. */
+export function requiredDepartmentOf(tasks, id) {
+  for (const job of tasks || []) {
+    if (same(job.id, id)) return unitDepartment(job, null, null);
+    for (const panel of job.subs || []) {
+      if (same(panel.id, id)) return unitDepartment(panel, null, job);
+      for (const op of panel.subs || []) if (same(op.id, id)) return unitDepartment(op, panel, job);
+    }
+  }
+  return "";
+}
+
+/**
+ * A resize's new per-person share, measured across every day it spans (#9): productive hours
+ * from the fixed edge to the dragged one, both where the bar is PAINTED (#10).
+ *   side "left":  new start (day, hour) → painted end
+ *   side "right": painted start → new end (day, hour)
+ * cfg is the day windows plus workDays/holidays (productiveHoursBetween's cfg).
+ */
+export function resizeShare({ side, paintedStart, paintedEnd, day, hour, cfg, min = 0.25 }) {
+  const a = side === "left" ? shopMs(day, hour) : shopMs(paintedStart.day, paintedStart.hour);
+  const b = side === "left" ? shopMs(paintedEnd.day, paintedEnd.hour) : shopMs(day, hour);
+  return Math.max(min, productiveHoursBetween(a, b, cfg));
+}
+
 /** A moveLog entry for one mover (#3). */
 export function moveLogEntry(m, { date, movedBy, reason = "Moved in schedule" }) {
   return {
@@ -130,12 +177,13 @@ export function moveLogEntry(m, { date, movedBy, reason = "Moved in schedule" })
     fromStartHour: m.from.startHour, toStartHour: m.to.startHour,
     fromEndHour: m.from.endHour, toEndHour: m.to.endHour,
     ...(m.reassigned ? { fromTeam: m.from.team, toTeam: m.to.team } : {}),
+    ...(m.to.hpd != null ? { fromHpd: m.from.hpd ?? null, toHpd: m.to.hpd } : {}),
     date, movedBy, reason,
   };
 }
 
 /** The tasks with every mover written at its landing, each with its moveLog entry. */
-export function applyDragMove(tasks, movers, { date, movedBy }) {
+export function applyDragMove(tasks, movers, { date, movedBy, reason }) {
   const byId = new Map(movers.map(m => [m.id, m]));
   const put = (node) => {
     const m = byId.get(sid(node.id));
@@ -144,7 +192,8 @@ export function applyDragMove(tasks, movers, { date, movedBy }) {
       ...node,
       start: m.to.start, end: m.to.end, startHour: m.to.startHour, endHour: m.to.endHour,
       ...(m.reassigned ? { team: m.to.team } : {}),
-      moveLog: [...(node.moveLog || []), moveLogEntry(m, { date, movedBy })],
+      ...(m.to.hpd != null ? { hpd: m.to.hpd } : {}),
+      moveLog: [...(node.moveLog || []), moveLogEntry(m, { date, movedBy, ...(reason ? { reason } : {}) })],
     };
   };
   return (tasks || []).map(job => {
@@ -160,6 +209,8 @@ export function applyDragMove(tasks, movers, { date, movedBy }) {
 export function refusalMessage(r) {
   const name = r.title ? `"${r.title}"` : "An operation";
   switch (r.kind) {
+    case "record": return `${name} here is a record of work already done, so it can't be moved or resized. Move the operation from its own row.`;
+    case "department": return `${r.personName || "That person"} isn't in ${r.department}, so ${name} can't be assigned to them. Drop it on someone in ${r.department}.`;
     case "live": return `${name} can't be moved: someone is clocked into it.`;
     case "locked": return `${name} is locked and can't be moved.`;
     case "overdue": return `${name} is running over its estimate, so it can't be moved with the others. Deselect it, or wait until it is finished.`;
