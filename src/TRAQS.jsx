@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { personDeptMatch, unitDepartment, workCalendar } from "./scheduleRules.js";
 import { DEFAULT_ORG_SETTINGS, withOrgDefaults } from "./orgDefaults.js";
+import { setShopZone, shopDay, shopHour, shopMs } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, shiftWorkingDays, nextFreeStart, schedulerAvailability } from "./overlapRules.js";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
@@ -482,7 +483,9 @@ const nameFromEmail = (raw) => {
   return local.replace(/[._\-+]+/g, " ").replace(/\b\w/g, c => c.toUpperCase()).trim();
 };
 const toDS = dt => { const y = dt.getFullYear(); const m = String(dt.getMonth()+1).padStart(2,"0"); const d = String(dt.getDate()).padStart(2,"0"); return `${y}-${m}-${d}`; };
-const NOW = new Date(); const TD = toDS(NOW);
+// TD is TODAY IN SHOP TIME (shopTime.js). Reassigned each render once the org's zone is
+// known, so a tab left open past midnight moves on to the new day.
+const NOW = new Date(); let TD = toDS(NOW);
 const addD = (ds, n) => { const d = new Date(ds + "T12:00:00"); d.setDate(d.getDate() + n); return toDS(d); };
 // Feature flag: gate the "must be clocked in to work a job" + "can't clock out
 // while on a job" rules. DISABLED for now — flip to true to re-enable (also flip
@@ -5728,6 +5731,10 @@ Extraction rules:
   const workStartH = parseWorkHour(orgSettings.workStart || DEFAULT_ORG_SETTINGS.workStart);
   // Every working-day helper reads the org's calendar from here (see calOf).
   setOrgCalendar(orgSettings);
+  // Schedule geometry reads in the SHOP's timezone, whoever is looking (#76); with no org
+  // zone it is the viewer's own. Absolute timestamps (chat, audit) stay viewer-local.
+  setShopZone(orgSettings.timeZone);
+  TD = shopDay();
   const workEndH = parseWorkHour(orgSettings.workEnd || DEFAULT_ORG_SETTINGS.workEnd);
   const totalWorkH = Math.max(1, workEndH - workStartH);
   // ── The working day's unproductive windows — ONE canonical set ──────────────
@@ -5756,7 +5763,7 @@ Extraction rules:
   const overlapCtx = {
     cfg: dayWindowCfg, productiveHoursPerDay,
     isWorkDay: (ds) => isWorkDay(ds, orgSettings.workDays) && !(orgSettings.holidays || []).includes(ds),
-    today: toDS(new Date()),
+    today: shopDay(),
     shareHours: (u) => {
       const size = Math.max(1, (u.team || []).length);
       const base = personShareHours(u.hpd, size, productiveHoursPerDay);
@@ -7190,7 +7197,7 @@ Extraction rules:
       // forgotten punch into a steady stream of rejected writes.
       if (!sameId(person.id, loggedInUser?.id) && !isAdmin) continue;
       if (unclosedMarkedRef.current.has(jc.sessionId)) continue;
-      const { unclosed } = openSessionEnd({ clockInMs: Date.parse(jc.clockIn), frozenAtMs: jc.frozenAtMs, nowMs, cfg: dayWindowCfg });
+      const { unclosed } = openSessionEnd({ clockInMs: Date.parse(jc.clockIn), frozenAtMs: jc.frozenAtMs, nowMs, cfg: liveJobCfg });
       if (!unclosed) continue;
       // Marked BEFORE the call, not after. Two renders inside one round trip would otherwise
       // both pass the guard and write the same session twice.
@@ -9147,7 +9154,7 @@ Extraction rules:
     }
     if (fOverloaded) {
       // Inline booked-hours check (avoids referencing bookedHrs before it's defined)
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayStr = TD;
       const overloaded = (t.subs || []).some(panel => (panel.subs || []).some(op => (op.team || []).some(pid => {
         const person = people.find(x => x.id === pid); if (!person) return false;
         const pOff = (person.timeOff || []).some(to => todayStr >= to.start && todayStr <= to.end); if (pOff) return false;
@@ -9821,9 +9828,9 @@ Extraction rules:
     // op nobody clocked into. Nothing to reposition against, so status only.
     if (!session) return base;
 
-    const apprD = new Date();
-    const apprDS = toDS(apprD);
-    const apprH = apprD.getHours() + apprD.getMinutes() / 60;
+    const apprMs = Date.now();
+    const apprDS = shopDay(apprMs);
+    const apprH = shopHour(apprMs);
     const lastLog = (op.moveLog || [])[(op.moveLog || []).length - 1];
     const sessionOwnsPosition = !!lastLog && lastLog.sessionId === session.sessionId;
     const snap = sessionOwnsPosition ? (session.sessionSnapshot || []).find(s => sameId(s.opId, op.id)) : null;
@@ -9919,7 +9926,8 @@ Extraction rules:
   // Same-day ops resolve to their actual startHour/endHour; multi-day ops span full work days —
   // hour precision only applies within a single day, matching the locked decision that
   // day-crossing is a coarser event.
-  const hourTs = (ds, h) => new Date(ds + "T00:00:00").getTime() + h * 3600000;
+  // Wall-clock hour h of day ds in SHOP time — DST-correct (#77), viewer-independent (#76).
+  const hourTs = (ds, h) => shopMs(ds, h);
   const opHourRange = (op) => {
     const sH = op.startHour ?? workStartH;
     if (op.start === op.end) {
@@ -12866,8 +12874,7 @@ ${jobsCtx || "No jobs found."}`;
         const hours = Array.from({length: NH}, (_, i) => HS + i);
         const effHW = avail / NH; // stretch evenly across available width
         const fmH = h => h === 0 ? "12am" : h < 12 ? `${h}am` : h === 12 ? "12pm" : `${h - 12}pm`;
-        const now = new Date();
-        const nowH = now.getHours() + now.getMinutes() / 60;
+        const nowH = shopHour();
         const isToday = gStart === TD;
         return (
           <div ref={ganttContainerRef} style={{width:"100%"}}>
@@ -15681,18 +15688,18 @@ ${jobsCtx || "No jobs found."}`;
     // open shift runs to "now", so the lane grows through the day.
     const dayStartH = workStartH;
     const daySpanH = Math.max(1, workEndH - workStartH);
-    const nowH = new Date().getHours() + new Date().getMinutes() / 60;
+    const nowH = shopHour();
     const frac = (iso) => {
-      const d = new Date(iso);
-      if (Number.isNaN(d.getTime())) return null;
-      return Math.min(1, Math.max(0, (d.getHours() + d.getMinutes() / 60 - dayStartH) / daySpanH));
+      const t = Date.parse(iso);
+      if (Number.isNaN(t)) return null;
+      return Math.min(1, Math.max(0, (shopHour(t) - dayStartH) / daySpanH));
     };
     const todayLanes = team.map(p => {
       const segs = timeclock
         .filter(e => !e.eventType && !e.deletedAt && String(e.personId) === String(p.id) && e.date === TD && e.clockIn)
         .map(e => ({ from: frac(e.clockIn), to: e.clockOut ? frac(e.clockOut) : Math.min(1, Math.max(0, (nowH - dayStartH) / daySpanH)), live: !e.clockOut }));
       const ac = p.activeClockIn?.clockIn;
-      if (ac && String(ac).slice(0, 10) === TD) {
+      if (ac && shopDay(Date.parse(ac)) === TD) {
         segs.push({ from: frac(ac), to: Math.min(1, Math.max(0, (nowH - dayStartH) / daySpanH)), live: true });
       }
       const clean = segs.filter(s => s.from != null && s.to != null && s.to > s.from);
@@ -16403,7 +16410,7 @@ ${jobsCtx || "No jobs found."}`;
       // TODAY, once. The three history tests below sit inside the walk over every
       // job, phase and operation, and each one was building a Date and formatting it
       // -- per node, per person row, per render.
-      const _today = toDS(new Date());
+      const _today = TD;
       if (person) (person.timeOff || []).forEach((to, i) => {
         if (to.end < _winS || to.start > _winE) return;
         const ptoColor = to.type === "UTO" ? "#f59e0b" : "#10b981";
@@ -16557,7 +16564,7 @@ ${jobsCtx || "No jobs found."}`;
         const a = Date.parse(_selfJc.clockIn);
         // Same Q7b bound as the op's own bar. Two places end an open clock and they must agree,
         // or a forgotten session would freeze on one row and keep growing on the other.
-        const { endMs: b } = openSessionEnd({ clockInMs: a, pausedAt: _selfJc.pausedAt, frozenAtMs: _selfJc.frozenAtMs, nowMs: Date.now(), cfg: dayWindowCfg });
+        const { endMs: b } = openSessionEnd({ clockInMs: a, pausedAt: _selfJc.pausedAt, frozenAtMs: _selfJc.frozenAtMs, nowMs: Date.now(), cfg: liveJobCfg });
         if (Number.isFinite(a) && b > a) _openByOp.set(String(_selfJc.opId), [[a, b]]);
       }
       // Closed sessions from the memo, merged with this person's open clock if they have one.
@@ -16579,15 +16586,15 @@ ${jobsCtx || "No jobs found."}`;
         if (!xFound || onTeam(xFound.op.team, pid)) continue;
         if (!showCompleted && xFound.op.status === "Finished") continue;
         const xS = xSpans[0][0], xE = xSpans[xSpans.length - 1][1];
-        const xStartDS = toDS(new Date(xS)), xEndDS = toDS(new Date(xE));
+        const xStartDS = shopDay(xS), xEndDS = shopDay(xE);
         if (xEndDS < _winS || xStartDS > _winE) continue;
         const xTc = xFound.panel.color || "#94a3b8";
         const xClient = xFound.job.clientId ? clients.find(c => c.id === xFound.job.clientId) : null;
         const xTask = {
           ...xFound.op,
           start: xStartDS, end: xEndDS,
-          startHour: (xS - hourTs(xStartDS, 0)) / 3600000,
-          endHour: (xE - hourTs(xEndDS, 0)) / 3600000,
+          startHour: shopHour(xS),
+          endHour: shopHour(xE),
           // Its length is the SPAN it covers, not the hours inside it. Summed hours drew a
           // 20.4h session as 20.4 hours of bar -- nearly three working days from its start,
           // running well past the cursor -- when the work itself ended at 16:03. Hours worked
@@ -16750,7 +16757,7 @@ ${jobsCtx || "No jobs found."}`;
         // tStart/tEnd for tMode "day", and it always sets TD) — so the wall-clock hour is
         // the whole boundary here, no date component needed. Jobs can never be dragged to
         // start before now.
-        const _nowHForDayDrag = (() => { const _n = new Date(); return _n.getHours() + _n.getMinutes() / 60; })();
+        const _nowHForDayDrag = shopHour();
         if (mode === "move") {
           // Compute drop hour for tooltip
           const dropHour = Math.max(DHS, Math.min(DHE - origHpd, (DHS + (me.clientX - grabOffsetPx - timelineLeft) / timelineWidth * DNH)));
@@ -16788,7 +16795,7 @@ ${jobsCtx || "No jobs found."}`;
       const onU = (me) => {
         document.removeEventListener("mousemove", onM);
         document.removeEventListener("mouseup", onU);
-        const _nowHOnDrop = (() => { const _n = new Date(); return _n.getHours() + _n.getMinutes() / 60; })();
+        const _nowHOnDrop = shopHour();
         if (moved && mode === "move") {
           // Apply ghost's final position to the real task
           const cursorHour = DHS + (me.clientX - timelineLeft) / timelineWidth * DNH;
@@ -16980,8 +16987,7 @@ ${jobsCtx || "No jobs found."}`;
         const HS = 5, HE = 21, NH = HE - HS; // 5am – 9pm, 16 hours
         const hours = Array.from({length: NH}, (_, i) => HS + i);
         const fmH = h => h === 0 ? "12am" : h < 12 ? `${h}am` : h === 12 ? "12pm" : `${h - 12}pm`;
-        const now = new Date();
-        const nowH = now.getHours() + now.getMinutes() / 60;
+        const nowH = shopHour();
         const isToday = tStart === TD;
         return (
           <div ref={teamContainerRef} style={{width:"100%"}}>
@@ -17481,7 +17487,7 @@ ${jobsCtx || "No jobs found."}`;
                   // the person working it.
                   hasActiveSession: !!p.activeJobClock?.clockIn && sameId(p.activeJobClock.opId, b.task?.id),
                 })),
-                nowDay: toDS(_nowD), nowHour: _nowD.getHours() + _nowD.getMinutes() / 60,
+                nowDay: shopDay(_nowD.getTime()), nowHour: shopHour(_nowD.getTime()),
                 cfg: { workStartH, totalWorkH, productiveHoursPerDay, diffBD: (x, y) => diffBD(x, y, _rowBDOpts) },
               });
               for (const [_k, _v] of _rowPush.pushes) overrunPushH[_k] = _v;
@@ -17675,12 +17681,12 @@ ${jobsCtx || "No jobs found."}`;
                   // clamping here: a bar left of a past cursor must read as fully behind it, and
                   // the fill clamps for paint at the point where it draws.
                   const _nowD = new Date();
-                  const _nowIdx = days.indexOf(toDS(_nowD));
+                  const _nowIdx = days.indexOf(shopDay(_nowD.getTime()));
                   const _nowHourFrac = totalWorkH > 0
-                    ? ((_nowD.getHours() + _nowD.getMinutes() / 60) - workStartH) / totalWorkH : 0;
+                    ? (shopHour(_nowD.getTime()) - workStartH) / totalWorkH : 0;
                   const _nowGridPct = _nowIdx >= 0
                     ? ((_nowIdx + Math.min(1, Math.max(0, _nowHourFrac))) / nDays) * 100
-                    : (toDS(_nowD) < days[0] ? -1 : 101);
+                    : (shopDay(_nowD.getTime()) < days[0] ? -1 : 101);
                   const _opStart = bar.task?.start; const _opEnd = bar.task?.end;
                   const _barTeamSz = Math.max(1, (bar.task?.team || []).length);
                   // Worked state for this bar — the bar's own geometry depends on it
@@ -17836,14 +17842,14 @@ ${jobsCtx || "No jobs found."}`;
                   // row's own work now, so it covers that case and packs the result.
                   const _atCursor = bar.type === "task" && !!cursorAnchored[bar.id];
                   if (_atCursor) {
-                    const _curDay = toDS(new Date());
+                    const _curDay = TD;
                     const _shiftBD = diffBD(bar.start, _curDay, _barBDOpts);
                     _layoutStart = _curDay;
                     _layoutEnd = _shiftBD !== 0 ? addBD(bar.end, _shiftBD, _barBDOpts) : bar.end;
                   }
                   const _nowForBar = new Date();
                   const _barStartH = _atCursor
-                    ? _nowForBar.getHours() + _nowForBar.getMinutes() / 60
+                    ? shopHour(_nowForBar.getTime())
                     : (_pushH > 0 ? _pushedStartH : _baseStartH);
                   // The push, as the two numbers needed to reapply it: working days moved, and
                   // the leftover hour shift. Taken as the DIFFERENCE the lines above actually
@@ -18434,8 +18440,8 @@ ${jobsCtx || "No jobs found."}`;
                       // Basic: purely visual, nothing is pushed/pulled/refused — a card can be
                       // dragged anywhere, past included; this restriction is Business-only.
                       const _nowForDrag = new Date();
-                      const _nowDayForDrag = toDS(_nowForDrag);
-                      const _nowHourForDrag = _nowForDrag.getHours() + _nowForDrag.getMinutes() / 60;
+                      const _nowDayForDrag = shopDay(_nowForDrag.getTime());
+                      const _nowHourForDrag = shopHour(_nowForDrag.getTime());
                       const beforeNow = billingTier === "business" && ((snapS < _nowDayForDrag) || (snapS === _nowDayForDrag && _ghostDH < _nowHourForDrag));
                       teamDragLiveRef.current = { snapStart: snapS, snapEnd: snapE, dropHour, barHpd: _dragBarHpd, origStart: os, origEnd: oe, grabOffsetPct: _grabOffsetPct, ghostLeftPct: _ghostLeftPct, hasOverlap, overlapInfo, beforeNow };
                       // Bars that should visually move + fade together with the dragged bar:
@@ -19145,7 +19151,7 @@ ${jobsCtx || "No jobs found."}`;
                       const a = Date.parse(jc.clockIn);
                       // Q7b: a clock nobody stopped freezes at the end of the day it started on,
                       // so a forgotten Friday punch does not grow a bar across the weekend.
-                      const { endMs: b } = openSessionEnd({ clockInMs: a, pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs, nowMs: _nowMs, cfg: dayWindowCfg });
+                      const { endMs: b } = openSessionEnd({ clockInMs: a, pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs, nowMs: _nowMs, cfg: liveJobCfg });
                       if (Number.isFinite(a) && b > a) _live.push([a, b]);
                     }
                     // HATCH FOLLOWS THE WORKER, and keeps following them after clock-out.
@@ -19218,7 +19224,7 @@ ${jobsCtx || "No jobs found."}`;
                   // An open clock past its day's close. Emitted rather than persisted: the resolve
                   // queue needs to find these, and the durable flag belongs on the session record
                   // via updateJobSession, which is a server change and not this pass.
-                  const _barUnclosed = _liveClocks.some(jc => openSessionEnd({ clockInMs: Date.parse(jc.clockIn), pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs, nowMs: Date.now(), cfg: dayWindowCfg }).unclosed);
+                  const _barUnclosed = _liveClocks.some(jc => openSessionEnd({ clockInMs: Date.parse(jc.clockIn), pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs, nowMs: Date.now(), cfg: liveJobCfg }).unclosed);
                   const _barState = isPto ? "pto"
                     : bar.task?.status === "Finished" ? "done"
                     : _liveClocks.some(jc => jc.frozenAtMs) ? "held"
@@ -19376,8 +19382,7 @@ ${jobsCtx || "No jobs found."}`;
               pinned to the column center. Re-evaluates on every render, including the
               unconditional schedule tick above. */}
           {TD >= tStart && TD <= tEnd && (() => {
-            const _tlNow = new Date();
-            const _tlH = _tlNow.getHours() + _tlNow.getMinutes() / 60;
+            const _tlH = shopHour();
             const _tlFrac = Math.max(0, Math.min(1, (_tlH - workStartH) / totalWorkH));
             const _tlDayIdx = diffD(tStart, TD);
             const _tlLeft = `calc(${lW}px + (100% - ${lW}px) * ${(_tlDayIdx + _tlFrac) / days.length})`;
@@ -20732,8 +20737,9 @@ ${jobsCtx || "No jobs found."}`;
     const lateCutoffH = workStartH + LATE_GRACE_MIN / 60;
     const lateArrivals = timeclock.filter(e => {
       if (String(e.personId) !== String(P.id) || e.eventType || !e.clockIn || e.date < monthStart || e.date > TD) return false;
-      const t = new Date(e.clockIn);
-      return t.getHours() + t.getMinutes() / 60 > lateCutoffH;
+      // The clock-in's hour on the SHOP's clock: late is late in Denver, not wherever the
+      // admin happens to be reading from.
+      return shopHour(Date.parse(e.clockIn)) > lateCutoffH;
     }).length;
     // Decimal hour → "8:30 AM", so the tile can state the actual cutoff instead
     // of leaving the rule implied.
@@ -21377,7 +21383,7 @@ ${jobsCtx || "No jobs found."}`;
               // cascade, just a bare live bar — which looks like the feature being
               // broken rather than an id comparison failing.
               const reservoirOpId = onTeam(meta.op.team, loggedInUser.id) ? firstRef.opId : null;
-              const sessionSnapshot = buildSessionSnapshot(tasks, loggedInUser.id, toDS(new Date(optimisticClockIn)));
+              const sessionSnapshot = buildSessionSnapshot(tasks, loggedInUser.id, shopDay(Date.parse(optimisticClockIn)));
               const jres = await jobClockInAction({
                 personId: loggedInUser.id,
                 jobId: firstRef.jobId, panelId: firstRef.panelId, opId: firstRef.opId,
@@ -22439,7 +22445,7 @@ ${jobsCtx || "No jobs found."}`;
         const reservoirOp = findOp(tasks, opId);
         const reservoirOpId = reservoirOp && onTeam(reservoirOp.team, loggedInUser.id) ? opId : null;  // onTeam: ids are mixed string/number
         const sessionId = `sess_${loggedInUser.id}_${optimisticClockIn}`;
-        const sessionSnapshot = buildSessionSnapshot(tasks, loggedInUser.id, toDS(new Date(optimisticClockIn)));
+        const sessionSnapshot = buildSessionSnapshot(tasks, loggedInUser.id, shopDay(Date.parse(optimisticClockIn)));
         const res = await jobClockInAction({ personId: loggedInUser.id, jobId, panelId, opId, jobTitle, panelTitle, opTitle, sessionId, reservoirOpId, sessionSnapshot }, getToken, orgCode);
         if (res.ok) {
           toast("Started on job");
@@ -35614,7 +35620,7 @@ ${jobsCtx || "No jobs found."}`;
 }
 
 function AvailModal({ people, allItems, bookedHrs, onClose, isMobile, onStartTask, style: fadeStyle }) {
-  const [aS, setAS] = useState(toDS(new Date())); const [aE, setAE] = useState(addD(toDS(new Date()), 5)); const [aH, setAH] = useState(4);
+  const [aS, setAS] = useState(TD); const [aE, setAE] = useState(addD(TD, 5)); const [aH, setAH] = useState(4);
   const [selectedPerson, setSelectedPerson] = useState(null);
   const results = useMemo(() => people.filter(p => p.userRole !== "admin").map(p => { let tf = 0; const days = []; let c = aS; while (c <= aE) { const b = bookedHrs(p.id, c); const f = Math.max(0, p.cap - b); tf += f; days.push({ d: c, b, f }); c = addD(c, 1); } const avg = days.length ? tf / days.length : 0; const cur = allItems.filter(i => (i.team || []).includes(p.id) && i.end >= aS && i.start <= aE && i.status !== "Finished"); return { p, tf, avg, days, cur, ok: avg >= aH }; }).sort((a, b) => b.tf - a.tf), [aS, aE, aH, people, bookedHrs, allItems]);
   const available = results.filter(r => r.ok);

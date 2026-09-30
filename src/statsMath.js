@@ -3,6 +3,7 @@
 // report the same numbers only if they run the same algorithm.
 
 import { localDay } from "./localDay.js";
+import { shopMs, shopParts, shopDay, dowOf, nextDayOf, endOfDayFor } from "./shopTime.js";
 import { DEFAULT_ORG_SETTINGS } from "./orgDefaults.js";
 
 /**
@@ -436,36 +437,33 @@ export function complementSpans(spans, from = 0, to = 100) {
  * says how far a bar's remainder has to move when the cursor passes work nobody did.
  *
  * cfg matches buildDayWindows: { workStartH, workEndH, deadWindows: [{ start, dur }], workDays,
- * holidays }. Days are stepped in LOCAL time, the same basis as hourTs — the schedule places
- * every block with `new Date(ds + "T00:00:00")`, and measuring in UTC here would disagree with
- * the geometry by the offset for half the year.
+ * holidays, timeZone? }. Days are stepped in SHOP time (shopTime.js), the same basis as hourTs,
+ * and each window sits at its wall-clock hour — so a DST day's 08:00 is 08:00, not 07:00 (#77).
  */
 export function productiveHoursBetween(startMs, endMs, cfg) {
   const { workStartH = 0, workEndH = 24, deadWindows = [], workDays = [1, 2, 3, 4, 5], holidays = [] } = cfg || {};
   if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return 0;
   const dayLen = workEndH - workStartH;
   if (!(dayLen > 0)) return 0;
+  const tz = cfg?.timeZone;
   const holidaySet = new Set(holidays || []);
   const workDaySet = new Set(workDays || []);
   const HOUR = 3600000;
 
   let total = 0;
-  const day = new Date(startMs);
-  day.setHours(0, 0, 0, 0);
   // Bounded rather than while(true): a bad endMs should cost one wrong number, not a frozen
   // render. A year of business days is far past any span the schedule reasons about.
-  for (let guard = 0; guard < 400 && day.getTime() <= endMs; guard++, day.setDate(day.getDate() + 1)) {
-    const midnight = day.getTime();
-    const ds = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
-    if (!workDaySet.has(day.getDay()) || holidaySet.has(ds)) continue;
-    const a = Math.max(startMs, midnight + workStartH * HOUR);
-    const b = Math.min(endMs, midnight + workEndH * HOUR);
+  let ds = shopDay(startMs, tz);
+  for (let guard = 0; guard < 400 && shopMs(ds, 0, tz) <= endMs; guard++, ds = nextDayOf(ds)) {
+    if (!workDaySet.has(dowOf(ds)) || holidaySet.has(ds)) continue;
+    const a = Math.max(startMs, shopMs(ds, workStartH, tz));
+    const b = Math.min(endMs, shopMs(ds, workEndH, tz));
     if (b <= a) continue;
     let hours = (b - a) / HOUR;
     // Only the part of a dead window the span actually reaches is deducted. Subtracting whole
     // lunches for a span that ended before lunch is how an idle gap gets undercounted.
     for (const w of deadWindows) {
-      const dS = midnight + (w.start ?? 0) * HOUR;
+      const dS = shopMs(ds, w.start ?? 0, tz);
       const dE = dS + (w.dur ?? 0) * HOUR;
       const oa = Math.max(a, dS), ob = Math.min(b, dE);
       if (ob > oa) hours -= (ob - oa) / HOUR;
@@ -548,13 +546,15 @@ export function splitWorkedOp({ hpd, workedMs, teamSize = 1 }) {
  *
  * Deliberately the end of the day the clock STARTED on, not of the current day: a session left
  * open for three days is one unclosed session from Tuesday, not a daily one that keeps renewing.
+ *
+ * The rule is shopTime.endOfDayFor (#215): workEnd in shop time on the clock-in's shop day,
+ * or the next working day's workEnd for a clock-in at or after it — a deliberate after-hours
+ * clock-in is not instantly "unclosed".
  */
 export function endOfWorkingDayMs(startMs, cfg) {
-  const { workEndH = 24 } = cfg || {};
-  if (!Number.isFinite(startMs)) return null;
-  const d = new Date(startMs);
-  d.setHours(0, 0, 0, 0);
-  return d.getTime() + workEndH * 3600000;
+  const { workEndH = 24, workDays = [1, 2, 3, 4, 5], holidays = [], timeZone } = cfg || {};
+  const wd = new Set(workDays || []), hol = new Set(holidays || []);
+  return endOfDayFor(startMs, { workEndH, timeZone, isWorkDay: (ds) => wd.has(dowOf(ds)) && !hol.has(ds) });
 }
 
 /**
@@ -994,9 +994,9 @@ export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
 // day as a clash, which it is not, and the real data has plenty of both shapes.
 
 const HOUR_MS = 3600000;
-/** Local midnight for a YYYY-MM-DD, plus h hours. Mirrors the schedule's own hourTs. */
-export function dayHourMs(ds, h) {
-  return new Date(ds + "T00:00:00").getTime() + (h || 0) * HOUR_MS;
+/** Wall-clock hour h of day ds in shop time. The schedule's own hourTs is this function. */
+export function dayHourMs(ds, h, timeZone) {
+  return shopMs(ds, h || 0, timeZone);
 }
 
 /**
@@ -1014,7 +1014,7 @@ export function opInterval(op, cfg) {
   const eH = op.start === op.end
     ? (op.endHour ?? Math.min(sH + Math.max(0, op.durationH || 0), workEndH))
     : (op.endHour ?? workEndH);
-  const s = dayHourMs(op.start, sH), e = dayHourMs(op.end, eH);
+  const s = dayHourMs(op.start, sH, cfg?.timeZone), e = dayHourMs(op.end, eH, cfg?.timeZone);
   return e > s ? { s, e } : { s, e: s };
 }
 
@@ -1070,19 +1070,19 @@ export function firstFreeStart(desiredStart, durationMs, occupied) {
 export function normalizeToWorkTime(ms, cfg) {
   const { workStartH = _defStartH, workEndH = _defEndH, workDays = [1, 2, 3, 4, 5], holidays = [] } = cfg || {};
   if (!Number.isFinite(ms)) return ms;
+  const tz = cfg?.timeZone;
   const holidaySet = new Set(holidays || []);
   const workDaySet = new Set(workDays || []);
-  const d = new Date(ms);
+  // Shop time: the working window is the shop's, whoever is looking.
+  const { ds: firstDs, hour } = shopParts(ms, tz);
+  let ds = firstDs;
   for (let guard = 0; guard < 400; guard++) {
-    const ds = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-    const midnight = new Date(d); midnight.setHours(0, 0, 0, 0);
-    const hour = (d.getTime() - midnight.getTime()) / 3600000;
-    const open = workDaySet.has(d.getDay()) && !holidaySet.has(ds);
-    if (open && hour >= workStartH && hour < workEndH) return d.getTime();
-    if (open && hour < workStartH) { d.setHours(workStartH, 0, 0, 0); return d.getTime(); }
+    const open = workDaySet.has(dowOf(ds)) && !holidaySet.has(ds);
+    if (guard === 0 && open && hour >= workStartH && hour < workEndH) return ms;
+    if (guard === 0 && open && hour < workStartH) return shopMs(ds, Math.floor(workStartH), tz);
     // Past the close, or a day the shop is shut: try the next day at opening.
-    d.setDate(d.getDate() + 1);
-    d.setHours(workStartH, 0, 0, 0);
+    if (guard > 0 && open) return shopMs(ds, Math.floor(workStartH), tz);
+    ds = nextDayOf(ds);
   }
   return ms;
 }

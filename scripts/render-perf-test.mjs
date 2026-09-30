@@ -150,7 +150,8 @@ ok("...with no roster scan left in the walk",
 // performance change.
 ok("...keyed on opId, so no bar changes visibility here", S.includes("jc.opId != null) s.add(String(jc.opId))"));
 ok("today is formatted once per person row, not once per node",
-  S.includes("const _today = toDS(new Date());") &&
+  // TD is the shop's today, set once per render (root cause 6) — no per-row formatting at all.
+  S.includes("const _today = TD;") &&
   !/(op|panel|sub)\.end < toDS\(new Date\(\)\)/.test(S));
 ok("the person for a row is a map hit", S.includes("const person = personOf(pid);"));
 ok("...and so is the client on each bar", !/clients\.find\(x => x\.id === job\.clientId\)/.test(S));

@@ -117,7 +117,7 @@ export async function handler() {
           readJson(`orgs/${orgCode}/settings.json`).then(v => v ?? {}).catch(() => ({})),
           readJson(alertsKey).then(v => (v && typeof v === "object" ? v : {})).catch(() => ({})),
         ]);
-        const hoursCfg = { workEnd: settings.workEnd, timeZone: settings.timeZone || null };
+        const hoursCfg = { workEnd: settings.workEnd, timeZone: settings.timeZone || null, workDays: settings.workDays, holidays: settings.holidays };
         const alerts = {};
         let alertsChanged = false;
         for (const worker of running) {
