@@ -2,6 +2,7 @@
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { personDeptMatch, unitDepartment } from "./scheduleRules.js";
+import { classifyTaskActions } from "./taskActions.js";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { TraqsBars, BARS_ASPECT, BRAND_BARS } from "./brand.jsx";
@@ -5192,15 +5193,17 @@ Extraction rules:
       if (existing && u.patch) updTask(existing.id, u.patch);
     });
 
-    if (keptNewPeople.length) setPeople(prev => [...prev, ...keptNewPeople]);
-    if (keptNewClients.length) setClients(prev => [...prev, ...keptNewClients]);
+    // New people need manageTeam and new clients manageClients; the server drops or refuses
+    // them otherwise, so they are left out rather than shown as imported.
+    if (keptNewPeople.length && canManageTeam) setPeople(prev => [...prev, ...keptNewPeople]);
+    if (keptNewClients.length && can("manageClients")) setClients(prev => [...prev, ...keptNewClients]);
     if (keptJobs.length) setTasks(prev => [...prev, ...keptJobs]);
 
     const parts = [];
     if (keptJobs.length) parts.push(`Imported ${keptJobs.length} job${keptJobs.length !== 1 ? "s" : ""}`);
     if (keptUpdates.length) parts.push(`Updated ${keptUpdates.length} existing`);
-    if (keptNewPeople.length) parts.push(`Added ${keptNewPeople.length} team member${keptNewPeople.length !== 1 ? "s" : ""}`);
-    if (keptNewClients.length) parts.push(`Added ${keptNewClients.length} client${keptNewClients.length !== 1 ? "s" : ""}`);
+    if (keptNewPeople.length && canManageTeam) parts.push(`Added ${keptNewPeople.length} team member${keptNewPeople.length !== 1 ? "s" : ""}`);
+    if (keptNewClients.length && can("manageClients")) parts.push(`Added ${keptNewClients.length} client${keptNewClients.length !== 1 ? "s" : ""}`);
 
     // Reset modal
     setUploadModal(false);
@@ -5215,6 +5218,9 @@ Extraction rules:
   const currentUser = loggedInUser ? loggedInUser.id : null;
   const isAdmin = loggedInUser ? loggedInUser.userRole === "admin" : false;
   const can = perm => isAdmin && permGranted(loggedInUser?.adminPerms, perm);
+  // doSave's closure is frozen at first render, so it reads this instead of can().
+  const canManageClientsRef = useRef(false);
+  canManageClientsRef.current = can("manageClients");
   useEffect(() => {
     const h = () => {
       setIsMobile(window.innerWidth < 768);
@@ -7335,7 +7341,7 @@ Extraction rules:
       // Only sessions this user may write. The server refuses the rest with a 403, and a
       // shop floor of clients all retrying someone else's session every render would turn one
       // forgotten punch into a steady stream of rejected writes.
-      if (!sameId(person.id, loggedInUser?.id) && !can("manageTeam")) continue;
+      if (!sameId(person.id, loggedInUser?.id) && !isAdmin) continue;
       if (unclosedMarkedRef.current.has(jc.sessionId)) continue;
       const { unclosed } = openSessionEnd({ clockInMs: Date.parse(jc.clockIn), frozenAtMs: jc.frozenAtMs, nowMs, cfg: dayWindowCfg });
       if (!unclosed) continue;
@@ -8574,7 +8580,10 @@ Extraction rules:
       const results = await Promise.allSettled([
         saveTasks(dedupedTasks, getTokenRef.current, orgCodeRef.current),
         savePeople(people, getTokenRef.current, orgCodeRef.current),
-        saveClients(clients, getTokenRef.current, orgCodeRef.current),
+        // POST /clients needs manageClients even when nothing changed, and this ran on
+        // every autosave — so every save by a worker or restricted admin failed here.
+        // Nobody without manageClients can edit clients, so there is nothing to send.
+        canManageClientsRef.current ? saveClients(clients, getTokenRef.current, orgCodeRef.current) : Promise.resolve(null),
       ]);
       const failures = results
         .map((r, i) => r.status === "rejected" ? { endpoint: ["saveTasks","savePeople","saveClients"][i], error: r.reason } : null)
@@ -10683,6 +10692,8 @@ Extraction rules:
   const placeTaskAt = (personId, dayStr) => {
     const it = placingTask;
     if (!it || !personId || !dayStr) return;
+    // The drop picks the dates AND the assignee.
+    if (!can("moveJobs") || !can("reassign")) return;
     // HOW LONG, from whichever source the task has. Hours win when present --
     // they are the estimate somebody entered. Otherwise the existing date span is
     // preserved, so dropping a dated task MOVES it rather than resizing it to a
@@ -10712,6 +10723,8 @@ Extraction rules:
   const handlePendingItemDrop = (itemId, personId, dayStr) => {
     const item = pendingScheduleItems.find(i => i.id === itemId);
     if (!item) return;
+    // The drop sets the dates, the assignee and the status.
+    if (!can("editJobs") || !can("moveJobs") || !can("reassign")) return;
     // Compute true duration from hpd (total hours / productive hours per workday).
     // sub-1-day stays on a single day (partial-width bar via startHour/endHour); multi-day
     // spans the right number of business days so the bar lands at its real length immediately.
@@ -10737,6 +10750,7 @@ Extraction rules:
 
   const reassignTask = (taskId, fromPersonId, toPersonId, parentId = null) => {
     if (fromPersonId === toPersonId) return;
+    if (!can("reassign")) return;
     setTasks(p => p.map(t => {
       if (parentId) {
         // Check if parentId is a panel inside this job
@@ -11170,6 +11184,20 @@ ${jobsCtx || "No jobs found."}`;
   const saveTask = (ed, parentId) => {
     if (!ed.title.trim()) return;
     if (!parentId && !ed.projectManagerId) { alert("Please select a Project Manager before saving."); return; }
+    // The edit form can change anything, so ask the same classifier the server uses which
+    // permissions this edit needs, rather than gating field by field — dates need moveJobs
+    // and the team reassign, on top of the editJobs that opened the form.
+    if (ed.id) {
+      const before = findTaskNode(ed.id);
+      if (before) {
+        const wrap = (n) => (parentId ? [{ id: "__edit", subs: [n] }] : [n]);
+        const missing = [...classifyTaskActions(wrap(ed), wrap(before)).perms].filter(k => !can(k));
+        if (missing.length) {
+          alert(`You don't have permission to save this change — it needs: ${missing.map(k => ADMIN_PERMS.find(x => x.key === k)?.label || k).join(", ")}.`);
+          return;
+        }
+      }
+    }
     // Can't restructure a job while someone is actively clocked into it (only guards edits to an
     // existing job — a brand-new job has no clock and no id yet).
     if (ed.id && blockedByActiveClock(jobIdOfNode(ed.id) || ed.id)) return;
@@ -11676,7 +11704,7 @@ ${jobsCtx || "No jobs found."}`;
     setTimeout(() => doSaveRef.current(), 0);
     toast("Completion requested");
 
-    const adminParticipants = people.filter(p => p.userRole === "admin");
+    const adminParticipants = people.filter(p => p.userRole === "admin" && permGranted(p.adminPerms, "approveCompletions"));
     if (adminParticipants.length === 0) {
       alert("No admins are available to receive this request. Please contact your administrator directly.");
       return;
@@ -11810,7 +11838,7 @@ ${jobsCtx || "No jobs found."}`;
   // (the gantt hides only Finished items, so reopening re-adds it). Best-effort:
   // finished items go back to "In Progress" since prior statuses aren't stored.
   const adminUndoJobFinish = async (jobId, panelId, opId, requestId) => {
-    if (!isAdmin || !loggedInUser) return;
+    if (!can("approveCompletions") || !loggedInUser) return;
     const job = tasks.find(t => sameId(t.id, jobId));
     if (!job) return;
     const jobLevel = !panelId && !opId;
@@ -11971,6 +11999,14 @@ ${jobsCtx || "No jobs found."}`;
 
   // Engineering sign-off
   const canApprove = loggedInUser && (loggedInUser.userRole === "admin" || loggedInUser.canSignOff === true || loggedInUser.isEngineer === true);
+  // A group is changed, deleted or cleared by its creator or an admin — the server's rule.
+  const canManageGroup = (g) => !!g && (isAdmin || (g.createdBy != null && sameId(g.createdBy, loggedInUser?.id)));
+  const groupOfThread = (threadKey) => {
+    const ref = String(threadKey || "").startsWith("group:") ? String(threadKey).slice(6) : null;
+    return ref == null ? null : (groups || []).find(g => String(g.id) === ref || String(g.name) === ref) || null;
+  };
+  // Engineering steps are the server's canEngineer: admins and engineers, not sign-off holders.
+  const canEngineer = !!loggedInUser && (loggedInUser.userRole === "admin" || loggedInUser.isEngineer === true);
   // Approval Queue page visibility: tighter than canApprove — only admins or users with the
   // Permissions → Sign-off access toggle on. Engineers without sign-off don't see the page.
   // ── Approval activity trail (panel.apprLog) ───────────────────────────────────
@@ -12006,7 +12042,7 @@ ${jobsCtx || "No jobs found."}`;
   };
 
   const signOffEngineering = (jobId, panelId, step) => {
-    if (!canApprove) return;
+    if (!canEngineer) return;
     const record = { by: loggedInUser.id, byName: loggedInUser.name, at: new Date().toISOString() };
     setTasks(prev => {
       const next = prev.map(job =>
@@ -12038,7 +12074,7 @@ ${jobsCtx || "No jobs found."}`;
     });
   };
   const revertEngineering = (jobId, panelId, step) => {
-    if (!canApprove) return;
+    if (!canEngineer) return;
     const stepOrder = ["designed", "verified", "sentToPerforex"];
     const stepIdx = stepOrder.indexOf(step);
     const toRevert = stepOrder.slice(stepIdx);
@@ -12269,7 +12305,7 @@ ${jobsCtx || "No jobs found."}`;
   // the chat-DM path (e.g. an admin who submits their own request isn't DM'd it).
   // Clears automatically once a request is approved/denied.
   const timeOffNotifs = useMemo(() => {
-    if (!loggedInUser || !isAdmin) return [];
+    if (!loggedInUser || !can("approveTimeOff")) return [];
     return (timeOffRequests || [])
       .filter(r => r.status === "pending")
       .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
@@ -12878,6 +12914,7 @@ ${jobsCtx || "No jobs found."}`;
     // Day-view bar drag — move, left-resize (start), right-resize (end/hpd)
     const handleDayBarDrag = (e, item, mode = "move") => {
       e.preventDefault(); e.stopPropagation();
+      if (!can("moveJobs")) return;
       const DHS = 5, DHE = 21, DNH = 16;
       const origHour = item.startHour ?? 8;
       const origHpd = item.hpd || 0;
@@ -13612,6 +13649,9 @@ ${jobsCtx || "No jobs found."}`;
   // Every cell-commit path routes through here — the inline editor AND the select
   // popover, which used to call updTask directly and so recorded nothing.
   const commitCellEdit = (id, key, val, pid) => {
+    // The key the server enforces for this field (src/taskActions.js).
+    const need = key === "start" || key === "end" ? "moveJobs" : key === "team" ? "reassign" : "editJobs";
+    if (!can(need)) return;
     const patch = { [key]: val };
     if (apprSelectKeys.has(key)) {
       // "—" is the dropdown's own empty option, so choosing it reads as a clear
@@ -14000,7 +14040,7 @@ ${jobsCtx || "No jobs found."}`;
           {taskSubView === "list" && <>
             <style>{`@keyframes toolDrop{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:translateY(0)}}@keyframes gridRowIn{0%{opacity:0;transform:translateY(-7px);max-height:0;border-bottom-width:0;overflow:hidden}90%{opacity:1;transform:translateY(0);max-height:80px;border-bottom-width:1px;overflow:hidden}100%{opacity:1;transform:translateY(0);max-height:1000px;border-bottom-width:1px;overflow:visible}}@keyframes gridRowOut{0%{opacity:1;transform:translateY(0);max-height:1000px;border-bottom-width:1px;overflow:hidden}10%{opacity:1;transform:translateY(0);max-height:80px;border-bottom-width:1px;overflow:hidden}100%{opacity:0;transform:translateY(-7px);max-height:0;border-bottom-width:0;overflow:hidden}}`}</style>
             {/* Select */}
-            <Btn size="sm" variant={jobSelectMode ? "primary" : "secondary"} style={{ minWidth: 78 }} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
+            {can("editJobs") && <Btn size="sm" variant={jobSelectMode ? "primary" : "secondary"} style={{ minWidth: 78 }} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>}
             <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
             <div style={{ display: "flex", alignItems: "center", overflow: jobSelRevealed ? "visible" : "hidden", maxWidth: jobSelectMode ? 90 : 0, opacity: jobSelectMode ? 1 : 0, transform: jobSelectMode ? "translateX(0)" : "translateX(-8px)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-right 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: jobSelectMode ? "auto" : "none", marginRight: jobSelectMode ? 0 : -6 }}>
               <button className="subtle-all-btn" onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))}>
@@ -14101,7 +14141,7 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10, position: "relative" }}>
             <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: T.text }}>Jobs</h3>
             <div style={{ display: "flex", alignItems: "center", gap: 6, position: "relative" }}>
-              <Btn size="sm" variant={jobSelectMode ? "primary" : "secondary"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>
+              {can("editJobs") && <Btn size="sm" variant={jobSelectMode ? "primary" : "secondary"} onClick={() => { setJobSelectMode(m => !m); setSelJobs(new Set()); }}>{jobSelectMode ? "Done" : "Select"}</Btn>}
               {jobSelectMode && <button onClick={() => setSelJobs(selJobs.size === activeTasks.length ? new Set() : new Set(activeTasks.map(t => t.id)))} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "7px 14px", fontSize: 13, fontFamily: T.font, fontWeight: 600, cursor: "pointer", borderRadius: T.radiusPill, background: brandGrad(T.accent), border: "none", outline: "none", color: T.accentText, whiteSpace: "nowrap", flexShrink: 0 }}>{selJobs.size === activeTasks.length ? "None" : "All"}</button>}
               <Tip label="Filter">
               <button onClick={e => { e.stopPropagation(); setTaskFilterOpen(p => !p); }} style={{ width: 34, height: 34, borderRadius: T.radiusPill, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: activeFilterCount > 0 ? T.accent : T.textSec, position: "relative" }}>
@@ -14281,7 +14321,7 @@ ${jobsCtx || "No jobs found."}`;
                         const done = !!pEng[step.key];
                         const isActive = step.key === pActiveStep;
                         if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ <span style={{ color: T.textDim }}>{step.label}</span></span>;
-                        if (isActive && canApprove) return <button key={step.key} onClick={() => signOffEngineering(parent.id, panel.id, step.key)} style={{ padding: "3px 10px", borderRadius: T.radiusPill, background: brandGrad(T.accent), color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
+                        if (isActive && canEngineer) return <button key={step.key} onClick={() => signOffEngineering(parent.id, panel.id, step.key)} style={{ padding: "3px 10px", borderRadius: T.radiusPill, background: brandGrad(T.accent), color: T.accentText, border: "none", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
                         if (isActive) return <span key={step.key} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>→ {step.label}</span>;
                         return <span key={step.key} style={{ fontSize: 11, color: T.textDim, opacity: 0.4 }}>○ {step.label}</span>;
                       })}
@@ -14632,7 +14672,8 @@ ${jobsCtx || "No jobs found."}`;
               // is the only one an approver can click.
               const firstOpen = st.steps.findIndex(x => !x.rec);
               const openApprCtx = (ev) => {
-                if (!isAdmin) return;
+                // Editing or removing a panel's steps changes the chain itself: editJobs.
+                if (!can("editJobs")) return;
                 ev.preventDefault(); ev.stopPropagation();
                 setApprovalCtx({
                   x: ev.clientX, y: ev.clientY, kind: "panel",
@@ -16976,7 +17017,7 @@ ${jobsCtx || "No jobs found."}`;
           sat 3px higher once alignItems centred them. */}
       <div className="tq-pagehdr" style={{ display: "flex", gap: isMobile ? 6 : 12, marginBottom: isMobile ? 10 : 20, alignItems: "center", minHeight: 50, flexWrap: "wrap", position: "relative", justifyContent: isAdmin ? "flex-start" : "center" }}>
         <h1 style={pageTitle()}>Schedule</h1>
-        {isAdmin && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        {can("editJobs") && <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <Btn size="sm" variant={barSelectMode ? "primary" : "secondary"} style={{ minWidth: 78 }} onClick={() => { setBarSelectMode(m => !m); setSelBars(new Set()); }}>{barSelectMode ? "Done" : "Select"}</Btn>
           {/* Sliding "All / None" — same animation + style as the Jobs page Select toggle. */}
           <style>{`.subtle-all-btn{display:inline-flex;align-items:center;justify-content:center;height:34px;padding:0 12px;min-width:56px;box-sizing:border-box;font-size:13px;font-family:${T.font};font-weight:600;cursor:pointer;border-radius:${T.radiusPill}px;background:${T.surface};border:1.5px solid ${T.accent};color:${T.accent};white-space:nowrap;flex-shrink:0;outline:none!important;-webkit-appearance:none;appearance:none;transition:filter 0.15s ease-out;}.subtle-all-btn:focus,.subtle-all-btn:focus-visible{outline:none!important;}.subtle-all-btn:active{outline:none!important;filter:brightness(0.95);}`}</style>
@@ -17117,7 +17158,7 @@ ${jobsCtx || "No jobs found."}`;
         <p style={{ margin: "4px auto 0", fontSize: 16, color: T.textSec, maxWidth: 400, lineHeight: 1.75 }}>
           Add your first team member to start scheduling and assigning jobs
         </p>
-        {isAdmin && <Btn style={{ marginTop: 8 }} onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, teamNumber: null, isEngineer: false, userRole: "user" })}>+ Add Member</Btn>}
+        {canManageTeam && <Btn style={{ marginTop: 8 }} onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, teamNumber: null, isEngineer: false, userRole: "user" })}>+ Add Member</Btn>}
       </div>}
       {/* Hourly day view */}
       {people.length > 0 && tMode === "day" && (() => {
@@ -18149,7 +18190,7 @@ ${jobsCtx || "No jobs found."}`;
                   // sense once nobody is on it.
                   const _someoneOnIt = !isPto && !!bar.task && isLiveOpId(bar.task.id);
                   const handleTeamDrag = (e) => {
-                    if (!can("moveJobs")) { if (!isPto && bar.task) openJobDetailOrEdit(bar.task); return; }
+                    if (!can(isPto ? "manageTeam" : "moveJobs")) { if (!isPto && bar.task) openJobDetailOrEdit(bar.task); return; }
                     if (_someoneOnIt) { e.preventDefault(); e.stopPropagation(); setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Someone is on this job", message: "Someone is currently working on this. They must be clocked out before you can edit this.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) }); return; }
                     if (isPto) {
                       // PTO drag
@@ -19009,7 +19050,7 @@ ${jobsCtx || "No jobs found."}`;
                     autoScrollRaf = requestAnimationFrame(autoScrollStep);
                   };
                   const handleTeamResize = (e, side) => {
-                    if (!can("moveJobs")) return;
+                    if (!can(isPto ? "manageTeam" : "moveJobs")) return;
                     if (_someoneOnIt) { e.preventDefault(); e.stopPropagation(); setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Someone is on this job", message: "Someone is currently working on this. They must be clocked out before you can edit this.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) }); return; }
                     if (isPto) {
                       e.preventDefault(); e.stopPropagation();
@@ -20636,7 +20677,7 @@ ${jobsCtx || "No jobs found."}`;
                 pending={!!liveInviteFor(p.email)}
                 dot={st.isOnBreak ? "#f59e0b" : st.isClocked ? "#10b981" : null}
                 onOpen={() => { setEmpPersonId(p.id); setEmpWeekOffset(0); }}
-                onCtx={e => { e.preventDefault(); e.stopPropagation(); setEmpCtx({ x: e.clientX, y: e.clientY, person: p }); }} />;
+                onCtx={e => { e.preventDefault(); e.stopPropagation(); if (canManageTeam) setEmpCtx({ x: e.clientX, y: e.clientY, person: p }); }} />;
             })}
           </div>
         )}
@@ -21711,6 +21752,7 @@ ${jobsCtx || "No jobs found."}`;
     };
 
     const approveFinish = (job, panel, op) => {
+      if (!can("approveCompletions")) return;
       toast("Completion approved");
       const session = op.pendingSession;
       // Placement, actualHours and the moveLog entry all live in finishedOpFields, shared with
@@ -21730,6 +21772,7 @@ ${jobsCtx || "No jobs found."}`;
       if (session) setPeople(pp => pp.map(p => p.activeJobClock?.sessionId === session.sessionId ? { ...p, activeJobClock: null } : p));
     };
     const rejectFinish = (job, panel, op) => {
+      if (!can("approveCompletions")) return;
       toast("Completion declined");
       const session = op.pendingSession;
       let newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : { ...o, pendingFinish: false, pendingSession: undefined }) }) });
@@ -24276,8 +24319,8 @@ ${jobsCtx || "No jobs found."}`;
                   {approvalSteps.map(step => {
                     const done = !!e[step.key];
                     const isActive = step.key === activeStep;
-                    if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ {step.label}{canApprove && <Tip label="Revert"><button onClick={() => revertEngineering(job.id, panel.id, step.key)} style={{ marginLeft: 2, padding: "1px 5px", borderRadius: T.radiusPill, background: "transparent", border: `1px solid ${T.border}`, fontSize: 9, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>↩</button></Tip>}</span>;
-                    if (isActive && canApprove) return <button key={step.key} onClick={() => signOffEngineering(job.id, panel.id, step.key)} style={{ padding: "5px 13px", borderRadius: T.radiusPill, background: brandGrad(T.accent), color: T.accentText, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
+                    if (done) return <span key={step.key} style={{ fontSize: 11, color: "#10b981", display: "flex", alignItems: "center", gap: 3 }}>✓ {step.label}{canEngineer && <Tip label="Revert"><button onClick={() => revertEngineering(job.id, panel.id, step.key)} style={{ marginLeft: 2, padding: "1px 5px", borderRadius: T.radiusPill, background: "transparent", border: `1px solid ${T.border}`, fontSize: 9, color: T.textDim, cursor: "pointer", fontFamily: T.font }}>↩</button></Tip>}</span>;
+                    if (isActive && canEngineer) return <button key={step.key} onClick={() => signOffEngineering(job.id, panel.id, step.key)} style={{ padding: "5px 13px", borderRadius: T.radiusPill, background: brandGrad(T.accent), color: T.accentText, border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: T.font }}>→ {step.label}</button>;
                     if (isActive) return <span key={step.key} style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>→ {step.label}</span>;
                     return <span key={step.key} style={{ fontSize: 11, color: T.textDim, opacity: 0.5 }}>○ {step.label}</span>;
                   })}
@@ -24307,7 +24350,7 @@ ${jobsCtx || "No jobs found."}`;
     };
 
     const renderMobileClients = () => <div style={{ padding: "8px 12px 88px", overflow: "auto", flex: 1 }}>
-      {can("editJobs") && <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+      {can("manageClients") && <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
         <button onClick={() => openClientEdit({ id: null, name: "", contact: "", email: "", phone: "", notes: "", color: COLORS[Math.floor(Math.random() * COLORS.length)] })} style={{ background: brandGrad(T.accent), border: "none", color: T.accentText, borderRadius: T.radiusPill, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Client</button>
       </div>}
       {clients.map(c => {
@@ -24331,7 +24374,7 @@ ${jobsCtx || "No jobs found."}`;
             {c.contact && <div style={{ fontSize: 13, color: T.textSec, marginBottom: 4 }}>👤 {c.contact}</div>}
             {c.email && <div style={{ fontSize: 13, color: T.textSec, marginBottom: 4 }}>✉ {c.email}</div>}
             {c.phone && <div style={{ fontSize: 13, color: T.textSec, marginBottom: 8 }}>📞 {c.phone}</div>}
-            {can("editJobs") && <button onClick={() => openClientEdit({ ...c })} style={{ background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: T.radiusPill, padding: "6px 14px", fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer", fontFamily: T.font, marginBottom: 10 }}>Edit Client</button>}
+            {can("manageClients") && <button onClick={() => openClientEdit({ ...c })} style={{ background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: T.radiusPill, padding: "6px 14px", fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer", fontFamily: T.font, marginBottom: 10 }}>Edit Client</button>}
             {cTasks.length > 0 && <>
               <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", marginBottom: 6 }}>Jobs · {cTasks.length}</div>
               {cTasks.map(t => <div key={t.id} onClick={() => openDetail(t)} style={{ padding: "8px 10px", marginBottom: 4, background: T.bg, borderRadius: 12, cursor: "pointer", fontSize: 13, color: T.bgText, display: "flex", alignItems: "center", gap: 8 }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = T.bg}>
@@ -24346,7 +24389,7 @@ ${jobsCtx || "No jobs found."}`;
     </div>;
 
     const renderMobileTeam = () => <div style={{ padding: "8px 12px 88px", overflow: "auto", flex: 1 }}>
-      {can("editJobs") && <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+      {can("manageTeam") && <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
         <button onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, teamNumber: null, isEngineer: false, userRole: "user" })} style={{ background: brandGrad(T.accent), border: "none", color: T.accentText, borderRadius: T.radiusPill, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Person</button>
       </div>}
       {people.map(p => {
@@ -24405,7 +24448,7 @@ ${jobsCtx || "No jobs found."}`;
               </div>)}
             </>}
             {currentTasks.length === 0 && upcoming.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: "8px 0" }}>No active assignments</div>}
-            {can("editJobs") && <div style={{ marginTop: 10 }}>
+            {can("manageTeam") && <div style={{ marginTop: 10 }}>
               <button onClick={() => setPersonModal({ ...p })} style={{ background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: T.radiusPill, padding: "6px 14px", fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Edit Person</button>
             </div>}
           </div>}
@@ -24580,16 +24623,16 @@ ${jobsCtx || "No jobs found."}`;
               <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Customization</div><div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Theme, colors &amp; presets</div></div>
               <span style={{ fontSize: 18, color: T.textDim }}>›</span>
             </button>
-            <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setOrgSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+            {can("orgSettings") && <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setOrgSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
               <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg></span>
               <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Scheduling</div><div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>Hours/day, weekends &amp; holidays</div></div>
               <span style={{ fontSize: 18, color: T.textDim }}>›</span>
-            </button>
-            <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setSignOffSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+            </button>}
+            {can("orgSettings") && <button onClick={() => { setSettingsOpen(false); setPrefOpen(false); setSignOffSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
               <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></span>
               <div style={{ flex: 1 }}><div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Sign Off Preferences</div><div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>{(orgSettings.signOffTemplates || []).length} template{(orgSettings.signOffTemplates || []).length !== 1 ? "s" : ""} defined</div></div>
               <span style={{ fontSize: 18, color: T.textDim }}>›</span>
-            </button>
+            </button>}
           </> : <>
           <button onClick={() => setPrefOpen(true)} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span>
@@ -24599,15 +24642,15 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
           </button>
-          <button onClick={() => { setSettingsOpen(false); setRolesSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+          {can("orgSettings") && <button onClick={() => { setSettingsOpen(false); setRolesSettingsOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/><line x1="20" y1="8" x2="20" y2="14"/></svg></span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Departments</div>
               <div style={{ fontSize: 12, color: T.textDim, marginTop: 2 }}>{orgSettings.roles.length} department{orgSettings.roles.length !== 1 ? "s" : ""} defined</div>
             </div>
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
-          </button>
-          {isAdmin && <button onClick={() => { setSettingsOpen(false); setUsersOpen(true); setSettingsUser(null); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+          </button>}
+          {canManageTeam && <button onClick={() => { setSettingsOpen(false); setUsersOpen(true); setSettingsUser(null); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Permissions</div>
@@ -24623,7 +24666,7 @@ ${jobsCtx || "No jobs found."}`;
             </div>
             <span style={{ fontSize: 18, color: T.textDim }}>›</span>
           </button>
-          {isAdmin && <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setOrgCodePanelOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
+          {ORG_CODE_RENAME_ENABLED && isAdmin && <button onClick={() => { setOrgCodeInput(orgCode || ""); setOrgCodeError(""); setOrgCodePanelOpen(true); }} style={{ width: "100%", padding: "16px", background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusPill, cursor: "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: T.font, textAlign: "left", marginBottom: 8 }}>
             <span style={{ flexShrink: 0, lineHeight: 0, color: T.textSec }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>Organization</div>
@@ -25255,7 +25298,7 @@ ${jobsCtx || "No jobs found."}`;
                             {toStatus === "approved" ? "Approved" : toStatus === "denied" ? "Denied" : "Cancelled"}{toReq?.decidedByName ? ` by ${toReq.decidedByName}` : ""}
                           </div>}
                           {toReq && toStatus !== "pending" && toReq.denialReason && <div style={{ fontSize: 12, color: T.textSec, textAlign: "center", marginTop: 6 }}>Reason: {toReq.denialReason}</div>}
-                          {isAdmin && toPending && (denying
+                          {can("approveTimeOff") && toPending && (denying
                             ? <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 4 }}>
                                 <input autoFocus value={toDenyReason} onChange={e => setToDenyReason(e.target.value)} placeholder="Reason (optional)…" onKeyDown={e => { if (e.key === "Enter") decideTimeOff(m.timeOffRequestId, "deny", toDenyReason); if (e.key === "Escape") { setToDeny(null); setToDenyReason(""); } }} style={{ padding: "9px 12px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font, outline: "none" }} />
                                 <div style={{ display: "flex", gap: 8 }}>
@@ -26113,7 +26156,7 @@ ${jobsCtx || "No jobs found."}`;
         const label = !team.length ? "+ Assign" : team.length === 1 ? team[0].name.split(" ")[0] : `${team[0].name.split(" ")[0]} +${team.length - 1}`;
         const tone = team.length ? elColor(team[0].color || T.accent) : T.textDim;
         return <span key={key} style={pad}>
-          <button disabled={!can("editJobs")}
+          <button disabled={!can("reassign")}
             onClick={e => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); const pl = placePopover(r, Math.min(people.length + 1, 9), 35, 300); setPlanAssignQ(""); setPlanAssignSec({}); setPlanAssign({ id: node.id, pid: panelId, title: node.title, start: node.start || null, end: node.end || null, x: pl.x, y: pl.y, up: pl.up, maxHeight: pl.maxHeight }); }}
             style={{ fontSize: 9, fontWeight: 700, letterSpacing: "-0.045em", borderRadius: T.radiusPill, padding: "3px 9px", border: `1px solid ${team.length ? tone + "55" : T.border}`, background: team.length ? tone + "1f" : "transparent", color: tone, cursor: can("editJobs") ? "pointer" : "default", fontFamily: T.font, maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {label}
@@ -31815,7 +31858,7 @@ ${jobsCtx || "No jobs found."}`;
           return (
             <div key={s} onClick={() => {
               if (isCurrent) return;
-              if (s === "Finished" && !isAdmin) return; // non-admins must use right-click > Request Finish Approval
+              if (s === "Finished" && !can("approveCompletions")) return; // marking Finished is an approval; others use right-click > Request Finish Approval
               setDropFlashKey(fk);
               setTimeout(() => { updTask(statusPopover.id, { status: s }, statusPopover.pid || undefined); setStatusPopover(null); setDropFlashKey(null); }, 150);
             }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", cursor: isCurrent ? "default" : "pointer", userSelect: "none", animation: dropFlashKey === fk ? "optFlash 0.15s ease-out forwards" : `${statusPopover.up ? "toolDropUp" : "toolDrop"} 0.14s ${(statusPopover.up ? STATUSES.length - 1 - si : si) * 38}ms both ease-out`, background: isCurrent ? sc + "12" : "transparent" }}
@@ -33861,7 +33904,7 @@ ${jobsCtx || "No jobs found."}`;
           localStorage.setItem("tq_pinned_groups", JSON.stringify(updated));
           setGroupCtxMenu(null);
         }} animIdx={0} />
-        {can("editJobs") && <>
+        {canManageGroup(groups.find(g => g.id === groupCtxMenu.groupId)) && <>
           <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
           <CtxMenuItem icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>} label="Edit Group" sub="Add or remove members" onClick={() => {
             const g = groups.find(g => g.id === groupCtxMenu.groupId);
@@ -33892,7 +33935,7 @@ ${jobsCtx || "No jobs found."}`;
           setThreadCtxMenu(null);
         }} animIdx={0} />
         <div style={{ borderTop: `1px solid ${T.border}`, margin: "4px 0" }} />
-        {can("editJobs") && <div onClick={() => { setConfirmClearChat({ threadKey: threadCtxMenu.threadKey, label: threadCtxMenu.title, isGroup: false }); setThreadCtxMenu(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", animation: "toolDrop 0.14s 38ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+        {(String(threadCtxMenu.threadKey || "").startsWith("group:") ? canManageGroup(groupOfThread(threadCtxMenu.threadKey)) : can("editJobs")) && <div onClick={() => { setConfirmClearChat({ threadKey: threadCtxMenu.threadKey, label: threadCtxMenu.title, isGroup: false }); setThreadCtxMenu(null); }} style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 12, padding: "10px 14px", cursor: "pointer", animation: "toolDrop 0.14s 38ms both ease-out" }} onMouseEnter={e => e.currentTarget.style.background = T.danger + "15"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
           <span style={{ width: 22, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: T.danger, lineHeight: 0 }}><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg></span>
           <div><div style={{ fontSize: 14, color: T.danger, fontWeight: 500 }}>Clear Chat</div><div style={{ fontSize: 11, color: T.textDim, marginTop: 1 }}>Delete all messages in this thread</div></div>
         </div>}
@@ -34006,7 +34049,7 @@ ${jobsCtx || "No jobs found."}`;
               {billingTier === "business" && can("editJobs") && <Tip label="Edit"><button onClick={() => { setCtxMenu(null); openEdit(it); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button></Tip>}
               <Tip label="Open Chat"><button onClick={() => { openChat(it); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0.9 0.9 22.2 22.2" fill="none" stroke="currentColor" strokeWidth="1.85" strokeLinecap="round" strokeLinejoin="round"><path d="M21 11.5c0 4.29-4.04 7.76-9 7.76-1.08 0-2.12-.17-3.08-.47L4.2 20.8l1.2-3.46C3.9 15.8 3 13.8 3 11.5 3 7.3 7 3.8 12 3.8s9 3.47 9 7.7z"/></svg></button></Tip>
               {billingTier === "business" && can("editJobs") && <Tip label="Send Reminder"><button onClick={() => { setReminderModal({ item: it }); setCtxMenu(null); }} style={{ width: 28, height: 28, borderRadius: "50%", border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: T.textSec, transition: "all 0.15s" }} onMouseEnter={e => { e.currentTarget.style.borderColor = T.accent; e.currentTarget.style.color = T.accent; e.currentTarget.style.background = T.hover; }} onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.color = T.textSec; e.currentTarget.style.background = T.surface; }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button></Tip>}
-              {showDepToggle && <button
+              {showDepToggle && can("editJobs") && <button
                 onClick={(e) => { e.stopPropagation(); e.preventDefault(); setTasks(prev => { const next = prev.map(job => ({ ...job, subs: (job.subs || []).map(panel => { if (panel.id !== panelId) return panel; const siblings = panel.subs || []; const allSubIds = siblings.map(s => s.id); if (toggleNext === "unlocked") return { ...panel, depsMode: "unlocked", subs: siblings.map(s => ({ ...s, deps: allSubIds.filter(id => id !== s.id) })) }; if (toggleNext === "locked") return { ...panel, depsMode: "locked" }; return { ...panel, depsMode: undefined, subs: siblings.map(s => ({ ...s, deps: [] })) }; }) })); setTimeout(() => doSaveRef.current(), 0); toast("Dependencies updated"); return next; }); }}
                 title={toggleTitle}
                 style={{ flexShrink: 0, width: 30, height: 30, borderRadius: "50%", border: `1px solid ${toggleBorder}`, background: toggleBg, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", color: toggleColor, transition: "all 0.15s" }}
@@ -34040,7 +34083,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* Take me to schedule — jump to this job on the schedule and highlight it */}
       <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="12" cy="15" r="2"/></svg>} label="Take me to schedule" sub="Jump to this job on the schedule" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } setCtxMenu(null); if (job) goToScheduleJob(job.id); }} animIdx={ci()} />
       {/* Add/Edit Dependencies — ops with sibling ops */}
-      {isOp && (() => { let panel = null, parentJobId = null; for (const job of tasks) { for (const pnl of (job.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { panel = pnl; parentJobId = job.id; break; } } if (panel) break; } return panel && (panel.subs||[]).length >= 2 ? <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>} label="Add/Edit Dependencies" sub="Manage dependency links between sub-ops" onClick={() => { setCtxMenu(null); setDepsModal({ item: it, panelSubs: panel.subs||[], panelId: panel.id, jobId: parentJobId, panelTitle: panel.title, depsMode: panel.depsMode||"unlocked" }); }} animIdx={ci()} /> : null; })()}
+      {isOp && can("editJobs") && (() => { let panel = null, parentJobId = null; for (const job of tasks) { for (const pnl of (job.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { panel = pnl; parentJobId = job.id; break; } } if (panel) break; } return panel && (panel.subs||[]).length >= 2 ? <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>} label="Add/Edit Dependencies" sub="Manage dependency links between sub-ops" onClick={() => { setCtxMenu(null); setDepsModal({ item: it, panelSubs: panel.subs||[], panelId: panel.id, jobId: parentJobId, panelTitle: panel.title, depsMode: panel.depsMode||"unlocked" }); }} animIdx={ci()} /> : null; })()}
       {/* Reschedule */}
       {/* Reschedule (Business) / Edit (Basic) — Basic has no multi-step wizard to
           reopen, so this becomes the one edit surface: same job-resolution logic,

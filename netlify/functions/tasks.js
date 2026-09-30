@@ -1,6 +1,7 @@
 import { requireOrgMember } from "./_utils/auth.js";
 import { can, requirePerm, canApprove, canEngineer } from "./_utils/can.js";
 import { classifyTaskChanges } from "./_utils/task-perms.js";
+import { classifyTaskActions } from "../../src/taskActions.js";
 import { readJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
@@ -54,6 +55,7 @@ export async function handler(event) {
       const orgCode = orgCodeFromHeader(event);
       const rulesMode = ruleMode("SCHEDULE_RULES_MODE");
       const conflictMode = ruleMode("TASK_CONFLICT_MODE");
+      const gateMode = ruleMode("PERMISSION_GATES_MODE");
       let rulePeople = [], ruleSettings = null;
       if (rulesMode !== "off") {
         try { rulePeople = filterLive((await readJson(`orgs/${orgCode}/people.json`)) || []); } catch { rulePeople = []; }
@@ -70,7 +72,7 @@ export async function handler(event) {
       let attempt;
       const result = await updateJson(s3Key, (stored) => {
         const existing = stored;
-        attempt = { conflicts: [], violations: [] };
+        attempt = { conflicts: [], violations: [], gateDiff: null };
 
         // Refuse to overwrite a non-empty tasks.json with an empty array.
         // Why: a client bug (failed initial fetch → React resets state → autosave fires)
@@ -120,27 +122,21 @@ export async function handler(event) {
         //
         // An unchanged tree is always allowed — autosave re-POSTs constantly and
         // a no-op save must never 403.
-        try {
-          const cls = classifyTaskChanges(incoming, prev);
-          if (cls.changed) {
-            for (const key of cls.perms) requirePerm(member, key);
-            if (cls.needsApprove && !canApprove(member)) {
-              return { abort: err(403, "You do not have permission to sign off work") };
-            }
-            if (cls.needsEngineer && !canEngineer(member)) {
-              return { abort: err(403, "Only engineers can change engineering steps") };
-            }
-            // Raising a finish request needs no permission, but only for yourself:
-            // a request on someone else's behalf is theirs to raise, or an approver's.
-            const me = member.personId != null ? String(member.personId) : null;
-            if ([...cls.raisedBy].some(by => by !== me) && !can(member, "approveCompletions")) {
-              return { abort: err(403, "You can only raise a finish request for yourself") };
-            }
-          }
-        } catch (e) {
-          if (e?.statusCode) return { abort: err(e.statusCode, e.message) };
-          throw e;
+        // Two classifiers during the rollout: the original field-by-field one, and
+        // src/taskActions.js, which classifies side effects by the action they belong
+        // to (root cause 4). PERMISSION_GATES_MODE picks which one decides; in log
+        // the original still decides and any disagreement is recorded.
+        const me = member.personId != null ? String(member.personId) : null;
+        const legacyCls = classifyTaskChanges(incoming, prev);
+        const actionCls = classifyTaskActions(incoming, prev);
+        const legacyErr = legacyCls.changed ? permissionError(legacyCls, member, me) : null;
+        const actionErr = actionCls.changed ? permissionError(actionCls, member, me) : null;
+        if (gateMode !== "off" && !!legacyErr !== !!actionErr) {
+          attempt.gateDiff = { legacy: legacyErr ? "refuse" : "allow", next: actionErr ? "refuse" : "allow",
+            reason: (actionErr || legacyErr).message, perms: [...actionCls.perms] };
         }
+        const decision = gateMode === "enforce" ? actionErr : legacyErr;
+        if (decision) return { abort: err(decision.status, decision.message) };
 
         // ── Schedule rules (src/scheduleRules.js, shared with the web) ─────
         if (rulesMode !== "off") {
@@ -170,6 +166,7 @@ export async function handler(event) {
       if (conflictMode !== "off") {
         for (const c of attempt.conflicts) logRule("task-conflict", { mode: conflictMode, jobId: c.id, incomingStamp: c.incomingStamp, storedStamp: c.storedStamp, ...who });
       }
+      if (attempt.gateDiff) logRule("permission-gate", { mode: gateMode, gate: "taskPerms", ...attempt.gateDiff, ...who });
       if (rulesMode !== "off") {
         for (const v of attempt.violations) logRule("schedule-rule", { mode: rulesMode, rule: v.rule, id: v.id, jobId: v.jobId, detail: v.detail, ...who });
       }
@@ -293,4 +290,26 @@ async function notifyTaskChanges({ orgCode, member, next, prev }) {
   // already wakes the app via content_available), minus the author.
   const silentIds = allIds.filter((id) => id !== writerId && !notified.has(id));
   await sendSilentPush(orgCode, { entity: "tasks", serverTime, people, personIds: silentIds });
+}
+
+// Whether `member` may make a write classified as `cls` (from either classifier).
+// Returns { status, message } for a refusal, or null.
+function permissionError(cls, member, me) {
+  for (const key of cls.perms) {
+    try { requirePerm(member, key); } catch (e) { return { status: e.statusCode || 403, message: e.message }; }
+  }
+  if (cls.needsApprove && !canApprove(member)) return { status: 403, message: "You do not have permission to sign off work" };
+  if (cls.needsEngineer && !canEngineer(member)) return { status: 403, message: "Only engineers can change engineering steps" };
+  // Raising a finish request needs no permission, but only for yourself:
+  // a request on someone else's behalf is theirs to raise, or an approver's.
+  if ([...(cls.raisedBy || [])].some(by => by !== me) && !can(member, "approveCompletions")) {
+    return { status: 403, message: "You can only raise a finish request for yourself" };
+  }
+  // A chain step is signed by an approver, or by the person it is assigned to.
+  for (const sign of cls.chainSigns || []) {
+    if (!canApprove(member) && !(sign.assigneeId != null && String(sign.assigneeId) === me)) {
+      return { status: 403, message: "This approval step is assigned to someone else" };
+    }
+  }
+  return null;
 }

@@ -30,6 +30,10 @@ export const STUBS = {
   "./s3.js": S3_STUB,
   "./_utils/auth.js": `
     export const requireOrgMember = async () => ({ ...globalThis.__AUTH });
+    // messages.js resolves the caller itself: token -> email -> people.json row.
+    export const validateToken = async () => ({});
+    export const emailForToken = async () => ({ email: globalThis.__AUTH?.email ?? null, transient: false });
+    export class AuthError extends Error { constructor(statusCode, message) { super(message); this.statusCode = statusCode; } }
   `,
   "./_utils/cors.js": `
     export const preflight = () => ({ statusCode: 204 });

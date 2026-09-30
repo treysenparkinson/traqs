@@ -34,6 +34,13 @@ struct JobEditView: View {
         appState.can(.reassign)
     }
 
+    /// Rescheduling an existing job is a move, which the server gates on
+    /// moveJobs separately from editJobs. A new job has no dates to move yet,
+    /// so its pickers stay open.
+    private var canEditDates: Bool {
+        !isEditing || appState.can(.moveJobs)
+    }
+
     private var otherJobs: [Job] {
         appState.jobs.filter { $0.id != (job?.id ?? "") }.sorted { $0.title < $1.title }
     }
@@ -50,7 +57,9 @@ struct JobEditView: View {
 
                 Section("Dates") {
                     DatePicker("Start", selection: $start, displayedComponents: .date)
+                        .disabled(!canEditDates)
                     DatePicker("End", selection: $end, displayedComponents: .date)
+                        .disabled(!canEditDates)
                     Toggle("Has Due Date", isOn: Binding(
                         get: { dueDate != nil },
                         set: { dueDate = $0 ? Date() : nil }
@@ -216,8 +225,12 @@ struct JobEditView: View {
         updated.title = title.trimmingCharacters(in: .whitespaces)
         updated.jobNumber = jobNumber.isEmpty ? nil : jobNumber
         updated.poNumber = poNumber.isEmpty ? nil : poNumber
-        updated.start = df.string(from: start)
-        updated.end = df.string(from: end)
+        // Same rule as team: without moveJobs the stored dates ride through
+        // untouched, so an unparseable start can't be rewritten to today.
+        if canEditDates {
+            updated.start = df.string(from: start)
+            updated.end = df.string(from: end)
+        }
         updated.dueDate = dueDate.map { df.string(from: $0) }
         updated.status = status
         updated.pri = priority

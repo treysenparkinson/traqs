@@ -95,7 +95,21 @@ export async function handler(event) {
         return err(409, "Refusing to overwrite your groups with an empty array");
       }
 
-      const reconciled = [...preserved, ...reconcileDeletions(safeBody, visiblePrev)];
+      // Changing or deleting an EXISTING group is its creator's or an admin's call.
+      // Any member could rename a group, rewrite who is in it, or delete it by
+      // leaving it out — the same class as the people-delete hole. For anyone else
+      // the stored group is kept as is, whether the POST edited it or omitted it;
+      // creating a new group is unaffected. A group with no recorded creator is
+      // admin-only.
+      const mayManage = (g) => !!member?.isAdmin || (posterId != null && g?.createdBy != null && String(g.createdBy) === posterId);
+      const guardedBody = safeBody.map(g => {
+        const ex = g && g.id != null ? prevById.get(String(g.id)) : null;
+        return ex && !mayManage(ex) ? ex : g;
+      });
+      const bodyIds = new Set(guardedBody.filter(g => g && g.id != null).map(g => String(g.id)));
+      const keptByOmission = visiblePrev.filter(g => g.id != null && !bodyIds.has(String(g.id)) && !mayManage(g));
+
+      const reconciled = [...preserved, ...reconcileDeletions([...guardedBody, ...keptByOmission], visiblePrev)];
       await writeJson(s3Key, stampArray(reconciled, existing));
       await publishChange(orgCodeFromHeader(event), "groups", { ids: changedIds(reconciled, existing) });
       // Phase 5: silent background-sync push to org members (best-effort).

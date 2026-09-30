@@ -1,5 +1,6 @@
 import { requireOrgMember } from "./_utils/auth.js";
-import { requirePerm } from "./_utils/can.js";
+import { can, requirePerm } from "./_utils/can.js";
+import { ruleMode, logRule } from "./_utils/rule-mode.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
@@ -32,7 +33,10 @@ export async function handler(event) {
     try { member = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
     // Was membership-only: any worker could rewrite the client list. The Clients
     // page hides its buttons behind can("manageClients"), and now so does the API.
-    try { requirePerm(member, "manageClients"); } catch (e) { return err(e.statusCode, e.message); }
+    // Checked below, once the body is known: an UNCHANGED list is not an edit.
+    const mayManage = can(member, "manageClients");
+    const gateMode = ruleMode("PERMISSION_GATES_MODE");
+    if (!mayManage && gateMode === "off") return err(403, "Admins only — you do not have permission to add, edit & delete clients");
     try {
       let clients;
       try { clients = JSON.parse(event.body); } catch { return err(400, "Invalid JSON"); }
@@ -59,6 +63,19 @@ export async function handler(event) {
       // Tombstone client-side deletions (ids in `existing` missing from incoming)
       // so delta-sync propagates them instead of the record silently vanishing.
       const reconciled = reconcileDeletions(clients, existing);
+
+      // Without manageClients, only a no-op is allowed — the same rule /tasks has.
+      // Every autosave sent the whole list, so refusing it outright 403'd every
+      // save by a worker or restricted admin. Allowed in enforce; in log it is
+      // still refused as before and the would-be allowance recorded.
+      if (!mayManage) {
+        const isNoop = changedIds(reconciled, existing).length === 0;
+        if (isNoop) logRule("permission-gate", { mode: gateMode, gate: "clientsNoop", personId: member.personId != null ? String(member.personId) : null });
+        if (!isNoop || gateMode !== "enforce") {
+          try { requirePerm(member, "manageClients"); } catch (e) { return err(e.statusCode, e.message); }
+        }
+        return json(200, { ok: true });
+      }
       await writeJson(s3Key, stampArray(reconciled, existing));
       await publishChange(orgCodeFromHeader(event), "clients", { ids: changedIds(reconciled, existing) });
       // Phase 5: silent background-sync push to org members (best-effort).

@@ -7,6 +7,9 @@
 //   SCHEDULE_RULES_MODE — schedule rules on /tasks and the session-field guards
 //                         (updateJobSession, people PATCH, the shrink startHour)
 //   TASK_CONFLICT_MODE  — the per-job stale-copy check on /tasks
+//   PERMISSION_GATES_MODE — root cause 4's permission changes, loosening and
+//                         tightening alike: in log both behave exactly as before
+//                         and the change is only recorded
 //
 // Values: off | log | enforce. Unset or unrecognised means log. Read per call,
 // so a change to the Netlify env takes effect on the next deploy without code.

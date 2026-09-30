@@ -134,10 +134,10 @@ struct TimeOffView: View {
             }
     }
 
-    /// Admin only: pending requests from OTHER people awaiting a decision,
-    /// soonest start first.
+    /// Time-off approvers only (approveTimeOff, the toggle timeoff.js checks):
+    /// pending requests from OTHER people awaiting a decision, soonest start first.
     private var pendingApprovals: [TimeOffRequest] {
-        guard appState.isAdmin else { return [] }
+        guard appState.can(.approveTimeOff) else { return [] }
         return appState.timeOffRequests
             .filter { $0.status == "pending" && (myId == nil || $0.personId != myId) }
             .sorted { $0.start < $1.start }

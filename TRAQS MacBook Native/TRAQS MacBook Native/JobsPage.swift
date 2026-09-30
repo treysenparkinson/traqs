@@ -218,6 +218,7 @@ struct JobsPage: View {
                 // One `updateJobs` for the whole set, not a `deleteJob` per id:
                 // that pushes ONE undo entry, so Cmd-Z brings the whole selection
                 // back rather than one job at a time.
+                guard appState.can(.editJobs) else { return }
                 let doomed = selected
                 appState.updateJobs(appState.jobs.filter { !doomed.contains($0.id) })
                 withAnimation { selected = []; selectMode = false }
@@ -591,7 +592,8 @@ struct JobsPage: View {
             point: point, row: row,
             jobID: row.jobID, jobTitle: job?.title ?? row.title,
             panelID: nil, panelTitle: nil,
-            childCount: 0, siblingOpCount: 0, depsMode: .free)
+            childCount: 0, siblingOpCount: 0, depsMode: .free,
+            mayEdit: appState.can(.editJobs))
 
         switch row {
         case .job:
@@ -641,7 +643,7 @@ struct JobsPage: View {
     /// Writes the mode AND the operations' `deps` together — see
     /// `JobsEdit.settingDependencyMode` for why they cannot be written apart.
     private func cycleDependencyMode(_ target: JobsRowMenuTarget) {
-        guard let panelID = target.panelID,
+        guard appState.can(.editJobs), let panelID = target.panelID,
               let job = appState.jobs.first(where: { $0.id == target.jobID })
         else { return }
         let next = target.depsMode.next
@@ -684,7 +686,8 @@ struct JobsPage: View {
 
     /// One `updateJob`/`updateJobs`, so the whole delete is ONE undo entry.
     private func deleteRow(_ row: JobGridRow) {
-        guard let job = appState.jobs.first(where: { $0.id == row.jobID }) else { return }
+        guard appState.can(.editJobs),
+              let job = appState.jobs.first(where: { $0.id == row.jobID }) else { return }
         if let trimmed = JobsEdit.removing(row.editPath, from: job) {
             guard JobsEdit.differs(job, trimmed) else { return }
             appState.updateJob(trimmed)
@@ -813,6 +816,10 @@ struct JobsPage: View {
                         statusStyles: columnStore.statusStyles,
                         priorityStyles: columnStore.priorityStyles,
                         isAdmin: appState.isAdmin,
+                        // A closure rather than `filter(appState.can)` — the
+                        // same main-actor complaint `cycleDependencyMode`'s
+                        // `flatMap` note describes.
+                        granted: Set(AdminPerms.Key.allCases.filter { appState.can($0) }),
                         actor: appState.approvalActor,
                         today: JobsDate.todayKey)
     }
@@ -1041,8 +1048,13 @@ struct JobsPage: View {
                 modals.present(.cloud)
             }
 
+            // Creating a job is an edit on the server (editJobs), so without
+            // the toggle the button is drawn and refused like the unported ones.
             JobsPillButton(label: "+ New Job", style: .filled,
-                           help: "Create a job") {
+                           help: appState.can(.editJobs)
+                               ? "Create a job"
+                               : "You don\u{2019}t have permission to create jobs",
+                           enabled: appState.can(.editJobs)) {
                 modals.present(.newJob)
             }
         }

@@ -212,7 +212,19 @@ export async function handler(event) {
       // Non-admins can't create people — drop any incoming record with no stored
       // counterpart. (They still send the full roster, so existing rows aren't
       // tombstoned by this.)
-      const safeMerged = can(member, "manageTeam") ? merged : merged.filter(p => existingMap.has(p.id));
+      //
+      // Removing someone is the same: it needs manageTeam. Every stored person
+      // missing from the array used to be tombstoned whoever sent it, so any
+      // member could delete a colleague — or, by POSTing just their own row,
+      // the whole team. For anyone without manageTeam a missing row is kept.
+      let safeMerged = merged;
+      if (!can(member, "manageTeam")) {
+        const incomingIds = new Set(merged.map(p => String(p.id)));
+        safeMerged = [
+          ...merged.filter(p => existingMap.has(p.id)),
+          ...existing.filter(p => p && p.id != null && !incomingIds.has(String(p.id))),
+        ];
+      }
       const reconciled = reconcileDeletions(safeMerged, existing, tombstoneWithoutPin);
       await writeJson(s3Key, stampArray(reconciled, existing));
       await publishChange(member.orgCode, "people", { ids: changedIds(reconciled, existing) });

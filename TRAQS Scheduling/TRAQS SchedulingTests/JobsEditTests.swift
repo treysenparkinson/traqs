@@ -174,4 +174,23 @@ struct JobsEditDiffTests {
                                    at: .operation(panel: "p1", op: "o1"), in: before)
         #expect(JobsEdit.differs(before, after))
     }
+
+    // MARK: Which toggle the server checks
+
+    @Test func datesAreAMoveAndEverythingElseAnEdit() {
+        #expect(JobsEdit.permission(for: .start("2026-03-01")) == .moveJobs)
+        #expect(JobsEdit.permission(for: .end("2026-03-01")) == .moveJobs)
+        #expect(JobsEdit.permission(for: .title("T")) == .editJobs)
+        #expect(JobsEdit.permission(for: .jobNumber("1")) == .editJobs)
+        #expect(JobsEdit.permission(for: .status(.onHold)) == .editJobs)
+        #expect(JobsEdit.permission(for: .priority(.high)) == .editJobs)
+        #expect(JobsEdit.permission(for: .dueDate(nil)) == .editJobs)
+    }
+
+    @Test func linkedColumnsFollowTheFieldTheyWrite() {
+        #expect(JobsEdit.permission(forFieldKey: "hpd") == .moveJobs)
+        #expect(JobsEdit.permission(forFieldKey: "team") == .reassign)
+        #expect(JobsEdit.permission(forFieldKey: "notes") == .editJobs)
+        #expect(JobsEdit.permission(forFieldKey: nil) == .editJobs)
+    }
 }

@@ -1577,14 +1577,14 @@ class AppState {
         return true
     }
 
-    /// Admin undoes an approved completion.
+    /// An approver (approveCompletions) undoes an approved completion.
     /// When panelId/opId are nil: reopens the whole job tree.
     /// When panelId is set: reopens only the specific panel (or op).
     /// Returns whether the undo was applied — only an APPROVED request can be
     /// reopened, so a repeated press is a no-op rather than a second reopen.
     @discardableResult
     func undoJobCompletion(jobId: String, panelId: String? = nil, opId: String? = nil, requestId: String) async -> Bool {
-        guard let me = currentPerson, me.isAdmin, let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return false }
+        guard can(.approveCompletions), let idx = jobs.firstIndex(where: { $0.id == jobId }) else { return false }
         var job = jobs[idx]
         guard let reopened = CompletionRequestRules.applyDecision(
             to: finishEntries(job, panelId, opId), requestId: requestId, newStatus: "pending",
@@ -2241,10 +2241,18 @@ class AppState {
     private func persistJobs() async {
         guard let api else { return }
         do {
-            try await api.saveJobs(jobs)
+            let conflicts = try await api.saveJobs(jobs)
             rollbackSnapshot = nil        // batch confirmed on the server
             syncFailed = false
             saveStatus = .saved
+            // The request succeeded, but the server kept ITS copy of these jobs
+            // — the local edit to them is not on the server. Say so and pull
+            // the server's copy back, rather than leave an edit on screen that
+            // the next load silently undoes.
+            if !conflicts.isEmpty {
+                showErrorToast(JobsSaveReply.conflictMessage(count: conflicts.count))
+                await refreshConflictedJobs(conflicts)
+            }
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             if case .saved = saveStatus { saveStatus = .idle }
             // jobs already reflect the edit in memory; the server publishes a
@@ -2257,8 +2265,29 @@ class AppState {
             if let snap = rollbackSnapshot { jobs = snap; rollbackSnapshot = nil }
             syncFailed = true
             saveStatus = .error(error.localizedDescription)
-            showErrorToast("Couldn't save — check your connection")
+            // The server's own sentence when it answered (a rule or permission
+            // refusal — defect #294); "check your connection" only when nothing
+            // answered at all.
+            switch error {
+            case let refusal as APIService.ServerMessageError:
+                showErrorToast(refusal.message)
+            case let APIError.httpError(code):
+                showErrorToast(APIError.httpError(code).localizedDescription)
+            default:
+                showErrorToast(JobsSaveReply.connectionMessage)
+            }
         }
+    }
+
+    /// Put the conflicted jobs back to the server's copy, touching only those
+    /// ids so an edit made while the save was in flight survives. The same
+    /// fetch `refreshJobsQuietly` makes, merged rather than swapped wholesale,
+    /// and written to the cache so a rehydrate cannot resurrect the local copy.
+    private func refreshConflictedJobs(_ ids: [String]) async {
+        guard let api, let server = try? await api.fetchJobs() else { return }
+        let merged = JobsSaveReply.replacingConflicts(ids, in: jobs, from: server)
+        withoutAnimation { jobs = merged }
+        for job in server where ids.contains(job.id) { cacheJobLocally(job) }
     }
 
     // MARK: - Push token registration

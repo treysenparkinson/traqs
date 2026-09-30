@@ -47,6 +47,13 @@ struct JobsCustomCell: View {
     }
 
     private var columnID: String { "_cc_\(column.id)" }
+
+    /// Whether this user holds the toggle the server checks for the field this
+    /// column writes — see `JobsEdit.permission(forFieldKey:)`. Without it every
+    /// editor below stays shut and the cell is a plain read-out.
+    private var mayEdit: Bool {
+        context.may(JobsEdit.permission(forFieldKey: column.fieldKey))
+    }
     private var isEditing: Bool {
         editing == JobsEditTarget(rowID: row.id, columnID: columnID)
     }
@@ -154,6 +161,7 @@ struct JobsCustomCell: View {
             // The STRING, not a bool — `String(!checked)` is what the web writes,
             // and a real boolean here would read back as unchecked on the web's
             // `val === "true"` test.
+            guard mayEdit else { return }
             actions.commitCustom(row, column, .string(on ? "false" : "true"))
         } label: {
             RoundedRectangle(cornerRadius: 5, style: .continuous)
@@ -167,6 +175,7 @@ struct JobsCustomCell: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .disabled(!mayEdit)
     }
 
     // MARK: Select
@@ -198,7 +207,7 @@ struct JobsCustomCell: View {
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture { pickerOpen = true }
+        .onTapGesture { if mayEdit { pickerOpen = true } }
         // Unconditional — the same rule, and the same fix, as the status cell.
         // Installing it only while open destroyed the anchor in the update that
         // dismissed the popover, which left the list on screen unable to commit.
@@ -227,7 +236,7 @@ struct JobsCustomCell: View {
             }
         }
         .contentShape(Rectangle())
-        .onTapGesture { dateOpen = true }
+        .onTapGesture { if mayEdit { dateOpen = true } }
         .popover(isPresented: $dateOpen, arrowEdge: .bottom) {
             JobsDatePopover(day: text, clearable: true) { picked in
                 dateOpen = false
@@ -264,7 +273,7 @@ struct JobsCustomCell: View {
             .frame(maxWidth: .infinity, alignment: align.frameAlignment)
             .contentShape(Rectangle())
             .onTapGesture {
-                guard column.type.isEditable else { return }
+                guard column.type.isEditable, mayEdit else { return }
                 editing = JobsEditTarget(rowID: row.id, columnID: columnID)
             }
         }

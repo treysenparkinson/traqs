@@ -374,7 +374,18 @@ export async function handler(event) {
       // Only participants can delete a thread. Without this, any
       // authenticated user with the org code could erase any
       // conversation in the org.
-      if (!r.viewerId || !canViewThread(threadKey, r.viewerId, jobs, groups)) {
+      // A group's history is its creator's or an admin's to clear — any member
+      // wiping it was the same class as the people-delete hole. Other threads
+      // (DMs, job threads) keep the participant rule.
+      const viewerIsAdmin = people.some(p => String(p.id) === String(r.viewerId) && p.userRole === "admin");
+      if (threadKey.startsWith("group:")) {
+        const ref = threadKey.slice(6);
+        const g = groups.find(g => String(g.name) === ref || String(g.id) === ref);
+        const isCreator = !!g && g.createdBy != null && String(g.createdBy) === String(r.viewerId);
+        if (!r.viewerId || !g || !(viewerIsAdmin || isCreator)) {
+          return err(403, "Only the group's creator or an admin can clear this chat");
+        }
+      } else if (!r.viewerId || !canViewThread(threadKey, r.viewerId, jobs, groups)) {
         return err(403, "Not a participant in this thread");
       }
       // Soft-delete: tombstone the thread's messages (deletedAt + lastModifiedAt)

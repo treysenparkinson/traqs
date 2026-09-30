@@ -2156,9 +2156,10 @@ struct TimeOffRequestBubble: View {
             }
 
             // The TOGGLE, not the bare admin role. An admin with
-            // approveCompletions switched off can see the card — they may even
+            // approveTimeOff switched off can see the card — they may even
             // have raised it themselves — but has nothing to act with.
-            if appState.can(.approveCompletions) && (pending || decided) {
+            // timeoff.js decides on approveTimeOff, not approveCompletions.
+            if appState.can(.approveTimeOff) && (pending || decided) {
                 if denying {
                     VStack(spacing: 8) {
                         TextField("Reason (optional)…", text: $reason)

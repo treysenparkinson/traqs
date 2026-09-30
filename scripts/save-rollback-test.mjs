@@ -71,7 +71,7 @@ const ok = (label, got, want) => {
 const SERVER = { tasks: [{ id: "j1", title: "Job", status: "Not Started", subs: [] }], people: [{ id: 7, name: "W" }], clients: [] };
 const EDITED = [{ id: "j1", title: "Job", status: "In Progress", subs: [] }];   // the rejected change
 
-function client({ saveTasks, onRollbackFetch } = {}) {
+function client({ saveTasks, onRollbackFetch, canManageClients = true, saveClients } = {}) {
   const st = { tasks: EDITED, people: SERVER.people, clients: SERVER.clients, error: null };
   const log = { fetchTasks: 0, readSlice: 0 };
   const saveStatusRef = { current: "saved" };
@@ -88,7 +88,9 @@ function client({ saveTasks, onRollbackFetch } = {}) {
     getToken: async () => "t", orgCode: "ORG",
     lastSaveTime: { current: 0 }, protectedJobIds: { current: new Set(["j1"]) },
     pollAppliedRef: { current: {} },
-    saveTasks, savePeople: async () => ({}), saveClients: async () => ({}),
+    saveTasks, savePeople: async () => ({}),
+    saveClients: saveClients || (async () => ({})),
+    canManageClientsRef: { current: canManageClients },
     fetchTasks: async () => { log.fetchTasks++; if (onRollbackFetch) { const f = onRollbackFetch; onRollbackFetch = null; f(deps); } return structuredClone(SERVER.tasks); },
     fetchPeople: async () => structuredClone(SERVER.people),
     fetchClients: async () => structuredClone(SERVER.clients),
@@ -167,6 +169,26 @@ console.log("\n4b. A save that lands with conflicts (TASK_CONFLICT_MODE=enforce)
   c.saveStatusRef.current = "unsaved";
   await c.doSave(); await settle();
   ok("control: an empty conflicts list is a plain success", [c.saveStatusRef.current, c.st.tasks, c.st.error], ["saved", EDITED, null]);
+}
+
+console.log("\n4c. A user without manageClients never POSTs /clients");
+{
+  // POST /clients needs manageClients even for an unchanged list, and doSave sent
+  // it on every autosave — so every worker save failed on clients and rolled back.
+  let clientPosts = 0;
+  const c = client({ saveTasks: async () => ({ ok: true }), canManageClients: false,
+    saveClients: async () => { clientPosts++; const e = new Error("saveClients failed (403)"); e.status = 403; e.endpoint = "saveClients"; throw e; } });
+  c.saveStatusRef.current = "unsaved";
+  await c.doSave(); await settle();
+  ok("no clients POST", clientPosts, 0);
+  ok("the save succeeds, no banner, edit kept", [c.saveStatusRef.current, c.st.error, c.st.tasks], ["saved", null, EDITED]);
+}
+{
+  let clientPosts = 0;
+  const c = client({ saveTasks: async () => ({ ok: true }), canManageClients: true, saveClients: async () => { clientPosts++; return {}; } });
+  c.saveStatusRef.current = "unsaved";
+  await c.doSave(); await settle();
+  ok("control: a user with manageClients still POSTs clients", clientPosts, 1);
 }
 
 console.log("\n5. Control: a save that succeeds");

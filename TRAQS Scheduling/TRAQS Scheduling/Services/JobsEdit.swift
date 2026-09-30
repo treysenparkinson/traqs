@@ -50,6 +50,30 @@ enum JobsEdit {
         }
     }
 
+    /// The admin toggle the server checks before it accepts this field — the
+    /// same split tasks.js makes. Dates are a MOVE (moveJobs); everything else a
+    /// grid cell writes is an edit (editJobs). Asked alongside `isEditable`, which
+    /// answers a different question: whether the field exists at that level.
+    static func permission(for field: Field) -> AdminPerms.Key {
+        switch field {
+        case .start, .end:
+            return .moveJobs
+        case .title, .jobNumber, .status, .priority, .dueDate:
+            return .editJobs
+        }
+    }
+
+    /// The same question for a linked custom column, keyed by the job field it
+    /// writes. The schedule fields are moves and `team` is a reassignment; an
+    /// unlinked column (`nil`, stored under `_cc_<id>`) is an ordinary edit.
+    static func permission(forFieldKey fieldKey: String?) -> AdminPerms.Key {
+        switch fieldKey {
+        case "start", "end", "startHour", "endHour", "hpd": return .moveJobs
+        case "team":                                         return .reassign
+        default:                                             return .editJobs
+        }
+    }
+
     /// The job with `field` applied at `path`. Returns it unchanged when the path
     /// does not resolve — a panel deleted by an inbound sync between the click and
     /// the commit must not throw away the rest of the tree.

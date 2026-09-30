@@ -79,6 +79,10 @@ struct JobsCellContext: Equatable {
     /// `isAdmin`. The status popover offers Finished to everyone and the web only
     /// lets an admin take it.
     var isAdmin = false
+    /// The admin toggles this user holds — `can(...)` for every key, resolved
+    /// once. The server refuses a write the toggle does not cover, so a cell that
+    /// offered it anyway would only end in a rolled-back edit and a toast.
+    var granted: Set<AdminPerms.Key> = []
     /// Whoever is signing approvals.
     var actor = JobsApproval.Actor(id: "", name: "", canApprove: false)
     /// `TD`, resolved once — so every Due cell in a render agrees on what "today"
@@ -90,6 +94,7 @@ struct JobsCellContext: Equatable {
     static func == (a: JobsCellContext, b: JobsCellContext) -> Bool {
         a.indices === b.indices
             && a.isAdmin == b.isAdmin
+            && a.granted == b.granted
             && a.today == b.today
             && a.actor == b.actor
             && a.statusStyles == b.statusStyles
@@ -105,6 +110,8 @@ struct JobsCellContext: Equatable {
     var approval: [String: ApprovalState] { indices.approval }
     var activity: [String: ApprovalActivity] { indices.activity }
     var scheduledLater: Set<String> { indices.scheduledLater }
+
+    func may(_ key: AdminPerms.Key) -> Bool { granted.contains(key) }
 }
 
 // MARK: - Every rule in the grid, as one shape
@@ -358,10 +365,11 @@ struct JobsSection<Header: View>: View {
             // The Approval column has its OWN context menu (`approvalCtx`,
             // TRAQS.jsx:12215) — Edit Steps and Remove chain, which are about the
             // chain rather than about the row. Only on a panel, which is the only
-            // level that owns one, and only for an admin; anywhere else the click
+            // level that owns one, and only for someone with editJobs — the
+            // server's gate on the chain's structure; anywhere else the click
             // falls through to the ordinary row menu.
             if column(atX: local.x)?.standard == .appr, row.level == 1,
-               context.isAdmin, context.approval[row.itemID] != nil {
+               context.may(.editJobs), context.approval[row.itemID] != nil {
                 approvalMenu(row, page)
                 return
             }
@@ -887,17 +895,23 @@ private struct JobsGridCell: View {
         editing == JobsEditTarget(rowID: row.id, columnID: column.rawValue)
     }
 
-    /// Enters edit mode only where the web allows it. `isEditable` holds the
-    /// per-level rules in one place — see JobsEdit.
+    /// Enters edit mode only where the web allows it AND this user holds the
+    /// toggle the server checks. `isEditable` holds the per-level rules in one
+    /// place — see JobsEdit.
     private func beginEditing(_ field: JobsEdit.Field) {
-        guard JobsEdit.isEditable(field, atLevel: row.level) else { return }
+        guard mayEdit(field) else { return }
         editing = JobsEditTarget(rowID: row.id, columnID: column.rawValue)
     }
 
     private func commit(_ field: JobsEdit.Field) {
         editing = nil
-        guard JobsEdit.isEditable(field, atLevel: row.level) else { return }
+        guard mayEdit(field) else { return }
         actions.commit(row, field)
+    }
+
+    private func mayEdit(_ field: JobsEdit.Field) -> Bool {
+        JobsEdit.isEditable(field, atLevel: row.level)
+            && context.may(JobsEdit.permission(for: field))
     }
 
     /// What clicking anywhere in this cell does, or nil to let the click reach
@@ -909,25 +923,28 @@ private struct JobsGridCell: View {
     /// title text handles itself.
     private var wholeCellTap: (() -> Void)? {
         switch column {
+        // Every gated cell below returns nil without its toggle, so it reads as
+        // plain text and the click falls through to the row. Asking for a
+        // completion stays on the row menu, which is not an edit.
         case .status:
+            guard mayEdit(.status(row.status)) else { return nil }
             return { statusOpen = true }
         case .pri:
             // Level 0 only — `if (level === 0) cyclePri(item)`. Below that the
             // click belongs to the row.
-            guard JobsEdit.isEditable(.priority(row.priority), atLevel: row.level)
-            else { return nil }
+            guard mayEdit(.priority(row.priority)) else { return nil }
             return { actions.commit(row, .priority(JobsEdit.nextPriority(after: row.priority))) }
         case .jobNum:
-            guard row.level == 0 else { return nil }
+            guard row.level == 0, mayEdit(.jobNumber("")) else { return nil }
             return { beginEditing(.jobNumber(row.job?.jobNumber ?? "")) }
         case .start, .end:
             // A job waiting in the cloud has no dates to pick — the cell reads
             // PENDING and the click belongs to the row, exactly as the web's
             // `onClick={e => !isScheduledLater && startEdit(...)}` leaves it.
-            guard !isPendingSchedule else { return nil }
+            guard !isPendingSchedule, mayEdit(.start("")) else { return nil }
             return { dateOpen = true }
         case .due:
-            guard row.level == 0 else { return nil }
+            guard row.level == 0, mayEdit(.dueDate(nil)) else { return nil }
             return { dueOpen = true }
         case .name, .client, .hrs, .progress, .team:
             return nil

@@ -71,7 +71,19 @@ struct APIService {
         return req
     }
 
-    private func perform(_ req: URLRequest, alreadyRetried: Bool = false) async throws -> Data {
+    private func perform(_ req: URLRequest) async throws -> Data {
+        let (data, response) = try await send(req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw APIError.httpError(http.statusCode)
+        }
+        return data
+    }
+
+    /// `perform` without the status check: the body AND the response, 401 retry
+    /// included, for a caller that has to read an error body rather than be
+    /// handed a bare status code. Throws only when there was no HTTP answer — or
+    /// on a 401 whose refresh failed, exactly as `perform` does.
+    private func send(_ req: URLRequest, alreadyRetried: Bool = false) async throws -> (Data, URLResponse) {
         let (data, response) = try await URLSession.shared.data(for: req)
 
         // On 401, force a refresh and retry once with the new token.
@@ -87,7 +99,7 @@ struct APIService {
                 let newToken = try await auth.refreshAccessToken()
                 var retry = req
                 retry.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
-                return try await perform(retry, alreadyRetried: true)
+                return try await send(retry, alreadyRetried: true)
             } catch {
                 // Refresh failed (no refresh token, revoked, network).
                 // AuthManager has already torn down auth state and
@@ -96,11 +108,7 @@ struct APIService {
                 throw APIError.httpError(401)
             }
         }
-
-        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            throw APIError.httpError(http.statusCode)
-        }
-        return data
+        return (data, response)
     }
 
     // MARK: - Tasks (Jobs)
@@ -174,10 +182,20 @@ struct APIService {
         return try await perform(req)
     }
 
-    func saveJobs(_ jobs: [Job]) async throws {
+    /// Returns the ids the server refused to overwrite — see `JobsSaveReply`.
+    /// A refusal throws `ServerMessageError` carrying the server's own sentence,
+    /// so a permission or rule failure no longer reads as a network one.
+    @discardableResult
+    func saveJobs(_ jobs: [Job]) async throws -> [String] {
         let body = try JSONEncoder().encode(jobs)
         let req = try await request("tasks", method: "POST", body: body)
-        _ = try await perform(req)
+        let (data, response) = try await send(req)
+        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            throw ServerMessageError(status: http.statusCode,
+                                     message: JobsSaveReply.errorMessage(status: http.statusCode,
+                                                                         body: data))
+        }
+        return JobsSaveReply.conflicts(in: data)
     }
 
     // MARK: - People

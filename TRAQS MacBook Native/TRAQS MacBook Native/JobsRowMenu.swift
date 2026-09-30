@@ -76,6 +76,10 @@ struct JobsRowMenuTarget: Equatable {
     /// the dependency controls.
     var siblingOpCount: Int
     var depsMode: JobsDepsMode
+    /// `can(.editJobs)`, resolved at click time like everything else here. Both
+    /// the delete and the dependency toggle are structure edits the server
+    /// refuses without it.
+    var mayEdit: Bool
 
     var isOperation: Bool { row.level == 2 }
     var isPanel: Bool { row.level == 1 }
@@ -192,7 +196,10 @@ struct JobsRowMenu: View {
                          enabled: false) { }
 
             if target.showsDependencyToggle {
-                headerButton(target.depsMode.glyph, target.depsMode.help,
+                headerButton(target.depsMode.glyph,
+                             target.mayEdit ? target.depsMode.help
+                                 : "Dependencies — you don\u{2019}t have permission to edit jobs",
+                             enabled: target.mayEdit,
                              tinted: target.depsMode.isOn) {
                     actions.cycleDependencyMode(target)
                 }
@@ -297,7 +304,10 @@ struct JobsRowMenu: View {
 
         rows.append(Row(id: "delete", glyph: WebIcon.trash, label: "Delete",
                         sub: "Permanently remove this item",
-                        destructive: true, startsGroup: true) {
+                        destructive: true, startsGroup: true,
+                        enabled: target.mayEdit,
+                        help: target.mayEdit ? nil
+                            : "You don\u{2019}t have permission to delete jobs") {
             actions.delete(target.row)
         })
 
