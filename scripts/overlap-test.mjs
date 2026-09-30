@@ -104,6 +104,32 @@ console.log("\n5. The server's check only looks at what a write changes");
   ok("moving X onto Y is reported once", O.overlapViolations(moved, clean, ctx).map(v => [v.rule, v.id, v.withId, v.personId, v.day]), [["overlap", "X", "Y", "7", MON]]);
 }
 
+console.log("\n5b. Placement helpers the auto-schedulers and the save use (#303)");
+if (typeof O.nextFreeStart !== "function" || typeof O.schedulerAvailability !== "function") {
+  ok("overlapRules exports nextFreeStart and schedulerAvailability", false, true);
+} else {
+  const busy = job(op("Y", { start: MON, end: MON, startHour: 8, hpd: 3 }));
+  const units = O.occupyingUnits(busy, ctx);
+  ok("next free start after Y's 08–11 is 11:00 the same day",
+     O.nextFreeStart(op("X", { start: MON, end: MON, hpd: 2 }), MON, units, ctx), { start: MON, end: MON, startHour: 11, endHour: 14 });
+  const full = job(op("Y", { start: MON, end: MON, startHour: 8, hpd: 8 }));
+  ok("a full day rolls to the next working day", O.nextFreeStart(op("X", { start: MON, end: MON, hpd: 2 }), MON, O.occupyingUnits(full, ctx), ctx)?.start, "2026-10-06");
+  ok("another person's work doesn't block", O.nextFreeStart(op("X", { start: MON, end: MON, hpd: 2, team: [8] }), MON, units, ctx)?.startHour, 8);
+  // The source of the live double-bookings: four same-day units for one person in one
+  // run. Each placement is booked before the next is checked.
+  const avail = O.schedulerAvailability([], ctx, { people: [{ id: 7 }] });
+  const placed = [];
+  for (let i = 0; i < 4; i++) {
+    let d = MON;
+    while (!avail.free(7, d, d)) d = O.shiftWorkingDays(d, 1, ctx);
+    avail.book(7, d, d); placed.push(d);
+  }
+  ok("four units for one person in one run land on four days, not one", placed, ["2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08"]);
+  const av2 = O.schedulerAvailability(busy, ctx, { people: [{ id: 7, timeOff: [{ start: "2026-10-06", end: "2026-10-06" }] }] });
+  ok("existing work and time off both block", [av2.free(7, MON, MON), av2.free(7, "2026-10-06", "2026-10-06"), av2.free(7, "2026-10-07", "2026-10-07")], [false, false, true]);
+  ok("the run's own job can be excluded", O.schedulerAvailability(busy, ctx, { excludeJobId: "J", people: [] }).free(7, MON, MON), true);
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 console.log("\n6. The web's call sites use the shared rule (sliced from TRAQS.jsx and run)");
 const SRC = readFileSync(process.env.OVERLAP_SRC || new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
@@ -168,6 +194,9 @@ const run = (name, anchor) => { const src = slice(anchor); if (!src) { ok(`${nam
   ok("drag ghost asks the shared rule", SRC.includes("overlapsWith(_ghostUnit"), true);
   ok("week/month drop re-checks the result", SRC.includes("overlapsWith(_droppedUnit"), true);
   ok("day-view drag checks overlap", SRC.includes("overlapsWith(_dayUnit"), true);
+  ok("the auto-schedulers' free checks use the shared rule (all three)", (SRC.match(/schedulerAvailability\(tasks, overlapCtx/g) || []).length, 3);
+  ok("…and no longer compare whole days themselves", /const isPersonFree(Local|Global)?\s*=\s*\(pid,\s*(checkStart|s)\b[^\n]*\n\s*const pp\s*=/.test(SRC), false);
+  ok("the save seeds start hours from the shared rule, siblings included", SRC.includes("nextFreeStart(") && SRC.includes("_seeded.push("), true);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

@@ -475,6 +475,9 @@ struct JobsNewJobSheet: View {
         /// The org's PRODUCTIVE hours per day — a unit's day length. Not the
         /// org `hpd`, which is a stale gross figure.
         var productiveHoursPerDay: Double = OrgSettings.default.productiveHoursPerDay
+        /// The org's working day with lunch and breaks placed, which the
+        /// overlap rule walks a unit's hours through.
+        var day = WorkDayClock.day(from: OrgSettings.default)
         var departments: [String] = []
         /// `TD`. Held rather than read at use, so the whole step agrees on the
         /// day even if it straddles midnight.
@@ -509,14 +512,14 @@ struct JobsNewJobSheet: View {
                                         productiveHoursPerDay: scheduling.productiveHoursPerDay,
                                         departmentNames: Set(scheduling.departments))
         let crew = JobsScheduler.schedulableCrew(scheduling.people)
-        let bookings = JobsScheduler.bookingIndex(
+        var request = JobsScheduler.Request(
+            units: units, crew: crew, calendar: scheduling.calendar, day: scheduling.day,
+            today: scheduling.today.isEmpty ? JobsDate.todayKey : scheduling.today)
+        request.bookings = JobsScheduler.bookingIndex(
             JobsScheduler.bookings(in: scheduling.jobs, people: scheduling.people,
-                                   excluding: draftJob.id))
+                                   context: request.rule, excluding: draftJob.id))
 
-        let found = JobsScheduler.windows(JobsScheduler.Request(
-            units: units, crew: crew, calendar: scheduling.calendar,
-            bookings: bookings,
-            today: scheduling.today.isEmpty ? JobsDate.todayKey : scheduling.today))
+        let found = JobsScheduler.windows(request)
 
         withAnimation(.easeOut(duration: 0.2)) {
             windows = found

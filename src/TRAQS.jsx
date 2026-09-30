@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { personDeptMatch, unitDepartment } from "./scheduleRules.js";
 import { classifyTaskActions } from "./taskActions.js";
-import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, shiftWorkingDays } from "./overlapRules.js";
+import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, shiftWorkingDays, nextFreeStart, schedulerAvailability } from "./overlapRules.js";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { TraqsBars, BARS_ASPECT, BRAND_BARS } from "./brand.jsx";
@@ -10991,30 +10991,6 @@ ${jobsCtx || "No jobs found."}`;
     // existing job — a brand-new job has no clock and no id yet).
     if (ed.id && blockedByActiveClock(jobIdOfNode(ed.id) || ed.id)) return;
     // Check overlaps for all operations in this job against OTHER jobs only
-    const opsToCheck = [];
-    (ed.subs || []).forEach(sub => {
-      if ((sub.subs || []).length > 0) {
-        // Panel-style: nested ops — check every team member
-        (sub.subs || []).forEach(op => {
-          (op.team || []).forEach(personId => {
-            opsToCheck.push({ personId, start: op.start, end: op.end, startHour: op.startHour, endHour: op.endHour, team: op.team, src: op, opTitle: op.title, panelTitle: sub.title || "", excludeOpId: op.id, hpd: op.hpd, teamLength: (op.team || []).length });
-          });
-        });
-      } else if ((sub.team || []).length > 0) {
-        // Flat subtask (non-panel job) — check every team member
-        (sub.team || []).forEach(personId => {
-          opsToCheck.push({ personId, start: sub.start, end: sub.end, startHour: sub.startHour, endHour: sub.endHour, team: sub.team, src: sub, opTitle: sub.title, panelTitle: "", excludeOpId: sub.id, hpd: sub.hpd, teamLength: (sub.team || []).length });
-        });
-      }
-    });
-    // The job as edited stands in for its stored copy, so conflicts INSIDE the job are
-    // checked too — blanking it (as this did) meant two of its own ops could overlap freely.
-    const checkTasks = !parentId && ed.id ? tasks.map(j => j.id === ed.id ? ed : j) : (!parentId && !ed.id ? [...tasks, ed] : tasks);
-    const conflicts = checkOverlapsPure(checkTasks, opsToCheck);
-    const overBooked = conflicts.filter(c => c.warnOnly);
-    if (overBooked.length) toast(`Over capacity: ${[...new Set(overBooked.map(c => `${c.person} ${fm(c.start)} (${c.load}h / ${c.cap}h)`))].join("; ")}`);
-    const blocking = conflicts.filter(c => !c.warnOnly);
-    if (blocking.length > 0) { showOverlapIfAny(blocking); return; }
     // Generate IDs for panels and their operations. Also assign a stable color if the panel was
     // created without one (e.g. from the auto-add-panels flow) — otherwise it persists color-less
     // and renders grey after the next poll refetch.
@@ -11022,6 +10998,10 @@ ${jobsCtx || "No jobs found."}`;
     // Default job color (used when a panel or op doesn't have its own). Per-task overrides
     // chosen in the editor are preserved below.
     const jobColor = ed.color || (ed.subs || []).map(p => p.color).find(Boolean) || _colorForId(ed.id || "new");
+    // What the seeding below places against: the schedule without this job's stored copy, plus
+    // each op of this save as it is seeded.
+    const _seedUnits = occupyingUnits(ed.id ? tasks.filter(j => j.id !== ed.id) : tasks, overlapCtx);
+    const _seeded = [];
     const withIds = { ...ed, color: jobColor, subs: (ed.subs || []).map(panel => {
       const pid = panel.id || uid();
       const pColor = panel.color || jobColor;
@@ -11038,31 +11018,51 @@ ${jobsCtx || "No jobs found."}`;
           // Seeding an op with no explicit hour can move its start day again: if the
           // person's day is already full, the slot rolls on rather than handing back
           // an hour past workEndH. An hour the user set themselves is honoured.
-          const _slot = (op.startHour == null && _rolledStart && (op.team || []).length > 0)
-            ? getNextStartSlot((op.team || [])[0], _rolledStart, op.id)
-            : null;
-          const _opStart = _slot ? _slot.start : _rolledStart;
-          const _sh = op.startHour ?? (_slot ? _slot.startHour : workStartH);
-          const _totalClockH = productiveHoursPerDay > 0 ? ((op.hpd || 0) / productiveHoursPerDay) * totalWorkH : 0;
-          const _firstDayAvailH = workEndH - _sh;
-          let _rawEndH;
-          if (_totalClockH <= _firstDayAvailH) {
-            _rawEndH = _sh + _totalClockH;
-          } else {
-            let _rem = _totalClockH - _firstDayAvailH;
-            while (_rem > totalWorkH) _rem -= totalWorkH;
-            _rawEndH = workStartH + _rem;
+          // An op with no hour gets the earliest free slot for its whole team, from the shared
+          // overlap rule — counting the ops seeded earlier in THIS save. The old lookup read only
+          // the stored schedule, so four same-day ops for one person in a new job all came back
+          // 08:00 (#303). An hour the user set is honoured. End date and hour are the walk of the
+          // person's share (hpd ÷ team); this recomputed them from the whole hpd in clock hours.
+          const _id = op.id || uid();
+          let _opStart = _rolledStart, _sh = op.startHour;
+          if (_sh == null && _rolledStart && (op.team || []).length > 0) {
+            const _slot = nextFreeStart({ ...op, id: _id }, _rolledStart, _seedUnits.concat(_seeded), overlapCtx);
+            if (_slot) { _opStart = _slot.start; _sh = _slot.startHour; }
           }
-          let _opEnd = _opStart || op.end;
-          if (_opStart && _totalClockH > _firstDayAvailH) {
-            let _rem0 = _totalClockH - _firstDayAvailH;
-            let _day0 = _opStart;
-            while (_rem0 > totalWorkH) { _rem0 -= totalWorkH; _day0 = sAddBD(_day0, 1); }
-            _opEnd = sAddBD(_day0, 1);
-          }
-          return { ...op, id: op.id || uid(), color: op.color || pColor, ...(_opStart !== op.start ? { start: _opStart } : {}), end: _opEnd, startHour: _sh, endHour: Math.round(_rawEndH * 2) / 2 };
+          if (_sh == null) _sh = workStartH;
+          const _w = walkProductiveHours(_sh, personShareHours(op.hpd, (op.team || []).length, productiveHoursPerDay), dayWindowCfg);
+          const _opEnd = _opStart ? (_w.days > 1 ? sAddBD(_opStart, _w.days - 1) : _opStart) : op.end;
+          const _eh = Math.round(Math.min(_w.endHour, workEndH) * 100) / 100;
+          const _out = { ...op, id: _id, color: op.color || pColor, ...(_opStart !== op.start ? { start: _opStart } : {}), end: _opEnd, startHour: _sh, endHour: _eh };
+          if ((op.team || []).length > 0 && _opStart) _seeded.push({ unit: _out });
+          return _out;
         }) };
     }) };
+    // Checked AFTER seeding: the ops as they will be saved, start hours included.
+    const opsToCheck = [];
+    (withIds.subs || []).forEach(sub => {
+      if ((sub.subs || []).length > 0) {
+        // Panel-style: nested ops — check every team member
+        (sub.subs || []).forEach(op => {
+          (op.team || []).forEach(personId => {
+            opsToCheck.push({ personId, start: op.start, end: op.end, startHour: op.startHour, endHour: op.endHour, team: op.team, src: op, opTitle: op.title, panelTitle: sub.title || "", excludeOpId: op.id, hpd: op.hpd, teamLength: (op.team || []).length });
+          });
+        });
+      } else if ((sub.team || []).length > 0) {
+        // Flat subtask (non-panel job) — check every team member
+        (sub.team || []).forEach(personId => {
+          opsToCheck.push({ personId, start: sub.start, end: sub.end, startHour: sub.startHour, endHour: sub.endHour, team: sub.team, src: sub, opTitle: sub.title, panelTitle: "", excludeOpId: sub.id, hpd: sub.hpd, teamLength: (sub.team || []).length });
+        });
+      }
+    });
+    // The job as edited stands in for its stored copy, so conflicts INSIDE the job are
+    // checked too — blanking it (as this did) meant two of its own ops could overlap freely.
+    const checkTasks = !parentId && ed.id ? tasks.map(j => j.id === ed.id ? withIds : j) : (!parentId && !ed.id ? [...tasks, withIds] : tasks);
+    const conflicts = checkOverlapsPure(checkTasks, opsToCheck);
+    const overBooked = conflicts.filter(c => c.warnOnly);
+    if (overBooked.length) toast(`Over capacity: ${[...new Set(overBooked.map(c => `${c.person} ${fm(c.start)} (${c.load}h / ${c.cap}h)`))].join("; ")}`);
+    const blocking = conflicts.filter(c => !c.warnOnly);
+    if (blocking.length > 0) { showOverlapIfAny(blocking); return; }
     toast(withIds.id ? "Job saved" : parentId ? "Added" : "Job created");
     if (withIds.id) updTask(withIds.id, withIds, parentId);
     else { const nw = { ...withIds, id: uid(), createdAt: new Date().toISOString() }; protectedJobIds.current.add(nw.id); if (parentId) setTasks(p => p.map(t => t.id === parentId ? { ...t, subs: [...(t.subs || []), nw] } : t)); else { setTasks(p => [...p, nw]); setTimeout(() => { dataRef.current.tasks = [...(dataRef.current.tasks), nw]; doSaveRef.current(); }, 0); } }
@@ -26479,31 +26479,11 @@ ${jobsCtx || "No jobs found."}`;
           const batchBD = rawOps.reduce((s, o) => s + o.durationBD, 0) || 1;
 
           // Overlap-based free check: person must have no existing assignments that overlap the range
-          const isPersonFree = (pid, checkStart, checkEnd, candidateStartH = workStartH) => {
-            const pp = people.find(x => x.id === pid);
-            if (pp) for (const to of (pp.timeOff || [])) {
-              if (to.start <= checkEnd && to.end >= checkStart) return false;
-            }
-            for (const job of tasks) {
-              if (ed.id && job.id === ed.id) continue;
-              for (const pnl of (job.subs || [])) {
-                if ((pnl.team || []).includes(pid) && pnl.status !== "Finished"
-                    && pnl.start && pnl.end && pnl.start <= checkEnd && pnl.end >= checkStart
-                    && (pnl.subs || []).length === 0) return false;
-                for (const op of (pnl.subs || [])) {
-                  if (!(op.team || []).includes(pid) || op.status === "Finished") continue;
-                  if (!op.start || !op.end || op.start > checkEnd || op.end < checkStart) continue;
-                  if (op.start === op.end && op.start === checkStart && checkStart === checkEnd && op.startHour != null) {
-                    const _opClockH = productiveHoursPerDay > 0 ? ((op.hpd || 0) / productiveHoursPerDay) * totalWorkH : 0;
-                    const _opEndH = op.endHour ?? Math.min(op.startHour + _opClockH, workEndH);
-                    if (_opEndH <= candidateStartH) continue;
-                  }
-                  return false;
-                }
-              }
-            }
-            return true;
-          };
+          // The shared overlap rule (#303): working time on working days, ids as strings, the
+          // rest of the schedule counted — not whole days against other jobs only.
+          const _findAvail = schedulerAvailability(tasks, overlapCtx, { excludeJobId: ed.id, people });
+          const isPersonFree = (pid, checkStart, checkEnd, candidateStartH = workStartH) =>
+            _findAvail.free(pid, checkStart, checkEnd, candidateStartH === workStartH ? null : candidateStartH);
 
           // Find windows: simulate batch-by-batch scheduling from each start date
           const findWindows = (deadline) => {
@@ -26611,26 +26591,10 @@ ${jobsCtx || "No jobs found."}`;
         setTimeout(() => {
           const allCrew = people.filter(pp => (pp.userRole === "user" || pp.userRole === "admin") && !pp.noAutoSchedule);
           const inSession = [];
-          const isPersonFreeLocal = (pid, s, eDate) => {
-            const pp = people.find(x => x.id === pid);
-            if (pp) for (const to of (pp.timeOff || [])) { if (to.start <= eDate && to.end >= s) return false; }
-            for (const job of tasks) {
-              if (ed.id && job.id === ed.id) continue;
-              for (const pnl of (job.subs || [])) {
-                if ((pnl.team || []).includes(pid) && pnl.status !== "Finished" && pnl.start && pnl.end && pnl.start <= eDate && pnl.end >= s && (pnl.subs || []).length === 0) return false;
-                for (const op of (pnl.subs || [])) {
-                  if (!(op.team || []).includes(pid) || op.status === "Finished") continue;
-                  if (op.start && op.end && op.start <= eDate && op.end >= s) return false;
-                }
-              }
-            }
-            return true;
-          };
-          const isAvailLocal = (pid, s, eDate) => {
-            if (!isPersonFreeLocal(pid, s, eDate)) return false;
-            for (const sess of inSession) { if (sess.pid === pid && sess.start <= eDate && sess.end >= s) return false; }
-            return true;
-          };
+          // The shared overlap rule, counting this run's own placements (booked below) — the
+          // whole-day check here ignored the job being scheduled and double-booked people.
+          const _localAvail = schedulerAvailability(tasks, overlapCtx, { excludeJobId: ed.id, people });
+          const isAvailLocal = (pid, s, eDate) => _localAvail.free(pid, s, eDate);
           const personCursors = {};
           allCrew.forEach(pp => { personCursors[pp.id] = newStartDate; });
           const jobCountLocal = (pid) => tasks.reduce((n, job) => {
@@ -26702,7 +26666,7 @@ ${jobsCtx || "No jobs found."}`;
                 return;
               }
               placedSubs.push({ ...sub, start: ss, end: se, team: subTeam.map(m => m.id) });
-              subTeam.forEach(m => { inSession.push({ pid: m.id, start: ss, end: se }); personCursors[m.id] = sAddBD(se, 1); });
+              subTeam.forEach(m => { inSession.push({ pid: m.id, start: ss, end: se }); _localAvail.book(m.id, ss, se); personCursors[m.id] = sAddBD(se, 1); });
               opEarliestStart = sAddBD(se, 1);
             }
             const opStart = placedSubs[0]?.start || newStartDate;
@@ -27289,21 +27253,8 @@ ${jobsCtx || "No jobs found."}`;
                     setEd(p => {
                       const updated={...p};
                       const allCrew=people.filter(pp => (pp.userRole==="user" || pp.userRole==="admin") && !pp.noAutoSchedule);
-                      const isPersonFreeGlobal=(pid,s,eDate) => {
-                        const pp=people.find(x => x.id===pid);
-                        if(pp) for(const to of (pp.timeOff||[])) { if(to.start<=eDate && to.end>=s) return false; }
-                        for(const job of tasks) {
-                          if(ed.id && job.id===ed.id) continue;
-                          for(const pnl of (job.subs||[])) {
-                            if((pnl.team||[]).includes(pid) && pnl.status!=="Finished" && pnl.start && pnl.end && pnl.start<=eDate && pnl.end>=s && (pnl.subs||[]).length===0) return false;
-                            for(const op of (pnl.subs||[])) {
-                              if(!(op.team||[]).includes(pid)||op.status==="Finished") continue;
-                              if(op.start && op.end && op.start<=eDate && op.end>=s) return false;
-                            }
-                          }
-                        }
-                        return true;
-                      };
+                      // The shared overlap rule, counting this run's own placements (booked below).
+                      const _applyAvail=schedulerAvailability(tasks, overlapCtx, { excludeJobId: ed.id, people });
                       // Department inference: explicit op field → parent panel's field
                       // → case-insensitive match on op title against orgSettings.roles.
                       // Fast TRAQS imports leave requiredDepartment empty even though op
@@ -27341,11 +27292,7 @@ ${jobsCtx || "No jobs found."}`;
                       const personCursors={};
                       allCrew.forEach(pp => { personCursors[pp.id]=slot.start; });
                       const inSession=[];
-                      const isAvail=(pid,s,eDate) => {
-                        if(!isPersonFreeGlobal(pid,s,eDate)) return false;
-                        for(const sess of inSession) { if(sess.pid===pid && sess.start<=eDate && sess.end>=s) return false; }
-                        return true;
-                      };
+                      const isAvail=(pid,s,eDate) => _applyAvail.free(pid,s,eDate);
                       const jobCount=(pid) => tasks.reduce((n,job) => {
                         if(ed.id && job.id===ed.id) return n;
                         for(const pnl of (job.subs||[])) {
@@ -27449,7 +27396,7 @@ ${jobsCtx || "No jobs found."}`;
                           const floor = unassigned ? laterOf(slot.start, flowEnd && sAddBD(flowEnd, 1)) : slot.start;
                           const {team:panelTeam,start:ps,end:pe}=pickTeam(op,floor);
                           resultSubs[pi]={...op,_panelScheduled:true,_panelStart:ps,_panelEnd:pe,_panelTeam:panelTeam.map(m => m.id)};
-                          panelTeam.forEach(m => { inSession.push({pid:m.id,start:ps,end:pe,hpd:(op.hpd||productiveHoursPerDay)/Math.max(1,panelTeam.length)}); personCursors[m.id]=sAddBD(pe,1); });
+                          panelTeam.forEach(m => { inSession.push({pid:m.id,start:ps,end:pe,hpd:(op.hpd||productiveHoursPerDay)/Math.max(1,panelTeam.length)}); _applyAvail.book(m.id,ps,pe); personCursors[m.id]=sAddBD(pe,1); });
                           if(pe>latestEnd) latestEnd=pe;
                           flowEnd = laterOf(flowEnd, pe);
                           return;
@@ -27463,7 +27410,7 @@ ${jobsCtx || "No jobs found."}`;
                           const floor = unassigned ? laterOf(opCursor, flowEnd && sAddBD(flowEnd, 1)) : opCursor;
                           const {team:subTeam,start:ss,end:se}=pickTeam(sub,floor);
                           resultSubs[pi].placedSubs[oi]={...sub,_placed:true,start:ss,end:se,team:subTeam.length>0?subTeam.map(m => m.id):(sub.team||[])};
-                          subTeam.forEach(m => { inSession.push({pid:m.id,start:ss,end:se,hpd:(sub.hpd||productiveHoursPerDay)/Math.max(1,subTeam.length)}); personCursors[m.id]=sAddBD(se,1); });
+                          subTeam.forEach(m => { inSession.push({pid:m.id,start:ss,end:se,hpd:(sub.hpd||productiveHoursPerDay)/Math.max(1,subTeam.length)}); _applyAvail.book(m.id,ss,se); personCursors[m.id]=sAddBD(se,1); });
                           if(se>latestEnd) latestEnd=se;
                           opCursor = sAddBD(se, 1);
                           flowEnd = laterOf(flowEnd, se);

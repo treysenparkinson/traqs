@@ -29,7 +29,7 @@
 //
 // Basic tier allows overlap by design (a double-booked shift). Callers apply this
 // rule on Business only — here, the web and the server alike.
-import { opDaySegments, personShareHours, capacityOf, buildDayWindows } from "./statsMath.js";
+import { opDaySegments, personShareHours, capacityOf, buildDayWindows, walkProductiveHours, productiveClockHours } from "./statsMath.js";
 
 const EPS = 1e-6;
 const nextDay = (ds) => { const d = new Date(ds + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
@@ -246,4 +246,72 @@ export function capacityWarnings(tasks, people, ctx, { personIds = null, days = 
     if (h - cap > EPS) out.push({ personId: pid, day, load: Math.round(h * 100) / 100, cap });
   }
   return out.sort((a, b) => (a.day < b.day ? -1 : a.day > b.day ? 1 : a.personId.localeCompare(b.personId)));
+}
+
+// ── Placement: where new work can go ────────────────────────────────────────
+// The auto-schedulers and the save's start-hour seeding were the sixth and seventh
+// overlap rules (#303): whole-day checks that compared ids strictly and ignored the
+// job being scheduled, and a seeding that read only the stored schedule — so four
+// same-day units for one person in one save all got the same 08:00. Both now ask the
+// rule above, and count what the same run has already placed.
+
+/**
+ * The earliest placement of `candidate` (its team and hpd) on or after `fromDay` that
+ * overlaps nothing in `units`: it tries the start of each working day and the end of
+ * every block its team already has that day. Returns { start, end, startHour, endHour }
+ * or null when nothing clears within `maxDays`.
+ */
+export function nextFreeStart(candidate, fromDay, units, ctx, { maxDays = 260 } = {}) {
+  const team = ids(candidate.team);
+  const hours = ctx.shareHours ? ctx.shareHours(candidate) : personShareHours(candidate.hpd, team.length, ctx.productiveHoursPerDay);
+  const { workStartH, workEndH } = ctx.cfg;
+  const loose = { ...ctx, today: null };
+  for (let d = fromDay, n = 0; n < maxDays; d = nextDay(d), n++) {
+    if (!ctx.isWorkDay(d)) continue;
+    const starts = new Set([workStartH]);
+    for (const u of units) {
+      if (!ids(u.unit.team).some(p => team.includes(p))) continue;
+      for (const b of unitBlocks(u.unit, loose)) if (b.day === d && b.endH < workEndH - EPS) starts.add(b.endH);
+    }
+    for (const sH of [...starts].sort((a, b) => a - b)) {
+      const w = walkProductiveHours(sH, hours, ctx.cfg);
+      const end = w.days > 1 ? shiftWorkingDays(d, w.days - 1, ctx) : d;
+      const probe = { ...candidate, start: d, end, startHour: sH, endHour: undefined };
+      if (!overlapsWith(probe, units, ctx).length) return { start: d, end, startHour: sH, endHour: Math.min(w.endHour, workEndH) };
+    }
+  }
+  return null;
+}
+
+/**
+ * A free/book checker for one auto-scheduling run. The schedulers place whole working
+ * days, so a check reserves every productive hour from `startH` (or the start of the
+ * day) through `end`. `book` records a placement so the run's next check sees it —
+ * the missing piece that let one run double-book a person. `excludeJobId` leaves out
+ * the stored copy of the job being scheduled; its new placements come in via `book`.
+ */
+export function schedulerAvailability(tasks, ctx, { excludeJobId = null, people = [] } = {}) {
+  const base = occupyingUnits((tasks || []).filter(j => !(excludeJobId != null && j && String(j.id) === String(excludeJobId))), ctx);
+  const session = [];
+  const byId = new Map((people || []).map(p => [String(p.id), p]));
+  const { workStartH, workEndH } = ctx.cfg;
+  const reserved = (s, e, startH) => {
+    let h = 0;
+    for (let d = s, i = 0; d <= (e || s) && i < 400; d = nextDay(d), i++) {
+      if (!ctx.isWorkDay(d) && d !== s) continue;
+      h += productiveClockHours(d === s && startH != null ? startH : workStartH, workEndH, ctx.cfg);
+    }
+    return Math.max(h, 0.01);
+  };
+  const unitFor = (pid, s, e, startH) => ({ id: `__sched${session.length}_${pid}_${s}`, start: s, end: e || s, startHour: startH ?? undefined,
+    hpd: reserved(s, e, startH), team: [pid], status: "Not Started" });
+  const plain = { ...ctx, shareHours: undefined };
+  return {
+    free(pid, s, e, startH = null) {
+      const p = byId.get(String(pid));
+      if ((p?.timeOff || []).some(to => to.start <= (e || s) && to.end >= s)) return false;
+      return !overlapsWith(unitFor(pid, s, e, startH), base.concat(session), plain).length;
+    },
+    book(pid, s, e, startH = null) { session.push({ unit: unitFor(pid, s, e, startH) }); },
+  };
 }

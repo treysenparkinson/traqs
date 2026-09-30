@@ -16,12 +16,13 @@ import Foundation
 // three dates that work become the offered windows, each carrying who is free
 // and who is not.
 //
-// DAY GRANULARITY, deliberately. The web tracks `startHour`/`endHour` so two
-// short operations can share a day, and `isPersonFree` has a same-day hour
-// comparison for it. That matters when rescheduling around existing part-days;
-// it does not for a job being created, whose operations have no hours yet. Whole
-// days here, and the field is left for the scheduler page to set — writing a
-// half-considered `startHour` would be worse than writing none.
+// CANDIDATE DAYS ARE WHOLE DAYS, deliberately: a unit is offered from the start
+// of a working day and no `startHour` is written — the field is left for the
+// scheduler page to set, and writing a half-considered one would be worse than
+// writing none. But whether a person is FREE is the shared hour-level rule
+// (OverlapRule), the same one the web and the server enforce, so a unit that
+// only takes the morning of an existing booking's day is placed around it
+// exactly as the web would judge it.
 //
 // Pure: no AppState, no `Date()`, no Calendar captured from the environment.
 // Everything the walk needs is passed in, which is what makes a scheduler
@@ -44,6 +45,10 @@ struct SchedulableUnit: Equatable {
     let department: String
     /// The panel this belongs to, or nil when the panel IS the unit.
     let panelID: String
+    /// The one assignee's productive hours on it — the whole `hpd`, since the
+    /// scheduler puts one person on each unit. 0 is unestimated, which the
+    /// overlap rule reads as one productive day.
+    var hours: Double = 0
 }
 
 /// One offered start date.
@@ -152,7 +157,8 @@ enum JobsScheduler {
                         department: department(of: op.title,
                                                own: op.extras.text("requiredDepartment"),
                                                panel: panelDept, job: jobDept, known: known),
-                        panelID: panel.id)
+                        panelID: panel.id,
+                        hours: op.hpd > 0 ? op.hpd / Double(crewSize) : 0)
                 }
             }
             guard !panel.title.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
@@ -164,7 +170,8 @@ enum JobsScheduler {
                 // `_inferDept(panel, null)`.
                 department: department(of: panel.title, own: panelDept,
                                        panel: "", job: jobDept, known: known),
-                panelID: panel.id)]
+                panelID: panel.id,
+                hours: panel.hpd > 0 ? panel.hpd / Double(crewSize) : 0)]
         }
     }
 
@@ -295,12 +302,14 @@ extension JobsScheduler {
 
 // MARK: - Who is already busy
 //
-// `isPersonFree`. A person is booked by any unfinished assignment that OVERLAPS
-// the range, and by any time-off that does.
+// `isPersonFree`, on the shared overlap rule. A person is booked by any unit
+// that takes part (OverlapRule.takesPart) whose hours on some day intersect the
+// candidate's — half-open, so back to back is free — and by any time off that
+// touches the candidate's dates, which books whole days.
 //
-// Ranges are compared as `yyyy-MM-dd` strings, which is correct for that format
-// and avoids parsing two dates per person per candidate day — this runs inside
-// the scan loop and is the hottest thing in the file.
+// The org's bookings are flattened and their blocks walked ONCE, then indexed by
+// person: the scan below asks "is this person free" per person per candidate
+// day, and is the hottest thing in the file.
 
 extension JobsScheduler {
 
@@ -309,40 +318,38 @@ extension JobsScheduler {
         let personID: String
         let start: String
         let end: String
+        /// The hours it holds on each day, for its one person — the shared
+        /// rule's blocks. Nil for time off, which holds its dates whole.
+        let blocks: [OverlapRule.Block]?
     }
 
-    /// Every unfinished, dated assignment in the org, plus time off.
+    /// Every unit in the org that takes part in the overlap rule, per assignee,
+    /// plus time off.
     ///
     /// `excluding` is the job being scheduled: its own current dates must not
     /// make it look like its own people are busy. The web does the same with
     /// `if (ed.id && job.id === ed.id) continue`.
     ///
-    /// A PANEL only counts when it has no operations — otherwise the operations
-    /// are the real bookings and counting both double-books the panel's team.
-    static func bookings(in jobs: [Job], people: [Person],
+    /// A PANEL only counts when it has no live operations — otherwise the
+    /// operations are the real bookings and counting both double-books the
+    /// panel's team (`occupyingUnits`).
+    static func bookings(in jobs: [Job], people: [Person], context: OverlapRule.Context,
                          excluding jobID: String? = nil) -> [Booking] {
         var out: [Booking] = []
 
-        for job in jobs where job.id != jobID {
-            for panel in job.subs {
-                if panel.subs.isEmpty, panel.status != .finished,
-                   !panel.start.isEmpty, !panel.end.isEmpty {
-                    for person in panel.team {
-                        out.append(Booking(personID: person, start: panel.start, end: panel.end))
-                    }
-                }
-                for op in panel.subs where op.status != .finished
-                    && !op.start.isEmpty && !op.end.isEmpty {
-                    for person in op.team {
-                        out.append(Booking(personID: person, start: op.start, end: op.end))
-                    }
-                }
+        for unit in OverlapRule.occupyingUnits(in: jobs, context: context, excludingJob: jobID) {
+            let blocks = OverlapRule.blocks(of: unit, context: context)
+            // No hours from today on: nothing left to collide with.
+            guard !blocks.isEmpty else { continue }
+            for person in Set(unit.team) {
+                out.append(Booking(personID: person, start: unit.start,
+                                   end: unit.end.isEmpty ? unit.start : unit.end, blocks: blocks))
             }
         }
 
         for person in people {
             for off in person.timeOff where !off.start.isEmpty && !off.end.isEmpty {
-                out.append(Booking(personID: person.id, start: off.start, end: off.end))
+                out.append(Booking(personID: person.id, start: off.start, end: off.end, blocks: nil))
             }
         }
         return out
@@ -354,11 +361,18 @@ extension JobsScheduler {
         Dictionary(grouping: bookings, by: \.personID)
     }
 
-    static func isFree(_ personID: String, from start: String, to end: String,
+    /// Whether `personID` can take a unit holding `blocks` over `start`...`end`.
+    static func isFree(_ personID: String, blocks: [OverlapRule.Block],
+                       from start: String, to end: String,
                        in index: [String: [Booking]]) -> Bool {
         guard let mine = index[personID] else { return true }
-        // Overlap, not containment: `start <= theirEnd && end >= theirStart`.
-        return !mine.contains { $0.start <= end && $0.end >= start }
+        return !mine.contains { booking in
+            if let theirs = booking.blocks {
+                return OverlapRule.blocksOverlap(blocks, theirs) != nil
+            }
+            // Time off: date overlap, not containment.
+            return booking.start <= end && booking.end >= start
+        }
     }
 }
 
@@ -375,6 +389,9 @@ extension JobsScheduler {
         var units: [SchedulableUnit]
         var crew: [Person]
         var calendar = WorkCalendar()
+        /// The org's working day, lunch and breaks placed — what a unit's hours
+        /// are walked through to find the block it holds on each day.
+        var day = WorkDayClock.day(from: OrgSettings.default)
         var bookings: [String: [Booking]] = [:]
         /// `TD` — today, as `yyyy-MM-dd`. Passed in rather than read, so a test
         /// can state the day.
@@ -383,6 +400,11 @@ extension JobsScheduler {
         var wanted = 3
         /// `maxScan` — how many candidate days to try before giving up.
         var maxScan = 200
+
+        /// The overlap rule's inputs, from the same calendar and day.
+        var rule: OverlapRule.Context {
+            OverlapRule.Context(day: day, calendar: calendar, today: today)
+        }
     }
 
     /// The offered windows, best (soonest) first. Empty means nothing fits
@@ -414,16 +436,28 @@ extension JobsScheduler {
         var placements: [SchedulePlacement] = []
         var cursor = start
         var totalDays = 0
+        let rule = request.rule
+        // What this run has placed so far counts as booked. A free check that
+        // looked only at the org — ignoring the job being scheduled — is what
+        // produced real double-bookings on the web.
+        var booked = request.bookings
+        var firstBlocks: [OverlapRule.Block] = []
 
         for unit in request.units {
             let unitEnd = request.calendar.addingWorkDays(unit.durationDays - 1, to: cursor)
+            // From the start of the day: no `startHour` is written (see the top).
+            let blocks = OverlapRule.blocks(start: cursor, end: unitEnd, startHour: nil,
+                                            hours: unit.hours, context: rule)
+            if placements.isEmpty { firstBlocks = blocks }
             let eligible = crew(for: unit.department, from: request.crew)
             let free = eligible.filter {
-                isFree($0.id, from: cursor, to: unitEnd, in: request.bookings)
+                isFree($0.id, blocks: blocks, from: cursor, to: unitEnd, in: booked)
             }
             // Nobody can take this unit on these days, so this whole start day
             // fails — the web abandons the window the same way.
             guard !free.isEmpty else { return nil }
+            booked[free[0].id, default: []].append(Booking(
+                personID: free[0].id, start: cursor, end: unitEnd, blocks: blocks))
 
             placements.append(SchedulePlacement(
                 unitID: unit.id, panelID: unit.panelID,
@@ -445,9 +479,12 @@ extension JobsScheduler {
         // run. The web's comment says why: requiring everyone to be free for a
         // batch that can be many days long pushed recommendations later than
         // they needed to be.
+        // Against the org only: the run's own first placement would otherwise
+        // make its assignee look busy for their own unit.
         let firstSpan = placements[0]
         let available = request.crew.filter {
-            isFree($0.id, from: firstSpan.start, to: firstSpan.end, in: request.bookings)
+            isFree($0.id, blocks: firstBlocks, from: firstSpan.start, to: firstSpan.end,
+                   in: request.bookings)
         }
         guard !available.isEmpty else { return nil }
         let busy = request.crew.filter { person in

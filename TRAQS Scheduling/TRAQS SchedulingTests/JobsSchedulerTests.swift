@@ -166,11 +166,11 @@ struct JobsSchedulerTests {
         let booked = job(#"""
         {"id":"other","title":"Other","subs":[{"id":"bp","title":"BP","subs":[
          {"id":"bo","title":"Busy","start":"2026-03-02","end":"2026-03-04",
-          "team":["u1","u2"],"status":"In Progress"}]}]}
+          "team":["u1","u2"],"status":"In Progress","hpd":60}]}]}
         """#)
         var request = JobsScheduler.Request(units: twoOps, crew: crew, today: monday)
         request.bookings = JobsScheduler.bookingIndex(
-            JobsScheduler.bookings(in: [booked], people: []))
+            JobsScheduler.bookings(in: [booked], people: [], context: request.rule))
         #expect(JobsScheduler.windows(request)[0].start == "2026-03-05")
     }
 
@@ -182,7 +182,7 @@ struct JobsSchedulerTests {
         """#)
         var request = JobsScheduler.Request(units: twoOps, crew: crew, today: monday)
         request.bookings = JobsScheduler.bookingIndex(
-            JobsScheduler.bookings(in: [done], people: []))
+            JobsScheduler.bookings(in: [done], people: [], context: request.rule))
         #expect(JobsScheduler.windows(request)[0].start == monday)
     }
 
@@ -192,11 +192,12 @@ struct JobsSchedulerTests {
         let booked = job(#"""
         {"id":"other","title":"Other","subs":[{"id":"bp","title":"BP","subs":[
          {"id":"bo","title":"Busy","start":"2026-03-02","end":"2026-03-04",
-          "team":["u1","u2"],"status":"In Progress"}]}]}
+          "team":["u1","u2"],"status":"In Progress","hpd":60}]}]}
         """#)
         var request = JobsScheduler.Request(units: twoOps, crew: crew, today: monday)
         request.bookings = JobsScheduler.bookingIndex(
-            JobsScheduler.bookings(in: [booked], people: [], excluding: "other"))
+            JobsScheduler.bookings(in: [booked], people: [], context: request.rule,
+                                   excluding: "other"))
         #expect(JobsScheduler.windows(request)[0].start == monday)
     }
 
@@ -207,10 +208,42 @@ struct JobsSchedulerTests {
         """#)
         var request = JobsScheduler.Request(units: twoOps, crew: crew, today: monday)
         request.bookings = JobsScheduler.bookingIndex(
-            JobsScheduler.bookings(in: [], people: [away]))
+            JobsScheduler.bookings(in: [], people: [away], context: request.rule))
         let found = JobsScheduler.windows(request)
         #expect(found[0].start == monday)          // Bob can still take it
         #expect(found[0].busy == ["u1"])
+    }
+
+    /// Busy is the shared overlap rule, on hours: an unestimated booking holds
+    /// ONE productive day per person, however many dates it spans — so a
+    /// three-date booking with no `hpd` only blocks its first day.
+    @Test func aBookingHoldsItsHoursNotItsDates() {
+        let booked = job(#"""
+        {"id":"other","title":"Other","subs":[{"id":"bp","title":"BP","subs":[
+         {"id":"bo","title":"Busy","start":"2026-03-02","end":"2026-03-04",
+          "team":["u1","u2"],"status":"In Progress"}]}]}
+        """#)
+        var request = JobsScheduler.Request(units: twoOps, crew: crew, today: monday)
+        request.bookings = JobsScheduler.bookingIndex(
+            JobsScheduler.bookings(in: [booked], people: [], context: request.rule))
+        #expect(JobsScheduler.windows(request)[0].start == "2026-03-03")
+    }
+
+    /// The run's own placements count. One person, two units over the same
+    /// candidate range: they land on different days, never both on one.
+    @Test func oneRunNeverDoubleBooksItsOwnPerson() {
+        let found = JobsScheduler.windows(.init(units: twoOps, crew: [crew[0]], today: monday))
+        let placed = found[0].placements
+        #expect(placed.map(\.team) == [["u1"], ["u1"]])
+        #expect(placed[0].start == monday)
+        #expect(placed[1].start == "2026-03-03")
+        // And by the shared rule itself, the two do not overlap.
+        let rule = JobsScheduler.Request(units: [], crew: [], today: monday).rule
+        let units = placed.map {
+            OverlapRule.Unit(id: $0.unitID, start: $0.start, end: $0.end, startHour: nil,
+                             hpd: 7.5, team: $0.team)
+        }
+        #expect(OverlapRule.overlaps(units[1], with: [units[0]], context: rule).isEmpty)
     }
 
     @Test func nothingToScheduleOffersNothing() {
