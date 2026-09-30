@@ -1473,3 +1473,43 @@ export function suspectHpdOps(tasks, { productiveHoursPerDay, isWorkDay }) {
   }
   return out;
 }
+
+/**
+ * THE bar geometry: where each piece of a schedule bar sits, as percentages of the timeline.
+ * The bar render and every drag ghost draw from this one function (root cause 7 C: #26 #27),
+ * so a ghost is exactly the bar it previews.
+ *
+ *   segs        working-day runs the bar covers (weekdaySegments, noClampStart), in order
+ *   layoutStart the day the bar starts on — the start-hour offset applies only there
+ *   startHour / endHour   clock hours on the first / last day
+ *   budgetPct   total width: the walk's wall-clock columns / nDays × 100 (lunch counted)
+ *   endsInView  whether the bar's real end is inside the window (else the last visible
+ *               piece is mid-bar and fills from the budget)
+ *   firstWantedPct  optional override for the first piece (a bar that ends NOW)
+ *
+ * Every piece is capped at its own columns; the piece holding the end is sized by the end
+ * hour. Returns [{ start, end, leftPct, widthPct, isLastSeg }].
+ */
+export function barSegmentsPct({ segs, layoutStart, tStart, nDays, startHour, endHour, budgetPct, endsInView, workStartH, totalWorkH, firstWantedPct = null }) {
+  const out = [];
+  if (!segs || !segs.length || !(nDays > 0)) return out;
+  const dd = (a, b) => Math.round((Date.parse(b + "T12:00:00Z") - Date.parse(a + "T12:00:00Z")) / 86400000);
+  const one = 100 / nDays;
+  const span = Math.max(0.0001, totalWorkH);
+  const s0 = segs[0];
+  const left0 = dd(tStart, s0.start) * one + (s0.start === layoutStart ? ((startHour - workStartH) / span) * one : 0);
+  const right0 = (dd(tStart, s0.end) + 1) * one;
+  const w0 = Math.max(0, Math.min(firstWantedPct ?? budgetPct, right0 - left0));
+  out.push({ start: s0.start, end: s0.end, leftPct: left0, widthPct: w0, isLastSeg: segs.length === 1 && !!endsInView });
+  let remaining = Math.max(0, budgetPct - w0);
+  for (let i = 1; i < segs.length; i++) {
+    const seg = segs[i];
+    const isLastSeg = i === segs.length - 1 && !!endsInView;
+    const calDays = dd(seg.start, seg.end) + 1;
+    const avail = calDays * one;
+    const w = Math.max(0, Math.min(avail, isLastSeg ? ((calDays - 1) + (endHour - workStartH) / span) * one : remaining));
+    remaining = Math.max(0, remaining - w);
+    out.push({ start: seg.start, end: seg.end, leftPct: dd(tStart, seg.start) * one, widthPct: w, isLastSeg });
+  }
+  return out;
+}

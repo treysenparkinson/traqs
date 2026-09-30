@@ -72,8 +72,10 @@ hasNot("no scheduling code reads the org hpd", /orgSettings\.hpd\b/);
 hasNot("no hpd fallback invents 7.5", /hpd[^;\n]{0,40}(\?\?|\|\|)\s*7\.5/);
 hasNot("no cap fallback of a flat 8", /\.cap\s*\|\|\s*8\b/);
 has("the team day view draws each op from opDaySegments", "opDaySegments(");
-has("the gantt resize writes the team total (× team size), left edge", "_computeHpd(_finalDay, _finalHour, oe, oeH) * _resizeTeamSize");
-has("the gantt resize writes the team total (× team size), right edge", "_computeHpd(os, osH, targetDay, clampedHour) * _resizeTeamSize");
+// Root cause 7 C: both edges go through dragMove.resizeSession, which writes share × team.
+const _DRAG = readFileSync(new URL("../src/dragMove.js", import.meta.url), "utf8");
+ok("the gantt resize writes the team total (× team size), left edge", _DRAG.includes("hpd: Math.round(share * Math.max(1, teamSize) * 100) / 100") && SRC.includes("node: bar.task, teamSize: (bar.task.team || []).length"), true);
+ok("the gantt resize writes the team total (× team size), right edge", SRC.includes("session.move(at)") && SRC.includes("const session = resizeSession({"), true);
 // Root cause 7 B: the share comes from resizeShare (productive hours across every day the op
 // spans, dragMove.js) and is written × team size.
 has("day-view resizes write productive hours × team, not a clock span", "hpd: Math.round(share * _teamSize * 100) / 100");

@@ -5,7 +5,7 @@ import { personDeptMatch, unitDepartment, workCalendar } from "./scheduleRules.j
 import { DEFAULT_ORG_SETTINGS, withOrgDefaults } from "./orgDefaults.js";
 import { setShopZone, shopDay, shopHour, shopMs } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
-import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessage, shiftStart, resizeShare } from "./dragMove.js";
+import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessage, shiftStart, resizeShare, resizeSession } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, shiftWorkingDays, nextFreeStart, schedulerAvailability } from "./overlapRules.js";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
@@ -17,7 +17,7 @@ import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, 
 import * as realtime from "./realtime/ably.js";
 import { BASIC_FEATURES, BUSINESS_FEATURES, TIER_LABEL, upgradeMailto } from "./tiers.js";
 import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, opDaySegments, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
-import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours, dayShiftToClear, rowSlackHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren } from "./statsMath.js";
+import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours, dayShiftToClear, rowSlackHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
@@ -8974,6 +8974,9 @@ Extraction rules:
   const [rowDragId, setRowDragId] = useState(null);   // personId being row-dragged
   const [rowDragOver, setRowDragOver] = useState(null); // { type:"person"|"group", id, pos:"before"|"after" }
   const [ganttDragInfo, setGanttDragInfo] = useState(null); // { itemId, snapStart, snapEnd, hasOverlap }
+  // A week/month resize in progress: the landing the bar is PREVIEWED at. Nothing is written
+  // until the release (root cause 7 C: #31 #32) — the bar reads this instead.
+  const [resizePreview, setResizePreview] = useState(null);   // { barId, start, startHour, end, endHour, share, refused }
   const [teamDragInfo, setTeamDragInfo] = useState(null);   // { barId, snapStart, snapEnd, targetPersonId, hasOverlap }
   const [droppedBarId, setDroppedBarId] = useState(null);
   const teamDragLiveRef = useRef(null);
@@ -17549,100 +17552,41 @@ ${jobsCtx || "No jobs found."}`;
                   const { snapStart, snapEnd, hasOverlap, beforeNow, barColor, groupSnaps } = teamDragInfo;
                   const gc = (hasOverlap || beforeNow) ? "#ef4444" : barColor || T.accent;
                   const ghosts = [];
+                  // Every ghost is drawn by THE bar geometry (statsMath.barSegmentsPct) from its
+                  // landing — start, start hour and this person's share, walked exactly as the bar
+                  // will be — so a ghost is the bar it previews: same width (#26), every piece
+                  // capped (#27), same corners (#29). Styling is all that differs.
+                  const _ghostPieces = (gStart, gEnd, gHour, share) => {
+                    const w = walkProductiveHours(gHour, share, dayWindowCfg);
+                    const segs = weekdaySegments(gStart, gEnd, tStart, tEnd, orgSettings.workDays, true);
+                    return barSegmentsPct({ segs, layoutStart: gStart, tStart, nDays, startHour: gHour, endHour: w.endHour,
+                      budgetPct: Math.max(0.03 / nDays * 100, w.columns / nDays * 100), endsInView: gEnd <= tEnd, workStartH, totalWorkH })
+                      .filter(pc => pc.widthPct > 0.0001);
+                  };
+                  const _ghostRadius = (widthPct) => Math.min(T.radiusXs, ((widthPct / 100) * nDays * cW) / 2);
                   if (teamDragInfo.targetPersonId === p.id && teamDragInfo.translateX != null && (Math.abs(teamDragInfo.translateX) > 4 || Math.abs(teamDragInfo.translateY || 0) > 4)) {
                     const _liveRef = teamDragLiveRef.current;
-                    // Draw the ghost at the SNAPPED drop position (snapStart/snapEnd + drop-hour) — the
-                    // exact values the release commits — so the ghost shows precisely where the bar lands.
-                    // (Previously it glided at the raw cursor position, which could sit up to a full column
-                    // off the floored drop day in week/day mode where there's no hour offset to absorb it.)
-                    const _gStartStored = _liveRef?.snapStart || snapStart;
-                    const _gEndStored = _liveRef?.snapEnd || snapEnd;
-                    const _dropHourStored = _liveRef?.dropHour ?? workStartH;
-                    // The ghost is drawn exactly where the drop lands. It used to add the grabbed
-                    // bar's CURRENT push on top, because the drag measured from the stored start
-                    // while the bar was painted pushed; the checks and the commit never saw that
-                    // push, so the ghost previewed a spot the drop was not tested against (#25).
-                    // The drag now starts from the painted position, so there is nothing to add.
-                    const _gStart = _gStartStored, _gEnd = _gEndStored, _dropHour = _dropHourStored;
-                    const _ghostBarHpd = teamDragInfo.barHpd || 0;
-                    const _oneDayW = 1 / nDays * 100;
-                    const _ghostOffsetH = Math.max(0, _dropHour - workStartH);
-                    const _ghostHourOffW = (_ghostOffsetH / totalWorkH) * _oneDayW;
-                    // Width in working-day units (weekends excluded), matching the committed bar.
-                    const _ghostWidthPct = _ghostBarHpd > 0
-                      ? Math.max(0.03 / nDays * 100, (_ghostBarHpd / productiveHoursPerDay) / nDays * 100)
-                      : (Math.max(diffD(_gStart, _gEnd) + 1, 1) / nDays * 100);
-                    // Split across weekend/holiday gaps the same way the committed bar (and group ghosts) do.
-                    const _segs = weekdaySegments(_gStart, _gEnd, tStart, tEnd, orgSettings.workDays);
-                    let _wRem = _ghostWidthPct;
-                    _segs.forEach((seg, si) => {
-                      const isFirst = si === 0;
-                      const _segIdx = days.indexOf(seg.start);
-                      const segLeft = (_segIdx >= 0 ? _segIdx : diffD(tStart, seg.start)) / nDays * 100 + (isFirst ? _ghostHourOffW : 0);
-                      const _segEndIdx = days.indexOf(seg.end);
-                      const _segRightPct = (_segEndIdx >= 0 ? _segEndIdx + 1 : diffD(tStart, seg.end) + 1) / nDays * 100;
-                      const _segAvailW = _segRightPct - segLeft;
-                      // Every piece is capped at its own columns. The last piece used to
-                      // absorb the whole remaining budget with no cap, and the 0.5%
-                      // visibility floor could exceed a narrow segment — either way the
-                      // ghost previewed a landing that covered a non-working column.
-                      const _ghostFloor = Math.min(0.5, Math.max(0, _segAvailW));
-                      const segW = Math.max(_ghostFloor, Math.min(_segAvailW, _wRem));
-                      _wRem = Math.max(0, _wRem - segW);
-                      if (segW <= 0) return;
-                      const _gi = ghosts.length;
-                      const _ghostFlagged = hasOverlap || beforeNow;
-                      ghosts.push(<div key={`team-ghost-${_gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 26, border: `2px dashed ${gc}`, background: gc + (_ghostFlagged ? "55" : "18"), boxShadow: `0 0 ${_ghostFlagged ? 24 : 16}px ${gc}${_ghostFlagged ? "BB" : "66"}`, pointerEvents: "none", zIndex: 35 }} />);
+                    // Drawn at the SNAPPED drop position — the exact landing the release commits.
+                    const _gStart = _liveRef?.snapStart || snapStart;
+                    const _gEnd = _liveRef?.snapEnd || snapEnd;
+                    const _dropHour = _liveRef?.dropHour ?? workStartH;
+                    const _ghostFlagged = hasOverlap || beforeNow;
+                    _ghostPieces(_gStart, _gEnd, _dropHour, teamDragInfo.barHpd || productiveHoursPerDay).forEach((pc, _gi) => {
+                      ghosts.push(<div key={`team-ghost-${_gi}`} style={{ position: "absolute", top: 4, left: `calc(${pc.leftPct}% + 2px)`, width: `calc(${pc.widthPct}% - 4px)`, height: rH - 8, borderRadius: _ghostRadius(pc.widthPct), border: `2px dashed ${gc}`, background: gc + (_ghostFlagged ? "55" : "18"), boxShadow: `0 0 ${_ghostFlagged ? 24 : 16}px ${gc}${_ghostFlagged ? "BB" : "66"}`, pointerEvents: "none", zIndex: 35 }} />);
                     });
                   }
                   (groupSnaps || []).forEach(gs => {
-                    if ((gs.personIds || []).includes(p.id)) {
-                      const _gsDropHour = gs.dropHour ?? workStartH;
-                      const _gsOffH = Math.max(0, _gsDropHour - workStartH);
-                      const _gsOneDayW = 1 / nDays * 100;
-                      const _gsHourOffW = (_gsOffH / totalWorkH) * _gsOneDayW;
-                      const _gsHpd = gs.barHpd || 0;
-                      const _gsWBudget = _gsHpd > 0 ? Math.max(0.03 / nDays * 100, (_gsHpd / productiveHoursPerDay) / nDays * 100) : (Math.max(diffD(gs.snapStart, gs.snapEnd) + 1, 1) / nDays * 100);
-                      const _gsSegs = weekdaySegments(gs.snapStart, gs.snapEnd, tStart, tEnd, orgSettings.workDays);
-                      let _gsWRemaining = _gsWBudget;
-                      _gsSegs.forEach((seg, gi) => {
-                        const isFirst = gi === 0;
-                        const isLast = gi === _gsSegs.length - 1;
-                        const _segIdx = days.indexOf(seg.start);
-                        const segLeft = (_segIdx >= 0 ? _segIdx : diffD(tStart, seg.start)) / nDays * 100 + (isFirst ? _gsHourOffW : 0);
-                        const _segEndIdx = days.indexOf(seg.end);
-                        const _segRightPct = (_segEndIdx >= 0 ? _segEndIdx + 1 : diffD(tStart, seg.end) + 1) / nDays * 100;
-                        const _segAvailW = _segRightPct - segLeft;
-                        const segW = isLast ? Math.max(0, _gsWRemaining) : Math.max(0.5, Math.min(_gsWRemaining, _segAvailW));
-                        _gsWRemaining = Math.max(0, _gsWRemaining - segW);
-                        ghosts.push(<div key={`ghost-grp-${gs.id}-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 26, border: `2px dashed ${gc}88`, background: gc + "10", boxShadow: `0 0 10px ${gc}44`, pointerEvents: "none", zIndex: 34 }} />);
-                      });
-                    }
+                    if (!(gs.personIds || []).some(x => sameId(x, p.id))) return;
+                    _ghostPieces(gs.snapStart, gs.snapEnd, gs.dropHour ?? workStartH, gs.barHpd || productiveHoursPerDay).forEach((pc, gi) => {
+                      ghosts.push(<div key={`ghost-grp-${gs.id}-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${pc.leftPct}% + 2px)`, width: `calc(${pc.widthPct}% - 4px)`, height: rH - 8, borderRadius: _ghostRadius(pc.widthPct), border: `2px dashed ${gc}88`, background: gc + "10", boxShadow: `0 0 10px ${gc}44`, pointerEvents: "none", zIndex: 34 }} />);
+                    });
                   });
-                  // Multi-select drag ghosts — same rendering as groupSnaps but slightly more
-                  // prominent (full-color dashed border + brighter fill) since these aren't
-                  // dependent siblings but explicit user selections being moved as a batch.
+                  // Multi-select drag ghosts — same geometry, slightly more prominent styling
+                  // since these are explicit user selections being moved as a batch.
                   (teamDragInfo.multiDragSnaps || []).forEach(ms => {
-                    if (!(ms.personIds || []).includes(p.id)) return;
-                    const _msDropHour = ms.dropHour ?? workStartH;
-                    const _msOffH = Math.max(0, _msDropHour - workStartH);
-                    const _msOneDayW = 1 / nDays * 100;
-                    const _msHourOffW = (_msOffH / totalWorkH) * _msOneDayW;
-                    const _msHpd = ms.barHpd || 0;
-                    const _msWBudget = _msHpd > 0 ? Math.max(0.03 / nDays * 100, (_msHpd / productiveHoursPerDay) / nDays * 100) : (Math.max(diffD(ms.snapStart, ms.snapEnd) + 1, 1) / nDays * 100);
-                    const _msSegs = weekdaySegments(ms.snapStart, ms.snapEnd, tStart, tEnd, orgSettings.workDays);
-                    let _msWRemaining = _msWBudget;
-                    _msSegs.forEach((seg, gi) => {
-                      const isFirst = gi === 0;
-                      const isLast = gi === _msSegs.length - 1;
-                      const _segIdx = days.indexOf(seg.start);
-                      const segLeft = (_segIdx >= 0 ? _segIdx : diffD(tStart, seg.start)) / nDays * 100 + (isFirst ? _msHourOffW : 0);
-                      const _segEndIdx = days.indexOf(seg.end);
-                      const _segRightPct = (_segEndIdx >= 0 ? _segEndIdx + 1 : diffD(tStart, seg.end) + 1) / nDays * 100;
-                      const _segAvailW = _segRightPct - segLeft;
-                      const segW = isLast ? Math.max(0, _msWRemaining) : Math.max(0.5, Math.min(_msWRemaining, _segAvailW));
-                      _msWRemaining = Math.max(0, _msWRemaining - segW);
-                      ghosts.push(<div key={`ghost-multi-${ms.id}-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${segLeft}% + 2px)`, width: `calc(${segW}% - 4px)`, height: rH - 8, borderRadius: 26, border: `2px dashed ${gc}`, background: gc + "1a", boxShadow: `0 0 14px ${gc}66`, pointerEvents: "none", zIndex: 35 }} />);
+                    if (!(ms.personIds || []).some(x => sameId(x, p.id))) return;
+                    _ghostPieces(ms.snapStart, ms.snapEnd, ms.dropHour ?? workStartH, ms.barHpd || productiveHoursPerDay).forEach((pc, gi) => {
+                      ghosts.push(<div key={`ghost-multi-${ms.id}-${gi}`} style={{ position: "absolute", top: 4, left: `calc(${pc.leftPct}% + 2px)`, width: `calc(${pc.widthPct}% - 4px)`, height: rH - 8, borderRadius: _ghostRadius(pc.widthPct), border: `2px dashed ${gc}`, background: gc + "1a", boxShadow: `0 0 14px ${gc}66`, pointerEvents: "none", zIndex: 35 }} />);
                     });
                   });
                   return ghosts.length ? <>{ghosts}</> : null;
@@ -17690,6 +17634,9 @@ ${jobsCtx || "No jobs found."}`;
                   // (below) as well as its stripe. Reused from the row pass that built
                   // overrunPushH so both read the same instant; the fallback covers a
                   // task bar with no start date, which that pass skips.
+                  // A resize in progress on THIS bar: it is drawn at the previewed landing, and
+                  // nothing is written until the release (root cause 7 C: #31 #32).
+                  const _rpv = (resizePreview && resizePreview.barId === bar.id && bar.type === "task") ? resizePreview : null;
                   const _barWS = (bar.type === "task" && bar.task)
                     ? (rowBarWS[bar.id] || deriveWorkedState(bar.task, producedFor(bar.task), liveOpHours(bar.task)))
                     : null;
@@ -17752,7 +17699,7 @@ ${jobsCtx || "No jobs found."}`;
                     ? spansDurationMs(workedSpansPerPerson.get(String(p.id))?.get(String(bar.task.id)) || []) / 3600000
                     : 0;
                   const _elapsedToCursorH = _elapsedRaw == null ? null : Math.min(_elapsedRaw, _ownWorkedH);
-                  const _barHpd = _doneSpanH != null
+                  const _barHpd = _rpv ? _rpv.share : _doneSpanH != null
                     ? Math.max(0.25, _doneSpanH / _barTeamSz)
                     : barLengthHours({
                           hpd: bar.task?.hpd, workedHoursShown: bar.crossRow ? 0 : (_barWS?.workedHoursShown || 0),
@@ -17845,7 +17792,8 @@ ${jobsCtx || "No jobs found."}`;
                     _layoutEnd = _shiftBD !== 0 ? addBD(bar.end, _shiftBD, _barBDOpts) : bar.end;
                   }
                   const _nowForBar = new Date();
-                  const _barStartH = _atCursor
+                  if (_rpv) { _layoutStart = _rpv.start; _layoutEnd = _rpv.end; }
+                  const _barStartH = _rpv ? _rpv.startHour : _atCursor
                     ? shopHour(_nowForBar.getTime())
                     : (_pushH > 0 ? _pushedStartH : _baseStartH);
                   // The single source of truth for this bar's length. Walking the day and
@@ -17881,9 +17829,8 @@ ${jobsCtx || "No jobs found."}`;
                   // weekend or holiday the two differ — and anchoring on _layoutStart
                   // put the bar's left edge on the non-working column while _wFirst
                   // still ran to the segment's right edge, painting straight across it.
-                  const _startsOnLayoutStart = firstBarSeg.start === _layoutStart;
-                  const _baseXPct = diffD(tStart, firstBarSeg.start) / nDays * 100;
-                  const _calDays0 = Math.max(diffD(firstBarSeg.start, firstBarSeg.end) + 1, 1);
+                  // (barSegmentsPct applies the hour offset only when the first piece starts
+                  // on _layoutStart, for exactly that reason.)
                   // PTO isn't hours-budgeted — let it fill its full day span (no hpd cap).
                   // For task bars the budget is the walk's WALL-CLOCK span, not a
                   // productive-hours fraction. Widths and the left offset below have to
@@ -17892,16 +17839,16 @@ ${jobsCtx || "No jobs found."}`;
                   // column's right edge — the mismatch that fabricated the overflow.
                   // Packing now lives in the start hour, so there is no stackShift left.
                   const _wBudget = bar.type === "pto" ? 100 : Math.max(0.03 / nDays * 100, (_walk ? _walk.columns : _barHpd / productiveHoursPerDay) / nDays * 100);
-                  const _oneDayPct = 1 / nDays * 100;
                   // The start hour only means something on the day the bar actually
                   // starts. If the start rolled off a non-working day onto the next
                   // working one, the offset would push the bar forward inside a day it
                   // has no claim on — the roll already placed it, so it begins at
                   // work-start there.
-                  const _hourOffsetPct = _startsOnLayoutStart ? ((_barStartH - workStartH) / totalWorkH) * _oneDayPct : 0;
-                  const x = (_baseXPct + _hourOffsetPct) + "%";
-                  const _segRightPct = (diffD(tStart, firstBarSeg.end) + 1) / nDays * 100;
-                  const _xNum = _baseXPct + _hourOffsetPct;
+                  // THE bar geometry (statsMath.barSegmentsPct) — the same function every drag
+                  // ghost draws with, so a ghost is exactly this bar (root cause 7 C).
+                  const _geoArgs = { segs: barSegs.length ? barSegs : [firstBarSeg], layoutStart: _layoutStart, tStart, nDays, startHour: _barStartH, budgetPct: _wBudget, endsInView: _endsInView, workStartH, totalWorkH };
+                  const _xNum = barSegmentsPct({ ..._geoArgs, endHour: workEndH })[0].leftPct;
+                  const x = _xNum + "%";
                   // No 0.5% min floor — it would expand the first segment past _segRightPct (the column's right edge),
                   // causing the bar to bleed into the next column (e.g., the weekend gap after Friday).
                   // A bar whose work is still RUNNING ends at this instant, so its right edge is
@@ -17917,7 +17864,7 @@ ${jobsCtx || "No jobs found."}`;
                   const _wWanted = bar.endsNow
                     ? flushRightWidthPct(_xNum, _nowGridPct, 0.03 / nDays * 100)
                     : _wBudget;
-                  const _wFirst = Math.max(0, Math.min(_wWanted, _segRightPct - _xNum));
+                  const _wFirst = barSegmentsPct({ ..._geoArgs, endHour: workEndH, firstWantedPct: _wWanted })[0].widthPct;
                   const w = _wFirst + "%";
                   // ── Short-bar affordances ───────────────────────────────────
                   // A 1h op in a 9h day is 1/9th of a column: ~5px at month zoom.
@@ -18500,176 +18447,90 @@ ${jobsCtx || "No jobs found."}`;
                     if (!bar.task) return;
                     e.preventDefault(); e.stopPropagation();
                     isDraggingRef.current = true;
-                    const sx = e.clientX;
-                    const os = bar.task.start, oe = bar.task.end;
-                    const osH = bar.task.startHour ?? workStartH;
-                    const _origHpd = bar.task.hpd || 0;
-                    // Working days are read from current org settings (single source of truth).
+                    // One session (dragMove.resizeSession): the mouse PREVIEWS, the release writes
+                    // ONCE — one setTasks, one undo step, one save, no mid-drag reflow (#31 #32).
+                    // It lands through the same plan, checks and backstop as a drag, at any level
+                    // — op, panel or general job (#35 #36 #37 #39 #40) — and a resize changes the
+                    // op's hours in both views, so the bar really changes length (#33 #34).
                     const barWorkDays = orgSettings.workDays;
-                    const barBDOpts = { workDays: barWorkDays, holidays: orgSettings.holidays };
-                    // Derive original endHour from stored value or from start/hpd
-                    let oeH;
-                    if (bar.task.endHour != null) {
-                      oeH = bar.task.endHour;
-                    } else {
-                      oeH = walkProductiveHours(osH, _origHpd / Math.max(1, (bar.task.team || []).length), dayWindowCfg).endHour;
-                    }
-                    const taskPid2 = bar.task.pid || null;
-                    const pending = { start: os, end: oe, startHour: osH, endHour: oeH, hpd: _origHpd };
-                    let lastDx = 0;
-                    // Compute total productive hpd from a (sDay, sH) → (eDay, eH) span (clock-hours scaled to productive)
-                    // One person's productive hours for a span; the op's hpd is the team's total.
-                    const _resizeTeamSize = Math.max(1, (bar.task?.team || []).length);
-                    const _computeHpd = (sDay, sH, eDay, eH) => {
-                      let clockH;
-                      if (sDay === eDay) {
-                        clockH = Math.max(0.5, eH - sH);
-                      } else {
-                        const n = diffBD(sDay, eDay, barBDOpts) + 1;
-                        clockH = (workEndH - sH) + Math.max(0, n - 2) * totalWorkH + (eH - workStartH);
+                    const _gridAreaEl = e.currentTarget.parentElement?.parentElement || null;
+                    const paintedStart = { day: _layoutStart, hour: _barStartH };
+                    const paintedEnd = { day: _segsEnd, hour: _barEndHour };
+                    const movedByName = loggedInUser ? loggedInUser.name : "Admin";
+                    const _refuseResize = (plan) => refuseDragMove(plan, {
+                      isLocked: n => !!n?.locked,
+                      isLive: n => blockedByActiveClock(jobIdOfNode(n.id), n.id),
+                      isOverdue: () => false,
+                      timeOff: pid => (people.find(x => sameId(x.id, pid))?.timeOff || []),
+                      nowDay: shopDay(), nowHour: shopHour(), business: billingTier === "business",
+                      tasks, overlapCtx, people,
+                    });
+                    const _refused = (r) => setConfirmMove({ ackOnly: true, confirmLabel: "OK",
+                      title: r.kind === "past" ? "Can't schedule in the past" : "Can't resize here",
+                      message: refusalMessage(r), onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
+                    const session = resizeSession({
+                      side, precision: tMode === "month" ? "halfHour" : "day",
+                      node: bar.task, teamSize: (bar.task.team || []).length, paintedStart, paintedEnd,
+                      cfg: dayWindowCfg, fullCfg: liveJobCfg, cal: calOf(orgSettings.workDays, orgSettings.holidays),
+                      workStartH, workEndH, origPerson: p.id,
+                      refuse: _refuseResize,
+                      onPreview: (pv) => setResizePreview(pv ? { barId: bar.id, ...pv } : null),
+                      commit: (plan) => {
+                        const build = (list) => recalcBounds(applyDragMove(list, plan, { date: TD, movedBy: movedByName, reason: "Resized in schedule" }), movedByName);
+                        // Backstop, as the drag: if the no-overlap guard would move anything, refuse.
+                        const { moved: _bumped, refused: _stuck } = enforceNoOverlap(build(tasks), plan.map(m => m.id));
+                        if (_bumped.length || _stuck.length) {
+                          console.warn("[schedule-resize] refused by the no-overlap guard", { bumped: _bumped, stuck: _stuck });
+                          _refused({ kind: "overlap", title: bar.task.title || "", other: null });
+                          return;
+                        }
+                        setTasks(prev => build(prev));
+                        setTimeout(() => doSaveRef.current(), 0);
+                      },
+                    });
+                    // The cursor as a (day, hour) on the grid. Month: the half hour under it. Week:
+                    // the day under it (the session snaps the edge to workStart / workEnd).
+                    const cursorAt = (me) => {
+                      if (!_gridAreaEl) return null;
+                      const rect = _gridAreaEl.getBoundingClientRect();
+                      const dayW = rect.width / Math.max(1, days.length);
+                      const rawDayIdx = (me.clientX - rect.left) / dayW;
+                      const _origDi = Math.max(0, Math.min(days.length - 1, Math.floor(rawDayIdx)));
+                      // Walk forward through non-working days, as the move ghost does.
+                      let dIdx = _origDi;
+                      while (dIdx < days.length - 1 && !isWorkDay(days[dIdx], barWorkDays)) dIdx++;
+                      const targetDay = days[dIdx];
+                      if (!targetDay || !isWorkDay(targetDay, barWorkDays)) return null;
+                      if (tMode !== "month") return { day: targetDay, hour: side === "left" ? workStartH : workEndH };
+                      const _maxH = side === "left" ? workEndH - 0.5 : workEndH;
+                      const hour = isWorkDay(days[_origDi], barWorkDays)
+                        ? Math.max(workStartH, Math.min(_maxH, Math.round((workStartH + Math.min(0.9999, Math.max(0, rawDayIdx - _origDi)) * totalWorkH) * 2) / 2))
+                        : workStartH;
+                      // Left edge in the last hour before a weekend starts after it instead, so the
+                      // first piece is never a sliver against the gap.
+                      const _nextDay = dIdx + 1 < days.length ? days[dIdx + 1] : null;
+                      if (side === "left" && hour > workEndH - 1 && _nextDay && !isWorkDay(_nextDay, barWorkDays)) {
+                        let _ni = dIdx + 1;
+                        while (_ni < days.length && !isWorkDay(days[_ni], barWorkDays)) _ni++;
+                        if (_ni < days.length && days[_ni] <= paintedEnd.day) return { day: days[_ni], hour: workStartH };
                       }
-                      return Math.max(0.5, clockH / totalWorkH * productiveHoursPerDay);
+                      return { day: targetDay, hour };
                     };
-                    // Find the grid area for month-mode (date, hour) positioning — bar.parentElement is the row's day-grid
-                    const _barEl = e.currentTarget.parentElement;
-                    const _gridAreaEl = _barEl?.parentElement || null;
+                    const fmTip = (h) => { const H = Math.floor(h), M = Math.round((h - H) * 60); return `${H > 12 ? H - 12 : H === 0 ? 12 : H}:${String(M).padStart(2, "0")} ${H >= 12 ? "PM" : "AM"}`; };
                     const onM = me => {
-                      if (tMode === "month" && _gridAreaEl) {
-                        const rect = _gridAreaEl.getBoundingClientRect();
-                        const cxRel = me.clientX - rect.left;
-                        const dayW = rect.width / Math.max(1, days.length);
-                        const rawDayIdx = cxRel / dayW;
-                        const _origDi = Math.max(0, Math.min(days.length - 1, Math.floor(rawDayIdx)));
-                        // Walk forward through non-working days (same as move ghost) — keeps clock-time continuous across gaps
-                        let dIdx = _origDi;
-                        while (dIdx < days.length - 1 && !isWorkDay(days[dIdx], barWorkDays)) dIdx++;
-                        const targetDay = days[dIdx];
-                        if (!targetDay || !isWorkDay(targetDay, barWorkDays)) return;
-                        // On a workday cursor, use the column fraction; on a non-workday cursor, snap to workStartH of the resolved workday.
-                        // Left handle caps startHour at workEndH - 0.5 — startHour === workEndH would put the bar's first segment
-                        // at the next column's left edge (visual overflow into the non-workday gap).
-                        const _maxH = side === "left" ? workEndH - 0.5 : workEndH;
-                        let clampedHour;
-                        if (isWorkDay(days[_origDi], barWorkDays)) {
-                          const colFrac = Math.min(0.9999, Math.max(0, rawDayIdx - _origDi));
-                          const rawHour = workStartH + colFrac * totalWorkH;
-                          const snapHour = Math.round(rawHour * 2) / 2;
-                          clampedHour = Math.max(workStartH, Math.min(_maxH, snapHour));
-                        } else {
-                          clampedHour = workStartH;
-                        }
-                        if (side === "left") {
-                          let _finalDay = targetDay, _finalHour = clampedHour;
-                          // Weekend-boundary case only: if cursor lands in the last hour of a workday AND the next day is a weekend,
-                          // the first segment would be a sub-hour sliver visually adjacent to the weekend gap (where overflow is most
-                          // visible). Advance the start to the workday after the weekend instead — keeps the bar's first segment from
-                          // ever needing to be that narrow against a visible day boundary.
-                          const _nextDayIdx = dIdx + 1;
-                          const _nextDay = _nextDayIdx < days.length ? days[_nextDayIdx] : null;
-                          if (_finalHour > workEndH - 1 && _nextDay && !isWorkDay(_nextDay, barWorkDays)) {
-                            let _ni = _nextDayIdx;
-                            while (_ni < days.length && !isWorkDay(days[_ni], barWorkDays)) _ni++;
-                            if (_ni < days.length && isWorkDay(days[_ni], barWorkDays) && days[_ni] <= oe) {
-                              _finalDay = days[_ni];
-                              _finalHour = workStartH;
-                            }
-                          }
-                          if (_finalDay > oe) return;
-                          if (_finalDay === oe && _finalHour >= oeH) return;
-                          if (_finalDay === pending.start && _finalHour === pending.startHour) return;
-                          pending.start = _finalDay;
-                          pending.startHour = _finalHour;
-                          pending.hpd = _computeHpd(_finalDay, _finalHour, oe, oeH) * _resizeTeamSize;
-                        } else {
-                          if (targetDay < os) return;
-                          if (targetDay === os && clampedHour <= osH) return;
-                          if (targetDay === pending.end && clampedHour === pending.endHour) return;
-                          pending.end = targetDay;
-                          pending.endHour = clampedHour;
-                          pending.hpd = _computeHpd(os, osH, targetDay, clampedHour) * _resizeTeamSize;
-                        }
-                        updTask(bar.task.id, { start: pending.start, end: pending.end, startHour: pending.startHour, endHour: pending.endHour, hpd: pending.hpd }, taskPid2);
-                        // Floating tooltip showing the edge being dragged
-                        const _tipDay = side === "left" ? pending.start : pending.end;
-                        const _tipHour = side === "left" ? pending.startHour : pending.endHour;
-                        const _tipH = Math.floor(_tipHour);
-                        const _tipM = Math.round((_tipHour - _tipH) * 60);
-                        const _tipTime = `${_tipH > 12 ? _tipH - 12 : _tipH === 0 ? 12 : _tipH}:${String(_tipM).padStart(2, "0")} ${_tipH >= 12 ? "PM" : "AM"}`;
-                        const _tipDate = new Date(_tipDay + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-                        setResizeTooltip({ x: me.clientX, y: me.clientY, time: _tipTime, date: _tipDate, side });
-                      } else {
-                        // Non-month mode: day-level resize
-                        const rawDx3 = (me.clientX - sx) / cW;
-                        const dx = rawDx3 >= 0 ? Math.floor(rawDx3) : Math.ceil(rawDx3);
-                        if (dx === lastDx) return; lastDx = dx;
-                        if (side === "left") {
-                          const ns = addD(os, dx);
-                          if (ns <= oe) { pending.start = ns; updTask(bar.task.id, { start: ns }, taskPid2); }
-                        } else {
-                          const ne = addD(oe, dx);
-                          if (ne >= os) { pending.end = ne; updTask(bar.task.id, { end: ne }, taskPid2); }
-                        }
-                        const _tipDay = side === "left" ? pending.start : pending.end;
-                        const _tipDate = new Date(_tipDay + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
-                        setResizeTooltip({ x: me.clientX, y: me.clientY, time: "", date: _tipDate, side });
-                      }
+                      const at = cursorAt(me);
+                      if (!at) return;
+                      const pv = session.move(at);
+                      if (!pv) return;
+                      const _tipDate = new Date(pv.edge.day + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                      setResizeTooltip({ x: me.clientX, y: me.clientY, time: tMode === "month" ? fmTip(pv.edge.hour) : "", date: _tipDate, side });
                     };
                     const onU = () => {
                       document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU);
                       isDraggingRef.current = false;
                       setResizeTooltip(null);
-                      const personId = bar.task.team[0];
-                      if (!personId) return;
-                      const isMonth = tMode === "month";
-                      const newStart = isMonth ? pending.start : (side === "left" ? nextBD(addD(os, lastDx)) : os);
-                      const newEnd = isMonth ? pending.end : (side === "right" ? nextBD(addD(oe, lastDx)) : oe);
-                      const movedByName = loggedInUser ? loggedInUser.name : "Admin";
-                      setTasks(prev => {
-                        let reverted = prev.map(t => {
-                          if (taskPid2) {
-                            const pi2 = (t.subs || []).findIndex(s => s.id === taskPid2);
-                            if (pi2 >= 0) { const ns = [...t.subs]; ns[pi2] = { ...ns[pi2], subs: (ns[pi2].subs || []).map(op => op.id === bar.task.id ? { ...op, start: os, end: oe, startHour: osH, endHour: bar.task.endHour ?? null, hpd: _origHpd } : op) }; return { ...t, subs: ns }; }
-                          }
-                          return t;
-                        });
-                        let isLocked = false;
-                        reverted.forEach(j => (j.subs || []).forEach(pnl => (pnl.subs || []).forEach(op => { if (op.id === bar.task.id && isOpLocked(op)) isLocked = true; })));
-                        if (isLocked) { setTimeout(() => showLockedError([{ opTitle: bar.task.title, panelTitle: bar.task.panelTitle || "" }]), 0); return reverted; }
-                        const applyResize = (tl) => tl.map(t => {
-                          if (taskPid2) {
-                            const pi2 = (t.subs || []).findIndex(s => s.id === taskPid2);
-                            if (pi2 >= 0) { const ns = [...t.subs]; ns[pi2] = { ...ns[pi2], subs: (ns[pi2].subs || []).map(op => {
-                              if (op.id === bar.task.id) {
-                                const logEntry = { fromStart: os, fromEnd: oe, toStart: newStart, toEnd: newEnd, date: TD, movedBy: movedByName, reason: "Manual resize" };
-                                return isMonth
-                                  ? { ...op, start: newStart, end: newEnd, startHour: pending.startHour, endHour: pending.endHour, hpd: pending.hpd, moveLog: [...(op.moveLog || []), logEntry] }
-                                  : { ...op, start: newStart, end: newEnd, moveLog: [...(op.moveLog || []), logEntry] };
-                              }
-                              return op;
-                            }) }; return { ...t, subs: ns }; }
-                          }
-                          return t;
-                        });
-                        const _resizedUnit = { ...bar.task, start: newStart, end: newEnd,
-                          startHour: pending.startHour ?? bar.task.startHour, endHour: pending.endHour ?? bar.task.endHour, hpd: pending.hpd ?? bar.task.hpd };
-                        const { pushes, blocked, lockedOps } = previewPush(reverted, bar.task.id, personId, newStart, newEnd, null, _resizedUnit);
-                        if (blocked) { setTimeout(() => showLockedError(lockedOps), 0); return reverted; }
-                        if (pushes.length > 0) {
-                          const revertedSnapshot = JSON.parse(JSON.stringify(reverted));
-                          const finalState = applyPushes(applyResize(reverted), pushes, movedByName);
-                          const finalStateSingle = recalcBounds(applyResize(reverted), movedByName);
-                          setTimeout(() => {
-                            setConfirmPush({
-                              pushes, people,
-                              onConfirm: () => { setTasks(finalState); setConfirmPush(null); },
-                              onConfirmSingle: () => { setTasks(finalStateSingle); setConfirmPush(null); },
-                              onCancel: () => { setTasks(revertedSnapshot); setConfirmPush(null); },
-                            });
-                          }, 0);
-                          return reverted;
-                        }
-                        return recalcBounds(applyResize(reverted), movedByName);
-                      });
+                      const r = session.release();
+                      if (r.kind === "refused") _refused(r.refusal);
                     };
                     document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
                   };
@@ -18701,7 +18562,7 @@ ${jobsCtx || "No jobs found."}`;
                   const isMultiDragging = !isDraggingThis && !!(teamDragInfo?.multiDragIds?.has(bar.id));
                   const dragTx = (isDraggingThis || isMultiDragging) ? (teamDragInfo.translateX || 0) : 0;
                   const dragTy = (isDraggingThis || isMultiDragging) ? (teamDragInfo.translateY || 0) : 0;
-                  const dragOverlap = isDraggingThis && teamDragInfo.hasOverlap;
+                  const dragOverlap = (isDraggingThis && teamDragInfo.hasOverlap) || !!_rpv?.refused;
                   const _isDragActive = (isDraggingThis || isMultiDragging) && (Math.abs(teamDragInfo?.translateX || 0) > 4 || Math.abs(teamDragInfo?.translateY || 0) > 4);
                   // Both the dragged bar AND multi-drag members fade to 0 during active drag.
                   // A dashed ghost is rendered for the dragged bar at the cursor (continuous
@@ -18717,10 +18578,11 @@ ${jobsCtx || "No jobs found."}`;
                   // Exact walk value, NOT rounded to the nearest half hour: rounding a small
                   // final-day remainder down to workStartH gave the tail segment width 0,
                   // which still painted its 2px dashed border — the phantom nub on Monday.
-                  const _barEndHour = bar.type === "pto" ? workEndH
+                  const _barEndHour = _rpv ? _rpv.endHour : bar.type === "pto" ? workEndH
                     : (bar.task?.endHour != null && _visualWorkDays === 1) ? bar.task.endHour
                     : _walk ? _walk.endHour : workEndH;
-                  let _wRemainingBudget = Math.max(0, _wBudget - _wFirst);
+                  // Tail widths from the same geometry, now that the end hour is known.
+                  const _geoTail = barSegmentsPct({ ..._geoArgs, endHour: _barEndHour, firstWantedPct: _wWanted });
                   // "NEW" badge — show on bars whose parent job was created within the last 24h.
                   const isNew = !isPto && bar.jobCreatedAt && (Date.now() - new Date(bar.jobCreatedAt).getTime()) < 86400000;
                   // Someone is clocked into this operation right now. sameId, not === :
@@ -18958,16 +18820,11 @@ ${jobsCtx || "No jobs found."}`;
                     // end-hour partial width; a tail clipped by the window edge is
                     // mid-bar, so it fills its columns from the remaining budget.
                     const isLastSeg = si === barSegs.length - 2 && _endsInView;
-                    const _segCalDays = diffD(seg.start, seg.end) + 1;
-                    const _segAvailW = _segCalDays / nDays * 100;
-                    // Last-segment width must include any full workdays preceding the end day in the segment
-                    // (weekdaySegments groups contiguous workdays into one range, e.g., Mon-Tue is one segment).
-                    // Capped at _segAvailW either way: a segment ends where its last
-                    // working day ends, so no width the hours imply may reach past it
-                    // into the non-working column that closed the segment.
-                    const _tailWNum = Math.max(0, Math.min(_segAvailW, isLastSeg ? ((_segCalDays - 1) + (_barEndHour - workStartH) / totalWorkH) * _oneDayPct : _wRemainingBudget));
+                    // Width from barSegmentsPct: the piece holding the end is sized by the end
+                    // hour (full workdays before it included), every piece capped at its own
+                    // columns so no width reaches the non-working column that closed it.
+                    const _tailWNum = _geoTail[si + 1]?.widthPct ?? 0;
                     const tailW = _tailWNum + "%";
-                    _wRemainingBudget = Math.max(0, _wRemainingBudget - _tailWNum);
                     // A tail with no width is not a continuation, it's a rounding artifact.
                     // Rendering it anyway still painted the 2px dashed border, which is how
                     // a job that fit inside Friday showed a nub on Monday.

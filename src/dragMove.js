@@ -220,3 +220,51 @@ export function refusalMessage(r) {
     default: return `${name} can't be moved there.`;
   }
 }
+
+/**
+ * A week/month RESIZE as a session (root cause 7 C: #31 #32 #33).
+ *
+ * move() only PREVIEWS — it plans the landing and hands it to onPreview; nothing is written,
+ * nothing reflows, nothing is snapshotted. release() commits ONCE through commit(plan), or
+ * returns the refusal. A drag of N steps is one write and one undo step, not N + 1.
+ *
+ *   side        "left" | "right"
+ *   precision   "halfHour" (month) | "day" (week: the edge snaps to workStart / workEnd)
+ *   node        the unit being resized; teamSize its team's size (the estimate is the team's)
+ *   paintedStart / paintedEnd  { day, hour } where the bar is drawn, the fixed edges (#10)
+ *   cfg         day windows; fullCfg = cfg + workDays/holidays (productiveHoursBetween's)
+ *   refuse(plan) → refusal | null      onPreview(preview | null)      commit(plan)
+ */
+export function resizeSession({ side, precision = "halfHour", node, teamSize = 1, paintedStart, paintedEnd, cfg, fullCfg, cal, workStartH, workEndH, origPerson, refuse, onPreview, commit }) {
+  let last = null, lastKey = null;
+  const move = ({ day, hour }) => {
+    const h = precision === "day" ? (side === "left" ? workStartH : workEndH) : hour;
+    if (side === "left") {
+      if (day > paintedEnd.day || (day === paintedEnd.day && h >= paintedEnd.hour - 0.25)) return last?.preview ?? null;
+    } else if (day < paintedStart.day || (day === paintedStart.day && h <= paintedStart.hour + 0.25)) return last?.preview ?? null;
+    const key = day + "|" + h;
+    if (key === lastKey) return last?.preview ?? null;
+    lastKey = key;
+    const share = resizeShare({ side, paintedStart, paintedEnd, day, hour: h, cfg: fullCfg });
+    const from = side === "left" ? { day, hour: h } : paintedStart;
+    const plan = planDragMove({
+      grabbed: { id: node.id, node, fromDay: from.day, fromHour: from.hour, shareH: share, hpd: Math.round(share * Math.max(1, teamSize) * 100) / 100 },
+      drop: from, origPerson, dropPerson: origPerson, cfg, cal, workStartH, workEndH,
+    });
+    const refusal = refuse(plan);
+    const t = plan[0].to;
+    const preview = { start: t.start, startHour: t.startHour, end: t.end, endHour: t.endHour, share, hpd: t.hpd, edge: { day, hour: h }, refused: !!refusal };
+    last = { plan, preview };
+    onPreview?.(preview);
+    return preview;
+  };
+  const release = () => {
+    onPreview?.(null);
+    if (!last) return { kind: "none" };
+    const refusal = refuse(last.plan);
+    if (refusal) return { kind: "refused", refusal };
+    commit(last.plan);
+    return { kind: "committed", plan: last.plan };
+  };
+  return { move, release };
+}
