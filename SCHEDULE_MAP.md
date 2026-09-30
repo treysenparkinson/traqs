@@ -1,0 +1,1123 @@
+# SCHEDULE_MAP — the schedule and gantt as they exist today
+
+Survey only. Nothing was changed and nothing is proposed.
+
+- **Snapshot:** `master` @ `0fbc639` (2026-09-29).
+- **Line numbers:** `J:` is `src/TRAQS.jsx`, `S:` is `src/statsMath.js`, and `fn/` is `netlify/functions/`. iOS paths are relative to `TRAQS Scheduling/TRAQS Scheduling/`.
+- **How the survey was done:** six read-only passes over the code (data, geometry, render, interaction, invariants/tests, native). Where passes disagreed, I checked the code myself (§G.1).
+- **Legend:**
+  - Everything is **read** in code unless marked **[inferred]**.
+  - **✔** means I checked the claim directly against the code.
+  - **The code wins over `DYNAMIC_SCHEDULE_HANDOFF.md`** wherever they disagree (§G.2).
+
+---
+
+## 0. Surfaces: what is live and what is dead
+
+| Surface | Function | Status |
+|---|---|---|
+| **Schedule, week/month** | `renderTeam` J:16379–19576, grid branch `tMode !== "day"` J:17302–19503 | **Live.** The main schedule. |
+| **Schedule, day view** | same function, `tMode === "day"` J:17064–17300 | **Live, admins only.** The view picker is `isAdmin`-gated (J:16920–17006). It is a second, independent renderer with its own geometry. |
+| **Job gantt** | `renderGantt` J:12451–13166 | **Dead ✔.** It mounts only on `taskSubView === "gantt"` (J:15087). The only values ever set are `"list"` (J:4765, J:5381). Its drag, resize, split, reassign and day-mode code is all unreachable. |
+| **Split gantt** | `renderSplitGantt` J:13167–~13335 | **Live, read-only, Business only.** Jobs page, `showGanttSplit && !isMobile` (J:15065, toggle J:9109). It supports only expand, mode and zoom. |
+| **Schedule "subtask" rows** | J:17342–17400 | **Dead ✔.** `rowList` only ever holds `group` and `person` rows (J:16757–16775). |
+| **Mobile web** | `renderMobileApp` J:24105 | No schedule grid. `renderMobileTeam` (J:24295) is unreachable (J:24502). No touch handlers anywhere. |
+| **iOS schedule** | `Views/GanttView.swift` | Live, **Business only** (MainTabView.swift:146–150, 237–241). This is a different product: one person's own hour lane, Day or Week, read-only, with its own packer. |
+| **macOS schedule** | `NativeShell.swift:250–264` | **Not implemented ✔.** It shows a "Not ported yet" placeholder; only the Jobs page is native. The Mac user's schedule is the web app inside `WebViewHost`. |
+
+Everything below describes the web week/month schedule unless it names another surface.
+
+---
+
+## D. DATA
+
+### D.1 Where the data lives
+
+| S3 `orgs/{code}/…` | Read / write | Also written by | Sync |
+|---|---|---|---|
+| `tasks.json` (job → panel → op tree) | GET/POST `fn/tasks.js:22,39`. POST replaces the **whole array**. | `fn/timeclock.js`: jobClockIn status :1072–1094, jobClockOut loggedHours :1177–1197, pay clock-out credits :548–560 / :1623–1635 / :1784–1797, finishRequest :1886–1914, creditPanel :409–417 | `/sync` yes. Ably channel `tasks`. |
+| `people.json` | `fn/people.js` GET/POST/PATCH/DELETE | every timeclock action, `fn/timeoff.js:429–432` (plain `writeJson`), `fn/forgot-clockout.js:98` | `/sync` yes (PIN stripped). Ably `people`. |
+| `productionhours.json` (`js_` job-clock sessions) | GET `timeclock?dataset=productionhours` (`fn/timeclock.js:435`; legacy alias `jobsessions`) | jobClockOut :1140–1164, adminJobHours :1313–1428 | Yes. **Non-admins receive only their own rows** (`fn/sync.js:91–93`, timeclock :446). |
+| `payhours.json` (`tc_` punches, `tce_` events) | GET `/timeclock` | every pay, kiosk and admin punch | Yes (non-admins: own rows only). |
+| `settings.json` | `fn/settings.js`. POST needs `orgSettings` (:38). | — | Yes. Rehydrated as `{...prev, ...s}` (J:8768). |
+| `billing.json` | GET `/billing`, default `{tier:"basic"}`. Tier is provisioned by hand. | — | No. Read once on mount, cached in `localStorage tq_tier_<org>` (J:4372–4394). |
+| `timeoff.json` | `fn/timeoff.js`. Approve copies into `person.timeOff` (:413–428). | — | Ably `timeoff`. |
+| legacy `timeclock.json` / `jobsessions.json` | read only by the manual migration `_utils/migrate-timeclock.js` (`?confirm=1`) | — | — |
+
+Client caches that act as persisted state:
+- IndexedDB slices (`src/db/sync.js`)
+- `localStorage tq_org_settings` (J:5881, 6012)
+- `tq_tier_<org>`
+
+### D.2 How data is written
+
+- **doSave** (J:8538–8604)
+  - Fires on any tasks/people/clients change it classes as a user edit (identity check against `pollAppliedRef`, J:8813–8847).
+  - POSTs **all three whole arrays** (J:8569–8573).
+  - Failure sets status `"unsaved"` and **nothing is rolled back**.
+- **Direct `saveTasks` calls that bypass doSave** all end in `.catch(console.warn)`, so they fail silently:
+  - freeze effect J:6274
+  - finish request J:11617
+  - chat approve J:11695
+  - kiosk clock-in J:21533
+  - approve/reject J:21664, 21678
+  - start job J:22584
+  - end job J:22652
+  - deps J:33957, 34046
+  - also J:11871, 32353, 32447
+- **30 s poll** (J:8364–8448)
+  - Runs `deltaSync()` then full GETs.
+  - Skipped while status is `saving` or `unsaved` (J:8374, 8385).
+  - Installs data through the **history-tracking** `setTasks` (J:8401).
+- **Ably** (`src/realtime/ably.js`, subscribe J:8790–8792)
+  - Every channel just calls `deltaSync()`.
+  - `applySlice` (J:8699–8775) skips tasks/people/clients while busy.
+  - The orgConfig slice is subscribed but never applied (J:8770).
+- **Server stamping** (`_utils/timestamps.js`): tombstones via `deletedAt`, `lastModifiedAt` on change. **There is no optimistic concurrency anywhere.** `fn/timeclock.js:238–242` says so.
+- **tasks.json guard** `classifyTaskChanges` (`_utils/task-perms.js:100–170`) ✔
+
+  | What changed | Permission required |
+  |---|---|
+  | `start/end/startHour/endHour/hpd` (`SCHEDULE_FIELDS`, :30) | `moveJobs` |
+  | `team` | `reassign` |
+  | `signOffs` | canApprove |
+  | `engineering` | canEngineer |
+  | resolving an existing `finishRequests` entry | `approveCompletions` |
+  | `apprLog` (the only log field, :35) | free |
+  | `lastModifiedAt/updatedAt/createdAt/subs` | ignored |
+  | **every other field** (`moveLog`, `locked`, `status`, `loggedHours`, `deps`, `depsMode`, `finishRequest`, `pendingSession`, …), plus any create or delete | `editJobs` |
+
+  `can()` returns false for any non-admin (`_utils/can.js:52–58`) ✔.
+- **people.json guard** (`fn/people.js`)
+  - POST pins `activeClockIn/activeJobClock/activeBreak/pushToken` to their stored values (:48–55, 164–166).
+  - A caller without `manageTeam` is pinned on `PROTECTED_PERSON_FIELDS` (:15–19, 174–184), has other people's records restored, and has new people dropped (:209). These are silent drops, not 403s.
+  - `department` is filled from `role` only when absent (:188).
+  - **PATCH pins none of the clock fields** (:239–265).
+
+### D.3 Task fields the schedule and gantt read
+
+| Field | Level | Read at | Written by | Server perm |
+|---|---|---|---|---|
+| `id` | all | everywhere, compared with a mix of `sameId` and strict `===` | `uid()` → `"t"+rand` J:803; `applyWorkedSplit` `op_…` J:9716 | editJobs to create |
+| `title` | all | bar text J:16606; the eng chip locates the op titled `"Wire"` J:16648 | editors | editJobs |
+| `start`, `end` (YYYY-MM-DD) | all | visibility and segments J:16571–16574. **Not used for bar length** (J:17964). | updTask J:10508–10599, team drag J:18774–18937 / 19100–19130, applyPushes J:9791, enforceNoOverlap J:9774 (silent), reflowJob J:3461–3525 (silent), recalcBounds J:10291, finishedOpFields J:9996, revertSession J:10111, placeTaskAt / handlePendingItemDrop J:10630–10673 | moveJobs |
+| `startHour`, `endHour` | op/panel | `shrunkStartH` J:9890, day view J:17110–17183, `singleDayStacking` J:17428 | drags J:16874–16887; **persistShrink at clock-out** J:9914–9941; finishedOpFields J:9997; revertSession | moveJobs |
+| `hpd` | all | bar length (`barLengthHours` S:816), `_visualEnd` J:16477, day view J:17124, progress J:6390 | editors, drags, finishedOpFields J:9998, splits J:9720 / 12604 | moveJobs. Meaning is contested (§G.3). |
+| `team` (mixed string/number ids) | all | `onTeam` J:16557, rows, `previewPush` (strict `.includes`, J:9601) | reassignTask J:10679, updTask, placeTaskAt J:10632, pending drop J:10664, delPerson J:10485 | reassign |
+| `status` | all | Show-Completed filter, `isFullyWorked`, split-gantt status fill J:13079 | client clock-in J:21521, 22560 (also sets **panel** status); server jobClockIn (job + op only); approve J:9963 / 11666; split J:9731 | editJobs |
+| `loggedHours` | all | `deriveWorkedState` = max(counter, rows) J:310–330 | server jobClockOut (job+op), `creditPanelHours` (panel), pay clock-outs via `jobRefs` (**pay hours**), adminJobHours (panel only); client end-job re-add J:22640; worked-hours modal J:32353 / 32446; split resets it | editJobs |
+| `locked` | op | `isOpLocked` J:257, handle gating J:19392, rowPush | split paths only J:9720, 12616, 18696. `toggleLock` J:10316 is dead. | editJobs |
+| `deps`, `depsMode` | panel/op | chain icon J:16768, dep-group drag J:18176–18241 | toggleDep J:10718, deps modal J:34046, mode cycle J:33957, delTask cleanup J:10709 | editJobs |
+| `moveLog[]` | all | persistShrink / revertSession ownership J:9985, 10106; drain rebaseline J:10025–10048 | gantt move (dead), resize J:19111–19123, applyPushes, persistShrink, finishedOpFields, revertSession. Splits reset it to `[]` (J:12631, 18711), but `applyWorkedSplit` copies it (J:9725). Unbounded. | editJobs |
+| `color` | all | bar paint via `elColor` J:6074 / `barPaint` J:2895 | normalizeTasks **persists derived defaults** J:7563–7590 | editJobs |
+| `requiredDepartment` | op | assignee filtering (not rendered) | normalizeOp **derives it from `requiredRole` and persists it** J:7553 | editJobs |
+| `engineering{designed,verified,sentToPerforex}` | panel | eng chips J:16606–16664 | sign-off J:11959, 11992 | canEngineer |
+| `pendingFinish` | op/panel/job | freeze trigger J:6260, Requests tab J:21613 | server PIN `finishRequest` (`fn/timeclock.js:1896`); iOS. **Never set true by the web.** | editJobs |
+| `finishRequest` (singular) / `finishRequests[]` | any | chat bubble, J:13408 | web J:11606–11611, server :1897–1898, chat approve/decline J:11651 | singular: editJobs. Array: free to raise, approveCompletions to resolve. |
+| `pendingSession{sessionId,clockIn,frozenAtMs,reservoirOpId,sessionSnapshot}` | op | finishedOpFields / revertSession | freeze effect J:6258–6275 | editJobs |
+| `finishedAt` | op | DONE-bar end J:17810–17816 | finishedOpFields J:9968 | editJobs |
+| `actualHours/actualStart/actualEnd/planned*` | op | **never read** | finishedOpFields J:9969–9998 | editJobs |
+| `jobNumber, dueDate, clientId, poNumber, createdAt, jobType` | job | metadata, filters, sort, the NEW dot (`createdAt` < 24 h) | editors | editJobs |
+| `scheduledLater` | job | the TRAQS Cloud tray (not bars) | editor J:27648 | editJobs |
+
+### D.4 People fields the schedule reads
+
+| Field | Read at | Written by | Guard |
+|---|---|---|---|
+| `id, name, color, image, email` | rows. `loggedInUser` is matched by email and **falls back to `people[0]`** (J:7641, 7676–7686). | profile, addPerson `uid()` J:10483 | — |
+| `department` | row grouping J:16459 | editors. normalizePeople persists `department ?? role` (J:7548). | PROTECTED |
+| `role` | not read by the schedule | **row drag writes it** (J:10441, 10451) | PROTECTED |
+| `cap` | row label `{cap}h`; `checkOverlapsPure` | person modal J:34332 | PROTECTED |
+| `teamNumber` | avatar label (first character in day view J:17221, full number in week/month J:17607) | modal | PROTECTED |
+| `isEngineer` | eng chips J:16641 | permissions | PROTECTED |
+| `userRole, adminPerms` | `can()` J:5215–5216 | settings sections post a roster snapshot (J:28579, 28594) | manageTeam |
+| `timeOff[]{start,end,reason,type,reqId?}` | PTO bars keyed by **array index** J:16540; `isOff` J:9282; `getOffReason` J:9283; drag blocks J:18618 | updTimeOff/delTimeOff by index J:10464; `syncTimeOffEntry` J:10470; server `timeoff.js` approve/edit/cancel | PROTECTED |
+| `noAutoSchedule` | auto-schedulers J:26578, 26725 | settings | PROTECTED |
+| `activeClockIn{clockIn,jobRefs,events,source}` | `personStatus` J:539, clock pills | timeclock only; client optimistic write J:21476 (no `events`) | pinned on POST, **not on PATCH** |
+| `activeBreak` | `personStatus` | breakBegin/Clear | pinned on POST |
+| **`activeJobClock`** | live bars, badges, pills, freeze | server jobClockIn plus `updateJobSession` | pinned on POST, **not on PATCH** |
+
+`activeJobClock` sub-fields:
+
+| Sub-field | Set by | Notes |
+|---|---|---|
+| `clockIn` | server time | — |
+| `jobId/panelId/opId` | raw ids from the client | — |
+| `*Title` | — | — |
+| `sessionId` | client J:22551 / 21484, or server-derived :331–356 | — |
+| `reservoirOpId` | client `onTeam` or server derive | null means "no" |
+| `sessionSnapshot[]` | client `buildSessionSnapshot` J:10084, no bdOpts; or server derive (Mon–Fri, no holidays) | — |
+| `drainCheckpoint` | jobClockIn, `updateJobSession`, the rebaseline effect | — |
+| `pausedMsAtCheckpoint` | — | — |
+| `frozenAtMs` | `updateJobSession` ← freeze effect J:6280 | epoch ms, while the other fields are ISO |
+| `unclosedAt` | `updateJobSession` ← effect J:7324–7343 | **never read by the web** |
+| `pausedAt/totalPausedMs` | jobPause/Resume, auto lunch/break pause | — |
+| `pausedByLunch/pausedReason` | — | server only |
+
+### D.5 Org settings and tier inputs
+
+| Input | Detail |
+|---|---|
+| `workStart/workEnd` | → `workStartH/workEndH` via `parseWorkHour`, fallback **"08:00"/"17:00"** (J:5896–5903). The state default is **07:00/15:00** (J:5881). The day view uses `\|\|"07:00"/"15:00"` (J:17119). |
+| `workDays[]`, `holidays[]` | YYYY-MM-DD strings |
+| `breaks[]`, `lunch` | → `buildDayWindows` J:674. Lunch defaults to **60** min there and **30** min in the state default and the day view (J:17146). |
+| Derived day values | `dayWindowCfg`, `productiveHoursPerDay = totalWorkH − deadH` (J:5916–5917) |
+| `hpd` (org) | Re-derived from gross work hours on every load (J:5881, 7741–7745) and saved back (J:8611–8620). |
+| `timeZone` | Used server-side for day stamps and after-hours alerts. **Schedule geometry never uses it**; all geometry runs in browser-local time. |
+| Hour window `DHS/DHE = 5/21` | **Hard-coded** (J:12822, 12973, 16807, 17065) |
+| `billingTier` | Gates row push and cursor anchoring (J:17503), day stacking (J:17161), overlap lanes (J:17199, 17455), drag overlap and before-now (J:18514, 18567). **Client-only; the server does not enforce it.** |
+
+### D.6 Derived client-side, never persisted
+
+| Value | Where |
+|---|---|
+| `deriveWorkedState` | J:310 |
+| `liveOpHours` | J:6357 |
+| `producedFor` | J:7350 |
+| `_liveOpIds` | J:6327 |
+| `_activeJobClocksByOp` | J:6302 |
+| `overrunSlackDays` | J:16398 |
+| `rowPushHours` result | J:17546 |
+| `shrunkStartH` | J:9890 |
+| cross-row bars | J:16674 |
+| `personStatus` | J:539 |
+| `openSessionEnd` | S:563 |
+| `workedSpansByOp` / `workedSpansByPersonOp` | S:300, S:586 |
+| `producedHoursByScope` | S:166 |
+
+### D.7 Native data (iOS)
+
+- **Reads:**
+  - GET `tasks`, `sync?since=`, `timeclock`, and `timeclock?dataset=productionhours` (APIService.swift:108–614).
+  - Fields: job/panel/op `status, start, end, team, hpd, title, id, loggedHours`, job `color/jobType/clientId`.
+  - Org `workStartHour/workEndHour/lunch/workDays/paidHoursPerDay`.
+  - Punches for overlays.
+- **Not read**, though the web uses them:
+  - `startHour`/`endHour` (they survive only in `extras`)
+  - `locked`, `moveLog`, `panel.color`
+  - `person.timeOff`, `holidays`, `breaks`, `engineering`, `deps` (in the gantt)
+- **Writes:**
+  - Reschedule: POST `tasks` with the whole array, via `rescheduleUnit` → `updateJob` → 1 s debounced `persistJobs` (AppState.swift:2079–2121, 2226–2260), with rollback on failure.
+  - Clock actions from `ScheduleJobSheet`.
+- **Cache:** SwiftData blob models (Models/SyncModels.swift:21–110). Nothing in it is schedule-specific.
+
+---
+
+## GE. GEOMETRY
+
+### GE.1 Shared primitives (module scope)
+
+| Concept | Owner | Notes |
+|---|---|---|
+| "Today" | `const NOW = new Date(); const TD = toDS(NOW)` J:474 ✔ | **Frozen at module load.** |
+| Calendar dates | `toDS` J:473, `addD` J:475, `diffD` J:628 | Device-local, `T12:00:00`. |
+| Business days (holiday-aware with opts) | `addBD` J:625, `nextBD` J:626, `diffBD` J:627 | **Without opts: Mon–Fri, no holidays.** The loops are unbounded. |
+| Working days (never holiday-aware) | `addWorkingDays` J:578, `isWorkDay` J:579, `weekdaySegments` J:580, `getWorkingDayDuration` J:595, `countWorkingDays` J:618 | take `workDays` only |
+| Off-day test | `spansOffDay` J:606 | workDays and holidays |
+| Org shorthand | `schedOpts/sAddBD/sNextBD/sDiffBD` J:6099–6102 | used at only some call sites |
+| Day windows | `buildDayWindows` J:674 | Clips and merges breaks and lunch; leftover break time goes to the start of the day. |
+| Productive hours → wall clock | `walkProductiveHours(startH, prodH, cfg)` J:718 → `{days, endHour, columns}` | Clamps startH into the work window. Assumes sorted dead windows without sorting them (J:776). |
+| Backward walk | `walkProductiveHoursBack` J:766 | Positions a DONE bar. |
+| Productive time between instants | `productiveHoursBetween` S:442 | Local midnight + H·3600000 |
+| Open clock end | `openSessionEnd` S:563 | frozen → paused → end of the start day |
+| Live hours for bars | `liveOpHours` J:6357 | Uses `openSessionEnd` + `productiveHoursBetween`. **Ignores `totalPausedMs`.** |
+| Live hours for the timer | `liveElapsedHours` S:45 | Wall clock minus pauses; honours `frozenAtMs`. |
+| Worked state | `deriveWorkedState` J:310 | `shown = max(loggedHours, produced) + live`. Fully worked only when status is Finished. |
+
+### GE.2 Frame (week/month)
+
+- **Window:** `tStart/tEnd/tMode` (J:15398–15400). The default mode is month; Basic switches to week once (J:15406–15413).
+  - Pan: `handleTeamPan` J:12395 (hard-coded 260 px gutter)
+  - Wheel: `handleTeamWheel` J:12436
+  - Scrollbar: J:19505–19536
+  - Drag autoscroll: J:18287
+  - Jump: `goToScheduleJob` J:15418
+- **Days:** `days[]` J:16433.
+- **Label column `lW`:** 250–510 px, from the longest on-clock title × 6.2 (J:16445).
+- **Column width:** `cW = (teamWidth·monthZoom − lW)/days` (J:16452–16455; zoom 1–6, J:16335, 17047).
+- **Row heights:** `rH` 42, `grpH` 36, `subH` 34. The header is 56 px (48 px in day view).
+
+### GE.3 Row assignment: `getPersonBars(pid, winS, winE)` J:16472–16725
+
+- **Op bars**
+  - Condition: `onTeam(op.team,pid) && isTimelinePlaced(op)`, i.e. dated and assigned (J:3527).
+  - Finished ops only when `showCompleted`.
+  - **Hidden:** `op.end < today` with nobody clocked in (J:16548).
+  - Window test: `_visualEnd(op) < winS || op.start > winE`.
+- **Panel bars:** only a leaf (`!hasLiveChildren`) on its own team (J:16571–16582).
+- **General-job subtasks:** J:16587–16603.
+- **PTO bars:** J:16532.
+- **Eng chips:** only for `person.isEngineer` (J:16606–16634).
+- **Cross-row records** (J:16655–16723): work a person did on an op they are not on the team of.
+  - span = merged closed sessions + an open clock bounded by `openSessionEnd`
+  - `hpd = productiveHoursBetween` (floor 0.25)
+  - `team=[pid]`, `crossRow`, `endsNow`
+- **`_visualEnd`** (J:16477–16499) = walk(barLengthHours, no cursor), then `addBD`. **It ignores the push.**
+- **Window slack:** `overrunSlackDays` (J:16402–16425, uses `rowSlackHours` S:513) widens winS. The push window `pushWinS/E` spans every dated node (J:16427–16432).
+- **Sort** (J:16637–16642): returns 0 whenever either side is not a task.
+- **Row list** (J:16757–16775): group headers by `person.department`, then person rows filtered by `passesScheduleBarFilter` (J:16733). The filter applies to task bars only.
+
+### GE.4 Lanes and stacking
+
+| Case | Rule |
+|---|---|
+| Business, week/month | No lanes. `singleDayStacking` J:17425–17444 packs ≤ 1-day ops from a per-day cursor (a stored `startHour > workStartH` is honoured), then the row push (GE.7) runs. |
+| Basic, week/month | `basicOverlapLanes` J:17455–17480: a greedy sweep per `task.start` day, only over bars with a stored `startHour` and hpd > 0. Range = `startHour + hpd` (clock hours, not divided by team size). Lane height `(rH−8)/lanesTotal` (J:19381). **Applied to the head segment only.** `singleDayStacking` is **not tier-gated**, so it runs here too. |
+| Day view, Business | `rawS = max(startHour ?? cumH, cumH)`, `rawE = rawS + hpd` (clock hours, no lunch skip, no team division, capped at 21) J:17162–17166. Multi-day bars use their own lunch walk (J:17136–17160: 30-min default lunch, no breaks, `diffBD` without opts). Then `shrunkStartH` (J:17183). |
+| Day view, Basic | `rawS = startHour ?? wsH`, no packing, lanes from `barLanes` J:17199–17217 |
+
+### GE.5 Bar length (week/month), J:17760–18030
+
+- **`_barHpd`** (J:17847):
+  - **DONE:** `productiveHoursBetween(start, min(finishedAt, now))/teamSize`, floor 0.25 (J:17814–17823).
+  - **Otherwise** `barLengthHours` (S:816):
+    - ahead = `max(0, est − worked)/size`, or the overrun `(worked − est)/size`;
+    - behind = `elapsedToCursorH` (J:17834; capped at this row's own worked spans, J:17843);
+    - floor 0.25;
+    - fallback est = `productiveHoursPerDay`.
+- **Walk:** `walkProductiveHours(_barStartH, _barHpd, dayWindowCfg)` (J:17961).
+  - Visual end: `addBD(_layoutStart, days−1, org opts)` (J:17973).
+  - Segments: `weekdaySegments(...)` (J:17974), **no holidays**.
+- **Width:**
+  - Budget `_wBudget = walk.columns/nDays·100%` (J:18000).
+  - Head `_wFirst = min(_wWanted, segRight − x)` (J:18026). For `endsNow`, `_wWanted = flushRightWidthPct(x, cursor)` (J:18023).
+  - Last tail = `(calDays−1) + (endHour−workStartH)/totalWorkH`; middle tails get the remainder, capped at their own days (J:19426–19478).
+- **`op.end` is not used for length** (J:17964).
+
+### GE.6 X position
+
+- `_baseStartH = shrunkStartH(jc, task, startHour ?? singleDayStacking slot ?? workStartH)` (J:17873).
+- The push hours are spent with `walkProductiveHours(_baseStartH, _pushH)`, giving `_pushDays` plus a landing hour (J:17881). Then `_layoutStart = addBD(start, _pushDays)` (J:17890).
+- **Cursor-anchored bars** (`cursorAnchored[id]`, J:17932–17938): `_layoutStart = today`, `_barStartH = now.getHours()`. No clamp to work hours or work days.
+- **x** = `diffD(tStart, seg.start)/nDays + ((barStartH−workStartH)/totalWorkH)/nDays` (J:18005–18010). The hour term is dropped when the first segment rolled off a non-work day.
+- **Label placement:** `labelInsetPx` S:671, `labelSegmentIndex` S:688, `badgeOffsetPx` S:658. Narrow thresholds are 8/12/16/44 px (J:18056–18073).
+
+### GE.7 The now cursor
+
+There are **three independent formulas**:
+
+1. **Bar-divider cursor** `_nowGridPct` (J:17771–17778): `(days.indexOf(toDS(new Date())) + clamp01((h−workStartH)/totalWorkH))/nDays`. Head and tail divider percentages derive from it (J:19296, 19446).
+2. **Drawn now line** (J:19490–19500): uses **module `TD`**. 2 px, hour-precise, clamped to work hours.
+3. **Op-window cursor** `_barCursorPct` (J:19231): `(now − plannedS)/(plannedE − plannedS)` via `opHourRange` (J:10069). Drives `_leftIsGrey` and `data-op-divider-pct`.
+
+Other cursors:
+- **Day view:** `(nowH − 5)/16`, shown only when `tStart === TD` (J:17298).
+- **Split gantt:** the centre of the TD column (J:13327).
+- `Date.now()` is read about 8 times per bar (J:17772, 17816, 17836, 17927, 17939, 19231, 19249, 19333).
+
+### GE.8 Push
+
+- **Render-time row push:** `rowPushHours({ops, nowDay, nowHour, cfg})` S:828–955, called at J:17546–17591. **Business only** (J:17503). Nothing is persisted.
+  - **Axis:** `sp = diffBD(anchor,start)·ppd + dayFraction·ppd` (S:183). Clock-linear, not lunch-aware. `dayFraction` is not capped at ppd.
+  - **Skipped:** past ops (`end < nowDay`, S:864) and records (S:875).
+  - **Push** = max(collision `prevEnd − sp`, `nowProd − ownWorked − sp` when the op is not fully worked). Forward only.
+  - **Locked ops** get push 0 but keep their slot (S:945).
+  - **atCursor** (→ `cursorAnchored`) is set only when `ownWorked ≤ 0` (S:913–918).
+  - `hasActiveSession` is still passed (J:17577) but no longer read (S:932–935).
+  - A second, older push, `overrunPushH`, sits alongside it (J:17497 vs 17552).
+- **Stored push:** `previewPush(taskList, movedOpId, personId, newStart, newEnd, exclude)` J:9596.
+  - Day-granular.
+  - Candidates: every unfinished op with `team.includes(personId)` whose dates overlap by day.
+  - Refuses if any candidate is locked.
+  - Serially re-dates candidates with `addBD(prev, 1)` **without org opts**, keeping the business-day length. Transitive.
+  - `applyPushes` J:9791 writes start/end and a moveLog entry, then `recalcBounds`, then `enforceNoOverlap` J:9750.
+  - **Reachable callers:** the week/month resize `onU` (J:19126–19130) only. The team-move caller (J:18796–18946) is unreachable ✔, and the Reschedule modal (J:34741–34838) is never opened.
+- **Imports:** `shiftRangeForward` S:769 at import time (J:4941).
+
+### GE.9 Cascade and dependencies
+
+- `cascadeDeps` J:10717 has **no callers**.
+- **`reflowJob`** J:3513 = `reflowPhaseOps` J:3461 + `rollUpJobDates` J:3491.
+  - Runs through `updTask` whenever start/end/team change (J:10531–10536), including on **every mousemove** of a resize.
+  - Per phase, same person: start is floored at `addBD(prevEnd, 1, schedOpts)`. Dates only.
+  - Ignores `locked`, `Finished` and `startHour`. Writes no moveLog.
+- **Two parent rollups:** `rollUpJobDates` J:3491 (skips deleted and undated nodes) and `recalcBounds` J:10291 (does not).
+- **Drag dependency groups:** `getDepGroup` J:9629.
+  - locked mode: members move by the same delta (`_computeMonthMove` J:18735, `addBD`/`diffBD` **without opts**, J:18733–18739).
+  - unlocked mode: magnetic snap `_phi/_phiInv` J:18398 on a clock-hours-per-business-day axis, 2 h threshold.
+
+### GE.10 Clamps
+
+| Clamp | Where | Rule |
+|---|---|---|
+| Team move drop | J:18349–18377 | `snapS = nextBD(addD(base, dx), org)`; `dropHour = round(workStartH + colFrac·totalWorkH)` to ½ h; end-of-day magnet ≤ 0.5 h |
+| Before-now | J:18567, 18638 | Business only: `snapS < today \|\| (== today && dropHour < nowH)` |
+| Month resize | J:19018–19055 | Hour in [workStartH, workEndH − 0.5] on the left handle; ½ h snap |
+| Day view | J:16807–16884 | Move in [5, 21 − hpd]; resize in ¼ h steps, min 0.25 |
+| `clampUnlocked` | J:18217 | Only call site is in the unreachable block |
+| `shrunkStartH` / `persistShrink` | J:9890 / J:9914 | `min(storedSH + worked, plannedEnd − 5 min)` (`SHRINK_MIN_REMAINDER_H` J:9855) |
+| Floors | — | 0.25 h length, 2 px render, `0.03/nDays %` width budget |
+
+### GE.11 Freeze
+
+- **Freezes:** effect J:6257–6286.
+  - When `findOp(op).pendingFinish` is set for an active clock without `frozenAtMs`, it stamps `op.pendingSession{…frozenAtMs:now}`, calls `saveTasks`, then `updateJobSessionAction(frozenAtMs)`, then sets the value locally.
+  - `frozenAtMs` stops `shrunkStartH` (J:9895), `liveElapsedHours` and `openSessionEnd`, so the bar reads "held" (J:19336).
+  - A lunch pause (`pausedAt`) and the end-of-day bound (unclosed) stop the hatch the same way.
+- **Drain checkpoint:**
+  - set at clock-in (J:21507, 22560);
+  - rebased on any foreign moveLog entry (J:10025–10048);
+  - `persistShrink` (J:9914, called at J:22639) writes `startHour`;
+  - `sessionElapsedMs` J:9838.
+- **Unfreezes:**
+  - `approveFinish` J:21654 → `finishedOpFields` J:9950: the DONE bar is placed with `walkProductiveHoursBack` and `activeJobClock` is cleared locally.
+  - `rejectFinish` J:21673 clears `pendingFinish/pendingSession` and runs `revertSession` J:10096.
+  - **No client path sends `frozenAtMs: null`**, although the server accepts it (`fn/timeclock.js:1226`).
+
+### GE.12 Drag ghosts
+
+- **Main ghost** (J:17625–17684): stored drop + `pushBD/pushHourDelta`. Width is the flat pro-rate `(barHpd/ppd)/nDays`, capped per segment.
+- **Group and multi ghosts** (J:17690–17745): same pro-rate, **last segment uncapped**, no `pushBD`.
+- **Tooltip** (J:19553–19570): walk + `addBD` without opts.
+
+### GE.13 Split gantt geometry (live) and job gantt (dead)
+
+- **Split gantt:**
+  - `cW = max(14, paneW/days·gZoom)`, calendar days, rows 40/34/28, bars 24/20/16.
+  - Segments via `weekdaySegments`.
+  - Stored dates only: no hours, hpd, push or cursor.
+  - `bL/bR/bW` and `_workedPctOfSeg` are computed and unused (J:13262, 13278–13294).
+- **Job gantt (dead):** `dToX = diffD·cW`, calendar days, status-guess progress fill, a mid-day today line, a live `updTask` on every drag step, and calendar-day child shifts (J:12675–12704).
+
+### GE.14 Native geometry (iOS `GanttView.swift`)
+
+- **Items** (`scheduleItems` :297–374):
+  - The current user only.
+  - Finished work is dropped.
+  - Items within `[today−60d, lastVisible]`.
+  - A panel item whenever I'm on the panel team and on none of its ops. **No `hasLiveChildren` rule.**
+- **Length** (`makeItem` :376–386): `hpd × businessDaySpan`. **hpd is read as a per-day rate** with no team division; `businessDaySpan` skips no holidays.
+- **Packing:** `SchedulePacker.allocate` (Services/SchedulePacker.swift:47–86) rolls work forward day by day. Capacity is `paidHoursPerDay` (work window minus lunch, not breaks). **No cursor:** untouched past work is placed on past days.
+- **In-day position** (`blocks(on:)` :391–430): a hand-rolled lunch-only step. It ignores breaks, `startHour` and team size. `WorkDayClock` (a faithful port of `buildDayWindows`/`walkProductiveHours`) is **not used** here.
+- **Live hours** (`AppState.liveHours(forOp:on:)` :3292–3303): raw wall clock minus paused. No freeze, no lunch or break deduction, and counted only on the session's start day.
+- **Worked fill:** poured front to back and capped at the chunk. **Overrun is invisible.**
+- **macOS:** no geometry. The Mac only calls `JobsScheduler` from the New Job wizard.
+
+---
+
+## R. RENDER
+
+### R.1 Paint helpers (module scope)
+
+| Helper | Line | Behaviour |
+|---|---|---|
+| `wantsLightText(hex)` | J:2340 | The one black/white rule: `hexLum < 0.1791` |
+| `accentText(c)` | J:2472 | Tests `blendHex(c,−0.22)`; returns `#fff` or `#0f172a` |
+| `DONE_MUTE` | J:2894 | `#8c8c94` |
+| `barPaint` | J:2895 | Finished → `mixHex(color, DONE_MUTE, .34)` |
+| `barFade` | J:2903 | Finished → opacity 0.7 |
+| `spentBarFill` | J:2514 | `mixHex(bc, DONE_MUTE, .8)` |
+| `idleBarFill` | J:2540 | — |
+| `workedHatchLayer` | J:2567 | 45° stripes, 4/8 px, stepped colour at 0.30 alpha |
+| `workedFlatFill` | J:2576 | Used under 16 px (`HATCH_MIN_PX`) |
+| `activeBarFill(T, bc, spans, dividerPct, state, renderPx)` | J:2606 | `pto` = 135° white stripes; `done` = spent fill. Otherwise layers, top to bottom: bc right of the cursor, idle over gaps, hatch, idle base. **No branch for held/paused/running/worked/scheduled.** |
+| `barLabelColor` | J:2672 | `accentText(idleBarFill(bc))` |
+| `liveBarTextColor` | J:2680 | — |
+| `elColor` | J:6074 | `T.jobBarMode`: system = own colour, adaptive = accent, custom = `T.jobBarColor` |
+| Dead | — | `liveBarStyle` J:2725, `drainMaskStyle` J:2690, `LIVE_BAR_LABEL_MIN_PX` J:2743 |
+
+### R.2 Bar states: week/month schedule
+
+Bar colour for task bars is `bc = barPaint(x, elColor(panel.color || "#94a3b8"))` (J:16556–16604).
+
+| State | Trigger | Fill | Border / opacity | Text / badge |
+|---|---|---|---|---|
+| Scheduled, cursor not reached | `_barState="scheduled"` J:19344, head cursor ≤ 0 | plain `bc` | 1.5 px `bc`; 1 px under 16 px; none under 8 px | title `accentText(bc)` |
+| Cursor inside, row has spans | `_fillSpans=[[0,100]]`, `_fillCursorPct=_headCursorPct` J:19324 | head fully hatched left of the cursor, `bc` to its right | as above | title `barLabelColor` + 3 px halo J:19374 |
+| Cursor past start, no spans on this row | `_ownerOnTheClock` J:19311 (the name means the opposite) | spans `[]`, cursor 0 → plain `bc` | as above | still `barLabelColor` + halo, because `_leftIsGrey` J:19356 tests only `_barCursorPct > 0` |
+| Tail segments | J:19426–19478 | **real** per-segment spans and cursor (J:19461) | dashed 2 px `bc2cc` | title or hours only when chosen by `labelSegmentIndex` |
+| Cross-row record | `bar.crossRow` | spans `[[0,100]]`, cursor 100 → fully hatched | drag blocked J:19164 | `panel · op`; `endsNow` makes it flush to the cursor |
+| Running | anyone's `activeJobClock.opId` matches J:19203 | same fill | — | green pulsing dot `#10b981` 9 px, z9 J:19417; no "LIVE" text |
+| Held | any live clock with `frozenAtMs` J:19336 | same fill | — | "HELD", hidden under 44 px J:19403 |
+| Paused (lunch) | `pausedAt` J:19337 | same fill (the head ignores spans) | — | "LUNCH" J:19403 |
+| Worked | `_barWorkedPct > 0` J:19343 | same fill | — | — |
+| Done | `status==="Finished"` J:19335; shown only when `showCompleted` | `spentBarFill(bc)` over an already-`barPaint`ed bc | × 0.7 (`barFade`); length clamped at `finishedAt` | "DONE"; title and hours use `accentText(bc)` |
+| Overrun | `_overrunPerPerson > 0` J:17795 | the bar grows through `barLengthHours`; the extension is plain `bc` | cursor not-allowed; drag blocked | none; the hours tooltip says "h left" but shows total length J:19406 |
+| Locked | `!!task.locked` J:298, 19148 | unchanged | `2px rgba(255,255,255,.7)` + glow; handles removed | 11 px padlock z3 J:19396. **Still draggable** ✔ |
+| Dep group | `depGroupTaskIds` J:16777 | — | — | padlock (locked mode) or open padlock, 10 px, 0.7, z3 J:19395; the same glyph as an op lock |
+| Selected | `barSelectMode && selBars.has(id)` J:19185 | — | 2 px `#fff`; `0 0 0 2px bc88, 0 0 14px bc55` | white check disc |
+| Hover / sibling dim | `hoveredBarPid` = hovered `task.pid` J:19391 | hovered bar `brightness(1.15)` | others `0.2 × barFade`; PTO and select mode exempt; person column 0.35 J:17604 | — |
+| Highlighted | `scheduleHighlightId` J:19170 | — | z10, 4 s `scheduleGlow` J:1043 | — |
+| Dragging | `teamDragInfo.barId` J:19171 | — | opacity 0 past 4 px; z40/z39 | — |
+| Ghosts | J:17623–17741 | dashed 2 px, radius 26; `gc` = red if overlap or before-now, else bar colour | main z35, group z34, multi z35; snap connector z38 | tooltip fixed z9999 |
+| Just dropped | `droppedBarId` J:18586 | — | `barDropIn` 0.25 s J:1039 | — |
+| New job | `jobCreatedAt` < 24 h J:19196 | — | — | blue dot `#0a84ff` z8, shifted 23 px when live |
+| Narrow | `_renderPx` < 8 / 12 / 16 / 44 J:18066–18073 | flat worked fill under 16 px | no border under 8 px; min 2 px | no label or badges under 44 px; live bars get an external label z8 |
+| PTO | `type==="pto"`; `#f59e0b` UTO / `#10b981` PTO; not `elColor` | stripes | 1.5 px, radius `radiusXs`, z3; never dimmed | calendar icon + `type · reason` |
+| Eng chip | `isEngineer`, `panel.engineering` defined J:16609; placed on the Wire op, else the panel start | `#10b981` all done / `#3b82f6` J:18079 | radius 26, 80–160 px, z4; never dimmed or filtered | `#fff` title `· step` or ✓ |
+
+**Not rendered anywhere on schedule bars:**
+- pending finish / finish requested
+- job status other than Finished
+- overdue vs `dueDate`
+- the unclosed clock (only `data-unclosed`, J:19387)
+- a distinct overrun extension
+- holidays
+
+### R.3 Non-bar layers (week/month)
+
+| Layer | Detail |
+|---|---|
+| Header | Month row and day row (today in accent, weekends `schedDisabled`, J:17332); sticky corner z15 |
+| Grid lines | `T.scheduleGrid` toggles them; `_schedDk = hexLum(surf) < 0.5` J:16753 |
+| Day cells | J:17617, in priority order: PTO (`offColor12` + stripes), today (`accent08`), weekend (`schedDisabled`). **Holidays are never shaded.** Placing mode adds z6 and an accent ring on hover. |
+| Group row | Sticky label z10 + `groupClockPill` J:16367; the timeline part is empty |
+| Person header | Sticky z10: ⠿ handle, 28 px `PersonAvatar` (team number), first name, `dept · cap h`, `personClockPill` J:16350. The `.sched-person-glow` hover is **dead** (it needs a `.sched-person` ancestor that doesn't exist, J:1313). |
+| Row drag | Opacity 0.35; 2 px accent insertion lines z20 J:17595 |
+| Today line | J:19490: 2 px `accent99` z12, 6 px dot z13, spans the header |
+| Capacity | None; utilization was removed J:16467 |
+
+### R.4 Day view (a separate renderer)
+
+- **Grid:** fixed hours 5–21. Off-hours shading is hard-coded to `h<7||h>=18` (J:17079, 17093, 17231).
+- **Bar:**
+  - Fill: Finished → `spentBarFill`, otherwise flat `bar.color`. No hatch, regions, border, lock, dep icon, live dot, NEW dot, select state or eng chips.
+  - Title: `"{hpd}h · title"` in `accentText(bar.color)` for every state (J:17256).
+  - Badges: `liveBadgeFor` J:9867, keyed on the row person's `reservoirOpId`; returns held or paused only.
+  - Resize grips always visible (J:17251, 17257).
+- **Overlays:**
+  - Break/lunch overlay `rgba(0,0,0,.25)` with "B"/"L" letters, only when `hpd ≥ orgSettings.hpd` (J:17260–17276).
+  - PTO day: every bar is hidden and a label is centred (J:17235, 17279).
+- **Ghost:** a fixed solid block with `#fff` text, z9999 (J:30518). Red when before now, **on every tier**.
+
+### R.5 Split gantt (live)
+
+- **Bars:**
+  - Colour: jobs `#94a3b8`, panels **status colour** (`staColorOf`), ops the panel colour. Always drawn as `color+"dd"`. No `elColor`, `barPaint` or `barFade` (J:13257).
+  - Text is always `#fff` (J:13306).
+  - **Avatars on bars:** up to 3 `PersonAvatar` + `+N` (J:13309–13317). This is the only surface with them.
+- **Layers:** level stripes z2, weekend split edges dashed, today line 1 px `accent33` at mid-day z4 (above bars).
+
+### R.6 Z-order (week/month)
+
+auto cells (z6 while placing) < 3 PTO bar and in-bar icons < 4 task bars and eng chips < 5 grips / title / hours < 8 NEW dot and external live label < 9 live dot < 10 highlighted bar = sticky column = group label < 12 today line < 13 today dot < 15 header corner < 20 insertion line < 34 group ghost < 35 ghosts < 38 snap connector < 39 multi-dragged < 40 dragged < 400 filter panel < 9999 tooltips.
+
+Person rows use `overflow:hidden`. **[inferred] conflicts:**
+- the highlighted bar ties the sticky column and wins on DOM order;
+- the today line crosses the sticky column during a horizontal month-zoom scroll;
+- the external live label overlaps neighbouring bars.
+
+### R.7 Tier differences in render
+
+| | Business | Basic |
+|---|---|---|
+| Week/month overlap | none (push prevents it) | `basicOverlapLanes`, head only |
+| Push / cursor anchoring | yes | no; bars sit at stored dates |
+| Red drag ghost (overlap, past) | yes | no |
+| Day-view packing | shared cursor | stored hour + lanes |
+| Day-view before-now | red / refused | red / refused (same) |
+| Jobs page and split gantt | yes | no (J:11270) |
+
+### R.8 Native render (iOS)
+
+- **Day view:**
+  - Vertical hour lane, 56 pt/h.
+  - `ScheduleBlockView` (:970–1073): white card, 5 pt department-gradient rail, `WorkedStripe` hatch from the top.
+  - Punched break/lunch bands, lunch ghost, sky NOW line.
+- **Week view:** grid of work days only, `WeekBlockTile` in solid department colour, ink NOW line, legend.
+- **Colour** is inferred from **title keywords** and `jobType` (:501–529), not `panel.color`.
+- **Web states with no native equivalent:** finished, history, overrun, idle-left, cursor-anchored, locked, cross-row, PTO, eng chips, dep icon, drag ghost, lanes.
+
+---
+
+## I. INTERACTION
+
+### I.1 Gates and plumbing
+
+- **Client gates:**
+  - `isAdmin = userRole==="admin"` (J:5215).
+  - `can(p) = isAdmin && permGranted(adminPerms, p)` (J:5216; `approveCompletions`/`approveTimeOff` count as granted when absent). This matches the server's `can()`.
+- **Undo:**
+  - `setTasks` pushes a full deep clone on every change, capped at 50 (J:5433–5444).
+  - `undo`/`redo` require `can("undoHistory")` (J:5457–5473), client-only.
+  - Keys: Ctrl/Cmd+Z / Shift+Z / Y (J:5475–5483 ✔, `preventDefault` unconditional).
+  - `setPeople` has no history.
+  - Poll merges land on the undo stack.
+- **Notifications:**
+  - No schedule action calls `callNotify`. Engineering steps only (J:11972, 11975).
+  - The server `tasks.js notifyTaskChanges` (:131–212) pushes on team add/remove, status change and finish resolve.
+  - **Date moves notify nobody.**
+- **moveLog** is written only by: week/month resize (J:19111–19123), `applyPushes`, persistShrink, finishedOpFields, revertSession, and the dead gantt, push and modal paths. **The live week/month move writes none.**
+
+### I.2 Drags: schedule
+
+| Interaction | Handler | Client gate | Preview | Writes on drop | Push / cascade | Undo | Server needs |
+|---|---|---|---|---|---|---|---|
+| **Week/month move** (including a drop onto another row) | `handleTeamDrag` J:18092 via J:19388 / 19466 | `can("moveJobs")` (else open detail, J:18093); refused if `_someoneOnIt` (J:18094) or `_dragBlocked` = overrun or crossRow (J:19164). **`locked` does not block** ✔. Reassign needs `can("reassign")` (J:18602). | Ghost, red on overlap or past (Business, J:18497–18567), dep snap, autoscroll | Refuses on PTO (J:18617), overlap (J:18626), past (Business, J:18636). Split-on-drag for a partly worked op landing on an off day: new op, original `locked:true` (J:18673–18731). Otherwise `_moveNode` sets `start/end/startHour/endHour` and swaps `team`; group and multi members go through `_computeMonthMove` (J:18735–18794) → `recalcBounds` → `doSave`. | **None.** J:18642 always returns ✔. The push / `applyPushes` / `enforceNoOverlap` / confirm block J:18796–18946 is unreachable (PTO returns earlier at ~J:18115). | 1 | moveJobs (+ reassign; split: editJobs) |
+| Week/month resize | `handleTeamResize` J:18952 via handles J:19392 / 19393 / 19476 | `can("moveJobs")`; handles hidden when locked, drag-blocked, narrow, or (left handle) worked | live `updTask` every mousemove + tooltip | revert → lock check (J:19108) → `applyResize` + moveLog "Manual resize". Month writes `hpd/startHour/endHour`; week writes start/end only (J:19111–19123). | `previewPush` → confirm modal (J:19126–19140); `reflowJob` on every updTask | N (one per mousemove) | moveJobs **+ editJobs** (moveLog) |
+| PTO move / resize | `handleTeamDrag` / `handleTeamResize` isPto branches J:18095–18115, J:18955–18975 | **`can("moveJobs")`** (the menu uses manageTeam) | live `updTimeOff` | `timeOff` via `setPeople` + `syncTimeOffEntry` → timeoff edit | — | none | people: manageTeam (silent drop); timeoff edit: isAdmin |
+| Multi-select drag | Select toggle isAdmin (J:16921) → `isMultiDrag` J:18224 | moveJobs | ghosts | members shifted; **only the grabbed bar is reassigned**; overdue members skipped silently (J:18233) | none | 1 | moveJobs |
+| Day-view move (including reassign) | `handleTeamDayBarDrag` J:16820 via J:17247 | **None** (the view itself is admin-only) | floating ghost, red before now | past check (J:16892) → `updTask({startHour})` + `reassignTask` (J:16895–16897) | — | 1 | moveJobs + reassign |
+| Day-view resize | same handler, J:17251 / 17257 | **None** | ghost | `updTask({startHour,hpd})` / `updTask({hpd})` (J:16900–16905); no past check on the right edge | — | 1 | moveJobs |
+| Row reorder / move to group | ⠿ → `startRowDrag` J:10411 | **None** | insertion line | reorders `people`, sets `role` (J:10436–10452); `Number(rid)` ✔ | — | none | role pinned for non-manageTeam; order persisted **[inferred]** |
+| Pending-tray drop | tray J:35055 → cell onDrop J:17621 → `handlePendingItemDrop` J:10652 | none | HTML5 ghost | `start/end`; **adds** to `team`; status Not Started → Pending (J:10664) | — | 1 | moveJobs + reassign + editJobs |
+| "Drop in schedule" placing | armed from plan-assign (J:32044, `can("moveJobs")`) → cell click J:17618 → `placeTaskAt` J:10624; Esc cancels (J:10646) | moveJobs | cell ring | `updTask({team:[pid], start, end})` **overwrites** team (J:10639) | reflowJob | 1 | moveJobs + reassign |
+| Pan / wheel / zoom | J:12394, 12437, 17048, 17021 | none | — | view state | — | — | — |
+
+### I.3 Clicks, hovers, keys, header
+
+| Target | Action | Gate |
+|---|---|---|
+| Bar click | `openJobDetailOrEdit` J:10907: Business opens detail; **Basic opens the simple edit modal for everyone** (J:10766, 26250) | none |
+| Bar in select mode | toggle selection | isAdmin |
+| Eng chip | `openDetail` J:18078 | none |
+| Group header | collapse department J:17350 | none |
+| Person card | no handler (dead glow) | — |
+| Person name in select mode | `setSelectedSchedulePerson` J:17609 | isAdmin |
+| Bar hover | brightness + sibling dim | none |
+| Header: Select / All / Delete | multi-select, bulk delete J:34882 | **isAdmin** (server: editJobs) |
+| Header: filter / view / search / Today | UI state J:16936–17006 | **isAdmin**; non-admins cannot change view |
+| Header: TRAQS Cloud | opens the edit wizard for `scheduledLater` jobs J:17050, 30470–30490 | **none** |
+| Header: + New Job | `openNew` J:17051 | editJobs |
+| Grid corner: Time Off | TimeOffModal → updPerson J:17315 | manageTeam |
+| Empty state: + Add Member | personModal J:17061 | isAdmin (server: manageTeam, silent drop) |
+| Keys | undo/redo; Esc closes menus (J:9114) and cancels placing. No bar or row shortcuts. | undoHistory |
+
+### I.4 Context menu (`handleCtx` J:11273, ungated; menu J:33872)
+
+Opened from schedule bars (J:19389, 19467) and day-view bars (J:17248). On mobile it is a bottom sheet (J:33890).
+
+| Item | Client gate | Writes | Server needs |
+|---|---|---|---|
+| ✎ Edit | business && editJobs | wizard | editJobs |
+| Open Chat | none | — | — |
+| Send Reminder J:11876 | business && editJobs | message | messages.js |
+| Dependency-mode cycle | **none** | `deps/depsMode` + `saveTasks` **inside the updater** (J:33958) | editJobs |
+| View Details | business | — | — |
+| Take me to schedule | none | — | — |
+| Add/Edit Dependencies | **none** | `deps/depsMode` + `saveTasks` (J:34030–34046) | editJobs |
+| Reschedule / Edit | editJobs | wizard (Business) or simple modal (Basic) | editJobs / moveJobs |
+| Split Job J:32323 | editJobs, op, hpd > 1, not Finished | new op + `saveTasks` | editJobs |
+| Set Worked Hours J:32392 | editJobs, op | `loggedHours` + `adminJobHoursAction` | tasks: editJobs; `adminJobHours`: **isAdmin only** (`fn/timeclock.js:1316`) |
+| Request Completion J:11582 | business, leaf | `finishRequest` (singular) + `finishRequests[]`, `saveTasks`, message | **editJobs** (because of the singular field) |
+| Complete Now J:11824 | business && editJobs && approveCompletions (J:11820) | `status:"Finished"` cascade | editJobs only |
+| Delete J:34012–34018 | editJobs | from a schedule bar this deletes the **whole parent job** | editJobs |
+| PTO bar: Edit / Delete (J:34176) | manageTeam | by index + timeoff cancel | manageTeam / isAdmin |
+
+### I.5 Admin actions reachable from the schedule
+
+- **Present:** time off (corner button, PTO menu), bulk delete, Set Worked Hours, Complete Now, Request Completion, Split, dependencies, Reschedule wizard, placing mode, the TRAQS Cloud tray.
+- **Absent:** clock actions (the clock pills are tooltip-only, J:16350–16378), lock/unlock (no UI), copy/paste (dead: `copyItem` J:11323, `doPaste` J:11338).
+- **Approve/reject a finish:** from the Requests tab (J:21654, 21673) and chat (J:11651–11740), not from the schedule.
+
+### I.6 Tier and mobile
+
+- **Basic:**
+  - Week default, no Jobs page or gantt.
+  - No overlap or past check on week/month drags.
+  - The day view's past check still applies; resize still runs `previewPush`.
+  - Simple edit (J:26267–26282) collapses the whole team into `subs[0]` and sets `start=end=date`, with no checks.
+- **Mobile web:** no schedule. `renderMobileApp` calls `useState` behind the `isMobile` ternary (J:24107, 30374).
+- **Department lock** (project rule) is applied only in the wizard and quick-add schedulers (J:26583, 26766, 27489, 34134). **It is not applied in:** drag reassign, day-view reassign, `placeTaskAt`, the pending tray (ignores `requiredDepartment`, J:35129), simple edit, the op editor picker (J:35461), or planAssign (J:31984).
+
+### I.7 Native interaction
+
+- **iOS gantt:**
+  - Day/Week segment, Day ◂ ▸ and TODAY; week view has **no** prev/next.
+  - Tap a block → `ScheduleJobSheet` (clock in/out, break, end photo).
+  - No drag, resize, reassign or context menu.
+- **iOS reschedule:** long-press in `JobDetailView` (:365–376, 530–541), gated by `can(.moveJobs)` → `RescheduleSheet` → `AppState.rescheduleUnit` (:2079–2121).
+  - Shifts by calendar days; dependents follow op → op links only.
+  - No moveLog, no lock, clock, past or overlap checks.
+  - A panel move leaves its ops and the envelope stale.
+- **macOS:** the schedule placeholder. The row menu's "Take me to schedule" leads there (JobsPage.swift:633–637); "Reschedule" is disabled (JobsRowMenu.swift:265–269).
+
+---
+
+## INV. INVARIANTS
+
+**No schedule invariant is enforced on the server.** `fn/tasks.js` only checks permissions (task-perms). Every rule below is client-side and can be bypassed by any other writer (iOS, Mac, API, a stale tab).
+
+| # | Rule | Enforced at | Test | Bypassed by |
+|---|---|---|---|---|
+| 1 | No two ops share time on one person's row | Five different definitions: (a) drag ghost `_opVisual` J:18481–18532, hour-precise, Business, grabbed bar only; (b) `previewPush` J:9608, date-inclusive; (c) `enforceNoOverlap` → `dayShiftToClear`/`opInterval` J:9750 / S:1140; (d) `checkOverlapsPure` J:9480, daily capacity sum (saveTask J:11135, gantt); (e) `reflowPhaseOps` J:3461, same person never on the same day. Render-only repack: `rowPushHours`. | `no-overlap-test` mostly tests app-dead helpers; only `dayShiftToClear` (:165–195) is live. `row-push-test` :418 covers render packing only. | Group and multi members; Basic (by design); "move only this one"; day view; pending tray; saveEditJob J:35093; import J:4941; iOS; server. `opInterval` treats a single-day op with no `endHour` as zero-width (`durationH` is never written). |
+| 2 | A locked op doesn't move | `previewPush` refuses locked neighbours (J:9610, 9621); resize at release (J:19109); `rowPushHours` pins (S:945) | row-push-test :51 / 53 / 99 / 253; no-overlap-test :103 (dead helper) | **The week/month move itself** ✔; day view; `reflowPhaseOps`; iOS; server |
+| 3 | No move or edit of an op someone is clocked into | `_someoneOnIt` week/month drag and resize (J:18091–18094, 18954); `blockedByActiveClock` on drop J:18585 and in saveTask J:11109 | untested | day view; resize drop; saveEditJob; bulk delete; iOS; server |
+| 4 | A held session stops growing | `frozenAtMs` via the freeze effect J:6254–6285; read by `shrunkStartH`, `openSessionEnd` | live-hours-test, job-live-hours-test (freeze cases) | runs only while some web client is open [inferred]; `jobClockOut` credits wall time minus pauses and ignores `frozenAtMs` (`fn/timeclock.js:1114–1121`); iOS ignores it; `updateJobSession` does no validation |
+| 5 | One live job clock per person | `jobClockIn` 409 (`fn/timeclock.js:1025`) | **untested** | non-atomic read-then-write (:1015–1070) [inferred]; people PATCH doesn't pin `activeJobClock` |
+| 6 | On the pay clock before a job clock | `fn/timeclock.js:1024` | untested | **disabled**: `ENFORCE_CLOCK_JOB_DEPENDENCY = false` (:14) |
+| 7 | Department restricts assignees (project rule) | `personDeptMatch`/`deptOfUnit` J:9422–9434 in the auto-schedulers | JobsSchedulerTests (Swift, which asserts the **fallback to everyone** as intended) | auto-schedulers fall back to all crew (J:26585–26588); every manual path (I.6); server |
+| 8 | Business days only (workDays + holidays) | `addBD/nextBD/diffBD` with `barBDOpts` / `schedOpts` | row-push-test (injected calendar); JobsSchedulerTests (Swift) | every opts-less call (GE list); `weekdaySegments`/`countWorkingDays`/`addWorkingDays`; iOS gantt |
+| 9 | Hours stay inside the work window | drag drop clamp + rollover J:18369, 18449; resize J:19024 | untested (WorkDayClockTests covers the Swift port) | day view (5–21); cursor anchoring; updTask; iOS; server |
+| 10 | Nothing scheduled before now | week/month drag (Business, J:18567 / 18638); day-view move and left resize, all tiers (J:16884, 16892) | untested | right resize; Basic week/month; placing / tray; saveEditJob; iOS; server |
+| 11 | The left edge only moves forward | `shrunkStartH` `max(storedSH, …)` + 5-min floor J:9890–9899; `rowPushHours` forward only | row-push-test (forward cases) | — |
+| 12 | Only the lowest level gets a bar | `onTeam && !hasLiveChildren` J:16577 | row-push-test (`isAssignedHere`, an app-dead equivalent) | AI suggest / capacity use `!(subs).length`, which ignores `deletedAt` (J:9497, 27603); iOS panel fallback |
+| 13 | History and records take no part in pushes | S:864, S:875 | row-push-test :137–155, :460, :469 | — |
+| 14 | A partly worked op splits when dragged | week/month inline split J:18673–18722; `applyWorkedSplitGuarded` J:9783 (dead path) | untested | — |
+| 15 | Person ids compared as strings | `sameId`/`onTeam` J:3424–3425; doctrine J:3411–3422 | untested | strict `===`/`includes` in about 20 scheduling sites (defect list) |
+| 16 | Permission to move / reassign / edit / approve | client `can()`; server `classifyTaskChanges` | **untested** (no script imports task-perms) | — (the only schedule rule the server enforces) |
+
+### INV.1 Test inventory
+
+All node scripts pass at `0fbc639`.
+
+| Script | Result | What it really exercises |
+|---|---|---|
+| `row-push-test.mjs` | 133/0 | Real `statsMath` exports: `rowPushHours`, `barLengthHours`, `rowSlackHours`, `badgeOffsetPx`, `labelInsetPx`, `labelSegmentIndex`, `flushRightWidthPct`, `shiftRangeForward`, `hasLiveChildren`. Also app-dead `idleLeftOfCursorH` and `isAssignedHere`. The "pan stability" checks feed identical inputs, so they cannot catch the J:17541 call site. |
+| `no-overlap-test.mjs` | 44/0 | Mostly app-dead helpers (`intervalsOverlap`, `rowOverlaps`, `firstFreeStart`, `packActiveRow`, `normalizeToWorkTime`). Fixtures use `durationH`, which the app never sets. |
+| `worked-spans-test.mjs` | 94/0 | Real functions, including the app-dead `pushedBarRange` and `workedSpansForPerson`. |
+| `live-hours-test.mjs` | pass | Real `liveElapsedHours`, plus frozen copies of old code as a baseline. |
+| `job-live-hours-test.mjs` | 20/0 | Regex over a 900-character source slice, plus a **local copy** `live()`. No multi-clock coverage. |
+| `check-live-hours.mjs` | clean | A lint over js/jsx/mjs/kt. **Skips Swift.** |
+| `live-hours-native-grid.mjs` | no assertions | Reports 8 behaviour changes across 5 native variants; always exits 0. |
+| `render-perf-test.mjs` | 35/0 | Source regexes + benchmarks of hand-written copies. |
+| `assignee-col-test.mjs` | 77/0 | Jobs grid, not the schedule. |
+| `timeclock-itest.mjs` | 47/0 | Real handler with stubs: jobClockOut, adminJobHours, clockOut. No jobClockIn, no updateJobSession. |
+
+- **`npm run build`** runs `check-live-hours` plus assignee-col, org-options, render-perf and job-live-hours. It does **not** run row-push, no-overlap, worked-spans or live-hours.
+- **Untested web schedule code:**
+  - `walkProductiveHours`, `walkProductiveHoursBack`, `buildDayWindows` (module-private, so not importable)
+  - `weekdaySegments`, `addBD`/`diffBD`/`nextBD`
+  - `reflowJob`/`reflowPhaseOps`/`rollUpJobDates`, `recalcBounds`
+  - `previewPush`, `applyPushes`, `enforceNoOverlap`, `checkOverlapsPure`
+  - `shrunkStartH`, `persistShrink`, `finishedOpFields`, `applyWorkedSplit`
+  - `personDeptMatch`, `blockedByActiveClock`, task-perms
+  - all render x/width/cursor math, and all drag and resize math
+- **iOS tests (read, not run):**
+  - SchedulePacker, WorkDayClock (a line-for-line port of J:651–716), JobShifts, JobsScheduler, ProgressHours, ClockOverlays, JobHealth (drifted from web `getHealth` J:817).
+  - Not tested: `GanttView` item selection and geometry, `rescheduleUnit`, `hasDependents`, `liveHours(forOp:on:)`.
+
+---
+
+## G. GAPS
+
+### G.1 Survey disagreements, resolved against the code
+
+| Claim | Resolution |
+|---|---|
+| The geometry and interaction passes treated `renderGantt` as the live Jobs gantt | **Dead** ✔ (J:15087 vs J:4765 / 5381). Its move, resize, split, reassign and confirm-modal logic, and its moveLog writes, never run. The live gantt is the read-only split gantt. |
+| "The push block after J:18642 is reachable for PTO drags" (my first read) | **Wrong.** PTO drags return in their own branch (~J:18115) ✔, so J:18796–18946 is unreachable for every bar. |
+| "`moveLog` is a free log field" | **No.** The free field is `apprLog` (task-perms.js:35) ✔. `moveLog` needs editJobs. |
+| "Worker task writes 403" | **Confirmed** ✔: `status`/`loggedHours`/`pendingSession` need editJobs, and `can()` is false for non-admins. The data pass also executed it. |
+| "The Mac has a schedule" (implied by `docs/MAC-SCHEDULE-PARITY.md`) | **No** ✔: `NativeShell.swift:257–263` is a placeholder. |
+
+### G.2 Where `DYNAMIC_SCHEDULE_HANDOFF.md` disagrees with the code (the code wins)
+
+1. **Branch state.** The doc says the work lives on `feature/dynamic-schedule`, is "NOT PUSHED" and "nothing merged". The code: everything is on `master`, and the feature branch is 0 ahead and 17 behind.
+2. **Date.** The header says last updated 2026-09-18; the body contains 09-21 and 09-22 sections that overrule earlier ones.
+3. **Deleted functions.** `computeCascadePushes`, `runClockCascade`, teleport and the 5-second cascade tick are all deleted (J:10077–10080). The tick only bumps a counter (J:6225–6239).
+4. **Live bar.** The live sliver, drain mask and "LIVE" badge are gone (J:19480). Their helpers are dead, and `liveBadgeFor` returns only held/paused.
+5. **Shrink.** The doc says remove `shrunkStartH`; it is live (J:9890, used at 17183 and 17880), and `persistShrink` runs at J:22639.
+6. **Approved bars.** The doc says "no reposition, ever" and that `walkProductiveHoursBack` was reverted. `finishedOpFields` rewrites start/end/hours from a backward walk (J:9985).
+7. **Push.** The doc says it "can only lengthen a bar" via `_pushIdleH`. `rowPushHours` translates bars, and `_pushIdleH` has no matches.
+8. **Clocked-in exemption** (§3a). `hasActiveSession` is passed but ignored (S:932–935).
+9. **Idle region from spans.** Head `_fillSpans` is always `[[0,100]]` or `[]` (J:19324).
+10. **`data-divider-pct`.** It is the segment cursor; the op value moved to `data-op-divider-pct`. `data-unclosed` is undocumented.
+11. **`activeBarFill`.** The doc gives a scalar signature; the actual one is `(T, bc, spans, dividerPct, state, renderPx)`.
+12. **Tails.** The doc says tails are plain blocks; they are filled per segment (J:19468).
+13. **"Someone is on this job" refusal.** Week/month grid only; the day view doesn't check.
+14. **`updateJobSession`.** It also merges `pausedMsAtCheckpoint` and `unclosedAt`. The comment at `fn/timeclock.js:1196` is also wrong.
+15. **Counts.** "84 assertions" is now 94; the 17-site live-hours census is now 7 files.
+16. **Stale line numbers.** Throughout; e.g. J:15269 → 16890, J:11604 → 12838, AppState.swift:2335 → 3252.
+17. **Environment.** `.git/info/exclude` here does not list `tools/verify/`.
+
+Still open, as the doc says, and still present in the code:
+- a drag writing only `startHour` can invert start/end (J:16890; updTask is a shallow merge J:10543);
+- null-`startHour` semantics are undecided (J:10070);
+- the iOS live-hours helper is unfixed and carries a false comment (HoursCalculator.swift:43–49);
+- iOS progress creeps during lunch;
+- raw id comparisons remain;
+- the split has never been dragged or tested;
+- two pushes coexist;
+- there is no "hours complete, awaiting approval" signal;
+- style and geometry share one JSX attribute.
+
+The teleport gap is moot, because teleport was deleted.
+
+`docs/MAC-SCHEDULE-PARITY.md`:
+- stale line numbers (`renderTeam` 13902 → 16379, `getPersonBars` 13976 → 16472);
+- wrong `personStatus` values (actual: lunch/break/job/idle/offline, J:539);
+- Swift names are `WorkDayClock.day/walk`;
+- it lists `walkProductiveHours`/`dayWindowCfg` as missing in Swift, but `WorkDayClock` has them.
+
+Comments in the code that are now false:
+- S:974–979 and J:9738–9749: "every path that places an op asks THESE functions";
+- S:994–996: "`opInterval` mirrors `opHourRange`";
+- S:854 and S:203: past work "reports what it owes with a badge" (the badge is gone, and past work is hidden);
+- J:19289: unclosed is "emitted, not persisted" (it is persisted, J:7318–7342);
+- J:19241: "the fill takes the scalar";
+- J:16750: holidays are shaded;
+- J:6254: "never from code in this file";
+- `forgot-clockout.js:108–112`;
+- `statsMath.js:195` (payhours date is now org-local);
+- `db/sync.js:204–208` (mergeFullSlice does delete);
+- GanttView.swift:201 ("schema doesn't carry time-of-day").
+
+### G.3 Concepts with more than one definition
+
+| Concept | Definitions |
+|---|---|
+| **`hpd`** | AI schema "per day, NOT total" (J:355, 375, 4833, 4896); schedule "total ÷ team size" (J:16480, 17847); day view "clock hours, not divided" (J:17124); J:15197 × calendar days; iOS gantt per-day rate × span; iOS progress/scheduler total; iOS JobShifts daily window. Fallbacks `?? 7.5` (J:6127), `\|\| orgSettings.hpd` (J:6391), `productiveHoursPerDay` (S:816). |
+| **Overlap** | Five definitions (INV #1). |
+| **Now cursor** | Three formulas on the schedule (GE.7), plus day view, split gantt, and `TD` frozen at load. |
+| **Worked time** | Bar length uses the op total from `deriveWorkedState`; placement uses the row's own spans (J:17566, 17843); the split gantt uses a status guess (J:13079). |
+| **Live hours** | `liveOpHours` (no manual pauses), `liveElapsedHours` (wall minus pauses), the shrink (minus pauses), server credit (minus pauses, ignores freeze), iOS (wall minus pauses, start day only). |
+| **Work hours default** | 07:00/15:00 (state), 08:00/17:00 (`parseWorkHour`), 8/16 (`opInterval`), 5–21 grid, 7–18 shading, server `DEFAULT_WORK_END "15:00"`, iOS 8.0/17.0 fallback vs `default` 07:00–15:00. |
+| **Lunch default** | 60 min (`buildDayWindows`, WorkDayClock) vs 30 min (state, day view, iOS `OrgBreak`). |
+| **Day capacity** | `productiveHoursPerDay` (minus breaks and lunch) vs iOS `paidHoursPerDay` (minus lunch only) vs `checkOverlapsPure` `person.cap`. |
+| **Split** | `applyWorkedSplit` (divides by team, copies moveLog, dead path), team inline split (walk, no divide, resets moveLog), gantt `_calcEnd` (flat pro-rate, dead). |
+| **Parent date rollup** | `rollUpJobDates` vs `recalcBounds`. |
+| **Finish request** | `pendingFinish` (server/iOS), `finishRequest` (singular, web + server), `finishRequests[]`. |
+| **Finish audience** | web `userRole==="admin"` (J:11611, 11621) vs server `personCan(approveCompletions)` (`fn/timeclock.js:1937`) vs group approveCompletions (J:11550). |
+| **Panel bar rule** | web `!hasLiveChildren`; iOS GanttView "on panel team, on none of its ops"; iOS JobsScheduler leaf rule. |
+
+### G.4 Dead code in the schedule and gantt
+
+- **Whole components:**
+  - `renderGantt` (all of it, J:12451–13166)
+  - the schedule subtask-row branch (J:17342–17400)
+  - `renderMobileTeam` (J:24295)
+  - the Reschedule-op modal (J:34741–34838)
+- **Code paths:**
+  - the week/month push block (J:18796–18946), including `applyWorkedSplitGuarded`, confirm-push and `clampUnlocked`'s only call site
+  - copy/paste (J:11323, 11338, clipboard chip J:12944 / 17007)
+  - `isExp=false` branch (J:18087)
+- **Functions and variables:**
+  - `cascadeDeps` J:10717, `toggleLock` J:10316, `runOptimize` J:10345, `previewPullBack` J:10249, `linkingFrom`
+  - gantt `arrows` J:12485
+  - `liveBarStyle`, `drainMaskStyle`, `LIVE_BAR_LABEL_MIN_PX`
+  - `_workedCellsTotal`/`_workedRemainingBudget` J:19167
+  - gantt and split-gantt `ws`/`_workedPctOfSeg`/`bL`/`bR`/`bW`
+  - renderTeam `tW`/`totalH` J:16795
+- **CSS and parameters:**
+  - `.sched-person-glow` (J:1313)
+  - the `hasActiveSession` argument
+- **statsMath exports** tested but unused by the app: `pushedBarRange`, `packActiveRow`, `idleLeftOfCursorH`, `intervalsOverlap`, `rowOverlaps`, `firstFreeStart`, `normalizeToWorkTime`, `isAssignedHere`.
+- **Data never read:** `unclosedAt`, `actualHours/actualStart/actualEnd/planned*`, Ably orgConfig slice, `person.autoSchedule`.
+- **iOS:** `DatePickerSheet`, `ScheduleFocus`, `AppState.opLoggedDays`, `OrgSettings.productiveHoursPerDay`, the finished branch in `workedHours`.
+
+### G.5 What was inferred rather than read
+
+These are marked **[inferred]** above and in the defect list:
+- the tasks and people sync stalling after a 403;
+- lost updates between the server and a client autosave;
+- the end-job double count of `loggedHours`;
+- non-atomic one-clock check;
+- `reflowJob` sibling moves surviving a rejected drag;
+- week-mode resize having no visible effect;
+- the push axis landing at a different clock time than the painted blocker;
+- cursor-anchored bars vanishing after hours;
+- the `TD` midnight skew;
+- DST offset;
+- z-order conflicts;
+- holiday column misalignment;
+- eng chip `NaN%` left;
+- the "past check vs pushed bar" false refusal;
+- spurious "assigned" pushes on a split;
+- passive `onWheel` making `preventDefault` a no-op;
+- the unmigrated payhours read path (S3 was not checked).
+
+Everything else was read at the cited line. Nothing was run against live data.
+
+---
+
+## DEFECT LIST
+
+1. The server enforces no schedule rule (overlap, lock, department, business days, past, active clock); `fn/tasks.js` checks permissions only.
+2. Week/month move never pushes, reflows or runs `enforceNoOverlap`; J:18796–18946 is unreachable (J:18642 always returns).
+3. The live week/month move writes no `moveLog`.
+4. Locked ops can be dragged in week/month; `_dragBlocked` omits `locked` (J:19164, 19388).
+5. Day-view move and resize have no permission, lock, active-clock, overlap, PTO or department check (J:16820–16905).
+6. Day-view reassign uses strict `target.id !== fromPersonId` (J:16890).
+7. The day view uses a hard-coded 5–21 grid and 7–18 shading instead of org hours (J:16807, 17065, 17079, 17093, 17231).
+8. Day-view drag assumes it shows today; pan, wheel and `goToScheduleJob` can move it (J:16849, 12418, 12445, 15430).
+9. Day-view right resize overwrites a multi-day op's total `hpd` with ≤ 16 clock hours (J:16904).
+10. Day-view handles anchor on `startHour ?? 8`, not the rendered position (J:17251, 17257, 16811).
+11. Day view packs single-day Business bars without lunch skip or team division (J:17162–17166).
+12. Day-view multi-day lunch walk defaults lunch to 30 min vs 60 in `buildDayWindows` (J:17146 vs J:676).
+13. Day-view break overlay starts from `wsH`, not the bar's start, so it is misplaced (J:17263–17270).
+14. Day view hides all work on a PTO day; week/month draws work over the PTO bar (J:17235 vs z-order).
+15. Day-view live badges use the row person's `reservoirOpId`; week/month uses anyone's `opId` (J:9867 vs J:19203).
+16. Day-view before-now refusal applies on every tier; week/month only on Business (J:16858, 16887 vs 18567).
+17. Cross-row record bars are draggable in the day view and write worked hours into `hpd` (J:16637–16648).
+18. Week/month move checks overlap, PTO and past for the grabbed bar only; group and multi members are unchecked (J:18759–18776).
+19. Multi-select drag reassigns only the grabbed bar (J:18759–18776).
+20. Multi-select drag silently skips members with overdue hours (J:18233).
+21. `_computeMonthMove` uses `addBD`/`diffBD` without org opts (J:18733–18739).
+22. `_finalVWD` uses the flat pro-rate with opts-less `addBD` for the PTO check, a different end from the committed walk (J:18591–18595 vs J:18729).
+23. The PTO check on drop uses a different end than the commit (J:18616 vs J:18729).
+24. Drag overlap test `_opVisual` uses stored positions and counts hidden past ops (J:18481–18530).
+25. The past check uses the stored start while the ghost shows the pushed position (J:18567 vs J:17646) [inferred].
+26. The main drag ghost width is a flat pro-rate, not `walk.columns` (J:17664).
+27. Group and multi ghosts leave the last segment uncapped (J:17710, 17735).
+28. Group and multi ghosts ignore `pushBD` (J:17645).
+29. Ghost radius 26 differs from bar radius `radiusXs`.
+30. `_visualWD` is `ceil(hpd/ppd)` and ignores the start hour (J:18154).
+31. Week/month resize calls `updTask` → `reflowJob` on every mousemove; the revert restores only the resized op (J:19058–19107, 10536) [inferred].
+32. Week/month resize pushes one undo snapshot per mousemove (J:19078).
+33. Week-mode resize writes only start/end, but length comes from `hpd` (J:19064–19080) [inferred].
+34. Month resize `_computeHpd` stores a per-person span as the op's total `hpd` (J:18996).
+35. Resize has no past check (J:19018–19130).
+36. Resize has no PTO check (J:19018–19130).
+37. Resize has no `blockedByActiveClock` check on drop (J:19108–19130).
+38. Resize ignores holidays via opts-less `nextBD` (J:19097).
+39. Resize of a panel or general-job bar skips revert, lock check, moveLog and push (J:19100–19123).
+40. Resize checks only `team[0]` (J:19094).
+41. Resize runs `previewPush`/`applyPushes` on Basic (J:19126).
+42. A moveJobs-only admin gets 403 on every resize because `moveLog` needs editJobs (task-perms.js:35, 159).
+43. `applyPushes` writes `moveLog`, so a moveJobs-only admin's pushes 403.
+44. Split-on-drag writes `locked`, a new op and `loggedHours`, which need editJobs under a moveJobs gate (J:18673–18731).
+45. Split-on-drag has no overlap, PTO or lock guard (J:18673–18722).
+46. The team inline split doesn't divide `hpd` by team size (J:18665–18720).
+47. Three split implementations disagree on moveLog, id scheme, team division and guard (J:9709, 18665, 12589).
+48. Splits copy `team` to a new op, likely firing a spurious "assigned" push [inferred].
+49. There is no UI to unlock an op; `toggleLock` is dead (J:10316).
+50. `reflowPhaseOps` moves locked and Finished ops (J:3461–3487).
+51. `reflowPhaseOps` forbids two same-person ops on one day even when their hours don't overlap (J:3461–3487).
+52. `reflowJob` and `enforceNoOverlap` move ops without a `moveLog` entry (J:3513, 9774).
+53. `enforceNoOverlap` computes every shift against the pre-shift list (J:9786–9807).
+54. Ops `enforceNoOverlap` refuses stay overlapping with only a `console.warn` (J:9786–9807).
+55. `opInterval` reads `durationH`, which the app never writes, so single-day ops without `endHour` are zero-width (S:1003).
+56. `opInterval` ignores length, overrun and push on multi-day ops (S:994–1010).
+57. `opHourRange` and `opInterval` disagree though documented as mirrors (J:10069, S:994).
+58. `previewPush` is day-granular and ignores `startHour` (J:9596–9630).
+59. `previewPush` uses opts-less `addBD`/`diffBD` (J:9613–9619).
+60. `previewPush` compares team with strict `.includes` (J:9601).
+61. `checkOverlapsPure` is a daily capacity model, counts weekends and uses strict ids (J:9480–9508).
+62. There are five inconsistent definitions of overlap (J:18512, 9608, 9750, 9480, 3461).
+63. "Move only this one" deliberately commits an overlap (J:18941, 19136, 34826).
+64. The row push axis is clock-linear while the render spends it lunch-aware, so collisions land off the blocker's end (S:183 vs J:17881) [inferred].
+65. `rowPushHours` `dayFraction` isn't capped at ppd after hours (S:183).
+66. `rowPushHours` needs sorted input, enforced only by the caller (S:182, J:17531).
+67. `hasActiveSession` is passed to `rowPushHours` and ignored (J:17577, S:932).
+68. Two row-push mechanisms coexist (`overrunPushH` and `rowPushHours`) (J:17497, 17552).
+69. Cursor-anchored bars aren't clamped to work hours or work days (J:17932–17940).
+70. After close, a cursor-anchored head collapses to zero width [inferred].
+71. `_visualEnd` ignores the push (J:16477–16499).
+72. `TD`/`NOW` are frozen at module load (J:474).
+73. The drawn now line uses `TD` while bar dividers use `new Date()` (J:19490 vs J:17772).
+74. The schedule has three separate now-cursor formulas (J:17776, 19493, 19231).
+75. `Date.now()` is read about 8 times per bar within one render (J:17772–19333).
+76. The org timezone is ignored by all schedule geometry; everything is browser-local.
+77. `productiveHoursBetween` is off by one hour on DST days relative to `getHours()` (S:442) [inferred].
+78. `weekdaySegments`, `countWorkingDays` and `addWorkingDays` never skip holidays (J:578–620).
+79. Holidays are never shaded in the grid or headers (J:17332, 17617).
+80. Bars likely paint across a holiday column and come up one column short [inferred].
+81. Opts-less `addBD`/`diffBD` appear in `buildSessionSnapshot`, `placeTaskAt`, the pending drop, `findNextSlot`, `reflowPhaseOps` length, the tooltip and `clampUnlocked` (J:10083, 10638, 10657, 10325, 3467, 19561, 18219).
+82. The `addBD`/`nextBD` loops have no bound and hang on an empty work week (J:625–626).
+83. `walkProductiveHours` relies on sorted dead windows without sorting them (J:776).
+84. `recalcBounds` doesn't skip undated or deleted nodes, unlike `rollUpJobDates` (J:10291 vs J:3491).
+85. `updTask` panel moves shift by calendar `addD` (J:10562).
+86. Import `shiftRangeForward` uses calendar days (S:769).
+87. Unfinished past-due untouched work disappears from the schedule entirely (J:16548, 16574, 16597).
+88. The bar sort comparator returns 0 for non-task pairs, so the order is unstable (J:16637–16642).
+89. `handleTeamPan` hard-codes a 260 px gutter while `lW` is 250–510 (J:12397 vs J:16445).
+90. Head and tail segments of one bar use different fill models (J:19324 vs J:19461).
+91. The lunch gap is never painted on the head segment (J:19324, S:574–582).
+92. `activeBarFill` has no distinct paint for running, held, paused, worked or scheduled (J:2606).
+93. Title and icon contrast is computed against idle grey on plain-colour heads (`_leftIsGrey`, J:19356).
+94. `_ownerOnTheClock` is named the opposite of what it means (J:19311).
+95. DONE bars are muted twice (`barPaint` then `spentBarFill`) and faded to 0.7 (J:2895, 2514, 2903).
+96. DONE title and hours text contrast against `bc`, not the spent fill (J:19405–19406, 17256).
+97. The hours label contrasts against `bc` even over hatch, idle or spent fill (J:19406).
+98. The hours tooltip says "h left" but shows total length (J:19406).
+99. When the label moves to a tail, the head still shows DONE/HELD/hours and the tail repeats the hours (J:19404–19406, 19470–19474).
+100. Tails never show lock, dep, DONE or HELD marks (J:19426–19478).
+101. The overrun extension has no distinct paint and no badge (J:17795).
+102. Overrun bars can't be dragged at all (J:19164).
+103. There is no visual state for pending finish, finish requested, overdue vs `dueDate`, non-Finished job status, or the unclosed clock.
+104. The dep-group "locked" glyph is the same padlock as an op lock (J:19395–19396).
+105. Hover dimming keys on `task.pid`, so panel and op bars never dim as siblings (J:19184, 19391).
+106. Eng chips are never dimmed, filtered or tier-gated (J:18079).
+107. Eng chips with no Wire op and no panel start get `left: NaN%` (J:16618) [inferred].
+108. All-done eng chips never leave the schedule.
+109. Eng chips are positioned by an op titled "Wire", coupling data to display text (J:16648).
+110. Eng-chip text is hard-coded `#fff` on green/blue (J:18081).
+111. The lock border and grips are white, which disappears on light themes (J:19390, 19392, 17252).
+112. The select border and check are hard-coded `#fff` (J:19390, 19394).
+113. `_schedDk` uses `hexLum < 0.5` instead of `wantsLightText` (J:16753).
+114. The highlighted bar ties the sticky column at z10 and paints over names on scroll [inferred].
+115. The today line crosses the sticky name column in month zoom (J:19498, 17602) [inferred].
+116. The external live label overlaps neighbouring bars (z8 over z4) [inferred].
+117. `barDropIn` and `scheduleGlow` animations override dim, fade, hover, selected and locked styles (J:1039, 1043).
+118. The row-header team-number label differs between day and week/month (J:17221 vs 17607).
+119. Basic lanes apply to the head only; tails, ghosts and dots stay full height (J:19468, 17687, 19417).
+120. Basic lanes cover only bars with a stored `startHour` on their start day (J:17456).
+121. Basic lanes use clock `startHour + hpd`, not the painted position (J:17463).
+122. `singleDayStacking` isn't tier-gated, so Basic is both packed and laned (J:17425).
+123. Basic overrun growth runs without push, so grown bars overlap without lanes [inferred].
+124. `reflowJob` isn't tier-gated, so Basic gets serialised despite the "visual only" rule (J:10536).
+125. Billing tier is enforced only on the client (J:4379–4394).
+126. The split gantt colours panels by status and jobs fixed grey, ignoring `elColor`, `barPaint` and `barFade` (J:13178, 13257).
+127. The split gantt progress fill is a status-label guess, not hours (J:13079).
+128. Split gantt text is hard-coded `#fff` (J:13306, 13316).
+129. The split gantt today line sits at mid-day, not the current hour (J:13327).
+130. The split gantt is day-granular without push, overrun or cursor, so ops sit elsewhere than on the schedule.
+131. Split-gantt `ws`, `_workedPctOfSeg`, `bL`, `bR` and `bW` are computed and unused (J:13262, 13278–13294).
+132. `renderGantt` is unreachable: `taskSubView` is never set to "gantt" (J:15087, 4765, 5381).
+133. The schedule "subtask" row branch is unreachable (J:17342–17400).
+134. `cascadeDeps` has no callers (J:10717).
+135. The Reschedule-op modal is never opened (J:34741–34838).
+136. The Reschedule-op modal commits before confirm, so Cancel wouldn't revert (J:34829).
+137. Copy/paste is unreachable (J:11323, 11338, 12944, 17007).
+138. `clampUnlocked`'s only call site is unreachable (J:18217).
+139. `runOptimize`, `previewPullBack` and `linkingFrom` are dead (J:10345, 10249).
+140. `liveBarStyle`, `drainMaskStyle` and `LIVE_BAR_LABEL_MIN_PX` are dead (J:2690–2743).
+141. `_workedCellsTotal`/`_workedRemainingBudget`, `isExp`, `tW`/`totalH` and gantt `arrows` are dead (J:19167, 18087, 16795, 12485).
+142. The `.sched-person-glow` hover never renders; no `.sched-person` element exists (J:1313, 17603).
+143. The person card has no click handler; `canEditPerson` only colours the dead glow (J:17592–17603).
+144. Row reorder uses `Number(rid)`, so it no-ops for string `uid()` ids (J:10424).
+145. Row drag to a group writes `role`, but rows group by `department` (J:10441, 10451 vs 16459).
+146. Row reorder is ungated and persists array order for any user (J:10411) [inferred].
+147. PTO drag and resize are gated by moveJobs while the PTO menu uses manageTeam (J:18093, 18953 vs 34176).
+148. A PTO drag by a non-manageTeam admin is silently reverted in people.json but still edits the timeoff request (J:10470, `fn/people.js`, `fn/timeoff.js:325`).
+149. `timeOff` entries have no id and are addressed by array index (J:10464, 16540).
+150. Stale roster snapshots from settings overwrite concurrent `timeOff` approvals (J:28519–28597).
+151. `timeoff.js` writes people.json without a fresh re-read (`fn/timeoff.js:429–432`) [inferred].
+152. `placeTaskAt` is gated by moveJobs but overwrites `team`, which needs reassign (J:10639).
+153. `placeTaskAt` and `handlePendingItemDrop` skip overlap, PTO, past, lock and department checks (J:10624–10673).
+154. The pending-tray drop changes `status`, which needs editJobs (J:10664).
+155. The pending tray ignores the item's `requiredDepartment` (J:35129).
+156. The department rule isn't enforced on drag reassign, day-view reassign, placing, the tray, simple edit, the op editor picker or planAssign (J:18596, 10679, 10639, 10664, 26267, 35461, 31984).
+157. Auto-schedulers fall back to all crew when a department has nobody (J:26585–26588; JobsScheduler.swift:191–197).
+158. JobsSchedulerTests asserts the department fallback as intended behaviour (:136–138).
+159. The Basic simple edit collapses the whole team into `subs[0]` and sets `start=end=date` with no checks (J:26267–26282).
+160. The Basic bar click opens the simple edit modal for every user, with no gate (J:10907).
+161. The TRAQS Cloud tray opens the edit wizard with no gate (J:30485).
+162. Add Dependencies and the dependency-mode toggle are ungated (J:33958, 34001).
+163. The dep-mode toggle calls `saveTasks` inside a state updater with a stale closure (J:33958).
+164. Bulk bar delete is gated by `isAdmin`, not editJobs (J:16921, 34882).
+165. Bulk bar delete skips `blockedByActiveClock` (J:34882 vs 10703).
+166. Bulk bar delete says "cannot be undone" but is undoable (J:34882).
+167. Context-menu Delete on a schedule bar deletes the whole parent job (J:34012–34018).
+168. "+ Add Member" is gated by `isAdmin` while the server needs manageTeam and drops silently (J:17061).
+169. Complete Now requires editJobs + approveCompletions on the client but only editJobs on the server (J:11820).
+170. `adminApproveJobFinish` writes `status`, so an approver without editJobs gets 403 (J:11647).
+171. Set Worked Hours uses editJobs on the client and isAdmin on the server (J:32392, `fn/timeclock.js:1316`).
+172. Web Request Completion writes `finishRequest` (singular), so a worker's request 403s (J:11593).
+173. Web finish requests never set `pendingFinish`, so the freeze and the Requests tab never see them (J:11606–11611).
+174. There are three parallel finish-request representations (`pendingFinish`, `finishRequest`, `finishRequests[]`).
+175. Schedule-side approve/reject leave `finishRequests` open and `finishRequest` set (J:21654–21681).
+176. The finish-request audience is `userRole==="admin"` on web vs `approveCompletions` on the server and in the group (J:11611, 11621, 11550; `fn/timeclock.js:1937`).
+177. Rejecting a finish never sends `frozenAtMs: null`, so the session stays held (J:21673, 11705–11740).
+178. Chat deny skips `revertSession` (J:11705–11740).
+179. Chat approve doesn't clear `activeJobClock` locally (J:11651–11695 vs 21671).
+180. The server `finishRequest` path writes tasks.json from an unauthenticated PIN/kiosk request with a caller-supplied requester (`fn/timeclock.js:1861`).
+181. Every worker (non-admin) task write — clock-in status, pendingSession, finish request, end-job loggedHours, persistShrink — gets 403 (J:22560–22652, 21521, 6258, 11607).
+182. After one rejected save the client stays "unsaved" and the poll and slices stop refreshing tasks and people (J:8374, 8385, 8716) [inferred].
+183. A failed save is never rolled back; every later whole-array POST resends the rejected change (J:8564–8575).
+184. Direct `saveTasks` calls swallow failures with `.catch(console.warn)` (J:6274, 11617, 21533, 22584, 22652, …).
+185. There is no optimistic concurrency; whole-array POSTs clobber server-written `status`, `loggedHours` and finish fields (`fn/tasks.js:96–97`) [inferred].
+186. End job adds `res.hours` to the client copy the server already credited, and never credits the panel (J:22640–22652 vs `fn/timeclock.js:1177–1197`) [inferred].
+187. Pay clock-outs add whole pay shifts to `job.loggedHours` via `jobRefs` (`fn/timeclock.js:548–560, 1623–1635, 1784–1797`).
+188. `actualHours` is computed from payroll `jobRefs` hours and is never read (J:9954–9956).
+189. The freeze and drain-rebaseline effects run in every open browser with no ownership gate (J:6258–6285, 10025–10048).
+190. Non-admin browsers call `updateJobSession` for other people and get 403 (`fn/timeclock.js:1216`).
+191. The `unclosedAt` effect gates on manageTeam while the server checks isAdmin (J:7334).
+192. `frozenAtMs` and `sessionSnapshot` are stored in both people.json and tasks.json, written by different clients (J:6268).
+193. The freeze effect can stamp `pendingSession` and save twice from a stale `people` reference (J:6257) [inferred].
+194. `jobClockOut` ignores `frozenAtMs`/`unclosedAt`, so credited hours don't match the frozen display (`fn/timeclock.js:1114–1121`).
+195. `updateJobSession` does no validation of the fields it merges (`fn/timeclock.js:1221–1237`).
+196. The one-live-clock check is a non-atomic read-then-write (`fn/timeclock.js:1015–1070`) [inferred].
+197. The pay-clock-before-job-clock rule is disabled (`fn/timeclock.js:14`).
+198. People PATCH doesn't pin `activeJobClock`/`activeClockIn`/`activeBreak`, so a worker can forge their own session (`fn/people.js:239–265`).
+199. `liveOpHours` doesn't subtract manual pauses, so live progress overstates and then drops at clock-out (J:6369–6372).
+200. Manual-pause hours disagree three ways: live bar, shrink and server credit (J:6369, 9844; `fn/timeclock.js:1121`).
+201. Negative admin adjustments reduce hours but not spans, so the hatch and the hours number disagree (S:305; `fn/timeclock.js:1390–1401`).
+202. Non-admins receive only their own production rows, so other people's progress on their schedule uses the drifting counter (`fn/sync.js:91–93`).
+203. `shrunkStartH`/`persistShrink` add wall hours to a clock `startHour`, ignore lunch, and mix start-day and end-day hours (J:9890, 9914) [inferred].
+204. `finishedOpFields` repositions approved bars with a backward walk (J:9985).
+205. The auto-end of stranded clocks compares ids with strict `===` and can fire `jobClockOut` on a type mismatch (J:8861–8887).
+206. Server jobClockIn and jobClockOut use strict ids while `creditPanelHours` uses `String()` (`fn/timeclock.js:1075, 1084, 1178–1187` vs 155).
+207. Strict id comparisons in scheduling paths violate the `sameId` rule (J:5908, 9283, 9485, 9497, 9505, 9564–9572, 9601, 9795, 10329, 10485, 10680, 12726, 13258, 16890, 21515, 22563, 22567, 26491, 26603, 26733, 27411, 27603).
+208. The op editor writes team ids as strings, which triggers those mismatches (J:35461).
+209. AI suggest and capacity treat any `subs` as children, ignoring `deletedAt` (J:9497, 27603).
+210. `hpd` has contradictory meanings across AI schema, schedule, day view, J:15197 and iOS.
+211. `hpd` fallbacks disagree (`?? 7.5`, `|| orgSettings.hpd`, `productiveHoursPerDay`) (J:6127, 6391, S:816).
+212. Org `hpd` is re-derived from gross work hours on every load and saved back, overriding the saved value (J:5881, 7741–7745, 8611).
+213. Work-hour defaults disagree (07:00/15:00, 08:00/17:00, 8/16, 5–21, 7–18, server 15:00, iOS 8/17 vs 07–15) (J:5881, 5896–5903, 17119).
+214. The lunch default is 60 min in `buildDayWindows` and 30 min elsewhere (J:676 vs 5881, 17146; iOS `Models.swift:1207`).
+215. There are three end-of-day rules (client `openSessionEnd`, server after-hours with org tz, live hours in browser tz).
+216. `cap` fallbacks disagree (`|| 8`, `|| productiveHoursPerDay`, `|| orgSettings.hpd`) (J:9234, 9486, 10931).
+217. `loggedInUser` falls back to `people[0]` when no email matches (J:7641, 7682–7686).
+218. Undo captures poll and server merges, so undo can revert other users' and server writes (J:8401, 8723).
+219. Undo is client-only; the server can't tell an undo from an edit.
+220. Ctrl/Cmd+Z calls `preventDefault` unconditionally, killing native text undo and firing for users without undo rights (J:5475–5480).
+221. `setPeople` has no undo history, so PTO and row moves can't be undone (J:5445).
+222. No schedule move notifies the affected worker (only team, status and finish changes do).
+223. `normalizeTasks` persists derived `color` and `requiredDepartment` defaults (J:7553–7590).
+224. `normalizePeople` persists derived `department` (J:7548).
+225. The settings rehydrate merge can't remove keys, and a stale localStorage copy can be re-saved (J:8768, 5881).
+226. Non-admin setting changes POST and 403 silently (`fn/settings.js:38`).
+227. `moveLog` is unbounded and every autosave POSTs the whole tree (J:8561–8568).
+228. `unclosedAt`, `actualHours`/`actualStart`/`actualEnd`/`planned*` and the orgConfig slice are written but never read (J:7340, 9969–9998, 8770).
+229. `person.autoSchedule` exists only in the server PROTECTED list (`fn/people.js:15–19`).
+230. The payhours/productionhours migration never auto-runs; unmigrated orgs read empty datasets (`_utils/migrate-timeclock.js:15–16`) [inferred].
+231. React `onWheel` `preventDefault` calls are likely no-ops, since the listeners are passive (J:12428, 12439) [inferred].
+232. `renderMobileApp` calls `useState` behind a ternary, so the hook order changes across 768 px (J:24107, 30374).
+233. There are no touch handlers; every schedule interaction is mouse-only.
+234. `renderMobileTeam` is unreachable (J:24295, 24502).
+235. macOS has no native schedule, only a "Not ported yet" placeholder (NativeShell.swift:257–263).
+236. The macOS "Take me to schedule" lands on the placeholder (JobsPage.swift:633–637).
+237. macOS "Reschedule" is permanently disabled (JobsRowMenu.swift:265–269).
+238. The iOS gantt reads `hpd` as a per-day rate × business-day span (GanttView.swift:376–386).
+239. Native code reads `hpd` three ways: gantt, progress/scheduler and JobShifts (GanttView.swift:385, HoursCalculator.swift:80, JobsScheduler.swift:96, JobShifts.swift:40).
+240. The iOS gantt doesn't divide by team size (GanttView.swift:340).
+241. The iOS gantt draws panels whose ops belong to others (the 75-hour-bar bug) (GanttView.swift:342–360).
+242. iOS has two panel-bar rules (GanttView vs JobsScheduler leaf rule) (JobsScheduler.swift:318–323).
+243. The iOS gantt ignores stored `startHour`; its comment says the schema lacks it (GanttView.swift:201).
+244. The iOS gantt uses a hand-rolled lunch-only step instead of `WorkDayClock`, and ignores breaks (GanttView.swift:391–430).
+245. iOS day capacity uses `paidHoursPerDay`, which removes lunch but not breaks (GanttView.swift:221, Models.swift:1385–1394).
+246. `OrgSettings.productiveHoursPerDay` on iOS is dead and uses the abandoned flat formula (Models.swift:1364–1375).
+247. The iOS gantt has no cursor: untouched past work is placed on past days and backlog eats capacity (GanttView.swift:227, 257–293).
+248. The iOS gantt rolls history forward instead of hiding it (GanttView.swift:319–332).
+249. Overrun is invisible on iOS; the worked fill caps and the bar never grows (GanttView.swift:457).
+250. iOS `liveHours(forOp:on:)` has no freeze, no lunch or break deduction, and only counts on the start day (AppState.swift:3292–3303).
+251. The iOS gantt ignores holidays (GanttView.swift:180–183, 485–499).
+252. iOS has no PTO, eng-chip, cross-row, locked or finished states.
+253. iOS bar colour comes from title keywords instead of `panel.color` (GanttView.swift:501–529).
+254. iOS week mode has no previous/next-week navigation (GanttView.swift:1077–1102).
+255. iOS `DatePickerSheet`, `ScheduleFocus`, `opLoggedDays` and the finished `workedHours` branch are dead (GanttView.swift:1399–1431, 586–590, 437; AppState.swift:3276).
+256. iOS `dayShort` and `dayFull` share one format, so the subtitle duplicates the title (GanttView.swift:1436–1441).
+257. iOS hour labels truncate fractional start hours, and the week `hourCount` truncates (GanttView.swift:717, 1141, 1176).
+258. The iOS sort tie-break concatenates `jobNumber + panel.id` as strings (GanttView.swift:371).
+259. iOS `rescheduleUnit` shifts by calendar days, so dependents can land on weekends (AppState.swift:2040–2043, 2094).
+260. iOS `rescheduleUnit` writes no `moveLog` (AppState.swift:2079–2121).
+261. iOS `rescheduleUnit` has no lock, active-clock, before-now or overlap check (AppState.swift:2079–2121).
+262. An iOS panel reschedule leaves its ops and the job/panel envelope stale (AppState.swift:2079–2121).
+263. iOS `hasDependents`/`dependentOpIds` ignore panel-level `deps` (AppState.swift:2047–2067).
+264. iOS `OrgBreak` decodes a missing duration as 30 min while `WorkDayClock` and the web use 60 (Models.swift:1207–1210).
+265. iOS `workStartHour`/`workEndHour` fall back to 8/17 while `OrgSettings.default` is 07:00–15:00 (Models.swift:1397–1407 vs 1253–1256).
+266. iOS JobHealth has drifted from web `getHealth` (missing the `loggedHours`/`pctDoneOverride` rule) (J:817–832).
+267. `no-overlap-test` mostly exercises app-dead helpers with a field (`durationH`) the app never writes.
+268. `job-live-hours-test` and `render-perf-test` test source slices and copies, not the real code.
+269. `live-hours-native-grid` always exits 0 while reporting 8 native divergences.
+270. `check-live-hours` skips Swift.
+271. `timeclock-itest` has no jobClockIn or updateJobSession coverage.
+272. `row-push-test` "pan stability" feeds identical inputs and can't catch the call site (J:17541).
+273. `npm run build` doesn't run the row-push, no-overlap, worked-spans or live-hours suites (package.json:8).
+274. No test covers task-perms, `previewPush`, `applyPushes`, `enforceNoOverlap`, `reflowJob`, `recalcBounds`, `walkProductiveHours`, `buildDayWindows`, `weekdaySegments`, `addBD`, `shrunkStartH`, `finishedOpFields` or any render/drag math.
+275. No iOS test covers `GanttView`, `rescheduleUnit`, `hasDependents` or `liveHours(forOp:on:)`.
+276. `DYNAMIC_SCHEDULE_HANDOFF.md` is stale on branch state, deleted functions, the live-bar model and the "lengthen-only" push.
+277. `docs/MAC-SCHEDULE-PARITY.md` has stale line numbers, wrong `personStatus` values and wrong Swift names.
+278. Code comments describe behaviour the code no longer has (§G.2 list).
+279. `computeJobOptimize` is a further independent placement algorithm with its own business-day math, unreviewed (J:10119).
+280. `live-hours-native-grid` transcribes Android from before 0f50559; its three Android variants no longer match source (HoursCalculator.kt:35–47), so 3 of its 8 reported divergences are phantom.
+281. `live-hours-native-grid` cites stale iOS lines: op-progress is AppState.swift:3298–3300, not :3273; TasksView is :1344–1346, not :1335.
+282. iOS AppState.swift:3255 and AppState+JobsProgress.swift:51 also call `HoursCalculator.liveElapsedHours` without `pausedAt`; the grid doesn't cover them.
+283. Android `HoursCalculator.liveElapsedHours` ignores `frozenAtMs` (HoursCalculator.kt:29–34); a held session keeps accruing. The grid has no freeze case.
+284. Duplicate `cursor` key in the Drop-in-schedule button style (J:32053 and J:32058); the first is dead.
+285. Local `node_modules` was missing `eslint` despite the lockfile, so `npm run build` failed at lint before any suite ran.
+286. End-job's client POST (J:22641–22652) carries a stale `panel.loggedHours` after jobClockOut has credited the panel (timeclock.js:1186); for a caller with editJobs it succeeds and rolls the panel credit back.
+287. [root cause 3] `persistShrink` trusts the client's `startHour` value: jobClockOut bounds it (raise-only, ≤ endHour − 5 min) but does not recompute it (timeclock.js `applyShrinkStartHour`).
+288. Web and iOS raise finish requests through different paths: iOS calls timeclock `finishRequest` (sets `pendingFinish`, posts the chat bubble server-side); web writes `finishRequest`/`finishRequests` through /tasks and posts its own message (J:11650–11700).
+289. The auto-schedulers fall back to the whole crew when no one in an op's department is free (J:26585–26588); they should fail loudly instead. The server now refuses the out-of-department assignment they produce.
+290. `JobsSchedulerTests` (Swift) asserts the department fallback to everyone as intended behaviour; it must change with #289.
+291. A stale whole-array POST tombstones jobs created after the client loaded: `reconcileDeletions` treats every stored id absent from the POST as a deletion (`_utils/timestamps.js:134`), and the per-job conflict check cannot see a job the POST doesn't contain. Needs a client-supplied base (or explicit deletions) to fix.
+292. people.json read-modify-writes are still unconditional everywhere except jobClockIn and updateJobSession (≈30 sites in timeclock.js, plus people.js, timeoff.js, invite.js, org-config.js, forgot-clockout.js); a concurrent write between read and write is lost.
+293. The business-day and past rules can't fire through /tasks today: only admins hold moveJobs, and admins are exempt from both (scheduleRules.js). They take effect only if non-admins are ever given schedule-changing permissions.
+294. iOS/Mac `AppState.persistJobs` shows "Couldn't save — check your connection" for every failure and never reads the server's message; it must surface 422/409 messages before SCHEDULE_RULES_MODE or TASK_CONFLICT_MODE is set to enforce. It also ignores the `conflicts` list (a stale edit is dropped silently until delta sync catches up).
+295. Timeclock admin actions (adminClockIn/Out, adminEdit*/Add*/Delete*/Reopen*, confirm/unconfirmTimesheet, adminLunch/Break*) and adminJobHours check bare isAdmin; no granular permission key exists, so a restricted admin keeps full timeclock power (timeclock.js:579, 745, 1014, 1049, 1533). Deferred: needs a new key on both sides.
+296. A worker raising their first web finish request is never added to the "Completion Requests" group: groups.js drops edits to groups the poster isn't in, so `ensureCompletionGroup` (J:11613) can't add them and their request message can't be posted to the thread.
+297. Clearing a job/panel/op thread's chat is still open to any participant (messages.js DELETE); only group threads are restricted to creator-or-admin.
+298. Web gates not split in root cause 4: the Time Clock Settings modal (opened on isAdmin) mixes org settings (need orgSettings) and team pay/PIN rows (need manageTeam); Settings → Organization → Permissions/Time Clock team rows are under orgSettings but write people (need manageTeam); the User Permissions modal toasts "PIN saved" when the server dropped the PIN; the person modal's timeOff edits drift from the time-off request record (people write needs manageTeam, timeoff edit needs isAdmin).
+299. A week/Gantt drag that splits a partly worked op adds a node and writes status/locked/loggedHours, so it needs editJobs as well as moveJobs; the drag checks only moveJobs.
+300. Mac New Job sheet pre-fills 7.5 h for every new op and panel (`OperationDraft.hours` / `PanelDraft.hours`, JobsNewJobSheet.swift ~884, ~899; "7.5" placeholders ~1040, ~1237), saved as-is and kept in templates. Under the total-estimate meaning that is a guess, not an estimate. UX decision deferred.
+301. Old iOS builds (before 88e1ce6) decode an absent/null hpd as 7.5 and write it back on every whole-array save, so each old-build save converts every unestimated node in the org to 7.5. The server can't tell old builds apart: every iOS build sends CURRENT_PROJECT_VERSION = 1 in its User-Agent and no version header.
+302. [feature] Crew scheduling: the iOS auto-scheduler (JobsScheduler.place) assigns one person per unit and sizes for one, overwriting a multi-person team from the form. Scheduling a unit across the form's crew (N free, department-matched people, sized hpd ÷ N) would be a new feature, not a fix.
+303. The auto-schedulers are the sixth overlap definition and the source of all 9 live overlapping pairs at Matrix (2026-09-30): web isPersonFree / isPersonFreeLocal / isPersonFreeGlobal and iOS JobsScheduler.isFree check whole days, compare ids strictly and ignore each person's other work, so they place units onto occupied time. Moving them onto the shared overlap rule (src/overlapRules.js) is the last piece of root cause 5.
+304. iOS schedule geometry ignores the org timezone: OrgSettings has no timeZone field and the app uses Calendar.current in ~66 places (GanttView, TasksView, ScheduleDate parsing…). Deferred from root cause 6 to its own pass.
+305. The web day view's hour grid (5–21) and its off-hours shading (7–18) are hard-coded and never read the org's workStart/workEnd. Found in root cause 6; not fixed.
+306. iOS `OrgSettings.productiveHoursPerDay` (Models.swift ~1404) parses a malformed workStart/workEnd as 08:00 (both malformed → 0-hour block, floored to 1), and `paidHoursPerDay` falls back to 8; neither uses the 07:00–15:00 defaults. Found in root cause 6; not fixed.
+307. iOS `OrgBreak` decoding falls back to 30 minutes when durationMinutes is missing; the break default is 15. Found in root cause 6; not fixed.
+308. The web admin break timer's fallback (`breakStartTs`, J:~13501) takes "today" as the UTC date (`toISOString().slice(0, 10)`) and matches it against the server's org-local `date`, so after 18:00 Denver it looks in tomorrow's events and misses an open break. Found in root cause 6; not fixed.
