@@ -6,8 +6,9 @@
 //
 // SCHEDULE_MAP root cause 3: every schedule rule used to live only in clients, so
 // iOS, the Mac app, the API or a stale tab could break any of them. The server now
-// checks the ones every client agrees on. Overlap and the work-hours window stay
-// client-only until their definitions are unified (their own root cause).
+// checks the ones every client agrees on. Overlap is now one rule too, in
+// overlapRules.js (root cause 5); the work-hours window stays client-only until its
+// default is unified.
 //
 // Only what a write CHANGES is checked. Stored data that already breaks a rule is
 // left alone, so a legacy weekend op never blocks an unrelated save.

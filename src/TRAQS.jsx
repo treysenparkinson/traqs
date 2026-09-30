@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { personDeptMatch, unitDepartment } from "./scheduleRules.js";
 import { classifyTaskActions } from "./taskActions.js";
+import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, shiftWorkingDays } from "./overlapRules.js";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { TraqsBars, BARS_ASPECT, BRAND_BARS } from "./brand.jsx";
@@ -3300,27 +3301,34 @@ const isAssigned = (n) => !!(n && (n.team || []).length > 0);
 const reflowPhaseOps = (ops, opts) => {
   const dated = (ops || []).filter(o => o && !o.deletedAt && isDated(o));
   if (dated.length < 2) return null;
+  // Assigned ops are sequenced on the shared overlap rule (src/overlapRules.js): an op moves
+  // later only while it really overlaps an earlier one sharing an assignee — two same-day ops
+  // that don't touch stay put — and a locked op never moves. Unassigned ops have no one to
+  // overlap and keep their place in the queue after everything placed before them. Without
+  // an overlap context (Basic tier) assigned ops are left alone.
+  const ctx = opts?.overlap || null;
   const order = [...dated].sort((a, b) => String(a.start).localeCompare(String(b.start)));
-  const personEnd = new Map();
+  const placed = order.filter(isOpLocked).map(op => ({ unit: op }));
   let placedEnd = null;
   const moves = new Map();
   for (const op of order) {
-    const len = diffBD(op.start, op.end);
-    let earliest = null;
-    const bump = (d) => { if (d && (!earliest || d > earliest)) earliest = d; };
-    if (isAssigned(op)) {
-      for (const t of (op.team || []).map(String)) bump(personEnd.get(t));
-    } else {
-      bump(placedEnd);
+    let cur = op;
+    if (!isOpLocked(op)) {
+      if (isAssigned(op)) {
+        if (ctx) {
+          for (let n = 1; n <= 260 && overlapsWith(cur, placed, ctx).length; n++) {
+            cur = { ...op, start: shiftWorkingDays(op.start, n, ctx), end: shiftWorkingDays(op.end, n, ctx) };
+          }
+        }
+      } else if (placedEnd && cur.start <= placedEnd) {
+        const len = diffBD(op.start, op.end, opts);
+        const start = addBD(placedEnd, 1, opts);
+        cur = { ...op, start, end: addBD(start, len, opts) };
+      }
+      if (cur.start !== op.start || cur.end !== op.end) moves.set(op.id, { start: cur.start, end: cur.end });
+      placed.push({ unit: cur });
     }
-    let start = op.start, end = op.end;
-    if (earliest) {
-      const floor = addBD(earliest, 1, opts);
-      if (start < floor) { start = floor; end = addBD(start, len, opts); }
-    }
-    if (start !== op.start || end !== op.end) moves.set(op.id, { start, end });
-    if (isAssigned(op)) for (const t of (op.team || []).map(String)) personEnd.set(String(t), end);
-    if (!placedEnd || end > placedEnd) placedEnd = end;
+    if (!placedEnd || cur.end > placedEnd) placedEnd = cur.end;
   }
   return moves.size ? moves : null;
 };
@@ -5746,6 +5754,24 @@ Extraction rules:
   // hours painted across the full 9h width.
   const dayWindowCfg = buildDayWindows(workStartH, workEndH, orgSettings.breaks, orgSettings.lunch);
   const productiveHoursPerDay = Math.max(1, totalWorkH - dayWindowCfg.deadH);
+  // The one overlap rule's context (src/overlapRules.js), rebuilt every render so "today" is
+  // today. The server runs the same rule on stored estimates; only the web can see worked
+  // hours, so only here does an overworked op's overrun count as occupied — the time it has
+  // grown into is time someone is standing there working. Overlap is Business only: Basic
+  // allows a double-booked shift by design.
+  const overlapCtx = {
+    cfg: dayWindowCfg, productiveHoursPerDay,
+    isWorkDay: (ds) => isWorkDay(ds, orgSettings.workDays) && !(orgSettings.holidays || []).includes(ds),
+    today: toDS(new Date()),
+    shareHours: (u) => {
+      const size = Math.max(1, (u.team || []).length);
+      const base = personShareHours(u.hpd, size, productiveHoursPerDay);
+      try {
+        const ws = deriveWorkedState(u, producedFor(u), liveOpHours(u));
+        return base + (ws.isFullyWorked ? 0 : Math.max(0, ws.workedHoursShown - (u.hpd || 0)) / size);
+      } catch { return base; }
+    },
+  };
   const breakH = (orgSettings.breaks || []).reduce((sum, b) => sum + (b.durationMinutes || 0), 0) / 60;
   const getNextStartHour = (personId, dateStr, excludeOpId) => {
     let latest = workStartH;
@@ -9371,51 +9397,29 @@ Extraction rules:
   // Check overlaps for a set of operations against a given task list
   // opsToCheck: [{ personId, start, end, opTitle, panelTitle, excludeOpId }]
   const checkOverlapsPure = (taskList, opsToCheck) => {
+    // Two rules, kept apart (#61). A real overlap — the person doing two things at once —
+    // refuses the save (Business only). Over-booking a day only warns: a shop legitimately
+    // over-books a day and sorts it out on the floor. Time off still refuses.
     const conflicts = [];
+    const units = billingTier === "business" ? occupyingUnits(taskList, overlapCtx) : [];
     for (const check of opsToCheck) {
       if (!check.personId || !check.start || !check.end) continue;
-      const person = people.find(x => x.id === check.personId);
+      const person = people.find(x => sameId(x.id, check.personId));
       if (!person) continue;
-      const cap = capacityOf(person, productiveHoursPerDay);
-      const checkTotalH = check.hpd || productiveHoursPerDay;
-      const opSpanBD = Math.max(1, diffBD(check.start, check.end) + 1, Math.ceil(checkTotalH / cap));
-      const newHpd = (checkTotalH / opSpanBD) / Math.max(1, check.teamLength || 1);
-      let d = check.start;
-      while (d <= check.end) {
-        if (!isOff(check.personId, d)) {
-          let existingH = 0;
-          for (const job of taskList) {
-            for (const panel of (job.subs || [])) {
-              // Panel-level team (flat/general tasks)
-              if (panel.id !== check.excludeOpId && panel.status !== "Finished" && (panel.team || []).includes(check.personId) && panel.start && panel.end && d >= panel.start && d <= panel.end && (panel.subs || []).length === 0) {
-                const pnlH = panel.hpd || productiveHoursPerDay;
-                const pnlSpanBD = Math.max(1, diffBD(panel.start, panel.end) + 1, Math.ceil(pnlH / cap));
-                existingH += (pnlH / pnlSpanBD) / Math.max(1, (panel.team || []).length);
-              }
-              // Op-level team (panel jobs)
-              for (const op of (panel.subs || [])) {
-                if (op.id === check.excludeOpId || op.status === "Finished") continue;
-                if (!(op.team || []).includes(check.personId)) continue;
-                if (d >= op.start && d <= op.end) {
-                  const opTotalH = op.hpd || productiveHoursPerDay;
-                  const existingSpanBD = Math.max(1, diffBD(op.start, op.end) + 1, Math.ceil(opTotalH / cap));
-                  existingH += (opTotalH / existingSpanBD) / Math.max(1, (op.team || []).length);
-                }
-              }
-            }
-          }
-          if (existingH + newHpd > cap) {
-            conflicts.push({
-              person: person.name, personColor: T.accent,
-              opTitle: `Over capacity (${Math.round((existingH + newHpd) * 10) / 10}h / ${cap}h)`,
-              panelTitle: check.panelTitle || "", jobTitle: check.opTitle || "",
-              start: d, end: d
-            });
-            break;
-          }
-        }
-        d = addD(d, 1);
+      const cand = { id: check.excludeOpId ?? "__check", title: check.opTitle, start: check.start, end: check.end,
+        startHour: check.startHour, endHour: check.endHour, hpd: check.hpd, team: check.team || [check.personId] };
+      const others = units.filter(u => u.unit !== check.src && !sameId(u.unit.id, check.excludeOpId));
+      if (billingTier === "business") {
+        const hit = overlapsWith(cand, others, overlapCtx).find(h => sameId(h.personId, check.personId));
+        if (hit) conflicts.push({ person: person.name, personColor: T.accent, opTitle: hit.other.unit.title || "", panelTitle: hit.other.panel?.title || "",
+          jobTitle: hit.other.job?.title || "", start: hit.at.day, end: hit.at.day });
       }
+      const withCand = [...taskList.map(j => ({ ...j, subs: (j.subs || []).map(pn => ({ ...pn, subs: (pn.subs || []).filter(o => o !== check.src && !sameId(o.id, check.excludeOpId)) })) })),
+        { id: "__check", subs: [{ id: "__checkP", subs: [cand] }] }];
+      const candDays = new Set(unitBlocks(cand, { ...overlapCtx, today: null }).map(b => b.day));
+      const over = capacityWarnings(withCand, people, overlapCtx, { personIds: [check.personId], days: candDays })[0];
+      if (over) conflicts.push({ warnOnly: true, person: person.name, personColor: T.accent, opTitle: `Over capacity (${over.load}h / ${over.cap}h)`,
+        panelTitle: check.panelTitle || "", jobTitle: check.opTitle || "", start: over.day, end: over.day, load: over.load, cap: over.cap });
       for (const to of (person.timeOff || [])) {
         if (to.start <= check.end && to.end >= check.start) {
           conflicts.push({ person: person.name, personColor: T.accent, opTitle: "Time Off", panelTitle: to.reason || to.type || "PTO", jobTitle: "", start: to.start, end: to.end, isPto: true });
@@ -9486,39 +9490,19 @@ Extraction rules:
   };
 
   // Preview what ops would be pushed if we move an op to new dates (pure, does NOT apply changes)
-  const previewPush = (taskList, movedOpId, personId, newStart, newEnd, excludeOpIds = null) => {
-    const allOps = [];
-    taskList.forEach(job => {
-      (job.subs || []).forEach(panel => {
-        (panel.subs || []).forEach(op => {
-          if (op.id !== movedOpId && (op.team || []).includes(personId) && op.status !== "Finished") {
-            if (excludeOpIds && excludeOpIds.has(op.id)) return; // skip sibling ops in same move
-            allOps.push({ op, panel, job });
-          }
-        });
-      });
-    });
-    const overlapping = allOps.filter(a => a.op.start <= newEnd && a.op.end >= newStart);
-    if (overlapping.length === 0) return { pushes: [], blocked: false, lockedOps: [] };
-    const locked = overlapping.filter(a => isOpLocked(a.op));
-    if (locked.length > 0) return { pushes: [], blocked: true, lockedOps: locked.map(l => ({ opTitle: l.op.title, panelTitle: l.panel.title })) };
-    overlapping.sort((a, b) => (a.op.start || "").localeCompare(b.op.start || ""));
-    let pushDate = newEnd;
-    const toPush = [...overlapping];
-    const pushes = [];
-    while (toPush.length > 0) {
-      const item = toPush.shift();
-      const opBizDays = diffBD(item.op.start, item.op.end);
-      const newOpStart = addBD(pushDate, 1);
-      const newOpEnd = addBD(newOpStart, opBizDays);
-      if (isOpLocked(item.op)) return { pushes: [], blocked: true, lockedOps: [{ opTitle: item.op.title, panelTitle: item.panel.title }] };
-      const daysPushed = diffBD(item.op.start, newOpStart);
-      pushes.push({ opId: item.op.id, opTitle: item.op.title, panelTitle: item.panel.title, jobTitle: item.job.title, oldStart: item.op.start, oldEnd: item.op.end, newStart: newOpStart, newEnd: newOpEnd, daysPushed, personId: item.op.team[0] });
-      pushDate = newOpEnd;
-      const nextOverlaps = allOps.filter(a => a.op.id !== item.op.id && !toPush.includes(a) && a.op.start <= newOpEnd && a.op.end >= newOpStart);
-      nextOverlaps.forEach(n => { if (!toPush.find(x => x.op.id === n.op.id) && !pushes.find(x => x.opId === n.op.id)) toPush.push(n); });
+  const previewPush = (taskList, movedOpId, personId, newStart, newEnd, excludeOpIds = null, movedUnit = null) => {
+    if (billingTier !== "business") return { pushes: [], blocked: false, lockedOps: [] };
+    // The moved unit at its new position — the caller's, when it has new hours too.
+    let candidate = movedUnit;
+    if (!candidate) {
+      for (const job of taskList) for (const panel of (job.subs || [])) for (const op of (panel.subs || [])) {
+        if (sameId(op.id, movedOpId)) candidate = { ...op, start: newStart, end: newEnd };
+      }
     }
-    return { pushes, blocked: false, lockedOps: [] };
+    if (!candidate) return { pushes: [], blocked: false, lockedOps: [] };
+    // Every assignee's row, ids compared as strings, on the time each person really works —
+    // not whole days for the first team member only.
+    return planPushes(taskList, candidate, overlapCtx, { excludeIds: excludeOpIds });
   };
 
   // Apply all bars in a group move simultaneously — handles level 1 (panels) and level 2 (ops) in one pass.
@@ -9641,35 +9625,10 @@ Extraction rules:
   // gets the op back where it was, which is visible and recoverable, unlike a silent
   // relocation nobody asked for.
   const enforceNoOverlap = (taskList, touchedIds) => {
-    const ids = (touchedIds || []).map(String).filter(Boolean);
-    if (!ids.length) return { tasks: taskList, moved: [], refused: [] };
-    const todayDs = toDS(new Date());
-    const cfg = { workStartH, workEndH };
-    const shiftDays = (ds, n) => addBD(ds, n, { workDays: orgSettings.workDays, holidays: orgSettings.holidays });
-    const all = [];
-    taskList.forEach(job => (job.subs || []).forEach(panel => (panel.subs || []).forEach(op => all.push(op))));
-    const placeable = o => o && o.start && o.end && o.status !== "Finished" && o.end >= todayDs;
-    const shifts = new Map(), refused = [], moved = [];
-    for (const id of ids) {
-      const op = all.find(o => String(o.id) === id);
-      if (!placeable(op)) continue;
-      // Worst case across every row the op sits on: a shared op has to clear all of them.
-      let worst = 0, blocked = false;
-      for (const pid of (op.team || [])) {
-        const others = all.filter(o => o !== op && placeable(o) && onTeam(o.team, pid));
-        const n = dayShiftToClear(op, others, { cfg, shiftDays });
-        if (n === null) { blocked = true; break; }
-        if (n > worst) worst = n;
-      }
-      if (blocked) { refused.push(id); continue; }
-      if (worst > 0) { shifts.set(id, worst); moved.push({ id, days: worst, from: op.start }); }
-    }
-    if (!shifts.size) return { tasks: taskList, moved, refused };
-    const next = taskList.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, subs: (panel.subs || []).map(op => {
-      const n = shifts.get(String(op.id));
-      return n ? { ...op, start: shiftDays(op.start, n), end: shiftDays(op.end, n) } : op;
-    }) })) }));
-    return { tasks: next, moved, refused };
+    if (billingTier !== "business") return { tasks: taskList, moved: [], refused: [] };
+    // The shared rule, one unit at a time: each shift lands before the next unit is checked,
+    // so two touched units can't both be pushed onto the same free day (#53).
+    return clearOverlaps(taskList, touchedIds, overlapCtx);
   };
   // The split writes a brand new op record, so it gets the same check the pushes do: a
   // remainder dropped onto occupied ground is an overlap however carefully it was computed.
@@ -10432,7 +10391,7 @@ Extraction rules:
       || Object.prototype.hasOwnProperty.call(upd, "team");
     // schedOpts is the org's own working days + holidays, the same options every
     // other business-day calculation in the app already runs on.
-    const settle = (t) => (datesMoved ? reflowJob(t, schedOpts) : t);
+    const settle = (t) => (datesMoved ? reflowJob(t, { ...schedOpts, overlap: billingTier === "business" ? overlapCtx : null }) : t);
     setTasks(p => p.map(t => {
     if (pid) {
       // Level 2: updating an operation (Wire/Cut/Layout) — moves independently, no chaining
@@ -11038,19 +10997,24 @@ ${jobsCtx || "No jobs found."}`;
         // Panel-style: nested ops — check every team member
         (sub.subs || []).forEach(op => {
           (op.team || []).forEach(personId => {
-            opsToCheck.push({ personId, start: op.start, end: op.end, opTitle: op.title, panelTitle: sub.title || "", excludeOpId: op.id, hpd: op.hpd, teamLength: (op.team || []).length });
+            opsToCheck.push({ personId, start: op.start, end: op.end, startHour: op.startHour, endHour: op.endHour, team: op.team, src: op, opTitle: op.title, panelTitle: sub.title || "", excludeOpId: op.id, hpd: op.hpd, teamLength: (op.team || []).length });
           });
         });
       } else if ((sub.team || []).length > 0) {
         // Flat subtask (non-panel job) — check every team member
         (sub.team || []).forEach(personId => {
-          opsToCheck.push({ personId, start: sub.start, end: sub.end, opTitle: sub.title, panelTitle: "", excludeOpId: sub.id, hpd: sub.hpd, teamLength: (sub.team || []).length });
+          opsToCheck.push({ personId, start: sub.start, end: sub.end, startHour: sub.startHour, endHour: sub.endHour, team: sub.team, src: sub, opTitle: sub.title, panelTitle: "", excludeOpId: sub.id, hpd: sub.hpd, teamLength: (sub.team || []).length });
         });
       }
     });
-    const filteredTasks = ed.id ? tasks.map(j => j.id === ed.id ? { ...j, subs: [] } : j) : tasks;
-    const conflicts = checkOverlapsPure(filteredTasks, opsToCheck);
-    if (conflicts.length > 0) { showOverlapIfAny(conflicts); return; }
+    // The job as edited stands in for its stored copy, so conflicts INSIDE the job are
+    // checked too — blanking it (as this did) meant two of its own ops could overlap freely.
+    const checkTasks = !parentId && ed.id ? tasks.map(j => j.id === ed.id ? ed : j) : (!parentId && !ed.id ? [...tasks, ed] : tasks);
+    const conflicts = checkOverlapsPure(checkTasks, opsToCheck);
+    const overBooked = conflicts.filter(c => c.warnOnly);
+    if (overBooked.length) toast(`Over capacity: ${[...new Set(overBooked.map(c => `${c.person} ${fm(c.start)} (${c.load}h / ${c.cap}h)`))].join("; ")}`);
+    const blocking = conflicts.filter(c => !c.warnOnly);
+    if (blocking.length > 0) { showOverlapIfAny(blocking); return; }
     // Generate IDs for panels and their operations. Also assign a stable color if the panel was
     // created without one (e.g. from the auto-add-panels flow) — otherwise it persists color-less
     // and renders grey after the next poll refetch.
@@ -16811,6 +16775,17 @@ ${jobsCtx || "No jobs found."}`;
           setTeamDayGhost({ left: me.clientX, top: me.clientY - barH / 2, width: 4, height: barH, color: barTask.color, label: barTask.title || "", time: fmTimeH(clamped) });
         }
       };
+      // The day view had no overlap check at all. The unit at its new hour (and, for a resize,
+      // its new hours) is checked against everyone else on the person's row.
+      const dayOverlapBlocked = (patch, team) => {
+        if (billingTier !== "business") return false;
+        const _dayUnit = { ...barTask, ...patch, team: team || barTask.team || [] };
+        const hit = overlapsWith(_dayUnit, occupyingUnits(tasks, overlapCtx), overlapCtx)[0];
+        if (!hit) return false;
+        const who = people.find(x => sameId(x.id, hit.personId));
+        showOverlapIfAny([{ person: who?.name || "", opTitle: hit.other.unit.title || "", panelTitle: hit.other.panel?.title || "", jobTitle: hit.other.job?.title || "", start: hit.at.day, end: hit.at.day }]);
+        return true;
+      };
       const onU = (me) => {
         document.removeEventListener("mousemove", onM);
         document.removeEventListener("mouseup", onU);
@@ -16825,18 +16800,21 @@ ${jobsCtx || "No jobs found."}`;
           if (clamped < _nowHOnDrop) {
             setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't schedule in the past", message: "This move would place part of the job before the current time. Jobs can't be scheduled in the past.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
           } else {
-            updTask(barTask.id, { startHour: clamped }, pid);
             const target = getPersonAtY(me.clientY);
-            if (fromPersonId && target && target.id !== fromPersonId) reassignTask(barTask.id, fromPersonId, target.id, pid);
+            const toOther = fromPersonId && target && target.id !== fromPersonId;
+            if (!dayOverlapBlocked({ startHour: clamped }, toOther ? [target.id] : null)) {
+              updTask(barTask.id, { startHour: clamped }, pid);
+              if (toOther) reassignTask(barTask.id, fromPersonId, target.id, pid);
+            }
           }
         } else if (moved && mode === "left") {
           if (pending.startHour < _nowHOnDrop) {
             setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't schedule in the past", message: "This move would place part of the job before the current time. Jobs can't be scheduled in the past.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
-          } else {
+          } else if (!dayOverlapBlocked({ startHour: pending.startHour, hpd: pending.hpd })) {
             updTask(barTask.id, { startHour: pending.startHour, hpd: pending.hpd }, pid);
           }
         } else if (moved && mode === "right") {
-          updTask(barTask.id, { hpd: pending.hpd }, pid);
+          if (!dayOverlapBlocked({ hpd: pending.hpd })) updTask(barTask.id, { hpd: pending.hpd }, pid);
         }
         isDraggingRef.current = false;
         setTeamDayGhost(null);
@@ -18406,28 +18384,7 @@ ${jobsCtx || "No jobs found."}`;
                       // agree, and the five-branch approximation this replaced could not.
                       // A stored endHour is honoured only when the op stays within one day;
                       // past that the walk owns both the end date and the end hour.
-                      const _opVisual = (op) => {
-                        if (!op.start || !op.end) return { endDate: op.end || op.start, endHour: workEndH };
-                        const _tSz = Math.max(1, (op.team || []).length);
-                        // The overrun counts. An op past its estimate keeps growing, and the time it
-                        // has grown into is occupied — someone is standing there working. Measuring
-                        // only the ESTIMATE meant the extension was invisible to this check, so a job
-                        // could be dropped straight on top of the part of an overworked op that runs
-                        // beyond its estimate: no red ghost, no rejected drop, two jobs booked over
-                        // each other. The bar on screen showed the conflict the whole time; only the
-                        // collision test could not see it.
-                        //
-                        // Same operands as the render's _barHpd and the schedule filter's
-                        // _visualEnd — per-person divide, never on a finished op — so all three
-                        // agree on where an op ends.
-                        const _ws = deriveWorkedState(op, producedFor(op), liveOpHours(op));
-                        const _over = _ws.isFullyWorked ? 0 : Math.max(0, _ws.workedHoursShown - (op.hpd || 0)) / _tSz;
-                        const _h = ((op.hpd || 0) > 0 ? op.hpd / _tSz : productiveHoursPerDay) + _over;
-                        const _sH = op.startHour ?? workStartH;
-                        const _w = walkProductiveHours(_sH, _h, dayWindowCfg);
-                        if (_w.days === 1 && op.endHour != null) return { endDate: op.start, endHour: op.endHour };
-                        return { endDate: addBD(op.start, _w.days - 1, barBDOpts), endHour: _w.endHour };
-                      };
+
                       // Ghost's own visual end (date + hour) from current snapS/dropHour/hpd
                       const _ghostDH = dropHour ?? workStartH;
                       const _ghostWalk = walkProductiveHours(_ghostDH, _dragBarHpd, dayWindowCfg);
@@ -18440,45 +18397,33 @@ ${jobsCtx || "No jobs found."}`;
                       let hasOverlap = false;
                       let overlapInfo = null;
                       if (billingTier === "business") {
-                      outer: for (const job of tasks) {
-                        for (const panel of (job.subs || [])) {
-                          for (const op of (panel.subs || [])) {
-                            if (op.id === movingTaskId || op.status === "Finished") continue;
-                            if (!onTeam(op.team, targetPid)) continue;
-                            if (!op.start || !op.end) continue;
-                            const _v = _opVisual(op);
-                            const _opSH = op.startHour ?? workStartH;
-                            const _aBeforeB = (snapS < _v.endDate) || (snapS === _v.endDate && _ghostDH < _v.endHour);
-                            const _aAfterB = (_ghostED > op.start) || (_ghostED === op.start && _ghostEH > _opSH);
-                            if (_aBeforeB && _aAfterB) {
-                              hasOverlap = true;
-                              overlapInfo = { opTitle: op.title || "", panelTitle: panel.title || "", jobTitle: job.title || "", start: op.start, end: _v.endDate };
-                              break outer;
-                            }
-                          }
+                        // The ghost is the grabbed bar at the drop, on the target row. Its hours
+                        // are the drag's own (_dragBarHpd, already this person's share).
+                        const _gctx = { ...overlapCtx, shareHours: (u) => (sameId(u.id, movingTaskId) ? _dragBarHpd : overlapCtx.shareHours(u)) };
+                        const _ghostUnit = { ...(bar.task || {}), id: movingTaskId, start: snapS, end: _ghostED, startHour: _ghostDH, endHour: undefined, team: [targetPid] };
+                        const _hit = overlapsWith(_ghostUnit, occupyingUnits(tasks, _gctx), _gctx)[0];
+                        if (_hit) {
+                          hasOverlap = true;
+                          overlapInfo = { opTitle: _hit.other.unit.title || "", panelTitle: _hit.other.panel?.title || "", jobTitle: _hit.other.job?.title || "", start: _hit.other.unit.start, end: _hit.other.unit.end };
                         }
-                      }
-                      // Unlocked dep-group sibling overlap: a dragged bar must not overlap any sibling in its
-                      // dep group, regardless of which person each sibling is assigned to.
-                      if (!hasOverlap && depsMode === "unlocked" && isGroupDrag) {
-                        outerSib: for (const job of tasks) {
-                          for (const panel of (job.subs || [])) {
-                            for (const op of (panel.subs || [])) {
-                              if (!depGroupIds.has(op.id) || op.id === movingTaskId) continue;
-                              if (!op.start || !op.end) continue;
-                              const _v = _opVisual(op);
-                              const _opSH = op.startHour ?? workStartH;
-                              const _aBeforeB = (snapS < _v.endDate) || (snapS === _v.endDate && _ghostDH < _v.endHour);
-                              const _aAfterB = (_ghostED > op.start) || (_ghostED === op.start && _ghostEH > _opSH);
-                              if (_aBeforeB && _aAfterB) {
-                                hasOverlap = true;
-                                overlapInfo = { opTitle: op.title || "", panelTitle: panel.title || "", jobTitle: job.title || "", start: op.start, end: _v.endDate, isDepSibling: true };
-                                break outerSib;
+                        // Unlocked dep-group sibling overlap: a dragged bar must not overlap any sibling in its
+                        // dep group, regardless of which person each sibling is assigned to.
+                        if (!hasOverlap && depsMode === "unlocked" && isGroupDrag) {
+                          const _gb = unitBlocks(_ghostUnit, _gctx);
+                          outerSib: for (const job of tasks) {
+                            for (const panel of (job.subs || [])) {
+                              for (const op of (panel.subs || [])) {
+                                if (!depGroupIds.has(op.id) || op.id === movingTaskId) continue;
+                                if (!op.start || !op.end) continue;
+                                if (blocksOverlap(_gb, unitBlocks(op, _gctx))) {
+                                  hasOverlap = true;
+                                  overlapInfo = { opTitle: op.title || "", panelTitle: panel.title || "", jobTitle: job.title || "", start: op.start, end: op.end, isDepSibling: true };
+                                  break outerSib;
+                                }
                               }
                             }
                           }
                         }
-                      }
                       }
                       if (snapS === null) return;
                       const _mRectForRef = gridAreaEl?.getBoundingClientRect();
@@ -18580,6 +18525,18 @@ ${jobsCtx || "No jobs found."}`;
                         // (also dx-based) rather than the stale `days[_dayIdx]` lookup above.
                         effStart = teamDragLiveRef.current?.snapStart || newStart;
                         let finalHour = teamDragLiveRef.current?.dropHour ?? workStartH;
+                        // Re-check the RESULT, not just the ghost: the ghost only ever measured the
+                        // grabbed bar while it moved, and the commit below writes wherever it lands.
+                        if (billingTier === "business") {
+                          const _dropTeam = isReassign ? [dropPerson] : (bar.task.team || []);
+                          const _dw = walkProductiveHours(finalHour, personShareHours(bar.task.hpd, _dropTeam.length, productiveHoursPerDay), dayWindowCfg);
+                          const _droppedUnit = { ...bar.task, start: effStart, end: sAddBD(effStart, _dw.days - 1), startHour: finalHour, endHour: undefined, team: _dropTeam };
+                          const _dropHit = overlapsWith(_droppedUnit, occupyingUnits(tasks, overlapCtx), overlapCtx, { excludeIds: new Set([...movingIds].map(String)) })[0];
+                          if (_dropHit) {
+                            showOverlapIfAny([{ person: person?.name || "", opTitle: _dropHit.other.unit.title || "", panelTitle: _dropHit.other.panel?.title || "", jobTitle: _dropHit.other.job?.title || "", start: _dropHit.at.day, end: _dropHit.at.day }]);
+                            return;
+                          }
+                        }
                         // No snap-forward here either — the commit has to land the bar exactly
                         // where the ghost showed it, and the ghost no longer bounces.
                         // ── Auto-split on drag-end for partially-worked ops ──
@@ -19053,7 +19010,9 @@ ${jobsCtx || "No jobs found."}`;
                           }
                           return t;
                         });
-                        const { pushes, blocked, lockedOps } = previewPush(reverted, bar.task.id, personId, newStart, newEnd);
+                        const _resizedUnit = { ...bar.task, start: newStart, end: newEnd,
+                          startHour: pending.startHour ?? bar.task.startHour, endHour: pending.endHour ?? bar.task.endHour, hpd: pending.hpd ?? bar.task.hpd };
+                        const { pushes, blocked, lockedOps } = previewPush(reverted, bar.task.id, personId, newStart, newEnd, null, _resizedUnit);
                         if (blocked) { setTimeout(() => showLockedError(lockedOps), 0); return reverted; }
                         if (pushes.length > 0) {
                           const revertedSnapshot = JSON.parse(JSON.stringify(reverted));

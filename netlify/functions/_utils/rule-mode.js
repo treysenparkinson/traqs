@@ -7,6 +7,8 @@
 //   SCHEDULE_RULES_MODE — schedule rules on /tasks and the session-field guards
 //                         (updateJobSession, people PATCH, the shrink startHour)
 //   TASK_CONFLICT_MODE  — the per-job stale-copy check on /tasks
+//   OVERLAP_RULE_MODE   — the one overlap rule on /tasks (src/overlapRules.js),
+//                         Business orgs only
 //   PERMISSION_GATES_MODE — root cause 4's permission changes, loosening and
 //                         tightening alike: in log both behave exactly as before
 //                         and the change is only recorded

@@ -12,6 +12,7 @@ import { diffTaskEvents } from "./_utils/task-events.js";
 import { updateJson } from "./_utils/update-json.js";
 import { ruleMode, logRule } from "./_utils/rule-mode.js";
 import { scheduleRuleViolations } from "../../src/scheduleRules.js";
+import { overlapContext, overlapViolations } from "../../src/overlapRules.js";
 import { localDay } from "../../src/localDay.js";
 import { sendVisiblePush, sendSilentPush } from "./_utils/push.js";
 
@@ -56,8 +57,16 @@ export async function handler(event) {
       const rulesMode = ruleMode("SCHEDULE_RULES_MODE");
       const conflictMode = ruleMode("TASK_CONFLICT_MODE");
       const gateMode = ruleMode("PERMISSION_GATES_MODE");
+      // One overlap rule (src/overlapRules.js), Business only — Basic allows a double-booked
+      // shift by design. Its own switch, so it can be enforced independently of the rest.
+      let overlapMode = ruleMode("OVERLAP_RULE_MODE");
+      if (overlapMode !== "off") {
+        let billing = null;
+        try { billing = await readJson(`orgs/${orgCode}/billing.json`); } catch { billing = null; }
+        if ((billing?.tier || "basic") !== "business") overlapMode = "off";
+      }
       let rulePeople = [], ruleSettings = null;
-      if (rulesMode !== "off") {
+      if (rulesMode !== "off" || overlapMode !== "off") {
         try { rulePeople = filterLive((await readJson(`orgs/${orgCode}/people.json`)) || []); } catch { rulePeople = []; }
         try { ruleSettings = await readJson(`orgs/${orgCode}/settings.json`); } catch { ruleSettings = null; }
       }
@@ -72,7 +81,7 @@ export async function handler(event) {
       let attempt;
       const result = await updateJson(s3Key, (stored) => {
         const existing = stored;
-        attempt = { conflicts: [], violations: [], gateDiff: null };
+        attempt = { conflicts: [], violations: [], gateDiff: null, hpdDefaults: [], overlaps: [] };
 
         // Refuse to overwrite a non-empty tasks.json with an empty array.
         // Why: a client bug (failed initial fetch → React resets state → autosave fires)
@@ -112,6 +121,11 @@ export async function handler(event) {
           }
         }
         const prev = Array.isArray(existing) ? existing : [];
+
+        // #301: an iOS build before 88e1ce6 decodes a unit with no hpd as 7.5 and writes it
+        // back on every save. The server can't tell that default from a typed 7.5, nor an
+        // old build from a new one, so this only records it — the write goes through.
+        attempt.hpdDefaults = unestimatedNowSevenPointFive(incoming, prev);
 
         // ── Permission check ────────────────────────────────────────────────
         // This endpoint takes a whole-array replace, so the only way to tell a
@@ -155,6 +169,15 @@ export async function handler(event) {
           }
         }
 
+        // ── Overlap: a person doing two things at once, on units this write changed ──
+        if (overlapMode !== "off") {
+          const octx = overlapContext(ruleSettings || {}, localDay(new Date(), ruleSettings?.timeZone || null));
+          attempt.overlaps = overlapViolations(incoming, prev, octx);
+          if (overlapMode === "enforce" && attempt.overlaps.length) {
+            return { abort: json(422, { error: attempt.overlaps.map(v => v.detail).join("; "), violations: attempt.overlaps }) };
+          }
+        }
+
         // Turn client-side deletions (ids in `existing` but absent from the
         // incoming array) into tombstones so delta-sync can propagate them.
         const reconciled = reconcileDeletions(incoming, existing);
@@ -166,6 +189,10 @@ export async function handler(event) {
       if (conflictMode !== "off") {
         for (const c of attempt.conflicts) logRule("task-conflict", { mode: conflictMode, jobId: c.id, incomingStamp: c.incomingStamp, storedStamp: c.storedStamp, ...who });
       }
+      for (const id of attempt.hpdDefaults) {
+        logRule("hpd-default-write", { id, ...who, userAgent: event.headers?.["user-agent"] || event.headers?.["User-Agent"] || null });
+      }
+      for (const v of attempt.overlaps) logRule("schedule-rule", { mode: overlapMode, rule: v.rule, id: v.id, jobId: v.jobId, withId: v.withId, personId: v.personId, day: v.day, detail: v.detail, by: who.personId, isAdmin: who.isAdmin });
       if (attempt.gateDiff) logRule("permission-gate", { mode: gateMode, gate: "taskPerms", ...attempt.gateDiff, ...who });
       if (rulesMode !== "off") {
         for (const v of attempt.violations) logRule("schedule-rule", { mode: rulesMode, rule: v.rule, id: v.id, jobId: v.jobId, detail: v.detail, ...who });
@@ -312,4 +339,29 @@ function permissionError(cls, member, me) {
     }
   }
   return null;
+}
+
+// Ids of stored units with no estimate (hpd absent or null) that this write sets to
+// exactly 7.5 — the old iOS decode default (SCHEDULE_MAP #301).
+function unestimatedNowSevenPointFive(nextTasks, prevTasks) {
+  const index = (tasks) => {
+    const m = new Map();
+    for (const j of tasks || []) {
+      if (!j || j.id == null) continue;
+      m.set(String(j.id), j);
+      for (const p of j.subs || []) {
+        if (!p || p.id == null) continue;
+        m.set(String(p.id), p);
+        for (const o of p.subs || []) if (o && o.id != null) m.set(String(o.id), o);
+      }
+    }
+    return m;
+  };
+  const before = index(prevTasks);
+  const out = [];
+  for (const [id, n] of index(nextTasks)) {
+    const was = before.get(id);
+    if (was && (was.hpd === undefined || was.hpd === null) && n.hpd === 7.5) out.push(id);
+  }
+  return out;
 }
