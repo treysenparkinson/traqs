@@ -3,7 +3,8 @@ import SwiftUI
 /// The Jobs header's "+": a simple task — name, who's on it, and when.
 ///
 /// One day → pick the start and end time. More than one day → no times; each
-/// day is a full `SimpleJob.fullDayHours`. The job it writes is the web's
+/// working day is a full productive day for everyone on it (see
+/// `SimpleJob.totalHours`). The job it writes is the web's
 /// simple-job shape, so the desktop schedules and draws it the same way — see
 /// `SimpleJob`.
 struct AddJobSheet: View {
@@ -122,7 +123,10 @@ struct AddJobSheet: View {
 
     private func add() {
         guard valid else { return }
-        let job = SimpleJob.makeJob(draft, day: day, color: JobColors.next(),
+        let job = SimpleJob.makeJob(draft, day: day,
+                                    calendar: WorkCalendar(workDays: appState.orgSettings.workDays,
+                                                           holidays: appState.orgSettings.holidays),
+                                    color: JobColors.next(),
                                     createdBy: appState.currentPersonId)
         // No client-side notify, same as the web's simple job: tasks.js pushes
         // "assigned" server-side when it sees the new team.

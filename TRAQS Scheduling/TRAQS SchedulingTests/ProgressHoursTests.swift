@@ -20,7 +20,7 @@ struct ProgressHoursTests {
     @Test func sessionRowsCarryTheOverrunWhenTheCounterHasDrifted() {
         let pair = HoursCalculator.opHoursPair(
             status: .inProgress, hpd: 8, loggedHours: 8.2,
-            producedHours: 10.08, defaultHpd: 8, liveElapsed: 0)
+            producedHours: 10.08, liveElapsed: 0)
         #expect(abs(pair.logged - 10.08) < 0.001)
         #expect(abs(pair.est - 8) < 0.001)
 
@@ -33,12 +33,12 @@ struct ProgressHoursTests {
     @Test func overrunIsNotHiddenBehindACounterStuckJustUnderFull() {
         let counterOnly = HoursCalculator.opHoursPair(
             status: .inProgress, hpd: 8, loggedHours: 7.85,
-            producedHours: 0, defaultHpd: 8, liveElapsed: 0)
+            producedHours: 0, liveElapsed: 0)
         #expect(Int((counterOnly.logged / counterOnly.est * 100).rounded()) == 98)
 
         let withSessions = HoursCalculator.opHoursPair(
             status: .inProgress, hpd: 8, loggedHours: 7.85,
-            producedHours: 11.5, defaultHpd: 8, liveElapsed: 0)
+            producedHours: 11.5, liveElapsed: 0)
         #expect(Int((withSessions.logged / withSessions.est * 100).rounded()) == 144)
     }
 
@@ -50,7 +50,7 @@ struct ProgressHoursTests {
     @Test func counterWinsWhenItExceedsTheVisibleSessionRows() {
         let pair = HoursCalculator.opHoursPair(
             status: .inProgress, hpd: 8, loggedHours: 12,
-            producedHours: 3, defaultHpd: 8, liveElapsed: 0)
+            producedHours: 3, liveElapsed: 0)
         #expect(abs(pair.logged - 12) < 0.001)
     }
 
@@ -58,7 +58,7 @@ struct ProgressHoursTests {
     @Test func absentSessionRowsDegradeToTheOldBehaviour() {
         let pair = HoursCalculator.opHoursPair(
             status: .inProgress, hpd: 8, loggedHours: 5,
-            producedHours: 0, defaultHpd: 8, liveElapsed: 0)
+            producedHours: 0, liveElapsed: 0)
         #expect(abs(pair.logged - 5) < 0.001)
     }
 
@@ -66,7 +66,7 @@ struct ProgressHoursTests {
     @Test func liveElapsedAddsToTheGreaterOfTheTwo() {
         let pair = HoursCalculator.opHoursPair(
             status: .inProgress, hpd: 8, loggedHours: 4,
-            producedHours: 9, defaultHpd: 8, liveElapsed: 1.5)
+            producedHours: 9, liveElapsed: 1.5)
         #expect(abs(pair.logged - 10.5) < 0.001)
     }
 
@@ -75,7 +75,7 @@ struct ProgressHoursTests {
     @Test func finishedStillPinsToTheEstimate() {
         let pair = HoursCalculator.opHoursPair(
             status: .finished, hpd: 8, loggedHours: 2,
-            producedHours: 40, defaultHpd: 8, liveElapsed: 5)
+            producedHours: 40, liveElapsed: 5)
         #expect(abs(pair.logged - 8) < 0.001)
         #expect(abs(pair.est - 8) < 0.001)
     }
@@ -84,7 +84,7 @@ struct ProgressHoursTests {
     @Test func negativeCounterIsFloored() {
         let pair = HoursCalculator.opHoursPair(
             status: .inProgress, hpd: 8, loggedHours: -5,
-            producedHours: 0, defaultHpd: 8, liveElapsed: 0)
+            producedHours: 0, liveElapsed: 0)
         #expect(pair.logged >= 0)
     }
 

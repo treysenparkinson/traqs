@@ -169,14 +169,15 @@ struct JobsRowMenu: View {
         }
     }
 
-    /// `fm(start) → fm(end)` plus `· Nh/day` when the row carries one.
+    /// `fm(start) → fm(end)` plus `· Nh est.` when the row carries an estimate.
     private var dateLine: String {
         let range = "\(JobsDate.short(target.row.start)) → \(JobsDate.short(target.row.end))"
         let hpd = target.row.estimatedHours
         guard target.isOperation, hpd > 0 else { return range }
         // `JobsDate.hours` gives the NUMBER — "7.5", "8" — so the unit is added
-        // here, exactly as the web's `· ${it.hpd}h/day` does.
-        return range + " · \(JobsDate.hours(hpd))h/day"
+        // here. `hpd` is the op's TOTAL estimate, not a daily rate, so the web's
+        // old `h/day` suffix was wrong.
+        return range + " · \(JobsDate.hours(hpd))h est."
     }
 
     private var headerButtons: some View {

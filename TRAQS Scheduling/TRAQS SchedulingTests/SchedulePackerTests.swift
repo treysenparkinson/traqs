@@ -65,7 +65,7 @@ struct SchedulePackerTests {
     @Test func overbookedDayNeverExceedsCapacity() {
         let mon = day(3)
         let tasks = (0..<3).map { _ in
-            SchedulePacker.Task(hpd: 8, totalHours: 8, earliest: mon)
+            SchedulePacker.Task(dailyCeiling: 8, totalHours: 8, earliest: mon)
         }
         let out = allocate(tasks, from: mon, through: day(14), capacity: 7)
 
@@ -79,7 +79,7 @@ struct SchedulePackerTests {
     @Test func overflowRollsForwardAndNothingIsLost() {
         let mon = day(3)
         let tasks = (0..<3).map { _ in
-            SchedulePacker.Task(hpd: 8, totalHours: 8, earliest: mon)
+            SchedulePacker.Task(dailyCeiling: 8, totalHours: 8, earliest: mon)
         }
         let out = allocate(tasks, from: mon, through: day(14), capacity: 7)
 
@@ -93,13 +93,13 @@ struct SchedulePackerTests {
         #expect(abs(hours(out, day(6)) - 3) < 0.01)
     }
 
-    // MARK: - hpd stays a daily RATE, not a budget
+    // MARK: - The daily ceiling caps a task however empty the day
 
-    /// The guard that keeps ordinary days identical to before: one 20h task at
-    /// 4h/day takes 4h a day even though the day could absorb 7.
-    @Test func taskNeverExceedsItsDailyRate() {
+    /// One 20h task with a 4h ceiling takes 4h a day even though the day could
+    /// absorb 7.
+    @Test func taskNeverExceedsItsDailyCeiling() {
         let mon = day(3)
-        let out = allocate([SchedulePacker.Task(hpd: 4, totalHours: 20, earliest: mon)],
+        let out = allocate([SchedulePacker.Task(dailyCeiling: 4, totalHours: 20, earliest: mon)],
                            from: mon, through: day(14), capacity: 7)
         for d in [3, 4, 5, 6, 7] {
             #expect(abs(hours(out, day(d)) - 4) < 0.01, "day \(d) should get exactly 4h")
@@ -112,7 +112,7 @@ struct SchedulePackerTests {
     /// the common case and it must not move.
     @Test func normallyLoadedDayIsUnchanged() {
         let mon = day(3)
-        let out = allocate([SchedulePacker.Task(hpd: 6, totalHours: 6, earliest: mon)],
+        let out = allocate([SchedulePacker.Task(dailyCeiling: 6, totalHours: 6, earliest: mon)],
                            from: mon, through: day(14), capacity: 7)
         #expect(abs(hours(out, day(3)) - 6) < 0.01)
         #expect(out[day(3)]?.count == 1)
@@ -125,7 +125,7 @@ struct SchedulePackerTests {
     @Test func overflowSkipsNonWorkDays() {
         let fri = day(7)
         let tasks = (0..<2).map { _ in
-            SchedulePacker.Task(hpd: 8, totalHours: 8, earliest: fri)
+            SchedulePacker.Task(dailyCeiling: 8, totalHours: 8, earliest: fri)
         }
         let out = allocate(tasks, from: fri, through: day(17), capacity: 7)
         #expect(hours(out, day(8)) == 0, "Saturday must stay empty")
@@ -136,7 +136,7 @@ struct SchedulePackerTests {
 
     /// A task cannot be pulled earlier than its own start date.
     @Test func taskNeverStartsBeforeItsStartDate() {
-        let out = allocate([SchedulePacker.Task(hpd: 4, totalHours: 4, earliest: day(5))],
+        let out = allocate([SchedulePacker.Task(dailyCeiling: 4, totalHours: 4, earliest: day(5))],
                            from: day(3), through: day(14), capacity: 7)
         #expect(hours(out, day(3)) == 0)
         #expect(hours(out, day(4)) == 0)
@@ -149,7 +149,7 @@ struct SchedulePackerTests {
     /// front-to-back over the task's whole run rather than restarting each day.
     @Test func placedBeforeAccumulatesAcrossDays() {
         let mon = day(3)
-        let out = allocate([SchedulePacker.Task(hpd: 7, totalHours: 21, earliest: mon)],
+        let out = allocate([SchedulePacker.Task(dailyCeiling: 7, totalHours: 21, earliest: mon)],
                            from: mon, through: day(14), capacity: 7)
         #expect(out[day(3)]?.first?.placedBefore == 0)
         #expect(abs((out[day(4)]?.first?.placedBefore ?? -1) - 7) < 0.01)
@@ -163,7 +163,7 @@ struct SchedulePackerTests {
     @Test func keepTrimsOutputWithoutChangingAllocation() {
         let mon = day(3)
         let tasks = (0..<3).map { _ in
-            SchedulePacker.Task(hpd: 8, totalHours: 8, earliest: mon)
+            SchedulePacker.Task(dailyCeiling: 8, totalHours: 8, earliest: mon)
         }
         let thu = day(6)
         let trimmed = SchedulePacker.allocate(
@@ -178,7 +178,7 @@ struct SchedulePackerTests {
     // MARK: - Degenerate input
 
     @Test func zeroCapacityPlacesNothingRatherThanSpinning() {
-        let out = allocate([SchedulePacker.Task(hpd: 8, totalHours: 8, earliest: day(3))],
+        let out = allocate([SchedulePacker.Task(dailyCeiling: 8, totalHours: 8, earliest: day(3))],
                            from: day(3), through: day(14), capacity: 0)
         #expect(out.isEmpty)
     }
@@ -190,7 +190,7 @@ struct SchedulePackerTests {
     /// `maxDays` bounds the walk even when the range is absurd.
     @Test func walkIsBoundedByMaxDays() {
         let out = SchedulePacker.allocate(
-            tasks: [SchedulePacker.Task(hpd: 1, totalHours: 10_000, earliest: day(3))],
+            tasks: [SchedulePacker.Task(dailyCeiling: 1, totalHours: 10_000, earliest: day(3))],
             from: day(3), through: day(3).addingTimeInterval(86_400 * 100_000),
             keep: [], capacity: 7,
             isWorkDay: isWeekday, nextDay: next, maxDays: 10)

@@ -3267,11 +3267,10 @@ class AppState {
     /// estimate and no longer does — a completion awaiting approval reports the hours
     /// actually worked.
     func opHoursPair(_ op: Operation) -> (logged: Double, est: Double) {
-        // Fall back to the org's default workday length when an op didn't store hpd.
+        // No fallback: an op without hpd is unestimated and reports est 0.
         return HoursCalculator.opHoursPair(status: op.status, hpd: op.hpd,
                                           loggedHours: op.loggedHours,
                                           producedHours: producedFor(op: op),
-                                          defaultHpd: orgSettings.hpd,
                                           liveElapsed: liveElapsedHours(for: op))
     }
 
@@ -3293,7 +3292,8 @@ class AppState {
     func opPct(_ op: Operation) -> Int {
         if op.status == .finished { return 100 }
         let h = opHoursPair(op)
-        if h.logged == 0 { return 0 }
+        // Unestimated: no percentage to show, and never a divide by zero.
+        if h.logged == 0 || h.est <= 0 { return 0 }
         return Int((h.logged / h.est * 100).rounded())
     }
 
@@ -3306,7 +3306,9 @@ class AppState {
     /// all of its tiles.
     func opLoggedDays(_ op: Operation) -> Double {
         if op.status == .finished { return .greatestFiniteMagnitude }
-        let hpd = max(0.0001, op.hpd > 0 ? op.hpd : orgSettings.hpd)
+        // Unestimated: there are no tiles to fill, so nothing is logged against them.
+        guard op.hpd > 0 else { return 0 }
+        let hpd = op.hpd
         // Same max() as `opHoursPair` — the stripe and the percentage have to agree.
         // Reading the counter alone here while the percentage read the session rows
         // is precisely the disagreement the web hit: one card showing 10.08h of grey

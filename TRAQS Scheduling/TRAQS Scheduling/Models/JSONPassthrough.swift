@@ -176,6 +176,25 @@ struct JSONExtras: Equatable, Sendable {
     var keys: [String] { Array(values.keys) }
 }
 
+// MARK: A key that was not there
+
+/// Remembers that a modelled field was ABSENT (or unreadable) when its object was
+/// decoded, so `encode(to:)` can leave it absent rather than write the default
+/// the decoder filled in.
+///
+/// The case it exists for is `hpd`: an unestimated op decodes as 0, and a client
+/// that then writes `"hpd": 0` onto every record the server never gave one makes
+/// each restricted user's save look like an edit of a field they may not touch.
+///
+/// ALWAYS EQUAL. It describes the wire, not the value — an op decoded without
+/// `hpd` and one decoded with `"hpd": 0` are the same op — so it must not make the
+/// synthesised `==` of the model it sits in report a change nobody made.
+struct AbsentOnDecode: Equatable, Sendable {
+    var wasAbsent = false
+
+    static func == (lhs: AbsentOnDecode, rhs: AbsentOnDecode) -> Bool { true }
+}
+
 extension JSONValue {
     /// The value as text, however the web wrote it. Custom-column cells display a
     /// string whatever the column's declared type, and the web is loose about

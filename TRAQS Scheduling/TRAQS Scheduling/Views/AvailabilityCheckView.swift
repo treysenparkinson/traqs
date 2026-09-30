@@ -106,10 +106,11 @@ enum AvailabilityEngine {
         guard !result.invalid, !result.noCrew else { return result }
 
         // Convert the job into working days of labor for ONE person, at the shop's
-        // hours/day — exactly like the desktop's opDurBD: ceil(totalHours / hpd).
-        // e.g. 120h ÷ 8h/day = 15 working days done by one assignee.
-        let hpd = max(1, org.hpd)
-        let daysNeeded = max(1, Int((H / hpd).rounded(.up)))
+        // PRODUCTIVE hours/day — the same opDurBD the scheduler uses. e.g. 120h ÷
+        // 7.5h/day = 16 working days done by one assignee. Not ÷ the org `hpd`,
+        // which is a stale gross day that counts lunch and breaks.
+        let daysNeeded = JobsScheduler.durationDays(hpd: H, teamSize: 1,
+                                                    productiveHoursPerDay: org.productiveHoursPerDay)
         result.daysNeeded = daysNeeded
 
         let today = cal.startOfDay(for: Date())

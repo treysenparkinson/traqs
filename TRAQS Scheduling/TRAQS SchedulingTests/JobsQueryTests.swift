@@ -256,10 +256,10 @@ struct JobsQueryTests {
         #expect(JobsQuery.estimatedHours(of: j.subs[0]) == 2.0)   // 1.0 + 1.0, not 2.1
     }
 
-    @Test func aZeroHourOperationFallsBackToSevenAndAHalf() {
-        // `op.hpd || 7.5` — a zero would otherwise read as a free operation.
+    @Test func aZeroHourOperationIsUnestimatedNotSevenAndAHalf() {
+        // 0 is "no estimate" and the grid prints a dash — never an invented 7.5.
         let j = job("a", panels: [panel("p", ops: [op("o", hpd: 0)])])
-        #expect(JobsQuery.estimatedHours(of: j.subs[0].subs[0]) == 7.5)
+        #expect(JobsQuery.estimatedHours(of: j.subs[0].subs[0]) == 0)
     }
 
     @Test func jobHoursSumItsPanels() {

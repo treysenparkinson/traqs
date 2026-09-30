@@ -1186,3 +1186,278 @@ export function rowSlackHours({ ops, nowMs, productiveBetween }) {
   }
   return total;
 }
+
+// ── Productive hours → wall-clock geometry ──────────────────────────────────
+// One minute. Exact fits must not roll over: a 1h op at 16:00 with a 17:00 quit
+// ends AT 17:00, and no accumulated float dust may push it onto the next day.
+export const CLOCK_EPS = 1 / 60;
+// Normalises an org's breaks + lunch into the canonical unproductive windows of a
+// working day. productiveHoursPerDay is DERIVED from `deadH` so the time removed
+// from the day's capacity is exactly the time walkProductiveHours steps over —
+// computing the two independently let them disagree, and a full-day op then ran out
+// of hours before the day did and left a gap at the end of its column.
+//
+// Break entries are an ALLOWANCE, not a schedule: an org configures "two 15-minute
+// breaks" and workers take them whenever during the day. So every configured minute
+// counts against capacity, whatever time is on the entry — a 9h day with two 15-min
+// breaks and a 1h lunch is 7.5 productive hours, full stop.
+//
+// Placement still matters for geometry, since it decides WHERE in the day the
+// unproductive time falls. An entry whose time lands inside the working day is used
+// where it sits; anything left over (an entry timed outside working hours, or the
+// part of one that overruns the day's end) is floating time, and is banked at the
+// start of the day. Start, not end: parking it at the end would stop a full-day op
+// short of quitting time and reopen the very gap this is here to close, while at the
+// start it is already behind any op that begins later in the day.
+export const buildDayWindows = (workStartH, workEndH, breaks, lunch) => {
+  const _phW = t => { const [h, m] = (t || "12:00").split(":").map(Number); return h + (m || 0) / 60; };
+  const raw = (breaks || [])
+    .filter(b => (b?.durationMinutes || 0) > 0)
+    .map(b => ({ start: _phW(b.time), dur: b.durationMinutes / 60 }));
+  const lnchMin = lunch?.durationMinutes ?? 60;
+  if (lnchMin > 0) raw.push({ start: _phW(lunch?.time), dur: lnchMin / 60 });
+  // Total configured unproductive time — the number that must come off the day.
+  // Never so much that the day has under an hour of work left in it.
+  const configuredH = Math.min(
+    raw.reduce((s, w) => s + w.dur, 0),
+    Math.max(0, (workEndH - workStartH) - 1)
+  );
+  const clipped = raw
+    .map(w => ({ start: Math.max(w.start, workStartH), end: Math.min(w.start + w.dur, workEndH) }))
+    .filter(w => w.end > w.start)
+    .sort((a, b) => a.start - b.start);
+  const merge = list => {
+    const out = [];
+    for (const w of list) {
+      const last = out[out.length - 1];
+      if (last && w.start <= last.end) last.end = Math.max(last.end, w.end);
+      else out.push({ ...w });
+    }
+    return out;
+  };
+  let merged = merge(clipped);
+  const placedH = merged.reduce((s, w) => s + (w.end - w.start), 0);
+  let remaining = Math.max(0, configuredH - placedH);
+  // Bank floating time into the day's earliest FREE minutes. Inserting a window and
+  // merging would let it be absorbed by one that already covers those minutes, and
+  // the allowance would silently vanish from the day's capacity.
+  if (remaining > 0) {
+    const out = [];
+    let cursor = workStartH;
+    for (const w of merged) {
+      if (remaining > 0 && w.start > cursor) {
+        const take = Math.min(remaining, w.start - cursor);
+        out.push({ start: cursor, end: cursor + take });
+        remaining -= take;
+      }
+      out.push({ start: w.start, end: w.end });
+      cursor = Math.max(cursor, w.end);
+    }
+    if (remaining > 0 && cursor < workEndH) {
+      out.push({ start: cursor, end: cursor + Math.min(remaining, workEndH - cursor) });
+    }
+    merged = merge(out.sort((a, b) => a.start - b.start));
+  }
+  const deadWindows = merged.map(w => ({ start: w.start, dur: w.end - w.start }));
+  return { workStartH, workEndH, deadWindows, deadH: deadWindows.reduce((s, w) => s + w.dur, 0) };
+};
+// Walks the working day from `startH`, spending `prodHours` of productive time and
+// stepping OVER lunch/breaks only when the work actually reaches them, rolling to
+// the next working day when the day runs out.
+//
+// This replaces a flat pro-rate — (prod / productivePerDay) * totalWorkH — that
+// smeared the whole day's unproductive time across every op in proportion to its
+// size. A 1-hour task inherited ~7 minutes of a lunch it never touches, which was
+// enough to make it "not fit" in a day it fits exactly: the bar got clipped short,
+// its span was computed as two days, and a zero-width dashed tail landed on the
+// next working day — across the weekend, for anything late on a Friday.
+//
+// cfg: { workStartH, workEndH, deadWindows: [{ start, dur }] sorted by start }
+// Returns { days, endHour, columns } — working days spanned, wall-clock end hour on
+// the final day, and total width in day-column units (the same axis the bar's left
+// offset uses, so offset + width closes exactly on the day boundary).
+export const walkProductiveHours = (startH, prodHours, cfg) => {
+  const { workStartH, workEndH, deadWindows = [] } = cfg;
+  const dayLen = Math.max(0.0001, workEndH - workStartH);
+  let clock = Math.min(Math.max(startH, workStartH), workEndH);
+  const firstStart = clock;
+  let left = Math.max(0, prodHours);
+  let days = 1, guard = 0;
+  while (left > CLOCK_EPS && guard++ < 5000) {
+    for (const w of deadWindows) {
+      const wEnd = w.start + w.dur;
+      if (wEnd <= clock + CLOCK_EPS || w.start >= workEndH) continue; // behind us / after hours
+      const prodUntil = w.start - clock;
+      if (prodUntil > 0) {
+        if (left <= prodUntil + CLOCK_EPS) { clock += left; left = 0; break; }
+        left -= prodUntil;
+      }
+      clock = Math.max(clock, wEnd); // step over the window without spending against it
+    }
+    if (left <= CLOCK_EPS) break;
+    const tail = workEndH - clock;
+    if (left <= tail + CLOCK_EPS) { clock += left; left = 0; break; }
+    left -= tail;
+    days++; clock = workStartH;
+  }
+  const columns = days === 1
+    ? (clock - firstStart) / dayLen
+    : (workEndH - firstStart) / dayLen + (days - 2) + (clock - workStartH) / dayLen;
+  return { days, endHour: clock, columns: Math.max(0, columns) };
+};
+
+// The same walk, backwards: given the moment work FINISHED and a duration in productive
+// hours, find where it started. Mirror of walkProductiveHours -- same dead windows, same
+// day length, same CLOCK_EPS -- so a span measured one way and rebuilt the other lands on
+// itself rather than drifting by the lunch hour.
+//
+// Exists for the DONE bar, which is positioned by its end. Placing it by raw wall-clock
+// instead put a 6.9h bar's left edge at 03:33, outside the day grid (5-21) and, in
+// week/month, at a NEGATIVE column offset that drew it into the previous day or into the
+// label gutter. Walking productive hours keeps the bar's drawn width equal to its planned
+// duration, which is the whole claim the DONE bar makes.
+//
+// Returns `days`: 1 when the span fits in the finishing day, 2 when it reaches the previous
+// working day, and so on -- the caller steps that many BUSINESS days back, so weekends and
+// holidays are skipped by the org's own calendar rather than by a second rule here.
+//
+// `guard` bounds the loop the same way the forward walk does. A caller asking for more hours
+// than history holds walks back to the guard and stops, which clamps at a boundary instead
+// of hanging; the caller checks `clamped` and reports it.
+export const walkProductiveHoursBack = (endH, prodHours, cfg) => {
+  const { workStartH, workEndH, deadWindows = [] } = cfg;
+  let clock = Math.min(Math.max(endH, workStartH), workEndH);
+  let left = Math.max(0, prodHours);
+  let days = 1, guard = 0;
+  // Sorted defensively before reversing. buildDayWindows returns them ascending and the cfg
+  // contract says so, but neither walk should depend on a caller honouring that.
+  //
+  // BOTH walks are order-sensitive, and the forward one is the more dangerous of the two
+  // because it has no such sort. Measured, with break@10:00(15m) and lunch@12:00(30m):
+  // walking forward 6 productive hours from 08:00 gives 14.75 with the windows ascending and
+  // 14.50 with them descending -- its `wEnd <= clock` skip reads an earlier window as already
+  // passed and silently drops its dead time. This walk is immune only because of the sort
+  // below. Do not read this as "forward is safe"; it is unprotected, just not currently fed
+  // out-of-order windows.
+  const reversed = [...deadWindows].sort((a, b) => a.start - b.start).reverse();
+  while (left > CLOCK_EPS && guard++ < 5000) {
+    for (const w of reversed) {
+      const wEnd = w.start + w.dur;
+      if (w.start >= clock - CLOCK_EPS || wEnd <= workStartH) continue;   // ahead of us / before hours
+      const prodUntil = clock - wEnd;
+      if (prodUntil > 0) {
+        if (left <= prodUntil + CLOCK_EPS) { clock -= left; left = 0; break; }
+        left -= prodUntil;
+      }
+      clock = Math.min(clock, w.start);   // step back over the window without spending against it
+    }
+    if (left <= CLOCK_EPS) break;
+    const head = clock - workStartH;
+    if (left <= head + CLOCK_EPS) { clock -= left; left = 0; break; }
+    left -= head;
+    days++; clock = workEndH;
+  }
+  return { days, startHour: clock, clamped: left > CLOCK_EPS };
+};
+
+// ── hpd: one meaning (SCHEDULE_MAP root cause 5) ─────────────────────────────
+// An op's `hpd` is its TOTAL estimated productive hours for the WHOLE team. A
+// person's share is hpd ÷ team; the length of a working day is
+// productiveHoursPerDay. It used to be read as a per-day rate (AI schema, iOS
+// gantt, workload), as clock hours (the day views) and as a total (bars,
+// progress, split) — so one op was drawn as 1, 2 or 6 days depending on the
+// screen. An absent or 0 hpd is unestimated; nothing invents a number for it.
+
+/** One person's hours on a unit: hpd ÷ team, or one productive day when unestimated. */
+export function personShareHours(hpd, teamSize, productiveHoursPerDay) {
+  const size = Math.max(1, teamSize || 1);
+  return (hpd || 0) > 0 ? hpd / size : productiveHoursPerDay;
+}
+
+/** A person's productive hours per day: their cap, or the org's day when unset or 0. */
+export function capacityOf(person, productiveHoursPerDay) {
+  const cap = Number(person?.cap);
+  return cap > 0 ? cap : productiveHoursPerDay;
+}
+
+const _nextDay = (ds) => { const d = new Date(ds + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10); };
+
+/**
+ * The wall-clock block a unit occupies on each day, for one assignee.
+ *
+ * The person's share (personShareHours) is walked through productive time from the
+ * unit's startHour — or the start of the day — on its first day, then from the start
+ * of each following working day, until it runs out or the stored end date is reached.
+ * Days that are not working days are skipped, except the unit's own start and end
+ * days: an op an admin put on a Saturday occupies that Saturday, a Fri→Mon op does
+ * not occupy the weekend. A unit with more hours than its days hold ends at quitting
+ * time on its last day.
+ *
+ * This is what the day views draw, and the extent the overlap rule compares.
+ *
+ * @returns [{ day: "YYYY-MM-DD", startH, endH }]
+ */
+export function opDaySegments(op, { cfg, productiveHoursPerDay, isWorkDay, maxDays = 400 }) {
+  if (!op?.start) return [];
+  const { workStartH, workEndH } = cfg;
+  const last = op.end && op.end >= op.start ? op.end : op.start;
+  let left = personShareHours(op.hpd, (op.team || []).length, productiveHoursPerDay);
+  let from = op.startHour != null ? Math.min(Math.max(op.startHour, workStartH), workEndH) : workStartH;
+  const out = [];
+  for (let day = op.start, n = 0; day <= last && n < maxDays && left > CLOCK_EPS; day = _nextDay(day), n++) {
+    if (!(isWorkDay(day) || day === op.start || day === last)) continue;
+    const w = walkProductiveHours(from, left, cfg);
+    if (w.days > 1 || day === last && w.endHour > workEndH) {
+      // Runs past quitting time: this day is full from `from`; carry the rest.
+      out.push({ day, startH: from, endH: workEndH });
+      left -= Math.max(0, productiveClockHours(from, workEndH, cfg));
+    } else {
+      out.push({ day, startH: from, endH: Math.min(w.endHour, workEndH) });
+      left = 0;
+    }
+    from = workStartH;
+  }
+  return out;
+}
+
+/** Productive hours between two clock times on one day (dead windows removed). */
+export function productiveClockHours(a, b, cfg) {
+  let h = Math.max(0, b - a);
+  for (const w of cfg.deadWindows || []) {
+    const s = Math.max(a, w.start), e = Math.min(b, w.start + w.dur);
+    if (e > s) h -= e - s;
+  }
+  return Math.max(0, h);
+}
+
+/**
+ * Ops whose stored hpd looks like it was written under an old meaning, for an
+ * admin to check by hand. Nothing is rewritten: a silent mass edit of estimates
+ * people planned around is worse than a list.
+ *   perPersonTotal — a team of 2+ whose hpd is exactly one person's working days ×
+ *                    productive hours: what the old gantt resize wrote.
+ *   perDayRate     — a general (simple) job's multi-day unit at exactly 7.5: the iOS
+ *                    simple-job form's flat per-day value.
+ */
+export function suspectHpdOps(tasks, { productiveHoursPerDay, isWorkDay }) {
+  const out = [];
+  const workingDays = (s, e) => { let n = 0; for (let d = s, i = 0; d <= e && i < 400; d = _nextDay(d), i++) if (isWorkDay(d)) n++; return n; };
+  for (const job of tasks || []) {
+    if (!job || job.deletedAt) continue;
+    for (const panel of job.subs || []) {
+      if (!panel || panel.deletedAt) continue;
+      const ops = (panel.subs || []).filter(o => o && !o.deletedAt);
+      for (const u of ops.length ? ops : [panel]) {
+        if (!u.start || !((u.hpd || 0) > 0) || u.status === "Finished") continue;
+        const days = workingDays(u.start, u.end || u.start);
+        const team = (u.team || []).length;
+        let reason = null;
+        if (team > 1 && days > 0 && Math.abs(u.hpd - days * productiveHoursPerDay) < 0.01) reason = "perPersonTotal";
+        else if (job.jobType === "general" && days > 1 && u.hpd === 7.5) reason = "perDayRate";
+        if (reason) out.push({ jobId: job.id, jobNumber: job.jobNumber ?? null, jobTitle: job.title || "", id: u.id, title: u.title || "",
+          reason, hpd: u.hpd, team, days, start: u.start, end: u.end || u.start });
+      }
+    }
+  }
+  return out;
+}

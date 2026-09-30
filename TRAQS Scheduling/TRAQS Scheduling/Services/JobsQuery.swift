@@ -407,10 +407,10 @@ enum JobsQuery {
     // days, which was the legacy 'daily rate x days' formula that inflated
     // multi-day ops."
 
-    /// `op.hpd || 7.5` — the literal fallback the web uses here, not the org's
-    /// configured default. A zero would otherwise read as a free operation.
+    /// `op.hpd` as it stands. 0 is UNESTIMATED and stays 0 — the grid prints a
+    /// dash for it — rather than a made-up 7.5 that reads as a real estimate.
     static func estimatedHours(of op: Operation) -> Double {
-        round1(op.hpd > 0 ? op.hpd : 7.5)
+        round1(max(0, op.hpd))
     }
 
     static func estimatedHours(of panel: Panel) -> Double {

@@ -307,8 +307,8 @@ struct MoreView: View {
         }
     }
 
-    /// Schedulable hours in a window — org hours-per-day × the WORK days it
-    /// actually contains.
+    /// Schedulable hours in a window — the org's PRODUCTIVE hours per day × the
+    /// WORK days it actually contains. Not the org `hpd`, a stale gross day.
     ///
     /// Utilization used to divide by a hardcoded one-week capacity
     /// (`hpd × workDays.count`). Over a two-week pay period that denominator is
@@ -319,7 +319,7 @@ struct MoreView: View {
         let s = appState.orgSettings
         let days = StatsMath.workDayCount(in: interval, workDays: Set(s.workDays),
                                           calendar: Calendar.current)
-        return max(1.0, s.hpd * Double(days))
+        return max(1.0, s.productiveHoursPerDay * Double(days))
     }
 
     /// "this week" / "this pay period" — so a stat box's explanation matches the
@@ -327,11 +327,9 @@ struct MoreView: View {
     private var rangeNoun: String { range == .week ? "this week" : "this pay period" }
 
     /// Team-average utilization for the selected week: each worker's assigned
-    /// job hours ÷ their weekly capacity (org hpd × workdays), capped at 100%,
-    /// averaged across workers. Assigned hours = each task's estimated hours
-    /// (`hpd`), the same estimate the progress bars use.
-    /// NOTE: if `hpd` turns out to mean hours-PER-DAY rather than a task total,
-    /// only `taskEstHours` needs to change (× business-day span).
+    /// job hours ÷ their capacity (productive hours × workdays), capped at 100%,
+    /// averaged across workers. Assigned hours = each worker's SHARE of a task's
+    /// `hpd` (the whole team's total ÷ its team) — see `taskEstHours`.
     private var utilizationPercent: Int {
         let capacity = capacityHours(in: statsInterval)
         let workers = appState.people.filter { !$0.isAdmin }
@@ -347,12 +345,12 @@ struct MoreView: View {
             for panel in job.subs {
                 if panel.subs.isEmpty {
                     guard taskOverlaps(panel.start, panel.end, week) else { continue }
-                    let h = taskEstHours(panel.hpd)
+                    let h = taskEstHours(panel.hpd, team: panel.team.count)
                     for pid in panel.team { hoursByPerson[pid, default: 0] += h }
                 } else {
                     for op in panel.subs {
                         guard taskOverlaps(op.start, op.end, week) else { continue }
-                        let h = taskEstHours(op.hpd)
+                        let h = taskEstHours(op.hpd, team: op.team.count)
                         for pid in op.team { hoursByPerson[pid, default: 0] += h }
                     }
                 }
@@ -371,11 +369,13 @@ struct MoreView: View {
             for panel in job.subs {
                 if panel.subs.isEmpty {
                     if panel.team.contains(personId), taskOverlaps(panel.start, panel.end, week) {
-                        total += taskEstHours(panel.hpd)
+                        total += taskEstHours(panel.hpd, team: panel.team.count)
                     }
                 } else {
                     for op in panel.subs where op.team.contains(personId) {
-                        if taskOverlaps(op.start, op.end, week) { total += taskEstHours(op.hpd) }
+                        if taskOverlaps(op.start, op.end, week) {
+                            total += taskEstHours(op.hpd, team: op.team.count)
+                        }
                     }
                 }
             }
@@ -383,10 +383,11 @@ struct MoreView: View {
         return total
     }
 
-    /// Estimated hours for one task. Treats `hpd` as the task's total estimate
-    /// (matches AppState.opHoursPair). Single spot to change if it's per-day.
-    private func taskEstHours(_ hpd: Double) -> Double {
-        hpd > 0 ? hpd : appState.orgSettings.hpd
+    /// One person's estimated hours on a task: `hpd` is the whole team's total,
+    /// so this is their share of it. An unestimated task (hpd 0) adds nothing —
+    /// it has no estimate to count, and none is invented.
+    private func taskEstHours(_ hpd: Double, team: Int) -> Double {
+        hpd > 0 ? hpd / Double(max(1, team)) : 0
     }
 
     /// True when a task's [start, end] overlaps the selected week.
@@ -408,7 +409,7 @@ struct MoreView: View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
                             GridItem(.flexible(), spacing: 12)], spacing: 12) {
             StatBox(label: "Utilization", value: "\(utilization)%",
-                    info: "Share of the team's scheduled capacity that's booked with work \(rangeNoun). Each worker's assigned job hours ÷ their capacity over that window (hours-per-day × its work days), capped at 100%, then averaged across the team.")
+                    info: "Share of the team's scheduled capacity that's booked with work \(rangeNoun). Each worker's assigned job hours ÷ their capacity over that window (productive hours per day × its work days), capped at 100%, then averaged across the team.")
             StatBox(label: "Task Switching", value: "\(switching)",
                     info: "How many distinct jobs the team touched \(rangeNoun). A job clocked out of and back into still counts once.")
             StatBox(label: "Reworks", value: "—",
@@ -456,7 +457,7 @@ struct MoreView: View {
         LazyVGrid(columns: [GridItem(.flexible(), spacing: 12),
                             GridItem(.flexible(), spacing: 12)], spacing: 12) {
             StatBox(label: "Utilization", value: "\(utilizationPercent(for: personId))%",
-                    info: "Share of scheduled capacity booked with work \(rangeNoun) — assigned job hours ÷ capacity over that window (hours-per-day × its work days), capped at 100%.")
+                    info: "Share of scheduled capacity booked with work \(rangeNoun) — assigned job hours ÷ capacity over that window (productive hours per day × its work days), capped at 100%.")
             StatBox(label: "Jobs Done", value: "\(pOps.filter { $0.status == .finished }.count)",
                     info: "Operations they're assigned to that are finished. A running total — not scoped to the selected week or pay period, since an op carries no completion date.")
             StatBox(label: "In Progress", value: "\(pOps.filter { $0.status == .inProgress }.count)",
@@ -480,10 +481,12 @@ struct MoreView: View {
             var est = 0.0, actual = 0.0
             for panel in job.subs {
                 if panel.subs.isEmpty {
-                    est += panel.hpd > 0 ? panel.hpd : appState.orgSettings.hpd
+                    est += max(0, panel.hpd)
                 } else {
-                    for op in panel.subs {
-                        est += op.hpd > 0 ? op.hpd : appState.orgSettings.hpd
+                    // An unestimated op has nothing to be over, so its hours
+                    // don't count against the ops that do have an estimate.
+                    for op in panel.subs where op.hpd > 0 {
+                        est += op.hpd
                         actual += op.loggedHours ?? 0
                     }
                 }

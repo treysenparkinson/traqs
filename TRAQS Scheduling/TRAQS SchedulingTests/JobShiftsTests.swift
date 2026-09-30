@@ -64,7 +64,7 @@ struct JobShiftsTests {
 
     @Test func oneDayOffMeansFullDaysEvenOnOneDate() {
         let job = simple("Solo", ["a"], "2026-10-01", "2026-10-01", from: 13, to: 14, fullDays: true)
-        #expect(abs(job.subs[0].hpd - SimpleJob.fullDayHours) < 0.001)
+        #expect(abs(job.subs[0].hpd - day.productiveHours) < 0.001)
         #expect(JobShifts.startHour(job.subs[0].extras) == 7)
     }
 }

@@ -35,8 +35,10 @@ struct SchedulableUnit: Equatable {
     /// Which operation this is, so the result can be written back.
     let id: String
     let title: String
-    /// `opDurBD` — `max(1, ceil(hpd / orgHpd))`. A 7.5-hour operation in a
-    /// 7.5-hour day is one business day; a 40-hour one is six.
+    /// Business days the unit's crew needs: each person's share of `hpd` (the
+    /// unit's total for the whole team) over a productive day, at least one. A
+    /// 15-hour operation for two people in a 7.5-hour day is one business day;
+    /// a 40-hour one for one person is six.
     let durationDays: Int
     /// `requiredDepartment`, already inferred — see `department(of:)`.
     let department: String
@@ -92,10 +94,13 @@ enum JobsScheduler {
         return known.contains(title.lowercased()) ? title : ""
     }
 
-    /// `opDurBD`.
-    static func durationDays(hpd: Double, orgHpd: Double) -> Int {
-        let perDay = orgHpd > 0 ? orgHpd : 7.5
-        return max(1, Int((hpd / perDay).rounded(.up)))
+    /// `opDurBD`, per person: `ceil((hpd / teamSize) / productiveHoursPerDay)`,
+    /// min 1. Unestimated (hpd 0) is one day — never a made-up estimate. Not ÷
+    /// the org `hpd`, which is a stale gross day that counts lunch.
+    static func durationDays(hpd: Double, teamSize: Int, productiveHoursPerDay: Double) -> Int {
+        guard hpd > 0, productiveHoursPerDay > 0 else { return 1 }
+        let share = hpd / Double(max(1, teamSize))
+        return max(1, Int((share / productiveHoursPerDay).rounded(.up)))
     }
 
     /// `topoSort` — dependencies first, then declaration order.
@@ -124,10 +129,15 @@ enum JobsScheduler {
     /// "Panels with sub-ops → sub-ops are assignable. Panels without sub-ops →
     /// the panel itself is assignable." Untitled units are skipped, as the web
     /// skips `o.title?.trim()`.
-    static func units(of job: Job, orgHpd: Double,
+    static func units(of job: Job, productiveHoursPerDay: Double,
                       departmentNames: Set<String>) -> [SchedulableUnit] {
         let known = Set(departmentNames.map { $0.lowercased() })
         let jobDept = job.extras.text("requiredDepartment")
+        // ONE person per unit: `place` writes a single assignee over whatever
+        // team the form had, so that one person does the whole `hpd`. Sizing by
+        // the form's team would book a two-person op for half the days its one
+        // real assignee needs.
+        let crewSize = 1
 
         return job.subs.flatMap { panel -> [SchedulableUnit] in
             let panelDept = panel.extras.text("requiredDepartment")
@@ -137,7 +147,8 @@ enum JobsScheduler {
                 return topologicallySorted(named).map { op in
                     SchedulableUnit(
                         id: op.id, title: op.title,
-                        durationDays: durationDays(hpd: op.hpd, orgHpd: orgHpd),
+                        durationDays: durationDays(hpd: op.hpd, teamSize: crewSize,
+                                                   productiveHoursPerDay: productiveHoursPerDay),
                         department: department(of: op.title,
                                                own: op.extras.text("requiredDepartment"),
                                                panel: panelDept, job: jobDept, known: known),
@@ -147,7 +158,8 @@ enum JobsScheduler {
             guard !panel.title.trimmingCharacters(in: .whitespaces).isEmpty else { return [] }
             return [SchedulableUnit(
                 id: panel.id, title: panel.title,
-                durationDays: durationDays(hpd: panel.hpd, orgHpd: orgHpd),
+                durationDays: durationDays(hpd: panel.hpd, teamSize: crewSize,
+                                           productiveHoursPerDay: productiveHoursPerDay),
                 // A panel that IS the unit has no parent to inherit from —
                 // `_inferDept(panel, null)`.
                 department: department(of: panel.title, own: panelDept,

@@ -82,10 +82,13 @@ enum HoursCalculator {
     ///
     /// Logged is NOT capped at the estimate — an op worked past its estimate keeps
     /// counting so the panel and job rolling it up read overdue too.
+    ///
+    /// `est` is 0 for an UNESTIMATED op (`hpd` 0) — there is no estimate, and
+    /// none is invented. Every caller dividing by it must guard `est > 0`.
     static func opHoursPair(status: JobStatus, hpd: Double, loggedHours: Double?,
                             producedHours: Double = 0,
-                            defaultHpd: Double, liveElapsed: Double) -> (logged: Double, est: Double) {
-        let est = max(0.0001, hpd > 0 ? hpd : defaultHpd)
+                            liveElapsed: Double) -> (logged: Double, est: Double) {
+        let est = max(0, hpd)
         if status == .finished { return (est, est) }
         let logged = max(0, max(loggedHours ?? 0, producedHours))
         return (logged + liveElapsed, est)

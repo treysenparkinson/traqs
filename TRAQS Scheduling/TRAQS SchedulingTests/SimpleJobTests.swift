@@ -53,7 +53,8 @@ struct SimpleJobTests {
         #expect(job.subs.count == 1 && sub.subs.isEmpty)
         #expect(sub.team == ["p1", "p2"])
         #expect(sub.start == "2026-10-01" && sub.end == "2026-10-01")
-        #expect(near(sub.hpd, 3.75))
+        // 3.75 productive hours each, for two people: `hpd` is the team's total.
+        #expect(near(sub.hpd, 7.5))
         #expect(sub.extras["startHour"] == .number(7))
         #expect(sub.extras["color"] == .string("#123456"))
     }
@@ -64,7 +65,9 @@ struct SimpleJobTests {
         let sub = job.subs[0]
         #expect(job.start == "2026-10-01" && job.end == "2026-10-03")
         #expect(sub.end == "2026-10-03")
-        #expect(near(sub.hpd, 7.5))
+        // Thu 1st + Fri 2nd are working days (Sat 3rd is not) × 7.5 productive
+        // hours × two people — the TOTAL, not a flat per-day 7.5.
+        #expect(near(sub.hpd, 30))
         #expect(sub.extras["startHour"] == .number(7))
     }
 
@@ -72,7 +75,20 @@ struct SimpleJobTests {
         // Entirely inside lunch: nothing productive, floored like the web.
         let job = SimpleJob.makeJob(draft(from: 12, to: 12.5), day: day,
                                     color: "#123456", createdBy: nil)
-        #expect(near(job.subs[0].hpd, 0.25))
+        #expect(near(job.subs[0].hpd, 0.5), "a quarter hour each, for two people")
+    }
+
+    @Test func multiDayTotalFollowsTheOrgsWorkWeek() {
+        // A shop that works Saturdays gets all three days.
+        let sixDay = WorkCalendar(workDays: [1, 2, 3, 4, 5, 6])
+        let job = SimpleJob.makeJob(draft(end: "2026-10-03"), day: day, calendar: sixDay,
+                                    color: "#123456", createdBy: nil)
+        #expect(near(job.subs[0].hpd, 3 * 7.5 * 2))
+        // A holiday is not a working day.
+        let holiday = WorkCalendar(holidays: ["2026-10-02"])
+        #expect(SimpleJob.workingDays(from: "2026-10-01", to: "2026-10-03", in: holiday) == 1)
+        // All weekend still books one day.
+        #expect(SimpleJob.workingDays(from: "2026-10-03", to: "2026-10-04", in: WorkCalendar()) == 1)
     }
 
     @Test func idsLookLikeTheWebs() {

@@ -12,10 +12,12 @@ import Foundation
 // its ops is working the panel itself.
 //
 // WHEN: a unit starts at its `startHour` (the web writes it; the simple-job
-// form does too) or the start of the working day, and runs `hpd` productive
-// hours — walked through lunch and breaks by WorkDayClock, so an 8am start with
-// 4h lands at 12:00 before lunch, not wherever a naive 8 + 4 would put it. A
-// unit longer than the day ends at quitting time.
+// form does too) or the start of the working day, and runs the person's SHARE
+// of its `hpd` — the unit's total for the whole team, ÷ its team — in productive
+// hours, walked through lunch and breaks by WorkDayClock, so an 8am start with
+// 4h lands at 12:00 before lunch, not wherever a naive 8 + 4 would put it. An
+// unestimated unit (hpd 0) is a full productive day. A unit longer than the day
+// ends at quitting time.
 
 enum JobShifts {
 
@@ -36,10 +38,18 @@ enum JobShifts {
         var isOneDay: Bool { start == end }
     }
 
-    /// A unit's daily window.
-    static func window(startHour: Double?, hpd: Double, day: DayWindow) -> (start: Double, end: Double) {
+    /// One person's hours on a unit: `hpd / teamCount`, or a productive day
+    /// when the unit is unestimated.
+    static func share(hpd: Double, teamCount: Int, day: DayWindow) -> Double {
+        hpd > 0 ? hpd / Double(max(1, teamCount)) : day.productiveHours
+    }
+
+    /// A unit's daily window for one person on its team of `teamCount`.
+    static func window(startHour: Double?, hpd: Double, teamCount: Int,
+                       day: DayWindow) -> (start: Double, end: Double) {
         let s = min(max(startHour ?? day.workStart, day.workStart), day.workEnd)
-        let walk = WorkDayClock.walk(from: s, hours: hpd, in: day)
+        let walk = WorkDayClock.walk(from: s, hours: share(hpd: hpd, teamCount: teamCount, day: day),
+                                     in: day)
         return (s, walk.days > 1 ? day.workEnd : walk.endHour)
     }
 
@@ -58,7 +68,8 @@ enum JobShifts {
                 var onAnOp = Set<String>()
                 for op in panel.subs {
                     guard !op.start.isEmpty else { continue }
-                    let w = window(startHour: startHour(op.extras), hpd: op.hpd, day: day)
+                    let w = window(startHour: startHour(op.extras), hpd: op.hpd,
+                                   teamCount: op.team.count, day: day)
                     for pid in op.team {
                         onAnOp.insert(pid)
                         out.append(Shift(personId: pid, jobId: job.id, jobTitle: job.title, unitId: op.id,
@@ -67,7 +78,8 @@ enum JobShifts {
                     }
                 }
                 guard !panel.start.isEmpty else { continue }
-                let w = window(startHour: startHour(panel.extras), hpd: panel.hpd, day: day)
+                let w = window(startHour: startHour(panel.extras), hpd: panel.hpd,
+                               teamCount: panel.team.count, day: day)
                 for pid in panel.team where !onAnOp.contains(pid) {
                     out.append(Shift(personId: pid, jobId: job.id, jobTitle: job.title, unitId: panel.id,
                                      start: panel.start, end: panel.end.isEmpty ? panel.start : panel.end,

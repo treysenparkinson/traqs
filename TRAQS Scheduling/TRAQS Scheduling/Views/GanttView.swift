@@ -199,13 +199,14 @@ struct GanttView: View {
     // MARK: Data → schedule blocks
     //
     // Our schema doesn't carry time-of-day on panels/ops, so work is PACKED
-    // sequentially from workStart, each task sized by its hpd, with lunch reserved.
+    // sequentially from workStart, each task sized by MY SHARE of its hpd — the
+    // unit's total for the whole team, ÷ its team size — with lunch reserved.
     //
     // A day absorbs only `paidHoursPerDay` — workStart→workEnd MINUS lunch, the
-    // org's real schedulable capacity. Not `hpd`, which takes no account of lunch
-    // (see OrgSettings.paidHoursPerDay: a 07:00–15:00 shop with a 1h lunch has hpd
-    // 8 but only 7 schedulable hours), so a single full-day task used to spill past
-    // workEnd entirely on its own.
+    // org's real schedulable capacity. Not the org `hpd`, which takes no account of
+    // lunch (see OrgSettings.paidHoursPerDay: a 07:00–15:00 shop with a 1h lunch
+    // has hpd 8 but only 7 schedulable hours), so a single full-day task used to
+    // spill past workEnd entirely on its own.
     //
     // Whatever doesn't fit ROLLS FORWARD onto the next work day instead of
     // stretching the lane into the evening. Nothing is dropped — the original
@@ -266,7 +267,7 @@ struct GanttView: View {
         // floor, which is as far back as the walk reaches.
         let tasks = items.map { item in
             SchedulePacker.Task(
-                hpd: item.hpd,
+                dailyCeiling: item.dailyCeiling,
                 totalHours: item.totalHours,
                 earliest: max(lookbackFloor, item.taskStart.map { cal.startOfDay(for: $0) } ?? lookbackFloor))
         }
@@ -313,7 +314,7 @@ struct GanttView: View {
             // Finished work is not schedulable, and leaving it in was the "no
             // job shows" half of the report: the roll-forward walk reaches 60
             // days back, so a job completed weeks ago still claimed its full
-            // hpd × span budget, ate the capacity of every day between, and
+            // budget, ate the capacity of every day between, and
             // pushed today's live task off the visible day. Dropping finished
             // jobs also matches TasksView.myTasks.
             if job.status == .finished { continue }
@@ -337,7 +338,7 @@ struct GanttView: View {
                         items.append(makeItem(job: job, panel: panel, op: op,
                                               title: op.title.isEmpty ? panel.title : op.title,
                                               color: col, typeLabel: lbl,
-                                              hpd: max(op.hpd > 0 ? op.hpd : panel.hpd, 0.5)))
+                                              hpd: op.hpd, teamSize: op.team.count))
                     }
                 } else if panel.team.contains(me),
                           // The panel fallback is for panels I'm on where I have
@@ -356,7 +357,7 @@ struct GanttView: View {
                                           title: panel.title.isEmpty ? job.title : panel.title,
                                           color: deptColor(for: job, panel: panel),
                                           typeLabel: deptLabel(for: job, panel: panel),
-                                          hpd: max(panel.hpd > 0 ? panel.hpd : 1.0, 0.5)))
+                                          hpd: panel.hpd, teamSize: panel.team.count))
                 }
             }
         }
@@ -374,15 +375,23 @@ struct GanttView: View {
     }
 
     private func makeItem(job: Job, panel: Panel, op: Operation?, title: String,
-                          color: Color, typeLabel: String, hpd: Double) -> _ScheduleItem {
+                          color: Color, typeLabel: String,
+                          hpd: Double, teamSize: Int) -> _ScheduleItem {
         let tStart = (op?.start ?? panel.start).asDate
         let tEnd   = (op?.end   ?? panel.end  ).asDate
-        let span   = businessDaySpan(from: tStart, to: tEnd)
+        // `hpd` is the unit's total for the whole team, so my budget is my share
+        // of it — never a panel's hpd standing in for an op's, and never a
+        // made-up figure for an unestimated one (that draws as one day).
+        let budget = SchedulePacker.personalBudget(
+            hpd: hpd, teamSize: teamSize,
+            productiveHoursPerDay: appState.orgSettings.productiveHoursPerDay,
+            dayCapacity: dayCapacity)
         return _ScheduleItem(job: job, panel: panel, op: op,
                              title: title,
-                             color: color, typeLabel: typeLabel, hpd: hpd,
+                             color: color, typeLabel: typeLabel,
+                             dailyCeiling: budget.dailyCeiling,
                              taskStart: tStart, taskEnd: tEnd,
-                             totalHours: hpd * Double(max(1, span)))
+                             totalHours: budget.totalHours)
     }
 
     /// Lay one day's allocations onto the clock, starting at workStart and stepping
@@ -480,24 +489,6 @@ struct GanttView: View {
             workedFraction: workedFraction)
     }
 
-    /// Inclusive count of business days (per orgSettings.workDays) between two dates.
-    /// Returns 0 if either date is nil. Used for each task's total hour budget.
-    private func businessDaySpan(from start: Date?, to end: Date?) -> Int {
-        guard let s = start, let e = end, s <= e else { return 0 }
-        let workDays = Set(appState.orgSettings.workDays)
-        var count = 0
-        var d = cal.startOfDay(for: s)
-        let stop = cal.startOfDay(for: e)
-        while d <= stop {
-            // Calendar.weekday: Sun=1 ... Sat=7. orgSettings.workDays uses Sun=0 ... Sat=6.
-            let dow = cal.component(.weekday, from: d) - 1
-            if workDays.contains(dow) { count += 1 }
-            guard let next = cal.date(byAdding: .day, value: 1, to: d) else { break }
-            d = next
-        }
-        return count
-    }
-
     private func deptForOp(_ op: Operation, fallback: Color) -> (String, Color) {
         let key = op.title.lowercased()
         switch key {
@@ -536,9 +527,8 @@ struct GanttView: View {
 }
 
 // One schedulable task, resolved once per render and then fed to the
-// roll-forward walk. `totalHours` is the task's whole budget (hpd × business-day
-// span); `hpd` stays its per-DAY ceiling, which is what keeps a normally-loaded
-// day packed exactly as it was before overflow started rolling forward.
+// roll-forward walk. `totalHours` is my share of the task (hpd ÷ team size — see
+// SchedulePacker.personalBudget); `dailyCeiling` is the most one day may give it.
 private struct _ScheduleItem {
     let job: Job
     let panel: Panel
@@ -546,7 +536,7 @@ private struct _ScheduleItem {
     let title: String
     let color: Color
     let typeLabel: String
-    let hpd: Double
+    let dailyCeiling: Double
     let taskStart: Date?
     let taskEnd: Date?
     let totalHours: Double
@@ -575,7 +565,7 @@ struct ScheduleBlock: Identifiable, Equatable {
     let end: Double
     let taskStart: Date?      // op.start (or panel.start when no op) — the task's calendar start
     let taskEnd: Date?        // op.end (or panel.end when no op) — the task's calendar end
-    let totalHours: Double    // hpd × business-day span of the task
+    let totalHours: Double    // my share of the task's hpd (hpd ÷ team size)
     let workedFraction: Double // 0...1 of the op's estimate logged so far (0 for panel-level blocks)
 
     static func == (lhs: ScheduleBlock, rhs: ScheduleBlock) -> Bool { lhs.id == rhs.id }

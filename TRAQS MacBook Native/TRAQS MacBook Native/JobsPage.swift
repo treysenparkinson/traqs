@@ -324,7 +324,7 @@ struct JobsPage: View {
                                 calendar: WorkCalendar(
                                     workDays: appState.orgSettings.workDays,
                                     holidays: appState.orgSettings.holidays),
-                                orgHpd: appState.orgSettings.hpd,
+                                productiveHoursPerDay: appState.orgSettings.productiveHoursPerDay,
                                 departments: appState.orgSettings.roles,
                                 today: JobsDate.todayKey),
                             create: { job in

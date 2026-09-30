@@ -31,7 +31,7 @@ struct JobsSchedulerTests {
         JobsScheduler.units(of: job(#"""
         {"id":"j","title":"J","subs":[{"id":"p","title":"P","subs":[
          {"id":"o1","title":"One","hpd":7.5},{"id":"o2","title":"Two","hpd":7.5}]}]}
-        """#), orgHpd: 7.5, departmentNames: [])
+        """#), productiveHoursPerDay: 7.5, departmentNames: [])
     }
 
     // MARK: Business days
@@ -56,11 +56,24 @@ struct JobsSchedulerTests {
     // MARK: Reading the form
 
     @Test func durationIsWholeBusinessDays() {
-        #expect(JobsScheduler.durationDays(hpd: 7.5, orgHpd: 7.5) == 1)
-        #expect(JobsScheduler.durationDays(hpd: 15, orgHpd: 7.5) == 2)
-        #expect(JobsScheduler.durationDays(hpd: 40, orgHpd: 7.5) == 6)
+        #expect(JobsScheduler.durationDays(hpd: 7.5, teamSize: 1, productiveHoursPerDay: 7.5) == 1)
+        #expect(JobsScheduler.durationDays(hpd: 15, teamSize: 1, productiveHoursPerDay: 7.5) == 2)
+        #expect(JobsScheduler.durationDays(hpd: 40, teamSize: 1, productiveHoursPerDay: 7.5) == 6)
         // Never zero — a unit always occupies a day.
-        #expect(JobsScheduler.durationDays(hpd: 0, orgHpd: 7.5) == 1)
+        #expect(JobsScheduler.durationDays(hpd: 0, teamSize: 1, productiveHoursPerDay: 7.5) == 1)
+    }
+
+    /// `hpd` is the whole team's total, so each person carries their share of it
+    /// through a PRODUCTIVE day — not a day of the org's gross `hpd`.
+    @Test func durationIsEachPersonsShareOverAProductiveDay() {
+        // 30h across two people is 15h each — two 7.5h days, not four.
+        #expect(JobsScheduler.durationDays(hpd: 30, teamSize: 2, productiveHoursPerDay: 7.5) == 2)
+        // 16h / 2 = 8h each: just over one productive day, so two.
+        #expect(JobsScheduler.durationDays(hpd: 16, teamSize: 2, productiveHoursPerDay: 7.5) == 2)
+        // A team of 0 is read as one person, never a divide by zero.
+        #expect(JobsScheduler.durationDays(hpd: 15, teamSize: 0, productiveHoursPerDay: 7.5) == 2)
+        // Unestimated is one day whatever the team.
+        #expect(JobsScheduler.durationDays(hpd: 0, teamSize: 3, productiveHoursPerDay: 7.5) == 1)
     }
 
     /// "Panels with sub-ops → sub-ops are assignable. Panels without → the panel
@@ -71,7 +84,7 @@ struct JobsSchedulerTests {
          {"id":"p1","title":"Panel","subs":[{"id":"o1","title":"Wire","hpd":7.5}]},
          {"id":"p2","title":"Leaf","hpd":7.5,"subs":[]},
          {"id":"p3","title":"","subs":[]}]}
-        """#), orgHpd: 7.5, departmentNames: [])
+        """#), productiveHoursPerDay: 7.5, departmentNames: [])
         #expect(units.map(\.id) == ["o1", "p2"])
     }
 
@@ -98,7 +111,7 @@ struct JobsSchedulerTests {
          {"id":"c","title":"C","deps":["b"]},
          {"id":"b","title":"B","deps":["a"]},
          {"id":"a","title":"A"}]}]}
-        """#), orgHpd: 7.5, departmentNames: [])
+        """#), productiveHoursPerDay: 7.5, departmentNames: [])
         #expect(units.map(\.id) == ["a", "b", "c"])
     }
 
@@ -108,7 +121,7 @@ struct JobsSchedulerTests {
         let units = JobsScheduler.units(of: job(#"""
         {"id":"j","title":"J","subs":[{"id":"p","title":"P","subs":[
          {"id":"x","title":"X","deps":["y"]},{"id":"y","title":"Y","deps":["x"]}]}]}
-        """#), orgHpd: 7.5, departmentNames: [])
+        """#), productiveHoursPerDay: 7.5, departmentNames: [])
         #expect(units.count == 2)
     }
 
@@ -247,7 +260,7 @@ struct JobsSchedulerTests {
         }
         let checked = makeJob()
         let window = JobsScheduler.windows(.init(
-            units: JobsScheduler.units(of: checked, orgHpd: 7.5, departmentNames: []),
+            units: JobsScheduler.units(of: checked, productiveHoursPerDay: 7.5, departmentNames: []),
             crew: crew, today: monday))[0]
         #expect(window.placements.count == 2)
 

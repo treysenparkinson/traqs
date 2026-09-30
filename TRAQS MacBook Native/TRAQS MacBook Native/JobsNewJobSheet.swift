@@ -472,7 +472,9 @@ struct JobsNewJobSheet: View {
         var people: [Person] = []
         var jobs: [Job] = []
         var calendar = WorkCalendar()
-        var orgHpd: Double = 7.5
+        /// The org's PRODUCTIVE hours per day — a unit's day length. Not the
+        /// org `hpd`, which is a stale gross figure.
+        var productiveHoursPerDay: Double = OrgSettings.default.productiveHoursPerDay
         var departments: [String] = []
         /// `TD`. Held rather than read at use, so the whole step agrees on the
         /// day even if it straddles midnight.
@@ -503,7 +505,8 @@ struct JobsNewJobSheet: View {
         windows = nil
         let draftJob = build()
         scheduledDraft = draftJob
-        let units = JobsScheduler.units(of: draftJob, orgHpd: scheduling.orgHpd,
+        let units = JobsScheduler.units(of: draftJob,
+                                        productiveHoursPerDay: scheduling.productiveHoursPerDay,
                                         departmentNames: Set(scheduling.departments))
         let crew = JobsScheduler.schedulableCrew(scheduling.people)
         let bookings = JobsScheduler.bookingIndex(

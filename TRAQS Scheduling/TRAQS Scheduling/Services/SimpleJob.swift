@@ -11,14 +11,12 @@ import Foundation
 // — the deepest-node rule needs an actual node at that depth. iOS reads the same
 // sub as a panel with no ops, which `myAssignments` already turns into a task.
 //
-// `hpd` is PRODUCTIVE hours per day, never a clock span: the web walks it with
-// walkProductiveHours, so an 8–4 day written as hpd 8 overruns lunch and spills
-// the bar into the next day.
+// `hpd` is the task's TOTAL estimated PRODUCTIVE hours for the whole team — not
+// a per-day rate and never a clock span. Each person's share (hpd ÷ team) is
+// walked with walkProductiveHours, so an 8–4 day written as 8 each overruns lunch
+// and spills the bar into the next day.
 
 enum SimpleJob {
-
-    /// A multi-day task is assumed to fill each day it covers.
-    static let fullDayHours = 7.5
 
     /// What the form hands over. `startHour`/`endHour` are wall-clock hours
     /// (13.5 = 1:30pm) and only mean anything for a one-day task.
@@ -36,12 +34,30 @@ enum SimpleJob {
         var isOneDay: Bool { !fullDays && start == end }
     }
 
-    /// Productive hours a day of this task takes. One day: what the chosen
-    /// window actually holds once lunch and breaks come out (web floors it at a
-    /// quarter hour). Several days: a full day each.
-    static func hoursPerDay(_ d: Draft, day: DayWindow) -> Double {
-        guard d.isOneDay else { return fullDayHours }
-        return max(0.25, WorkDayClock.productiveHours(from: d.startHour, to: d.endHour, in: day))
+    /// The task's `hpd`: total productive hours for everyone on it. One day:
+    /// what the chosen window actually holds once lunch and breaks come out (web
+    /// floors it at a quarter hour). Several days: a full productive day on each
+    /// working day of the span. Either way × the assignees, each of whom works it.
+    static func totalHours(_ d: Draft, day: DayWindow, calendar: WorkCalendar) -> Double {
+        let people = Double(max(1, d.team.count))
+        guard d.isOneDay else {
+            return Double(workingDays(from: d.start, to: d.end, in: calendar)) * day.productiveHours * people
+        }
+        return max(0.25, WorkDayClock.productiveHours(from: d.startHour, to: d.endHour, in: day)) * people
+    }
+
+    /// Working days in `start…end`, inclusive. Never below 1 — a run that is all
+    /// weekend still books the day it was put on.
+    static func workingDays(from start: String, to end: String, in calendar: WorkCalendar) -> Int {
+        guard JobsScheduler.date(from: start) != nil, end >= start else { return 1 }
+        var count = 0, current = start, steps = 0
+        // Bounded, like every other walk over the calendar.
+        while current <= end && steps < 4000 {
+            if calendar.isWorkDay(current) { count += 1 }
+            current = JobsScheduler.adding(days: 1, to: current)
+            steps += 1
+        }
+        return max(1, count)
     }
 
     /// Where the bar starts on its first day. A multi-day task has no time
@@ -50,12 +66,14 @@ enum SimpleJob {
         d.isOneDay ? d.startHour : day.workStart
     }
 
-    static func makeJob(_ d: Draft, day: DayWindow, color: String,
+    static func makeJob(_ d: Draft, day: DayWindow, calendar: WorkCalendar = WorkCalendar(),
+                        color: String,
                         createdBy personId: String?,
                         newId: () -> String = SimpleJob.newId) -> Job {
         let title = d.title.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        var sub = Panel.empty(id: newId(), title: title, hpd: hoursPerDay(d, day: day))
+        var sub = Panel.empty(id: newId(), title: title,
+                              hpd: totalHours(d, day: day, calendar: calendar))
         sub.start = d.start
         sub.end = d.end
         sub.team = d.team

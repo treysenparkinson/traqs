@@ -109,7 +109,12 @@ struct Operation: Codable, Identifiable, Equatable {
     var status: JobStatus
     var pri: Priority
     var team: [String]
+    /// TOTAL estimated productive hours for the whole team — not a per-day
+    /// rate, not clock hours; a person's share is `hpd / team.count`. 0 means
+    /// UNESTIMATED, which is also what an absent key decodes as.
     var hpd: Double
+    /// Whether `hpd` was missing on the wire — see `AbsentOnDecode`.
+    var hpdPresence = AbsentOnDecode()
     var notes: String
     var deps: [String]
     var locked: Bool?
@@ -160,7 +165,11 @@ struct Operation: Codable, Identifiable, Equatable {
         status = (try? c.decode(JobStatus.self, forKey: .status)) ?? .notStarted
         pri    = (try? c.decode(Priority.self, forKey: .pri)) ?? .medium
         team   = c.decodeFlexIDs(forKey: .team)
-        hpd    = (try? c.decode(Double.self, forKey: .hpd)) ?? 7.5
+        // Absent → 0, UNESTIMATED — never a made-up 7.5 — and remembered, so
+        // encode leaves the key off again (see AbsentOnDecode).
+        let wireHpd = try? c.decode(Double.self, forKey: .hpd)
+        hpd = wireHpd ?? 0
+        hpdPresence.wasAbsent = wireHpd == nil
         notes  = (try? c.decode(String.self, forKey: .notes)) ?? ""
         deps   = (try? c.decode([String].self, forKey: .deps)) ?? []
         locked       = try? c.decodeIfPresent(Bool.self, forKey: .locked)
@@ -184,7 +193,9 @@ struct Operation: Codable, Identifiable, Equatable {
         try c.encode(status, forKey: .status)
         try c.encode(pri, forKey: .pri)
         try c.encode(team, forKey: .team)
-        try c.encode(hpd, forKey: .hpd)
+        // Absent stays absent: an unestimated record the server never gave an
+        // `hpd` must not come back with one. An explicit 0 is still written.
+        if hpd != 0 || !hpdPresence.wasAbsent { try c.encode(hpd, forKey: .hpd) }
         try c.encode(notes, forKey: .notes)
         try c.encode(deps, forKey: .deps)
         // `encodeIfPresent` throughout for the optionals: writing an explicit
@@ -253,7 +264,12 @@ struct Panel: Codable, Identifiable, Equatable {
     var status: JobStatus
     var pri: Priority
     var team: [String]
+    /// TOTAL estimated productive hours for the whole team — not a per-day
+    /// rate, not clock hours; a person's share is `hpd / team.count`. 0 means
+    /// UNESTIMATED, which is also what an absent key decodes as.
     var hpd: Double
+    /// Whether `hpd` was missing on the wire — see `AbsentOnDecode`.
+    var hpdPresence = AbsentOnDecode()
     var notes: String
     var deps: [String]
     var engineering: Engineering?
@@ -295,7 +311,11 @@ struct Panel: Codable, Identifiable, Equatable {
         status      = (try? c.decode(JobStatus.self, forKey: .status)) ?? .notStarted
         pri         = (try? c.decode(Priority.self, forKey: .pri)) ?? .medium
         team        = c.decodeFlexIDs(forKey: .team)
-        hpd         = (try? c.decode(Double.self, forKey: .hpd)) ?? 7.5
+        // Absent → 0, UNESTIMATED — never a made-up 7.5 — and remembered, so
+        // encode leaves the key off again (see AbsentOnDecode).
+        let wireHpd = try? c.decode(Double.self, forKey: .hpd)
+        hpd = wireHpd ?? 0
+        hpdPresence.wasAbsent = wireHpd == nil
         notes       = (try? c.decode(String.self, forKey: .notes)) ?? ""
         deps        = (try? c.decode([String].self, forKey: .deps)) ?? []
         engineering = try? c.decodeIfPresent(Engineering.self, forKey: .engineering)
@@ -316,7 +336,9 @@ struct Panel: Codable, Identifiable, Equatable {
         try c.encode(status, forKey: .status)
         try c.encode(pri, forKey: .pri)
         try c.encode(team, forKey: .team)
-        try c.encode(hpd, forKey: .hpd)
+        // Absent stays absent: an unestimated record the server never gave an
+        // `hpd` must not come back with one. An explicit 0 is still written.
+        if hpd != 0 || !hpdPresence.wasAbsent { try c.encode(hpd, forKey: .hpd) }
         try c.encode(notes, forKey: .notes)
         try c.encode(deps, forKey: .deps)
         try c.encode(subs, forKey: .subs)
@@ -405,7 +427,12 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
     var pri: Priority
     var team: [String]
     var color: String
+    /// TOTAL estimated productive hours for the whole team — not a per-day
+    /// rate, not clock hours; a person's share is `hpd / team.count`. 0 means
+    /// UNESTIMATED, which is also what an absent key decodes as.
     var hpd: Double
+    /// Whether `hpd` was missing on the wire — see `AbsentOnDecode`.
+    var hpdPresence = AbsentOnDecode()
     var notes: String
     var clientId: String?
     var deps: [String]
@@ -443,7 +470,11 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
         pri       = (try? c.decode(Priority.self, forKey: .pri)) ?? .medium
         team      = c.decodeFlexIDs(forKey: .team)
         color     = (try? c.decode(String.self, forKey: .color)) ?? "#7c3aed"
-        hpd       = (try? c.decode(Double.self, forKey: .hpd)) ?? 7.5
+        // Absent → 0, UNESTIMATED — never a made-up 7.5 — and remembered, so
+        // encode leaves the key off again (see AbsentOnDecode).
+        let wireHpd = try? c.decode(Double.self, forKey: .hpd)
+        hpd = wireHpd ?? 0
+        hpdPresence.wasAbsent = wireHpd == nil
         notes     = (try? c.decode(String.self, forKey: .notes)) ?? ""
         deps      = (try? c.decode([String].self, forKey: .deps)) ?? []
         subs      = (try? c.decode([Panel].self, forKey: .subs)) ?? []
@@ -463,7 +494,7 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
     init(id: String, title: String, jobNumber: String? = nil, poNumber: String? = nil,
          start: String, end: String, dueDate: String? = nil,
          status: JobStatus = .notStarted, pri: Priority = .medium,
-         team: [String] = [], color: String = "#3d7fff", hpd: Double = 7.5,
+         team: [String] = [], color: String = "#3d7fff", hpd: Double = 0,
          notes: String = "", clientId: String? = nil, deps: [String] = [],
          subs: [Panel] = [], moveLog: [MoveLogEntry]? = nil, jobType: String? = nil,
          loggedHours: Double? = nil, projectManagerId: String? = nil,
@@ -488,7 +519,9 @@ struct Job: Codable, Identifiable, Equatable, Hashable {
         try c.encode(pri, forKey: .pri)
         try c.encode(team, forKey: .team)
         try c.encode(color, forKey: .color)
-        try c.encode(hpd, forKey: .hpd)
+        // Absent stays absent: an unestimated record the server never gave an
+        // `hpd` must not come back with one. An explicit 0 is still written.
+        if hpd != 0 || !hpdPresence.wasAbsent { try c.encode(hpd, forKey: .hpd) }
         try c.encode(notes, forKey: .notes)
         try c.encode(deps, forKey: .deps)
         try c.encode(subs, forKey: .subs)
@@ -1212,7 +1245,11 @@ struct OrgBreak: Codable, Equatable {
 }
 
 struct OrgSettings: Codable, Equatable {
-    var hpd: Double                       // hours per day (productive)
+    /// STALE, and not read anywhere. A gross day length (workEnd − workStart)
+    /// that old servers and the web still store, so it is decoded and written
+    /// back untouched — but it counts lunch and breaks, so it is neither a day's
+    /// capacity nor a fallback estimate. Use `productiveHoursPerDay`.
+    var hpd: Double
     var workStart: String                 // "07:00"
     var workEnd: String                   // "15:00"
     var workDays: [Int]                   // 0=Sun ... 6=Sat
@@ -1362,6 +1399,8 @@ struct OrgSettings: Codable, Equatable {
     }
 
     /// Productive hours per day = (workEnd - workStart) - lunch - breaks.
+    /// THE day length for scheduling: how much of an op's `hpd` one person
+    /// gets through in a day. Not the org `hpd` field, which is gross.
     var productiveHoursPerDay: Double {
         func parseT(_ t: String) -> Int {
             let parts = t.split(separator: ":").compactMap { Int($0) }
@@ -1378,10 +1417,9 @@ struct OrgSettings: Codable, Equatable {
     /// UNPAID lunch. Breaks are paid — the pay clock keeps running through them
     /// — so unlike `productiveHoursPerDay` they are NOT subtracted here.
     ///
-    /// This is the denominator for "hours clocked today". Deliberately not
-    /// `hpd`: that's a job-scheduling capacity figure (how many hours of work a
-    /// day absorbs) and takes no account of lunch, so a 07:00–16:00 shop with a
-    /// 1h lunch has hpd 9 but only 8 paid hours.
+    /// This is the denominator for "hours clocked today". Deliberately not the
+    /// org `hpd`: that is a stale gross figure that takes no account of lunch, so
+    /// a 07:00–16:00 shop with a 1h lunch has hpd 9 but only 8 paid hours.
     var paidHoursPerDay: Double {
         func minutes(_ t: String) -> Int? {
             let parts = t.split(separator: ":").compactMap { Int($0) }
@@ -1445,7 +1483,7 @@ struct NotifyPayload: Codable {
 
 extension Panel {
     static func empty(id: String = UUID().uuidString, title: String,
-                      hpd: Double = 7.5) -> Panel {
+                      hpd: Double = 0) -> Panel {
         var panel = Panel(fromEmptyWith: id, title: title, hpd: hpd)
         panel.subs = []
         return panel
@@ -1476,7 +1514,7 @@ extension Panel {
 
 extension Operation {
     static func empty(id: String = UUID().uuidString, title: String,
-                      hpd: Double = 7.5) -> Operation {
+                      hpd: Double = 0) -> Operation {
         Operation(fromEmptyWith: id, title: title, hpd: hpd)
     }
 

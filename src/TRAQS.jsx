@@ -12,6 +12,7 @@ import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
 import { BASIC_FEATURES, BUSINESS_FEATURES, TIER_LABEL, upgradeMailto } from "./tiers.js";
+import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, opDaySegments, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
 import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours, dayShiftToClear, rowSlackHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren } from "./statsMath.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
@@ -97,7 +98,7 @@ const FIELD_COL_CATALOG = [
   // onto a child where nothing reads it.
   { fieldKey: "projectManagerId", label: "PM",       type: "person", defaultWidth: 140, description: "Project manager" },
   { fieldKey: "jobType",       label: "Job Type",    type: "text",   defaultWidth: 110, description: "Type or category of job" },
-  { fieldKey: "hpd",           label: "Hrs/Day",     type: "number", defaultWidth: 80,  description: "Hours per day capacity" },
+  { fieldKey: "hpd",           label: "Est. hrs",    type: "number", defaultWidth: 80,  description: "Total estimated hours for the work, across its whole team" },
   { fieldKey: "notes",         label: "Notes",       type: "text",   defaultWidth: 180, description: "Free-form job notes" },
   { fieldKey: "color",         label: "Color",       type: "text",   defaultWidth: 70,  description: "Job color tag" },
   // Computed and read-only: the most recent signed approval step on the row (who signed,
@@ -360,7 +361,7 @@ const EXTRACT_TOOL = {
             assignedTo:   { type: "string" },
             poNumber:     { type: "string" },
             notes:        { type: "string" },
-            hpd:          { type: "number", description: "Hours per day (daily allocation, typically 4–8). NOT total hours." },
+            hpd:          { type: "number", description: "Total estimated hours for the job across its whole team, if the source states one. Omit when it doesn't." },
             panels: {
               type: "array",
               items: {
@@ -380,7 +381,7 @@ const EXTRACT_TOOL = {
                         start:        { type: "string", description: "YYYY-MM-DD" },
                         end:          { type: "string", description: "YYYY-MM-DD" },
                         durationDays: { type: "number", description: "Total working days this op should span. Used to compute end if end is not given." },
-                        hpd:          { type: "number", description: "Hours per day this op consumes (daily rate, typically 4–8). NOT total hours. If the source shows total hours, divide by the working day length." },
+                        hpd:          { type: "number", description: "Total estimated hours for the operation across its whole team. If the source shows \"Hours: 40\", return 40. If it gives only a daily rate and a span, multiply them. Omit when no hours are given." },
                       },
                     },
                   },
@@ -634,178 +635,8 @@ const addBD = (ds, n, { workDays = DEFAULT_WORK_DAYS, holidays = [] } = {}) => {
 const nextBD = (ds, { workDays = DEFAULT_WORK_DAYS, holidays = [] } = {}) => { let d = new Date(ds + "T12:00:00"); while (true) { const ds2 = toDS(d); if (workDays.includes(d.getDay()) && !holidays.includes(ds2)) break; d.setDate(d.getDate() + 1); } return toDS(d); };
 const diffBD = (a, b, { workDays = DEFAULT_WORK_DAYS, holidays = [] } = {}) => { let count = 0; let c = new Date(a + "T12:00:00"); const end = new Date(b + "T12:00:00"); while (c < end) { c.setDate(c.getDate() + 1); const ds2 = toDS(c); if (workDays.includes(c.getDay()) && !holidays.includes(ds2)) count++; } return count; };
 const diffD = (a, b) => Math.round((new Date(b + "T12:00:00") - new Date(a + "T12:00:00")) / 864e5);
-// ── Productive hours → wall-clock geometry ──────────────────────────────────
-// One minute. Exact fits must not roll over: a 1h op at 16:00 with a 17:00 quit
-// ends AT 17:00, and no accumulated float dust may push it onto the next day.
-const CLOCK_EPS = 1 / 60;
-// Normalises an org's breaks + lunch into the canonical unproductive windows of a
-// working day. productiveHoursPerDay is DERIVED from `deadH` so the time removed
-// from the day's capacity is exactly the time walkProductiveHours steps over —
-// computing the two independently let them disagree, and a full-day op then ran out
-// of hours before the day did and left a gap at the end of its column.
-//
-// Break entries are an ALLOWANCE, not a schedule: an org configures "two 15-minute
-// breaks" and workers take them whenever during the day. So every configured minute
-// counts against capacity, whatever time is on the entry — a 9h day with two 15-min
-// breaks and a 1h lunch is 7.5 productive hours, full stop.
-//
-// Placement still matters for geometry, since it decides WHERE in the day the
-// unproductive time falls. An entry whose time lands inside the working day is used
-// where it sits; anything left over (an entry timed outside working hours, or the
-// part of one that overruns the day's end) is floating time, and is banked at the
-// start of the day. Start, not end: parking it at the end would stop a full-day op
-// short of quitting time and reopen the very gap this is here to close, while at the
-// start it is already behind any op that begins later in the day.
-const buildDayWindows = (workStartH, workEndH, breaks, lunch) => {
-  const _phW = t => { const [h, m] = (t || "12:00").split(":").map(Number); return h + (m || 0) / 60; };
-  const raw = (breaks || [])
-    .filter(b => (b?.durationMinutes || 0) > 0)
-    .map(b => ({ start: _phW(b.time), dur: b.durationMinutes / 60 }));
-  const lnchMin = lunch?.durationMinutes ?? 60;
-  if (lnchMin > 0) raw.push({ start: _phW(lunch?.time), dur: lnchMin / 60 });
-  // Total configured unproductive time — the number that must come off the day.
-  // Never so much that the day has under an hour of work left in it.
-  const configuredH = Math.min(
-    raw.reduce((s, w) => s + w.dur, 0),
-    Math.max(0, (workEndH - workStartH) - 1)
-  );
-  const clipped = raw
-    .map(w => ({ start: Math.max(w.start, workStartH), end: Math.min(w.start + w.dur, workEndH) }))
-    .filter(w => w.end > w.start)
-    .sort((a, b) => a.start - b.start);
-  const merge = list => {
-    const out = [];
-    for (const w of list) {
-      const last = out[out.length - 1];
-      if (last && w.start <= last.end) last.end = Math.max(last.end, w.end);
-      else out.push({ ...w });
-    }
-    return out;
-  };
-  let merged = merge(clipped);
-  const placedH = merged.reduce((s, w) => s + (w.end - w.start), 0);
-  let remaining = Math.max(0, configuredH - placedH);
-  // Bank floating time into the day's earliest FREE minutes. Inserting a window and
-  // merging would let it be absorbed by one that already covers those minutes, and
-  // the allowance would silently vanish from the day's capacity.
-  if (remaining > 0) {
-    const out = [];
-    let cursor = workStartH;
-    for (const w of merged) {
-      if (remaining > 0 && w.start > cursor) {
-        const take = Math.min(remaining, w.start - cursor);
-        out.push({ start: cursor, end: cursor + take });
-        remaining -= take;
-      }
-      out.push({ start: w.start, end: w.end });
-      cursor = Math.max(cursor, w.end);
-    }
-    if (remaining > 0 && cursor < workEndH) {
-      out.push({ start: cursor, end: cursor + Math.min(remaining, workEndH - cursor) });
-    }
-    merged = merge(out.sort((a, b) => a.start - b.start));
-  }
-  const deadWindows = merged.map(w => ({ start: w.start, dur: w.end - w.start }));
-  return { workStartH, workEndH, deadWindows, deadH: deadWindows.reduce((s, w) => s + w.dur, 0) };
-};
-// Walks the working day from `startH`, spending `prodHours` of productive time and
-// stepping OVER lunch/breaks only when the work actually reaches them, rolling to
-// the next working day when the day runs out.
-//
-// This replaces a flat pro-rate — (prod / productivePerDay) * totalWorkH — that
-// smeared the whole day's unproductive time across every op in proportion to its
-// size. A 1-hour task inherited ~7 minutes of a lunch it never touches, which was
-// enough to make it "not fit" in a day it fits exactly: the bar got clipped short,
-// its span was computed as two days, and a zero-width dashed tail landed on the
-// next working day — across the weekend, for anything late on a Friday.
-//
-// cfg: { workStartH, workEndH, deadWindows: [{ start, dur }] sorted by start }
-// Returns { days, endHour, columns } — working days spanned, wall-clock end hour on
-// the final day, and total width in day-column units (the same axis the bar's left
-// offset uses, so offset + width closes exactly on the day boundary).
-const walkProductiveHours = (startH, prodHours, cfg) => {
-  const { workStartH, workEndH, deadWindows = [] } = cfg;
-  const dayLen = Math.max(0.0001, workEndH - workStartH);
-  let clock = Math.min(Math.max(startH, workStartH), workEndH);
-  const firstStart = clock;
-  let left = Math.max(0, prodHours);
-  let days = 1, guard = 0;
-  while (left > CLOCK_EPS && guard++ < 5000) {
-    for (const w of deadWindows) {
-      const wEnd = w.start + w.dur;
-      if (wEnd <= clock + CLOCK_EPS || w.start >= workEndH) continue; // behind us / after hours
-      const prodUntil = w.start - clock;
-      if (prodUntil > 0) {
-        if (left <= prodUntil + CLOCK_EPS) { clock += left; left = 0; break; }
-        left -= prodUntil;
-      }
-      clock = Math.max(clock, wEnd); // step over the window without spending against it
-    }
-    if (left <= CLOCK_EPS) break;
-    const tail = workEndH - clock;
-    if (left <= tail + CLOCK_EPS) { clock += left; left = 0; break; }
-    left -= tail;
-    days++; clock = workStartH;
-  }
-  const columns = days === 1
-    ? (clock - firstStart) / dayLen
-    : (workEndH - firstStart) / dayLen + (days - 2) + (clock - workStartH) / dayLen;
-  return { days, endHour: clock, columns: Math.max(0, columns) };
-};
-
-// The same walk, backwards: given the moment work FINISHED and a duration in productive
-// hours, find where it started. Mirror of walkProductiveHours -- same dead windows, same
-// day length, same CLOCK_EPS -- so a span measured one way and rebuilt the other lands on
-// itself rather than drifting by the lunch hour.
-//
-// Exists for the DONE bar, which is positioned by its end. Placing it by raw wall-clock
-// instead put a 6.9h bar's left edge at 03:33, outside the day grid (5-21) and, in
-// week/month, at a NEGATIVE column offset that drew it into the previous day or into the
-// label gutter. Walking productive hours keeps the bar's drawn width equal to its planned
-// duration, which is the whole claim the DONE bar makes.
-//
-// Returns `days`: 1 when the span fits in the finishing day, 2 when it reaches the previous
-// working day, and so on -- the caller steps that many BUSINESS days back, so weekends and
-// holidays are skipped by the org's own calendar rather than by a second rule here.
-//
-// `guard` bounds the loop the same way the forward walk does. A caller asking for more hours
-// than history holds walks back to the guard and stops, which clamps at a boundary instead
-// of hanging; the caller checks `clamped` and reports it.
-const walkProductiveHoursBack = (endH, prodHours, cfg) => {
-  const { workStartH, workEndH, deadWindows = [] } = cfg;
-  let clock = Math.min(Math.max(endH, workStartH), workEndH);
-  let left = Math.max(0, prodHours);
-  let days = 1, guard = 0;
-  // Sorted defensively before reversing. buildDayWindows returns them ascending and the cfg
-  // contract says so, but neither walk should depend on a caller honouring that.
-  //
-  // BOTH walks are order-sensitive, and the forward one is the more dangerous of the two
-  // because it has no such sort. Measured, with break@10:00(15m) and lunch@12:00(30m):
-  // walking forward 6 productive hours from 08:00 gives 14.75 with the windows ascending and
-  // 14.50 with them descending -- its `wEnd <= clock` skip reads an earlier window as already
-  // passed and silently drops its dead time. This walk is immune only because of the sort
-  // below. Do not read this as "forward is safe"; it is unprotected, just not currently fed
-  // out-of-order windows.
-  const reversed = [...deadWindows].sort((a, b) => a.start - b.start).reverse();
-  while (left > CLOCK_EPS && guard++ < 5000) {
-    for (const w of reversed) {
-      const wEnd = w.start + w.dur;
-      if (w.start >= clock - CLOCK_EPS || wEnd <= workStartH) continue;   // ahead of us / before hours
-      const prodUntil = clock - wEnd;
-      if (prodUntil > 0) {
-        if (left <= prodUntil + CLOCK_EPS) { clock -= left; left = 0; break; }
-        left -= prodUntil;
-      }
-      clock = Math.min(clock, w.start);   // step back over the window without spending against it
-    }
-    if (left <= CLOCK_EPS) break;
-    const head = clock - workStartH;
-    if (left <= head + CLOCK_EPS) { clock -= left; left = 0; break; }
-    left -= head;
-    days++; clock = workEndH;
-  }
-  return { days, startHour: clock, clamped: left > CLOCK_EPS };
-};
+// Productive hours → wall-clock geometry (CLOCK_EPS, buildDayWindows, walkProductiveHours,
+// walkProductiveHoursBack) live in statsMath.js, shared with the server's overlap rule.
 const fm = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
 const fmtDate = dateStr => { if (!dateStr) return "—"; return new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" }); };
 const uid = () => "t" + Math.random().toString(36).substr(2, 8);
@@ -4820,7 +4651,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
 Call the submit_extraction tool with EVERY work item you can identify in the user's text and attached files. Be aggressive — the user reviews everything before it's imported, so it's much better to over-extract than to miss rows.
 
 Today's date: ${today}
-Work schedule: ${orgSettings.workStart}–${orgSettings.workEnd} (${orgSettings.hpd}h/day, working days: ${workDayList})
+Work schedule: ${orgSettings.workStart}–${orgSettings.workEnd} (${productiveHoursPerDay} productive hours per day, working days: ${workDayList})
 Holidays (skip these dates): ${orgSettings.holidays.join(", ") || "none"}
 Existing team members: ${peopleCtx}
 Existing clients: ${clientCtx}
@@ -4837,8 +4668,8 @@ Extraction rules:
 - DATE FORMAT: source dates use MM/DD/YY (US format). "05/03/26" means May 3, 2026 — NOT March 5. "11/04/25" means November 4, 2025. Always output as YYYY-MM-DD.
 - PRESERVE THE YEAR EXACTLY as written in the source when READING it. A row dated 09/24/25 is 2025-09-24, not 2026-09-24 — parse it as written and do not guess. Note that the app then moves any start earlier than today forward to today, keeping the duration, because imported work has no hours logged against it and belongs ahead of the schedule cursor rather than behind it. Do not try to pre-compensate for that shift: report the dates you actually read.
 - If a year is an obvious typo (e.g. 2030 in a schedule otherwise full of 2026 dates) you may correct it, but be conservative — only fix dates that are clearly impossible.
-- When computing end dates, count only working days. A 40-hour op at ${orgSettings.hpd}h/day spans ${Math.ceil(40 / Math.max(1, orgSettings.hpd))} working days.
-- hpd is ALWAYS a daily rate (hours per day), never total hours. Realistic values are 4–8. If the source shows "Hours: 40" for an op, return durationDays=${Math.ceil(40 / Math.max(1, orgSettings.hpd))} and hpd=${orgSettings.hpd} — NOT hpd=40. If unsure, omit hpd and only return durationDays.
+- When computing end dates, count only working days. One person works ${productiveHoursPerDay} productive hours a day, so a 40-hour op for one person spans ${Math.ceil(40 / Math.max(1, productiveHoursPerDay))} working days.
+- hpd is the TOTAL estimated hours for the operation across its whole team (total estimated hours for the operation across its whole team), never a daily rate. If the source shows "Hours: 40" for an op, return hpd=40. If it shows only a daily rate over a span, multiply. If no hours are given, omit hpd.
 - For "updates" only include entries when you're confident the row refers to an existing job (its jobNumber matches a known job).
 - ALWAYS call submit_extraction. If you genuinely cannot find any work item after considering the rules above, call it with empty arrays and the user will see a clear error.`;
 
@@ -4901,14 +4732,9 @@ Extraction rules:
         if (lowerExistingClients.has(lo)) return;
         if (!newClientsMap.has(lo)) newClientsMap.set(lo, name);
       };
-      // hpd in the data model is a *daily rate* (hours per day), not total hours.
-      // Clamp any extracted hpd to a sane window to prevent total-hours-mistaken-for-rate from inflating job-card totals.
-      const defaultHpd = orgSettings.hpd || 8;
-      const sanitizeHpd = (raw, fallback = defaultHpd) => {
-        if (typeof raw !== "number" || !isFinite(raw) || raw <= 0) return fallback;
-        if (raw > 24) return fallback;
-        return Math.max(0.5, raw);
-      };
+      // hpd is the unit's TOTAL estimated hours for its whole team (src/statsMath.js).
+      // Anything missing or not a sane number is left unestimated rather than invented.
+      const sanitizeHpd = (raw) => (typeof raw === "number" && isFinite(raw) && raw > 0 && raw <= 5000 ? Math.round(raw * 100) / 100 : null);
       // Normalize an extracted assignee name to its canonical form: an existing person's
       // exact name when matched (exact or token-boundary partial), otherwise the trimmed/email-derived name.
       // This ensures the preview dropdown can pre-select the right option.
@@ -4965,7 +4791,7 @@ Extraction rules:
           assigneeName: canonicalPersonName(j.assignedTo),
           poNumber: j.poNumber || "",
           notes: j.notes || "",
-          hpd: sanitizeHpd(j.hpd, 7.5),
+          hpd: null,
           panels: (j.panels || []).map(p => ({
             _checked: true,
             _id: uid(),
@@ -5025,14 +4851,6 @@ Extraction rules:
   const commitImport = () => {
     if (!previewData) return;
     const { jobs, updates, newPeople, newClients } = previewData;
-    // Clamp Claude's daily rate to a sane window. We'll multiply by working days when storing.
-    const safeHpd = (v, fallback) => {
-      const d = orgSettings.hpd || 8;
-      const f = fallback != null ? fallback : d;
-      if (typeof v !== "number" || !isFinite(v) || v <= 0) return f;
-      if (v > 24) return f;
-      return Math.max(0.5, v);
-    };
     // The schedule renderer treats op.hpd as TOTAL productive hours for the op
     // (it computes _visualWorkDays = ceil(hpd / productiveHpd) to size the bar).
     // To make the bar fill the imported date range, we set hpd = workingDays × productiveHpd.
@@ -5095,9 +4913,9 @@ Extraction rules:
             pri: "High",
             status: "Not Started",
             team: opTeamId ? [opTeamId] : [],
-            // Total productive hours = working_days × productiveHpd, so the schedule renderer
-            // sizes the bar to fill the imported date range as one continuous block.
-            hpd: totalHoursForRange(opStart, opEnd),
+            // The estimate in the preview — the AI's, or what the user typed over it — is the
+            // op's total. Only an op with none is sized to fill its imported date range.
+            hpd: Number(o.hpd) > 0 ? Number(o.hpd) : totalHoursForRange(opStart, opEnd),
             color: jobColor,
             notes: "",
             deps: [],
@@ -5139,7 +4957,7 @@ Extraction rules:
         team: jobTeamId ? [jobTeamId] : (subs[0]?.team || []),
         projectManagerId: pmId,
         color: jobColor,
-        hpd: safeHpd(j.hpd, 7.5),
+        hpd: null,
         notes: j.notes || "",
         clientId: clientId || null,
         poNumber: j.poNumber || "",
@@ -5891,7 +5709,7 @@ Extraction rules:
   const [payClockOpen, setPayClockOpen] = useState(true);        // Time Settings → "Hourly" grid disclosure
   const [clockTimeModal, setClockTimeModal] = useState(null); // { personId, personName, action, ts } — ts is "YYYY-MM-DDTHH:mm"
   const [orgSettings, setOrgSettings] = useState(() => {
-    try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = s.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5]; if (s.workStart && s.workEnd) { const [sh, sm] = s.workStart.split(":").map(Number); const [eh, em] = s.workEnd.split(":").map(Number); merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2))); } return merged; }
+    try { const s = JSON.parse(localStorage.getItem("tq_org_settings") || "null") || {}; const base = { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; const merged = { ...base, ...s }; if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20]; if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = s.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5]; return merged; }
     catch { return { hpd: 8, workStart: "07:00", workEnd: "15:00", workDays: [1, 2, 3, 4, 5], holidays: [], roles: [], approvalQueueLabel: "Approval Queue", approvalSteps: ["Review", "Approve", "Release"], approverLabel: "Approver", conditions: [], signOffTemplates: [], payPeriodHourCap: 80, payDates: [5, 20], payMode: "setdate", payAnchor: TD, trackLunch: false, trackBreaks: false, iosPayClockEnabled: false, payPeriodType: "biweekly", payPeriodStart: TD, breaks: [{ time: "10:00", durationMinutes: 15 }], lunch: { time: "12:00", durationMinutes: 30 } }; }
   });
   // Custom job-list columns are ORG-WIDE: stored in orgSettings (synced to S3), so a column an
@@ -6132,12 +5950,13 @@ Extraction rules:
     return { start: day, startHour: workStartH };
   };
   // Duration of an operation in working days given org's hrs/day
-  const opDurBD = op => Math.max(1, Math.ceil((op?.hpd || orgSettings.hpd) / orgSettings.hpd));
+  // Working days one person needs for a unit: their share over the productive day.
+  const opDurBD = op => Math.max(1, Math.ceil(personShareHours(op?.hpd, (op?.team || []).length, productiveHoursPerDay) / productiveHoursPerDay));
   // Job hours/progress helpers — used by both renderTasks and the export modal
   // ?? not ||. An explicit 0 is a real answer -- "nobody has estimated this yet" --
   // and || cannot tell it from a missing field, so a task deliberately created at
   // zero displayed as 7.5 and the user could not make it read 0.
-  const _opHrs = (op) => Math.round((op.hpd ?? 7.5) * 10) / 10;
+  const _opHrs = (op) => Math.round((op.hpd || 0) * 10) / 10;
   const _panelHrs = (panel) => Math.round((panel.subs || []).reduce((s, op) => s + _opHrs(op), 0) * 10) / 10;
   const _jobHrs = (job) => Math.round((job.subs || []).reduce((s, p) => s + _panelHrs(p), 0) * 10) / 10;
   // getCurrentPayPeriod(startDate, periodType, today?)
@@ -6402,7 +6221,8 @@ Extraction rules:
   // to 99% of estimate and no longer does; a completion still awaiting approval reports the
   // hours actually worked.
   const _opHoursPair = (op) => {
-    const est = Math.max(0.0001, op.hpd || orgSettings.hpd);
+    // Unestimated (absent or 0) has no estimate — it is not 8.
+    const est = (op.hpd || 0) > 0 ? op.hpd : 0;
     if (op.status === "Finished") return { logged: est, est };
     // Logged = JOB-clock time recorded against THIS op — NOT payroll hours. The payroll clock
     // logs a whole session against every job selected at clock-in, which over-counts and isn't
@@ -6427,7 +6247,7 @@ Extraction rules:
   const _opPct = (op) => {
     if (op.status === "Finished") return 100;
     const { logged, est } = _opHoursPair(op);
-    if (logged === 0) return 0;
+    if (logged === 0 || !(est > 0)) return 0;
     return Math.round(logged / est * 100);
   };
   // Weighted by estimate: total logged hours ÷ total estimated hours, so a 40h-op at 8h
@@ -6993,7 +6813,8 @@ Extraction rules:
     const fmtMD = ds => new Date(ds + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
     const workDays = orgSettings.workDays || [1, 2, 3, 4, 5];
     const holidays = orgSettings.holidays || [];
-    const hpd = orgSettings.hpd || 8;
+    // A pay day's gross length (the work window) — what org hpd always held.
+    const hpd = totalWorkH;
 
     // Every day of the pay period, in order (string compare is safe for YYYY-MM-DD).
     const dates = []; for (let d = payPeriod.start; d <= payPeriod.end; d = addD(d, 1)) dates.push(d);
@@ -7756,11 +7577,6 @@ Extraction rules:
           const merged = { ...base, ...server };
           if (!Array.isArray(merged.payDates) || merged.payDates.length === 0) merged.payDates = [5, 20];
           if (!Array.isArray(merged.workDays) || merged.workDays.length === 0) merged.workDays = server.weekends === true ? [0, 1, 2, 3, 4, 5, 6] : [1, 2, 3, 4, 5];
-          if (server.workStart && server.workEnd) {
-            const [sh, sm] = server.workStart.split(":").map(Number);
-            const [eh, em] = server.workEnd.split(":").map(Number);
-            merged.hpd = Math.max(0.5, parseFloat(((eh + em / 60) - (sh + sm / 60)).toFixed(2)));
-          }
           return merged;
         });
       })
@@ -8139,7 +7955,7 @@ Extraction rules:
       subs: [...(j.subs || []), {
         id: nid, title: `Phase ${(j.subs || []).filter(x => x && !x.deletedAt).length + 1}`,
         start: null, end: null, pri: "Medium", status: "Not Started",
-        team: [], hpd: j.hpd ?? 8, notes: "", subs: [], deps: [],
+        team: [], hpd: null, notes: "", subs: [], deps: [],
       }],
     }));
     toast("Phase added");
@@ -9312,8 +9128,9 @@ Extraction rules:
       const overloaded = (t.subs || []).some(panel => (panel.subs || []).some(op => (op.team || []).some(pid => {
         const person = people.find(x => x.id === pid); if (!person) return false;
         const pOff = (person.timeOff || []).some(to => todayStr >= to.start && todayStr <= to.end); if (pOff) return false;
-        let h = 0; tasks.forEach(task => { (task.subs || []).forEach(pnl => { (pnl.subs || []).forEach(o => { if ((o.team || []).includes(pid) && todayStr >= o.start && todayStr <= o.end) h += (o.hpd || 0) / Math.max(1, (o.team || []).length); }); }); });
-        return h > (person.cap || 8);
+        // A person's share of each op, spread over its working days — hpd is the team's total.
+        let h = 0; tasks.forEach(task => { (task.subs || []).forEach(pnl => { (pnl.subs || []).forEach(o => { if ((o.team || []).map(String).includes(String(pid)) && todayStr >= o.start && todayStr <= o.end) h += personShareHours(o.hpd, (o.team || []).length, productiveHoursPerDay) / Math.max(1, getWorkingDayDuration(o.start, o.end, orgSettings.workDays)); }); }); });
+        return h > capacityOf(person, productiveHoursPerDay);
       })));
       if (!overloaded) return false;
     }
@@ -9559,7 +9376,7 @@ Extraction rules:
       if (!check.personId || !check.start || !check.end) continue;
       const person = people.find(x => x.id === check.personId);
       if (!person) continue;
-      const cap = person.cap || productiveHoursPerDay;
+      const cap = capacityOf(person, productiveHoursPerDay);
       const checkTotalH = check.hpd || productiveHoursPerDay;
       const opSpanBD = Math.max(1, diffBD(check.start, check.end) + 1, Math.ceil(checkTotalH / cap));
       const newHpd = (checkTotalH / opSpanBD) / Math.max(1, check.teamLength || 1);
@@ -10055,7 +9872,11 @@ Extraction rules:
     const sessionOwnsPosition = !!lastLog && lastLog.sessionId === session.sessionId;
     const snap = sessionOwnsPosition ? (session.sessionSnapshot || []).find(s => sameId(s.opId, op.id)) : null;
     const snapSpan = (snap && snap.endHour != null && snap.startHour != null) ? snap.endHour - snap.startHour : null;
-    const plannedDur = snap?.hpd ?? snapSpan ?? op.hpd ?? ((op.endHour ?? workEndH) - (op.startHour ?? workStartH));
+    // The DONE bar's length is one person's share: the snapshot's or the op's estimate
+    // ÷ team, or the planned clock span when there is no estimate at all.
+    const _team = (op.team || []).length;
+    const plannedDur = (snap?.hpd || 0) > 0 ? personShareHours(snap.hpd, _team, productiveHoursPerDay)
+      : snapSpan ?? ((op.hpd || 0) > 0 ? personShareHours(op.hpd, _team, productiveHoursPerDay) : ((op.endHour ?? workEndH) - (op.startHour ?? workStartH)));
     const dur = Math.max(SHRINK_MIN_REMAINDER_H, Number(plannedDur) || 0);
 
     const walk = walkProductiveHoursBack(apprH, dur, dayWindowCfg);
@@ -10070,7 +9891,8 @@ Extraction rules:
       actualEnd: session.frozenAtMs ? new Date(session.frozenAtMs).toISOString() : undefined,
       start: startDS, end: apprDS,
       startHour: startH, endHour: apprH,
-      hpd: dur,
+      // hpd is not written: finishing an op keeps its estimate. It used to take `dur` — a
+      // clock span when the snapshot had one — and overwrote the estimate with it.
       ...(snap ? { plannedStart: snap.start, plannedEnd: snap.end, plannedStartHour: snap.startHour ?? null, plannedEndHour: snap.endHour ?? null } : {}),
       moveLog: [...(op.moveLog || []), {
         fromStart: op.start, fromEnd: op.end, toStart: startDS, toEnd: apprDS,
@@ -10145,7 +9967,8 @@ Extraction rules:
   const opHourRange = (op) => {
     const sH = op.startHour ?? workStartH;
     if (op.start === op.end) {
-      const eH = op.endHour ?? Math.min(sH + (op.hpd || productiveHoursPerDay), workEndH);
+      const _w = walkProductiveHours(sH, personShareHours(op.hpd, (op.team || []).length, productiveHoursPerDay), dayWindowCfg);
+      const eH = op.endHour ?? (_w.days > 1 ? workEndH : Math.min(_w.endHour, workEndH));
       return [hourTs(op.start, sH), hourTs(op.end, eH)];
     }
     return [hourTs(op.start, workStartH), hourTs(op.end, workEndH)];
@@ -10911,7 +10734,7 @@ Extraction rules:
       requiredDepartment: live.requiredDepartment || "",
       pri: live.pri || "Medium",
       status: live.status || "Not Started",
-      hpd: live.hpd ?? 7.5,
+      hpd: live.hpd ?? null,
       start: live.start || TD,
       end: live.end || TD,
       color: live.color || live.subs?.[0]?.color || _colorForId(live.id),
@@ -11011,7 +10834,7 @@ Extraction rules:
       const activeJobs = tasks.filter(t => (t.team || []).includes(p.id) && t.status !== "Finished" && t.end >= todayStr);
       const todayH = bookedHrs(p.id, todayStr);
       const _backupStr = p.secondaryDepartment ? `, backup: ${p.secondaryDepartment}` : "";
-      return `${p.name} [person_id:${p.id}] (${p.department || "—"}${_backupStr}, ${p.cap || orgSettings.hpd}h/day): today=${todayH.toFixed(1)}h booked, on: ${activeJobs.map(t => `"${t.title}"`).join(", ") || "nothing"}`;
+      return `${p.name} [person_id:${p.id}] (${p.department || "—"}${_backupStr}, ${capacityOf(p, productiveHoursPerDay)}h/day): today=${todayH.toFixed(1)}h booked, on: ${activeJobs.map(t => `"${t.title}"`).join(", ") || "nothing"}`;
     }).join("\n");
     const jobsCtx = tasks.map(t => {
       const team = (t.team || []).map(id => people.find(p => p.id === id)?.name || id).join(", ");
@@ -11026,7 +10849,7 @@ Extraction rules:
       return `Job "${t.title}" [job_id:${t.id}]${t.jobNumber ? ` (#${t.jobNumber})` : ""}${client ? ` [client:${client}]` : ""}: status=${t.status}, priority=${t.pri || "Medium"}, dates=${t.start}–${t.end}${t.dueDate ? `, due:${t.dueDate}` : ""}${team ? `, team: ${team}` : ""}${panels.length > 0 ? `\n${panels.join("\n")}` : ""}`;
     }).join("\n\n");
     return `You are TRAQS AI — a full-featured project management assistant. Today is ${todayStr}.
-Working hours: ${orgSettings.workStart}–${orgSettings.workEnd} (${orgSettings.hpd}h/day, working days: ${orgSettings.workDays.map(d => ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d]).join("/")}, holidays: ${orgSettings.holidays.join(", ") || "none"}).
+Working hours: ${orgSettings.workStart}–${orgSettings.workEnd} (${productiveHoursPerDay} productive h/day, working days: ${orgSettings.workDays.map(d => ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d]).join("/")}, holidays: ${orgSettings.holidays.join(", ") || "none"}).
 
 You have full control. You can:
 - Create, update, or delete jobs (status, priority, dates, job number, notes, due date)
@@ -11443,11 +11266,11 @@ ${jobsCtx || "No jobs found."}`;
       { const { color: _dc, ...jobBase } = freshen(item); jobToPaste = { ...jobBase, title: item.title + " (Copy)" }; }
     } else if (level === 1) {
       const panel = freshen(item);
-      jobToPaste = { id: uid(), title: item.title + " (Copy)", start: panel.start, end: panel.end, status: "Not Started", pri: "Medium", team: [], hpd: item.hpd || 8, notes: "", subs: [panel], deps: [], clientId: null };
+      jobToPaste = { id: uid(), title: item.title + " (Copy)", start: panel.start, end: panel.end, status: "Not Started", pri: "Medium", team: [], hpd: item.hpd ?? null, notes: "", subs: [panel], deps: [], clientId: null };
     } else {
       const op = freshen(item);
-      const panel = { id: uid(), title: "Panel-01", start: op.start, end: op.end, status: "Not Started", pri: "Medium", team: [], hpd: item.hpd || 8, notes: "", deps: [], engineering: { designed: null, verified: null, sentToPerforex: null }, subs: [op] };
-      jobToPaste = { id: uid(), title: item.title + " (Copy)", start: panel.start, end: panel.end, status: "Not Started", pri: "Medium", team: [], hpd: item.hpd || 8, notes: "", subs: [panel], deps: [], clientId: null };
+      const panel = { id: uid(), title: "Panel-01", start: op.start, end: op.end, status: "Not Started", pri: "Medium", team: [], hpd: item.hpd ?? null, notes: "", deps: [], engineering: { designed: null, verified: null, sentToPerforex: null }, subs: [op] };
+      jobToPaste = { id: uid(), title: item.title + " (Copy)", start: panel.start, end: panel.end, status: "Not Started", pri: "Medium", team: [], hpd: item.hpd ?? null, notes: "", subs: [panel], deps: [], clientId: null };
     }
     setTasks(prev => [...prev, jobToPaste]);
     setPasteConfirm(null);
@@ -12946,12 +12769,12 @@ ${jobsCtx || "No jobs found."}`;
           const newStart = Math.round((origHour + deltaH) * 4) / 4;
           const clamped = Math.max(DHS, Math.min(origEnd - 0.25, newStart));
           setDayDragInfo({ itemId: item.id, mode });
-          updTask(item.id, { startHour: clamped, hpd: Math.round((origEnd - clamped) * 100) / 100 }, pid);
+          updTask(item.id, { startHour: clamped, hpd: Math.round(productiveClockHours(clamped, origEnd, dayWindowCfg) * Math.max(1, (item.team || []).length) * 100) / 100 }, pid);
         } else { // right
           const newEnd = Math.round((origEnd + deltaH) * 4) / 4;
           const clamped = Math.max(origHour + 0.25, Math.min(DHE, newEnd));
           setDayDragInfo({ itemId: item.id, mode });
-          updTask(item.id, { hpd: Math.round((clamped - origHour) * 100) / 100 }, pid);
+          updTask(item.id, { hpd: Math.round(productiveClockHours(origHour, clamped, dayWindowCfg) * Math.max(1, (item.team || []).length) * 100) / 100 }, pid);
         }
       };
       const onU = () => {
@@ -13098,7 +12921,9 @@ ${jobsCtx || "No jobs found."}`;
                 {rows.map(r => {
                   const onDay = r.start <= gStart && r.end >= gStart;
                   const hpd = r.hpd || 0;
-                  const rawBarS = r.startHour ?? 8, rawBarE = hpd > 0 ? Math.min(rawBarS + hpd, HE) : Math.min(rawBarS + 9, HE);
+                  const rawBarS = r.startHour ?? workStartH;
+                  const _rw = walkProductiveHours(rawBarS, personShareHours(hpd, (r.team || []).length, productiveHoursPerDay), dayWindowCfg);
+                  const rawBarE = Math.min(_rw.days > 1 ? workEndH : _rw.endHour, HE);
                   const visBarS = Math.max(rawBarS, HS), visBarE = Math.min(rawBarE, HE);
                   const barVisible = onDay && visBarE > visBarS;
                   const indent = r.level || 0;
@@ -14449,7 +14274,7 @@ ${jobsCtx || "No jobs found."}`;
         // and saveTask use). Display it directly — no multiplication by days, which was the legacy
         // "daily rate × days" formula that inflated multi-day ops.
         // ?? not ||, same reason as _opHrs above: 0 is an answer, not an absence.
-        const opHrs = (op) => Math.round((op.hpd ?? 7.5) * 10) / 10;
+        const opHrs = (op) => Math.round((op.hpd || 0) * 10) / 10;
         const panelHrs = (panel) => Math.round((panel.subs || []).reduce((s, op) => s + opHrs(op), 0) * 10) / 10;
         const jobHrs = (job) => Math.round((job.subs || []).reduce((s, p) => s + panelHrs(p), 0) * 10) / 10;
         // Use the component-level, hours-weighted helpers so the Progress column reflects
@@ -15304,7 +15129,8 @@ ${jobsCtx || "No jobs found."}`;
     const selTasks = sel ? tasks.filter(t => t.clientId === sel.id) : [];
     const completed = selTasks.filter(t => t.status === "Finished").length;
     const inProg = selTasks.filter(t => t.status === "In Progress").length;
-    const totalHrs = selTasks.reduce((a, t) => a + (t.hpd || 0) * (diffD(t.start, t.end) + 1), 0);
+    // hpd is each unit's total estimate; it is not multiplied by its days.
+    const totalHrs = selTasks.reduce((a, t) => a + (t.hpd || 0), 0);
     // Desktop renders the profile as a page in the content panel, same as the job
     // details page: transparent so the panel's background shows through, no card
     // chrome, no entry animation. Mobile keeps the overlay.
@@ -15430,7 +15256,7 @@ ${jobsCtx || "No jobs found."}`;
                                   <div key={op.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0 6px 14px", borderTop: `1px solid ${T.border}55` }}>
                                     <span style={{ width: 4, height: 4, borderRadius: 4, background: staColorOf(getOpDisplayStatus(op)), flexShrink: 0 }} />
                                     <span style={{ fontSize: 12, color: T.textSec, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{op.title}</span>
-                                    <span style={{ fontSize: 10.5, fontFamily: T.mono, color: T.textDim, flexShrink: 0 }}>{op.hpd ?? orgSettings.hpd}h</span>
+                                    <span style={{ fontSize: 10.5, fontFamily: T.mono, color: T.textDim, flexShrink: 0 }}>{op.hpd != null ? `${op.hpd}h` : "—"}</span>
                                     <span style={{ fontSize: 10.5, fontWeight: 700, color: staColorOf(getOpDisplayStatus(op)), flexShrink: 0, whiteSpace: "nowrap" }}>{getOpDisplayStatus(op)}</span>
                                     <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0, minWidth: 0 }}>
                                       {crew.length === 0
@@ -16921,6 +16747,8 @@ ${jobsCtx || "No jobs found."}`;
       const sx = e.clientX, sy = e.clientY;
       let moved = false;
       const pid = barTask.isSub ? barTask.pid : null;
+      // A resize writes the team's total: this person's productive hours × team size.
+      const _dayTeamSize = Math.max(1, (barTask.team || []).length);
       // Measure the timeline area (right side of the row) at drag start
       const timelineEl = e.currentTarget.parentElement; // position:relative flex div
       const rowRect = timelineEl.getBoundingClientRect();
@@ -16973,14 +16801,14 @@ ${jobsCtx || "No jobs found."}`;
           const cursorHour = DHS + (me.clientX - timelineLeft) / timelineWidth * DNH;
           const newStart = Math.round(cursorHour * 4) / 4;
           pending.startHour = Math.max(DHS, Math.min(origEnd - 0.25, newStart));
-          pending.hpd = Math.round((origEnd - pending.startHour) * 100) / 100;
+          pending.hpd = Math.round(productiveClockHours(pending.startHour, origEnd, dayWindowCfg) * _dayTeamSize * 100) / 100;
           const _beforeNowDay = pending.startHour < _nowHForDayDrag;
           setTeamDayGhost({ left: me.clientX, top: me.clientY - barH / 2, width: 4, height: barH, color: _beforeNowDay ? "#ef4444" : barTask.color, label: barTask.title || "", time: fmTimeH(pending.startHour) });
         } else {
           const cursorHour = DHS + (me.clientX - timelineLeft) / timelineWidth * DNH;
           const clamped = Math.max(origHour + 0.25, Math.min(DHE, Math.round(cursorHour * 4) / 4));
-          pending.hpd = Math.round((clamped - origHour) * 100) / 100;
-          setTeamDayGhost({ left: me.clientX, top: me.clientY - barH / 2, width: 4, height: barH, color: barTask.color, label: barTask.title || "", time: fmTimeH(origHour + pending.hpd) });
+          pending.hpd = Math.round(productiveClockHours(origHour, clamped, dayWindowCfg) * _dayTeamSize * 100) / 100;
+          setTeamDayGhost({ left: me.clientX, top: me.clientY - barH / 2, width: 4, height: barH, color: barTask.color, label: barTask.title || "", time: fmTimeH(clamped) });
         }
       };
       const onU = (me) => {
@@ -17238,49 +17066,36 @@ ${jobsCtx || "No jobs found."}`;
                       return a._i - b._i;
                     });
                   let cumH = wsH;
+                  const _isDayWork = (d) => isWorkDay(d, orgSettings.workDays) && !(orgSettings.holidays || []).includes(d);
                   const barPositions = _packOrder.map(({ bar, _hasManual: hasManual }) => {
                     const hpd = bar.task?.hpd || 0;
-                    const isMultiDay = !hasManual && bar.task?.start && bar.task?.end && bar.task.start !== bar.task.end;
+                    // One person's share of the unit (hpd is the team's total), walked through
+                    // productive time — the extent the week view and the overlap rule use too.
+                    // This read hpd as clock hours: a single-day op ran start + hpd straight
+                    // through lunch, and a multi-day op with a start hour ran to 21:00 every day.
+                    const _share = personShareHours(hpd, (bar.task?.team || []).length, productiveHoursPerDay);
+                    const isMultiDay = bar.task?.start && bar.task?.end && bar.task.start !== bar.task.end;
                     let rawS, rawE;
                     if (isMultiDay) {
-                      const fullDays = Math.floor(hpd / productiveHoursPerDay);
-                      const remainingHours = hpd % productiveHoursPerDay;
-                      const dayIndex = diffBD(bar.task.start, tStart);
-                      const isLastDay = remainingHours > 0 && dayIndex >= fullDays;
-                      rawS = wsH;
-                      if (isLastDay) {
-                        // Walk from workStart, accumulating productive time and skipping breaks/lunch
-                        const _phW = t => { const [h, m] = (t || "0:0").split(":").map(Number); return h + m / 60; };
-                        const deadWindows = (orgSettings.breaks || []).map(b => ({ start: _phW(b.time), dur: (b.durationMinutes || 0) / 60 }));
-                        const lnch = orgSettings.lunch || { time: "12:00", durationMinutes: 30 };
-                        deadWindows.push({ start: _phW(lnch.time), dur: (lnch.durationMinutes || 0) / 60 });
-                        deadWindows.sort((a, b) => a.start - b.start);
-                        let clockPos = wsH;
-                        let prodLeft = remainingHours;
-                        for (const win of deadWindows) {
-                          if (win.start <= clockPos) continue;
-                          const prodUntilWin = win.start - clockPos;
-                          if (prodLeft <= prodUntilWin) { clockPos += prodLeft; prodLeft = 0; break; }
-                          prodLeft -= prodUntilWin;
-                          clockPos = win.start + win.dur;
-                        }
-                        rawE = Math.min(clockPos + prodLeft, weH);
-                      } else {
-                        rawE = weH;
-                      }
+                      // Positioned by the walk across its days, outside the pack, as before.
+                      const seg = opDaySegments(bar.task, { cfg: dayWindowCfg, productiveHoursPerDay, isWorkDay: _isDayWork }).find(x => x.day === tStart);
+                      if (!seg) return null;   // its hours ran out before this day
+                      rawS = seg.startH; rawE = seg.endH;
                     } else if (billingTier === "business") {
                       // Clamped against the shared cursor even when manual — a preferred hour
                       // that lands before an already-placed bar's end is pushed to that end,
                       // which is the only way two bars on one row can never overlap.
                       rawS = Math.max(hasManual ? bar.task.startHour : cumH, cumH);
-                      rawE = hpd > 0 ? Math.min(rawS + hpd, HE) : Math.min(rawS + 2, HE);
+                      const w = walkProductiveHours(rawS, _share, dayWindowCfg);
+                      rawE = Math.min(w.days > 1 ? weH : w.endHour, HE);
                     } else {
                       // Basic: the schedule is visual only. A card paints exactly where its
                       // own day/time says, full stop — no packing, no collision-avoidance,
                       // no cursor. Two assignments at the same time on the same row is a
                       // deliberate, allowed thing here (a normal double-booked shift).
                       rawS = hasManual ? bar.task.startHour : wsH;
-                      rawE = hpd > 0 ? Math.min(rawS + hpd, HE) : Math.min(rawS + 2, HE);
+                      const w = walkProductiveHours(rawS, _share, dayWindowCfg);
+                      rawE = Math.min(w.days > 1 ? weH : w.endHour, HE);
                     }
                     // Every bar advances the shared cursor now, manual included — otherwise a
                     // manual bar pushed forward by an earlier one would leave cumH stale, and
@@ -17291,7 +17106,7 @@ ${jobsCtx || "No jobs found."}`;
                     // computed from the ORIGINAL rawS above, so the planned right edge stays
                     // put while the left one advances into it. Every other bar is untouched.
                     return { bar, rawS: shrunkStartH(p.activeJobClock, bar.task, rawS), rawE, hpd };
-                  });
+                  }).filter(Boolean);
                   // Basic only: overlap is allowed in the data (no packing, see above) but
                   // two bars painted at the same vertical position with one on top of the
                   // other reads as though only one exists — only a sliver of the covered
@@ -17367,7 +17182,7 @@ ${jobsCtx || "No jobs found."}`;
                           <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"right",p.id);}} style={{position:"absolute",right:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
                             <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
                           </div>
-                          {hpd >= orgSettings.hpd && (() => {
+                          {personShareHours(hpd, (bar.task?.team || []).length, productiveHoursPerDay) >= productiveHoursPerDay && (() => {
                             const _ph = t => { const [h,m]=(t||"0:0").split(":").map(Number); return h+m/60; };
                             const wsH = _ph(orgSettings.workStart||"07:00");
                             const totalM = (rawE - wsH) * 60;
@@ -17568,7 +17383,10 @@ ${jobsCtx || "No jobs found."}`;
               dayBars.forEach(b => { (byDay[b.task.start] ||= []).push(b); });
               const m = new Map();
               Object.values(byDay).forEach(dayList => {
-                const withRange = dayList.map(b => ({ b, s: b.task.startHour, e: b.task.startHour + b.task.hpd }));
+                const withRange = dayList.map(b => {
+                  const w = walkProductiveHours(b.task.startHour, personShareHours(b.task.hpd, (b.task.team || []).length, productiveHoursPerDay), dayWindowCfg);
+                  return { b, s: b.task.startHour, e: w.days > 1 ? workEndH : w.endHour };
+                });
                 const sorted = [...withRange].sort((a, b2) => a.s - b2.s || a.e - b2.e);
                 const laneEnds = [];
                 const withLane = sorted.map(item => {
@@ -19103,6 +18921,8 @@ ${jobsCtx || "No jobs found."}`;
                     const pending = { start: os, end: oe, startHour: osH, endHour: oeH, hpd: _origHpd };
                     let lastDx = 0;
                     // Compute total productive hpd from a (sDay, sH) → (eDay, eH) span (clock-hours scaled to productive)
+                    // One person's productive hours for a span; the op's hpd is the team's total.
+                    const _resizeTeamSize = Math.max(1, (bar.task?.team || []).length);
                     const _computeHpd = (sDay, sH, eDay, eH) => {
                       let clockH;
                       if (sDay === eDay) {
@@ -19162,14 +18982,14 @@ ${jobsCtx || "No jobs found."}`;
                           if (_finalDay === pending.start && _finalHour === pending.startHour) return;
                           pending.start = _finalDay;
                           pending.startHour = _finalHour;
-                          pending.hpd = _computeHpd(_finalDay, _finalHour, oe, oeH);
+                          pending.hpd = _computeHpd(_finalDay, _finalHour, oe, oeH) * _resizeTeamSize;
                         } else {
                           if (targetDay < os) return;
                           if (targetDay === os && clampedHour <= osH) return;
                           if (targetDay === pending.end && clampedHour === pending.endHour) return;
                           pending.end = targetDay;
                           pending.endHour = clampedHour;
-                          pending.hpd = _computeHpd(os, osH, targetDay, clampedHour);
+                          pending.hpd = _computeHpd(os, osH, targetDay, clampedHour) * _resizeTeamSize;
                         }
                         updTask(bar.task.id, { start: pending.start, end: pending.end, startHour: pending.startHour, endHour: pending.endHour, hpd: pending.hpd }, taskPid2);
                         // Floating tooltip showing the edge being dragged
@@ -20777,7 +20597,7 @@ ${jobsCtx || "No jobs found."}`;
     const perfMaps = payProdByDay({ timeclock, productionHours, people, personId: P.id, timeZone: statsTimeZone, now: statsNow });
     const perf = totalsForDays(perfMaps, periodDays);
     const efficiency = efficiencyPct(perf);
-    const dailyCap = P.cap || orgSettings.hpd || 8;
+    const dailyCap = capacityOf(P, productiveHoursPerDay);
     // Overtime is per-day beyond the person's own daily cap — the pay-period cap
     // is a payroll concept and would double-count across a month/year window.
     const byDay = {}; payRows.forEach(e => { byDay[e.date] = (byDay[e.date] || 0) + (e.hours || 0); });
@@ -24408,7 +24228,7 @@ ${jobsCtx || "No jobs found."}`;
         const currentTasks = pActiveTasks.filter(t => TD >= t.start && TD <= t.end);
         const upcoming = pActiveTasks.filter(t => t.start > TD).slice(0, 5);
         const bookedH = bookedHrs(p.id, TD);
-        const pctLoad = p.cap > 0 ? Math.min(bookedH / p.cap * 100, 100) : 0;
+        const pctLoad = Math.min(bookedH / capacityOf(p, productiveHoursPerDay) * 100, 100);
         return <div key={p.id} style={{ marginBottom: 6 }}>
           <div onClick={() => setMobileExp(prev => ({ ...prev, ["p_" + p.id]: !prev["p_" + p.id] }))} style={{ display: "flex", gap: 12, padding: "12px 14px", background: T.card, borderRadius: isExp ? `${T.radiusSm}px ${T.radiusSm}px 0 0` : T.radiusSm, border: `1px solid ${T.border}`, borderBottom: isExp ? "none" : undefined, cursor: "pointer", alignItems: "center" }}>
             <PersonAvatar person={p} size={38} />
@@ -24493,15 +24313,17 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 10 }}>Team Workload</div>
           {people.map(p => {
             const pTasks = allItems.filter(t => (t.team || []).includes(p.id) && TD >= t.start && TD <= t.end);
-            const hrs = pTasks.reduce((a, t) => a + (t.hpd || 0), 0);
-            const pct = Math.min(hrs / p.cap * 100, 100);
+            // Booked hours today — each op's share for this person, not its whole estimate.
+            const hrs = Math.round(bookedHrs(p.id, TD) * 10) / 10;
+            const pCap = capacityOf(p, productiveHoursPerDay);
+            const pct = Math.min(hrs / pCap * 100, 100);
             return <div key={p.id} style={{ marginBottom: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                 <span style={{ fontSize: 13, color: T.text, fontWeight: 500 }}>{p.name}</span>
-                <span style={{ fontSize: 12, color: hrs > p.cap ? T.danger : T.textDim, fontFamily: T.mono, fontWeight: 600 }}>{hrs}h / {p.cap}h</span>
+                <span style={{ fontSize: 12, color: hrs > pCap ? T.danger : T.textDim, fontFamily: T.mono, fontWeight: 600 }}>{hrs}h / {pCap}h</span>
               </div>
               <div style={{ background: T.bg, borderRadius: 8, height: 6, overflow: "hidden" }}>
-                <div style={{ height: "100%", borderRadius: 8, background: elColor(hrs > p.cap ? T.danger : pct > 70 ? "#f59e0b" : T.accent), width: pct + "%", transition: "width 0.3s" }} />
+                <div style={{ height: "100%", borderRadius: 8, background: elColor(hrs > pCap ? T.danger : pct > 70 ? "#f59e0b" : T.accent), width: pct + "%", transition: "width 0.3s" }} />
               </div>
             </div>;
           })}
@@ -26574,7 +26396,7 @@ ${jobsCtx || "No jobs found."}`;
           rawOps.forEach((op, oi) => {
             const opStart = cursor;
             const opEnd = addBD(opStart, scaledDurs[oi] - 1);
-            opSubs.push({ id: null, title: op.title, start: opStart, end: opEnd, status: "Not Started", pri: "High", team: [], hpd: op.hpd ?? 7.5, notes: "", deps: [] });
+            opSubs.push({ id: null, title: op.title, start: opStart, end: opEnd, status: "Not Started", pri: "High", team: [], hpd: op.hpd ?? null, notes: "", deps: [] });
             cursor = addBD(opEnd, 1);
           });
           const panelEnd = opSubs[opSubs.length - 1].end;
@@ -26668,9 +26490,9 @@ ${jobsCtx || "No jobs found."}`;
           const rawOps = (ed.subs || []).flatMap(panel => {
             if ((panel.subs || []).length > 0) {
               return topoSort((panel.subs || []).filter(o => o.title?.trim()))
-                .map(o => ({ title: o.title, durationBD: opDurBD(o), hpd: o.hpd || orgSettings.hpd, requiredDepartment: _inferDept(o, panel) }));
+                .map(o => ({ title: o.title, durationBD: opDurBD(o), hpd: o.hpd || 0, requiredDepartment: _inferDept(o, panel) }));
             }
-            return panel.title?.trim() ? [{ title: panel.title, durationBD: opDurBD(panel), hpd: panel.hpd || orgSettings.hpd, requiredDepartment: _inferDept(panel, null) }] : [];
+            return panel.title?.trim() ? [{ title: panel.title, durationBD: opDurBD(panel), hpd: panel.hpd || 0, requiredDepartment: _inferDept(panel, null) }] : [];
           });
           if (rawOps.length === 0) {
             setAiSuggestion({ noSubtasks: true, slots: [] });
@@ -27079,7 +26901,7 @@ ${jobsCtx || "No jobs found."}`;
               {(ed.subs||[]).map((panel,pi) => {
                 const updatePanel = (patch) => { const subs=[...(ed.subs||[])]; subs[pi]={...subs[pi],...patch}; setEd(p => ({ ...p, subs })); };
                 const hasSubs = (panel.subs||[]).length>0;
-                const panelHpdSum = hasSubs ? Math.round((panel.subs||[]).reduce((s,x) => s+(x.hpd??7.5),0)*10)/10 : null;
+                const panelHpdSum = hasSubs ? Math.round((panel.subs||[]).reduce((s,x) => s+(x.hpd||0),0)*10)/10 : null;
                 const isPanelSelected = !ed.isReschedule || rescheduleSelection.includes(panel.id);
                 // radiusLg, not radiusSm — the card wraps pill controls, and a 16px corner
                 // around 9999px pills reads as a box drawn around round things.
@@ -27117,7 +26939,7 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{ display:"flex", alignItems:"center", gap:4, flexShrink:0 }}>
                       {hasSubs
                         ? <Tip label="Sum of sub-op hours"><div style={{ width:52, padding:"7px 6px", borderRadius:T.radiusXs, border:`1px solid ${T.border}`, background:T.bg, color:T.accent, fontSize:13, fontFamily:T.font, textAlign:"center", fontWeight:700 }}>{panelHpdSum}</div></Tip>
-                        : <input type="number" min="0" max="24" step="0.5" value={panel.hpd??0} onChange={e => { setAvailCheckPassed(false); updatePanel({hpd:parseFloat(e.target.value)||7.5}); }} style={{ width:52, padding:"7px 6px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
+                        : <input type="number" min="0" step="0.5" value={panel.hpd??""} onChange={e => { setAvailCheckPassed(false); updatePanel({hpd: e.target.value === "" ? null : parseFloat(e.target.value)}); }} style={{ width:52, padding:"7px 6px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
                       }
                       <Tip label="Estimated total hours for this operation"><span style={{ fontSize:11, color:hasSubs?T.accent:T.textDim, whiteSpace:"nowrap", width:24 }}>hrs</span></Tip>
                       {!hasSubs && <div style={{ position:"relative", flexShrink:0 }}>
@@ -27167,7 +26989,7 @@ ${jobsCtx || "No jobs found."}`;
                         <input value={sub.title} onChange={e => updateSub({title:e.target.value})} placeholder="Sub-operation name" style={{ flex:1, padding:"7px 10px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:13, fontFamily:T.font, boxSizing:"border-box" }} />
                         {sub.start ? <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, whiteSpace:"nowrap" }}>{fm(sub.start)} → {fm(sub.end)}</span> : null}
                         <div style={{ display:"flex", alignItems:"center", gap:4, flexShrink:0 }}>
-                          <input type="number" min="0" max="24" step="0.5" value={sub.hpd??0} onChange={e => { setAvailCheckPassed(false); updateSub({hpd:parseFloat(e.target.value)||7.5}); }} style={{ width:52, padding:"7px 6px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
+                          <input type="number" min="0" step="0.5" value={sub.hpd??""} onChange={e => { setAvailCheckPassed(false); updateSub({hpd: e.target.value === "" ? null : parseFloat(e.target.value)}); }} style={{ width:52, padding:"7px 6px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:13, fontFamily:T.font, textAlign:"center" }} />
                           <Tip label="Estimated total hours for this operation"><span style={{ fontSize:11, color:T.textDim, whiteSpace:"nowrap", width:24 }}>hrs</span></Tip>
                           <div style={{ position:"relative", flexShrink:0 }}>
                             <button onClick={e => { e.stopPropagation(); const opening=deptDropId!==sub.id; setDeptDropId(opening?sub.id:null); if(opening){ setDeptAddInput(""); setDeptAddMode(false); } }}
@@ -28386,7 +28208,7 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               {dClient && infoRow("Client", <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 9, height: 9, borderRadius: 8, background: dClient.color, flexShrink: 0 }} />{dClient.name}</span>)}
               {infoRow("Schedule", <span style={{ fontFamily: T.mono }}>{fm(fresh.start)} → {fm(fresh.end)}</span>)}
-              {infoRow("Hours / Day", `${fresh.hpd || 8}h`)}
+              {infoRow("Est. hours", fresh.hpd > 0 ? `${fresh.hpd}h` : "—")}
               {fresh.dueDate && infoRow("Customer Due Date", <span style={{ fontFamily: T.mono, color: fresh.dueDate < TD ? "#ef4444" : fresh.dueDate <= addD(TD, 3) ? "#f59e0b" : T.text }}>{fm(fresh.dueDate)}{fresh.dueDate < TD ? " · OVERDUE" : ""}</span>)}
               {fresh.jobNumber && infoRow("Job #", <span style={{ fontFamily: T.mono }}>{fresh.jobNumber}</span>)}
               {fresh.poNumber && infoRow("PO #", <span style={{ fontFamily: T.mono }}>{fresh.poNumber}</span>)}
@@ -28624,7 +28446,7 @@ ${jobsCtx || "No jobs found."}`;
     } else if (section === "org-permissions") {
       d = { people: people.map(p => ({ ...p, adminPerms: p.adminPerms ? { ...p.adminPerms } : p.adminPerms })) };
     } else if (section === "org-schedule") {
-      d = { timeZone: orgSettings.timeZone || "", workStart: orgSettings.workStart, workEnd: orgSettings.workEnd, hpd: orgSettings.hpd, workDays: [...(orgSettings.workDays || [])], holidays: [...(orgSettings.holidays || [])], breaks: (orgSettings.breaks || []).map(b => ({ ...b })), lunch: { ...(orgSettings.lunch || {}) } };
+      d = { timeZone: orgSettings.timeZone || "", workStart: orgSettings.workStart, workEnd: orgSettings.workEnd, workDays: [...(orgSettings.workDays || [])], holidays: [...(orgSettings.holidays || [])], breaks: (orgSettings.breaks || []).map(b => ({ ...b })), lunch: { ...(orgSettings.lunch || {}) } };
     } else if (section === "org-approval-templates") {
       d = { signOffTemplates: (orgSettings.signOffTemplates || []).map(t => ({ ...t, steps: [...(t.steps || [])] })) };
     } else if (section === "org-timeclock") {
@@ -28693,7 +28515,7 @@ ${jobsCtx || "No jobs found."}`;
         setPeople(updated);
       } else if (sec === "org-schedule") {
         const dd = settingsDraft || {};
-        setOrgSettings(s => ({ ...s, timeZone: dd.timeZone || null, workStart: dd.workStart, workEnd: dd.workEnd, hpd: dd.hpd, workDays: [...(dd.workDays || [])], holidays: [...(dd.holidays || [])], breaks: (dd.breaks || []).map(b => ({ ...b })), lunch: { ...(dd.lunch || {}) } }));
+        setOrgSettings(s => ({ ...s, timeZone: dd.timeZone || null, workStart: dd.workStart, workEnd: dd.workEnd, workDays: [...(dd.workDays || [])], holidays: [...(dd.holidays || [])], breaks: (dd.breaks || []).map(b => ({ ...b })), lunch: { ...(dd.lunch || {}) } }));
       } else if (sec === "org-approval-templates") {
         setOrgSettings(s => ({ ...s, signOffTemplates: (settingsDraft.signOffTemplates || []).map(t => ({ ...t, steps: [...(t.steps || [])] })) }));
       } else if (sec === "org-timeclock") {
@@ -29243,6 +29065,30 @@ ${jobsCtx || "No jobs found."}`;
             ); })}
           </div>
         </div>
+        {/* Estimates written under an old meaning of hpd, for an admin to check by hand.
+            Nothing is rewritten — see suspectHpdOps in statsMath.js. */}
+        {(() => {
+          const _suspects = suspectHpdOps(tasks, { productiveHoursPerDay, isWorkDay: (ds) => isWorkDay(ds, orgSettings.workDays) && !(orgSettings.holidays || []).includes(ds) });
+          const _why = { perPersonTotal: "Looks like one person's hours, not the team's total — resized before the fix", perDayRate: "Looks like a per-day rate (7.5 h), not a total — entered as a simple job on iOS" };
+          return (
+            <div className="tq-frost" style={stCard}>
+              <div style={stLabel}>Estimates to check</div>
+              <div style={{ fontSize: 12, color: T.textDim, marginBottom: 10 }}>
+                Estimated hours are the total for the whole team. These ops look like they were saved under an older meaning. Nothing has been changed — open each one and correct it if needed.
+              </div>
+              {_suspects.length === 0 && <div style={{ fontSize: 12, color: T.textDim, padding: "8px 0" }}>Nothing to check</div>}
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {_suspects.map(x => (
+                  <div key={x.id} onClick={() => { const job = tasks.find(t => sameId(t.id, x.jobId)); if (job) openJobDetailOrEdit(job); }}
+                    style={{ display: "flex", flexDirection: "column", gap: 2, padding: "8px 10px", background: T.surface, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, cursor: "pointer" }}>
+                    <span style={{ fontSize: 13, color: T.text, fontWeight: 600 }}>{x.jobNumber ? `${x.jobNumber} · ` : ""}{x.jobTitle}{x.title ? ` › ${x.title}` : ""}</span>
+                    <span style={{ fontSize: 11, color: T.textDim }}>{_why[x.reason]} · {x.hpd} h over {x.days} working day{x.days === 1 ? "" : "s"}, team of {x.team}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
       </div>
     );
   };
@@ -32668,21 +32514,17 @@ ${jobsCtx || "No jobs found."}`;
                 <span style={{ fontSize: 12, color: T.textDim }}>Opens</span>
                 <input type="time" value={orgSettings.workStart || "07:00"} onChange={e => {
                   const newStart = e.target.value;
-                  const parseH = t => { const [h, m] = t.split(":").map(Number); return h + m / 60; };
-                  const newHpd = Math.max(0.5, parseFloat((parseH(orgSettings.workEnd || "15:00") - parseH(newStart)).toFixed(2)));
-                  setOrgSettings(s => ({ ...s, workStart: newStart, hpd: newHpd }));
+                  setOrgSettings(s => ({ ...s, workStart: newStart }));
                 }} style={{ padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font }} />
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ fontSize: 12, color: T.textDim }}>Closes</span>
                 <input type="time" value={orgSettings.workEnd || "15:00"} onChange={e => {
                   const newEnd = e.target.value;
-                  const parseH = t => { const [h, m] = t.split(":").map(Number); return h + m / 60; };
-                  const newHpd = Math.max(0.5, parseFloat((parseH(newEnd) - parseH(orgSettings.workStart || "07:00")).toFixed(2)));
-                  setOrgSettings(s => ({ ...s, workEnd: newEnd, hpd: newHpd }));
+                  setOrgSettings(s => ({ ...s, workEnd: newEnd }));
                 }} style={{ padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.font }} />
               </div>
-              <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>= {orgSettings.hpd} hrs/day</span>
+              <span style={{ fontSize: 12, color: T.textDim, fontFamily: T.mono }}>= {productiveHoursPerDay} productive hrs/day</span>
             </div>
           </div>
           {/* Breaks */}
@@ -34051,7 +33893,7 @@ ${jobsCtx || "No jobs found."}`;
               {isOp && <div style={{ fontSize: 11, color: T.textDim, marginBottom: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {parentPanelTitle ? `${parentPanelTitle} · ${it.title}` : it.title}
               </div>}
-              <div style={{ fontSize: 11, color: T.textDim }}>{fm(it.start)} → {fm(it.end)}{it.hpd > 0 ? ` · ${it.hpd}h/day` : ""}</div>
+              <div style={{ fontSize: 11, color: T.textDim }}>{fm(it.start)} → {fm(it.end)}{it.hpd > 0 ? ` · ${it.hpd}h est.` : ""}</div>
             </div>
             <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
               {/* Basic: this pencil "Edit" folds into the Reschedule→Edit context-menu
@@ -35569,7 +35411,7 @@ ${jobsCtx || "No jobs found."}`;
                                 placeholder="Search people…" emptyLabel="Unassigned" compact />
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
-                              <input type="number" min="0" step="0.5" value={op.hpd ?? ""} onChange={e => updOp(pi, oi, { hpd: e.target.value === "" ? null : parseFloat(e.target.value) })} placeholder="hrs" title="Hours per day" style={{ width: 56, padding: "4px 6px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontWeight: 600, fontFamily: T.font, outline: "none", boxSizing: "border-box", textAlign: "right", MozAppearance: "textfield" }} />
+                              <input type="number" min="0" step="0.5" value={op.hpd ?? ""} onChange={e => updOp(pi, oi, { hpd: e.target.value === "" ? null : parseFloat(e.target.value) })} placeholder="hrs" title="Estimated hours for this operation, across its whole team" style={{ width: 56, padding: "4px 6px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontWeight: 600, fontFamily: T.font, outline: "none", boxSizing: "border-box", textAlign: "right", MozAppearance: "textfield" }} />
                               <span style={{ fontSize: 10, color: T.textDim, fontWeight: 600 }}>h</span>
                             </div>
                             <button onClick={() => removeOp(pi, oi)} title="Delete op" style={{ width: 22, height: 22, padding: 0, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.danger, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -35889,7 +35731,7 @@ function AvailModal({ people, allItems, bookedHrs, onClose, isMobile, onStartTas
           <TraqsDatePicker value={aE} onChange={v => { setAE(v); setSelectedPerson(null); }} />
         </div>
         <div style={{ minWidth: 120 }}>
-          <label style={{ display: "block", fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Hrs/Day</label>
+          <label style={{ display: "block", fontSize: 12, color: T.textSec, marginBottom: 6, fontWeight: 600, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Daily hours needed</label>
           <input type="number" min="1" max="12" value={aH} onChange={e => { setAH(+e.target.value); setSelectedPerson(null); }} style={{ width: "100%", padding: "10px 14px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 14, fontFamily: T.font, boxSizing: "border-box" }} />
         </div>
       </div>

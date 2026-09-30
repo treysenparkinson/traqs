@@ -1862,17 +1862,19 @@ private struct BasicJobCard: View {
     @Environment(AppState.self) private var appState
     let task: TaskAssignment
 
-    private var unit: (start: String, end: String, startHour: Double?, hpd: Double) {
+    private var unit: (start: String, end: String, startHour: Double?, hpd: Double, teamCount: Int) {
         if let op = task.op {
-            return (op.start, op.end.isEmpty ? op.start : op.end, JobShifts.startHour(op.extras), op.hpd)
+            return (op.start, op.end.isEmpty ? op.start : op.end, JobShifts.startHour(op.extras),
+                    op.hpd, op.team.count)
         }
         let p = task.panel
-        return (p.start, p.end.isEmpty ? p.start : p.end, JobShifts.startHour(p.extras), p.hpd)
+        return (p.start, p.end.isEmpty ? p.start : p.end, JobShifts.startHour(p.extras),
+                p.hpd, p.team.count)
     }
 
     var body: some View {
         let u = unit
-        let w = JobShifts.window(startHour: u.startHour, hpd: u.hpd,
+        let w = JobShifts.window(startHour: u.startHour, hpd: u.hpd, teamCount: u.teamCount,
                                  day: WorkDayClock.day(from: appState.orgSettings))
         SBox(size: .lg, radius: T.cornerHero, frosted: true) {
             VStack(alignment: .leading, spacing: 8) {
@@ -1966,7 +1968,8 @@ private struct StartJobOverlay: View {
 
     private var loggedOnOp: Double { task.op?.loggedHours ?? 0 }
     private var loggedOnJob: Double { task.job.loggedHours ?? 0 }
-    private var estimate: Double { max(task.hpd, 0.5) }
+    /// The task's total estimate (the whole team's), 0 when unestimated.
+    private var estimate: Double { max(task.hpd, 0) }
     /// Hours-weighted percent for the task (op if specific, otherwise the panel).
     private var taskPct: Int {
         task.op.map { appState.opPct($0) } ?? appState.panelPct(task.panel)
@@ -2035,7 +2038,8 @@ private struct StartJobOverlay: View {
             VStack(alignment: .leading, spacing: 10) {
                 metricRow("This task",
                           String(format: "%.2f h · %d%%", loggedOnOp, taskPct),
-                          sub: String(format: "of %.1f h/day est.", estimate))
+                          sub: estimate > 0 ? String(format: "of %.1f h est.", estimate)
+                                            : "No estimate")
                 metricRow("This job",
                           String(format: "%.2f h · %d%%", loggedOnJob, jobPct),
                           sub: nil)

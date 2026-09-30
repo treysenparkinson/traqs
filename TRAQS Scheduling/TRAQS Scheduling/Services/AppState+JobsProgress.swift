@@ -38,7 +38,6 @@ extension AppState {
         // Once, not once per operation — see (2) above.
         let clocks = activeClocksByOperation()
         let now = Date()
-        let defaultHpd = orgSettings.hpd
 
         return JobsProgress.index(for: jobs) { op in
             HoursCalculator.opHoursPair(
@@ -46,7 +45,6 @@ extension AppState {
                 hpd: op.hpd,
                 loggedHours: op.loggedHours,
                 producedHours: self.producedFor(op: op),
-                defaultHpd: defaultHpd,
                 liveElapsed: clocks[op.id].map {
                     HoursCalculator.liveElapsedHours(clockIn: $0.clockIn,
                                                      pausedAt: $0.pausedAt,
