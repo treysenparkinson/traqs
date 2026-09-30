@@ -191,8 +191,11 @@ const run = (name, anchor) => { const src = slice(anchor); if (!src) { ok(`${nam
     let r2; try { r2 = reflow(lockedPair, { overlap: ctx }); } catch (e) { r2 = e.message; }
     ok("reflow: never moves a locked op", r2 instanceof Map ? r2.has("L") : r2, false);
   }
-  ok("drag ghost asks the shared rule", SRC.includes("overlapsWith(_ghostUnit"), true);
-  ok("week/month drop re-checks the result", SRC.includes("overlapsWith(_droppedUnit"), true);
+  // Root cause 7: the week/month ghost and drop both go through dragMove.refuseDragMove,
+  // which asks the shared rule (overlapsWith) for every mover.
+  const _dragSrc = readFileSync(new URL("../src/dragMove.js", import.meta.url), "utf8");
+  ok("drag ghost asks the shared rule", SRC.includes("const _refusal = _refuse(_plan);") && _dragSrc.includes("overlapsWith(unit, standing"), true);
+  ok("week/month drop re-checks the result", (SRC.match(/const _refusal = _refuse\(_plan\);/g) || []).length === 2 && SRC.includes("enforceNoOverlap(_build(tasks)"), true);
   ok("day-view drag checks overlap", SRC.includes("overlapsWith(_dayUnit"), true);
   ok("the auto-schedulers' free checks use the shared rule (all three)", (SRC.match(/schedulerAvailability\(tasks, overlapCtx/g) || []).length, 3);
   ok("…and no longer compare whole days themselves", /const isPersonFree(Local|Global)?\s*=\s*\(pid,\s*(checkStart|s)\b[^\n]*\n\s*const pp\s*=/.test(SRC), false);

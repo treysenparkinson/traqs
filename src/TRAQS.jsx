@@ -5,6 +5,7 @@ import { personDeptMatch, unitDepartment, workCalendar } from "./scheduleRules.j
 import { DEFAULT_ORG_SETTINGS, withOrgDefaults } from "./orgDefaults.js";
 import { setShopZone, shopDay, shopHour, shopMs } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
+import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessage } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, shiftWorkingDays, nextFreeStart, schedulerAvailability } from "./overlapRules.js";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
@@ -17545,28 +17546,12 @@ ${jobsCtx || "No jobs found."}`;
                     const _gStartStored = _liveRef?.snapStart || snapStart;
                     const _gEndStored = _liveRef?.snapEnd || snapEnd;
                     const _dropHourStored = _liveRef?.dropHour ?? workStartH;
-                    // snapStart/dropHour are where the drop is STORED. The bar is PAINTED at that
-                    // position plus its overrun push, so the ghost has to be too — otherwise it
-                    // previews a spot the bar will never appear in, sitting a couple of working
-                    // days behind the card while still tracking the cursor faithfully from there.
-                    //
-                    // Applying the push here, before anything else reads these, is what keeps this
-                    // fix to three lines: every calculation below — the weekday segments, the width
-                    // budget, the per-segment caps — carries on working in exactly one space.
-                    const { _gStart, _gEnd, _dropHour } = (() => {
-                      const _pBD = teamDragInfo.pushBD || 0, _pHD = teamDragInfo.pushHourDelta || 0;
-                      if (!_pBD && !_pHD) return { _gStart: _gStartStored, _gEnd: _gEndStored, _dropHour: _dropHourStored };
-                      const _bdo = { workDays: orgSettings.workDays, holidays: orgSettings.holidays };
-                      let _extraBD = _pBD, _h = _dropHourStored + _pHD, _g = 0;
-                      // Same rollover the render does: an hour past quitting time is the next
-                      // working day, not a bar hanging off the end of this one.
-                      while (_h >= workEndH && totalWorkH > 0 && _g++ < 50) { _h -= totalWorkH; _extraBD++; }
-                      return {
-                        _gStart: _extraBD ? addBD(_gStartStored, _extraBD, _bdo) : _gStartStored,
-                        _gEnd: _extraBD ? addBD(_gEndStored, _extraBD, _bdo) : _gEndStored,
-                        _dropHour: _h,
-                      };
-                    })();
+                    // The ghost is drawn exactly where the drop lands. It used to add the grabbed
+                    // bar's CURRENT push on top, because the drag measured from the stored start
+                    // while the bar was painted pushed; the checks and the commit never saw that
+                    // push, so the ghost previewed a spot the drop was not tested against (#25).
+                    // The drag now starts from the painted position, so there is nothing to add.
+                    const _gStart = _gStartStored, _gEnd = _gEndStored, _dropHour = _dropHourStored;
                     const _ghostBarHpd = teamDragInfo.barHpd || 0;
                     const _oneDayW = 1 / nDays * 100;
                     const _ghostOffsetH = Math.max(0, _dropHour - workStartH);
@@ -17851,20 +17836,6 @@ ${jobsCtx || "No jobs found."}`;
                   const _barStartH = _atCursor
                     ? shopHour(_nowForBar.getTime())
                     : (_pushH > 0 ? _pushedStartH : _baseStartH);
-                  // The push, as the two numbers needed to reapply it: working days moved, and
-                  // the leftover hour shift. Taken as the DIFFERENCE the lines above actually
-                  // produced, so the rollover while-loop is already counted and there is no
-                  // second copy of this arithmetic to fall out of step.
-                  //
-                  // The drag ghost needs these. A job only finishes when someone asks for it to
-                  // finish, so an op still being worked keeps growing and keeps shoving the ops
-                  // after it on that row forward — those neighbours are PAINTED at _layoutStart
-                  // while handleTeamDrag reasons entirely in stored dates. Dragging one meant
-                  // grabbing a bar in one place and previewing it in another, off by exactly this.
-                  // (_dragBlocked below stops the overrunning op itself being dragged for the same
-                  // reason, but it never covered the ops it pushes.)
-                  const _pushBD = _pushH > 0 ? diffBD(bar.start, _layoutStart, _barBDOpts) : 0;
-                  const _pushHourDelta = _pushH > 0 ? (_barStartH - _baseStartH) : 0;
                   // The single source of truth for this bar's length. Walking the day and
                   // stepping over only the lunch/breaks the work actually reaches replaces
                   // three separate approximations that disagreed with each other:
@@ -18036,7 +18007,6 @@ ${jobsCtx || "No jobs found."}`;
                     // Working days are read from current org settings (single source of truth).
                     const barWorkDays = orgSettings.workDays;
                     const barBDOpts = { workDays: barWorkDays, holidays: orgSettings.holidays };
-                    const wdDuration = getWorkingDayDuration(os, oe, barWorkDays);
                     const _dragTeamSz = Math.max(1, (bar.task?.team || []).length);
                     // If the bar is partially worked, the drag ghost represents only the remaining hours —
                     // the worked portion stays anchored visually and is split off on commit.
@@ -18048,11 +18018,15 @@ ${jobsCtx || "No jobs found."}`;
                     // instead of the full bar's start, so the ghost tracks the cursor (it was sitting a
                     // worked-width to the left) and the remaining op lands under the cursor. Mirrors the
                     // split commit's worked-end math so the two stay consistent.
-                    const _osHForDrag = bar.task.startHour ?? workStartH;
+                    //
+                    // From where the bar is PAINTED (#25), not its stored start: a bar pushed by the
+                    // cursor or by an overrunning neighbour is grabbed where the user sees it, so the
+                    // candidate, the ghost, the checks and the commit are all one position.
+                    const _paintedDay = _layoutStart, _paintedHour = _barStartH;
                     const _remOrigin = (() => {
-                      if (!_dragWS.isPartiallyWorked) return { day: os, hour: _osHForDrag };
-                      const _wk = walkProductiveHours(_osHForDrag, _dragWS.workedHpd, dayWindowCfg);
-                      return { day: sAddBD(os, _wk.days - 1), hour: _wk.endHour };
+                      if (!_dragWS.isPartiallyWorked) return { day: _paintedDay, hour: _paintedHour };
+                      const _wk = walkProductiveHours(_paintedHour, _dragWS.workedHpd, dayWindowCfg);
+                      return { day: sAddBD(_paintedDay, _wk.days - 1), hour: _wk.endHour };
                     })();
                     const _dragBaseStart = _remOrigin.day;
                     const _dragBaseHour = _remOrigin.hour;
@@ -18062,8 +18036,6 @@ ${jobsCtx || "No jobs found."}`;
                     // it — otherwise an already-hour-positioned bar snaps to a day that disagrees with
                     // where its left edge (and the ghost) actually is.
                     const _origColOffset = totalWorkH > 0 ? _dragOffsetH / totalWorkH : 0;
-                    const _visualWD = _dragBarHpd > 0 ? Math.max(1, Math.ceil(_dragBarHpd / productiveHoursPerDay)) : wdDuration;
-                    const taskPid = bar.task.pid || null;
                     const origPerson = p.id;
                     // Dep group — collect all bars in the same dependency chain
                     const depGroupIds = getDepGroup(bar.task.id, tasks);
@@ -18075,10 +18047,10 @@ ${jobsCtx || "No jobs found."}`;
                         for (const job of tasks) {
                           for (const panel of (job.subs || [])) {
                             const op = (panel.subs || []).find(o => o.id === id);
-                            if (op) { members.push({ id, origStart: op.start, origEnd: op.end, origStartHour: op.startHour ?? workStartH, origEndHour: op.endHour ?? workEndH, hpd: op.hpd || 0, wdDur: getWorkingDayDuration(op.start, op.end), pid: panel.id, grandPid: job.id, level: 2, personIds: op.team || [] }); return; }
+                            if (op) { members.push({ id, node: op, origStart: op.start, origEnd: op.end, origStartHour: op.startHour ?? workStartH, origEndHour: op.endHour ?? workEndH, hpd: op.hpd || 0, pid: panel.id, grandPid: job.id, level: 2, personIds: op.team || [] }); return; }
                           }
                           const panel = (job.subs || []).find(s => s.id === id);
-                          if (panel) { members.push({ id, origStart: panel.start, origEnd: panel.end, origStartHour: panel.startHour ?? workStartH, origEndHour: panel.endHour ?? workEndH, hpd: panel.hpd || 0, wdDur: getWorkingDayDuration(panel.start, panel.end), pid: job.id, level: 1, personIds: panel.team || [] }); return; }
+                          if (panel) { members.push({ id, node: panel, origStart: panel.start, origEnd: panel.end, origStartHour: panel.startHour ?? workStartH, origEndHour: panel.endHour ?? workEndH, hpd: panel.hpd || 0, pid: job.id, level: 1, personIds: panel.team || [] }); return; }
                         }
                       });
                       return members;
@@ -18124,13 +18096,6 @@ ${jobsCtx || "No jobs found."}`;
                       successorId = successor ? successor.id : null;
                       successorPersonId = successor ? (successor.team || [])[0] : null;
                     }
-                    // Clamp helper: keeps a start date within unlocked dep boundaries
-                    const clampUnlocked = (start, duration) => {
-                      let s = start;
-                      if (predecessorEnd !== null) { const minS = addBD(predecessorEnd, 1); if (s < minS) s = minS; }
-                      if (successorStart !== null) { const latestS = addBD(successorStart, -duration); if (s > latestS) s = latestS; }
-                      return s;
-                    };
                     // Multi-select drag — collect all other selected bars
                     const isMultiDrag = barSelectMode && selBars.has(bar.id) && selBars.size > 1;
                     const multiDragMembers = isMultiDrag ? (() => {
@@ -18141,23 +18106,56 @@ ${jobsCtx || "No jobs found."}`;
                           let found = false;
                           for (const panel of (job.subs || [])) {
                             const op = (panel.subs || []).find(o => o.id === bid);
-                            // An op running over its estimate is held out of the group move
-                            // for the same reason its own bar can't be dragged: it renders at
-                            // a pushed position that the drag maths doesn't know about, so
-                            // moving it would land it somewhere other than where the group
-                            // appears to go. Grabbing the group by a different bar must not
-                            // be a way around that.
-                            if (op && deriveWorkedState(op, producedFor(op), liveOpHours(op)).isOverdueHours) { found = true; break; }
-                            if (op) { members.push({ id: bid, origStart: op.start, origEnd: op.end, origStartHour: op.startHour ?? workStartH, origEndHour: op.endHour ?? workEndH, hpd: op.hpd || 0, wdDur: getWorkingDayDuration(op.start, op.end), pid: panel.id, grandPid: job.id, level: 2, personIds: op.team || [], origPerson: (op.team || [])[0] ?? origPerson }); found = true; break; }
-                            if (panel.id === bid) { members.push({ id: bid, origStart: panel.start, origEnd: panel.end, origStartHour: panel.startHour ?? workStartH, origEndHour: panel.endHour ?? workEndH, hpd: panel.hpd || 0, wdDur: getWorkingDayDuration(panel.start, panel.end), pid: job.id, level: 1, personIds: panel.team || [], origPerson: (panel.team || [])[0] ?? origPerson }); found = true; break; }
+                            // An op running over its estimate is NOT dropped from the selection
+                            // here: it used to be skipped silently (#20). It stays a member, and
+                            // the drop is refused naming it (refuseDragMove, "overdue").
+                            if (op) { members.push({ id: bid, node: op, origStart: op.start, origEnd: op.end, origStartHour: op.startHour ?? workStartH, origEndHour: op.endHour ?? workEndH, hpd: op.hpd || 0, pid: panel.id, grandPid: job.id, level: 2, personIds: op.team || [] }); found = true; break; }
+                            if (panel.id === bid) { members.push({ id: bid, node: panel, origStart: panel.start, origEnd: panel.end, origStartHour: panel.startHour ?? workStartH, origEndHour: panel.endHour ?? workEndH, hpd: panel.hpd || 0, pid: job.id, level: 1, personIds: panel.team || [] }); found = true; break; }
                           }
                           if (found) break;
                         }
                       }
                       return members;
                     })() : [];
-                    // All IDs being moved — used to exclude them from conflict detection
-                    const movingIds = new Set([bar.task.id, ...groupMembers.map(m => m.id), ...multiDragMembers.map(m => m.id)]);
+                    // ONE LANDING (dragMove.js). The ghost, every check and the commit all read
+                    // planDragMove's answer, so there is one end for a drop instead of three
+                    // (#22 #23), and every mover is checked, not just the one under the cursor
+                    // (#18). Members: the dep group when it is locked, plus the multi-selection.
+                    const _groupIds = new Set((isGroupDrag && depsMode === "locked" ? groupMembers : []).map(m => String(m.id)));
+                    const _memberInputs = (() => {
+                      const seen = new Set([String(bar.task.id)]);
+                      return [...(isGroupDrag && depsMode === "locked" ? groupMembers : []), ...multiDragMembers]
+                        .filter(m => m.node && !seen.has(String(m.id)) && seen.add(String(m.id)))
+                        .map(m => ({ id: m.id, node: m.node, day: m.origStart, hour: m.origStartHour ?? workStartH,
+                          shareH: (m.hpd || 0) > 0 ? m.hpd / Math.max(1, (m.personIds || []).length) : productiveHoursPerDay }));
+                    })();
+                    const _dragCal = calOf(orgSettings.workDays, orgSettings.holidays);
+                    const _planAt = (day, hour, toPerson) => planDragMove({
+                      grabbed: { id: bar.task.id, node: bar.task, fromDay: _dragBaseStart, fromHour: _dragBaseHour, shareH: _dragBarHpd },
+                      members: _memberInputs, drop: { day, hour }, origPerson, dropPerson: toPerson ?? origPerson,
+                      cfg: dayWindowCfg, cal: _dragCal, workStartH, workEndH,
+                    });
+                    // What cannot change while the mouse is down is worked out once, at the grab.
+                    const _liveIds = new Set([bar.task, ..._memberInputs.map(m => m.node)].filter(n => blockedByActiveClock(jobIdOfNode(n.id), n.id)).map(n => String(n.id)));
+                    const _overdueIds = new Set(_memberInputs.map(m => m.node).filter(n => deriveWorkedState(n, producedFor(n), liveOpHours(n)).isOverdueHours).map(n => String(n.id)));
+                    const _refuseCtx = {
+                      isLocked: n => !!n?.locked,
+                      isLive: n => _liveIds.has(String(n?.id)),
+                      isOverdue: n => _overdueIds.has(String(n?.id)),
+                      timeOff: pid => (people.find(x => sameId(x.id, pid))?.timeOff || []),
+                      business: billingTier === "business",
+                      tasks, overlapCtx,
+                    };
+                    const _refuse = (plan) => refuseDragMove(plan, { ..._refuseCtx, nowDay: shopDay(), nowHour: shopHour() });
+                    // Member ghosts come from the same plan, so they preview where members land.
+                    const _snapsOf = (plan) => {
+                      const g = [], m = [];
+                      for (const mv of plan.slice(1)) {
+                        const snap = { id: mv.id, personIds: mv.to.team, snapStart: mv.to.start, snapEnd: mv.to.end, wdDur: getWorkingDayDuration(mv.to.start, mv.to.end), color: bar.color, dropHour: mv.to.startHour, barHpd: mv.shareH };
+                        (_groupIds.has(mv.id) ? g : m).push(snap);
+                      }
+                      return { groupSnaps: g, multiDragSnaps: m };
+                    };
                     let moved = false, lastDropPid = null;
                     const gridEl = teamRef.current;
                     // Measure actual rendered column width from the grid area div so drop
@@ -18203,32 +18201,16 @@ ${jobsCtx || "No jobs found."}`;
                           const pxDy2 = lastCY - sy;
                           const dx2 = Math.floor(pxDx2 / liveCW + _origColOffset);
                           let snapS2 = nextBD(addD(_dragBaseStart, dx2), barBDOpts);
-                          const snapE2 = addBD(snapS2, _visualWD - 1, barBDOpts);
                           // CRITICAL: the ghost AND the release-commit both read teamDragLiveRef.
                           // The original only updated teamDragInfo here, so the bar's date stayed
                           // frozen at its pre-scroll value while the window moved — making the bar
                           // drift off-screen and drop on the wrong date. Advance the live ref too
                           // so the bar follows onto the revealed dates and drops where shown.
+                          const _plan2 = _planAt(snapS2, teamDragLiveRef.current?.dropHour ?? workStartH, lastDropPid || origPerson);
+                          const snapE2 = _plan2[0].to.end;
                           if (teamDragLiveRef.current) teamDragLiveRef.current = { ...teamDragLiveRef.current, snapStart: snapS2, snapEnd: snapE2 };
-                          setTeamDragInfo(prev => {
-                            if (!prev) return prev;
-                            // Recompute dep-group ghost positions so they don't lag during auto-scroll.
-                            const _osH2 = bar.task?.startHour ?? workStartH;
-                            const _hourDelta2 = (prev.dropHour ?? _osH2) - _osH2;
-                            const groupSnaps2 = (isGroupDrag && depsMode !== "unlocked" ? groupMembers : []).map(m => {
-                              const _mOffset = m.origStart >= os ? diffBD(os, m.origStart, barBDOpts) : -diffBD(m.origStart, os, barBDOpts);
-                              let mSnap = addBD(snapS2, _mOffset, barBDOpts);
-                              let mHour = (m.origStartHour ?? workStartH) + _hourDelta2;
-                              while (mHour >= workEndH) { mHour -= totalWorkH; mSnap = addBD(mSnap, 1, barBDOpts); }
-                              while (mHour < workStartH) { mHour += totalWorkH; mSnap = addBD(mSnap, -1, barBDOpts); }
-                              const mDropHour = Math.round(mHour * 2) / 2;
-                              const _mTeamSz = Math.max(1, (m.personIds || []).length);
-                              const _mPerHpd = (m.hpd || 0) > 0 ? m.hpd / _mTeamSz : productiveHoursPerDay;
-                              const _mVDays = walkProductiveHours(mDropHour, _mPerHpd, dayWindowCfg).days;
-                              return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: addBD(mSnap, _mVDays - 1, barBDOpts), wdDur: _mVDays, color: bar.color, dropHour: mDropHour, barHpd: _mPerHpd };
-                            });
-                            return { ...prev, translateX: pxDx2, translateY: pxDy2, snapStart: snapS2, snapEnd: snapE2, groupSnaps: groupSnaps2 };
-                          });
+                          const { groupSnaps: groupSnaps2, multiDragSnaps: multiSnaps2 } = _snapsOf(_plan2);
+                          setTeamDragInfo(prev => prev ? { ...prev, translateX: pxDx2, translateY: pxDy2, snapStart: snapS2, snapEnd: snapE2, groupSnaps: groupSnaps2, multiDragSnaps: multiSnaps2 } : prev);
                         }
                       }
                       autoScrollRaf = requestAnimationFrame(autoScrollStep);
@@ -18341,115 +18323,50 @@ ${jobsCtx || "No jobs found."}`;
                           }
                         }
                       }
-                      // Day span of the ghost, from the same walk the bar renders with. This
-                      // used to convert the drop hour into "productive hours already elapsed"
-                      // by flat pro-rate and add the op's hours to it, which made a 1h job
-                      // dropped at 16:00 look like a 2-day job — so it bounced to the next day
-                      // and could never be parked against the 17:00 finish.
-                      const _liveVWD = _dragBarHpd > 0 ? walkProductiveHours(dropHour ?? workStartH, _dragBarHpd, dayWindowCfg).days : wdDuration;
-                      let snapE = addBD(snapS, _liveVWD - 1, barBDOpts);
-                      // Group member ghost positions — locked moves all together; free/unlocked moves only dragged task
-                      const _osH = bar.task?.startHour ?? workStartH;
-                      const _hourDelta = (dropHour ?? _osH) - _osH;
-                      const groupSnaps = [
-                        ...(isGroupDrag && depsMode !== "unlocked" ? groupMembers : []),
-                      ].map(m => {
-                        const _mOffset = m.origStart >= os ? diffBD(os, m.origStart, barBDOpts) : -diffBD(m.origStart, os, barBDOpts);
-                        let mSnap = addBD(snapS, _mOffset, barBDOpts);
-                        let mHour = (m.origStartHour ?? workStartH) + _hourDelta;
-                        while (mHour >= workEndH) { mHour -= totalWorkH; mSnap = addBD(mSnap, 1, barBDOpts); }
-                        while (mHour < workStartH) { mHour += totalWorkH; mSnap = addBD(mSnap, -1, barBDOpts); }
-                        const mDropHour = Math.round(mHour * 2) / 2;
-                        const _mTeamSz = Math.max(1, (m.personIds || []).length);
-                        const _mPerHpd = (m.hpd || 0) > 0 ? m.hpd / _mTeamSz : productiveHoursPerDay;
-                        const _mVDays = walkProductiveHours(mDropHour, _mPerHpd, dayWindowCfg).days;
-                        return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: addBD(mSnap, _mVDays - 1, barBDOpts), wdDur: _mVDays, color: bar.color, dropHour: mDropHour, barHpd: _mPerHpd };
-                      });
-                      // Multi-select drag — each member follows the same snap rules as the
-                      // dragged bar (business-day stepping, weekend-skipping, 30-min hour
-                      // snap, hour-overflow → next workday). Mirrors groupSnaps shape so
-                      // the ghost-rendering loop can reuse the same drawing logic.
-                      const multiDragSnaps = isMultiDrag ? multiDragMembers.map(m => {
-                        const _mOffset = m.origStart >= os ? diffBD(os, m.origStart, barBDOpts) : -diffBD(m.origStart, os, barBDOpts);
-                        let mSnap = addBD(snapS, _mOffset, barBDOpts);
-                        let mHour = (m.origStartHour ?? workStartH) + _hourDelta;
-                        while (mHour >= workEndH) { mHour -= totalWorkH; mSnap = addBD(mSnap, 1, barBDOpts); }
-                        while (mHour < workStartH) { mHour += totalWorkH; mSnap = addBD(mSnap, -1, barBDOpts); }
-                        const mDropHour = Math.round(mHour * 2) / 2;
-                        const _mTeamSz = Math.max(1, (m.personIds || []).length);
-                        const _mPerHpd = (m.hpd || 0) > 0 ? m.hpd / _mTeamSz : productiveHoursPerDay;
-                        const _mVDays = walkProductiveHours(mDropHour, _mPerHpd, dayWindowCfg).days;
-                        return { id: m.id, personIds: m.personIds, snapStart: mSnap, snapEnd: addBD(mSnap, _mVDays - 1, barBDOpts), wdDur: _mVDays, color: bar.color, dropHour: mDropHour, barHpd: _mPerHpd };
-                      }) : [];
+                      if (snapS === null) return;
                       const targetPid = lastDropPid || origPerson;
                       const movingTaskId = bar.task?.id;
-                      // FREE DRAG — ghost follows cursor; turns red over conflicts; drop rejected if red.
-                      // Visual extent of an op (date + hour) — matches bar render using team-divided hpd
-                      // One walk, same as the renderer — the ghost and the dropped bar have to
-                      // agree, and the five-branch approximation this replaced could not.
-                      // A stored endHour is honoured only when the op stays within one day;
-                      // past that the walk owns both the end date and the end hour.
-
-                      // Ghost's own visual end (date + hour) from current snapS/dropHour/hpd
-                      const _ghostDH = dropHour ?? workStartH;
-                      const _ghostWalk = walkProductiveHours(_ghostDH, _dragBarHpd, dayWindowCfg);
-                      const _ghostED = addBD(snapS, _ghostWalk.days - 1, barBDOpts);
-                      const _ghostEH = _ghostWalk.endHour;
-                      snapE = _ghostED;
-                      // Lex-order interval overlap on (date, hour) — A overlaps B iff A.start < B.end AND A.end > B.start
-                      // Basic: visual only, no collision-avoidance — a person can be double-booked
-                      // on purpose (a normal double shift), so hasOverlap simply never computes.
-                      let hasOverlap = false;
+                      // THE landing (dragMove.js): the grabbed bar and every member, each at its
+                      // walked end. The ghost draws these, the checks test these, the drop commits
+                      // these — one position, one end.
+                      const _plan = _planAt(snapS, dropHour ?? workStartH, targetPid);
+                      const _ghostDH = _plan[0].to.startHour;
+                      const snapE = _plan[0].to.end;
+                      const { groupSnaps, multiDragSnaps } = _snapsOf(_plan);
+                      // Every check, on every mover. Past and overlap are Business-only (inside
+                      // refuseDragMove); locked, live, over-estimate and time off apply to both.
+                      const _refusal = _refuse(_plan);
+                      let hasOverlap = !!_refusal && _refusal.kind !== "past";
                       let overlapInfo = null;
-                      if (billingTier === "business") {
-                        // The ghost is the grabbed bar at the drop, on the target row. Its hours
-                        // are the drag's own (_dragBarHpd, already this person's share).
+                      const beforeNow = _refusal?.kind === "past";
+                      // Unlocked dep-group sibling overlap: a dragged bar must not overlap any sibling in its
+                      // dep group, regardless of which person each sibling is assigned to.
+                      if (!hasOverlap && billingTier === "business" && depsMode === "unlocked" && isGroupDrag) {
                         const _gctx = { ...overlapCtx, shareHours: (u) => (sameId(u.id, movingTaskId) ? _dragBarHpd : overlapCtx.shareHours(u)) };
-                        const _ghostUnit = { ...(bar.task || {}), id: movingTaskId, start: snapS, end: _ghostED, startHour: _ghostDH, endHour: undefined, team: [targetPid] };
-                        const _hit = overlapsWith(_ghostUnit, occupyingUnits(tasks, _gctx), _gctx)[0];
-                        if (_hit) {
-                          hasOverlap = true;
-                          overlapInfo = { opTitle: _hit.other.unit.title || "", panelTitle: _hit.other.panel?.title || "", jobTitle: _hit.other.job?.title || "", start: _hit.other.unit.start, end: _hit.other.unit.end };
-                        }
-                        // Unlocked dep-group sibling overlap: a dragged bar must not overlap any sibling in its
-                        // dep group, regardless of which person each sibling is assigned to.
-                        if (!hasOverlap && depsMode === "unlocked" && isGroupDrag) {
-                          const _gb = unitBlocks(_ghostUnit, _gctx);
-                          outerSib: for (const job of tasks) {
-                            for (const panel of (job.subs || [])) {
-                              for (const op of (panel.subs || [])) {
-                                if (!depGroupIds.has(op.id) || op.id === movingTaskId) continue;
-                                if (!op.start || !op.end) continue;
-                                if (blocksOverlap(_gb, unitBlocks(op, _gctx))) {
-                                  hasOverlap = true;
-                                  overlapInfo = { opTitle: op.title || "", panelTitle: panel.title || "", jobTitle: job.title || "", start: op.start, end: op.end, isDepSibling: true };
-                                  break outerSib;
-                                }
+                        const _gb = unitBlocks({ ...(bar.task || {}), id: movingTaskId, start: snapS, end: snapE, startHour: _ghostDH, endHour: undefined, team: [targetPid] }, _gctx);
+                        outerSib: for (const job of tasks) {
+                          for (const panel of (job.subs || [])) {
+                            for (const op of (panel.subs || [])) {
+                              if (!depGroupIds.has(op.id) || op.id === movingTaskId) continue;
+                              if (!op.start || !op.end) continue;
+                              if (blocksOverlap(_gb, unitBlocks(op, _gctx))) {
+                                hasOverlap = true;
+                                overlapInfo = { opTitle: op.title || "", panelTitle: panel.title || "", jobTitle: job.title || "", start: op.start, end: op.end, isDepSibling: true };
+                                break outerSib;
                               }
                             }
                           }
                         }
                       }
-                      if (snapS === null) return;
                       const _mRectForRef = gridAreaEl?.getBoundingClientRect();
                       const _ghostLeftPct = _mRectForRef ? ((me.clientX - _grabPx - _mRectForRef.left) / _mRectForRef.width * 100) : null;
-                      // Jobs can never be dragged into the past. snapS/_ghostDH is the candidate's
-                      // earliest edge — before today, or today before the current hour, means some
-                      // part of the bar would sit in the past (ops never run backward in time, so
-                      // checking the start alone covers "any bit of it").
-                      // Basic: purely visual, nothing is pushed/pulled/refused — a card can be
-                      // dragged anywhere, past included; this restriction is Business-only.
-                      const _nowForDrag = new Date();
-                      const _nowDayForDrag = shopDay(_nowForDrag.getTime());
-                      const _nowHourForDrag = shopHour(_nowForDrag.getTime());
-                      const beforeNow = billingTier === "business" && ((snapS < _nowDayForDrag) || (snapS === _nowDayForDrag && _ghostDH < _nowHourForDrag));
                       teamDragLiveRef.current = { snapStart: snapS, snapEnd: snapE, dropHour, barHpd: _dragBarHpd, origStart: os, origEnd: oe, grabOffsetPct: _grabOffsetPct, ghostLeftPct: _ghostLeftPct, hasOverlap, overlapInfo, beforeNow };
                       // Bars that should visually move + fade together with the dragged bar:
                       // multi-select members, plus dep-group members when the group is locked.
                       const _movingBarIds = new Set();
                       if (isMultiDrag) multiDragMembers.forEach(m => _movingBarIds.add(m.id));
                       if (isGroupDrag && depsMode === "locked") groupMembers.forEach(m => _movingBarIds.add(m.id));
-                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, multiDragSnaps, isGroupDrag, multiDragIds: _movingBarIds.size > 0 ? _movingBarIds : null, dropHour, barHpd: _dragBarHpd, hasOverlap, beforeNow, pushBD: _pushBD, pushHourDelta: _pushHourDelta, snapConnector: _snapConnector ? { ..._snapConnector, ghostPersonId: targetPid } : null });
+                      setTeamDragInfo({ barId: bar.id, snapStart: snapS, snapEnd: snapE, origStart: os, origEnd: oe, targetPersonId: targetPid, cursorX: me.clientX, cursorY: me.clientY, taskTitle: bar.task?.title || "", barColor: bar.color || T.accent, translateX: pxDx, translateY: pxDy, groupSnaps, multiDragSnaps, isGroupDrag, multiDragIds: _movingBarIds.size > 0 ? _movingBarIds : null, dropHour, barHpd: _dragBarHpd, hasOverlap, beforeNow, snapConnector: _snapConnector ? { ..._snapConnector, ghostPersonId: targetPid } : null });
                     };
                     const onU = me => {
                       cancelAnimationFrame(autoScrollRaf); autoScrollRaf = null;
@@ -18457,20 +18374,9 @@ ${jobsCtx || "No jobs found."}`;
                       document.removeEventListener("mouseup", onU);
                       isDraggingRef.current = false; setDropTarget(null); setTeamDragInfo(null);
                       if (!moved) { if (barSelectMode && !isPto) { setSelBars(prev => { const n = new Set(prev); n.has(bar.id) ? n.delete(bar.id) : n.add(bar.id); return n; }); } else if (bar.task) { openJobDetailOrEdit(bar.task); } return; }
-                      // Can't move the SPECIFIC op someone is actively clocked into — they'd be
-                      // stranded. Scoped to this op (bar.task.id): a clock on a sibling task in the
-                      // same job must not block moving this independent one.
-                      if (!isPto && bar.task && blockedByActiveClock(jobIdOfNode(bar.task.id), bar.task.id)) { console.warn("[schedule-drag] rejected: someone is clocked into this op"); return; }
                       const _dropId = bar.id; setDroppedBarId(_dropId); setTimeout(() => setDroppedBarId(prev => prev === _dropId ? null : prev), 500);
-                      const finalDx = Math.floor((me.clientX - sx) / liveCW + _origColOffset);
-                      const newStart = teamDragLiveRef.current?.snapStart ?? nextBD(addD(_dragBaseStart, finalDx));
-                      const _finalDropH = teamDragLiveRef.current?.dropHour ?? workStartH;
-                      const _finalProdOff = Math.max(0, _finalDropH - workStartH) / totalWorkH * productiveHoursPerDay;
-                      const _finalVWD = _dragBarHpd > 0 ? Math.max(1, Math.ceil((_finalProdOff + _dragBarHpd) / productiveHoursPerDay)) : wdDuration;
-                      const newEnd = addBD(newStart, _finalVWD - 1);
-                      // Unlocked: drop position is unclamped — sibling overlap is caught by the hasOverlap check below.
-                      let effStart = newStart;
-                      const effEnd = addBD(effStart, _finalVWD - 1);
+                      const effStart = teamDragLiveRef.current?.snapStart ?? _dragBaseStart;
+                      const finalHour = teamDragLiveRef.current?.dropHour ?? workStartH;
                       const dropPerson = lastDropPid || origPerson;
                       const isReassign = !!(lastDropPid && !sameId(lastDropPid, origPerson));
                       // Split the drag permission at the drop, not at the grab: moving a bar
@@ -18490,350 +18396,67 @@ ${jobsCtx || "No jobs found."}`;
                         return;
                       }
                       const movedByName = loggedInUser ? loggedInUser.name : "Admin";
-                      // Block on PTO — cannot push time off
-                      const person = people.find(x => sameId(x.id, dropPerson));
-                      if (person) {
-                        for (const to of (person.timeOff || [])) {
-                          if (to.start <= newEnd && to.end >= newStart) {
-                            showOverlapIfAny([{ person: person.name, isPto: true, panelTitle: to.reason || to.type || "PTO", start: to.start, end: to.end }]);
-                            return;
-                          }
-                        }
-                      }
-                      // Reject drop if the ghost was red (overlapping another job) — show error, no auto-push
-                      if (teamDragLiveRef.current?.hasOverlap) {
-                        const _info = teamDragLiveRef.current.overlapInfo;
-                        if (_info?.isDepSibling) {
-                          showDepSiblingError(_info);
-                          return;
-                        }
-                        const _personName = person?.name || "";
-                        showOverlapIfAny([{ person: _personName, opTitle: _info?.opTitle || "", panelTitle: _info?.panelTitle || "", jobTitle: _info?.jobTitle || "", start: _info?.start, end: _info?.end, isPto: false }]);
-                        return;
-                      }
-                      // Reject drop if the ghost was red for landing in the past — jobs can
-                      // never be scheduled before now, no part of the bar included.
-                      if (teamDragLiveRef.current?.beforeNow) {
-                        setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't schedule in the past", message: "This move would place part of the job before the current time. Jobs can't be scheduled in the past.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
-                        return;
-                      }
-                      if ((tMode === "month" || tMode === "week") && bar.task && !isPto) {
-                        const _gRect = gridAreaEl?.getBoundingClientRect();
-                        if (!_gRect) { console.warn("[schedule-drag] rejected: grid element not measurable"); return; }
-                        const _cxDrop = (me.clientX - _grabPx) - _gRect.left;
-                        const _dayIdx = Math.max(0, Math.min(days.length - 1, Math.floor(_cxDrop / liveCW)));
-                        let _di2 = _dayIdx;
-                        while (_di2 < days.length - 1 && !isWorkDay(days[_di2], barWorkDays)) _di2++;
-                        effStart = isWorkDay(days[_di2], barWorkDays) ? days[_di2] : null;
-                        if (!effStart) { console.warn("[schedule-drag] rejected: drop day is not a work day", days[_di2]); return; }
-                        // Use the bar's live drop date (window-independent). Fall back to newStart
-                        // (also dx-based) rather than the stale `days[_dayIdx]` lookup above.
-                        effStart = teamDragLiveRef.current?.snapStart || newStart;
-                        let finalHour = teamDragLiveRef.current?.dropHour ?? workStartH;
-                        // Re-check the RESULT, not just the ghost: the ghost only ever measured the
-                        // grabbed bar while it moved, and the commit below writes wherever it lands.
-                        if (billingTier === "business") {
-                          const _dropTeam = isReassign ? [dropPerson] : (bar.task.team || []);
-                          const _dw = walkProductiveHours(finalHour, personShareHours(bar.task.hpd, _dropTeam.length, productiveHoursPerDay), dayWindowCfg);
-                          const _droppedUnit = { ...bar.task, start: effStart, end: sAddBD(effStart, _dw.days - 1), startHour: finalHour, endHour: undefined, team: _dropTeam };
-                          const _dropHit = overlapsWith(_droppedUnit, occupyingUnits(tasks, overlapCtx), overlapCtx, { excludeIds: new Set([...movingIds].map(String)) })[0];
-                          if (_dropHit) {
-                            showOverlapIfAny([{ person: person?.name || "", opTitle: _dropHit.other.unit.title || "", panelTitle: _dropHit.other.panel?.title || "", jobTitle: _dropHit.other.job?.title || "", start: _dropHit.at.day, end: _dropHit.at.day }]);
-                            return;
-                          }
-                        }
-                        // No snap-forward here either — the commit has to land the bar exactly
-                        // where the ghost showed it, and the ghost no longer bounces.
-                        // ── Auto-split on drag-end for partially-worked ops ──
-                        // If the bar has worked hours and the user moved the remaining piece, leave the
-                        // worked portion anchored (locked) and spawn a new op for the remaining hours at
-                        // the drop. The drag is based on the remaining-start (_dragBaseStart), so compare
-                        // against that — and if it didn't actually move, do nothing (don't shift the
-                        // whole bar via the non-split path below).
-                        const _splitWS = deriveWorkedState(bar.task, producedFor(bar.task), liveOpHours(bar.task));
-                        // Compute end-date + end-hour for a given hpd starting at (startDate, startHourArg).
-                        const _calcEnd = (startDate, startHourArg, hpdAmt) => {
-                          const _wk = walkProductiveHours(startHourArg, hpdAmt, dayWindowCfg);
-                          return { end: sAddBD(startDate, _wk.days - 1), endHour: _wk.endHour };
-                        };
-                        // Only split when the destination genuinely crosses a weekend or a
-                        // disabled day — an ordinary move of a partially-worked bar just moves
-                        // the whole record; worked spans are recorded independently of the op's
-                        // current position, so relocating it does not corrupt that history.
-                        const _wouldLandOnOffDay = _splitWS.isPartiallyWorked && spansOffDay(effStart, _calcEnd(effStart, finalHour, _splitWS.remainingHpd).end, barBDOpts);
-                        if (_wouldLandOnOffDay) {
-                          // A pure vertical drag (straight down onto another person) leaves the
-                          // dates identical, so this no-op guard used to swallow the reassign
-                          // too — the bar just snapped back. Only bail when nothing changed at
-                          // all, person included.
-                          if (effStart === _dragBaseStart && finalHour === _dragBaseHour && !isReassign) { console.warn("[schedule-drag] no-op: dates and person unchanged"); return; }
+                      const _refused = (r) => setConfirmMove({ ackOnly: true, confirmLabel: "OK",
+                        title: r.kind === "past" ? "Can't schedule in the past" : "Can't move here",
+                        message: refusalMessage(r), onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
+                      if (teamDragLiveRef.current?.overlapInfo?.isDepSibling) { showDepSiblingError(teamDragLiveRef.current.overlapInfo); return; }
+                      // The drop is re-planned and re-checked here rather than trusted from the last
+                      // mousemove: the same landing the ghost drew, tested on every mover. A drop that
+                      // fails is REFUSED and names the op — nothing else on the board is pushed to
+                      // make room (ruling, root cause 7).
+                      const _plan = _planAt(effStart, finalHour, dropPerson);
+                      const _refusal = _refuse(_plan);
+                      if (_refusal) { _refused(_refusal); return; }
+                      const _g = _plan[0];
+                      // ── Auto-split on drag-end for partially-worked ops ──
+                      // Only when the destination genuinely crosses a weekend or a disabled day: the
+                      // worked portion stays anchored (locked) and a new op takes the remaining hours
+                      // at the drop. An ordinary move just moves the whole record — worked spans are
+                      // recorded independently of the op's current position.
+                      const _splitWS = deriveWorkedState(bar.task, producedFor(bar.task), liveOpHours(bar.task));
+                      const _split = _splitWS.isPartiallyWorked && spansOffDay(_g.to.start, _g.to.end, barBDOpts);
+                      if (_split && _g.to.start === _dragBaseStart && _g.to.startHour === _dragBaseHour && !isReassign && _plan.length === 1) { console.warn("[schedule-drag] no-op: dates and person unchanged"); return; }
+                      const newOpId = _split ? uid() : null;
+                      const _build = (list) => {
+                        // Every mover lands at its planned position with a moveLog entry (#3)…
+                        let next = applyDragMove(list, _split ? _plan.slice(1) : _plan, { date: TD, movedBy: movedByName });
+                        // …except a split grabbed op, whose remainder becomes a new op there.
+                        if (_split) {
                           const osH = bar.task.startHour ?? workStartH;
-                          const workedEnds = _calcEnd(os, osH, _splitWS.workedHpd);
-                          const remEnds   = _calcEnd(effStart, finalHour, _splitWS.remainingHpd);
-                          const newOpId = uid();
-                          setTasks(prev => {
-                            const next = prev.map(job => ({
-                              ...job,
-                              subs: (job.subs || []).map(panel => {
-                                const idx = (panel.subs || []).findIndex(o => o.id === bar.task.id);
-                                if (idx < 0) return panel;
-                                const orig = panel.subs[idx];
-                                const updatedOrig = {
-                                  ...orig,
-                                  hpd: _splitWS.workedHpd,
-                                  end: workedEnds.end,
-                                  endHour: workedEnds.endHour,
-                                  locked: true,
-                                };
-                                const { actualHours: _drop, ...origMinusActual } = orig;
-                                const newOp = {
-                                  ...origMinusActual,
-                                  id: newOpId,
-                                  hpd: _splitWS.remainingHpd,
-                                  loggedHours: 0,
-                                  locked: false,
-                                  status: "Not Started",
-                                  deps: [],
-                                  start: effStart,
-                                  end: remEnds.end,
-                                  startHour: finalHour,
-                                  endHour: remEnds.endHour,
-                                  moveLog: [],
-                                  ...(lastDropPid && !sameId(lastDropPid, origPerson) ? { team: (orig.team || []).map(x => sameId(x, origPerson) ? lastDropPid : x) } : {}),
-                                };
-                                const nextSubs = [...panel.subs];
-                                nextSubs.splice(idx, 1, updatedOrig, newOp);
-                                return { ...panel, subs: nextSubs };
-                              }),
-                            }));
-                            return recalcBounds(next, loggedInUser?.name || "Split-on-drag");
-                          });
-                          setTimeout(() => doSaveRef.current(), 0);
-                          return;
-                        }
-                        // Landing geometry from the walk — one source of truth with the ghost
-                        // above and the bar render. The end hour is NOT rounded to the half
-                        // hour: rounding a job that finishes at 17:00 could nudge it past the
-                        // day's end, and rounding a small final-day remainder down to workStart
-                        // collapsed the continuation to nothing.
-                        const _dropWalk = walkProductiveHours(finalHour, (bar.task.hpd || 0) / Math.max(1, (bar.task.team || []).length), dayWindowCfg);
-                        const _newEnd = addBD(effStart, _dropWalk.days - 1, barBDOpts);
-                        const _endHour = _dropWalk.endHour;
-                        const _mWdDelta = effStart > os ? diffBD(os, effStart) : -diffBD(effStart, os);
-                        const osH = bar.task.startHour ?? workStartH;
-                        const _hourDelta = finalHour - osH;
-                        const _computeMonthMove = (m) => {
-                          let mStartDay = addBD(m.origStart, _mWdDelta);
-                          let mStartH = (m.origStartHour ?? workStartH) + _hourDelta;
-                          while (mStartH >= workEndH) { mStartH -= totalWorkH; mStartDay = addBD(mStartDay, 1); }
-                          while (mStartH < workStartH) { mStartH += totalWorkH; mStartDay = addBD(mStartDay, -1); }
-                          const mStartHour = Math.round(mStartH * 2) / 2;
-                          const _mPerHpd = (m.hpd || 0) > 0 ? m.hpd / Math.max(1, (m.personIds || []).length) : productiveHoursPerDay;
-                          const mWalk = walkProductiveHours(mStartHour, _mPerHpd, dayWindowCfg);
-                          const mNewEnd = addBD(mStartDay, mWalk.days - 1, barBDOpts);
-                          return { id: m.id, newStart: mStartDay, newEnd: mNewEnd, newStartHour: mStartHour, newEndHour: mWalk.endHour };
-                        };
-                        const groupMonthMoves = (isGroupDrag && depsMode === "locked") ? groupMembers.map(_computeMonthMove) : [];
-                        // Multi-select members also need their hour/end snaps applied in month
-                        // mode — without this they were silently skipped on release in month
-                        // view, so the bars never actually moved despite the ghosts showing
-                        // their landing positions.
-                        const multiDragMonthMoves = multiDragMembers.map(_computeMonthMove);
-                        // The schedule draws a bar for whichever level carries the
-                        // assignment: an op, a panel with no ops of its own, or a bare
-                        // job. This commit only ever rewrote OPS, so dragging a
-                        // panel- or job-level bar matched nothing and the whole drop —
-                        // dates and reassign alike — was silently discarded. Apply the
-                        // move at whatever level the dragged bar actually lives at.
-                        let _matched = 0;
-                        const _moveNode = (node) => {
-                          _matched++;
-                          return {
-                            ...node,
-                            start: effStart, end: _newEnd, startHour: finalHour, endHour: _endHour,
-                            ...(lastDropPid && !sameId(lastDropPid, origPerson)
-                              ? { team: (node.team || []).map(x => sameId(x, origPerson) ? lastDropPid : x) }
-                              : {}),
-                          };
-                        };
-                        // Dep-group / multi-select members can also be panels, not just ops.
-                        const _memberMove = (node) => {
-                          const mv = groupMonthMoves.find(m => m.id === node.id) || multiDragMonthMoves.find(m => m.id === node.id);
-                          return mv ? { ...node, start: mv.newStart, end: mv.newEnd, startHour: mv.newStartHour, endHour: mv.newEndHour } : node;
-                        };
-                        setTasks(prev => {
-                          const next = prev.map(job => {
-                            const _j = job.id === bar.task.id ? _moveNode(job) : job;
-                            return {
-                              ..._j,
-                              subs: (_j.subs || []).map(panel => {
-                                const _p = panel.id === bar.task.id ? _moveNode(panel) : _memberMove(panel);
-                                return {
-                                  ..._p,
-                                  subs: (_p.subs || []).map(op =>
-                                    op.id === bar.task.id ? _moveNode(op) : _memberMove(op)
-                                  ),
-                                };
-                              }),
+                          const _wk = walkProductiveHours(osH, _splitWS.workedHpd, dayWindowCfg);
+                          const workedEnd = { end: sAddBD(os, _wk.days - 1), endHour: _wk.endHour };
+                          next = next.map(job => ({ ...job, subs: (job.subs || []).map(panel => {
+                            const idx = (panel.subs || []).findIndex(o => sameId(o.id, bar.task.id));
+                            if (idx < 0) return panel;
+                            const orig = panel.subs[idx];
+                            const { actualHours: _drop, ...origMinusActual } = orig;
+                            const updatedOrig = { ...orig, hpd: _splitWS.workedHpd, end: workedEnd.end, endHour: workedEnd.endHour, locked: true };
+                            const newOp = {
+                              ...origMinusActual, id: newOpId, hpd: _splitWS.remainingHpd, loggedHours: 0, locked: false,
+                              status: "Not Started", deps: [],
+                              start: _g.to.start, end: _g.to.end, startHour: _g.to.startHour, endHour: _g.to.endHour,
+                              team: _g.to.team,
+                              moveLog: [moveLogEntry(_g, { date: TD, movedBy: movedByName, reason: "Moved in schedule (remaining hours split off; worked part stays)" })],
                             };
-                          });
-                          if (!_matched) console.warn("[schedule-drag] month commit matched nothing", { barTaskId: bar.task.id, barId: bar.id });
-                          return recalcBounds(next, loggedInUser?.name || "Drag");
-                        });
-                        setTimeout(() => doSaveRef.current(), 0);
+                            const nextSubs = [...panel.subs];
+                            nextSubs.splice(idx, 1, updatedOrig, newOp);
+                            return { ...panel, subs: nextSubs };
+                          }) }));
+                        }
+                        return recalcBounds(next, movedByName);
+                      };
+                      // Backstop: the result goes through the no-overlap guard. Anything the guard
+                      // would have to move means the drop disagrees with the rule, so it is refused
+                      // rather than silently rearranged (Business only; Basic returns untouched).
+                      const _moverIds = [..._plan.map(m => m.id), ...(newOpId ? [newOpId] : [])];
+                      const { moved: _bumped, refused: _stuck } = enforceNoOverlap(_build(tasks), _moverIds);
+                      if (_bumped.length || _stuck.length) {
+                        console.warn("[schedule-drag] refused by the no-overlap guard", { bumped: _bumped, stuck: _stuck });
+                        _refused({ kind: "overlap", title: bar.task.title || "", other: null });
                         return;
                       }
-                      // Compute final positions for all group members + multi-selected bars (same delta)
-                      const wdDelta = effStart > os ? diffBD(os, effStart) : -diffBD(effStart, os);
-                      const groupFinalMoves = [
-                        // Locked mode: all dep-group members move by the same delta as the dragged bar
-                        // Unlocked mode: each task moves independently — only the dragged task moves
-                        ...(depsMode === "locked" ? groupMembers.map(m => {
-                          const mStart = nextBD(addD(m.origStart, finalDx));
-                          return { ...m, newStart: mStart, newEnd: countWorkingDays(mStart, m.wdDur) };
-                        }) : []),
-                        ...multiDragMembers.map(m => {
-                          const mStart = addBD(m.origStart, wdDelta);
-                          const mEnd   = addBD(m.origEnd,   wdDelta);
-                          return { ...m, newStart: mStart, newEnd: mEnd };
-                        }),
-                      ];
-                      // Conflict detection — exclude all moving IDs as obstacles for each other.
-                      // Basic: visual only — no push cascade, no locked-op refusal. A card just
-                      // goes where it's dropped; nothing else on the board reacts to it.
-                      let allPushes = [];
-                      let anyBlocked = false; let allLocked = [];
-                      if (billingTier === "business") {
-                        const { pushes: mainPushes, blocked: mainBlocked, lockedOps: mainLocked } = previewPush(tasks, bar.task.id, dropPerson, effStart, effEnd, movingIds);
-                        if (mainBlocked) { showLockedError(mainLocked); return; }
-                        allPushes = [...mainPushes];
-                        for (const gm of groupFinalMoves) {
-                          for (const personId of gm.personIds) {
-                            const { pushes: gmPushes, blocked: gmBlocked, lockedOps: gmLocked } = previewPush(tasks, gm.id, personId, gm.newStart, gm.newEnd, movingIds);
-                            if (gmBlocked) { anyBlocked = true; allLocked = [...allLocked, ...gmLocked]; break; }
-                            gmPushes.forEach(push => { if (!allPushes.find(x => x.opId === push.opId)) allPushes.push(push); });
-                          }
-                          if (anyBlocked) break;
-                        }
-                        if (anyBlocked) { showLockedError(allLocked); return; }
-                      }
-                      const logBase = { date: TD, movedBy: movedByName, reason: "Moved in schedule" };
-                      const allMoves = [
-                        { id: bar.task.id, newStart: effStart, newEnd: effEnd, logEntry: { ...logBase, fromStart: os, fromEnd: oe, toStart: effStart, toEnd: effEnd } },
-                        ...groupFinalMoves.map(m => ({ id: m.id, newStart: m.newStart, newEnd: m.newEnd, logEntry: { ...logBase, fromStart: m.origStart, fromEnd: m.origEnd, toStart: m.newStart, toEnd: m.newEnd } }))
-                      ];
-                      // §3c split. Single-bar drags only: a multi-drag is a bulk reschedule, and
-                      // splitting several ops at once would produce a pile of records nobody asked
-                      // for from one gesture. Drops onto another PERSON do split — "movable to any
-                      // day or person" is most of the point — and the reassign below is redirected
-                      // at the remainder so the history keeps the team that did it. Nobody can be
-                      // clocked in here: _someoneOnIt refused the gesture before it began.
-                      //
-                      // Gated on crossing a weekend/disabled day: an ordinary move of a
-                      // partially-worked bar just moves the whole record — worked spans are
-                      // recorded independently of the op's current position (productionhours.json),
-                      // so relocating it does not corrupt that history.
-                      const _splitOut = {};
-                      const _splitWorkedMs = (multiDragMembers.length === 0 && bar.task && spansOffDay(effStart, effEnd, barBDOpts))
-                        ? spansDurationMs(workedSpansStored.get(String(bar.task.id)) || [])
-                        : 0;
-                      const withMove = _splitWorkedMs > 0
-                        ? applyWorkedSplitGuarded(buildGroupMove(tasks, allMoves), findOp(tasks, bar.task.id), _splitWorkedMs, _splitOut)
-                        : buildGroupMove(tasks, allMoves);
-                      // Expand viewport to include all newly placed bars
-                      const allNewStarts = [effStart, ...groupFinalMoves.map(m => m.newStart)];
-                      const minNewStart = allNewStarts.reduce((a, b) => a < b ? a : b, effStart);
-                      const applyReassign = (snapshot) => {
-                        const allReassignments = [
-                          { taskId: _splitOut.newId || bar.task.id, pid: taskPid, fromPerson: origPerson },
-                          ...multiDragMembers.map(m => ({ taskId: m.id, pid: m.pid, fromPerson: m.origPerson }))
-                        ];
-                        return snapshot.map(t => {
-                          let updated = { ...t };
-                          allReassignments.forEach(({ taskId, pid, fromPerson }) => {
-                            if (pid) {
-                              const panelIdx = (updated.subs || []).findIndex(s => s.id === pid);
-                              if (panelIdx >= 0) {
-                                const newSubs = [...(updated.subs || [])];
-                                newSubs[panelIdx] = {
-                                  ...newSubs[panelIdx],
-                                  subs: (newSubs[panelIdx].subs || []).map(op =>
-                                    op.id === taskId
-                                      ? { ...op, team: (op.team || []).map(x => sameId(x, fromPerson) ? lastDropPid : x) }
-                                      : op
-                                  )
-                                };
-                                updated = { ...updated, subs: newSubs };
-                              }
-                              if (updated.id === pid) {
-                                updated = {
-                                  ...updated,
-                                  subs: (updated.subs || []).map(s =>
-                                    s.id === taskId
-                                      ? { ...s, team: (s.team || []).map(x => sameId(x, fromPerson) ? lastDropPid : x) }
-                                      : s
-                                  )
-                                };
-                              }
-                            } else if (updated.id === taskId) {
-                              updated = {
-                                ...updated,
-                                team: (updated.team || []).map(x => sameId(x, fromPerson) ? lastDropPid : x)
-                              };
-                            }
-                          });
-                          return updated;
-                        });
-                      };
-                      const effectiveReassign = isReassign && multiDragMembers.length === 0;
-                      const commit = (snapshot) => {
-                        setTStart(p => minNewStart < p ? minNewStart : p);
-                        setTEnd(p => newEnd > p ? newEnd : p);
-                        // Apply member date updates directly from groupFinalMoves so they are
-                        // guaranteed correct regardless of whether buildGroupMove found them
-                        let base = snapshot;
-                        if (multiDragMembers.length > 0) {
-                          const mm = new Map(
-                            groupFinalMoves
-                              .filter(gm => multiDragMembers.some(m => m.id === gm.id))
-                              .map(gm => [gm.id, gm])
-                          );
-                          if (mm.size > 0) {
-                            base = snapshot.map(job => {
-                              let jobChanged = false;
-                              const newSubs = (job.subs || []).map(panel => {
-                                let panelChanged = false;
-                                let p = panel;
-                                if (mm.has(panel.id)) {
-                                  const mv = mm.get(panel.id);
-                                  p = { ...p, start: mv.newStart, end: mv.newEnd };
-                                  panelChanged = true;
-                                }
-                                const newOps = (p.subs || []).map(op => {
-                                  if (!mm.has(op.id)) return op;
-                                  panelChanged = true;
-                                  return { ...op, start: mm.get(op.id).newStart, end: mm.get(op.id).newEnd };
-                                });
-                                if (panelChanged) { jobChanged = true; return { ...p, subs: newOps }; }
-                                return panel;
-                              });
-                              return jobChanged ? { ...job, subs: newSubs } : job;
-                            });
-                          }
-                        }
-                        setTasks(effectiveReassign && multiDragMembers.length === 0 ? applyReassign(base) : base);
-                      };
-                      if (allPushes.length > 0) {
-                        const withPushes = applyPushes(withMove, allPushes, movedByName);
-                        setConfirmPush({
-                          pushes: allPushes, people,
-                          onConfirm:       () => { commit(withPushes); setConfirmPush(null); },
-                          onConfirmSingle: () => { commit(withMove);   setConfirmPush(null); },
-                          onCancel:        () => { setConfirmPush(null); },
-                        });
-                        return;
-                      }
-                      commit(withMove);
+                      setTasks(prev => _build(prev));
+                      setTimeout(() => doSaveRef.current(), 0);
                     };
                     document.addEventListener("mousemove", onM);
                     document.addEventListener("mouseup", onU);
