@@ -15837,7 +15837,14 @@ ${jobsCtx || "No jobs found."}`;
             // recomputed there: two calls read Date.now() at different instants, so the
             // length the lane measured and the length drawn could disagree, which IS an
             // overlap.
-            for (const b of ordered) rowBarWS[b.id] = deriveWorkedState(b.task, producedFor(b.task), liveOpHours(b.task));
+            // Over allBars, not `ordered` — `ordered` is built inside the Business branch
+            // below, and reading it here was a ReferenceError on every render. It is also the
+            // wrong set: it is the filtered, sorted subset the PUSH walks, while the worked
+            // state is needed by every task bar the lanes measure and the render draws.
+            for (const b of allBars) {
+              if (b.type !== "task" || !b.task) continue;
+              rowBarWS[b.id] = deriveWorkedState(b.task, producedFor(b.task), liveOpHours(b.task));
+            }
             // ── Basic-only: overlap lanes (#119-#123) ───────────────────────────
             // Basic allows two assignments to share a time range on one person's row — there
             // is no packing and no push, by design — but painting both at full row height in
