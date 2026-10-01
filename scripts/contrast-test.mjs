@@ -244,5 +244,84 @@ ok("#113: the schedule grid steps by wantsLightText, not hexLum < 0.5",
 ok("#311: the overdue chip is count-only (the word lives in the title)", !/\{n\}\s*overdue/.test(SRC));
 ok("#311: the chip takes its ink from the rule, not a hard-coded amber", !/color:\s*["']#b45309["']/.test(SRC));
 
-console.log(`\n${pass} passed, ${fail} failed`);
+
+// ── chunk B: the new treatments ─────────────────────────────────────────────
+// Same bar as everything above — a new badge that fails 4.5:1 is a new defect, and a new
+// mark that fails 3:1 is one too. These are measured against the same 17 live colours.
+{
+  const { alertCap, lunchHairline } = await import("../src/barPaint.js");
+
+  // The alert cap: 1px separator in barInk over the fill, 2px danger outboard of it. A flat
+  // red cap fails 3:1 on all 17 colours (worst 1.01) because this palette is full of reds,
+  // which is the whole reason it is two-tone.
+  for (const T of THEMES) {
+    const danger = T.key === "frost" ? "#ef4444" : "#f43f5e";
+    const TT = { ...T, danger };
+    for (const [what, fillOf] of [
+      ["unworked remainder", bc => bc],
+      ["idle", bc => idleBarFill(T, bc)],
+      ["spent (DONE)", bc => doneBarFill(T, barPaint({ status: "Finished" }, bc), T.surfaceSolid)],
+    ]) {
+      for (const [raw] of MATRIX) {
+        const bc = legibleBarColor(raw), fill = fillOf(bc);
+        const cap = alertCap(TT, fill, "overrun");
+        ok(`${T.key} ${raw} alert cap on ${what}: separator ${r2(contrastRatio(cap.sep, fill))}:1 >= ${AA_NONTEXT}`,
+          contrastRatio(cap.sep, fill) >= AA_NONTEXT);
+        ok(`${T.key} ${raw} alert cap on ${what}: hue reads against its separator`,
+          contrastRatio(cap.hue, cap.sep) >= AA_NONTEXT);
+      }
+      ok(`${T.key} alert cap: the hue reads against the row behind it`, contrastRatio(danger, T.surfaceSolid) >= AA_NONTEXT);
+    }
+    // and the thing it replaces, for the record
+    const worstFlat = Math.min(...MATRIX.map(([raw]) => contrastRatio(danger, legibleBarColor(raw))));
+    ok(`${T.key}: a flat danger cap would fail on this palette (worst ${r2(worstFlat)}:1)`, worstFlat < AA_NONTEXT);
+  }
+
+  // The lunch hairline is the label ink, so it inherits the labels' guarantee.
+  for (const T of THEMES) for (const [raw] of MATRIX) {
+    const bc = legibleBarColor(raw);
+    for (const fill of [bc, idleBarFill(T, bc)]) {
+      ok(`${T.key} ${raw} lunch hairline: ${r2(contrastRatio(lunchHairline(fill), fill))}:1 >= ${AA_NONTEXT}`,
+        contrastRatio(lunchHairline(fill), fill) >= AA_NONTEXT);
+    }
+  }
+
+  // The LIVE badge is new TEXT in the badge channel, so it is held to 4.5:1 like HELD/LUNCH/DONE.
+  for (const T of THEMES) for (const [raw] of MATRIX) {
+    const bc = legibleBarColor(raw);
+    for (const st of [{ state: "running", spans: [[0, 30]], cursorPct: 55 }, { state: "running", spans: [], cursorPct: -20 }]) {
+      const g = barGrounds(T, bc, { ...st, side: "left", rowColor: T.surfaceSolid });
+      ok(`${T.key} ${raw} LIVE badge: ${r2(barInkRatio(g))}:1 >= ${AA_TEXT}`, barInkRatio(g) >= AA_TEXT);
+    }
+  }
+}
+
+// ── chunk B: the render follows the state table ─────────────────────────────
+{
+  const team = SRC.slice(SRC.indexOf("const renderTeam ="), SRC.indexOf("const renderAnalytics ="));
+  ok("#99/#100: marks and label are one renderer, used by head and tail",
+    /const _furniture = \(markInk, titleColor, titleHalo, hoursInk\) =>/.test(team) &&
+    (team.match(/&& _furniture\(/g) || []).length === 2);   // the head's call and the tail's
+  ok("#101/#103: the alert channel is one mark with a precedence", /_barUnclosed \? "unclosed"/.test(team) && /alertCap\(/.test(team));
+  ok("#94: the flag is named for what it means", /_rowShowsRemainderOnly/.test(team) && !/_ownerOnTheClock/.test(SRC));
+  ok("#98: the hours tooltip no longer calls the bar's length 'h left'", !/"h left  ·  "/.test(team));
+  ok("#91: the unproductive windows are hairlines, gated out of month mode", /lunchHairline\(/.test(team) && /tMode !== "month" && cW >= 60/.test(team));
+  // #92 is resolved-by-design, so what the test asserts is that the design HOLDS: the fill
+  // composer must keep having no branch on a clock state. Scoped to activeBarFill, because
+  // liveBarTextColor legitimately branches on one — it picks text for a spent fill.
+  const PAINT = readFileSync(new URL("../src/barPaint.js", import.meta.url), "utf8");
+  const ACTIVE = PAINT.slice(PAINT.indexOf("function activeBarFill"), PAINT.indexOf("function barLabelColor"));
+  ok("#92: activeBarFill still has no clock-state branch — the fill is progress only",
+    !/state === "(running|held|paused|worked|scheduled)"/.test(ACTIVE));
+  ok("#117: barDropIn no longer animates opacity", !/@keyframes barDropIn \{[\s\S]{0,120}opacity/.test(SRC));
+  ok("#117: scheduleGlow no longer animates box-shadow", !/@keyframes scheduleGlow \{[\s\S]{0,200}box-shadow/.test(SRC));
+  ok("#118: both row headers label the team number the same way",
+    (SRC.match(/label=\{p\.teamNumber \? \(isNaN\(String\(p\.teamNumber\)\)/g) || []).length === 2);
+}
+
+
+
+
+console.log(`
+${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -23,7 +23,7 @@ import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveE
 // real palette, which is the only way to test "can this be read".
 import { hexLum, blendHex, mixHex, hexA, wantsLightText, accentText, DONE_MUTE, barPaint,
          spentBarFill, doneBarFill, activeBarFill,
-         barInk, barGrounds, barTextStyle, legibleBarColor, legibleOn, overHex } from "./barPaint.js";
+         barInk, barGrounds, barTextStyle, legibleBarColor, legibleOn, overHex, alertCap, lunchHairline } from "./barPaint.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
@@ -877,15 +877,26 @@ animStyle.textContent = `
   0%   { opacity: 0; transform: scaleX(0.4); transform-origin: left; }
   100% { opacity: 1; transform: scaleX(1);   transform-origin: left; }
 }
+/* A dropped bar announces itself by ARRIVING, not by fading in (#117). Animating opacity
+   meant the animation owned the property for its whole run, and opacity is where the hover
+   dim, the finished fade and the drag ghosting all live -- so for 250ms a just-dropped bar
+   ignored every one of them. Worse since the dim moved into CSS: an animated declaration
+   outranks a stylesheet rule, so the bar could not be dimmed at all while it played.
+   transform and filter are not spoken for, and the movement reads as "it landed here". */
 @keyframes barDropIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
+  from { transform: translateY(-6px) scale(0.98); filter: brightness(1.25); }
+  to   { transform: translateY(0)    scale(1);    filter: brightness(1); }
 }
+/* Same rule for the highlight (#117): it rings the bar with an OUTLINE, which nothing else
+   uses, instead of box-shadow -- which the locked ring, the selected ring and the drag glow
+   all write to, so a highlighted bar used to lose whichever of those it was wearing for four
+   seconds. brightness stays: it is the one channel a highlight can borrow without erasing a
+   state, and it returns to 1. */
 @keyframes scheduleGlow {
-  0%   { box-shadow: 0 0 0 0px rgba(255,255,255,0); filter: brightness(1); }
-  10%  { box-shadow: 0 0 0 4px rgba(255,255,255,0.9), 0 0 28px 10px var(--glow-color, rgba(255,255,255,0.5)); filter: brightness(1.35); }
-  30%  { box-shadow: 0 0 0 3px rgba(255,255,255,0.6), 0 0 20px 7px var(--glow-color, rgba(255,255,255,0.35)); filter: brightness(1.2); }
-  100% { box-shadow: 0 0 0 0px rgba(255,255,255,0); filter: brightness(1); }
+  0%   { outline: 0px solid rgba(255,255,255,0); outline-offset: 0px; filter: brightness(1); }
+  10%  { outline: 4px solid var(--glow-color, rgba(255,255,255,0.9)); outline-offset: 2px; filter: brightness(1.35); }
+  30%  { outline: 3px solid var(--glow-color, rgba(255,255,255,0.6)); outline-offset: 1px; filter: brightness(1.2); }
+  100% { outline: 0px solid rgba(255,255,255,0); outline-offset: 0px; filter: brightness(1); }
 }
 @keyframes glassShimmer {
   0%   { background-position: -200% center; }
@@ -16849,7 +16860,7 @@ ${jobsCtx || "No jobs found."}`;
                   const isDropTarget = dayDragTarget === p.id;
                   return <div key={p.id} style={{display:"flex",height:row.hidden ? 0 : rH,overflow:"hidden",borderBottom:row.hidden?"none":`1px solid ${T.bg}55`,background:isDropTarget?T.accent+"18":"transparent",outline:isDropTarget?`2px dashed ${T.accent}88`:"none",opacity:row.hidden?0:1,pointerEvents:row.hidden?"none":"auto",transition:"height 0.18s cubic-bezier(0.4,0,0.2,1), opacity 0.14s ease, background 0.1s"}}>
                     <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:8,padding:"0 10px 0 8px",borderRight:`1px solid ${T.border}`,background:T.surface,flexShrink:0}}>
-                      <PersonAvatar person={p} size={28} label={p.teamNumber ? String(p.teamNumber).charAt(0).toUpperCase() : null} />
+                      <PersonAvatar person={p} size={28} label={p.teamNumber ? (isNaN(String(p.teamNumber)) ? String(p.teamNumber).charAt(0).toUpperCase() : String(p.teamNumber)) : null} />
                       <div style={{flex:1,minWidth:0}}>
                         <div style={{fontSize:13,fontWeight:600,color:T.text,display:"flex",alignItems:"center",minWidth:0}}><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{p.name.split(" ")[0]}</span>{overdueBadge(p.id)}</div>
                         {/* nowrap + ellipsis: without it "Admin · 8h" broke onto a second
@@ -18455,7 +18466,7 @@ ${jobsCtx || "No jobs found."}`;
                   // and showing it on both would count it twice. Its left edge is clamped below.
                   // Same test as the clamp above, so the paint and the placement cannot disagree
                   // about whether this row has any claim on the work.
-                  const _ownerOnTheClock = !isPto && !bar.crossRow && !!bar.task
+                  const _rowShowsRemainderOnly = !isPto && !bar.crossRow && !!bar.task
                     && _barSpansAbs.length === 0 && _cursorPastStart;
                   // THE IDLE-LEFT RULE MAKES THE LEFT REGION ENTIRELY HATCH. A bar's left edge is
                   // now placed exactly this person's worked hours behind the cursor, so every hour
@@ -18468,8 +18479,8 @@ ${jobsCtx || "No jobs found."}`;
                   // hours of GREY against the cursor with the hatch off somewhere the bar no
                   // longer covers. The extent is the honest part now; the exact minutes are the
                   // cross-row record's job, and those bars are still positioned by their spans.
-                  const _fillSpans = bar.crossRow ? [[0, 100]] : (_ownerOnTheClock ? [] : [[0, 100]]);
-                  const _fillCursorPct = bar.crossRow ? 100 : (_ownerOnTheClock ? 0 : _headCursorPct);
+                  const _fillSpans = bar.crossRow ? [[0, 100]] : (_rowShowsRemainderOnly ? [] : [[0, 100]]);
+                  const _fillCursorPct = bar.crossRow ? 100 : (_rowShowsRemainderOnly ? 0 : _headCursorPct);
                   // The dep and lock icons sit at the bar's LEFT end, which is grey once regions are
                   // drawn and the cursor has moved off zero -- everything left of the cursor is hatch
                   // or idle. Conditional rather than a blanket swap: on an untouched bar, or one whose
@@ -18489,6 +18500,25 @@ ${jobsCtx || "No jobs found."}`;
                     // loggedHours both outlive the session that produced them.
                     : _barWorkedPct > 0 ? "worked"
                     : "scheduled";
+                  // THE BADGE CHANNEL says what the CLOCK is doing, and it is exclusive. LIVE has
+                  // text now like the other three: it was the only clock state carrying nothing but
+                  // a pulsing dot, which is a different grammar for no reason. A finish request with
+                  // nobody on the clock is the same statement as HELD -- asked to finish, waiting --
+                  // so it reads HELD rather than inventing a fifth word.
+                  const _badge = _barState === "done" ? "DONE"
+                    : _barState === "held" ? "HELD"
+                    : _barState === "paused" ? "LUNCH"
+                    : _barState === "running" ? "LIVE"
+                    : (!isPto && bar.task?.pendingFinish) ? "HELD"
+                    : null;
+                  // THE ALERT CHANNEL: one mark at the right edge, three meanings, highest first.
+                  // They are one question -- has this run past its end -- and they share the only
+                  // edge the bar has left. See alertCap for why it is two-tone.
+                  const _pastDue = !isPto && !!bar.dueDate && bar.task?.status !== "Finished" && bar.end > bar.dueDate;
+                  const _alert = isPto ? null
+                    : _barUnclosed ? "unclosed"
+                    : (_overrunPerPerson > 0 ? "overrun"
+                    : _pastDue ? "pastdue" : null);
                   // WHAT IS UNDER THE TEXT, from the same numbers the fill was composed from.
                   //
                   // _leftIsGrey is gone. It was a THIRD derivation of the bar's geometry -- it read
@@ -18541,6 +18571,32 @@ ${jobsCtx || "No jobs found."}`;
                   const _bLaneH = _bLane && _bLane.lanesTotal > 1 ? (rH - 8) / _bLane.lanesTotal : rH - 8;
                   const _bLaneTop = _bLane && _bLane.lanesTotal > 1 ? 4 + _bLane.lane * _bLaneH : 4;
                   const _bLaneHeight = _bLane && _bLane.lanesTotal > 1 ? _bLaneH - 2 : _bLaneH;
+                  // MARKS AND LABEL BELONG TO ONE SEGMENT (#99, #100). They were split: the head carried
+                  // the select check, the dep glyph, the lock and the badge while the TITLE was free to move
+                  // to whichever segment was widest. So a bar whose widest piece was a continuation said
+                  // DONE on Monday and its own name on Thursday, printed its hours on both, and left every
+                  // tail mute about being locked or finished. Half this schedule is multi-day -- 101 of the
+                  // 195 bars drawn this month -- so that was not an edge case.
+                  //
+                  // One function, rendered by whichever segment holds the label. The inks are passed in
+                  // because a tail has its own grounds: a continuation can be wholly past the cursor while
+                  // the head straddles it.
+                  const _furniture = (markInk, titleColor, titleHalo, hoursInk) => [
+                    isBarSelected && <span key="sel" style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><polyline points="3,6.5 5.5,9 10,4" stroke={markInk} strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>,
+                    inDepGroup && !isBarSelected && (() => { const _panelId2 = bar.task?.level === 2 ? bar.task.pid : bar.task?.level === 1 ? bar.task.id : null; const _dm = _panelId2 ? tasks.flatMap(j => j.subs||[]).find(p => p.id === _panelId2)?.depsMode : undefined; const _locked = _dm === "locked"; return <Tip key="dep" label={_locked ? "Locked — moves as a block with its group" : "Linked — moves with its dependency group"}><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={markInk} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">{_locked ? <><path d="M9 12h6"/><path d="M8.5 7.5a4.5 4.5 0 0 0 0 9h1"/><path d="M15.5 7.5a4.5 4.5 0 0 1 0 9h-1"/></> : <><path d="M10.5 13.5a3.5 3.5 0 0 0 5 0l2.5-2.5a3.5 3.5 0 0 0-5-5l-1 1"/><path d="M13.5 10.5a3.5 3.5 0 0 0-5 0L6 13a3.5 3.5 0 0 0 5 5l1-1"/></>}</svg></span></Tip>; })(),
+                    barLocked && <span key="lock" style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={markInk} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>,
+                    !isPto && _badge && <span key="badge" style={{ flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", color: markInk }}>{_badge}</span>,
+                    <span key="title" style={{ fontSize: 11, color: titleColor, textShadow: titleHalo, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>{isPto ? (<><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={titleColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginRight: 5, verticalAlign: "-1.5px" }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>{bar.ptoType}{bar.title && bar.title !== bar.ptoType ? ` · ${bar.title}` : ""}</>) : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>,
+                    !isPto && bar.task?.hpd > 0 && <span key="hrs" style={{ flexShrink: 0, marginLeft: 6, marginRight: 2, fontSize: 10, fontWeight: 700, color: hoursInk, fontFamily: T.mono, position: "relative", zIndex: 5 }} title={_hoursTitle}>{Math.round(_barHpd * 10) / 10}h</span>,
+                  ];
+                  const _estPerPerson = Math.round((bar.task?.hpd || 0) / Math.max(1, (bar.task?.team || []).length) * 10) / 10;
+                  const _loggedH = _barWS && _barWS.workedHoursShown > 0 ? _barWS.workedHoursShown : 0;
+                  const _hoursTitle = [
+                    Math.round(_barHpd * 10) / 10 + "h on this bar",
+                    _estPerPerson + "h estimated",
+                    _loggedH > 0 ? _loggedH.toFixed(1) + "h logged" : null,
+                    _loggedH > 0 ? Math.max(0, Math.round((_estPerPerson - _loggedH) * 10) / 10) + "h left" : null,
+                  ].filter(Boolean).join("  ·  ");
                   return [<div key={barKey}
                     data-worked-pct={_barWorkedPct} data-divider-pct={_headCursorPct} data-op-divider-pct={_barCursorPct} data-raw-worked-pct={_barRawWorkedPct} data-worked-spans={JSON.stringify(_barSpans)} data-seg-worked-spans={JSON.stringify(_headSpans)} data-seg-divider-pct={_headCursorPct} data-bar-dim={isPto ? undefined : "1"} data-pid={bar.task?.pid ?? undefined} data-unclosed={_barUnclosed ? "1" : undefined} data-worked-h={_barWorkedH} data-committed-h={_barCommittedH} data-live-h={_barLiveH} data-state={_barState}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
@@ -18549,19 +18605,41 @@ ${jobsCtx || "No jobs found."}`;
                     onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; if (!barSelectMode) hoverDim(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; hoverDim(null); }}>
                     {!_isNarrowBar && can("moveJobs") && !barLocked && !_dragBlocked && !(ws && ws.workedHpd > 0) && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: _leftMarkInk, opacity: 0, transition: "opacity 0.15s" }} /></div>}
                     {!_isNarrowBar && barSegs.length === 1 && _endsInView && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: _rightMarkInk, opacity: 0, transition: "opacity 0.15s" }} /></div>}
-                    {isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><polyline points="3,6.5 5.5,9 10,4" stroke={_leftMarkInk} strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
-                    {inDepGroup && !isBarSelected && (() => { const _panelId2 = bar.task?.level === 2 ? bar.task.pid : bar.task?.level === 1 ? bar.task.id : null; const _dm = _panelId2 ? tasks.flatMap(j => j.subs||[]).find(p => p.id === _panelId2)?.depsMode : undefined; const _locked = _dm === "locked"; return <Tip label={_locked ? "Locked — moves as a block with its group" : "Linked — moves with its dependency group"}><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0 }}>{_locked ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>}</span></Tip>; })()}
-                    {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
-                    {/* Every badge and icon here is flush left, so they all take _leftMarkInk: the
-                        ground at the bar's left end, which is hatch or idle once the cursor has
-                        entered it and the op colour before that. No per-badge special case is left.
-                        The DONE badge used to reach the spent fill by passing a literal "held" to a
-                        state-keyed helper, which worked only because DONE was the one state whose
-                        ground was known in advance; now every state's ground is. */}
-                    {!isPto && !_hideBarLabel && (_barState === "held" || _barState === "paused") && <span style={{ flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", color: _leftMarkInk }}>{LIVE_BADGE_LABEL[_barState]}</span>}
-                    {!isPto && !_hideBarLabel && bar.task?.status === "Finished" && <span style={{ flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", color: _leftMarkInk }}>DONE</span>}
-                    <span style={{ display: (_hideBarLabel || _labelSeg !== 0) ? "none" : undefined, fontSize: 11, color: _titleColor, textShadow: _titleHalo, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>{isPto ? (<><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={_titleColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginRight: 5, verticalAlign: "-1.5px" }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>{bar.ptoType}{bar.title && bar.title !== bar.ptoType ? ` · ${bar.title}` : ""}</>) : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
-                    {!isPto && !_hideBarLabel && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: _rightMarkInk, fontFamily: T.mono, position: "relative", zIndex: 5 }} title={Math.round(_barHpd * 10) / 10 + "h left  ·  " + Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10 + "h estimated" + (_barWS && _barWS.workedHoursShown > 0 ? "  ·  " + _barWS.workedHoursShown.toFixed(1) + "h logged" : "")}>{Math.round(_barHpd * 10) / 10}h</span>}
+                    {/* The head shows the furniture only when it holds the label. PTO always does: a PTO bar
+                        has no continuation worth labelling and _hideBarLabel never hides it. */}
+                    {(isPto || (!_hideBarLabel && _labelSeg === 0)) && _furniture(_leftMarkInk, _titleColor, _titleHalo, _rightMarkInk)}
+                    {/* THE ALERT CHANNEL (#101, #103). One mark, three meanings, highest first: an unclosed
+                        clock, then overrun, then past the job's due date. Two tones because a flat danger red
+                        is invisible on this palette -- measured against the 17 job colours actually in use it
+                        failed 3:1 on every one of them, worst 1.01, since the palette is full of reds. The 1px
+                        separator is barInk over the fill (>= 4.61:1) and the red sits outboard of it where its
+                        job is to be recognised against the row (3.37-5.25:1). Weakest link in the chain: 3.37. */}
+                    {/* THE DAY'S UNPRODUCTIVE WINDOWS (#91), as hairlines rather than as a band or a step in
+                        the fill. Three reasons, in order of how binding they are: the fill is the progress
+                        channel and nothing else may write to it; a step in the fill cannot reach 3:1 against
+                        this palette at any usable magnitude (1.76:1 at a 0.30 step, measured); and the bar's
+                        LENGTH already accounts for lunch -- walkProductiveHours steps over it -- so what is
+                        missing is not duration but the mark of where the day pauses.
+                    
+                        Keyed to the GRID, not to the bar: a repeating gradient whose period is one day column
+                        and whose phase cancels the bar's own offset, so the ticks land on the same absolute
+                        positions as the day cells underneath and cannot drift from them.
+                    
+                        Not in month mode: a 9-hour day is 38-75px wide there, which puts lunch at 4-6px and
+                        three ticks inside a smudge. */}
+                    {!isPto && tMode !== "month" && cW >= 60 && _renderPx >= 24 && (() => {
+                      const _barLeftPx = (_xNum / 100) * nDays * cW;
+                      const _ink = lunchHairline(_barState === "done" ? doneBarFill(T, bc, _schedSurf) : bc);
+                      const _layers = (dayWindowCfg.deadWindows || []).map(w => {
+                        const _at = (((w.start - workStartH) / totalWorkH) * cW - _barLeftPx) % cW;
+                        const _x = ((_at % cW) + cW) % cW;
+                        return `repeating-linear-gradient(to right, transparent 0 ${_x}px, ${_ink} ${_x}px ${_x + 1}px, transparent ${_x + 1}px ${cW}px)`;
+                      });
+                      if (!_layers.length) return null;
+                      return <span aria-hidden="true" style={{ position: "absolute", inset: 0, background: _layers.join(", "), opacity: 0.5, pointerEvents: "none", zIndex: 2, borderRadius: "inherit" }} />;
+                    })()}
+                    {_alert && _renderPx >= 8 && (() => { const _cap = alertCap(T, _barState === "done" ? doneBarFill(T, bc, _schedSurf) : bc, _alert); return (
+                      <Tip label={_cap.title}><span style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 3, borderLeft: `1px solid ${_cap.sep}`, background: _cap.hue, zIndex: 6, pointerEvents: "auto" }} /></Tip>); })()}
                   </div>,
                   /* "New job" dot — a sibling of the bar (not a child, which the bar's overflow:hidden
                      would clip). Tucked just inside the bar's top-right corner so it stays fully
@@ -18621,17 +18699,16 @@ ${jobsCtx || "No jobs found."}`;
                     const _tailGroundArgs = { state: isPto2 ? "pto" : _barState, spans: _segSpans, cursorPct: _segCursorPct, renderPx: _tailPx, rowColor: _schedSurf };
                     const _tailTitle = barTextStyle(barGrounds(T, bc2, { ..._tailGroundArgs, side: "label" }));
                     const _tailHoursInk = barInk(barGrounds(T, bc2, { ..._tailGroundArgs, side: "right" }));
+                    const _tailMarkInk = barInk(barGrounds(T, bc2, { ..._tailGroundArgs, side: "left" }));
                     return <div key={bar.id + "_t" + si + "_" + seg.start} data-bar-dim={isPto2 ? undefined : "1"} data-pid={bar.task?.pid ?? undefined}
                       onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto2) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                       onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
                       style={{ position: "absolute", top: 4, left: tailX, width: tailW, minWidth: isPto2 ? 0 : 2, height: rH - 8, boxSizing: "border-box", borderRadius: isPto2 ? T.radiusXs : Math.min(T.radiusXs, _tailPx / 2), background: activeBarFill(T, bc2, _segSpans, _segCursorPct, isPto2 ? "pto" : _barState, _tailPx, _schedSurf), border: isBarSelected ? `2px solid ${_edgeInk}` : isPto2 ? `1.5px solid ${bc2}` : _tailPx < 8 ? "none" : `${_tailPx < 16 ? 1 : 2}px dashed ${(_barState === "done" ? mixHex(bc2, _schedSurf, 0.3) : bc2)}cc`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : _dragBlocked ? "not-allowed" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", display: "flex", alignItems: "center", opacity: barOpacity, transition: "opacity 0.2s" }}
                       onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; if (!barSelectMode) hoverDim(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; hoverDim(null); }}>
-                      {_labelSeg === si + 1 && _tailPx >= 44 && !isPto2 && <>
-                        <span style={{ fontSize: 11, color: _tailTitle.color, textShadow: _tailTitle.textShadow, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>
-                          {bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}
-                        </span>
-                        {bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginRight: 12, fontSize: 10, fontWeight: 700, color: _tailHoursInk, fontFamily: T.mono, position: "relative", zIndex: 5 }}>{Math.round(_barHpd * 10) / 10}h</span>}
-                      </>}
+                      {/* The tail renders the SAME furniture as the head, with its own inks. Before this a
+                          continuation could hold the title while the lock, the dep link and the badge stayed
+                          behind on a head that might be off-screen (#100). */}
+                      {_labelSeg === si + 1 && _tailPx >= 44 && !isPto2 && _furniture(_tailMarkInk, _tailTitle.color, _tailTitle.textShadow, _tailHoursInk)}
                       {isLastSeg && _tailPx >= 12 && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: Math.max(3, Math.min(10, _tailPx / 3)), cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: _tailHoursInk, opacity: 0, transition: "opacity 0.15s" }} /></div>}
                     </div>;
                   })];

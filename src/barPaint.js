@@ -488,6 +488,44 @@ export function twoToneRim(ink) {
   const o = ink === PAPER ? INK : PAPER;
   return `1px 0 0 ${o}, -1px 0 0 ${o}, 0 1px 0 ${o}, 0 -1px 0 ${o}`;
 }
+// THE ALERT CHANNEL. One mark at the bar's right edge for the three ways a bar can have run
+// past where it should be, in precedence order: an unclosed clock, then overrun, then past
+// the job's due date. One channel because they are one question -- "this has gone beyond its
+// end" -- and because the bar has no other free edge.
+//
+// TWO TONES, and that is not decoration. A flat danger-red cap is invisible on this palette:
+// measured against Matrix's 17 live job colours it fails 3:1 on ALL of them, worst 1.01:1,
+// because the palette is full of reds and magentas and red-on-red has no contrast. Stepping
+// the hue (legibleOn) rescues most but bottoms out at 2.88 on a DONE bar. So the cap carries
+// a 1px separator in barInk(fill) -- the same ink the labels use, so it is guaranteed against
+// whatever the fill is -- and the danger hue sits outboard of it, where its job is to be
+// recognisable against the ROW, which it clears at 3.37-5.25:1.
+//
+// Weakest link in the whole chain, across 17 colours x 4 themes x 3 fills: 3.37:1.
+export const ALERT_ORDER = ["unclosed", "overrun", "pastdue"];
+export const ALERT_LABEL = {
+  unclosed: "Someone is still clocked in past the end of their day",
+  overrun: "Worked past its estimate",
+  pastdue: "Running past the job's due date",
+};
+export function alertCap(T, fill, kind) {
+  if (!kind) return null;
+  const hue = T?.danger || "#f43f5e";
+  return { sep: barInk([fill]), hue, title: ALERT_LABEL[kind] || "" };
+}
+
+// The lunch/break window, as a HAIRLINE rather than a step in the fill.
+//
+// Two reasons, and the second is the binding one. Measured: a fill step cannot reach 3:1
+// against the bar at any usable magnitude -- 1.76:1 at a 0.30 step, which is already a heavy
+// band -- because stepping a mid-tone colour toward its own ink runs out of room. And the
+// fill is the progress channel and nothing else may write to it, so a lunch gap painted INTO
+// the fill would be a second meaning in the one place that already has one.
+//
+// A 1px line in barInk is the same ink the labels sit in, so it inherits their guarantee:
+// 4.61:1 at worst against the bar colour, 6.56:1 against idle.
+export function lunchHairline(fill) { return barInk([fill]); }
+
 // The whole decision for one run of text, in one call. `grounds` from barGrounds().
 export function barTextStyle(grounds, { nonText = false } = {}) {
   const ink = barInk(grounds);
