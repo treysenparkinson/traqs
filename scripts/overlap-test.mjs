@@ -160,14 +160,19 @@ const run = (name, anchor) => { const src = slice(anchor); if (!src) { ok(`${nam
     let r; try { r = enforceNoOverlap(tasks, ["A", "B"]); } catch (e) { r = { error: e.message }; }
     ok("enforceNoOverlap: two touched ops land on different days (#53)", r.tasks ? r.tasks[0].subs[0].subs.map(o => o.start) : r, [MON, "2026-10-06", "2026-10-07"]);
   }
-  const previewPush = run("previewPush", "const previewPush = (taskList, movedOpId");
-  if (previewPush) {
+  // Root cause 7 D: nothing pushes any more — previewPush and the push dialog are gone, and a
+  // landing onto someone's work is REFUSED by the shared check (dragMove.refuseDragMove). The
+  // same two cases it used to cover: adjacent is not an overlap, and "7" and 7 are one person.
+  ok("previewPush is gone (nothing pushes)", SRC.includes("const previewPush = ("), false);
+  {
+    const D = await import(new URL("../src/dragMove.js", import.meta.url).href);
+    const { overlapContext } = await import(new URL("../src/overlapRules.js", import.meta.url).href);
     const tasks = job(op("Y", { start: MON, end: MON, startHour: 8, hpd: 2, team: ["7"] }), op("X", { start: "2026-10-06", end: "2026-10-06", startHour: 10, hpd: 2 }));
-    let r1, r2;
-    try { r1 = previewPush(tasks, "X", 7, MON, MON, null, { ...tasks[0].subs[0].subs[1], start: MON, end: MON, startHour: 10 }); } catch (e) { r1 = { error: e.message }; }
-    try { r2 = previewPush(tasks, "X", 7, MON, MON, null, { ...tasks[0].subs[0].subs[1], start: MON, end: MON, startHour: 9 }); } catch (e) { r2 = { error: e.message }; }
-    ok("previewPush: resizing X next to Y (adjacent) pushes nothing", r1.error ? r1 : r1.pushes.length, 0);
-    ok("previewPush: onto Y pushes Y, matching \"7\" and 7", (r2.pushes || []).map(p => p.opId), ["Y"]);
+    const X = tasks[0].subs[0].subs[1];
+    const ctx = { isLocked: () => false, isLive: () => false, isOverdue: () => false, timeOff: () => [], nowDay: "2026-09-30", nowHour: 8, business: true, tasks, overlapCtx: overlapContext({ workStart: "08:00", workEnd: "17:00", breaks: [], lunch: { time: "12:00", durationMinutes: 60 } }, "2026-09-30"), people: [] };
+    const mover = (h) => [{ id: "X", node: X, shareH: 2, isRecord: false, reassigned: false, from: X, to: { start: MON, end: MON, startHour: h, endHour: h + 2, team: [7] } }];
+    ok("refuse: X next to Y (adjacent) is allowed", D.refuseDragMove(mover(10), ctx), null);
+    ok("refuse: X onto Y is refused, matching \"7\" and 7", D.refuseDragMove(mover(9), ctx)?.other?.unit?.id, "Y");
   }
   const checkOverlapsPure = run("checkOverlapsPure", "const checkOverlapsPure = (taskList, opsToCheck) => {");
   if (checkOverlapsPure) {

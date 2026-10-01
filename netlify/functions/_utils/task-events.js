@@ -87,8 +87,12 @@ export function diffTaskEvents(nextTasks, prevTasks) {
     const prev = prevUnits.get(id);
     const curTeam = asStrArr(cur.unit.team);
     const prevTeam = prev ? asStrArr(prev.unit.team) : [];
+    // A split's new op (root cause 7 D, #48) carries `splitFrom`: its people were already on
+    // the original, so they are not newly assigned. Only someone the split ADDED is.
+    const origin = !prev && cur.unit.splitFrom != null ? prevUnits.get(String(cur.unit.splitFrom)) : null;
+    const alreadyOn = origin && !origin.deleted ? asStrArr(origin.unit.team) : [];
 
-    for (const pid of curTeam) if (!prevTeam.includes(pid)) addJob(teamAdded, pid, cur);
+    for (const pid of curTeam) if (!prevTeam.includes(pid) && !alreadyOn.includes(pid)) addJob(teamAdded, pid, cur);
     if (prev && !prev.deleted) {
       for (const pid of prevTeam) if (!curTeam.includes(pid)) addJob(teamRemoved, pid, cur);
     }

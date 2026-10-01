@@ -8,7 +8,7 @@
 // Pure: no React, no clock reads. The caller passes the calendar, the day windows, "now" and
 // the predicates that need app state (locked / live / overdue / time off).
 
-import { walkProductiveHours, personShareHours, productiveHoursBetween } from "./statsMath.js";
+import { walkProductiveHours, personShareHours, productiveHoursBetween, splitWorkedOp } from "./statsMath.js";
 import { overlapsWith, occupyingUnits } from "./overlapRules.js";
 import { unitDepartment, personDeptMatch } from "./scheduleRules.js";
 import { shopMs } from "./shopTime.js";
@@ -209,6 +209,7 @@ export function applyDragMove(tasks, movers, { date, movedBy, reason }) {
 export function refusalMessage(r) {
   const name = r.title ? `"${r.title}"` : "An operation";
   switch (r.kind) {
+    case "splitPermission": return `${name} is partly worked, so moving it here splits it: the worked part stays and the rest becomes a new operation. Splitting needs the Edit jobs permission.`;
     case "record": return `${name} here is a record of work already done, so it can't be moved or resized. Move the operation from its own row.`;
     case "department": return `${r.personName || "That person"} isn't in ${r.department}, so ${name} can't be assigned to them. Drop it on someone in ${r.department}.`;
     case "live": return `${name} can't be moved: someone is clocked into it.`;
@@ -267,4 +268,94 @@ export function resizeSession({ side, precision = "halfHour", node, teamSize = 1
     return { kind: "committed", plan: last.plan };
   };
   return { move, release };
+}
+
+/**
+ * THE split (root cause 7 D: #44 #45 #46 #47 #48). One op becomes two: the part that STAYS
+ * keeps the original id (its sessions, attachments, chat and history point at it) and the
+ * part that GOES is a new op carrying `splitFrom`, so the server knows its people were
+ * already on the work and does not announce a new assignment.
+ *
+ * Used by every split there is: the week/month drag, the Gantt drag (both: worked part stays,
+ * locked) and the manual "Split Job" modal (the chosen hours stay, unlocked).
+ *
+ *   node       the op being split (as stored)
+ *   keep       { hpd, start, startHour, end, endHour, locked } — the part that stays, its hpd
+ *              the team's total and its geometry walked from one person's share
+ *   go         a mover from planDragMove (its landing, team and share) + { hpd, status? }
+ *   newId      the new op's id
+ *   reasons    { keep, go } — moveLog wording for each part
+ */
+export function applySplit(tasks, { node, keep, go, newId, date, movedBy, reasons = {} }) {
+  const id = sid(node.id);
+  const keepLog = {
+    fromStart: node.start, fromEnd: node.end, toStart: keep.start, toEnd: keep.end,
+    fromStartHour: node.startHour ?? null, toStartHour: keep.startHour, fromEndHour: node.endHour ?? null, toEndHour: keep.endHour,
+    fromHpd: node.hpd ?? null, toHpd: keep.hpd, date, movedBy, reason: reasons.keep || "Split: this part stays",
+  };
+  const goLog = { ...moveLogEntry(go, { date, movedBy, reason: reasons.go || `Split from "${node.title || id}"` }), fromHpd: node.hpd ?? null, toHpd: go.hpd };
+  return (tasks || []).map(job => ({ ...job, subs: (job.subs || []).map(panel => {
+    const idx = (panel.subs || []).findIndex(o => same(o.id, id));
+    if (idx < 0) return panel;
+    const orig = panel.subs[idx];
+    const { actualHours: _a, pendingFinish: _p, pendingSession: _s, finishRequest: _f, ...base } = orig;
+    const kept = { ...orig, hpd: keep.hpd, start: keep.start, end: keep.end, startHour: keep.startHour, endHour: keep.endHour,
+      ...(keep.locked ? { locked: true } : {}), moveLog: [...(orig.moveLog || []), keepLog] };
+    const gone = { ...base, id: newId, splitFrom: orig.id, hpd: go.hpd, loggedHours: 0, locked: false, deps: [],
+      ...(go.title ? { title: go.title } : {}),
+      status: go.status || (orig.status === "Finished" ? "Not Started" : (orig.status === "In Progress" ? "Not Started" : orig.status || "Not Started")),
+      start: go.to.start, end: go.to.end, startHour: go.to.startHour, endHour: go.to.endHour, team: go.to.team,
+      moveLog: [goLog] };
+    const subs = [...panel.subs];
+    subs.splice(idx, 1, kept, gone);
+    return { ...panel, subs };
+  }) }));
+}
+
+/**
+ * The worked split's two parts: the worked part stays where it was, locked, walked from one
+ * person's share of the worked hours (#46 — the team's total walked as one person's span was
+ * team-size times too long); the rest is `remainderHpd`, which the caller lands.
+ */
+export function workedSplitParts({ node, workedHours, cfg, cal, workStartH }) {
+  const size = Math.max(1, (node.team || []).length);
+  const parts = splitWorkedOp({ hpd: node.hpd || 0, workedMs: Math.max(0, workedHours) * 3600000, teamSize: size });
+  if (!parts.keep || !parts.remainder) return null;
+  const sh = node.startHour ?? workStartH;
+  const k = landUnit({ day: node.start, hour: sh, shareH: parts.perPersonKeepH, cfg, cal });
+  return {
+    keep: { hpd: parts.keep.hpd, start: node.start, startHour: sh, end: k.end, endHour: k.endHour, locked: true },
+    remainderHpd: parts.remainder.hpd, remainderShare: parts.perPersonRemainderH,
+  };
+}
+
+/**
+ * Unfinished work the schedule does not draw because its window closed (root cause 7 D, #87):
+ * dated, assigned, not finished, end before today, nobody clocked into it — at the level that
+ * carries the assignment (an op; a panel with no ops; a job with no panels). The Overdue tray
+ * and the per-row badge list exactly these, so nothing the schedule hides is unfindable.
+ *
+ * Returns [{ node, job, panel, level, personIds, workedH, remainingH, endedDaysAgo }].
+ */
+export function overdueUnits(tasks, { today, isLive = () => false, workedOf = () => 0 }) {
+  const out = [];
+  const consider = (node, level, job, panel) => {
+    if (!node || node.deletedAt || !node.start || !node.end || node.status === "Finished") return;
+    const team = (node.team || []).filter(x => x != null);
+    if (!team.length || !(node.end < today) || isLive(node)) return;
+    const workedH = Math.max(0, workedOf(node) || 0, node.loggedHours || 0);
+    out.push({ node, job, panel, level, personIds: team.map(sid), workedH, remainingH: Math.max(0, (node.hpd || 0) - workedH),
+      endedDaysAgo: Math.round((Date.parse(today + "T12:00:00Z") - Date.parse(node.end + "T12:00:00Z")) / 864e5) });
+  };
+  for (const job of tasks || []) {
+    if (!job || job.deletedAt) continue;
+    const panels = (job.subs || []).filter(p => p && !p.deletedAt);
+    if (!panels.length) consider(job, 0, job, null);
+    for (const panel of panels) {
+      const ops = (panel.subs || []).filter(o => o && !o.deletedAt);
+      if (!ops.length) consider(panel, 1, job, panel);
+      for (const op of ops) consider(op, 2, job, panel);
+    }
+  }
+  return out.sort((a, b) => (a.node.end < b.node.end ? 1 : a.node.end > b.node.end ? -1 : 0) || String(a.node.id).localeCompare(String(b.node.id)));
 }

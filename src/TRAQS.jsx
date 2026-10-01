@@ -5,7 +5,7 @@ import { personDeptMatch, unitDepartment, workCalendar } from "./scheduleRules.j
 import { DEFAULT_ORG_SETTINGS, withOrgDefaults } from "./orgDefaults.js";
 import { setShopZone, shopDay, shopHour, shopMs } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
-import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessage, shiftStart, resizeShare, resizeSession } from "./dragMove.js";
+import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, overdueUnits, landUnit } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, shiftWorkingDays, nextFreeStart, schedulerAvailability } from "./overlapRules.js";
 import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
@@ -5263,6 +5263,7 @@ Extraction rules:
 
   // Global undo/redo history
   const undoStack = useRef([]);
+  const teamLWRef = useRef(0);   // the schedule grid's label-column width (handleTeamPan)
   const redoStack = useRef([]);
   const skipHistory = useRef(false);
   const setTasks = useCallback((updater) => {
@@ -6087,8 +6088,8 @@ Extraction rules:
       // The cascade that used to run here is gone. A bar now SHRINKS from its left edge as
       // work is done, so a live session's footprint only ever contracts — it can never grow
       // into an op it did not already overlap, and there is nothing to push. Reality does not
-      // move the schedule; only a deliberate drag does, and that path (previewPush +
-      // applyPushes) is untouched.
+      // move the schedule; only a deliberate drag does — and a drag that would land on
+      // someone's work is refused, never pushed (root cause 7).
       //
       // The midnight drainCheckpoint advance is gone with it, and that is not an oversight.
       // The edge is measured as plannedStart + worked-since-drainCheckpoint, so the anchor and
@@ -8976,7 +8977,9 @@ Extraction rules:
   const [ganttDragInfo, setGanttDragInfo] = useState(null); // { itemId, snapStart, snapEnd, hasOverlap }
   // A week/month resize in progress: the landing the bar is PREVIEWED at. Nothing is written
   // until the release (root cause 7 C: #31 #32) — the bar reads this instead.
-  const [resizePreview, setResizePreview] = useState(null);   // { barId, start, startHour, end, endHour, share, refused }
+  const [resizePreview, setResizePreview] = useState(null);
+  // The Overdue tray (root cause 7 D, #87): null | "all" | a person id.
+  const [overdueTray, setOverdueTray] = useState(null);   // { barId, start, startHour, end, endHour, share, refused }
   const [teamDragInfo, setTeamDragInfo] = useState(null);   // { barId, snapStart, snapEnd, targetPersonId, hasOverlap }
   const [droppedBarId, setDroppedBarId] = useState(null);
   const teamDragLiveRef = useRef(null);
@@ -9497,21 +9500,7 @@ Extraction rules:
     return true;
   };
 
-  // Preview what ops would be pushed if we move an op to new dates (pure, does NOT apply changes)
-  const previewPush = (taskList, movedOpId, personId, newStart, newEnd, excludeOpIds = null, movedUnit = null) => {
-    if (billingTier !== "business") return { pushes: [], blocked: false, lockedOps: [] };
-    // The moved unit at its new position — the caller's, when it has new hours too.
-    let candidate = movedUnit;
-    if (!candidate) {
-      for (const job of taskList) for (const panel of (job.subs || [])) for (const op of (panel.subs || [])) {
-        if (sameId(op.id, movedOpId)) candidate = { ...op, start: newStart, end: newEnd };
-      }
-    }
-    if (!candidate) return { pushes: [], blocked: false, lockedOps: [] };
-    // Every assignee's row, ids compared as strings, on the time each person really works —
-    // not whole days for the first team member only.
-    return planPushes(taskList, candidate, overlapCtx, { excludeIds: excludeOpIds });
-  };
+
 
   // Apply all bars in a group move simultaneously — handles level 1 (panels) and level 2 (ops) in one pass.
   // moves: [{ id, newStart, newEnd, logEntry }]
@@ -9566,60 +9555,6 @@ Extraction rules:
   // newStartHour/newEndHour: optional, hour-precision companion to newStart/newEnd (Phase 3
   // clock-in cascade). Admin-drag pushes never set these, so that path writes start/end only,
   // exactly as before.
-  // §3c. Dragging a PARTIALLY WORKED op does not move it — it splits it. The work already
-  // done is history: it stays on the row and at the hours it was worked, locked. What the
-  // admin is actually dragging is the unworked remainder, and that becomes its own record,
-  // free to land on any day or person.
-  //
-  // Applied AFTER the ordinary move has been built, so the moved copy already carries the
-  // target's dates, hours and team: the remainder is that copy with a new id, and the original
-  // is put back where it was. Reusing the move instead of recomputing the target is what keeps
-  // this from drifting away from the drag preview the admin just watched.
-  //
-  // The ORIGINAL id stays with the history, deliberately. Sessions, attachments, chat
-  // references and the moveLog all point at it, and moving the id to the remainder would
-  // re-attribute a day of finished work to a block nobody has started.
-  // `out.newId` is set when a remainder record is created. A reassign has to follow the
-  // REMAINDER: re-teaming by the original id would hand a finished afternoon to whoever the
-  // admin dropped the unworked half on, which is the opposite of what history means.
-  const applyWorkedSplit = (afterMove, origOp, workedMs, out = {}) => {
-    if (!origOp || !origOp.id) return afterMove;
-    const teamSize = Math.max(1, (origOp.team || []).length);
-    const { keep, remainder } = splitWorkedOp({ hpd: origOp.hpd || 0, workedMs, teamSize });
-    // Nothing worked: an ordinary drag, and calling it a split would mint a record of work
-    // nobody did. Nothing remaining: §6b — the op is fully worked, so it simply does not move,
-    // and no zero-width remainder is written.
-    if (!keep) return afterMove;
-    const newId = `op_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-    return afterMove.map(job => ({
-      ...job,
-      subs: (job.subs || []).map(panel => {
-        const idx = (panel.subs || []).findIndex(o => String(o.id) === String(origOp.id));
-        if (idx < 0) return panel;
-        const moved = panel.subs[idx];
-        const ops = [...panel.subs];
-        ops[idx] = {
-          ...moved,
-          start: origOp.start, end: origOp.end,
-          startHour: origOp.startHour ?? null, endHour: origOp.endHour ?? null,
-          team: origOp.team, hpd: keep.hpd, locked: true,
-        };
-        if (remainder) {
-          out.newId = newId;
-          ops.splice(idx + 1, 0, {
-            ...moved,
-            id: newId, hpd: remainder.hpd, locked: false,
-            // The remainder has no history of its own. loggedHours and any pending finish
-            // belong to the work that was done, which stayed behind with the original id —
-            // carrying them over would credit the new block with hours nobody worked on it.
-            loggedHours: 0, pendingFinish: null,
-            status: moved.status === "Finished" ? "Not Started" : moved.status,
-          });
-        }
-        return { ...panel, subs: ops };
-      }),
-    }));
-  };
   // NO OVERLAP, enforced after a write rather than trusted from it.
   //
   // Every path that places an op runs through here, and each of them computes its target
@@ -9638,34 +9573,50 @@ Extraction rules:
     // so two touched units can't both be pushed onto the same free day (#53).
     return clearOverlaps(taskList, touchedIds, overlapCtx);
   };
-  // The split writes a brand new op record, so it gets the same check the pushes do: a
-  // remainder dropped onto occupied ground is an overlap however carefully it was computed.
-  const applyWorkedSplitGuarded = (afterMove, origOp, workedMs, out = {}) => {
-    const next = applyWorkedSplit(afterMove, origOp, workedMs, out);
-    const ids = [origOp && String(origOp.id), out.newId].filter(Boolean);
-    const { tasks, moved, refused } = enforceNoOverlap(next, ids);
-    if (moved.length) console.warn("no-overlap: split remainder bumped", moved);
-    if (refused.length) console.warn("no-overlap: split remainder could not be placed", refused);
-    return tasks;
+  // The shared landing checks (dragMove.refuseDragMove) for placements that are not a bar
+  // gesture: the Gantt split, the Split Job modal, Reschedule and the Overdue tray. Same rules
+  // as every drag — live, locked, record, department, time off, and (Business) past + overlap.
+  const refuseLanding = (plan) => refuseDragMove(plan, {
+    isLocked: n => !!n?.locked,
+    isLive: n => !!n && blockedByActiveClock(jobIdOfNode(n.id), n.id),
+    isOverdue: () => false,
+    timeOff: pid => (people.find(x => sameId(x.id, pid))?.timeOff || []),
+    nowDay: shopDay(), nowHour: shopHour(), business: billingTier === "business",
+    tasks, overlapCtx, people,
+  });
+  const showLandingRefusal = (r, title = "Can't move here") => setConfirmMove({ ackOnly: true, confirmLabel: "OK",
+    title: r.kind === "past" ? "Can't schedule in the past" : title, message: refusalMessage(r),
+    onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
+  // An Overdue-tray item dropped on a day: through the normal landing and checks (#87). It
+  // lands at the start of the working day, or at the next half hour when dropped on today.
+  const handleOverdueDrop = (nodeId, fromPid, toPid, day) => {
+    if (!can("moveJobs")) return denied(PERM_VERB.moveJobs);
+    if (fromPid != null && !sameId(fromPid, toPid) && !can("reassign")) return denied(PERM_VERB.reassign);
+    const item = overdueUnits(tasks, { today: TD, isLive: n => isLiveOpId(n.id), workedOf: n => producedFor(n) }).find(u => sameId(u.node.id, nodeId));
+    if (!item) return;
+    const node = item.node;
+    const size = Math.max(1, (node.team || []).length);
+    // The length the bar will draw at: the remaining hours when some were worked, else the estimate.
+    const shareH = item.workedH > 0 ? Math.max(0.25, item.remainingH / size) : personShareHours(node.hpd, size, productiveHoursPerDay);
+    const hour = day === shopDay() ? Math.min(workEndH - 0.5, Math.max(workStartH, Math.ceil(shopHour() * 2) / 2)) : workStartH;
+    const plan = planDragMove({ grabbed: { id: node.id, node, fromDay: node.start, fromHour: node.startHour ?? workStartH, shareH },
+      drop: { day, hour }, origPerson: fromPid, dropPerson: toPid, cfg: dayWindowCfg, cal: calOf(orgSettings.workDays, orgSettings.holidays), workStartH, workEndH });
+    const refusal = refuseLanding(plan);
+    if (refusal) { showLandingRefusal(refusal); return; }
+    const movedByName = loggedInUser ? loggedInUser.name : "Admin";
+    commitLanding((list) => recalcBounds(applyDragMove(list, plan, { date: TD, movedBy: movedByName, reason: "Rescheduled from Overdue" }), movedByName), [String(node.id)], node.title);
   };
-  const applyPushes = (taskList, pushes, movedBy, sessionId) => {
-    let result = JSON.parse(JSON.stringify(taskList));
-    for (const p of pushes) {
-      result = result.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, subs: (panel.subs || []).map(op => {
-        if (op.id === p.opId) {
-          const logEntry = { fromStart: op.start, fromEnd: op.end, toStart: p.newStart, toEnd: p.newEnd, date: TD, movedBy, reason: p.reason || "Pushed by schedule conflict", ...(sessionId ? { sessionId } : {}) };
-          return { ...op, start: p.newStart, end: p.newEnd, ...("newStartHour" in p ? { startHour: p.newStartHour } : {}), ...("newEndHour" in p ? { endHour: p.newEndHour } : {}), moveLog: [...(op.moveLog || []), logEntry] };
-        }
-        return op;
-      }) })) }));
+  // Commit a built change once, behind the no-overlap backstop (refused, never rearranged).
+  const commitLanding = (build, ids, title) => {
+    const { moved: _bumped, refused: _stuck } = enforceNoOverlap(build(tasks), ids);
+    if (_bumped.length || _stuck.length) {
+      console.warn("[schedule] refused by the no-overlap guard", { bumped: _bumped, stuck: _stuck });
+      showLandingRefusal({ kind: "overlap", title: title || "", other: null });
+      return false;
     }
-    // The invariant is checked on the RESULT, not trusted from the computation. Whatever a
-    // push believed it was doing, two ops on a row may not end up sharing time.
-    const _ids = (pushes || []).map(x => x && x.opId).filter(Boolean);
-    const { tasks: _guarded, moved: _bumped, refused: _stuck } = enforceNoOverlap(recalcBounds(result, movedBy), _ids);
-    if (_bumped.length) console.warn("no-overlap: bumped", _bumped);
-    if (_stuck.length) console.warn("no-overlap: could not clear a slot for", _stuck);
-    return _guarded;
+    setTasks(prev => build(prev));
+    setTimeout(() => doSaveRef.current(), 0);
+    return true;
   };
 
   // ─── Phase 3: clock-in-driven schedule adaptation (teleport + drain + cascade) ───────────
@@ -9943,8 +9894,8 @@ Extraction rules:
   };
   // runClockCascade and computeCascadePushes lived here. Both are gone with the live-work
   // cascade: a bar that only ever shrinks cannot overlap anything new, so live work has
-  // nothing to push. Dragging still cascades — that path runs on previewPush + applyPushes
-  // and is untouched.
+  // nothing to push. Nothing pushes any more: a drag, resize or reschedule onto someone's
+  // work is refused (root cause 7, dragMove.refuseDragMove).
   // Phase 4: snapshot every unfinished op on the clocking-in worker's row (within ~2 weeks
   // forward) so a later deny can restore exactly what the cascade is about to touch. Overshoot
   // is fine — restoring an op the session never moved is a no-op.
@@ -10176,7 +10127,6 @@ Extraction rules:
   };
 
   // State for push confirmation modal
-  const [confirmPush, setConfirmPush] = useState(null); // { message, pushes, onConfirm, onCancel }
 
 
   // Toggle lock on an operation
@@ -12297,7 +12247,10 @@ ${jobsCtx || "No jobs found."}`;
 
   const handleTeamPan = useCallback((e) => {
     if (e.button !== 0) return;
-    const panLW = isMobile ? 120 : 260;
+    // The label column's real width, set where the grid computes it (#89). It was a fixed 260
+    // while the column is 250–510: clicks on a wide label panned, and the first 10px of a
+    // narrow one's timeline did not.
+    const panLW = teamLWRef.current || (isMobile ? 120 : 260);
     const rect = teamRef.current?.getBoundingClientRect();
     if (rect && e.clientX < rect.left + panLW) return;
     // Same as handleGanttPan: kill the native selection drag before it starts.
@@ -12483,64 +12436,21 @@ ${jobsCtx || "No jobs found."}`;
         // (productionhours.json), so relocating it does not corrupt that history.
         if (mode === "move" && item.level === 2 && newStart !== os && spansOffDay(newStart, newEnd, itemBDOpts)) {
           const _splitWS = deriveWorkedState(item, producedFor(item), liveOpHours(item));
-          if (_splitWS.isPartiallyWorked) {
-            // Jobs can never be dragged into the past, split included. Nothing was mutated
-            // live for a partial drag (onM returns early for it, above), so refusing here
-            // needs no revert.
-            if (newStart < TD) { setTimeout(() => setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't schedule in the past", message: "This move would place part of the job before today. Jobs can't be scheduled in the past.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) }), 0); return; }
-            const osH = item.startHour ?? workStartH;
-            const _calcEnd = (startDate, startHourArg, hpdAmt) => {
-              const _clkH = productiveHoursPerDay > 0 ? (hpdAmt / productiveHoursPerDay) * totalWorkH : 0;
-              const _firstAvail = workEndH - startHourArg;
-              if (_clkH <= _firstAvail) {
-                return { end: startDate, endHour: Math.round((startHourArg + _clkH) * 2) / 2 };
-              }
-              let _rem = _clkH - _firstAvail;
-              let _day = startDate;
-              while (_rem > totalWorkH) { _rem -= totalWorkH; _day = sAddBD(_day, 1); }
-              return { end: sAddBD(_day, 1), endHour: Math.round((workStartH + _rem) * 2) / 2 };
-            };
-            const workedEnds = _calcEnd(os, osH, _splitWS.workedHpd);
+          // THE split (dragMove.applySplit), the same one the schedule drag and the Split Job
+          // modal use: worked part stays (locked, one person's share), the rest lands at the
+          // drop through the shared plan, checks and backstop, each part logged (#45 #46 #47).
+          const _cal = calOf(orgSettings.workDays, orgSettings.holidays);
+          const _parts = _splitWS.isPartiallyWorked ? workedSplitParts({ node: item, workedHours: _splitWS.workedHpd, cfg: dayWindowCfg, cal: _cal, workStartH }) : null;
+          if (_parts) {
+            if (!can("editJobs")) { showLandingRefusal({ kind: "splitPermission", title: item.title || "" }); return; }
             const remStartH = item.startHour ?? workStartH;
-            const remEnds = _calcEnd(newStart, remStartH, _splitWS.remainingHpd);
+            const _plan = planDragMove({ grabbed: { id: item.id, node: item, fromDay: os, fromHour: remStartH, shareH: _parts.remainderShare },
+              drop: { day: newStart, hour: remStartH }, origPerson: null, dropPerson: null, cfg: dayWindowCfg, cal: _cal, workStartH, workEndH });
+            const _refusal = refuseLanding(_plan);
+            if (_refusal) { showLandingRefusal(_refusal); return; }
             const newOpId = uid();
-            setTasks(prev => {
-              const next = prev.map(job => ({
-                ...job,
-                subs: (job.subs || []).map(panel => {
-                  const idx = (panel.subs || []).findIndex(o => o.id === item.id);
-                  if (idx < 0) return panel;
-                  const orig = panel.subs[idx];
-                  const updatedOrig = {
-                    ...orig,
-                    hpd: _splitWS.workedHpd,
-                    end: workedEnds.end,
-                    endHour: workedEnds.endHour,
-                    locked: true,
-                  };
-                  const { actualHours: _drop, ...origMinusActual } = orig;
-                  const newOp = {
-                    ...origMinusActual,
-                    id: newOpId,
-                    hpd: _splitWS.remainingHpd,
-                    loggedHours: 0,
-                    locked: false,
-                    status: "Not Started",
-                    deps: [],
-                    start: newStart,
-                    end: remEnds.end,
-                    startHour: remStartH,
-                    endHour: remEnds.endHour,
-                    moveLog: [],
-                  };
-                  const nextSubs = [...panel.subs];
-                  nextSubs.splice(idx, 1, updatedOrig, newOp);
-                  return { ...panel, subs: nextSubs };
-                }),
-              }));
-              return recalcBounds(next, movedByName + " (split-on-drag)");
-            });
-            setTimeout(() => doSaveRef.current(), 0);
+            commitLanding((list) => recalcBounds(applySplit(list, { node: item, keep: _parts.keep, go: { ..._plan[0], hpd: _parts.remainderHpd }, newId: newOpId, date: TD, movedBy: movedByName,
+              reasons: { keep: "Split in schedule: the worked part stays", go: `Moved in schedule: split from "${item.title || ""}"` } }), movedByName), [String(item.id), newOpId], item.title);
             return;
           }
         }
@@ -16353,6 +16263,21 @@ ${jobsCtx || "No jobs found."}`;
     const _longestPillCh = _pillJobs.reduce((m, s) => Math.max(m, s.length), 0);
     const _pillW = _longestPillCh ? 92 + Math.ceil(_longestPillCh * 6.2) : 76;
     const lW = isMobile ? 120 : Math.min(510, Math.max(250, 158 + _pillW)), rH = 42, grpH = 36;
+    // The pan reads the label column's real width (#89).
+    teamLWRef.current = lW;
+    // Unfinished work whose window closed: not drawn as bars, so it is listed in the Overdue
+    // tray and counted on every person's row (#87). Same predicate everywhere: dragMove.overdueUnits.
+    const _overdueAll = overdueUnits(tasks, { today: TD, isLive: n => isLiveOpId(n.id), workedOf: n => producedFor(n) });
+    const _overdueBy = new Map();
+    for (const u of _overdueAll) for (const pid of u.personIds) { if (!_overdueBy.has(pid)) _overdueBy.set(pid, []); _overdueBy.get(pid).push(u); }
+    // Always visible on the row — not on hover, not in a menu: someone thinks this work is scheduled.
+    const overdueBadge = (pid) => {
+      const n = (_overdueBy.get(String(pid)) || []).length;
+      if (!n) return null;
+      return <span role="button" title={`${n} unfinished ${n === 1 ? "operation" : "operations"} past their end date — not shown on the schedule. Click to see them.`}
+        onClick={e => { e.stopPropagation(); setOverdueTray(String(pid)); }}
+        style={{ display: "inline-block", marginRight: 6, padding: "0 6px", borderRadius: T.radiusPill, background: "#f59e0b22", border: "1px solid #f59e0b88", color: "#b45309", fontWeight: 700, fontSize: 10, lineHeight: "15px", cursor: "pointer", verticalAlign: "middle" }}>{n} overdue</span>;
+    };
     // teamWidth measures the OUTER wrapper, but in month mode the grid inside it is
     // stretched to `monthZoom * 100%` and scrolls horizontally. Every consumer of cW
     // converts between pixels and days — pan, wheel, bar drags, the pending-work drag
@@ -16544,11 +16469,16 @@ ${jobsCtx || "No jobs found."}`;
           });
         });
       }
+      // A TOTAL order (#88): returning 0 whenever either side was PTO made the comparator
+      // inconsistent, so task bars came out of date order with a PTO bar between them. PTO
+      // first, then tasks by the chosen key, then start, then id.
       bars.sort((a, b) => {
-        if (a.type !== "task" || b.type !== "task") return 0;
-        if (gSort === "project") return String(a.jobNumber || "").localeCompare(String(b.jobNumber || ""), undefined, { numeric: true });
-        if (gSort === "client") return (a.clientName || "").localeCompare(b.clientName || "") || (a.start || "").localeCompare(b.start || "");
-        return (a.start || "").localeCompare(b.start || "");
+        const ap = a.type === "task" ? 1 : 0, bp = b.type === "task" ? 1 : 0;
+        if (ap !== bp) return ap - bp;
+        if (!ap) return (a.start || "").localeCompare(b.start || "") || String(a.id).localeCompare(String(b.id));
+        const byKey = gSort === "project" ? String(a.jobNumber || "").localeCompare(String(b.jobNumber || ""), undefined, { numeric: true })
+          : gSort === "client" ? (a.clientName || "").localeCompare(b.clientName || "") : 0;
+        return byKey || (a.start || "").localeCompare(b.start || "") || String(a.id).localeCompare(String(b.id));
       });
       // ── §3a CROSS-ROW WORK ────────────────────────────────────────────
       // Someone can clock into an op they are not on the team of, and the work is real: it
@@ -16935,6 +16865,7 @@ ${jobsCtx || "No jobs found."}`;
             if (tMode === "day") { setTStart(TD); setTEnd(TD); }
             else { const span = diffD(tStart, tEnd); const half = Math.floor(span / 2); setTStart(addD(TD, -half)); setTEnd(addD(TD, span - half)); }
           }}>Today</Btn>
+          {_overdueAll.length > 0 && <Btn size="sm" variant="secondary" onClick={() => setOverdueTray("all")} style={{ marginLeft: 6, borderColor: "#f59e0b88", color: "#b45309" }}>Overdue · {_overdueAll.length}</Btn>}
         </div>}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: PAGE_ACTION_GAP }}>
           {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
@@ -17145,7 +17076,7 @@ ${jobsCtx || "No jobs found."}`;
                         <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name.split(" ")[0]}</div>
                         {/* nowrap + ellipsis: without it "Admin · 8h" broke onto a second
                             line inside a fixed-height row and collided with the pill. */}
-                        <div style={{fontSize:11,color:T.textDim,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.department} · {p.cap}h</div>
+                        <div style={{fontSize:11,color:T.textDim,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{overdueBadge(p.id)}{p.department} · {p.cap}h</div>
                       </div>
                       {personClockPill(p, { size: 11 })}
                     </div>
@@ -17221,6 +17152,36 @@ ${jobsCtx || "No jobs found."}`;
             </div>
           </div>
         );
+      })()}
+      {/* Overdue tray (#87): every unfinished unit past its end date, per person. Drag one onto a
+          day on the schedule to re-plan it — the normal landing and checks; nothing moves by itself. */}
+      {overdueTray && (() => {
+        const list = overdueTray === "all" ? _overdueAll : (_overdueBy.get(String(overdueTray)) || []);
+        const groups = new Map();
+        for (const u of list) for (const pid of u.personIds) { if (overdueTray !== "all" && pid !== String(overdueTray)) continue; if (!groups.has(pid)) groups.set(pid, []); groups.get(pid).push(u); }
+        const hours = Math.round(list.reduce((sum, u) => sum + u.remainingH, 0));
+        const mayDrag = can("moveJobs");
+        return <div style={{ position: "fixed", right: 16, top: 90, bottom: 16, width: 360, maxWidth: "calc(100vw - 32px)", zIndex: 500, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusLg, boxShadow: "0 12px 40px rgba(0,0,0,0.35)", display: "flex", flexDirection: "column" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 14px", borderBottom: `1px solid ${T.border}` }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: T.text }}>Overdue{overdueTray !== "all" ? ` · ${people.find(x => sameId(x.id, overdueTray))?.name || ""}` : ""}</div>
+              <div style={{ fontSize: 11, color: T.textDim }}>{list.length} unfinished past their end date · {hours}h left{mayDrag ? " · drag one onto a day" : ""}</div>
+            </div>
+            {overdueTray !== "all" && <Btn size="sm" variant="secondary" onClick={() => setOverdueTray("all")}>All</Btn>}
+            <button onClick={() => setOverdueTray(null)} title="Close" style={{ width: 24, height: 24, border: "none", background: "transparent", color: T.textDim, cursor: "pointer", fontSize: 16 }}>×</button>
+          </div>
+          <div style={{ overflowY: "auto", padding: "6px 0" }}>
+            {[...groups.entries()].map(([pid, items]) => <div key={pid}>
+              <div style={{ padding: "8px 14px 4px", fontSize: 11, fontWeight: 700, color: T.textSec, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{people.find(x => sameId(x.id, pid))?.name || "Unknown"} · {items.length}</div>
+              {items.map(u => <div key={pid + "-" + u.node.id} draggable={mayDrag}
+                onDragStart={e => { e.dataTransfer.setData("application/x-traqs-overdue", JSON.stringify([String(u.node.id), pid])); e.dataTransfer.effectAllowed = "move"; }}
+                style={{ margin: "2px 10px", padding: "7px 10px", borderRadius: T.radiusXs, border: `1px solid ${T.border}`, background: T.surface, cursor: mayDrag ? "grab" : "default" }}>
+                <div style={{ fontSize: 12, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{u.panel && u.level === 2 ? `${u.panel.title} · ` : ""}{u.node.title}</div>
+                <div style={{ fontSize: 11, color: T.textDim }}>{u.job.jobNumber ? `#${u.job.jobNumber} ` : ""}{u.job.title} · ended {fmtDate(u.node.end)} · {Math.round(u.remainingH * 10) / 10}h left{u.workedH > 0 ? " · partly worked" : ""}</div>
+              </div>)}
+            </div>)}
+          </div>
+        </div>;
       })()}
       {/* Resource timeline grid */}
       {people.length > 0 && tMode !== "day" && <div ref={teamContainerRef} style={{ width: "100%" }}>
@@ -17534,7 +17495,7 @@ ${jobsCtx || "No jobs found."}`;
                 <PersonAvatar person={p} size={28} label={p.teamNumber ? (isNaN(String(p.teamNumber)) ? String(p.teamNumber).charAt(0).toUpperCase() : String(p.teamNumber)) : null} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div onClick={barSelectMode ? (e => { e.stopPropagation(); setSelectedSchedulePerson(prev => prev === p.id ? null : p.id); }) : undefined} style={{ fontSize: 13, fontWeight: 600, color: barSelectMode ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: barSelectMode ? "pointer" : "default" }}>{p.name.split(" ")[0]}</div>
-                  <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.department} · {p.cap}h</div>
+                  <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{overdueBadge(p.id)}{p.department} · {p.cap}h</div>
                 </div>
                 {personClockPill(p, { size: 11 })}
                 {teamSelectMode && <div className="select-bubble-in" style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${selPeople.has(p.id) ? T.accent : T.border}`, background: selPeople.has(p.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, pointerEvents: "none", transition: "border-color 0.15s, background 0.15s", animationDelay: `${ri * 25}ms` }}>{selPeople.has(p.id) && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
@@ -17545,7 +17506,7 @@ ${jobsCtx || "No jobs found."}`;
                   onClick={placingTask ? (e) => { e.stopPropagation(); e.currentTarget.style.boxShadow = "none"; placeTaskAt(p.id, day); } : undefined}
                   onMouseEnter={placingTask ? (e) => { e.currentTarget.style.boxShadow = `inset 0 0 0 2px ${T.accent}`; } : undefined}
                   onMouseLeave={e => { e.currentTarget.style.boxShadow = "none"; }}
-                  onDragOver={e => { if (e.dataTransfer.types.includes("application/x-traqs-pending")) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; e.currentTarget.style.boxShadow = `inset 0 0 0 2px ${T.accent}`; } }} onDragLeave={e => { e.currentTarget.style.boxShadow = "none"; }} onDrop={e => { e.currentTarget.style.boxShadow = "none"; const itemId = e.dataTransfer.getData("application/x-traqs-pending"); if (!itemId) return; e.preventDefault(); handlePendingItemDrop(itemId, p.id, day); }} style={{ flex: 1, height: "100%", background: pOff ? offColor + "12" : day === TD ? T.accent + "08" : wk ? schedDisabled : "transparent", borderRight: gridOn ? `1px solid ${schedLine}` : "none", position: "relative", cursor: placingTask ? "copy" : undefined, zIndex: placingTask ? 6 : undefined }}>{pOff && <div style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(135deg, ${offColor}12, ${offColor}12 4px, transparent 4px, transparent 8px)`, pointerEvents: "none" }} />}</div>; })}
+                  onDragOver={e => { if (e.dataTransfer.types.includes("application/x-traqs-pending") || e.dataTransfer.types.includes("application/x-traqs-overdue")) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; e.currentTarget.style.boxShadow = `inset 0 0 0 2px ${T.accent}`; } }} onDragLeave={e => { e.currentTarget.style.boxShadow = "none"; }} onDrop={e => { e.currentTarget.style.boxShadow = "none"; const _od = e.dataTransfer.getData("application/x-traqs-overdue"); if (_od) { e.preventDefault(); const [_odId, _odFrom] = JSON.parse(_od); handleOverdueDrop(_odId, _odFrom, p.id, day); return; } const itemId = e.dataTransfer.getData("application/x-traqs-pending"); if (!itemId) return; e.preventDefault(); handlePendingItemDrop(itemId, p.id, day); }} style={{ flex: 1, height: "100%", background: pOff ? offColor + "12" : day === TD ? T.accent + "08" : wk ? schedDisabled : "transparent", borderRight: gridOn ? `1px solid ${schedLine}` : "none", position: "relative", cursor: placingTask ? "copy" : undefined, zIndex: placingTask ? 6 : undefined }}>{pOff && <div style={{ position: "absolute", inset: 0, background: `repeating-linear-gradient(135deg, ${offColor}12, ${offColor}12 4px, transparent 4px, transparent 8px)`, pointerEvents: "none" }} />}</div>; })}
                 {/* Ghost: dragged bar + dep-group member previews */}
                 {teamDragInfo && (() => {
                   const nDays = days.length;
@@ -18373,35 +18334,23 @@ ${jobsCtx || "No jobs found."}`;
                       // at the drop. An ordinary move just moves the whole record — worked spans are
                       // recorded independently of the op's current position.
                       const _splitWS = deriveWorkedState(bar.task, producedFor(bar.task), liveOpHours(bar.task));
-                      const _split = _splitWS.isPartiallyWorked && spansOffDay(_g.to.start, _g.to.end, barBDOpts);
+                      // THE split (dragMove.applySplit), the same one the Gantt and the Split Job modal
+                      // use: the worked part stays, locked, walked from one person's share; the rest
+                      // lands where the ghost showed it, as a new op that carries splitFrom.
+                      const _parts = (_splitWS.isPartiallyWorked && spansOffDay(_g.to.start, _g.to.end, barBDOpts))
+                        ? workedSplitParts({ node: bar.task, workedHours: _splitWS.workedHpd, cfg: dayWindowCfg, cal: _dragCal, workStartH })
+                        : null;
+                      const _split = !!_parts;
                       if (_split && _g.to.start === _dragBaseStart && _g.to.startHour === _dragBaseHour && !isReassign && _plan.length === 1) { console.warn("[schedule-drag] no-op: dates and person unchanged"); return; }
+                      // A split writes a lock and a new op: that is editing, not just moving (#44).
+                      if (_split && !can("editJobs")) { _refused({ kind: "splitPermission", title: bar.task.title || "" }); return; }
                       const newOpId = _split ? uid() : null;
                       const _build = (list) => {
                         // Every mover lands at its planned position with a moveLog entry (#3)…
                         let next = applyDragMove(list, _split ? _plan.slice(1) : _plan, { date: TD, movedBy: movedByName });
-                        // …except a split grabbed op, whose remainder becomes a new op there.
-                        if (_split) {
-                          const osH = bar.task.startHour ?? workStartH;
-                          const _wk = walkProductiveHours(osH, _splitWS.workedHpd, dayWindowCfg);
-                          const workedEnd = { end: sAddBD(os, _wk.days - 1), endHour: _wk.endHour };
-                          next = next.map(job => ({ ...job, subs: (job.subs || []).map(panel => {
-                            const idx = (panel.subs || []).findIndex(o => sameId(o.id, bar.task.id));
-                            if (idx < 0) return panel;
-                            const orig = panel.subs[idx];
-                            const { actualHours: _drop, ...origMinusActual } = orig;
-                            const updatedOrig = { ...orig, hpd: _splitWS.workedHpd, end: workedEnd.end, endHour: workedEnd.endHour, locked: true };
-                            const newOp = {
-                              ...origMinusActual, id: newOpId, hpd: _splitWS.remainingHpd, loggedHours: 0, locked: false,
-                              status: "Not Started", deps: [],
-                              start: _g.to.start, end: _g.to.end, startHour: _g.to.startHour, endHour: _g.to.endHour,
-                              team: _g.to.team,
-                              moveLog: [moveLogEntry(_g, { date: TD, movedBy: movedByName, reason: "Moved in schedule (remaining hours split off; worked part stays)" })],
-                            };
-                            const nextSubs = [...panel.subs];
-                            nextSubs.splice(idx, 1, updatedOrig, newOp);
-                            return { ...panel, subs: nextSubs };
-                          }) }));
-                        }
+                        // …and a split grabbed op becomes its two parts, each logged.
+                        if (_split) next = applySplit(next, { node: bar.task, keep: _parts.keep, go: { ..._g, hpd: _parts.remainderHpd }, newId: newOpId, date: TD, movedBy: movedByName,
+                          reasons: { keep: "Split in schedule: the worked part stays", go: `Moved in schedule: split from "${bar.task.title || ""}"` } });
                         return recalcBounds(next, movedByName);
                       };
                       // Backstop: the result goes through the no-overlap guard. Anything the guard
@@ -31682,33 +31631,26 @@ ${jobsCtx || "No jobs found."}`;
       const part1 = splitHour;
       const part2 = Math.round((totalHours - splitHour) * 100) / 100;
       const workerNames = (op.team || []).map(id => { const p = people.find(x => x.id === id); return p ? p.name : null; }).filter(Boolean);
+      // THE split (dragMove.applySplit), the same one the drags use. Part 1 keeps the original id
+      // and its start, walked from one person's share (#46); part 2 is a new op (splitFrom) that
+      // starts where part 1 ends, through the shared checks and backstop, each part logged (#47).
       const doSplit = () => {
-        const part1Days = Math.max(1, Math.ceil(part1 / productiveHoursPerDay));
-        const part1End = addBD(op.start, part1Days - 1);
-        const part2Start = addBD(part1End, 1);
-        const _splitStartH = (op.team || []).length > 0 ? getNextStartHour((op.team || [])[0], part2Start) : workStartH;
-        const _splitFirstDayH = Math.min(part2, workEndH - _splitStartH);
-        const _splitRemaining = part2 - _splitFirstDayH;
-        const _splitExtraDays = _splitRemaining > 0 ? Math.ceil(_splitRemaining / totalWorkH) : 0;
-        const part2End = _splitExtraDays > 0 ? addBD(part2Start, _splitExtraDays) : part2Start;
-        const newOp = { ...op, id: uid(), title: op.title + " (2)", hpd: part2, start: part2Start, end: part2End, startHour: _splitStartH, status: "Not Started", deps: [], loggedHours: 0 };
-        setTasks(prev => {
-          const updated = prev.map(j => {
-            if (j.id !== parentJob.id) return j;
-            return { ...j, subs: (j.subs || []).map(pnl => {
-              if (pnl.id !== panel.id) return pnl;
-              const idx = pnl.subs.findIndex(o => o.id === op.id);
-              const newSubs = [...pnl.subs];
-              newSubs[idx] = { ...newSubs[idx], hpd: part1, end: part1End };
-              newSubs.splice(idx + 1, 0, newOp);
-              return { ...pnl, subs: newSubs };
-            })};
-          });
-          const newTasks = recalcBounds(updated, loggedInUser?.name || "Split");
-          setTimeout(() => doSaveRef.current(), 0);
-          toast("Operation split");
-          return newTasks;
-        });
+        if (!can("editJobs")) return denied(PERM_VERB.editJobs);
+        const size = Math.max(1, (op.team || []).length);
+        const _cal = calOf(orgSettings.workDays, orgSettings.holidays);
+        const sh = op.startHour ?? workStartH;
+        const k = landUnit({ day: op.start, hour: sh, shareH: part1 / size, cfg: dayWindowCfg, cal: _cal });
+        const keep = { hpd: part1, start: op.start, startHour: sh, end: k.end, endHour: k.endHour, locked: false };
+        const at = k.endHour >= workEndH - 1e-9 ? { day: _cal.add(k.end, 1), hour: workStartH } : { day: k.end, hour: k.endHour };
+        const _plan = planDragMove({ grabbed: { id: op.id, node: op, fromDay: at.day, fromHour: at.hour, shareH: part2 / size },
+          drop: at, origPerson: null, dropPerson: null, cfg: dayWindowCfg, cal: _cal, workStartH, workEndH });
+        const _refusal = refuseLanding(_plan);
+        if (_refusal) { showLandingRefusal(_refusal, "Can't split here"); return; }
+        const movedByName = loggedInUser?.name || "Split";
+        const newOpId = uid();
+        const ok = commitLanding((list) => recalcBounds(applySplit(list, { node: op, keep, go: { ..._plan[0], hpd: part2, title: op.title + " (2)", status: "Not Started" }, newId: newOpId, date: TD, movedBy: movedByName,
+          reasons: { keep: "Split: first part", go: `Split from "${op.title || ""}"` } }), movedByName), [String(op.id), newOpId], op.title);
+        if (ok) toast("Operation split");
         setSplitModal(null);
       };
       return <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, zIndex: 10003, background: "rgba(0,0,0,0.6)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font }} onClick={() => setSplitModal(null)}>
@@ -34155,33 +34097,18 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
             <Btn variant="secondary" onClick={() => setRescheduleModal(null)}>Cancel</Btn>
             <Btn onClick={() => {
+              // The chosen dates land through the shared checks and backstop, like every drag and
+              // resize: an overlapping date is REFUSED and names the op. The "move only this one" button and
+              // the push dialog are gone — the last way to commit an overlap on purpose (#63).
               const movedByName = loggedInUser ? loggedInUser.name : "Admin";
-              const personId = (op.team || [])[0];
-              // Apply the move then check for cascades
-              setTasks(prev => {
-                const moved = prev.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({
-                  ...panel, subs: (panel.subs || []).map(o => {
-                    if (o.id !== op.id) return o;
-                    const logEntry = { fromStart: op.start, fromEnd: op.end, toStart: newStart, toEnd: newEnd, date: TD, movedBy: movedByName, reason: "Manual reschedule" };
-                    return { ...o, start: newStart, end: newEnd, moveLog: [...(o.moveLog || []), logEntry] };
-                  })
-                })) }));
-                if (!personId) return recalcBounds(moved, movedByName);
-                const { pushes, blocked, lockedOps } = previewPush(moved, op.id, personId, newStart, newEnd);
-                if (blocked) { setTimeout(() => showLockedError(lockedOps), 0); return prev; }
-                if (pushes.length > 0) {
-                  const finalState = applyPushes(moved, pushes, movedByName);
-                  setTimeout(() => setConfirmPush({
-                    pushes, people,
-                    onConfirm: () => { setTasks(finalState); setConfirmPush(null); },
-                    onConfirmSingle: () => { setTasks(recalcBounds(moved, movedByName)); setConfirmPush(null); },
-                    onCancel: () => { setConfirmPush(null); },
-                  }), 0);
-                  return recalcBounds(moved, movedByName);
-                }
-                return recalcBounds(moved, movedByName);
-              });
-              setRescheduleModal(null);
+              const share = personShareHours(op.hpd, (op.team || []).length, productiveHoursPerDay);
+              const mover = { id: String(op.id), node: op, shareH: share, isRecord: false, reassigned: false,
+                from: { start: op.start, end: op.end, startHour: op.startHour ?? null, endHour: op.endHour ?? null, team: op.team || [] },
+                to: { start: newStart, end: newEnd, startHour: op.startHour ?? null, endHour: op.endHour ?? null, team: op.team || [] } };
+              // A whole-day reschedule starts at the start of the working day for the checks.
+              const _refusal = refuseLanding([{ ...mover, to: { ...mover.to, startHour: op.startHour ?? workStartH } }]);
+              if (_refusal) { showLandingRefusal(_refusal, "Can't reschedule here"); return; }
+              if (commitLanding((list) => recalcBounds(applyDragMove(list, [mover], { date: TD, movedBy: movedByName, reason: "Manual reschedule" }), movedByName), [String(op.id)], op.title)) setRescheduleModal(null);
             }}>Apply Schedule</Btn>
           </div>
         </div>
@@ -34189,38 +34116,7 @@ ${jobsCtx || "No jobs found."}`;
     })()}</FadeOnClose>
 
     {/* Push confirmation modal */}
-    <FadeOnClose open={!!confirmPush} duration={220}>{confirmPush && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} >
-      <div className="anim-modal-box" style={{ background: T.card, borderRadius: 20, padding: 32, maxWidth: 560, width: "100%", border: `1px solid #f59e0b33`, boxShadow: `0 24px 60px rgba(0,0,0,0.5)`, position: "relative" }} onClick={e => e.stopPropagation()}>
-        <div style={{ width: 56, height: 56, borderRadius: 30, background: "#f59e0b15", border: "2px solid #f59e0b33", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", color: "#f59e0b" }}><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
-        <h3 style={{ margin: "0 0 8px", color: T.text, fontSize: 20, fontWeight: 700, textAlign: "center" }}>Scheduling Conflict</h3>
-        <p style={{ margin: "0 0 20px", fontSize: 14, color: T.textSec, lineHeight: 1.5, textAlign: "center" }}>This move affects <strong style={{ color: "#f59e0b" }}>{confirmPush.pushes.length}</strong> other {confirmPush.pushes.length === 1 ? "job" : "jobs"}. How would you like to proceed?</p>
-        <div style={{ maxHeight: 260, overflow: "auto", marginBottom: 24, borderRadius: T.radiusSm, border: `1px solid ${T.border}` }}>
-          {confirmPush.pushes.map((push, i) => {
-            const person = (confirmPush.people || people).find(x => x.id === push.personId);
-            return <div key={i} style={{ padding: "14px 16px", borderBottom: i < confirmPush.pushes.length - 1 ? `1px solid ${T.border}` : "none", background: i % 2 === 0 ? T.surface : "transparent" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                {person && <PersonAvatar person={person} size={20} />}
-                <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{push.opTitle} – {push.panelTitle}</span>
-                <span style={{ fontSize: 12, color: T.textDim, marginLeft: "auto" }}>Job {push.jobTitle}</span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
-                <span style={{ color: T.textDim, fontFamily: T.mono }}>{fm(push.oldStart)} – {fm(push.oldEnd)}</span>
-                <span style={{ color: "#f59e0b", fontSize: 16 }}>→</span>
-                <span style={{ color: "#f59e0b", fontWeight: 700, fontFamily: T.mono }}>{fm(push.newStart)} – {fm(push.newEnd)}</span>
-                <span style={{ marginLeft: "auto", background: "#f59e0b15", border: "1px solid #f59e0b33", borderRadius: 12, padding: "2px 8px", fontSize: 12, color: "#f59e0b", fontWeight: 700 }}>+{push.daysPushed} {push.daysPushed === 1 ? "day" : "days"}</span>
-              </div>
-            </div>;
-          })}
-        </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          <div style={{ display: "flex", gap: 10 }}>
-            <Btn onClick={() => confirmPush.onConfirmSingle()} style={{ flex: 1, background: T.surface, border: `1px solid ${T.border}`, color: T.text }}>Move Just This Job</Btn>
-            <Btn onClick={() => confirmPush.onConfirm()} style={{ flex: 1, background: "#f59e0b", border: "none" }}>Move All Jobs</Btn>
-          </div>
-          <Btn variant="secondary" onClick={() => confirmPush.onCancel()} style={{ width: "100%" }}>Cancel</Btn>
-        </div>
-      </div>
-    </div>}</FadeOnClose>
+
 
     {/* Bar Delete Confirmation Modal */}
     <FadeOnClose open={!!barDeleteConfirmOpen} duration={220}>{barDeleteConfirmOpen && <div className="anim-modal-overlay" style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setBarDeleteConfirmOpen(false)}>
