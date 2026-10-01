@@ -1181,6 +1181,58 @@ export function dayShiftToClear(op, others, { cfg, shiftDays, maxDays = 260 }) {
  * bars that the row then clips, while too little makes work vanish. Hence a sum rather than a
  * maximum.
  */
+/**
+ * The whole row-slack pre-pass: every op in the tree → slack DAYS per person.
+ *
+ * It lived in renderTeam's body, unmemoised, and was the schedule's 5fps. Two things were
+ * wrong with it and only one of them was the memo.
+ *
+ * THE BOUND. It called productiveBetween(plannedStart, now) for every op, and that walks
+ * the span DAY BY DAY. On production the planned starts reach back 374 days (p50 71, p90
+ * 311), so a single render walked ~567 spans averaging two and a half months: 225ms, every
+ * render, growing ~2ms a day for as long as the calendar keeps moving — 175ms as of 1 Sep,
+ * 358ms by 1 Dec. Nothing about the answer needed that reach.
+ *
+ * Slack exists to widen the bar query so a bar PAINTED inside the window is not dropped by
+ * a filter reading its STORED dates. getPersonBars will not draw an op whose end is before
+ * today (its one exception: somebody is clocked into it). An op it will not draw cannot
+ * need slack, so the pass now mirrors that rule exactly rather than carrying a cap of its
+ * own — and every op that survives it has its end on or after today, which puts its planned
+ * start at most its own length behind. The unbounded walk was costing a fifth of a second
+ * to compute displacement for work the schedule had already decided not to show.
+ *
+ * The result is DAYS, ceil'd, per person: what the caller subtracts from the window's left
+ * edge. Over-estimating stays safe (a few extra bars the row clips); under-estimating makes
+ * work vanish on scroll, which is why the ceil and the sum are both deliberate.
+ */
+export function slackDaysByPerson({ ops, nowMs, today, productiveBetween, productiveHoursPerDay, hourTs }) {
+  const byPerson = new Map();
+  const out = new Map();
+  const perDay = Math.max(0.0001, productiveHoursPerDay || 1);
+  for (const op of ops || []) {
+    if (!op || !op.start || op.status === "Finished") continue;
+    // THE SAME VISIBILITY RULE getPersonBars APPLIES, not an approximation of it. If the
+    // two ever drift, the symptom is the one this slack exists to prevent.
+    if (today && op.end && op.end < today && !op.isLive) continue;
+    const hrs = rowSlackHours({
+      nowMs, productiveBetween,
+      ops: [{
+        hpd: op.hpd || 0, teamSize: Math.max(1, op.teamSize || (op.team || []).length || 1),
+        workedHoursShown: op.workedHoursShown || 0, isFullyWorked: !!op.isFullyWorked,
+        locked: !!op.locked,
+        plannedStartMs: typeof hourTs === "function" ? hourTs(op.start, op.startHour) : op.plannedStartMs,
+      }],
+    });
+    if (hrs <= 0) continue;
+    for (const pid of (op.team || [])) {
+      const k = String(pid);
+      byPerson.set(k, (byPerson.get(k) || 0) + hrs);
+    }
+  }
+  byPerson.forEach((h, k) => out.set(k, Math.ceil(h / perDay)));
+  return out;
+}
+
 export function rowSlackHours({ ops, nowMs, productiveBetween }) {
   let total = 0;
   for (const op of ops || []) {

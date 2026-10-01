@@ -140,8 +140,11 @@ ok("no rollup is called from inside the comparator",
 // row. That is quadratic in the roster and linear in the tree on top of it.
 ok("the clocked-into check is an id set, not a roster scan per node",
   S.includes("const _liveOpIds = useMemo(") && S.includes("const isLiveOpId = useCallback("));
-ok("...and all three call sites use it",
-  (S.match(/isLiveOpId\((op|panel|sub)\.id\)/g) || []).length === 3);
+// Scoped to getPersonBars' own walk: the predicate is shared now (the row-slack memo asks
+// it too), so counting across the whole file would drift every time a caller is added.
+ok("...and all three call sites in the walk use it",
+  (S.slice(S.indexOf("const getPersonBars = ("), S.indexOf("// Schedule-side bar filter"))
+    .match(/isLiveOpId\((op|panel|sub)\.id\)/g) || []).length === 3);
 ok("...with no roster scan left in the walk",
   !/people\.some\(lp => lp\.activeJobClock/.test(S));
 // Same predicate as before, deliberately: keyed on opId alone, NOT on the deepest
@@ -176,6 +179,81 @@ ok("...and so is the client on each bar", !/clients\.find\(x => x\.id === job\.c
   ok("the schedule's live check stops being quadratic in the roster", scanOps / setOps >= 10);
   // Both answer the same question about the same nodes.
   ok("...and still answers identically", scanLive("j3p1o2") === setLive("j3p1o2") && scanLive("nope") === setLive("nope"));
+}
+
+
+
+// ── the schedule's row-slack pre-pass ────────────────────────────────────────
+// This block sat in renderTeam's BODY, unmemoised, and called productiveHoursBetween
+// once per op over the span from that op's planned start to NOW -- walked day by day.
+// Measured on production data (805 ops; planned starts p50 71 days back, p90 311, max
+// 374) it cost 225ms on EVERY render, and grew ~2ms per day because the span is
+// anchored to "now": 175ms as of 1 Sep, 225ms on 1 Oct, 358ms by 1 Dec. With the
+// schedule re-rendering on every hover crossing, that is the 5fps.
+//
+// THE BOUND IS NOT A MAGIC NUMBER. Slack exists to widen the bar query so a bar that is
+// PAINTED inside the window is not filtered out by its STORED dates. getPersonBars
+// already refuses to draw an op whose end is before today (unless somebody is clocked
+// into it), so an op that cannot be drawn cannot need slack -- and every op that can be
+// drawn has its end on or after today, which puts its planned start at most its own
+// length behind. The unbounded walk was computing displacement for work the schedule
+// had already decided not to show.
+{
+  const { slackDaysByPerson } = await import("../src/statsMath.js");
+  const { productiveHoursBetween, buildDayWindows } = await import("../src/statsMath.js");
+  const TODAY = "2026-10-01";
+  const nowMs = Date.parse(TODAY + "T12:00:00Z");
+  const cfg = { ...buildDayWindows(7, 15, [], { time: "12:00", durationMinutes: 30 }),
+                workStart: "07:00", workEnd: "15:00", lunch: { time: "12:00", durationMinutes: 30 },
+                breaks: [], timeZone: "America/Denver", workDays: [1, 2, 3, 4, 5], holidays: [] };
+  const productiveBetween = (a, b) => productiveHoursBetween(a, b, cfg);
+  const day = (n) => new Date(Date.parse(TODAY + "T12:00:00Z") + n * 86400000).toISOString().slice(0, 10);
+  const op = (o) => ({ hpd: 8, teamSize: 1, team: ["p1"], startHour: 7, status: "In Progress",
+                       workedHoursShown: 0, isFullyWorked: false, locked: false, isLive: false, ...o });
+  const run = (ops) => slackDaysByPerson({ ops, nowMs, today: TODAY, productiveBetween,
+                                           productiveHoursPerDay: 7.5, hourTs: (d, h) => Date.parse(`${d}T${String(h).padStart(2, "0")}:00:00Z`) });
+
+  // what it is FOR: untouched work whose window opened before today is pushed to now,
+  // so the query has to reach back far enough to find it.
+  const pushed = run([op({ start: day(-10), end: day(2) })]);
+  ok("slack still covers an untouched op the cursor has run past", (pushed.get("p1") || 0) >= 5);
+
+  // what it must NOT pay for: work the schedule refuses to draw.
+  const history = run([op({ start: day(-300), end: day(-200) })]);
+  ok("an op whose window closed before today costs nothing — it is never drawn", (history.get("p1") || 0) === 0);
+
+  // the one exception getPersonBars makes, mirrored exactly.
+  const liveHistory = run([op({ start: day(-300), end: day(-200), isLive: true })]);
+  ok("...unless somebody is clocked into it, as getPersonBars allows", (liveHistory.get("p1") || 0) > 0);
+
+  // worked and locked work is not pushed, so it has no cursor slack
+  ok("a worked op contributes no cursor slack", (run([op({ start: day(-10), end: day(2), workedHoursShown: 4 })]).get("p1") || 0) === 0);
+  ok("a locked op contributes no cursor slack", (run([op({ start: day(-10), end: day(2), locked: true })]).get("p1") || 0) === 0);
+
+  // ── the budget, at production shape ───────────────────────────────────────
+  // 805 ops, 70% of them history, planned starts spread the way Matrix's are.
+  const fixture = [];
+  for (let i = 0; i < 805; i++) {
+    const historyOp = i % 10 < 7;                       // 70% closed before today, as measured
+    const startBack = historyOp ? 60 + (i * 7) % 315 : (i * 3) % 12;
+    const endBack = historyOp ? startBack - 20 : -((i * 2) % 20) - 1;
+    fixture.push(op({ start: day(-startBack), end: day(-endBack), team: ["p" + (i % 24)] }));
+  }
+  run(fixture);
+  const t0 = process.hrtime.bigint();
+  for (let i = 0; i < 5; i++) run(fixture);
+  const perRender = Number(process.hrtime.bigint() - t0) / 1e6 / 5;
+  console.log(`  row-slack pre-pass, ${fixture.length} ops: ${perRender.toFixed(1)}ms per call`);
+  ok(`the pre-pass costs under 15ms at production shape (${perRender.toFixed(1)}ms)`, perRender < 15);
+}
+
+// ── the pre-pass is memoised, and hover does not re-render ───────────────────
+{
+  const team = S.slice(S.indexOf("const renderTeam ="), S.indexOf("const renderAnalytics ="));
+  ok("the row-slack pre-pass is out of renderTeam's body", !/rowSlackHours\s*\(/.test(team) && !/slackDaysByPerson\s*\(/.test(team));
+  ok("...and is a memo with a dependency array", /const overrunSlackDays = useMemo\(/.test(S) && /slackDaysByPerson\(/.test(S));
+  ok("hovering a bar does not set React state", !/setHoveredBarPid\s*\(/.test(team));
+  ok("...it swaps one CSS rule instead", /hoverDim/.test(team));
 }
 
 console.log(`${pass} passed, ${fail} failed`);

@@ -17,7 +17,7 @@ import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, 
 import * as realtime from "./realtime/ably.js";
 import { BASIC_FEATURES, BUSINESS_FEATURES, TIER_LABEL, upgradeMailto } from "./tiers.js";
 import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, opDaySegments, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
-import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours, dayShiftToClear, rowSlackHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
+import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours, dayShiftToClear, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
 // it lives outside this file so scripts/contrast-test.mjs can measure real ratios against the
 // real palette, which is the only way to test "can this be read".
@@ -5561,7 +5561,34 @@ Extraction rules:
   const [depsDropId, setDepsDropId] = useState(null); // id of sub-op with deps dropdown open
   const [colorDropId, setColorDropId] = useState(null); // id of panel with color picker open
   const [dropFlashKey, setDropFlashKey] = useState(null); // key of option currently playing selection flash animation
-  const [hoveredBarPid, setHoveredBarPid] = useState(null); // pid of hovered bar (for sibling highlight on schedule tab)
+  // Sibling highlight on the schedule: hovering a bar dims every bar belonging to a DIFFERENT
+  // job, and dims the person rows that hold none of it.
+  //
+  // NOT REACT STATE. It was, and the setter fired on every bar's mouseenter AND mouseleave —
+  // so sweeping the mouse across the schedule re-rendered this entire component once per bar
+  // boundary crossed. At 235 bars and a 225ms render that is the wall of frames in the trace;
+  // the hover was the trigger and the pre-pass above was the cost.
+  //
+  // One <style> element, one rule, swapped imperatively. The dimming is pure CSS from there,
+  // so crossing a bar costs a string assignment instead of a render. Bars carry data-pid and
+  // row labels carry data-row-pids (a space-separated list, matched with ~=), which is what
+  // lets a stylesheet express "everything that is not this job" without React's help.
+  const hoverStyleRef = useRef(null);
+  const hoverDim = useCallback((pid) => {
+    let el = hoverStyleRef.current;
+    if (!el) {
+      el = document.getElementById("tq-hover-dim") || Object.assign(document.createElement("style"), { id: "tq-hover-dim" });
+      if (!el.isConnected) document.head.appendChild(el);
+      hoverStyleRef.current = el;
+    }
+    // Ids are mixed string/number and come from data, so anything that could close the
+    // attribute selector is dropped rather than escaped — a pid that does not survive this
+    // simply gets no dimming, which is the harmless direction.
+    const safe = pid == null ? "" : String(pid).replace(/[^A-Za-z0-9_-]/g, "");
+    el.textContent = safe === "" ? "" :
+      `[data-bar-dim]:not([data-pid="${safe}"]){opacity:.2}` +
+      `[data-row-pids]:not([data-row-pids~="${safe}"]){opacity:.35}`;
+  }, []);
   const [roleEditId, setRoleEditId] = useState(null); // index being edited
   const [roleEditVal, setRoleEditVal] = useState("");
   const [orgSettingsOpen, setOrgSettingsOpen] = useState(false);
@@ -9614,6 +9641,36 @@ Extraction rules:
   // day-crossing is a coarser event.
   // Wall-clock hour h of day ds in SHOP time — DST-correct (#77), viewer-independent (#76).
   const hourTs = (ds, h) => shopMs(ds, h);
+  // How far LEFT the bar query has to reach for each person, in days, so a bar that is
+  // painted inside the window is never dropped by a filter reading its stored dates.
+  //
+  // MEMOISED, because it used to sit in renderTeam's body and cost 225ms of every single
+  // render — measured on production, and growing ~2ms a day because the span it walked was
+  // anchored to "now". The schedule re-renders on hover, on the clock tick and on every
+  // drag preview, so that was the frame budget, four times over. The answer only changes
+  // when the ops change or the day does; it is not a function of what the mouse is doing.
+  //
+  // Live hours are deliberately NOT an input. They can only ever REMOVE slack (a started op
+  // is not pushed to the cursor), and slack erring large costs a few clipped bars while
+  // slack erring small makes work vanish on scroll. Keeping the live clock out of the
+  // dependencies is what lets this survive a 1-second tick.
+  const overrunSlackDays = useMemo(() => {
+    const cfg = { ...buildDayWindows(workStartH, workEndH, orgSettings.breaks, orgSettings.lunch),
+                  workDays: orgSettings.workDays, holidays: orgSettings.holidays };
+    const ops = [];
+    tasks.forEach(job => (job.subs || []).forEach(panel => (panel.subs || []).forEach(op => {
+      const ws = deriveWorkedState(op, producedFor(op), 0);
+      ops.push({ start: op.start, end: op.end, startHour: op.startHour ?? workStartH, status: op.status,
+        hpd: op.hpd || 0, teamSize: Math.max(1, (op.team || []).length), team: op.team || [],
+        workedHoursShown: ws.workedHoursShown, isFullyWorked: ws.isFullyWorked,
+        locked: !!op.locked, isLive: isLiveOpId(op.id) });
+    })));
+    return slackDaysByPerson({ ops, nowMs: Date.now(), today: TD, productiveHoursPerDay,
+      productiveBetween: (a, b) => productiveHoursBetween(a, b, cfg),
+      hourTs: (ds, h) => shopMs(ds, h) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tasks, TD, producedFor, isLiveOpId, productiveHoursPerDay, workStartH, workEndH,
+      orgSettings.breaks, orgSettings.lunch, orgSettings.workDays, orgSettings.holidays]);
   const opHourRange = (op) => {
     const sH = op.startHour ?? workStartH;
     if (op.start === op.end) {
@@ -15946,39 +16003,9 @@ ${jobsCtx || "No jobs found."}`;
     // panned, purely because something ahead of it on the row had run long. Only the left
     // edge needs the slack: a push moves a bar to the RIGHT, so it can never make a bar
     // fail the tEnd test that should have passed it.
-    // Slack: how far back a row's window must reach so a DISPLACED bar is never filtered out
-    // of a viewport it is actually painted in. The filter tests an op's stored dates and the
-    // paint uses its pushed position, so a bar can be drawn inside the window while its record
-    // sits outside it — the filter drops it, the bar vanishes, and it comes back when the
-    // window scrolls over its stored dates again.
-    //
-    // This counted OVERRUN only, which was the sole cause of displacement when it was written.
-    // The cursor push moves work considerably further, and an untouched op contributes no
-    // overrun at all — so the newer and larger displacement was invisible to the very slack
-    // meant to cover it, and those bars were the ones disappearing on scroll.
-    const overrunSlackDays = (() => {
-      const byPerson = new Map();
-      const nowMs = Date.now();
-      const prodBetween = (a, b) => productiveHoursBetween(a, b, { ...dayWindowCfg, workDays: orgSettings.workDays, holidays: orgSettings.holidays });
-      tasks.forEach(job => (job.subs || []).forEach(panel => (panel.subs || []).forEach(op => {
-        if (!op.start || op.status === "Finished") return;
-        const ws = deriveWorkedState(op, producedFor(op), liveOpHours(op));
-        const hrs = rowSlackHours({
-          nowMs, productiveBetween: prodBetween,
-          ops: [{
-            hpd: op.hpd || 0, teamSize: Math.max(1, (op.team || []).length),
-            workedHoursShown: ws.workedHoursShown, isFullyWorked: ws.isFullyWorked,
-            locked: !!op.locked,
-            plannedStartMs: hourTs(op.start, op.startHour ?? workStartH),
-          }],
-        });
-        if (hrs <= 0) return;
-        (op.team || []).forEach(pid => { const k = String(pid); byPerson.set(k, (byPerson.get(k) || 0) + hrs); });
-      })));
-      const out = new Map();
-      byPerson.forEach((h, k) => out.set(k, Math.ceil(h / Math.max(0.0001, productiveHoursPerDay))));
-      return out;
-    })();
+    // Slack (how far back this row's window must reach so a DISPLACED bar is never filtered
+    // out of a viewport it is actually painted in) is computed ONCE, above, as a memo keyed on
+    // the ops and the day. It was an IIFE here, and it was the schedule's 225ms-per-render.
     // Outer bound of every dated op, used to ask getPersonBars for a person's WHOLE
     // schedule rather than the visible slice. See the overrun-push pass below.
     const [pushWinS, pushWinE] = (() => {
@@ -16681,7 +16708,7 @@ ${jobsCtx || "No jobs found."}`;
         const nowH = shopHour();
         const isToday = tStart === TD;
         return (
-          <div ref={teamContainerRef} style={{width:"100%"}}>
+          <div ref={teamContainerRef} onMouseLeave={() => hoverDim(null)} style={{width:"100%"}}>
             <div style={{overflow:"hidden", border:`1px solid ${T.border}`, borderRadius:T.radius, background:T.surface}}>
               <div style={{display:"flex", flexDirection:"column", width:"100%"}}>
                 {/* Hour header */}
@@ -16853,11 +16880,11 @@ ${jobsCtx || "No jobs found."}`;
                         // across the live palette.
                         const _dayFill = bar.task?.status === "Finished" ? doneBarFill(T, bar.color, _schedSurf) : bar.color;
                         const _dayInk = barInk([_dayFill]);
-                        return <div key={bar.id}
+                        return <div key={bar.id} data-bar-dim="1" data-pid={bar.task?.pid ?? undefined}
                           onMouseDown={e=>{ if(e.button===0) { isDraggingRef.current = true; handleTeamDayBarDrag(e, bar.task, "move", p.id, rawS, rawE, { isRecord: !!bar.crossRow }); } }}
                           onContextMenu={e=>bar.task&&handleCtx(e,bar.task,"team")}
-                          style={{position:"absolute",top:_laneTop,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:_laneHeight,borderRadius:T.radiusXs,background:_dayFill,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis&&dayDragInfo?.mode==="move"?`0 0 0 2px ${bar.color}88`:`0 2px 8px ${bar.color}33`,opacity:isDraggingThis&&dayDragInfo?.mode==="move"?0.3:dayDragInfo&&!isDraggingThis?0.7:(!hoveredBarPid||bar.task?.pid===hoveredBarPid?1:0.2),transition:"box-shadow 0.1s,opacity 0.2s"}}
-                          onMouseEnter={e=>{ if(!dayDragInfo && !isDraggingRef.current){ e.currentTarget.style.filter="brightness(1.1)"; setHoveredBarPid(bar.task?.pid??null); } }} onMouseLeave={e=>{ e.currentTarget.style.filter="none"; setHoveredBarPid(null); }}>
+                          style={{position:"absolute",top:_laneTop,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:_laneHeight,borderRadius:T.radiusXs,background:_dayFill,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis&&dayDragInfo?.mode==="move"?`0 0 0 2px ${bar.color}88`:`0 2px 8px ${bar.color}33`,opacity:isDraggingThis&&dayDragInfo?.mode==="move"?0.3:dayDragInfo&&!isDraggingThis?0.7:undefined,transition:"box-shadow 0.1s,opacity 0.2s"}}
+                          onMouseEnter={e=>{ if(!dayDragInfo && !isDraggingRef.current){ e.currentTarget.style.filter="brightness(1.1)"; if(!barSelectMode) hoverDim(bar.task?.pid??null); } }} onMouseLeave={e=>{ e.currentTarget.style.filter="none"; hoverDim(null); }}>
                           {/* Handles: only where the op starts / ends, never on a record bar or a locked op,
                               and only for someone who may move jobs (#5 #9 #10 #17). */}
                           {can("moveJobs") && isFirstSeg && !bar.crossRow && !bar.task?.locked && <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"left",p.id,rawS,rawE);}} style={{position:"absolute",left:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
@@ -16941,7 +16968,7 @@ ${jobsCtx || "No jobs found."}`;
         </div>;
       })()}
       {/* Resource timeline grid */}
-      {people.length > 0 && tMode !== "day" && <div ref={teamContainerRef} style={{ width: "100%" }}>
+      {people.length > 0 && tMode !== "day" && <div ref={teamContainerRef} onMouseLeave={() => hoverDim(null)} style={{ width: "100%" }}>
       <div ref={teamRef} className="tq-schedule-scroll tq-frost" onMouseDown={handleTeamPan} onWheel={handleTeamWheel} style={{ overflow: isMobile ? "auto" : "hidden", overflowX: (!isMobile && tMode === "month") ? "auto" : (!isMobile ? "hidden" : undefined), border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
         <style>{`.tq-schedule-scroll::-webkit-scrollbar{height:26px}.tq-schedule-scroll::-webkit-scrollbar-track{background:${T.bg};border-top:1px solid ${T.border}}.tq-schedule-scroll::-webkit-scrollbar-thumb{background:${T.border};border-radius:16px;border:4px solid ${T.bg};min-width:80px}.tq-schedule-scroll::-webkit-scrollbar-thumb:hover{background:${T.accent}aa}.tq-schedule-scroll{scrollbar-width:auto;scrollbar-color:${T.border} ${T.bg}}`}</style>
         <div style={{ display: "flex", flexDirection: "column", position: "relative", width: tMode === "month" ? `${monthZoom * 100}%` : "100%", minWidth: "100%" }}>
@@ -17253,7 +17280,7 @@ ${jobsCtx || "No jobs found."}`;
               <div 
                 style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: teamSelectMode && selPeople.has(p.id) ? T.accent + "15" : isDrop ? T.accent + "0c" : selectedSchedulePerson === p.id ? T.accent + "18" : T.surface, zIndex: 10, transition: "background 0.15s" }}>
                 <div className="sched-person-glow" aria-hidden="true" style={{ position: "absolute", inset: 0, background: canEditPerson ? hexA(T.accent, 0.13) : "transparent", pointerEvents: "none", zIndex: 0 }} />
-                <div style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 8, padding: "0 10px 0 8px", height: "100%", opacity: barSelectMode || !hoveredBarPid || bars.some(b => b.type !== "pto" && b.task?.pid === hoveredBarPid) ? 1 : 0.35, transition: "opacity 0.2s" }}>
+                <div data-row-pids={bars.filter(_b => _b.type !== "pto" && _b.task?.pid != null).map(_b => String(_b.task.pid)).join(" ")} style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 8, padding: "0 10px 0 8px", height: "100%", transition: "opacity 0.2s" }}>
                 {/* Drag handle */}
                 <Tip label="Drag to reorder"><div onMouseDown={e => startRowDrag(e, p.id)} onClick={e => e.stopPropagation()} style={{ cursor: "grab", color: T.textDim, fontSize: 14, padding: "4px 2px", flexShrink: 0, lineHeight: 1, userSelect: "none", opacity: 0.5 }}>⠿</div></Tip>
                 <PersonAvatar person={p} size={28} label={p.teamNumber ? (isNaN(String(p.teamNumber)) ? String(p.teamNumber).charAt(0).toUpperCase() : String(p.teamNumber)) : null} />
@@ -18295,9 +18322,11 @@ ${jobsCtx || "No jobs found."}`;
                   // -- every DONE bar on the schedule was under AA for that reason alone, and no
                   // colour choice in this pass could have fixed it. Same pixels, text pulled out of
                   // the composite: 5.0-7.7:1.
-                  const barOpacity = _isDragActive
-                    ? 0
-                    : (barSelectMode || !hoveredBarPid || isPto || bar.task?.pid === hoveredBarPid ? 1 : 0.2);
+                  // UNDEFINED, not 1, when nothing is dimming it. An inline opacity beats a
+                  // stylesheet rule whatever the rule says, so leaving `opacity: 1` here would
+                  // silently defeat the hover dim that now lives in CSS. The drag case still
+                  // wins inline, which is the one case that must override it.
+                  const barOpacity = _isDragActive ? 0 : undefined;
                   const isBarSelected = barSelectMode && selBars.has(bar.id);
                   const inDepGroup = !isPto && depGroupTaskIds.has(bar.task?.id);
                   const barKey = bar.id + "_0_" + bar.start;
@@ -18512,11 +18541,11 @@ ${jobsCtx || "No jobs found."}`;
                   const _bLaneTop = _bLane && _bLane.lanesTotal > 1 ? 4 + _bLane.lane * _bLaneH : 4;
                   const _bLaneHeight = _bLane && _bLane.lanesTotal > 1 ? _bLaneH - 2 : _bLaneH;
                   return [<div key={barKey}
-                    data-worked-pct={_barWorkedPct} data-divider-pct={_headCursorPct} data-op-divider-pct={_barCursorPct} data-raw-worked-pct={_barRawWorkedPct} data-worked-spans={JSON.stringify(_barSpans)} data-seg-worked-spans={JSON.stringify(_headSpans)} data-seg-divider-pct={_headCursorPct} data-unclosed={_barUnclosed ? "1" : undefined} data-worked-h={_barWorkedH} data-committed-h={_barCommittedH} data-live-h={_barLiveH} data-state={_barState}
+                    data-worked-pct={_barWorkedPct} data-divider-pct={_headCursorPct} data-op-divider-pct={_barCursorPct} data-raw-worked-pct={_barRawWorkedPct} data-worked-spans={JSON.stringify(_barSpans)} data-seg-worked-spans={JSON.stringify(_headSpans)} data-seg-divider-pct={_headCursorPct} data-bar-dim={isPto ? undefined : "1"} data-pid={bar.task?.pid ?? undefined} data-unclosed={_barUnclosed ? "1" : undefined} data-worked-h={_barWorkedH} data-committed-h={_barCommittedH} data-live-h={_barLiveH} data-state={_barState}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
                     style={{ position: "absolute", top: _bLaneTop, left: x, width: `calc(${w} - ${bar.endsNow ? 0 : 1}px)`, minWidth: _wFirst > 0 ? 2 : 0, height: _bLaneHeight, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: activeBarFill(T, bc, _fillSpans, _fillCursorPct, _barState, _renderPx, _schedSurf), border: isBarSelected ? `2px solid ${_edgeInk}` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid ${_edgeInk}` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${_fadedBc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : `0 12px 0 ${12 + _labelInset}px`, overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px ${hexA(_edgeInk, 0.2)}` : isExp ? `0 2px 8px ${_fadedBc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": _fadedBc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
-                    onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
+                    onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; if (!barSelectMode) hoverDim(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; hoverDim(null); }}>
                     {!_isNarrowBar && can("moveJobs") && !barLocked && !_dragBlocked && !(ws && ws.workedHpd > 0) && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: _leftMarkInk, opacity: 0, transition: "opacity 0.15s" }} /></div>}
                     {!_isNarrowBar && barSegs.length === 1 && _endsInView && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: _rightMarkInk, opacity: 0, transition: "opacity 0.15s" }} /></div>}
                     {isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><polyline points="3,6.5 5.5,9 10,4" stroke={_leftMarkInk} strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
@@ -18591,11 +18620,11 @@ ${jobsCtx || "No jobs found."}`;
                     const _tailGroundArgs = { state: isPto2 ? "pto" : _barState, spans: _segSpans, cursorPct: _segCursorPct, renderPx: _tailPx, rowColor: _schedSurf };
                     const _tailTitle = barTextStyle(barGrounds(T, bc2, { ..._tailGroundArgs, side: "label" }));
                     const _tailHoursInk = barInk(barGrounds(T, bc2, { ..._tailGroundArgs, side: "right" }));
-                    return <div key={bar.id + "_t" + si + "_" + seg.start}
+                    return <div key={bar.id + "_t" + si + "_" + seg.start} data-bar-dim={isPto2 ? undefined : "1"} data-pid={bar.task?.pid ?? undefined}
                       onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto2) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                       onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
                       style={{ position: "absolute", top: 4, left: tailX, width: tailW, minWidth: isPto2 ? 0 : 2, height: rH - 8, boxSizing: "border-box", borderRadius: isPto2 ? T.radiusXs : Math.min(T.radiusXs, _tailPx / 2), background: activeBarFill(T, bc2, _segSpans, _segCursorPct, isPto2 ? "pto" : _barState, _tailPx, _schedSurf), border: isBarSelected ? `2px solid ${_edgeInk}` : isPto2 ? `1.5px solid ${bc2}` : _tailPx < 8 ? "none" : `${_tailPx < 16 ? 1 : 2}px dashed ${(_barState === "done" ? mixHex(bc2, _schedSurf, 0.3) : bc2)}cc`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : _dragBlocked ? "not-allowed" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", display: "flex", alignItems: "center", opacity: barOpacity, transition: "opacity 0.2s" }}
-                      onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
+                      onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; if (!barSelectMode) hoverDim(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; hoverDim(null); }}>
                       {_labelSeg === si + 1 && _tailPx >= 44 && !isPto2 && <>
                         <span style={{ fontSize: 11, color: _tailTitle.color, textShadow: _tailTitle.textShadow, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>
                           {bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}
