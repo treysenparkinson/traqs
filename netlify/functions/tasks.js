@@ -81,7 +81,7 @@ export async function handler(event) {
       let attempt;
       const result = await updateJson(s3Key, (stored) => {
         const existing = stored;
-        attempt = { conflicts: [], violations: [], gateDiff: null, hpdDefaults: [], overlaps: [] };
+        attempt = { conflicts: [], violations: [], gateDiff: null, hpdDefaults: [], overlaps: [], counterKeeps: [] };
 
         // Refuse to overwrite a non-empty tasks.json with an empty array.
         // Why: a client bug (failed initial fetch → React resets state → autosave fires)
@@ -106,6 +106,32 @@ export async function handler(event) {
         // a conflict: in enforce the stored job is kept and the id is reported back;
         // in log the write goes through as before and the conflict is only recorded.
         let incoming = tasks;
+        // ── Server-owned counters (#323) ──────────────────────────────────
+        // loggedHours is written by the clock paths and by nothing else. This
+        // endpoint takes a whole copy of the tree, so a client that read before a
+        // clock-out credit landed puts the pre-credit value straight back — and
+        // because a client that has never seen the field omits the KEY, the write
+        // deletes the counter rather than lowering it. Measured on Matrix: the
+        // 401944 Thacker II credit landed at 17:30:52 and all three counters (job,
+        // panel, op) were gone two seconds later, and 30 of 434 panels store less
+        // than their own session rows — 789h of credited work that no longer has a
+        // counter behind it.
+        //
+        // Deliberately NOT behind a ruleMode. The per-job stale-copy check (#185)
+        // already covers this case and would have refused that write in `enforce`;
+        // it defaults to `log`, so for months it recorded the clobber and allowed
+        // it. A second switch left in its off position is how the first one failed.
+        //
+        // Only nodes that already exist are protected. A new node keeps whatever it
+        // arrived with, which is what lets a split write `loggedHours: 0` on the op
+        // it creates. The one legitimate client write of an existing counter — "Set
+        // Worked Hours" — goes through setOpWorkedHours in timeclock.js instead.
+        if (Array.isArray(existing)) {
+          const idx = indexNodesById(existing);
+          const kept = [];
+          incoming = keepServerOwned(incoming, idx, kept);
+          attempt.counterKeeps = kept;
+        }
         if (conflictMode !== "off" && Array.isArray(existing)) {
           const storedById = new Map(existing.filter(r => r && r.id != null).map(r => [String(r.id), r]));
           for (const job of tasks) {
@@ -188,6 +214,12 @@ export async function handler(event) {
       const who = { personId: member.personId != null ? String(member.personId) : null, isAdmin: !!member.isAdmin };
       if (conflictMode !== "off") {
         for (const c of attempt.conflicts) logRule("task-conflict", { mode: conflictMode, jobId: c.id, incomingStamp: c.incomingStamp, storedStamp: c.storedStamp, ...who });
+      }
+      // Not a mode, so this is never a "would have refused" line — it is a record of a
+      // clobber that WAS prevented, and the volume is the measure of how often the race
+      // actually fires. A `stored: null` means the incoming copy had dropped the key.
+      for (const k of (attempt.counterKeeps || [])) {
+        logRule("server-owned-field", { ...k, ...who });
       }
       for (const id of attempt.hpdDefaults) {
         logRule("hpd-default-write", { id, ...who, userAgent: event.headers?.["user-agent"] || event.headers?.["User-Agent"] || null });
@@ -321,6 +353,57 @@ async function notifyTaskChanges({ orgCode, member, next, prev }) {
 
 // Whether `member` may make a write classified as `cls` (from either classifier).
 // Returns { status, message } for a refusal, or null.
+// ── Server-owned counters ───────────────────────────────────────────────────
+// Fields the clock paths own outright. A whole-tree POST carries them because it
+// carries everything, but it is never the authority on them: the only copy that
+// counts is the one in S3, which jobClockOut and adminJobHours increment.
+const SERVER_OWNED_FIELDS = ["loggedHours"];
+
+/** Every node in the tree by string id, at all three levels. */
+function indexNodesById(nodes, into = new Map()) {
+  for (const n of (nodes || [])) {
+    if (!n || typeof n !== "object") continue;
+    if (n.id != null) into.set(String(n.id), n);
+    if (Array.isArray(n.subs)) indexNodesById(n.subs, into);
+  }
+  return into;
+}
+
+/**
+ * Replace every server-owned field on an EXISTING node with the stored value,
+ * including restoring one the incoming copy dropped entirely. Nodes the stored
+ * tree has never seen are returned untouched.
+ *
+ * Identity is preserved where nothing changed: the conflict check and
+ * stampArray both compare content, and handing them fresh objects for untouched
+ * nodes would turn every save into a change.
+ */
+function keepServerOwned(nodes, storedIdx, kept) {
+  if (!Array.isArray(nodes)) return nodes;
+  let moved = false;
+  const out = nodes.map((n) => {
+    if (!n || typeof n !== "object") return n;
+    const was = n.id != null ? storedIdx.get(String(n.id)) : null;
+    let next = n;
+    if (was) {
+      for (const f of SERVER_OWNED_FIELDS) {
+        const mine = n[f], theirs = was[f];
+        if (mine === theirs) continue;
+        if (next === n) next = { ...n };
+        if (theirs === undefined) delete next[f]; else next[f] = theirs;
+        kept.push({ id: String(n.id), field: f, incoming: mine ?? null, stored: theirs ?? null });
+      }
+    }
+    if (Array.isArray(n.subs)) {
+      const subs = keepServerOwned(n.subs, storedIdx, kept);
+      if (subs !== n.subs) { if (next === n) next = { ...n }; next.subs = subs; }
+    }
+    if (next !== n) moved = true;
+    return next;
+  });
+  return moved ? out : nodes;
+}
+
 function permissionError(cls, member, me) {
   for (const key of cls.perms) {
     try { requirePerm(member, key); } catch (e) { return { status: e.statusCode || 403, message: e.message }; }

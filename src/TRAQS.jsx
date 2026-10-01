@@ -7,7 +7,7 @@ import { setShopZone, shopDay, shopHour, shopMs } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
 import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, overdueUnits, landUnit } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, shiftWorkingDays, nextFreeStart, schedulerAvailability } from "./overlapRules.js";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, setOpWorkedHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { TraqsBars, BARS_ASPECT, BRAND_BARS } from "./brand.jsx";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme, setActiveThread } from "./push.js";
@@ -17,7 +17,7 @@ import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, 
 import * as realtime from "./realtime/ably.js";
 import { BASIC_FEATURES, BUSINESS_FEATURES, TIER_LABEL, upgradeMailto } from "./tiers.js";
 import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, opDaySegments, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
-import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours, dayShiftToClear, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
+import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, dayShiftToClear, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
 // it lives outside this file so scripts/contrast-test.mjs can measure real ratios against the
 // real palette, which is the only way to test "can this be read".
@@ -5801,13 +5801,17 @@ Extraction rules:
     for (const jc of clocks) {
       const startMs = Date.parse(jc.clockIn);
       if (!Number.isFinite(startMs)) continue;
-      const { endMs } = openSessionEnd({
+      // sessionWorkedHours is now the single definition, shared with jobClockOut (#194).
+      // The window logic is unchanged; what it adds is the closed MANUAL pause. The old
+      // comment here reasoned that closed pauses are lunch and breaks and therefore already
+      // outside the productive total — true of lunch, false of a deliberate jobPause, which
+      // sits inside a working window. So the live figure ran on through a hold and then
+      // dropped at clock-out, which is the whole of #199/#200.
+      total += sessionWorkedHours({
         clockInMs: startMs, pausedAt: jc.pausedAt, frozenAtMs: jc.frozenAtMs,
+        totalPausedMs: jc.totalPausedMs, autoPausedMs: jc.autoPausedMs,
         nowMs: now, cfg: liveJobCfg,
-      });
-      // Closed pauses (totalPausedMs) are not subtracted again: pauses here are lunch
-      // and breaks, and those windows are already outside the productive total.
-      total += productiveHoursBetween(startMs, endMs, liveJobCfg);
+      }).hours;
     }
     return total;
   };
@@ -9207,8 +9211,31 @@ Extraction rules:
     const effNow = jc.frozenAtMs || Date.now();
     const worked = sessionElapsedH(jc, new Date(jc.drainCheckpoint).getTime(), effNow);
     if (!(worked > 0)) return storedSH;
-    const plannedEnd = op.endHour ?? workEndH;
-    return Math.max(storedSH, Math.min(storedSH + worked, plannedEnd - SHRINK_MIN_REMAINDER_H));
+    return shrunkEdge(op, storedSH, worked);
+  };
+
+  // #203. `storedSH + worked` added a WORKED quantity to a WALL-CLOCK axis. The measurement
+  // is right — lunch pauses the job clock, so `worked` already excludes it — but the axis it
+  // lands on still contains lunch, so the edge fell short by exactly the dead time the work
+  // crossed. Someone who started at 08:00 and worked until 13:00 through a noon lunch has
+  // done 4 productive hours, and 8 + 4 puts the edge at 12:00 while they are standing at
+  // 13:00. walkProductiveHours is the conversion, and it is the same one the bar geometry
+  // uses, so the edge and the bar cannot disagree about where lunch is.
+  //
+  // The cap was the other half: `op.endHour` is the clock hour on the op's LAST day, and
+  // startHour is on its FIRST, so a Mon 08:00 → Wed 16:00 op compared the two directly and
+  // could only ever shrink one day's worth before parking at the 5-minute sliver that is
+  // supposed to mean overrun. 441 of 890 scheduled ops are multi-day. A multi-day op is
+  // capped at the end of the WORKING DAY instead; representing day-3 progress in a day-1
+  // coordinate is not something startHour can express, and pretending otherwise is what
+  // produced the false overruns.
+  const shrunkEdge = (op, storedSH, worked) => {
+    const singleDay = !op.end || op.end === op.start;
+    const dayCap = singleDay ? (op.endHour ?? workEndH) : workEndH;
+    const walk = walkProductiveHours(storedSH, worked, dayWindowCfg);
+    // days > 1 means the work ran past this day's end; the edge stops at the day boundary.
+    const reached = walk.days > 1 ? dayCap : walk.endHour;
+    return Math.max(storedSH, Math.min(reached, dayCap - SHRINK_MIN_REMAINDER_H));
   };
 
   // The ONE place the shrinking left edge becomes persisted state.
@@ -9230,10 +9257,12 @@ Extraction rules:
     const storedSH = op.startHour ?? workStartH;
     const worked = sessionElapsedH(jc, new Date(jc.drainCheckpoint).getTime(), jc.frozenAtMs || nowMs);
     if (!(worked > 0)) return { tasks: taskList, changed: false };
-    const plannedEnd = op.endHour ?? workEndH;
-    // Same clamp as the render, for the same reason: a zero-width block inverts on the next
-    // write. Overrun parks at the 5-minute floor rather than collapsing.
-    const newSH = Math.max(storedSH, Math.min(storedSH + worked, plannedEnd - SHRINK_MIN_REMAINDER_H));
+    // Same edge as the render, computed by the same function (#203) — the two must agree to
+    // the digit or the bar jumps at the write event, which is the whole reason this is one
+    // helper rather than two expressions. The 5-minute floor it applies is structural: a
+    // zero-width block inverts on the next write, and overrun parks there rather than
+    // collapsing.
+    const newSH = shrunkEdge(op, storedSH, worked);
     if (!(newSH > storedSH)) return { tasks: taskList, changed: false };
     const logEntry = {
       fromStart: op.start, fromEnd: op.end, toStart: op.start, toEnd: op.end,
@@ -9263,9 +9292,16 @@ Extraction rules:
   // Returns fields to SPREAD onto the op. It deliberately does not touch finishRequest or
   // finishRequests: those are the chat path's own bookkeeping and it merges them itself.
   const finishedOpFields = (op, movedByName) => {
-    const logged = timeclock
-      .filter(ev => ev.jobRefs?.some(r => sameId(r.opId, op.id)))
-      .reduce((s, ev) => s + (ev.hours || 0), 0);
+    // #188: this read PAYROLL entries — `timeclock` rows whose jobRefs mention the op — and
+    // summed their `hours`, which is the whole SHIFT, counted once per job the worker picked
+    // at clock-in. So `actualHours` was stamped with pay time while `actualHoursFor`, the
+    // function that READS it everywhere, returns production time. Two definitions under one
+    // name, and the stored one was the wrong one: an op worked for 2h inside an 8h shift was
+    // recorded as having taken 8.
+    //
+    // The entry filed this as "computed and never read". It is read, at :12995 and :23864 —
+    // just never against the same definition it was written with.
+    const logged = actualHoursFor(op);
     const session = op.pendingSession;
     // actualHours only when there is something to record. The chat approve also resolves
     // PANEL-level requests, and a panel matches no timeclock jobRef, so writing it
@@ -30045,6 +30081,11 @@ ${jobsCtx || "No jobs found."}`;
         // Clamped at 0: asking for a total below what is currently on the clock is
         // self-contradictory, and a negative counter would corrupt every aggregate.
         const committedTarget = Math.max(0, r2(val - liveAtSave));
+        // The counter is written through setOpWorkedHours, NOT through the tree (#323).
+        // /tasks restores the stored loggedHours on every whole-tree POST, so saving it
+        // that way would land and then be undone on the next autosave. State is updated
+        // optimistically and marked as a server write so the autosave effect does not
+        // POST it back — the same treatment the shrink edge gets in handleEndJob.
         setTasks(prev => {
           const updated = prev.map(j => {
             if (j.id !== parentJob.id) return j;
@@ -30053,9 +30094,12 @@ ${jobsCtx || "No jobs found."}`;
               return { ...pnl, subs: (pnl.subs || []).map(o => o.id === op.id ? { ...o, loggedHours: committedTarget } : o) };
             })};
           });
-          setTimeout(() => doSaveRef.current(), 0);
+          pollAppliedRef.current.tasks = updated;
           return updated;
         });
+        setOpWorkedHoursAction({ opId: op.id, hours: committedTarget }, getToken, orgCode)
+          .then(r => { if (!r?.ok) { console.warn("[worked-hours] counter write failed:", r?.error); toast(r?.error || "Could not save worked hours"); } })
+          .catch(() => toast("Network error saving worked hours"));
         // Credit (or walk back) the CHANGE as production time, so the person's
         // efficiency reflects work they really did. Measured against the same
         // live-inclusive total the field was seeded with, so leaving the value alone

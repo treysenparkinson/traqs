@@ -12,15 +12,43 @@
 //
 //   node scripts/job-live-hours-test.mjs
 import { readFileSync } from "node:fs";
-import { productiveHoursBetween, openSessionEnd, liveElapsedHours } from "../src/statsMath.js";
+import { productiveHoursBetween, openSessionEnd, liveElapsedHours, sessionWorkedHours, buildDayWindows } from "../src/statsMath.js";
 const S = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
 let pass = 0, fail = 0;
 const ok = (m, c) => { if (c) { pass++; console.log("ok    " + m); } else { fail++; console.error("FAIL  " + m); } };
 
 // ── wiring ───────────────────────────────────────────────────────────────────
 const FN = S.slice(S.indexOf("const liveOpHours = (op) => {"), S.indexOf("const liveOpHours = (op) => {") + 900);
-ok("live job hours are bounded by openSessionEnd", FN.includes("openSessionEnd({"));
-ok("...and measured in productive hours", FN.includes("productiveHoursBetween(startMs, endMs, liveJobCfg)"));
+// Both of these used to match the source text of liveOpHours directly. Since #194 the window
+// bound and the productive-hours measure live inside sessionWorkedHours, which jobClockOut
+// calls too — one definition instead of two that agreed only by inspection. Matching text
+// would now assert that the duplication is still there, so these check the real function's
+// BEHAVIOUR instead, the same way calendar-test was repointed off countWorkingDays.
+ok("live job hours go through the shared definition", FN.includes("sessionWorkedHours({"));
+{
+  // 08:00-17:00 Mon-Fri, one hour of lunch at noon. A session that starts Friday afternoon
+  // and is never closed must stop at the end of Friday, not run through the weekend.
+  const cfg = { ...buildDayWindows(8, 17, [], { durationMinutes: 60, time: "12:00" }),
+    workDays: [1, 2, 3, 4, 5], holidays: [], timeZone: "UTC" };
+  const friPM = Date.parse("2026-09-25T15:40:00.000Z");     // Friday 15:40
+  const monAM = Date.parse("2026-09-28T11:30:00.000Z");     // Monday 11:30
+  const open = sessionWorkedHours({ clockInMs: friPM, nowMs: monAM, cfg });
+  ok("...bounded at the end of the working day, not run through the weekend",
+    [open.hours, open.unclosed], [1.33, true]);
+  const sameDay = sessionWorkedHours({ clockInMs: Date.parse("2026-09-25T09:00:00.000Z"), nowMs: Date.parse("2026-09-25T11:00:00.000Z"), cfg });
+  ok("...measured in productive hours (2h inside the window counts 2h)", sameDay.hours, 2);
+  const overLunch = sessionWorkedHours({ clockInMs: Date.parse("2026-09-25T11:30:00.000Z"), nowMs: Date.parse("2026-09-25T13:30:00.000Z"), cfg });
+  ok("...with lunch removed from the span (11:30-13:30 counts 1h)", overLunch.hours, 1);
+  // #199/#200: a CLOSED manual pause comes off; an auto (lunch) pause does not, because the
+  // dead window already removed it. Before the split these were one number and neither
+  // caller could tell them apart.
+  const manual = sessionWorkedHours({ clockInMs: Date.parse("2026-09-25T09:00:00.000Z"), nowMs: Date.parse("2026-09-25T11:00:00.000Z"),
+    totalPausedMs: 30 * 60e3, autoPausedMs: 0, cfg });
+  ok("...minus a closed manual pause", manual.hours, 1.5);
+  const auto = sessionWorkedHours({ clockInMs: Date.parse("2026-09-25T11:30:00.000Z"), nowMs: Date.parse("2026-09-25T13:30:00.000Z"),
+    totalPausedMs: 60 * 60e3, autoPausedMs: 60 * 60e3, cfg });
+  ok("...but a lunch pause is not billed twice", auto.hours, 1);
+}
 ok("...not raw wall clock", !FN.includes("liveElapsedHours"));
 // The bound has to be the SAME one the bar geometry already uses, or a forgotten
 // session freezes on one and keeps growing on the other.

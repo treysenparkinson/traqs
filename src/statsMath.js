@@ -301,8 +301,20 @@ export function efficiencyPct({ prod, working }) {
 // events rather than on the session row, so joining them is its own piece of work.
 export function workedSpansByOp(sessions) {
   const byOp = new Map();
+  // #201: a walk-back that finds no manual credit to consume writes a compensating NEGATIVE
+  // row with clockIn === clockOut — "a correction, not a shift". Every sum that feeds an
+  // hours figure is a plain addition, so the number drops by exactly the right amount; the
+  // hatch is built from SPANS, and a zero-length span moves nothing. Erase 2h from an op and
+  // the card said 2h less while the bar stayed exactly as grey as before.
+  //
+  // So the erased time is taken off the spans too, newest first — the same order the
+  // walk-back consumes manual rows in, and the only defensible one: the most recent work is
+  // what an admin is correcting when they say "that didn't happen".
+  const erase = new Map();
   for (const s of sessions || []) {
     if (!s || s.deletedAt || s.opId == null || s.opId === "") continue;
+    const h = Number(s.hours) || 0;
+    if (h < 0) { const k = String(s.opId); erase.set(k, (erase.get(k) || 0) + -h * 3600000); continue; }
     const a = Date.parse(s.clockIn), b = Date.parse(s.clockOut);
     if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) continue;
     const k = String(s.opId);
@@ -310,8 +322,25 @@ export function workedSpansByOp(sessions) {
     list.push([a, b]);
     byOp.set(k, list);
   }
-  for (const [k, list] of byOp) byOp.set(k, mergeSpans(list));
+  for (const [k, list] of byOp) byOp.set(k, trimSpansFromEnd(mergeSpans(list), erase.get(k) || 0));
   return byOp;
+}
+
+/**
+ * Remove `ms` of span, newest first, dropping a span whole when it is entirely consumed and
+ * pulling its end back when it is not. Used for the erased half of a manual hours correction.
+ */
+export function trimSpansFromEnd(spans, ms) {
+  let left = Math.max(0, Number(ms) || 0);
+  if (!left) return spans;
+  const out = [...(spans || [])];
+  while (left > 0 && out.length) {
+    const last = out[out.length - 1];
+    const span = last[1] - last[0];
+    if (span <= left) { left -= span; out.pop(); }
+    else { out[out.length - 1] = [last[0], last[1] - left]; left = 0; }
+  }
+  return out;
 }
 
 /**
@@ -561,6 +590,55 @@ export function endOfWorkingDayMs(startMs, cfg) {
  * An open clock's end, bounded by Q7b. Returns the instant AND whether the bound was applied,
  * because the caller needs both: one draws the bar, the other says the session is unclosed.
  */
+/**
+ * THE definition of a worked hour for a job-clock session (#194/#199/#200).
+ *
+ * There were two, and they disagreed by as much as 14x. The live bar measured
+ * `productiveHoursBetween` over the session window — org hours, minus lunch and breaks,
+ * skipping weekends and holidays — while `jobClockOut` credited `clockOut - clockIn -
+ * totalPausedMs`, raw wall clock, consulting neither the calendar nor `frozenAtMs` nor
+ * `unclosedAt`. A session nobody closed on Friday afternoon therefore credited the whole
+ * weekend: Matrix has one worth 67.84h against 4.59h of real working time, and nine over
+ * twelve hours holding 320.55h of its 1,083.6h of recorded production.
+ *
+ * Both callers now come here. The live figure and the credited figure cannot drift again
+ * without this function changing, which is the point.
+ *
+ * Pauses: an OPEN pause needs no arithmetic — openSessionEnd ends the window at `pausedAt`,
+ * which is what makes the hatch stop where the work stopped. A CLOSED pause does, and only
+ * the manual ones: a lunch pause sits inside a dead window that productiveHoursBetween has
+ * already removed, so subtracting it again would bill lunch twice. That is why auto pauses
+ * accrue to `autoPausedMs` and manual ones to `totalPausedMs` — before that split the two
+ * were one cumulative number and could not be told apart.
+ *
+ * A session stored before the split carries everything in `totalPausedMs`. Those are treated
+ * as manual, which can double-subtract a lunch on a session that was in flight across the
+ * deploy. It under-credits by at most one lunch, once, and never over-credits.
+ *
+ * Where inside the window a closed pause fell is not recorded, so its full duration is
+ * subtracted and the result floored at 0. Precision here would need pause intervals rather
+ * than a cumulative total; the error is bounded by the pause length and is never upward.
+ */
+export function sessionWorkedHours({ clockInMs, clockOutMs, pausedAt, frozenAtMs, totalPausedMs = 0, autoPausedMs = 0, nowMs, cfg }) {
+  if (!Number.isFinite(clockInMs)) return { hours: 0, endMs: clockInMs, frozen: false, unclosed: false };
+  // A closed session asks "what had this session done by clockOut", which is the same
+  // question the live bar asks of `now` — so clockOut IS the now, and every cap that applies
+  // to an open session applies here too.
+  const at = Number.isFinite(clockOutMs) ? clockOutMs : nowMs;
+  const end = openSessionEnd({ clockInMs, pausedAt, frozenAtMs, nowMs: at, cfg });
+  const gross = productiveHoursBetween(clockInMs, end.endMs, cfg);
+  // Only pauses that closed BEFORE the window ended can have eaten into it; one that is
+  // still open ended the window itself and must not be counted twice.
+  // live-hours-exempt: not a clockIn→now elapsed measure at all. The window comes from the org
+  // calendar via productiveHoursBetween above, and this subtracts only the MANUAL share of the
+  // closed pauses from it — liveElapsedHours subtracts every pause from raw wall clock, which
+  // is the opposite treatment of lunch. Routing this through the helper would reintroduce the
+  // double-subtraction this function exists to avoid.
+  const manualH = Math.max(0, (Number(totalPausedMs) || 0) - (Number(autoPausedMs) || 0)) / 3600000;
+  const hours = Math.max(0, Math.round((gross - manualH) * 100) / 100);
+  return { hours, endMs: end.endMs, frozen: !!end.frozen, unclosed: !!end.unclosed, grossH: Math.round(gross * 100) / 100, manualPausedH: Math.round(manualH * 100) / 100 };
+}
+
 export function openSessionEnd({ clockInMs, pausedAt, frozenAtMs, nowMs, cfg }) {
   // HELD first: somebody asked for that one, and an explicit decision outranks a lunch that
   // happens to be open at the same moment.
@@ -587,16 +665,22 @@ export function openSessionEnd({ clockInMs, pausedAt, frozenAtMs, nowMs, cfg }) 
  */
 export function workedSpansByPersonOp(sessions) {
   const byPerson = new Map();
+  // Erasures are per (person, op) here, not per op: a correction is written against the
+  // person whose hours it adjusts, and taking it off somebody else's hatch would move the
+  // wrong bar. Same newest-first rule as workedSpansByOp (#201).
+  const erase = new Map();
   for (const s of sessions || []) {
     if (!s || s.deletedAt || s.opId == null || s.opId === "" || s.personId == null) continue;
+    const pk = String(s.personId), ok = String(s.opId);
+    const h = Number(s.hours) || 0;
+    if (h < 0) { const key = pk + "\u0000" + ok; erase.set(key, (erase.get(key) || 0) + -h * 3600000); continue; }
     const a = Date.parse(s.clockIn), b = Date.parse(s.clockOut);
     if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) continue;
-    const pk = String(s.personId), ok = String(s.opId);
     let ops = byPerson.get(pk);
     if (!ops) { ops = new Map(); byPerson.set(pk, ops); }
     ops.set(ok, [...(ops.get(ok) || []), [a, b]]);
   }
-  for (const ops of byPerson.values()) for (const [k, list] of ops) ops.set(k, mergeSpans(list));
+  for (const [pk, ops] of byPerson) for (const [k, list] of ops) ops.set(k, trimSpansFromEnd(mergeSpans(list), erase.get(pk + "\u0000" + k) || 0));
   return byPerson;
 }
 

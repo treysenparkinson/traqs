@@ -716,6 +716,20 @@ export const adminJobHoursAction = async (payload, getToken, orgCode) => {
   }).then(r => r.json());
 };
 
+// Set an op's worked-hours counter directly (#323). op.loggedHours is server-owned —
+// /tasks restores the stored value on every whole-tree POST — so "Set Worked Hours" can
+// no longer write it through the tree and uses this instead. Requires editJobs, the same
+// permission the field needed when it travelled with the tree.
+// payload: { opId, hours }
+export const setOpWorkedHoursAction = async (payload, getToken, orgCode) => {
+  const token = await getToken();
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}`, ...(orgCode ? { "X-Org-Code": orgCode } : {}) },
+    body: JSON.stringify({ action: "setOpWorkedHours", ...payload }),
+  }).then(r => r.json());
+};
+
 // Confirm / re-open a timesheet date range (admin only). Confirming locks every
 // completed punch in [start, end] (stamped confirmedAt/confirmedBy) so it can't
 // be edited and flows into the accountant's pay-period hours export. Re-opening

@@ -1,7 +1,8 @@
 import { requireOrgMember } from "./_utils/auth.js";
-import { canClockIn, personCan } from "./_utils/can.js";
+import { can, canClockIn, personCan } from "./_utils/can.js";
 import { updateJson } from "./_utils/update-json.js";
 import { DEFAULT_ORG_SETTINGS } from "../../src/orgDefaults.js";
+import { buildDayWindows, sessionWorkedHours, walkProductiveHours } from "../../src/statsMath.js";
 import { ruleMode, logRule } from "./_utils/rule-mode.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
@@ -187,6 +188,23 @@ const parseWorkHour = (t, dflt) => {
 // Every instant must be a real time inside the session: not before its clock-in,
 // not after now (plus a few minutes of device clock skew). The paused total can't
 // be negative or exceed the time elapsed. null clears a field and is allowed.
+// The org calendar a session is measured against (#194). Same inputs the web hands
+// buildDayWindows, so the server and the browser build the same windows from the same
+// settings; a mismatch here would put the credit and the bar back out of step, which is the
+// whole defect. Falls back to DEFAULT_ORG_SETTINGS field by field rather than wholesale, so
+// an org that has set only some of them keeps what it set.
+function sessionCfg(settings) {
+  const s = settings || {};
+  const startH = parseWorkHour(s.workStart, DEFAULT_ORG_SETTINGS.workStart);
+  const endH = parseWorkHour(s.workEnd, DEFAULT_ORG_SETTINGS.workEnd);
+  return {
+    ...buildDayWindows(startH, endH, s.breaks ?? DEFAULT_ORG_SETTINGS.breaks, s.lunch ?? DEFAULT_ORG_SETTINGS.lunch),
+    workDays: Array.isArray(s.workDays) ? s.workDays : DEFAULT_ORG_SETTINGS.workDays,
+    holidays: Array.isArray(s.holidays) ? s.holidays : [],
+    timeZone: s.timeZone || null,
+  };
+}
+
 const SESSION_SKEW_MS = 5 * 60 * 1000;
 function invalidSessionFields(jc, fields, nowMs) {
   const bad = [];
@@ -382,8 +400,15 @@ function applyAutoJobPause(person, reason, starting, nowIso) {
   if (!jc.pausedAt || owner !== reason) return person;     // manual pause, or a different reason, stays paused
   const paused = new Date(nowIso).getTime() - new Date(jc.pausedAt).getTime();
   const totalPausedMs = (jc.totalPausedMs || 0) + Math.max(0, paused);
+  // Also tracked separately (#199/#200). An AUTO pause — lunch — happens inside a window
+  // productiveHoursBetween has already removed, so sessionWorkedHours must not subtract it a
+  // second time. Before this the two kinds were one cumulative number and were
+  // indistinguishable, which is why the credited figure could not tell a lunch from a
+  // deliberate hold. totalPausedMs keeps accruing everything so nothing that reads it today
+  // changes behaviour; autoPausedMs is the part to exclude.
+  const autoPausedMs = (jc.autoPausedMs || 0) + Math.max(0, paused);
   const { pausedAt, pausedByLunch, pausedReason, ...resumed } = jc;
-  return { ...person, activeJobClock: { ...resumed, totalPausedMs } };
+  return { ...person, activeJobClock: { ...resumed, totalPausedMs, autoPausedMs } };
 }
 // Back-compat alias for the lunch call sites.
 const applyLunchJobPause = (person, starting, nowIso) => applyAutoJobPause(person, "lunch", starting, nowIso);
@@ -646,16 +671,16 @@ export async function handler(event) {
         people[personIdx] = { ...person, activeClockIn: null, activeBreak: null };
         try { await writeStampedArray(peopleKey, people); } catch { /* non-fatal */ }
 
-        // Update loggedHours on each job in tasks.json
-        if (jobRefs.length > 0 && hours > 0) {
-          try {
-            await updateStampedArray(tasksKey, (stored) => (stored ?? []).map(job => {
-              const ref = jobRefs.find(r => String(r.jobId) === String(job.id));
-              if (!ref) return job;
-              return { ...job, loggedHours: Math.round(((job.loggedHours || 0) + hours) * 100) / 100 };
-            }));
-          } catch { /* non-fatal */ }
-        }
+        // #187: the pay clock no longer credits job.loggedHours.
+        //
+        // It used to add `hours` — the whole shift — to every job in jobRefs, so a worker who
+        // picked three jobs at clock-in and worked eight hours added twenty-four. jobRefs is a
+        // record of what somebody expected to work on, not an allocation of their time, and
+        // there is nothing in it to divide the shift by. The job clock (jobClockIn/jobClockOut)
+        // is what knows how long was spent on what, and it credits all three levels.
+        //
+        // The refs stay on the entry: they are the audit trail of what was selected, and the
+        // timesheet UI reads them. Only the arithmetic is gone.
 
         return json(200, { ok: true, entry });
       }
@@ -1238,13 +1263,45 @@ export async function handler(event) {
       if (!jcoPerson.activeJobClock) return err(409, "Not clocked into any job");
 
       const jcoClockOut = new Date().toISOString();
-      const { clockIn: jcoClockIn, jobId: jcoJobId, panelId: jcoPanelId, opId: jcoOpId, totalPausedMs: jcoPausedMs = 0, pausedAt: jcoPausedAt } = jcoPerson.activeJobClock;
-      const jcoRawMs = new Date(jcoClockOut) - new Date(jcoClockIn);
-      // Close an in-flight pause. Only totalPausedMs was subtracted before, so
-      // ending a job WHILE paused — which is now the norm if someone finishes a
-      // job over lunch — billed the whole pause to the job.
-      const jcoOpenPauseMs = jcoPausedAt ? Math.max(0, new Date(jcoClockOut) - new Date(jcoPausedAt)) : 0;
-      const jcoHours = Math.max(0, Math.round(((jcoRawMs - jcoPausedMs - jcoOpenPauseMs) / 3600000) * 100) / 100);
+      const { clockIn: jcoClockIn, jobId: jcoJobId, panelId: jcoPanelId, opId: jcoOpId,
+        totalPausedMs: jcoPausedMs = 0, autoPausedMs: jcoAutoPausedMs = 0,
+        pausedAt: jcoPausedAt, frozenAtMs: jcoFrozenAtMs } = jcoPerson.activeJobClock;
+      // ── What this session is worth (#194/#199/#200) ──────────────────────────
+      // Was: clockOut - clockIn - totalPausedMs - openPause. Raw wall clock, which read the
+      // calendar not at all and ignored frozenAtMs and unclosedAt even though the bar the
+      // admin was looking at was pinned by both. A Friday-afternoon session nobody closed
+      // credited the entire weekend — 67.84h against 4.59h of real working time on
+      // 401944 Thacker II, and 320.55h across the nine sessions over twelve hours.
+      //
+      // Now the same function the live bar uses, so the credited number and the displayed
+      // number are the same number by construction rather than by agreement.
+      let jcoSettingsForHours = null;
+      try { jcoSettingsForHours = await readJson(settingsKey); } catch { jcoSettingsForHours = null; }
+      const jcoCfg = sessionCfg(jcoSettingsForHours);
+      const jcoWorked = sessionWorkedHours({
+        clockInMs: Date.parse(jcoClockIn),
+        clockOutMs: Date.parse(jcoClockOut),
+        pausedAt: jcoPausedAt,
+        frozenAtMs: jcoFrozenAtMs,
+        totalPausedMs: jcoPausedMs,
+        autoPausedMs: jcoAutoPausedMs,
+        cfg: jcoCfg,
+      });
+      const jcoHours = jcoWorked.hours;
+      // Only the UNCLOSED case is logged. A frozen session is somebody holding their work on
+      // purpose and is the normal path through a finish request, so logging it would bury the
+      // signal in routine traffic. An unclosed one is a forgotten clock-out — an operational
+      // problem worth seeing, and the shape that produced every one of Matrix's nine
+      // sessions over twelve hours.
+      if (jcoWorked.unclosed) {
+        logRule("session-capped", {
+          personId: String(jcoPId), opId: jcoOpId == null ? null : String(jcoOpId),
+          clockIn: jcoClockIn, clockOut: jcoClockOut,
+          rawH: Math.round(((Date.parse(jcoClockOut) - Date.parse(jcoClockIn)) / 3600000) * 100) / 100,
+          creditedH: jcoHours, grossH: jcoWorked.grossH, manualPausedH: jcoWorked.manualPausedH,
+          unclosed: jcoWorked.unclosed, frozen: jcoWorked.frozen,
+        });
+      }
 
       // A break taken on this job doesn't outlive the job — see closeActiveBreak.
       // No pause bookkeeping needed: activeJobClock is dropped whole, and the
@@ -1313,11 +1370,17 @@ export async function handler(event) {
             if (jcoWantsShrink) {
               const shrinkOp = findNode(tasks, jcoShrinkOpId);
               const storedSH = shrinkOp?.startHour ?? jcoWorkStartH;
-              const capSH = Math.round((storedSH + jcoHours) * 100) / 100 + 0.01;
+              // #203: the cap was storedSH + jcoHours — worked hours added to a wall-clock
+              // axis, so it sat short of the client's own edge by however much lunch the
+              // session crossed, and the guard flagged a correct edge as over-cap. Both
+              // sides now convert through walkProductiveHours against the same day windows.
+              const reach = walkProductiveHours(storedSH, jcoHours, jcoCfg);
+              const capReached = reach.days > 1 ? jcoCfg.workEndH : reach.endHour;
+              const capSH = Math.round(capReached * 100) / 100 + 0.01;
               let proposed = jcoProposedSH;
               if (jcoGuardMode !== "off" && proposed > capSH) {
-                jcoOverCap = { proposed, storedSH, sessionHours: jcoHours };
-                if (jcoGuardMode === "enforce") proposed = Math.round((storedSH + jcoHours) * 100) / 100;
+                jcoOverCap = { proposed, storedSH, sessionHours: jcoHours, capReached: Math.round(capReached * 100) / 100 };
+                if (jcoGuardMode === "enforce") proposed = Math.round(capReached * 100) / 100;
               }
               tasks = applyShrinkStartHour(tasks, {
                 opId: jcoShrinkOpId,
@@ -1645,6 +1708,54 @@ export async function handler(event) {
       return json(200, { ok: true, credited: mjhHours, session: added });
     }
 
+    // ── Set an op's worked-hours counter (Bearer token, no PIN) ───────────────
+    // op.loggedHours is server-owned (#323): /tasks now restores the stored value on
+    // every whole-tree POST, because an autosave that was read before a clock-out
+    // credit used to put the pre-credit number back — or delete the field outright.
+    //
+    // "Set Worked Hours" is the one place a human legitimately sets that counter, so
+    // it needs a route that is not the tree. Narrow on purpose, in the same spirit as
+    // updateJobSession: one field, one node, no merge of anything else.
+    //
+    // editJobs, not admin. That is exactly the permission the field required when it
+    // travelled through /tasks (task-perms puts loggedHours in the generic branch), so
+    // moving the write here must not quietly promote it to an admin-only action —
+    // adminJobHours, which credits the session ROWS, stays admin-only as it was.
+    if (action === "setOpWorkedHours") {
+      let _sow;
+      try { _sow = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+      if (!can(_sow, "editJobs")) return err(403, "You do not have permission to create, edit & delete jobs");
+
+      const { opId: sowOpId, hours: sowHours } = body;
+      if (!sowOpId) return err(400, "Missing opId");
+      const sowVal = Number(sowHours);
+      if (!Number.isFinite(sowVal) || sowVal < 0) return err(400, "Invalid hours");
+      const sowNext = Math.round(sowVal * 100) / 100;
+
+      let sowFound = false;
+      try {
+        await updateStampedArray(tasksKey, (stored) => (stored ?? []).map(job => {
+          if (!Array.isArray(job?.subs)) return job;
+          let touched = false;
+          const subs = job.subs.map(panel => {
+            if (!Array.isArray(panel?.subs)) return panel;
+            let hit = false;
+            const ops = panel.subs.map(op => {
+              if (!op || String(op.id) !== String(sowOpId)) return op;
+              hit = true; sowFound = true;
+              return { ...op, loggedHours: sowNext };
+            });
+            if (!hit) return panel;
+            touched = true;
+            return { ...panel, subs: ops };
+          });
+          return touched ? { ...job, subs } : job;
+        }));
+      } catch { return err(500, "Failed to save worked hours"); }
+      if (!sowFound) return err(404, "Operation not found");
+      return json(200, { ok: true, opId: String(sowOpId), loggedHours: sowNext });
+    }
+
     // ── Break Begin (Bearer token, no PIN) ────────────────────────────────────
     // Lightweight status: marks the worker on break WITHOUT touching the job
     // clock (the job keeps logging time — break time is accounted for
@@ -1838,16 +1949,16 @@ export async function handler(event) {
         await mutatePersonFresh(peopleKey, pcPId, (fresh) => ({ ...fresh, activeClockIn: null, activeBreak: null }));
       } catch { /* non-fatal */ }
 
-      // Mirror the kiosk clockOut: bump loggedHours on each referenced job.
-      if (jobRefs.length > 0 && hours > 0) {
-        try {
-          await updateStampedArray(tasksKey, (stored) => (stored ?? []).map(job => {
-            const ref = jobRefs.find(r => String(r.jobId) === String(job.id));
-            if (!ref) return job;
-            return { ...job, loggedHours: Math.round(((job.loggedHours || 0) + hours) * 100) / 100 };
-          }));
-        } catch { /* non-fatal */ }
-      }
+      // #187: the pay clock no longer credits job.loggedHours.
+      //
+      // It used to add `hours` — the whole shift — to every job in jobRefs, so a worker who
+      // picked three jobs at clock-in and worked eight hours added twenty-four. jobRefs is a
+      // record of what somebody expected to work on, not an allocation of their time, and
+      // there is nothing in it to divide the shift by. The job clock (jobClockIn/jobClockOut)
+      // is what knows how long was spent on what, and it credits all three levels.
+      //
+      // The refs stay on the entry: they are the audit trail of what was selected, and the
+      // timesheet UI reads them. Only the arithmetic is gone.
 
       return json(200, { ok: true, entry });
     }
@@ -1997,16 +2108,16 @@ export async function handler(event) {
       people[personIdx] = { ...person, activeClockIn: null, activeBreak: null };
       try { await writeStampedArray(peopleKey, people); } catch { /* non-fatal */ }
 
-      // Update loggedHours on each job in tasks.json
-      if (jobRefs.length > 0 && hours > 0) {
-        try {
-          await updateStampedArray(tasksKey, (stored) => (stored ?? []).map(job => {
-            const ref = jobRefs.find(r => String(r.jobId) === String(job.id));
-            if (!ref) return job;
-            return { ...job, loggedHours: Math.round(((job.loggedHours || 0) + hours) * 100) / 100 };
-          }));
-        } catch { /* non-fatal */ }
-      }
+      // #187: the pay clock no longer credits job.loggedHours.
+      //
+      // It used to add `hours` — the whole shift — to every job in jobRefs, so a worker who
+      // picked three jobs at clock-in and worked eight hours added twenty-four. jobRefs is a
+      // record of what somebody expected to work on, not an allocation of their time, and
+      // there is nothing in it to divide the shift by. The job clock (jobClockIn/jobClockOut)
+      // is what knows how long was spent on what, and it credits all three levels.
+      //
+      // The refs stay on the entry: they are the audit trail of what was selected, and the
+      // timesheet UI reads them. Only the arithmetic is gone.
 
       return json(200, { ok: true, entry });
     }

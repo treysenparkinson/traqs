@@ -41,7 +41,12 @@ const ok = (label, got, want) => {
 const WORKER = "7", OTHER = "8";
 const reset = () => {
   globalThis.__S3 = {
-    [K.settings]: { timeZone: "America/Denver", workStart: "07:00", workEnd: "15:00" },
+    // A 24/7 calendar with no lunch or breaks, so productive hours == wall clock and the
+    // hours assertions below do not depend on what time of day the suite is run. Since #194
+    // jobClockOut measures through productiveHoursBetween; with the real 07:00-15:00 window
+    // this fixture passed in the afternoon and credited 0h in the evening. The calendar has
+    // its own coverage in session-hours-test; this suite is about permissions and plumbing.
+    [K.settings]: { timeZone: "America/Denver", workStart: "00:00", workEnd: "24:00", workDays: [0,1,2,3,4,5,6], lunch: { durationMinutes: 0 }, breaks: [] },
     [K.people]: [
       { id: 7, name: "Wendy Worker", userRole: "user", activeClockIn: { clockIn: new Date(Date.now() - 4 * 3600e3).toISOString() } },
       { id: 8, name: "Oscar Other", userRole: "user" },
@@ -161,7 +166,11 @@ console.log("\n5. Negative controls: a worker still cannot edit the schedule thr
 for (const [label, mut, want] of [
   ["no-op re-POST", () => {}, 200],
   ["title", t => { t[0].title = "Mine now"; }, 403],
-  ["loggedHours", t => { t[0].subs[0].subs[0].loggedHours = 99; }, 403],
+  // loggedHours is no longer in this table. It used to 403 because a changed counter
+  // demanded editJobs; since #323 the server restores the stored value BEFORE classifying,
+  // so there is no change left to refuse and the POST is a 200 that did nothing. That is
+  // the stronger property and it is asserted on its own below: not "this worker was
+  // refused" but "the counter cannot be moved through this route by anyone".
   ["status", t => { t[0].subs[0].status = "In Progress"; }, 403],
   ["startHour", t => { t[0].subs[0].subs[0].startHour = 9; }, 403],
   ["pendingSession", t => { t[0].subs[0].subs[0].pendingSession = { sessionId: "S9" }; }, 403],
@@ -169,6 +178,39 @@ for (const [label, mut, want] of [
   reset(); const t = stored(); mut(t);
   ok(`worker POST changing ${label}`, (await postTasks(t)).statusCode, want);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\n6. loggedHours is server-owned (#323): a whole-tree POST cannot move it");
+// The defect this closes is not a worker reaching for a field they shouldn't have. It is the
+// ADMIN's own autosave, which carries a copy of the whole tree and happily puts a pre-credit
+// counter back — or, when the client has never seen the field, drops the key and deletes it.
+// On Matrix that erased a 67.84h credit two seconds after it landed. So the check is that the
+// stored value wins over whatever arrives, for both roles and in both directions.
+// This fixture posts as the worker throughout; concurrency-test covers the ADMIN tree POST,
+// which is the one that was actually destroying counters in production.
+for (const [label, mut] of [
+  ["raised to 99", t => { t[0].subs[0].subs[0].loggedHours = 99; }],
+  ["lowered to 0", t => { t[0].subs[0].subs[0].loggedHours = 0; }],
+  ["key deleted entirely", t => { delete t[0].subs[0].subs[0].loggedHours; }],
+]) {
+  reset();
+  const t = stored(); mut(t);
+  const res = await postTasks(t);
+  ok(`op counter survives being ${label} (HTTP ${res.statusCode})`, op().loggedHours, 2);
+}
+// The panel and job counters are the ones that were actually being lost in production —
+// the op is credited by more paths, so it drifted less. All three levels are protected.
+{
+  reset();
+  const t = stored();
+  delete t[0].loggedHours; delete t[0].subs[0].loggedHours; delete t[0].subs[0].subs[0].loggedHours;
+  await postTasks(t);
+  ok("all three levels survive a tree with every counter stripped", [job().loggedHours, panel().loggedHours, op().loggedHours], [2, 2, 2]);
+}
+// The matching case — a brand-new node keeps the counter it arrived with, so a split can
+// still write loggedHours: 0 onto the op it creates — needs someone who may create a job,
+// and this fixture is a worker throughout. It lives in concurrency-test, which posts as an
+// admin, next to the stale-copy cases.
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (pass + fail === 0) { console.error("no assertions ran"); process.exit(2); }

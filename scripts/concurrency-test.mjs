@@ -50,7 +50,12 @@ const reset = ({ conflictMode } = {}) => {
   globalThis.__WRITES = []; globalThis.__ETAGS = {}; globalThis.__PRECONDITION_FAILURES = [];
   globalThis.__BEFORE_WRITE = null;
   globalThis.__S3 = {
-    [K.settings]: { timeZone: "America/Denver" },
+    // A 24/7 calendar with no lunch or breaks, so productive hours == wall clock and the
+    // hours assertions below do not depend on what time of day the suite is run. Since #194
+    // jobClockOut measures through productiveHoursBetween; with the real 07:00-15:00 window
+    // this fixture passed in the afternoon and credited 0h in the evening. The calendar has
+    // its own coverage in session-hours-test; this suite is about permissions and plumbing.
+    [K.settings]: { timeZone: "America/Denver", workStart: "00:00", workEnd: "24:00", workDays: [0,1,2,3,4,5,6], lunch: { durationMinutes: 0 }, breaks: [] },
     [K.people]: [
       { id: 1, name: "Admin", userRole: "admin", lastModifiedAt: OLD },
       { id: 7, name: "Wendy", userRole: "user", pin: "1234", lastModifiedAt: OLD,
@@ -127,7 +132,13 @@ reset();
   adminCopy[1].title = "Other job (renamed)";
   as(ADMIN);
   const res = await post(adminCopy);
-  ok("log: nothing is refused — the stale copy is written as before", [res.statusCode, opState()], [200, ["Not Started", 2, null, 0]]);
+  // The stale copy still lands in log mode — that is what log mode means. What changed is
+  // that loggedHours does NOT come back with it: since #323 the server restores the stored
+  // counter on every whole-tree POST, regardless of mode. Status, pendingFinish and the
+  // request list are still clobbered here, which is precisely the damage enforce exists to
+  // stop, and precisely why leaving that switch at its default was not harmless.
+  ok("log: the stale copy is still written — but the counter survives it",
+    [res.statusCode, opState()], [200, ["Not Started", 3.5, null, 0]]);
   ok("log: no conflicts reported to the client", res.body?.conflicts ?? null, null);
   ok("log: the would-be conflict is logged", tagged("task-conflict").map(l => [l.mode, l.jobId]), [["log", "JOB"]]);
 }
@@ -211,6 +222,23 @@ reset();
   globalThis.__BEFORE_WRITE = null;
   ok("gives up with a 503 instead of looping", res.statusCode, 503);
   ok("and wrote nothing", job("JOB2").title, "Other job");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\n6. Server-owned counters (#323): a new node still brings its own");
+// The protection applies only to nodes the stored tree already has. If it applied to every
+// node, a split could not write loggedHours: 0 onto the op it creates and the new bar would
+// inherit the parent's hours. Posted as an admin because creating a job needs editJobs.
+reset();
+{
+  as(ADMIN);
+  const t = clone(globalThis.__S3[K.tasks]);
+  t.push({ id: "JOBN", title: "Fresh", status: "Not Started", loggedHours: 0,
+    subs: [{ id: "PN", title: "P", loggedHours: 0, subs: [{ id: "ON", title: "O", loggedHours: 0 }] }] });
+  const res = await post(t);
+  const fresh = globalThis.__S3[K.tasks].find(j => j.id === "JOBN");
+  ok("a brand-new node keeps the counter it was created with",
+    [res.statusCode, fresh?.loggedHours, fresh?.subs?.[0]?.loggedHours, fresh?.subs?.[0]?.subs?.[0]?.loggedHours], [200, 0, 0, 0]);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
