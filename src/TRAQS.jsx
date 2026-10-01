@@ -742,25 +742,11 @@ animStyle.textContent = `
   60%  { opacity: 1; transform: translateY(-3px) scale(1.01); filter: blur(0);   }
   100% { opacity: 1; transform: translateY(0)    scale(1);    filter: blur(0);   }
 }
-@keyframes springPop {
-  0%   { opacity: 0; transform: scale(0.82) translateY(12px); filter: blur(4px); }
-  55%  { opacity: 1; transform: scale(1.04) translateY(-4px); filter: blur(0);   }
-  75%  { transform: scale(0.98) translateY(1px); }
-  100% { opacity: 1; transform: scale(1)    translateY(0);    }
-}
 /* glow-pulse injected dynamically by useEffect so it tracks T.accent */
 @keyframes ghost-fade-in {
   0%   { opacity: 0; transform: scale(0.88); filter: blur(3px); }
   60%  { opacity: 1; transform: scale(1.03); filter: blur(0);   }
   100% { opacity: 1; transform: scale(1);    filter: blur(0);   }
-}
-@keyframes drag-lift {
-  from { transform: scale(1);    box-shadow: none; }
-  to   { transform: scale(1.04); box-shadow: 0 12px 32px rgba(0,0,0,0.3); }
-}
-@keyframes modalOverlayIn {
-  from { opacity: 0; }
-  to   { opacity: 1; }
 }
 @keyframes modalBoxIn {
   0%   { transform: scale(0.93) translateY(24px); }
@@ -807,14 +793,6 @@ animStyle.textContent = `
   from { opacity: 0; transform: scale(0.97); filter: blur(6px); }
   to   { opacity: 1; transform: scale(1);    filter: blur(0); }
 }
-@keyframes headerSlide {
-  0%   { opacity: 0; transform: translateY(-14px); filter: blur(3px); }
-  100% { opacity: 1; transform: translateY(0);     filter: blur(0);   }
-}
-@keyframes filterSlide {
-  0%   { opacity: 0; transform: translateY(-8px) scale(0.98); }
-  100% { opacity: 1; transform: translateY(0)    scale(1);    }
-}
 @keyframes dropIn {
   0%   { opacity: 0; transform: translateY(-8px) scale(0.93); filter: blur(3px); }
   60%  { opacity: 1; transform: translateY(2px)  scale(1.01); filter: blur(0);   }
@@ -823,16 +801,6 @@ animStyle.textContent = `
 @keyframes fadeOutDrop {
   0%   { opacity: 1; }
   100% { opacity: 0; }
-}
-@keyframes panelDropIn {
-  0%   { opacity: 0; transform: translateY(-7px); max-height: 0;    border-width: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0; overflow: hidden; }
-  85%  { opacity: 1; transform: translateY(0);    max-height: 140px;                                                                                  overflow: hidden; }
-  100% { opacity: 1; transform: translateY(0);    max-height: 2000px;                                                                                  overflow: visible; }
-}
-@keyframes panelDropOut {
-  0%   { opacity: 1; transform: translateY(0);    max-height: 2000px;                                                                                 overflow: hidden; }
-  15%  { opacity: 1; transform: translateY(0);    max-height: 140px;                                                                                  overflow: hidden; }
-  100% { opacity: 0; transform: translateY(-7px); max-height: 0;    border-width: 0; padding-top: 0; padding-bottom: 0; margin-top: 0; margin-bottom: 0; overflow: hidden; }
 }
 @keyframes gridRowIn {
   0%   { opacity: 0; transform: translateY(-7px); max-height: 0;     border-bottom-width: 0; overflow: hidden; }
@@ -856,23 +824,9 @@ animStyle.textContent = `
   from { transform: rotate(0deg);   }
   to   { transform: rotate(360deg); }
 }
-@keyframes pulseGlow {
-  0%, 100% { box-shadow: 0 2px 12px var(--glow-color, rgba(6,182,212,0.2)); }
-  50%       { box-shadow: 0 4px 24px var(--glow-color, rgba(6,182,212,0.4)); }
-}
 @keyframes staggerUp {
   0%   { opacity: 0; transform: translateY(14px) scale(0.97); }
   100% { opacity: 1; transform: translateY(0)    scale(1);    }
-}
-@keyframes badgeBounce {
-  0%   { transform: scale(0);    opacity: 0; }
-  55%  { transform: scale(1.18); opacity: 1; }
-  75%  { transform: scale(0.92);             }
-  100% { transform: scale(1);                }
-}
-@keyframes ganttBarSlide {
-  0%   { opacity: 0; transform: scaleX(0.4); transform-origin: left; }
-  100% { opacity: 1; transform: scaleX(1);   transform-origin: left; }
 }
 /* A dropped bar announces itself by ARRIVING, not by fading in (#117). Animating opacity
    meant the animation owned the property for its whole run, and opacity is where the hover
@@ -894,10 +848,6 @@ animStyle.textContent = `
   10%  { outline: 4px solid var(--glow-color, rgba(255,255,255,0.9)); outline-offset: 2px; filter: brightness(1.35); }
   30%  { outline: 3px solid var(--glow-color, rgba(255,255,255,0.6)); outline-offset: 1px; filter: brightness(1.2); }
   100% { outline: 0px solid rgba(255,255,255,0); outline-offset: 0px; filter: brightness(1); }
-}
-@keyframes glassShimmer {
-  0%   { background-position: -200% center; }
-  100% { background-position:  200% center; }
 }
 @keyframes ftIntroExit {
   0%   { opacity: 1; transform: scale(1);    filter: blur(0); }
@@ -932,12 +882,7 @@ animStyle.textContent = `
 /* Same entrance for a menu that flipped ABOVE its anchor: it grows upward from
    the pointer rather than dropping down through it. */
 .anim-ctx-up      { animation: ctxMenuInUp 0.26s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
-.anim-header      { animation: headerSlide 0.42s cubic-bezier(0.22, 1, 0.36, 1) both; }
-.anim-filter      { animation: filterSlide 0.36s cubic-bezier(0.22, 1, 0.36, 1) 0.08s both; }
 .anim-drop        { animation: dropIn      0.28s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
-.anim-badge       { animation: badgeBounce 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
-.anim-gantt-bar   { animation: ganttBarSlide 0.38s cubic-bezier(0.22, 1, 0.36, 1) both; }
-.anim-spring      { animation: springPop   0.5s  cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 .tq-new-pulse     { animation: tqNewPulse 1.6s ease-out infinite; }
 .tq-live-pulse    { animation: tqLivePulse 1.6s cubic-bezier(0.2, 0.6, 0.35, 1) infinite; }
 
@@ -1001,10 +946,18 @@ animStyle.textContent = `
 @keyframes menuInUp  { from { opacity: 0; transform: translateY(6px) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes toolDropUp { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
 
+/* The press squeeze for tabs. Tabs carry .tq-noanim, which every ::after edge rule
+   below excludes by name, so a tab opts out of the hover swell and the glass ring that
+   a <Btn> gets — and until this was wired it had no press feedback at all, which read
+   as the tab being dead rather than deliberately quiet. The scale IS the feedback here,
+   not a layer on top of one.
+
+   No overflow:hidden, unlike .anim-btn. That clip exists to contain the ::after edge,
+   and on a .tq-noanim tab there is no ::after to contain — all it could do is crop the
+   unread badge that MobileNav hangs outside its icon at top:-4/right:-6. */
 .anim-tab {
   transition: all 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
   position: relative;
-  overflow: hidden;
 }
 .anim-tab:active { transform: scale(0.94) translateY(0); transition-duration: 0.08s; }
 
@@ -1019,7 +972,6 @@ animStyle.textContent = `
 .tq-preview-anim, .tq-preview-anim * {
   transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease, fill 0.3s ease, opacity 0.3s ease, filter 0.3s ease;
 }
-@keyframes tqPreviewFade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
 @keyframes tqFadeOnly { from { opacity: 0; } to { opacity: 1; } }
 
 /* Icon-only buttons (filter, search, etc.) — same hover glow as ghost Btn, but no
@@ -1031,8 +983,8 @@ animStyle.textContent = `
 
 /* ── Universal button hover — subtle lift + accent glow on EVERY button, app-wide.
    Applies to every <button> (main pages, popups, modals, nav, toolbars) without
-   touching each one inline. --tq-glow / --tq-glow-ring are set from the active
-   theme accent (see the theme effect); they fall back to a neutral shadow on the
+   touching each one inline. --tq-glow-ring is set from the active
+   theme accent (see the theme effect); it falls back to a neutral shadow on the
    pre-login screens before the accent vars are set. !important is used so the
    effect also overrides buttons that set their own inline transition/transform/
    box-shadow. Disabled buttons are excluded; the lift is gated to real pointers
@@ -1907,8 +1859,6 @@ select:not(:disabled):active {
 }
 .anim-card-wrap:active { transform: translateY(-1px) scale(0.99); transition-duration: 0.1s; }
 
-.anim-stagger { animation: staggerUp 0.4s  cubic-bezier(0.34, 1.56, 0.64, 1) both; }
-.anim-row     { animation: fadeScale 0.28s cubic-bezier(0.22, 1, 0.36, 1) both; }
 .ft-intro-enter { animation: modalBoxIn   0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
 .ft-intro-exit  { animation: ftIntroExit  0.38s cubic-bezier(0.4, 0, 1, 1) both; }
 .ft-input-enter { animation: ftInputEnter 0.52s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
@@ -2049,7 +1999,7 @@ input[type="range"].tq-pill-range::-moz-range-thumb {
 
 /* Dropdown triggers are <div>s, so the universal button:hover rule above can't
    reach them — this mirrors it so a TRAQS dropdown lifts and glows exactly like
-   a TRAQS button. Same curve, same --tq-glow accent variable. */
+   a TRAQS button. Same curve, same --tq-glow-ring accent variable. */
 /* box-shadow fades at 0.12s, not the 0.2-0.32s it used to. The hover tint is a
    full-box inset shadow and these controls sit on a backdrop-filter surface, so
    every frame of that transition re-composites the 28px blur. A short window
@@ -3273,7 +3223,7 @@ function MobileNav({ tabs, activeId, onChange }) {
         {tabs.map(tab => {
           const isActive = activeId === tab.id;
           return (
-            <button key={tab.id} className="tq-noanim" ref={el => { btnRefs.current[tab.id] = el; }} onClick={() => onChange(tab.id)}
+            <button key={tab.id} className="tq-noanim anim-tab" ref={el => { btnRefs.current[tab.id] = el; }} onClick={() => onChange(tab.id)}
               style={{ position: "relative", zIndex: 1, flex: 1, padding: "8px 4px", border: "none", background: "transparent", cursor: "pointer", fontFamily: T.font, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
               <span style={{ lineHeight: 0, position: "relative", display: "inline-block", color: isActive ? T.accent : T.textDim }}>
                 {tab.icon}
@@ -3948,13 +3898,12 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     const a = T.accent;
     // Tint the universal button-hover glow with the active accent (see the
     // `button:hover` rule in the static stylesheet). Updates live with the theme.
-    document.documentElement.style.setProperty("--tq-glow", `${a}66`);
     document.documentElement.style.setProperty("--tq-glow-ring", `${a}40`);
     // A quieter one for buttons that sit close to a card edge (see .tq-softglow).
     // Same accent, roughly two thirds the alpha, so it still separates the button
     // from the card without carrying far enough to meet the card's own rim.
     document.documentElement.style.setProperty("--tq-glow-ring-soft", `${a}2e`);
-    el.textContent = `@keyframes glow-pulse { 0%,100% { box-shadow: 0 0 12px ${a}88, 0 0 28px ${a}44; } 50% { box-shadow: 0 0 24px ${a}cc, 0 0 52px ${a}77; } } @keyframes menuIn { from{opacity:0;transform:translateY(-6px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes toolDrop { from{opacity:0;transform:translateY(-7px)} to{opacity:1;transform:translateY(0)} } @keyframes optFlash { 0%{transform:scale(1)} 40%{background:${a}30;transform:scale(1.025)} 70%{background:${a}18;transform:scale(0.99)} 100%{background:transparent;transform:scale(1)} } @keyframes tipIn { from{opacity:0;transform:translateY(5px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes stepIn { from { opacity:0; transform:translateX(calc(var(--sd,1)*32px)) } to { opacity:1; transform:translateX(0) } } @keyframes fadeIn { from { opacity:0; } to { opacity:1; } } @keyframes popBounce { 0%{transform:scale(1)} 40%{transform:scale(1.05)} 75%{transform:scale(0.985)} 100%{transform:scale(1)} } @keyframes fastTraqIn { 0%{opacity:0;transform:translateX(28px) scale(0.7)} 55%{opacity:1;transform:translateX(-4px) scale(1.04)} 80%{transform:translateX(1px) scale(0.99)} 100%{opacity:1;transform:translateX(0) scale(1)} } @keyframes cancelScoot { 0%{transform:translateX(0)} 30%{transform:translateX(-6px)} 70%{transform:translateX(2px)} 100%{transform:translateX(0)} } @keyframes toastInOut { 0%{opacity:0;transform:translate(-50%,12px) scale(0.85)} 12%{opacity:1;transform:translate(-50%,-3px) scale(1.06)} 22%{opacity:1;transform:translate(-50%,0) scale(1)} 78%{opacity:1;transform:translate(-50%,0) scale(1)} 100%{opacity:0;transform:translate(-50%,-8px) scale(0.94)} } @keyframes checkCircle { 0%{stroke-dashoffset:88;opacity:0.6} 100%{stroke-dashoffset:0;opacity:1} } @keyframes checkDraw { 0%{stroke-dashoffset:30} 30%{stroke-dashoffset:30} 100%{stroke-dashoffset:0} } @keyframes checkPop { 0%{transform:scale(0.4)} 60%{transform:scale(1.2)} 100%{transform:scale(1)} } @keyframes newBadgePulse { 0%,100%{box-shadow:0 0 0 0 ${a}66} 50%{box-shadow:0 0 0 6px ${a}00} }`;
+    el.textContent = `@keyframes glow-pulse { 0%,100% { box-shadow: 0 0 12px ${a}88, 0 0 28px ${a}44; } 50% { box-shadow: 0 0 24px ${a}cc, 0 0 52px ${a}77; } } @keyframes menuIn { from{opacity:0;transform:translateY(-6px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes toolDrop { from{opacity:0;transform:translateY(-7px)} to{opacity:1;transform:translateY(0)} } @keyframes optFlash { 0%{transform:scale(1)} 40%{background:${a}30;transform:scale(1.025)} 70%{background:${a}18;transform:scale(0.99)} 100%{background:transparent;transform:scale(1)} } @keyframes tipIn { from{opacity:0;transform:translateY(5px) scale(0.97)} to{opacity:1;transform:translateY(0) scale(1)} } @keyframes stepIn { from { opacity:0; transform:translateX(calc(var(--sd,1)*32px)) } to { opacity:1; transform:translateX(0) } } @keyframes fadeIn { from { opacity:0; } to { opacity:1; } } @keyframes popBounce { 0%{transform:scale(1)} 40%{transform:scale(1.05)} 75%{transform:scale(0.985)} 100%{transform:scale(1)} } @keyframes toastInOut { 0%{opacity:0;transform:translate(-50%,12px) scale(0.85)} 12%{opacity:1;transform:translate(-50%,-3px) scale(1.06)} 22%{opacity:1;transform:translate(-50%,0) scale(1)} 78%{opacity:1;transform:translate(-50%,0) scale(1)} 100%{opacity:0;transform:translate(-50%,-8px) scale(0.94)} } @keyframes checkDraw { 0%{stroke-dashoffset:30} 30%{stroke-dashoffset:30} 100%{stroke-dashoffset:0} } @keyframes checkPop { 0%{transform:scale(0.4)} 60%{transform:scale(1.2)} 100%{transform:scale(1)} } @keyframes newBadgePulse { 0%,100%{box-shadow:0 0 0 0 ${a}66} 50%{box-shadow:0 0 0 6px ${a}00} }`;
   }, [T.accent]);
   // Solid chrome color + the translucent tint used by opt-in `.tq-frost` content (job-list sections).
   useEffect(() => {
@@ -3987,7 +3936,6 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     document.documentElement.style.setProperty("--tq-accent-hover", hexA(T.accent, 0.07));
     document.documentElement.style.setProperty("--tq-primary-text", T.systemText || T.text);
     document.documentElement.style.setProperty("--tq-frost-bg", T.adaptive ? hexA(solid, (T.cardOpacity ?? 80) / 100) : solid);
-    document.documentElement.style.setProperty("--tq-bg-image", T.adaptive && T.bgImage ? `url("${T.bgImage}")` : "none");
     // ── Liquid glass (see .traqs-glass .tq-lglass) ──────────────────────────
     // The login kiosk's recipe, ported to the themed surfaces: a milky fill at
     // 64%, heavy blur, and a lit rim. The kiosk hardcodes white because it runs
@@ -4135,7 +4083,6 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     // panel in grey and read as part of the glass being dark. Light themes get a
     // cool, much fainter shadow; dark themes keep a deep one to hold the edge.
     document.documentElement.style.setProperty("--tq-lglass-shadow", lightSurface ? "0 20px 48px rgba(16,24,40,0.13)" : "0 24px 60px rgba(0,0,0,0.34)");
-    document.documentElement.style.setProperty("--tq-lglass-shadow-hover", lightSurface ? "0 22px 52px rgba(16,24,40,0.17)" : "0 20px 52px rgba(0,0,0,0.36)");
     // Modal scrim. This — not the fill — was the main reason the glass read dark:
     // overlays paint black at 50–75%, and the panel's backdrop-filter samples
     // exactly that, so every popup was gathering a near-black ground no matter how
@@ -6069,8 +6016,6 @@ Extraction rules:
     .ts-sum .ts-tot{margin-left:auto;font-weight:700;color:#0f172a}
     .ts-grand{display:flex;gap:16px;padding:8px 10px;font-size:11px;font-weight:700;color:#0f172a;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px}
     .ts-grand .ts-tot{margin-left:auto}
-    .ts-legend{display:flex;gap:18px;font-size:10px;color:#64748b;padding:0 2px}
-    .ts-legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:5px;border:1px solid rgba(0,0,0,0.12)}
     .ts-key{width:100%;border:1px solid #e2e8f0;border-radius:8px;padding:8px 10px;background:#fff}
     .ts-key-title{font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:5px}
     .ts-key-row{display:flex;align-items:center;gap:6px;font-size:10px;color:#475569;margin-top:3px}
@@ -21030,7 +20975,7 @@ ${jobsCtx || "No jobs found."}`;
                     { id: "timesheets", label: "Timesheets" },
                     { id: "finishRequests", label: pendingFinishOps.length > 0 ? `Requests (${pendingFinishOps.length})` : "Requests" },
                   ].map(tab => (
-                    <button key={tab.id} className="tq-noanim" onClick={() => setTsAdminTab(tab.id)} style={{ flex: 1, padding: "13px 4px", background: "none", border: "none", borderBottom: `2.5px solid ${tsAdminTab === tab.id ? T.accent : "transparent"}`, color: tsAdminTab === tab.id ? T.accent : T.textDim, fontSize: 12, fontWeight: tsAdminTab === tab.id ? 700 : 500, cursor: "pointer", fontFamily: T.font, marginBottom: -1 }}>
+                    <button key={tab.id} className="tq-noanim anim-tab" onClick={() => setTsAdminTab(tab.id)} style={{ flex: 1, padding: "13px 4px", background: "none", border: "none", borderBottom: `2.5px solid ${tsAdminTab === tab.id ? T.accent : "transparent"}`, color: tsAdminTab === tab.id ? T.accent : T.textDim, fontSize: 12, fontWeight: tsAdminTab === tab.id ? 700 : 500, cursor: "pointer", fontFamily: T.font, marginBottom: -1 }}>
                       {tab.label}
                     </button>
                   ))}
@@ -21662,7 +21607,7 @@ ${jobsCtx || "No jobs found."}`;
                 { id: "timesheets", label: "Timesheets" },
                 { id: "finishRequests", label: pendingFinishOps.length > 0 ? `Finish Requests (${pendingFinishOps.length})` : "Finish Requests" },
               ].map(tab => (
-                <button key={tab.id} className="tq-noanim" onClick={() => setTsAdminTab(tab.id)} style={{ padding: "16px 18px", background: "transparent", border: "none", borderBottom: `2px solid ${tsAdminTab === tab.id ? T.accent : "transparent"}`, color: tsAdminTab === tab.id ? T.accent : T.textDim, fontSize: 13, fontWeight: tsAdminTab === tab.id ? 700 : 500, cursor: "pointer", fontFamily: T.font, marginBottom: -1, transition: "color 0.15s" }}>
+                <button key={tab.id} className="tq-noanim anim-tab" onClick={() => setTsAdminTab(tab.id)} style={{ padding: "16px 18px", background: "transparent", border: "none", borderBottom: `2px solid ${tsAdminTab === tab.id ? T.accent : "transparent"}`, color: tsAdminTab === tab.id ? T.accent : T.textDim, fontSize: 13, fontWeight: tsAdminTab === tab.id ? 700 : 500, cursor: "pointer", fontFamily: T.font, marginBottom: -1 }}>
                   {tab.label}
                 </button>
               ))}
@@ -22323,7 +22268,7 @@ ${jobsCtx || "No jobs found."}`;
         {!prefOpen && isAdmin && (
           <div style={{ display: "flex", borderBottom: `1px solid ${T.border}`, background: T.surface, flexShrink: 0 }}>
             {[{ id: "main", label: "General" }, { id: "org", label: "Organization" }].map(tab => (
-              <button key={tab.id} className="tq-noanim" onClick={() => setSettingsTab(tab.id)} style={{ flex: 1, padding: "11px 0", background: "none", border: "none", borderBottom: `2.5px solid ${settingsTab === tab.id ? T.accent : "transparent"}`, color: settingsTab === tab.id ? T.accent : T.textDim, fontSize: 13, fontWeight: settingsTab === tab.id ? 700 : 500, cursor: "pointer", fontFamily: T.font, marginBottom: -1, transition: "color 0.15s" }}>
+              <button key={tab.id} className="tq-noanim anim-tab" onClick={() => setSettingsTab(tab.id)} style={{ flex: 1, padding: "11px 0", background: "none", border: "none", borderBottom: `2.5px solid ${settingsTab === tab.id ? T.accent : "transparent"}`, color: settingsTab === tab.id ? T.accent : T.textDim, fontSize: 13, fontWeight: settingsTab === tab.id ? 700 : 500, cursor: "pointer", fontFamily: T.font, marginBottom: -1 }}>
                 {tab.label}
               </button>
             ))}
@@ -28367,10 +28312,8 @@ ${jobsCtx || "No jobs found."}`;
               its color/opacity/shadow changes instead of snapping. */}
           <style>{`
             .tq-preview-anim, .tq-preview-anim * { transition: background-color 0.45s ease-out, background 0.45s ease-out, color 0.45s ease-out, border-color 0.45s ease-out, box-shadow 0.45s ease-out, fill 0.45s ease-out, opacity 0.45s ease-out, filter 0.45s ease-out, height 0.3s ease, margin-bottom 0.3s ease, transform 0.3s ease !important; }
-            @keyframes tqPreviewFade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
             @keyframes tqFadeOnly { from { opacity: 0; } to { opacity: 1; } }
             @keyframes tqWipe { from { opacity: 1; } to { opacity: 0; } }
-            @keyframes tqDip { 0% { opacity: 0; } 45% { opacity: 1; } 55% { opacity: 1; } 100% { opacity: 0; } }
           `}</style>
           {/* Header */}
           <div style={{ padding: "16px 22px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>

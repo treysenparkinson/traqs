@@ -815,7 +815,7 @@ Everything else was read at the cited line. Nothing was run against live data.
 
 1. A test that passes on a path nothing executes is worse than no test. No test is a known
    gap; a green assertion over dead code is a gap that reports itself as covered, and it is
-   found only by accident. Three of these turned up in a single day:
+   found only by accident. Four of these turned up in a single day:
 
    - `web-gates-test`'s multi-line patterns could not match a CRLF working copy, so four
      `not:` clauses could never fire. Four permission gates read green while asserting
@@ -826,9 +826,16 @@ Everything else was read at the cited line. Nothing was run against live data.
      coverage at all until root cause 9 chunk 2.
    - `resize-test` passed `showLockedError` into a fixture for a parameter `resizeSession`
      does not read, for a function the app never called.
+   - `css-dead-test`'s own check that no wired tab carries an inline `transition` matched
+     tags with `className="..." [^>]*? style={{...}}`, which cannot cross the `=>` inside
+     `onClick={() => ...}`. It found zero tags, ran its loop zero times, asserted nothing,
+     and contributed nothing to the pass count — so there was not even a green line to
+     notice. Written in the same sitting as this lesson, by the author of this lesson.
 
-   The common shape is that all three looked like coverage in the file and in the pass
-   count. What distinguishes a real assertion is that it can be made to FAIL: prove it by
+   The common shape is that all four looked like coverage in the file and in the pass
+   count — and the last one did not even manage that, which is worse: a loop over an empty
+   match set leaves no trace at all. Any assertion inside a loop needs a companion assertion
+   on the loop's own count. What distinguishes a real assertion is that it can be made to FAIL: prove it by
    mutating the source and watching it go red, the way the reassign gates and the CRLF fix
    were proven. An assertion that has only ever been green has not been tested either.
 
@@ -836,10 +843,30 @@ Everything else was read at the cited line. Nothing was run against live data.
    because four chosen names had disappeared, while `copyItem` and `doPaste` sat in the file
    under names nobody had thought to search. A reachability fixpoint does not need the list.
 
-3. A sweep that finds nothing is the moment to check the sweep, not to conclude the code is
-   clean. The first unreachability pass returned zero because a setter's own declaration was
-   being counted as an escaping reference, which silently disqualified every `useState` in
-   the codebase — including the one case already known to be true.
+3. A sweep that returns zero is when to check the sweep, not when to conclude the code is
+   clean. Root cause 9 produced four false zeros, each from a different mistake, and every
+   one of them looked exactly like a clean result:
+
+   - The chunk 1 unreachability pass returned zero because a setter's own declaration was
+     counted as an escaping reference, which silently disqualified every `useState` in the
+     codebase — including `taskSubView`, the one case already known to be true (#319).
+   - The chunk 3 custom-property sweep reported "0 declared, 0 unread" beside a live
+     `var(--tq-surface-edge)`. Every one of the 32 properties is written through
+     `setProperty` and none is declared in CSS text, so a `--x:` pattern matched nothing
+     at all and reported that as nothing wrong. Three write-only properties were hiding
+     behind that zero.
+   - The first chunk 3 CSS parser sliced its chunks with a `<style>...</style>` regex over
+     JSX, which swallowed `{SCREEN_CSS}` and let JS braces into the brace counter. It
+     returned JS comments as selectors and double-counted rules.
+   - The same parser folded a comment sitting above a rule into that rule's selector, so
+     `.tq-lglass-noedge` was never evaluated as a class rule. It surfaced only when the
+     parser was fixed for an unrelated reason — and it turned out to be a rule kept on
+     purpose, with the reason written above it.
+
+   Two shapes recur: a filter that is wrong about the data's actual form (properties are set
+   from JS, not declared in CSS), and a parser that silently mis-slices (comments, braces).
+   The cheap defence is a canary — search for something you know is there, and for something
+   you know is not, before trusting the count in between.
 ## DEFECT LIST
 
 1. The server enforces no schedule rule (overlap, lock, department, business days, past, active clock); `fn/tasks.js` checks permissions only.
@@ -1162,3 +1189,5 @@ Everything else was read at the cited line. Nothing was run against live data.
 318. Hover sibling-dimming keys on `task.pid`, which is the PARENT id, so it means a different thing at each level: an op bar keys on its panel, a panel bar on its job. Hovering an op therefore highlights its sibling ops but never its own panel, and two ops of the same job in different panels never highlight together. The right key is the JOB id (the thing a person thinks of as "this job") for every level, which for an op is `task.grandPid`, for a panel `task.pid`, and for a general sub `task.pid`. Since root cause 8 chunk B this is one attribute -- `data-pid` on the bar and `data-row-pids` on the row label -- rather than render logic. Not fixed.
 319. The Jobs page has three sub-views and two of them cannot be reached. `taskSubView` is `useState("list")` and the only setter call in the file is `setTaskSubView("list")`, so neither `taskSubView === "cards"` (234 lines) nor `taskSubView === "gantt"` (#132) can ever render. The gantt went in root cause 9; the cards sub-view is held deliberately, pending a look at what it was meant to be — it is a different feature, not a duplicate of something live. Not fixed, not deleted.
 320. Sorting the Jobs list and the gantt by project or by client is unreachable, but the PREFERENCE that selects it is still persisted. `jobSort` (J:5016) and `gSort` (J:5214) are `usePersistedUI` values with no setter call anywhere in the file — the controls that set them are gone, while the two sort arms each reads (J:12022-12023 and J:15289-15290) remain. For a new account the arms can never run; for anyone whose browser still holds `tq_ui_<org>_jobSort` = "project" from an older build they run today, which is why this is not safe to treat as dead code. Both were already orphaned before root cause 9 — each had exactly one occurrence before and after that commit. The fix is to restore the controls, not to cut the arms: deleting would confirm the loss for the people who used it most, and would leave the stored key behind. Found by the chunk 1 unreachability sweep (root cause 9). Not fixed.
+321. Stylesheets are duplicated across the global sheet and the per-view inline `<style>` blocks. The `.subtle-all-btn` sheet (564 chars) is pasted verbatim three times (J:12293, 13452, 15283), and eight keyframe names are declared more than once: `spin` ×3, `toolDrop` ×3, `tqFadeOnly` ×3, `menuIn` ×2, `gridRowIn` ×2, `gridRowOut` ×2, `tqWipe` ×2, `tqPadIn` ×2. The browser uses the last declaration, so every copy but one can never change behaviour. NOT a dead-code job and deliberately not touched in root cause 9 chunk 3: the comment at J:991 records why these copies exist — `toolDrop` was once declared only inside the Jobs view's `<style>`, so the dropdown row cascade silently did nothing on every other page, and `menuIn` was never declared at all despite ~20 call sites. That was fixed by hoisting both into the global sheet; the local copies were left behind. Consolidating them risks reintroducing exactly the scoping bug the hoist fixed, which is a change that needs its own verification pass rather than a deletion. Found by the chunk 3 CSS sweep. Not fixed.
+322. FIXED (root cause 9 chunk 3). 27 unreachable declarations in the stylesheets, 65 lines. Seven entrance classes nothing ever applied (`.anim-header`, `.anim-filter`, `.anim-badge`, `.anim-gantt-bar`, `.anim-spring`, `.anim-stagger`, `.anim-row`) — a vocabulary only half adopted, while their siblings `.anim-btn` (~94 call sites), `.anim-card`, `.anim-drop`, `.anim-ctx` and `.anim-modal-*` are live across 174. A rename leftover, `.ts-legend`, orphaned when the export legend moved to `class="ts-key"`. Sixteen keyframes, five of which were dead only BECAUSE the seven class rules were: each had exactly one reference and all five lived inside one of them, so a by-name list would have kept them and only a fixpoint finds them. Three custom properties written on every theme change and read by nobody (`--tq-bg-image`, `--tq-glow`, `--tq-lglass-shadow-hover`); `--tq-glow` is the trap, since `--tq-glow-ring` and `--tq-glow-ring-soft` ARE read and two comments called the dead one load-bearing. `.anim-tab` was dead the opposite way round — written, reviewed, never put on an element — so tabs had no press feedback at all, which reads as a dead control rather than a quiet one; it is now wired to all four tab components (MobileNav, both Time Stamp admin rows, the settings tabs), the two inline `transition: "color 0.15s"` declarations that would have outranked it are gone, and `overflow: hidden` was dropped from the rule because a `.tq-noanim` tab has no `::after` to clip and the clip could only crop MobileNav unread badge. `.tq-lglass-noedge` is unreachable and KEPT — the comment above it says why. scripts/css-dead-test.mjs holds the record: 48 assertions, all seven mutations caught, including invariants that every keyframe is referenced, every class rule reachable and every custom property read back.
