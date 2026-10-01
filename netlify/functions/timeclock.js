@@ -4,6 +4,7 @@ import { updateJson } from "./_utils/update-json.js";
 import { DEFAULT_ORG_SETTINGS } from "../../src/orgDefaults.js";
 import { buildDayWindows, sessionWorkedHours, walkProductiveHours } from "../../src/statsMath.js";
 import { ruleMode, logRule } from "./_utils/rule-mode.js";
+import { recordRuleEvents } from "./_utils/rule-log.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
 import { orgCodeFromHeader } from "./_utils/org.js";
@@ -210,21 +211,25 @@ function invalidSessionFields(jc, fields, nowMs) {
   const bad = [];
   const clockInMs = new Date(jc?.clockIn).getTime();
   const latest = nowMs + SESSION_SKEW_MS;
+  // `value` and `bound` ride along with every rejection (#327): a record saying only that
+  // frozenAtMs was "in the future" cannot be judged without knowing how far into the future
+  // and against what — a phone two minutes out of step is a different problem from a client
+  // sending garbage, and the fix is different too.
   const instant = (field, v, asMs) => {
     if (v === undefined || v === null) return;
     const t = asMs ? (typeof v === "number" ? v : NaN) : (typeof v === "string" ? new Date(v).getTime() : NaN);
-    if (!Number.isFinite(t)) bad.push({ field, why: asMs ? "not a number" : "not a time" });
-    else if (Number.isFinite(clockInMs) && t < clockInMs) bad.push({ field, why: "before clock-in" });
-    else if (t > latest) bad.push({ field, why: "in the future" });
+    if (!Number.isFinite(t)) bad.push({ field, why: asMs ? "not a number" : "not a time", value: String(v).slice(0, 60), bound: null });
+    else if (Number.isFinite(clockInMs) && t < clockInMs) bad.push({ field, why: "before clock-in", value: new Date(t).toISOString(), bound: new Date(clockInMs).toISOString(), byMs: t - clockInMs });
+    else if (t > latest) bad.push({ field, why: "in the future", value: new Date(t).toISOString(), bound: new Date(latest).toISOString(), byMs: t - latest });
   };
   instant("drainCheckpoint", fields.drainCheckpoint, false);
   instant("frozenAtMs", fields.frozenAtMs, true);
   instant("unclosedAt", fields.unclosedAt, false);
   const p = fields.pausedMsAtCheckpoint;
   if (p !== undefined && p !== null) {
-    if (typeof p !== "number" || !Number.isFinite(p)) bad.push({ field: "pausedMsAtCheckpoint", why: "not a number" });
-    else if (p < 0) bad.push({ field: "pausedMsAtCheckpoint", why: "negative" });
-    else if (Number.isFinite(clockInMs) && p > nowMs - clockInMs + SESSION_SKEW_MS) bad.push({ field: "pausedMsAtCheckpoint", why: "more than the session's elapsed time" });
+    if (typeof p !== "number" || !Number.isFinite(p)) bad.push({ field: "pausedMsAtCheckpoint", why: "not a number", value: String(p).slice(0, 60), bound: null });
+    else if (p < 0) bad.push({ field: "pausedMsAtCheckpoint", why: "negative", value: p, bound: 0 });
+    else if (Number.isFinite(clockInMs) && p > nowMs - clockInMs + SESSION_SKEW_MS) bad.push({ field: "pausedMsAtCheckpoint", why: "more than the session's elapsed time", value: p, bound: nowMs - clockInMs + SESSION_SKEW_MS, byMs: p - (nowMs - clockInMs + SESSION_SKEW_MS) });
   }
   return bad;
 }
@@ -1417,6 +1422,17 @@ export async function handler(event) {
         if (jcoOverCap) {
           logRule("session-guard", { mode: jcoGuardMode, guard: "shrinkStartHour", field: "startHour",
             personId: String(jcoPId), opId: String(jcoShrinkOpId), ...jcoOverCap });
+          // The bound here is what the session could have reached, so the record says how far
+          // past it the client's edge was — a client a few minutes out is a clock-skew
+          // problem, one hours past is a bug in the shrink arithmetic (#327).
+          await recordRuleEvents(orgCode, [{
+            tag: "session-guard", mode: jcoGuardMode, refused: jcoGuardMode === "enforce",
+            guard: "shrinkStartHour", field: "startHour",
+            value: jcoOverCap.proposed, bound: jcoOverCap.capReached ?? null,
+            byH: jcoOverCap.capReached != null ? Math.round((jcoOverCap.proposed - jcoOverCap.capReached) * 100) / 100 : null,
+            storedSH: jcoOverCap.storedSH, sessionHours: jcoOverCap.sessionHours,
+            opId: String(jcoShrinkOpId), personId: String(jcoPId),
+          }], { personId: _jco.personId, isAdmin: !!_jco.isAdmin, email: _jco.email });
         }
       }
 
@@ -1490,6 +1506,12 @@ export async function handler(event) {
         logRule("session-guard", { mode: ujsGuardMode, guard: "updateJobSession", field: bad.field, why: bad.why,
           personId: String(ujsPId), sessionId: String(ujsSessionId) });
       }
+      if (ujsBad.length) await recordRuleEvents(orgCode, ujsBad.map(bad => ({
+        tag: "session-guard", mode: ujsGuardMode, refused: ujsGuardMode === "enforce",
+        guard: "updateJobSession", field: bad.field, why: bad.why,
+        value: bad.value ?? null, bound: bad.bound ?? null, byMs: bad.byMs ?? null,
+        personId: String(ujsPId), sessionId: String(ujsSessionId),
+      })), { personId: _ujs.personId, isAdmin: !!_ujs.isAdmin, email: _ujs.email });
       if (ujsFail) return ujsFail;
 
       // Freezing a held session also stamps op.pendingSession — everything approve/deny

@@ -42,7 +42,15 @@ const reset = (mode) => {
   logs = [];
   globalThis.__WRITES = []; globalThis.__ETAGS = {}; globalThis.__BEFORE_WRITE = null;
   globalThis.__S3 = {
-    [K.settings]: { timeZone: "America/Denver", workStart: "07:00", workEnd: "15:00" },
+    // 24/7, no lunch, no breaks — so a session backdated an hour is worth exactly one hour
+    // whatever time of day the suite runs. Since #194 jobClockOut credits productive hours
+    // and since #203 the startHour cap walks the day windows, so with a real 07:00-15:00
+    // calendar this fixture's "stored + worked" expectations moved with the clock: 9 in the
+    // morning, 8.91 once a break fell inside the backdated hour, 8 after 15:00. The guards
+    // under test here are about bounds and modes, not about the calendar, which has its own
+    // coverage in session-hours-test.
+    [K.settings]: { timeZone: "America/Denver", workStart: "00:00", workEnd: "24:00",
+      workDays: [0, 1, 2, 3, 4, 5, 6], lunch: { durationMinutes: 0 }, breaks: [] },
     [K.people]: [
       { id: 1, name: "Admin", userRole: "admin" },
       { id: 7, name: "Wendy", userRole: "user", color: "#111",

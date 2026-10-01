@@ -19,34 +19,72 @@
 //   ONLY ON AN EVENT. The file is written when there is something to record, which on
 //   Matrix is roughly 18 writes in two days, so the extra round trip is not on the hot path.
 //
-//   BOUNDED. Append-only forever is a file that eventually cannot be read. It keeps the most
-//   recent MAX_RECORDS and reports how many it has dropped, so a truncated history says so
-//   rather than looking complete.
+//   BOUNDED PER TAG. Append-only forever is a file that eventually cannot be read. It keeps
+//   the most recent MAX_PER_TAG of EACH tag and reports what it dropped, per tag, so a
+//   truncated history says so rather than looking complete.
 //
 //   NO BEHAVIOUR CHANGE. Nothing here decides anything. It records what the caller already
 //   decided, which is the point: it has to be safe to switch on while the flags stay in log.
 import { updateJson } from "./update-json.js";
 
-const MAX_RECORDS = 5000;
+// ONE file, not one per tag: the reader does a single GET and groups, instead of seven
+// fetches that can disagree about which window they cover.
+//
+// The cap is PER TAG, which is the part that matters. A global cap would let the noisy tags
+// starve the valuable ones — hpd-default-write fires on every save from an old iOS build and
+// server-owned-field on every clock-out that races an autosave, while task-conflict fires
+// maybe eighteen times in two days. One global 5,000 and the rare events are gone by morning,
+// which is the same failure as logging to a place nobody can read: the data looks collected
+// and the thing you needed is missing.
+const MAX_PER_TAG = 1500;
+const KEY = (orgCode) => `orgs/${orgCode}/rule-events.json`;
 
 /**
  * Append rule events for one org.
  *
+ * Every record gets the same base — tag, timestamp, mode, refused, caller — and whatever the
+ * rule's own decision turned on. `refused` is what the server ACTUALLY did, not what the mode
+ * is called, so a record always says whether the write went through.
+ *
  * @param orgCode  the org whose file to write
- * @param events   [{ tag, ...fields }] — already-shaped records, as passed to logRule
- * @param who      { personId, isAdmin, email } the caller, so a pattern can be traced to one client
+ * @param events   [{ tag, mode, refused, ...ruleSpecific }]
+ * @param who      { personId, isAdmin, email } — so a pattern can be traced to one client
  */
 export async function recordRuleEvents(orgCode, events, who = {}) {
   if (!orgCode || !Array.isArray(events) || !events.length) return;
   const at = new Date().toISOString();
-  const rows = events.map((e) => ({ at, ...e, by: who.personId ?? null, isAdmin: !!who.isAdmin, email: who.email ?? null }));
+  const rows = events
+    .filter((e) => e && e.tag)
+    .map((e) => ({
+      at,
+      tag: e.tag,
+      mode: e.mode ?? null,
+      refused: e.refused === true,
+      by: who.personId ?? null,
+      isAdmin: !!who.isAdmin,
+      email: who.email ?? null,
+      ...e,
+    }));
+  if (!rows.length) return;
   try {
-    await updateJson(`orgs/${orgCode}/conflicts.json`, (stored) => {
+    await updateJson(KEY(orgCode), (stored) => {
       const prev = Array.isArray(stored) ? stored : (stored && Array.isArray(stored.records) ? stored.records : []);
-      const dropped = (stored && !Array.isArray(stored) && Number(stored.dropped)) || 0;
+      const droppedPrev = (stored && !Array.isArray(stored) && stored.dropped && typeof stored.dropped === "object") ? stored.dropped : {};
       const next = [...prev, ...rows];
-      const over = Math.max(0, next.length - MAX_RECORDS);
-      return { value: { dropped: dropped + over, records: over ? next.slice(over) : next } };
+      // Trim per tag, oldest first, preserving the overall chronological order of what's left.
+      const counts = new Map();
+      for (const r of next) counts.set(r.tag, (counts.get(r.tag) || 0) + 1);
+      const dropped = { ...droppedPrev };
+      const over = new Map();
+      for (const [tag, n] of counts) if (n > MAX_PER_TAG) over.set(tag, n - MAX_PER_TAG);
+      if (!over.size) return { value: { dropped, records: next } };
+      const keep = [];
+      for (const r of next) {
+        const o = over.get(r.tag) || 0;
+        if (o > 0) { over.set(r.tag, o - 1); dropped[r.tag] = (dropped[r.tag] || 0) + 1; continue; }
+        keep.push(r);
+      }
+      return { value: { dropped, records: keep } };
     });
   } catch { /* diagnostics must never fail the write they describe */ }
 }
@@ -99,4 +137,4 @@ function clip(s, max = 160) {
   return s.length > max ? s.slice(0, max) + "…" : s;
 }
 
-export { MAX_RECORDS };
+export { MAX_PER_TAG };

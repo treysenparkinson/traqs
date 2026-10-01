@@ -228,34 +228,63 @@ export async function handler(event) {
 
       // Logged once, for the pass that decided the outcome (never per retry).
       const who = { personId: member.personId != null ? String(member.personId) : null, isAdmin: !!member.isAdmin };
+      // Every rule event is written twice: to the function log, which is immediate and
+      // useless a day later, and to orgs/{org}/rule-events.json, which is the one that can
+      // be read back (#327). Collected into a single list so the whole request costs one
+      // append rather than one per rule. Awaited — serverless freezes after the response —
+      // but recordRuleEvents can never throw, so it cannot fail the save it describes.
+      const durable = [];
+      const ua = event.headers?.["user-agent"] || event.headers?.["User-Agent"] || null;
+
       if (conflictMode !== "off") {
         for (const c of attempt.conflicts) logRule("task-conflict", { mode: conflictMode, jobId: c.id, incomingStamp: c.incomingStamp, storedStamp: c.storedStamp, fieldCount: c.fieldCount, ...who });
-        // ...and durably, because the console.warn above goes somewhere nothing can read it
-        // back (#327). This is what decides whether TASK_CONFLICT_MODE can be turned to
-        // enforce: the field list says whether a refusal would have landed on a clobber or
-        // on somebody legitimately moving a bar. Awaited so the record cannot be lost to the
-        // function being frozen after the response, but it can never fail the write.
-        await recordRuleEvents(orgCode, attempt.conflicts.map(c => ({
-          tag: "task-conflict", mode: conflictMode, jobId: c.id,
-          incomingStamp: c.incomingStamp, storedStamp: c.storedStamp, staleByMs: c.staleByMs,
-          fieldCount: c.fieldCount, fields: c.fields,
-          refused: conflictMode === "enforce",
-        })), who);
+        // The field list is what decides whether TASK_CONFLICT_MODE can go to enforce: it
+        // says whether a refusal would have landed on a clobber or on somebody legitimately
+        // moving a bar.
+        for (const c of attempt.conflicts) durable.push({
+          tag: "task-conflict", mode: conflictMode, refused: conflictMode === "enforce",
+          jobId: c.id, incomingStamp: c.incomingStamp, storedStamp: c.storedStamp,
+          staleByMs: c.staleByMs, fieldCount: c.fieldCount, fields: c.fields,
+        });
       }
       // Not a mode, so this is never a "would have refused" line — it is a record of a
       // clobber that WAS prevented, and the volume is the measure of how often the race
       // actually fires. A `stored: null` means the incoming copy had dropped the key.
       for (const k of (attempt.counterKeeps || [])) {
         logRule("server-owned-field", { ...k, ...who });
+        durable.push({ tag: "server-owned-field", mode: null, refused: true, ...k });
       }
       for (const id of attempt.hpdDefaults) {
-        logRule("hpd-default-write", { id, ...who, userAgent: event.headers?.["user-agent"] || event.headers?.["User-Agent"] || null });
+        logRule("hpd-default-write", { id, ...who, userAgent: ua });
+        // No decision to record — the write always goes through. What makes it worth
+        // keeping is WHICH client is doing it: the point of #301 is to find the build that
+        // decodes a missing hpd as 7.5, and the User-Agent is the only thing that names it.
+        durable.push({ tag: "hpd-default-write", mode: null, refused: false, id, userAgent: ua });
       }
-      for (const v of attempt.overlaps) logRule("schedule-rule", { mode: overlapMode, rule: v.rule, id: v.id, jobId: v.jobId, withId: v.withId, personId: v.personId, day: v.day, detail: v.detail, by: who.personId, isAdmin: who.isAdmin });
-      if (attempt.gateDiff) logRule("permission-gate", { mode: gateMode, gate: "taskPerms", ...attempt.gateDiff, ...who });
+      for (const v of attempt.overlaps) {
+        logRule("schedule-rule", { mode: overlapMode, rule: v.rule, id: v.id, jobId: v.jobId, withId: v.withId, personId: v.personId, day: v.day, detail: v.detail, by: who.personId, isAdmin: who.isAdmin });
+        // Its own tag, though it shares one in the function log. The overlap rule has its own
+        // switch and its own tier gate, so a reader counting "schedule-rule" was adding two
+        // different decisions together and could not tell which flag the number belonged to.
+        durable.push({ tag: "overlap-rule", mode: overlapMode, refused: overlapMode === "enforce",
+          rule: v.rule, opId: v.id, withOpId: v.withId, jobId: v.jobId, personId: v.personId, day: v.day, detail: v.detail });
+      }
+      if (attempt.gateDiff) {
+        logRule("permission-gate", { mode: gateMode, gate: "taskPerms", ...attempt.gateDiff, ...who });
+        // Only written when the two classifiers DISAGREE, so the record is the disagreement:
+        // which way each went, the permission at stake, and the reason given.
+        durable.push({ tag: "permission-gate", mode: gateMode, refused: gateMode === "enforce" && attempt.gateDiff.next === "refuse",
+          gate: "taskPerms", legacy: attempt.gateDiff.legacy, next: attempt.gateDiff.next,
+          perms: attempt.gateDiff.perms, reason: attempt.gateDiff.reason });
+      }
       if (rulesMode !== "off") {
         for (const v of attempt.violations) logRule("schedule-rule", { mode: rulesMode, rule: v.rule, id: v.id, jobId: v.jobId, detail: v.detail, ...who });
+        for (const v of attempt.violations) durable.push({
+          tag: "schedule-rule", mode: rulesMode, refused: rulesMode === "enforce",
+          rule: v.rule, opId: v.id, jobId: v.jobId, detail: v.detail, value: v.value ?? null, bound: v.bound ?? null,
+        });
       }
+      await recordRuleEvents(orgCode, durable, who);
       if ("abort" in result) return result.abort;
 
       const { reconciled, existing } = result;

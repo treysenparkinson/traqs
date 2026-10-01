@@ -70,6 +70,17 @@ export async function handler(event) {
       // still refused as before and the would-be allowance recorded.
       if (!mayManage) {
         const isNoop = changedIds(reconciled, existing).length === 0;
+        // Console only, deliberately NOT written to rule-events.json (#327).
+        //
+        // Every field of this record is fixed: the gate, the permission, the action and the
+        // reason are the same on every occurrence, and the decision is the same too — a
+        // no-op save from a caller without manageClients. It carries no information that
+        // changes with the outcome, which is the test for whether a record is worth keeping.
+        // All it could tell you is a count, and buying that count costs an S3 read-modify-
+        // write on a path every worker's client-list autosave takes, several times a minute
+        // with a browser left open. The tasks.js permission-gate record is the one that
+        // decides PERMISSION_GATES_MODE, and it is written only when the two classifiers
+        // actually disagree.
         if (isNoop) logRule("permission-gate", { mode: gateMode, gate: "clientsNoop", personId: member.personId != null ? String(member.personId) : null });
         if (!isNoop || gateMode !== "enforce") {
           try { requirePerm(member, "manageClients"); } catch (e) { return err(e.statusCode, e.message); }

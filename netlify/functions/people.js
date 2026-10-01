@@ -2,13 +2,14 @@ import { requireOrgMember } from "./_utils/auth.js";
 import { can } from "./_utils/can.js";
 import { readJson, writeJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
-import { orgKey } from "./_utils/org.js";
+import { orgKey, orgCodeFromHeader } from "./_utils/org.js";
 import { stampArray, nowIso, reconcileDeletions, softDelete, changedIds } from "./_utils/timestamps.js";
 import { filterLive } from "./_utils/entities.js";
 import { publishChange } from "./_utils/ably-publish.js";
 import { sendSilentPush } from "./_utils/push.js";
 import { encryptPin, decryptPin } from "./_utils/pin.js";
 import { ruleMode, logRule } from "./_utils/rule-mode.js";
+import { recordRuleEvents } from "./_utils/rule-log.js";
 
 // Escalation-sensitive person fields a non-admin must never set on themselves
 // or anyone: PTO must flow through timeoff.js approval, and pay/permissions/
@@ -287,12 +288,24 @@ export async function handler(event) {
       // Stripped in enforce; recorded in log (see _utils/rule-mode.js).
       const sessionGuardMode = ruleMode("SCHEDULE_RULES_MODE");
       if (sessionGuardMode !== "off") {
+        const guarded = [];
         for (const k of PATCH_PINNED_SESSION_FIELDS) {
           if (!(k in allowedFields)) continue;
           logRule("session-guard", { mode: sessionGuardMode, guard: "peoplePatch", field: k,
             personId: String(personId), by: member.personId != null ? String(member.personId) : null });
+          // The bound is "this field is server-owned at all" — there is no numeric limit to
+          // breach, so the value is what the client tried to write and that is the whole of
+          // the decision (#327). Clipped: activeJobClock carries a sessionSnapshot.
+          guarded.push({
+            tag: "session-guard", mode: sessionGuardMode, refused: sessionGuardMode === "enforce",
+            guard: "peoplePatch", field: k, why: "server-owned field sent by a client",
+            value: JSON.stringify(allowedFields[k] ?? null).slice(0, 200), bound: "not writable through PATCH",
+            personId: String(personId),
+          });
           if (sessionGuardMode === "enforce") delete allowedFields[k];
         }
+        if (guarded.length) await recordRuleEvents(orgCodeFromHeader(event), guarded,
+          { personId: member.personId != null ? String(member.personId) : null, isAdmin: !!member.isAdmin, email: member.email });
       }
 
       existing[idx] = withBreakStart({ ...existing[idx], ...allowedFields }, existing[idx]);

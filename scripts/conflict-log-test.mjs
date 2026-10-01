@@ -23,7 +23,7 @@ let tasksFn;
 try { tasksFn = (await import(new URL("../netlify/functions/tasks.js", import.meta.url).href)).handler; }
 catch (e) { console.error("could not load tasks.js:", e); process.exit(2); }
 
-const K = { tasks: "orgs/TESTORG/tasks.json", conflicts: "orgs/TESTORG/conflicts.json",
+const K = { tasks: "orgs/TESTORG/tasks.json", conflicts: "orgs/TESTORG/rule-events.json",
   people: "orgs/TESTORG/people.json", settings: "orgs/TESTORG/settings.json" };
 
 let pass = 0, fail = 0;
@@ -155,6 +155,54 @@ reset();
   ok("the POST does not throw", threw, null);
   ok("...and still returns 200", res?.statusCode, 200);
   ok("...and the task edit landed", globalThis.__S3[K.tasks][0].subs[0].subs[0].startHour, 13);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\n6. Every tag carries the same base, plus what its own decision turned on");
+// The base is what makes one file readable: group by tag, and every row already says when,
+// in which mode, whether it was refused, and by whom. The rule-specific half is what makes
+// it decidable — "a schedule rule fired" is the count we already could not get.
+reset();
+{
+  const t = staleCopy();
+  t[0].subs[0].subs[0].startHour = 13;
+  delete t[0].subs[0].subs[0].loggedHours;      // → server-owned-field
+  await post(t);
+  const tags = [...new Set(recs().map(r => r.tag))].sort();
+  ok("one write produced records for every rule it tripped", tags, ["server-owned-field", "task-conflict"]);
+  for (const r of recs()) {
+    ok(`${r.tag}: has the full base`,
+      [typeof r.at === "string" && r.at.length > 20, "mode" in r, typeof r.refused === "boolean", "by" in r, "isAdmin" in r],
+      [true, true, true, true, true]);
+  }
+  const sof = recs().find(r => r.tag === "server-owned-field");
+  ok("server-owned-field names the field and both values", [sof.field, sof.incoming, sof.stored], ["loggedHours", null, 10]);
+  ok("...and says it was refused, because that write is always undone", sof.refused, true);
+}
+// A record that would be identical whichever way the rule decided is not worth writing — so
+// nothing is recorded for a request that tripped no rule at all.
+reset();
+{
+  await post(STORED());
+  ok("a clean write records nothing at all", (globalThis.__S3[K.conflicts]?.records || []).length, 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\n7. A noisy tag cannot evict a rare one");
+// The whole point of a per-tag cap. With one global cap, server-owned-field — which fires on
+// every clock-out that races an autosave — would push out the task-conflict records that are
+// the reason the file exists.
+{
+  const { recordRuleEvents, MAX_PER_TAG } = await import(new URL("../netlify/functions/_utils/rule-log.js", import.meta.url).href);
+  globalThis.__S3 = {}; globalThis.__WRITES = []; globalThis.__ETAGS = {};
+  await recordRuleEvents("TESTORG", [{ tag: "task-conflict", jobId: "RARE" }], { personId: "7" });
+  const noisy = Array.from({ length: MAX_PER_TAG + 50 }, (_, i) => ({ tag: "server-owned-field", id: "N" + i }));
+  await recordRuleEvents("TESTORG", noisy, { personId: "7" });
+  const doc = globalThis.__S3["orgs/TESTORG/rule-events.json"];
+  const kept = doc.records.filter(r => r.tag === "task-conflict");
+  ok("the rare record survives 1,550 noisy ones", [kept.length, kept[0]?.jobId], [1, "RARE"]);
+  ok("...the noisy tag is capped", doc.records.filter(r => r.tag === "server-owned-field").length, MAX_PER_TAG);
+  ok("...and the file says what it dropped, per tag", doc.dropped, { "server-owned-field": 50 });
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
