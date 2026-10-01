@@ -7,7 +7,7 @@ import { setShopZone, shopDay, shopHour, shopMs } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
 import { planDragMove, refuseDragMove, applyDragMove, moveLogEntry, refusalMessage, shiftStart, resizeShare, resizeSession, applySplit, workedSplitParts, overdueUnits, landUnit } from "./dragMove.js";
 import { overlapsWith, occupyingUnits, clearOverlaps, planPushes, capacityWarnings, unitBlocks, blocksOverlap, shiftWorkingDays, nextFreeStart, schedulerAvailability } from "./overlapRules.js";
-import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, setOpWorkedHoursAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
+import { fetchTasks, saveTasks, fetchPeople, savePeople, fetchClients, saveClients, callAI, fetchMessages, postMessage, deleteThread, fetchReads, markThreadReadServer, markThreadsReadServer, uploadAttachment, fetchGroups, saveGroups, callNotify, fetchTimeclock, fetchProductionHours, clockInAction, clockOutAction, adminClockOutAction, adminClockInAction, adminEditEntryAction, adminEditActiveClockInAction, adminTimeclockEventAction, adminEditEventAction, adminAddEventAction, adminDeleteEventAction, adminDeleteEntryAction, adminReopenEntryAction, adminJobHoursAction, setOpWorkedHoursAction, releaseJobSessionAction, confirmTimesheetAction, unconfirmTimesheetAction, fetchOrgSettings, saveOrgSettings, fetchUserSettings, saveUserSettings, timeclockEventAction, jobClockInAction, jobClockOutAction, updateJobSessionAction, breakBeginAction, breakClearAction, createInvite, listInvites, revokeInvite, fetchBilling, requestBusinessTier, fetchOrgConfig, updateOrgCode, updateOrgName, updateOrgDomain, deleteOrg, fetchTimeOffRequests, submitTimeOffRequest, decideTimeOffRequest, editTimeOffRequest } from "./api.js";
 import { TRAQS_LOGO_BLUE, TRAQS_LOGO_WHITE, UL_LOGO_WHITE } from "./logo.js";
 import { TraqsBars, BARS_ASPECT, BRAND_BARS } from "./brand.jsx";
 import { pushSupported, pushPermission, registerAndSubscribe, ensureSubscribed, watchTheme, setActiveThread } from "./push.js";
@@ -16,6 +16,7 @@ import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
 import { BASIC_FEATURES, BUSINESS_FEATURES, TIER_LABEL, upgradeMailto } from "./tiers.js";
+import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState } from "./finishRequests.js";
 import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, opDaySegments, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
 import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, dayShiftToClear, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
@@ -5691,7 +5692,7 @@ Extraction rules:
   useEffect(() => {
     const active = people.filter(p => p.activeJobClock?.clockIn && !p.activeJobClock.frozenAtMs);
     if (active.length === 0) return;
-    const toFreeze = active.filter(p => findOp(tasks, p.activeJobClock.opId)?.pendingFinish);
+    const toFreeze = active.filter(p => pendingFinishOf(findOp(tasks, p.activeJobClock.opId)));
     if (toFreeze.length === 0) return;
     const nowMs = Date.now();
     setTasks(prevTasks => {
@@ -9473,6 +9474,25 @@ Extraction rules:
   // recent moveLog entry belongs to THIS session — if an admin dragged it again afterward (no
   // sessionId, or a different one), that drag wins and the op is left alone. An op the session
   // never touched already matches its snapshot, so skipping it is a no-op with the right result.
+  // End the hold a finish request put on a session (#177/#179), on the SERVER — the only
+  // place it can be ended. Both decision surfaces call this, so the chat bubble and the
+  // Requests tab cannot drift the way approve and reject already had.
+  //
+  //   "resume"  declined: lift the freeze, the worker carries on
+  //   "clear"   approved: the work is done, end the session
+  //
+  // Best-effort and never blocking: the decision itself is already recorded in tasks.json,
+  // and a failure here must not make a completed approval look like it failed. A session the
+  // worker already ended comes back released:false, which is a success.
+  const releaseSessionFor = (session, outcome) => {
+    const personId = session?.personId
+      ?? people.find(p => p.activeJobClock?.sessionId === session?.sessionId)?.id;
+    if (!personId) return;
+    releaseJobSessionAction({ personId, sessionId: session?.sessionId ?? null, outcome }, getToken, orgCode)
+      .then(r => { if (!r?.ok) console.warn("[finish] releaseJobSession failed:", r?.error); })
+      .catch(() => console.warn("[finish] releaseJobSession network error"));
+  };
+
   const revertSession = (taskList, session, movedByName) => {
     let result = taskList;
     (session.sessionSnapshot || []).forEach(snap => {
@@ -10685,13 +10705,13 @@ ${jobsCtx || "No jobs found."}`;
     const now = new Date().toISOString();
     const newReq = { id: requestId, by: loggedInUser.id, byName: loggedInUser.name, at: now, status: "pending" };
 
-    // Recursive state update — writes finishRequest/finishRequests to the found item at any depth
+    // #173/#174. This wrote finishRequest + finishRequests[] and NOT pendingFinish — and the
+    // freeze effect and the Requests tab both key on pendingFinish, so a request raised here
+    // never froze the session and no admin ever saw it. 9 of the 11 open-request moments in
+    // Matrix's history are this exact state. openRequest is now the single writer of all
+    // three, so a call site cannot set two of them any more.
     const addFinishReq = (items) => items.map(item => {
-      if (item.id === itemId) return {
-        ...item,
-        finishRequest: { requestId, by: loggedInUser.id, byName: loggedInUser.name, at: now },
-        finishRequests: [...(item.finishRequests || []), newReq],
-      };
+      if (item.id === itemId) return { ...item, ...openRequest(item, { requestId, by: loggedInUser.id, byName: loggedInUser.name, at: now }) };
       if (item.subs?.length) return { ...item, subs: addFinishReq(item.subs) };
       return item;
     });
@@ -10776,6 +10796,13 @@ ${jobsCtx || "No jobs found."}`;
     }
     setTasks(newTasks);
     setTimeout(() => doSaveRef.current(), 0);
+    // #179. The chat approve never ended the session at all — not even optimistically — so a
+    // worker approved from a bubble stayed clocked into finished work until they noticed.
+    {
+      const _sess = (opId ? (job.subs || []).flatMap(p => p.subs || []).find(o => sameId(o.id, opId))
+                         : (job.subs || []).find(p => sameId(p.id, panelId)))?.pendingSession;
+      if (_sess) releaseSessionFor(_sess, "clear");
+    }
     toast("Completion approved");
     // No follow-up message is posted. The decision belongs ON the request bubble,
     // which now reads "APPROVED BY <name>" from resolvedByName/resolvedAt — a
@@ -10822,6 +10849,20 @@ ${jobsCtx || "No jobs found."}`;
       });
       newTasks = updateItem(tasks, opId || panelId);
       label = opId ? `${panel.title} › ${target.title}` : target.title;
+    }
+    // #178. The chat deny skipped revertSession entirely, so an op declined from a bubble
+    // kept the position the session had worked it down to — the bar stayed where the work
+    // had pushed it while the status said the work was not accepted. The Requests-tab
+    // decline has always reverted; the two surfaces simply disagreed.
+    {
+      const _tgt = opId ? (job.subs || []).flatMap(p => p.subs || []).find(o => sameId(o.id, opId))
+                        : (job.subs || []).find(p => sameId(p.id, panelId));
+      const _sess = _tgt?.pendingSession;
+      if (_sess) {
+        newTasks = revertSession(newTasks, _sess, loggedInUser?.name || "Admin");
+        // #177, the same hold the Requests tab lifts: declined means carry on.
+        releaseSessionFor(_sess, "resume");
+      }
     }
     setTasks(newTasks);
     setTimeout(() => doSaveRef.current(), 0);
@@ -11732,7 +11773,9 @@ ${jobsCtx || "No jobs found."}`;
   const activeTasks = sortTasks(filtered.filter(t => t.status !== "Finished" && jobSearchMatch(t))).map(_persTrim);
 
   // Pending finish requests (admin-only)
-  const finishRequests = tasks.filter(t => t.finishRequest);
+  // #176. This read the singular pointer at JOB level only — a fourth reader with a fifth
+  // meaning, blind to panels and ops, which is every request anyone actually raises.
+  const finishRequests = tasks.filter(t => pendingFinishOf(t));
 
   // Engineering Queue: incomplete panels. Engineering Finished: all steps done.
   const engQueueItems = [];
@@ -17140,7 +17183,7 @@ ${jobsCtx || "No jobs found."}`;
                     : _barState === "held" ? "HELD"
                     : _barState === "paused" ? "LUNCH"
                     : _barState === "running" ? "LIVE"
-                    : (!isPto && bar.task?.pendingFinish) ? "HELD"
+                    : (!isPto && pendingFinishOf(bar.task)) ? "HELD"
                     : null;
                   // THE ALERT CHANNEL: one mark at the right edge, three meanings, highest first.
                   // They are one question -- has this run past its end -- and they share the only
@@ -19477,7 +19520,7 @@ ${jobsCtx || "No jobs found."}`;
 
     const pendingFinishOps = tasks.flatMap(job =>
       (job.subs || []).flatMap(panel =>
-        (panel.subs || []).filter(op => op.pendingFinish).map(op => ({ job, panel, op }))
+        (panel.subs || []).filter(op => pendingFinishOf(op)).map(op => ({ job, panel, op }))
       )
     );
 
@@ -19524,7 +19567,13 @@ ${jobsCtx || "No jobs found."}`;
       // the chat-bubble approve. The two surfaces had drifted: this one repositioned the bar and
       // that one did not, so which button an admin pressed decided whether the DONE bar landed
       // behind the cursor or stayed lying across it.
-      const updated = { ...op, ...finishedOpFields(op, loggedInUser?.name || "Admin") };
+      // #175. finishedOpFields deliberately leaves finishRequest/finishRequests alone — it is
+      // shared with the chat path, which does its own bookkeeping — so this surface set
+      // pendingFinish false and left the list entry PENDING and the singular pointer set.
+      // One of the 11 open-request moments in Matrix's history is that residue, on an op that
+      // was already Finished. resolveRequest closes the list and the mirror together.
+      const updated = { ...op, ...finishedOpFields(op, loggedInUser?.name || "Admin"),
+        ...resolveRequest(op, { status: "approved", by: loggedInUser?.id ?? null, at: new Date().toISOString() }) };
       const newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : updated) }) });
       const finalTasks = session ? recalcBounds(newTasks, loggedInUser?.name || "Admin") : newTasks;
       setTasks(finalTasks); setTimeout(() => doSaveRef.current(), 0);
@@ -19534,17 +19583,29 @@ ${jobsCtx || "No jobs found."}`;
       // still-clocked-in, this local clear will be overwritten back to "active" by the next
       // /people poll until they actually clock out via jobClockOut, which nulls it for real.
       // Usually harmless — the op is already Finished, so there's nothing left to drain/cascade.
-      if (session) setPeople(pp => pp.map(p => p.activeJobClock?.sessionId === session.sessionId ? { ...p, activeJobClock: null } : p));
+      // #179. The local clear below is still worth doing — it makes the row stop pulsing at
+      // once — but it is not the fix. releaseJobSession is what actually ends the session on
+      // the server, so the next /people poll does not put it back.
+      if (session) {
+        setPeople(pp => pp.map(p => p.activeJobClock?.sessionId === session.sessionId ? { ...p, activeJobClock: null } : p));
+        releaseSessionFor(session, "clear");
+      }
     };
     const rejectFinish = (job, panel, op) => {
       if (!can("approveCompletions")) return denied("decline completions");
       toast("Completion declined");
       const session = op.pendingSession;
-      let newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : { ...o, pendingFinish: false, pendingSession: undefined }) }) });
+      // #175, the decline half: this cleared the mirror and left the list entry pending, so
+      // the request came straight back the moment anything read the list.
+      const declined = { pendingSession: undefined, ...resolveRequest(op, { status: "declined", by: loggedInUser?.id ?? null, at: new Date().toISOString() }) };
+      let newTasks = tasks.map(t => t.id !== job.id ? t : { ...t, subs: (t.subs||[]).map(p => p.id !== panel.id ? p : { ...p, subs: (p.subs||[]).map(o => o.id !== op.id ? o : { ...o, ...declined }) }) });
       if (session) newTasks = revertSession(newTasks, session, loggedInUser?.name || "Admin");
       setTasks(newTasks); setTimeout(() => doSaveRef.current(), 0);
-      // See approveFinish — optimistic-only, same reason.
-      if (session) setPeople(pp => pp.map(p => p.activeJobClock?.sessionId === session.sessionId ? { ...p, activeJobClock: null } : p));
+      // #177. A decline means "keep going", so the session RESUMES rather than ending: the
+      // hold that the finish request put on it is lifted and the bar starts moving again.
+      // Nothing ever sent frozenAtMs: null before, so a declined request left the worker
+      // frozen indefinitely — told to carry on, with a bar that never moved.
+      if (session) releaseSessionFor(session, "resume");
     };
 
     // ── Shared numpad component ───────────────────────────────────────────────

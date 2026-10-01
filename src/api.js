@@ -996,3 +996,16 @@ export async function requestBusinessTier(getToken, orgCode) {
   }
   return res.json();
 }
+
+// Release a job session held by a finish request (#177/#179). `outcome` is "resume" (deny:
+// un-freeze, the worker carries on) or "clear" (approve: end the session). Needed because a
+// client can only clear activeJobClock in local state, which the next /people poll undoes.
+// payload: { personId, sessionId?, outcome }
+export const releaseJobSessionAction = async (payload, getToken, orgCode) => {
+  const headers = await authHeaders(getToken, orgCode);
+  return fetch(`${BASE}/timeclock`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ action: "releaseJobSession", ...payload }),
+  }).then(r => r.json());
+};

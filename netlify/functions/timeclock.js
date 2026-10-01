@@ -3,6 +3,7 @@ import { can, canClockIn, personCan } from "./_utils/can.js";
 import { updateJson } from "./_utils/update-json.js";
 import { DEFAULT_ORG_SETTINGS } from "../../src/orgDefaults.js";
 import { buildDayWindows, sessionWorkedHours, walkProductiveHours } from "../../src/statsMath.js";
+import { openRequest, resolveRequest, pendingFinishOf } from "../../src/finishRequests.js";
 import { ruleMode, logRule } from "./_utils/rule-mode.js";
 import { recordRuleEvents } from "./_utils/rule-log.js";
 import { readJson, writeJson } from "./_utils/s3.js";
@@ -1730,6 +1731,57 @@ export async function handler(event) {
       return json(200, { ok: true, credited: mjhHours, session: added });
     }
 
+    // ── Release a held job session (Bearer token, no PIN) ─────────────────────
+    // #177/#179. A finish request FREEZES the session: the effect at TRAQS.jsx:5691 stamps
+    // frozenAtMs so the bar stops where the work stopped while the decision is pending. Both
+    // halves of that decision then failed to undo it, in different ways:
+    //
+    //   deny    nothing ever sent frozenAtMs: null, so the session stayed held. The worker
+    //           was told to carry on and their bar did not move again.
+    //   approve the client cleared activeJobClock in local state only, and the comment at
+    //           :19532 is explicit that the next /people poll puts it straight back —
+    //           updateJobSession merges two fields and savePeople cannot touch a
+    //           server-owned one. So there was no way to end it from here at all.
+    //
+    // Narrow on purpose, like setOpWorkedHours: two outcomes, no general patch of the
+    // session. `resume` un-freezes and leaves the worker on the job; `clear` ends it.
+    if (action === "releaseJobSession") {
+      let _rjs;
+      try { _rjs = await requireOrgMember(event); } catch (e) { return err(e.statusCode || 401, e.message); }
+
+      const { personId: rjsPId, sessionId: rjsSessionId, outcome } = body;
+      if (!rjsPId) return err(400, "Missing personId");
+      if (outcome !== "resume" && outcome !== "clear") return err(400, "outcome must be resume or clear");
+      // Whoever may decide a completion may end the hold it created; a worker may always
+      // release their own. Anything else is someone reaching into another person's clock.
+      const rjsSelf = String(_rjs.personId) === String(rjsPId);
+      if (!rjsSelf && !_rjs.isAdmin && !can(_rjs, "approveCompletions")) return err(403, "You do not have permission to approve completions");
+
+      let rjsPeople;
+      try { rjsPeople = await readJson(peopleKey) ?? []; } catch { return err(500, "Failed to read people"); }
+      const rjsIdx = rjsPeople.findIndex(p => String(p.id) === String(rjsPId));
+      if (rjsIdx === -1) return err(404, "Person not found");
+      const rjsJc = rjsPeople[rjsIdx].activeJobClock;
+      // Nothing to release is a success, not an error: the worker may have clocked out
+      // between the admin opening the bubble and pressing the button, and a 409 there would
+      // turn a completed decision into a failure the admin has to think about.
+      if (!rjsJc) return json(200, { ok: true, released: false, reason: "no active job clock" });
+      // A sessionId that no longer matches means this decision belongs to a session that has
+      // already ended — releasing the CURRENT one would end work that nobody decided about.
+      if (rjsSessionId && rjsJc.sessionId && String(rjsJc.sessionId) !== String(rjsSessionId)) {
+        return json(200, { ok: true, released: false, reason: "session already ended" });
+      }
+
+      if (outcome === "clear") {
+        rjsPeople[rjsIdx] = { ...rjsPeople[rjsIdx], activeJobClock: null };
+      } else {
+        const { frozenAtMs: _f, unclosedAt: _u, ...resumed } = rjsJc;
+        rjsPeople[rjsIdx] = { ...rjsPeople[rjsIdx], activeJobClock: resumed };
+      }
+      try { await writeStampedArray(peopleKey, rjsPeople); } catch { return err(500, "Failed to save"); }
+      return json(200, { ok: true, released: true, outcome });
+    }
+
     // ── Set an op's worked-hours counter (Bearer token, no PIN) ───────────────
     // op.loggedHours is server-owned (#323): /tasks now restores the stored value on
     // every whole-tree POST, because an autosave that was read before a clock-out
@@ -2217,21 +2269,33 @@ export async function handler(event) {
       const requestId = `fr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const at = new Date().toISOString();
 
-      let people = [];
-      try { people = (await readJson(peopleKey)) ?? []; } catch { people = []; }
+      // The PIN gate above already read the roster to verify this caller, so this used to be
+      // a second S3 read of the same file, shadowing the first under the same name.
       const nameOf = id => people.find(p => String(p.id) === String(id))?.name || null;
 
-      // This endpoint is PIN/kiosk-style (no bearer token), so the requester is
-      // whatever the caller supplied, else the op's first team member — the
-      // person actually working it.
-      let byId = body.personId ?? null;
-      let byName = body.personName ?? null;
+      // #180. This action sits BELOW the PIN gate at the top of this block, so `personId`
+      // has already been matched against a verified PIN — the entry's "unauthenticated with
+      // a caller-supplied id" is not what the code does. What was true:
+      //
+      //   * no check that the caller has anything to do with the op, so any PIN holder
+      //     could raise a completion request against anyone else's work;
+      //   * no idempotency, so `finishRequests` grew by one entry per call forever, on a
+      //     509 KB file that is read and written on every save;
+      //   * `personName` was taken from the body and shown on the request and in chat, so
+      //     the id was right and the name was whatever the caller sent.
+      //
+      // The requester is now the verified person, full stop. The name comes from the roster.
+      const byId = String(personId);
+      let byName = null;                       // resolved from the roster below, never from the body
+      // `person` is the PIN-verified record from the gate above, so this is the real role,
+      // not a claim in the body.
+      const _frIsAdmin = String(person?.userRole || "") === "admin";
       let updated = false;
+      let notOnTeam = false, alreadyOpen = false;
       let jobTitle = "", panelTitle = "", opTitle = "", jobNumber = null;
-      const frById = byId;
 
       const frMutate = (stored) => {
-      updated = false; byId = frById;
+      updated = false; notOnTeam = false; alreadyOpen = false;
       const tasks = (stored ?? []).map(job => {
         if (String(job.id) !== String(jobId)) return job;
         jobTitle = job.title || ""; jobNumber = job.jobNumber ?? null;
@@ -2244,16 +2308,19 @@ export async function handler(event) {
               ...panel,
               subs: (panel.subs || []).map(op => {
                 if (String(op.id) !== String(opId)) return op;
-                updated = true;
                 opTitle = op.title || "";
-                if (byId == null) byId = (op.team || [])[0] ?? null;
-                const entry = { id: requestId, by: byId, byName: byName || nameOf(byId) || "Field", at, status: "pending" };
-                return {
-                  ...op,
-                  pendingFinish: true,
-                  finishRequest: { requestId, by: entry.by, byName: entry.byName, at },
-                  finishRequests: [...(op.finishRequests || []), entry],
-                };
+                // SCOPE (#180). A completion request is a statement about work you did, so
+                // it has to come from someone the op belongs to. Admins keep the override —
+                // they can already approve the thing, so refusing them the request would be
+                // a gate that protects nothing.
+                const onTeam = (op.team || []).some(t => String(t) === byId);
+                if (!onTeam && !_frIsAdmin) { notOnTeam = true; return op; }
+                // IDEMPOTENCY (#180). One open request per op. Without this every call
+                // appended another entry, with no dedupe and no cap — the same request
+                // tapped twice on a phone wrote two, and a loop wrote as many as it liked.
+                if (pendingFinishOf(op)) { alreadyOpen = true; return op; }
+                updated = true;
+                return { ...op, ...openRequest(op, { requestId, by: byId, byName, at }) };
               }),
             };
           }),
@@ -2262,11 +2329,19 @@ export async function handler(event) {
 
       return updated ? tasks : null;
       };
+      // The roster name, resolved before the write so the entry carries it (#180). The body's
+      // personName is ignored entirely — it was the spoofable half.
+      byName = nameOf(byId) || "Field";
+
       try { await updateStampedArray(tasksKey, frMutate); }
       catch (e) { return err(e.statusCode === 503 ? 503 : 500, e.statusCode === 503 ? e.message : "Failed to save tasks"); }
+      // Order matters: "not yours" and "already open" are both reasons the op was FOUND and
+      // not written, so they have to be answered before the 404.
+      if (notOnTeam) return err(403, "You can only request completion for an operation you are assigned to");
+      // Not an error. Asking twice is what a worker does when the first tap looked like it
+      // did nothing, and a 409 on the second would be a bug report rather than a no-op.
+      if (alreadyOpen) return json(200, { ok: true, alreadyOpen: true });
       if (!updated) return err(404, "Operation not found");
-
-      byName = byName || nameOf(byId) || "Field";
 
       // Drop it into the same "Completion Requests" group the desktop uses, so
       // web- and iOS-originated requests land in one thread. Matched by name
