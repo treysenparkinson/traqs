@@ -92,10 +92,12 @@ console.log("4. #87 — every unfinished unit the schedule hides is listed");
 console.log("5. the web (TRAQS.jsx)");
 {
   check("the dead split is deleted", () => (!/applyWorkedSplit/.test(WEB) ? true : "still there"));
-  check("all three splits go through applySplit (schedule drag, Gantt, Split Job)", () => eq((WEB.match(/applySplit\(/g) || []).length, 3));
-  check("both drag splits refuse without editJobs (#44)", () => eq((WEB.match(/kind: "splitPermission"/g) || []).length, 2));
+  // Two surfaces now, not three: the Gantt was deleted in root cause 9 (#132) and took its
+  // own split with it. Still an exact count, so a fourth caller appearing is still a failure.
+  check("both splits go through applySplit (schedule drag, Split Job)", () => eq((WEB.match(/applySplit\(/g) || []).length, 2));
+  check("the drag split refuses without editJobs (#44)", () => eq((WEB.match(/kind: "splitPermission"/g) || []).length, 1));
   check("the Split Job modal needs editJobs", () => (/const doSplit = \(\) => \{\s*if \(!can\("editJobs"\)\)/.test(WEB) ? true : "no gate"));
-  check("the Gantt split runs the shared checks", () => { const a = WEB.indexOf("Auto-split on drag-end for partially-worked ops (Gantt)"); return /refuseLanding\(_plan\)/.test(WEB.slice(a, a + 3000)) ? true : "no checks"; });
+  // ("the Gantt split runs the shared checks" retired with renderGantt — root cause 9, #132.)
   check("'Move Just This Job' and the push dialog are gone (#63)", () => (!/Move Just This Job|onConfirmSingle|setConfirmPush|previewPush|applyPushes/.test(WEB) ? true : "still there"));
   check("Reschedule refuses through the shared checks", () => { const a = WEB.indexOf("Apply Schedule</Btn>"); return /refuseLanding\(\[/.test(WEB.slice(a - 2500, a)) ? true : "no checks"; });
   check("the overdue badge is on every row, in both views (#87)", () => eq((WEB.match(/\{overdueBadge\(p\.id\)\}/g) || []).length, 2));

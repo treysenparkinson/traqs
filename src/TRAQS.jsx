@@ -1161,8 +1161,6 @@ select:not(.tq-sq) { padding-left: 14px; padding-right: 12px; }
    editable) rather than mounted on demand — a node created while the cursor is
    already inside it paints with :hover matched from its very first frame, so
    there's no starting opacity to transition from and it pops in instead. */
-.sched-person-glow { opacity: 0; transition: opacity 0.25s ease-in-out; }
-.sched-person:hover .sched-person-glow { opacity: 1; }
 /* Toolbar search pills (Schedule + Jobs). They're <div> wrappers, not <button>,
    so the universal button lift/glow above never reached them and they sat flat
    so the universal button rule above never reached them and they sat flat next to
@@ -2279,65 +2277,6 @@ function placePopover(r, count, rowH = 35, width = 0) {
 const LIVE_BADGE_LABEL = { running: "LIVE", held: "HELD", paused: "LUNCH" };
 
 
-// The reservoir's drained portion. It covers the block from its left edge up to the
-// drain front, so only the LEFT corners are rounded -- rounding all four left two
-// stray rounded corners floating mid-bar. The front is drawn in the bar's own
-// colour: it is the edge that moves, mirroring the live bar's cap travelling the
-// other way. Caller supplies left/width.
-function drainMaskStyle(T, barColor, rowH) {
-  return {
-    position: "absolute", top: 4, height: rowH - 8, boxSizing: "border-box",
-    // Floor, for the same reason the live bar has one: width is a percentage minus a
-    // pixel constant, so early in a session calc() goes negative and CSS clamps it to
-    // 0 -- taking the drain front with it, because a border-box border cannot render
-    // at width 0. At month zoom that hid the drain for roughly a quarter hour, i.e.
-    // the reservoir appeared not to drain at precisely the moment it starts. The 2px
-    // slightly over-represents how much has gone; the live bar already accepts that
-    // trade, and these two must appear together or the "fills as it empties" pairing
-    // is broken at the only moment anyone is watching for it. Lives in the helper, not
-    // at the call sites, so the two masks cannot drift apart again.
-    minWidth: 2,
-    borderRadius: `${T.radiusXs}px 0 0 ${T.radiusXs}px`,
-    background: spentBarFill(T, barColor),
-    borderRight: `2px solid ${barColor}`,
-    zIndex: 14, pointerEvents: "none",
-  };
-}
-
-// The live bar. Only a running session accrues, so only it gets the solid fill and
-// the leading cap marking the growing edge; stopped sessions take the spent fill, so
-// "washed" means "not accruing" everywhere on the row. No border on the body:
-// day-mode bars have none either, and the cap alone is what the live bar does not
-// share with a scheduled bar. Caller supplies left/width/cursor.
-// widthPx is the bar's RENDERED width. It is not decoration: box-sizing is
-// border-box, so padding and border set a hard FLOOR under the rendered width —
-// a content box cannot be negative. At 10px+10px padding plus a 2px cap that
-// floor was 22px, so a session one second old, whose true width is ~0, still
-// drew a 22px block. That is the "big block instead of a sliver" this bar was
-// reported for three times; minWidth: 2 never had a say, because 22 > 2.
-//
-// Thresholds mirror the scheduled bar's own (_hideBarLabel below 44px, border
-// dropped below 8px) so a narrow live bar degrades the way a narrow scheduled
-// bar already does.
-function liveBarStyle(T, barColor, rowH, state = "running", widthPx = Infinity) {
-  const running = state === "running";
-  const bare = widthPx < 44;      // no room for chrome; shed padding so the box can shrink
-  const hairline = widthPx < 8;   // narrower than its own cap
-  return {
-    position: "absolute", top: 4, height: rowH - 8, boxSizing: "border-box",
-    borderRadius: T.radiusXs,
-    background: running ? barColor : spentBarFill(T, barColor),
-    // The cap takes whichever of black/white the badge text already resolved to, so
-    // it stays legible against any job colour without introducing a hue of its own.
-    borderRight: running && !hairline ? `2px solid ${hexA(accentText(barColor), 0.55)}` : "none",
-    boxShadow: running ? `0 2px 8px ${hexA(barColor, T.colorScheme === "dark" ? 0.45 : 0.28)}` : "none",
-    display: "flex", alignItems: "center", gap: bare ? 0 : 6, padding: bare ? 0 : "0 10px",
-    overflow: "hidden", zIndex: 15,
-  };
-}
-// Shared threshold so the two call sites cannot disagree with the helper about
-// when a bar is too narrow to carry a label.
-const LIVE_BAR_LABEL_MIN_PX = 44;
 
 // Custom-theme inputs: bg (page background / image tint), accent (buttons/highlights),
 // surface (lists/cards), and opts.systemColor (outer chrome: header + sidebar + logo).
@@ -5273,7 +5212,6 @@ Extraction rules:
   const [gEnd, setGEnd] = useState(() => { const d = new Date(TD + "T12:00:00"); return toDS(new Date(d.getFullYear(), d.getMonth() + 1, 0)); });
   const [gMode, setGMode] = useState("month"); // day, week, month
   const [gSort, setGSort] = usePersistedUI("gSort", "date"); // date, project, client
-  const [exp, setExp] = useState({});
   const [ctxMenu, setCtxMenu] = useState(null);
   const [depsModal, setDepsModal] = useState(null); // { item, panelSubs, panelId, jobId, panelTitle }
   const [quickAddSub, setQuickAddSub] = useState(null); // { type:"panel"|"op", parentId, grandParentId, title, start, end, x, y }
@@ -6895,7 +6833,6 @@ Extraction rules:
   const [barDeleteConfirmOpen, setBarDeleteConfirmOpen] = useState(false);
   const [reminderNote, setReminderNote] = useState("");
   const [reminderSending, setReminderSending] = useState(false);
-  const [linkingFrom, setLinkingFrom] = useState(null);
   const [clients, setClients] = useState([]);
   const [timeclock, setTimeclock] = useState([]);
   // Every pay period that has at least one confirmed punch, newest first.
@@ -8753,7 +8690,6 @@ Extraction rules:
   const [droppedBarId, setDroppedBarId] = useState(null);
   const teamDragLiveRef = useRef(null);
   const ganttRef = useRef(null);
-  const ganttContainerRef = useRef(null);
   const isDraggingRef = useRef(false);
   const [appTooltip, setAppTooltip] = useState(null); // { label, x, y }
   const appTooltipTimer = useRef(null);
@@ -8761,7 +8697,6 @@ Extraction rules:
     show: (label, x, y) => { clearTimeout(appTooltipTimer.current); appTooltipTimer.current = setTimeout(() => setAppTooltip({ label, x, y }), 500); },
     hide: () => { clearTimeout(appTooltipTimer.current); setAppTooltip(null); },
   }), []); // eslint-disable-line
-  const [ganttWidth, setGanttWidth] = useState(0);
   const ganttCWRef = useRef(8);
   const teamCWRef = useRef(8);
   const splitContainerRef = useRef(null);
@@ -8770,14 +8705,6 @@ Extraction rules:
   const [splitGanttPaneWidth, setSplitGanttPaneWidth] = useState(600);
   const ganttWheelAcc = useRef(0);
   const teamWheelAcc = useRef(0);
-  useEffect(() => {
-    const el = ganttContainerRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(entries => { for (const e of entries) setGanttWidth(e.contentRect.width); });
-    ro.observe(el);
-    setGanttWidth(el.clientWidth);
-    return () => ro.disconnect();
-  });
 
   useEffect(() => {
     const el = splitGanttPaneRef.current;
@@ -8815,7 +8742,7 @@ Extraction rules:
 
   useEffect(() => { const h = () => { setCtxMenu(null); setPtoCtx(null); setSettingsOpen(false); setPrefOpen(false); setFilterOpen(false); setScheduleFilterOpen(false); setSoDropPanelId(null); setColorDropId(null); setDeptDropId(null); setDepsDropId(null); setTaskFilterOpen(false); }; window.addEventListener("click", h); return () => window.removeEventListener("click", h); }, []);
   useEffect(() => { if (!soDropPanelId && !deptDropId && !depsDropId && !colorDropId) return; const h = () => { setSoDropPanelId(null); setDeptDropId(null); setDepsDropId(null); setColorDropId(null); }; document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h); }, [!!soDropPanelId, !!deptDropId, !!depsDropId, !!colorDropId]);
-  useEffect(() => { const h = e => { if (e.key === "Escape") { setLinkingFrom(null); setCtxMenu(null); setPtoCtx(null); setDeptDropId(null); setDepsDropId(null); setTaskFilterOpen(false); setFilterOpen(false); setSettingsOpen(false); setPrefOpen(false); setSoDropPanelId(null); setColorDropId(null); setNotifOpen(false); setColPickerOpen(false); setAskExpanded(false); setToolbarExpanded(false); setStatusPopover(null); setColCtxMenu(null); setJdColCtx(null); setGroupCtxMenu(null); setThreadCtxMenu(null); setTsSettingsOpen(false); setSearchOpen(false); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []);
+  useEffect(() => { const h = e => { if (e.key === "Escape") { setCtxMenu(null); setPtoCtx(null); setDeptDropId(null); setDepsDropId(null); setTaskFilterOpen(false); setFilterOpen(false); setSettingsOpen(false); setPrefOpen(false); setSoDropPanelId(null); setColorDropId(null); setNotifOpen(false); setColPickerOpen(false); setAskExpanded(false); setToolbarExpanded(false); setStatusPopover(null); setColCtxMenu(null); setJdColCtx(null); setGroupCtxMenu(null); setThreadCtxMenu(null); setTsSettingsOpen(false); setSearchOpen(false); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []);
   useEffect(() => { if (settingsOpen) { setSettingsScrollable(false); const t = setTimeout(() => setSettingsScrollable(true), 500); return () => clearTimeout(t); } }, [settingsOpen]);
 
 
@@ -9734,176 +9661,8 @@ Extraction rules:
   // Places each op in the next available gap in this person's schedule, yielding to all
   // other jobs' ops (letting them go first). Never pushes other jobs.
   // Returns { newSubs, jStart, jEnd } or null if no assignees.
-  const computeJobOptimize = (job) => {
-    if (!(job.subs || []).some(p => (p.subs || []).some(o => (o.team || []).length > 0))) return null;
-    const newSubs = JSON.parse(JSON.stringify(job.subs || []));
-
-    // Build a read-only view of all OTHER jobs' ops per person
-    // { personId: [{ start, end }] } sorted by start
-    const busyByPerson = {};
-    tasks.forEach(j => {
-      if (j.id === job.id) return;
-      (j.subs || []).forEach(panel => {
-        (panel.subs || []).forEach(o => {
-          if (o.status === "Finished" || !(o.team || []).length) return;
-          const pid = o.team[0];
-          if (!busyByPerson[pid]) busyByPerson[pid] = [];
-          busyByPerson[pid].push({ start: o.start, end: o.end });
-        });
-      });
-    });
-    // Also account for this job's own already-placed ops within the same pass
-    // (tracked as we go, per person)
-    const selfBusy = {}; // pid -> [{ start, end }]
-
-    const byPerson = {};
-    newSubs.forEach((panel, pi) => {
-      (panel.subs || []).forEach((op, oi) => {
-        if (!(op.team || []).length) return;
-        const pid = op.team[0];
-        if (!byPerson[pid]) byPerson[pid] = [];
-        byPerson[pid].push({ op, pi, oi });
-      });
-    });
-
-    Object.entries(byPerson).forEach(([pidStr, ops]) => {
-      const pid = parseInt(pidStr, 10) || pidStr;
-      const person = people.find(x => x.id === pid);
-      const otherBusy = (busyByPerson[pid] || []).slice().sort((a, b) => (a.start || "").localeCompare(b.start || ""));
-      ops.sort((a, b) => a.pi - b.pi || a.oi - b.oi);
-      let cursor = nextBD(job.start || TD);
-
-      ops.forEach(({ op, pi, oi }) => {
-        const duration = Math.max(0, diffBD(op.start, op.end));
-        let slotStart = cursor;
-
-        // Advance slotStart until we find a gap with no time-off and no other-job conflict
-        // Each iteration we advance past whichever blocker ends latest
-        for (let guard = 0; guard < 200; guard++) {
-          const slotEnd = addBD(slotStart, duration);
-          let blocked = false;
-
-          // Time off
-          if (person) {
-            for (const to of (person.timeOff || [])) {
-              if (to.start <= slotEnd && to.end >= slotStart) {
-                slotStart = addBD(to.end, 1);
-                blocked = true;
-                break;
-              }
-            }
-          }
-          if (blocked) continue;
-
-          // Other jobs' ops for this person
-          for (const busy of otherBusy) {
-            if (busy.start > slotEnd) break; // sorted, no more overlaps possible
-            if (busy.end < slotStart) continue;
-            // Overlap — advance past it
-            slotStart = addBD(busy.end, 1);
-            blocked = true;
-            break;
-          }
-          if (blocked) continue;
-
-          // This job's own already-placed ops for this person
-          for (const busy of (selfBusy[pid] || [])) {
-            if (busy.start > slotEnd) continue;
-            if (busy.end < slotStart) continue;
-            // Same-day single-day conflict: check if hours actually overlap before blocking
-            if (busy.start === busy.end && busy.start === slotStart && slotStart === slotEnd && busy.endHour != null) {
-              const _sameDayMaxH = (selfBusy[pid] || []).filter(b => b.start === slotStart && b.endHour != null).reduce((m, b) => Math.max(m, b.endHour), workStartH);
-              if (_sameDayMaxH < workEndH) continue; // room left in the day, don't block
-            }
-            slotStart = addBD(busy.end, 1);
-            blocked = true;
-            break;
-          }
-          if (blocked) continue;
-
-          // Conflict-free, but the day may still be out of HOURS. getNextStartHour
-          // reports where the person's booked work ends and will return workEndH or
-          // later once their day is full — which starts the op outside the working
-          // day and, on a Friday, throws its whole span over the weekend. Advance a
-          // day and re-run every check above rather than placing it here; the hour
-          // can't be capped in place, since two ops sharing an hour would overlap.
-          const _selfDayMaxH = slotEnd === slotStart
-            ? (selfBusy[pid] || []).filter(b => b.start === slotStart && b.endHour != null).reduce((m, b) => Math.max(m, b.endHour), workStartH)
-            : workStartH;
-          const _autoStartH = Math.max(
-            (op.team || []).length > 0 ? getNextStartHour((op.team || [])[0], slotStart) : workStartH,
-            _selfDayMaxH
-          );
-          if (_autoStartH >= workEndH) { slotStart = addBD(slotStart, 1); continue; }
-
-          // Clear — place here
-          const finalEnd = addBD(slotStart, duration);
-          const _autoClockH = productiveHoursPerDay > 0 ? ((op.hpd || 0) / productiveHoursPerDay) * totalWorkH : 0;
-          const _autoFirstDayH = workEndH - _autoStartH;
-          let _rawAutoEndH;
-          if (_autoClockH <= _autoFirstDayH) { _rawAutoEndH = _autoStartH + _autoClockH; }
-          else { let _ar = _autoClockH - _autoFirstDayH; while (_ar > totalWorkH) _ar -= totalWorkH; _rawAutoEndH = workStartH + _ar; }
-          const _autoEndH = Math.round(_rawAutoEndH * 2) / 2;
-          newSubs[pi].subs[oi] = { ...newSubs[pi].subs[oi], start: slotStart, end: finalEnd, startHour: _autoStartH };
-          if (!selfBusy[pid]) selfBusy[pid] = [];
-          selfBusy[pid].push({ start: slotStart, end: finalEnd, startHour: _autoStartH, endHour: _autoEndH });
-          cursor = (finalEnd === slotStart && _autoEndH < workEndH) ? slotStart : addBD(finalEnd, 1);
-          break;
-        }
-      });
-    });
-
-    newSubs.forEach((panel, pi) => {
-      const ops = panel.subs || [];
-      if (!ops.length) return;
-      newSubs[pi] = { ...panel, start: ops.reduce((a, b) => a.start < b.start ? a : b).start, end: ops.reduce((a, b) => a.end > b.end ? a : b).end };
-    });
-    const jStart = newSubs.reduce((a, b) => a.start < b.start ? a : b, newSubs[0]).start;
-    const jEnd   = newSubs.reduce((a, b) => a.end > b.end ? a : b, newSubs[0]).end;
-    return { newSubs, jStart, jEnd };
-  };
 
   // Preview pull-back: when moving backward, pull subsequent same-person ops back to fill gaps
-  const previewPullBack = (taskList, movedPersonIds, oldStart, newStart, excludeOpIds = null) => {
-    // Only pull back when moving backward
-    if (newStart >= oldStart) return [];
-    const pulls = [];
-    for (const personId of movedPersonIds) {
-      // Gather all ops for this person, sorted by start date
-      const personOps = [];
-      taskList.forEach(job => {
-        (job.subs || []).forEach(panel => {
-          (panel.subs || []).forEach(op => {
-            if ((op.team || []).includes(personId) && op.status !== "Finished" && !(excludeOpIds && excludeOpIds.has(op.id)) && !isOpLocked(op)) {
-              personOps.push({ op, panel, job });
-            }
-          });
-        });
-      });
-      personOps.sort((a, b) => (a.op.start || "").localeCompare(b.op.start || ""));
-      // For each op, try to pull it back to earliest available slot after its predecessor
-      for (let i = 0; i < personOps.length; i++) {
-        const { op, panel, job } = personOps[i];
-        const opDuration = diffBD(op.start, op.end);
-        // Find the earliest start: after any predecessor for this person ends
-        let earliestStart = null;
-        for (let j = i - 1; j >= 0; j--) {
-          const prev = pulls.find(p => p.opId === personOps[j].op.id);
-          const prevEnd = prev ? prev.newEnd : personOps[j].op.end;
-          if (!earliestStart || addBD(prevEnd, 1) > earliestStart) earliestStart = addBD(prevEnd, 1);
-        }
-        if (!earliestStart) earliestStart = op.start; // no predecessor, can't pull further back than current
-        // Don't push forward, only pull back or stay
-        const newOpStart = earliestStart < op.start ? nextBD(earliestStart) : op.start;
-        const newOpEnd = addBD(newOpStart, opDuration);
-        if (newOpStart < op.start) {
-          const daysPulled = diffBD(newOpStart, op.start);
-          pulls.push({ opId: op.id, opTitle: op.title, panelTitle: panel.title, jobTitle: job.title, oldStart: op.start, oldEnd: op.end, newStart: newOpStart, newEnd: newOpEnd, daysPulled, personId, reason: "Pulled back by schedule change" });
-        }
-      }
-    }
-    return pulls;
-  };
 
   // Recalculate panel bounds from ops, recalc job bounds
   const recalcBounds = (taskList, movedBy) => {
@@ -9959,69 +9718,6 @@ Extraction rules:
   };
 
   // Full schedule optimizer: packs each person's ops tightly by priority → due date → start
-  const runOptimize = () => {
-    const movedByName = loggedInUser ? loggedInUser.name : "Admin";
-    const priOrder = { "High": 0, "Medium": 1, "Low": 2 };
-    let newTasks = JSON.parse(JSON.stringify(tasks));
-    const changes = [];
-
-    for (const person of people) {
-      const pid = person.id;
-      // Collect non-finished, non-locked ops for this person
-      const personOps = [];
-      newTasks.forEach(job => {
-        (job.subs || []).forEach(panel => {
-          (panel.subs || []).forEach(op => {
-            if (!(op.team || []).includes(pid) || op.status === "Finished" || isOpLocked(op)) return;
-            personOps.push({ op, jobPri: priOrder[job.pri] ?? 1, jobDue: job.dueDate || job.end, jobTitle: job.title, panelTitle: panel.title });
-          });
-        });
-      });
-      if (personOps.length === 0) continue;
-
-      // Sort: highest priority first, then soonest due date, then earliest current start
-      personOps.sort((a, b) => {
-        if (a.jobPri !== b.jobPri) return a.jobPri - b.jobPri;
-        if (a.jobDue !== b.jobDue) return (a.jobDue || "").localeCompare(b.jobDue || "");
-        return (a.op.start || "").localeCompare(b.op.start || "");
-      });
-
-      let cursor = nextBD(TD);
-      for (const { op, jobTitle, panelTitle } of personOps) {
-        const duration = Math.max(0, diffBD(op.start, op.end));
-        // Find first slot from cursor that clears this person's time off
-        let slotStart = cursor;
-        for (let a = 0; a < 365; a++) {
-          const slotEnd = addBD(slotStart, duration);
-          if (!(person.timeOff || []).some(to => to.start <= slotEnd && to.end >= slotStart)) break;
-          slotStart = addBD(slotStart, 1);
-        }
-        const slotEnd = addBD(slotStart, duration);
-
-        if (slotStart !== op.start || slotEnd !== op.end) {
-          const d1 = new Date(op.start + "T12:00:00"), d2 = new Date(slotStart + "T12:00:00");
-          const calDays = Math.round((d2 - d1) / 86400000);
-          changes.push({ opId: op.id, opTitle: op.title, jobTitle, panelTitle, oldStart: op.start, oldEnd: op.end, newStart: slotStart, newEnd: slotEnd, personId: pid, personName: person.name, personColor: T.accent, calDays });
-          newTasks = newTasks.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, subs: (panel.subs || []).map(o => {
-            if (o.id !== op.id) return o;
-            const log = { fromStart: op.start, fromEnd: op.end, toStart: slotStart, toEnd: slotEnd, date: TD, movedBy: movedByName, reason: "Auto-optimized" };
-            return { ...o, start: slotStart, end: slotEnd, moveLog: [...(o.moveLog || []), log] };
-          }) })) }));
-          op.start = slotStart; op.end = slotEnd; // update local ref for cursor
-        }
-        cursor = addBD(slotEnd, 1);
-      }
-    }
-
-    newTasks = recalcBounds(newTasks, movedByName);
-    // Group changes by person for the preview modal
-    const groupedByPerson = people.map(p => ({
-      person: p,
-      changes: changes.filter(c => String(c.personId) === String(p.id))
-    })).filter(g => g.changes.length > 0);
-
-    return { newTasks, changes, groupedByPerson };
-  };
 
   const updPerson = (id, upd) => setPeople(p => p.map(x => x.id === id ? { ...x, ...upd } : x));
 
@@ -10340,7 +10036,6 @@ Extraction rules:
       return removeFromTree(p);
     });
   };
-  const cascadeDeps = (movedId, delta) => setTasks(p => p.map(t => { let nt = { ...t, subs: [...(t.subs || [])] }; if ((t.deps || []).includes(movedId)) { nt.start = addD(t.start, delta); nt.end = addD(t.end, delta); nt.subs = nt.subs.map(s => ({ ...s, start: addD(s.start, delta), end: addD(s.end, delta) })); } else nt.subs = nt.subs.map(s => (s.deps || []).includes(movedId) ? { ...s, start: addD(s.start, delta), end: addD(s.end, delta) } : s); return nt; }));
   const toggleDep = (taskId, depId) => setTasks(p => p.map(t => { if (t.id === taskId) { const d = t.deps || []; return { ...t, deps: d.includes(depId) ? d.filter(x => x !== depId) : [...d, depId] }; } return { ...t, subs: (t.subs || []).map(s => { if (s.id === taskId) { const d = s.deps || []; return { ...s, deps: d.includes(depId) ? d.filter(x => x !== depId) : [...d, depId] }; } return s; }) }; }));
   const pName = id => { const p = people.find(x => x.id === id); return p ? (p.teamNumber ? `${p.teamNumber} - ${p.name.split(" ")[0]}` : p.name.split(" ")[0]) : "?"; };
   const clientName = id => { const c = clients.find(x => x.id === id); return c ? c.name : "—"; };
@@ -12104,679 +11799,6 @@ ${jobsCtx || "No jobs found."}`;
   }, []);
 
   // ═══════════════════ GANTT ═══════════════════
-  const renderGantt = () => {
-    const days = []; let c = gStart; while (c <= gEnd) { days.push(c); c = addD(c, 1); }
-    const lW = isMobile ? 140 : 280;
-    const avail = Math.max((ganttWidth || 1200) - lW, 200);
-    const cW = (isMobile ? Math.max(32, avail / Math.max(days.length, 1)) : avail / Math.max(days.length, 1)) * gZoom;
-    ganttCWRef.current = cW;
-    const rH = 48, hH = gMode === "month" ? 68 : 56;
-    // Build week/month group headers
-    const groups = []; let gi = 0;
-    days.forEach((day, i) => {
-      const dt = new Date(day + "T12:00:00");
-      if (gMode === "month") {
-        const key = `${dt.getFullYear()}-${dt.getMonth()}`;
-        if (!groups.length || groups[groups.length - 1].key !== key) groups.push({ key, label: dt.toLocaleDateString("en-US", { month: "long", year: "numeric" }), start: i, span: 1 });
-        else groups[groups.length - 1].span++;
-      } else {
-        const wk = new Date(dt); wk.setDate(wk.getDate() - wk.getDay());
-        const key = toDS(wk);
-        if (!groups.length || groups[groups.length - 1].key !== key) {
-          const wkEnd = new Date(wk); wkEnd.setDate(wkEnd.getDate() + 6);
-          groups.push({ key, label: `${wk.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${wkEnd.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`, start: i, span: 1 });
-        } else groups[groups.length - 1].span++;
-      }
-    });
-    // Completed jobs stay on the gantt unless hidden — see showCompleted. This was an
-    // unconditional drop, so a job left the board the moment it was signed off.
-    const gSortedFiltered = [...filtered].filter(t => showCompleted || t.status !== "Finished").sort((a, b) => {
-      if (gSort === "project") return String(a.jobNumber || a.title || "").localeCompare(String(b.jobNumber || b.title || ""), undefined, { numeric: true });
-      if (gSort === "client") { const ca = a.clientId ? (clients.find(c => c.id === a.clientId)?.name || "") : ""; const cb = b.clientId ? (clients.find(c => c.id === b.clientId)?.name || "") : ""; return ca.localeCompare(cb) || (a.start || "").localeCompare(b.start || ""); }
-      return (a.start || "").localeCompare(b.start || "");
-    });
-    const rows = []; gSortedFiltered.forEach(t => { rows.push({ ...t, isSub: false, pid: null, level: 0 }); if (exp[t.id]) (t.subs || []).forEach(s => { rows.push({ ...s, isSub: true, pid: t.id, level: 1 }); if (exp[s.id]) (s.subs || []).forEach(op => rows.push({ ...op, isSub: true, pid: s.id, grandPid: t.id, level: 2, panelTitle: s.title })); }); });
-    const dToX = d => diffD(gStart, d) * cW;
-    const ri4 = {}; rows.forEach((r, i) => { ri4[r.id] = i; });
-    const arrows = [];
-    const handleDrag = (e, item, mode) => {
-      if (!can("moveJobs")) { openDetail(item); return; }
-      if (linkingFrom) return;
-      e.preventDefault();
-      const sx = e.clientX, sy = e.clientY, os = item.start, oe = item.end;
-      // Working days are read from current org settings (single source of truth).
-      const itemWorkDays = orgSettings.workDays;
-      const itemBDOpts = { workDays: itemWorkDays, holidays: orgSettings.holidays };
-      // If this is a partially-worked op being moved, the drag preview represents only the
-      // remaining hours (worked portion stays anchored; commit will split the op).
-      const _dragItemWS = item.level === 2 ? deriveWorkedState(item, producedFor(item), liveOpHours(item)) : null;
-      const _isPartialDrag = !!(_dragItemWS && _dragItemWS.isPartiallyWorked && mode === "move");
-      // Capture working-day duration once at drag start. For partial-drag, use remaining-hours duration.
-      const wdDuration = _isPartialDrag
-        ? Math.max(1, Math.ceil(_dragItemWS.remainingHpd / productiveHoursPerDay))
-        : getWorkingDayDuration(os, oe, itemWorkDays);
-      let moved = false, lastDx = 0, finalDx = 0;
-      const origRow = ri4[item.id];
-      const pidArg = item.isSub ? item.pid : null;
-      const onM = me => {
-        const dx = Math.round((me.clientX - sx) / cW);
-        if (dx !== 0 || Math.abs(me.clientY - sy) > 8) moved = true;
-        if (dx === lastDx) return; lastDx = dx; finalDx = dx;
-        // Compute live + snapped ghost positions
-        const rawS = mode !== "right" ? addD(os, dx) : os;
-        const rawE = mode !== "left"  ? addD(oe, dx) : oe;
-        const snapS = nextBD(rawS, itemBDOpts);
-        const snapDelta = diffD(rawS, snapS);
-        // For moves: end is always wdDuration working days from snapped start — never calendar days
-        const snapE = mode === "move"
-          ? countWorkingDays(snapS, wdDuration, itemWorkDays)
-          : (snapDelta > 0 ? addWorkingDays(rawE, snapDelta, itemWorkDays) : rawE);
-        // Lightweight overlap check against other ops for same person(s)
-        const personIds = new Set();
-        const movingOpIds = new Set();
-        if (item.level === 2) {
-          (item.team || []).forEach(id => personIds.add(id));
-          movingOpIds.add(item.id);
-        } else if (item.level === 1) {
-          (item.subs || []).forEach(op => { (op.team || []).forEach(id => personIds.add(id)); movingOpIds.add(op.id); });
-        } else {
-          (item.subs || []).forEach(panel => panel.subs ? panel.subs.forEach(op => { (op.team || []).forEach(id => personIds.add(id)); movingOpIds.add(op.id); }) : null);
-        }
-        let hasOverlap = false;
-        if (personIds.size > 0) {
-          outer: for (const job of tasks) {
-            for (const panel of (job.subs || [])) {
-              for (const op of (panel.subs || [])) {
-                if (movingOpIds.has(op.id) || op.status === "Finished") continue;
-                if (!(op.team || []).some(id => personIds.has(id))) continue;
-                if (op.start <= snapE && op.end >= snapS) { hasOverlap = true; break outer; }
-              }
-            }
-          }
-        }
-        // Jobs can never be dragged into the past. Day-granularity here (Gantt has no
-        // hour component), so the candidate's own start being today-or-later is sufficient
-        // — an op never runs backward in time, so nothing "behind" a valid start can be past.
-        const beforeNow = snapS < TD;
-        setGanttDragInfo({ itemId: item.id, snapStart: snapS, snapEnd: snapE, hasOverlap, beforeNow });
-        // Skip live mutation for partial-drag — original op stays put until commit, where it splits.
-        if (_isPartialDrag) return;
-        // For moves, use the working-day end so the bar never shrinks as it crosses a non-working day
-        if (mode === "move") updTask(item.id, { start: rawS, end: countWorkingDays(snapS, wdDuration, itemWorkDays) }, pidArg);
-        else if (mode === "left") { if (rawS <= oe) updTask(item.id, { start: rawS }, pidArg); }
-        else { if (rawE >= os) updTask(item.id, { end: rawE }, pidArg); }
-      };
-      const onU = me => {
-        document.removeEventListener("mousemove", onM);
-        document.removeEventListener("mouseup", onU);
-        isDraggingRef.current = false;
-        setGanttDragInfo(null);
-        if (!moved) {
-          if ((item.subs || []).length > 0) setExp(p => ({ ...p, [item.id]: !p[item.id] }));
-          else openDetail(item);
-          return;
-        }
-        const rawNewStart = mode !== "right" ? addD(os, finalDx) : os;
-        const rawNewEnd = mode !== "left" ? addD(oe, finalDx) : oe;
-        const newStart = nextBD(rawNewStart, itemBDOpts);
-        const snapDelta = diffD(rawNewStart, newStart);
-        // For moves: count forward exactly wdDuration working days from the snapped start.
-        // countWorkingDays steps through the task's workDays only, so non-working days are never included.
-        const newEnd = mode === "move"
-          ? countWorkingDays(newStart, wdDuration, itemWorkDays)
-          : (snapDelta > 0 ? addWorkingDays(rawNewEnd, snapDelta, itemWorkDays) : rawNewEnd);
-        const movedByName = loggedInUser ? loggedInUser.name : "Admin";
-        const actualDelta = diffD(os, newStart);
-
-        // ── Auto-split on drag-end for partially-worked ops (Gantt) ──
-        // Only when moving an op (level 2) with logged hours, to a new position, AND only
-        // when the destination actually crosses a weekend or a day the schedule has
-        // disabled — an ordinary same-week move of a partially-worked op just moves the
-        // whole record; worked spans are recorded independently of where the op sits
-        // (productionhours.json), so relocating it does not corrupt that history.
-        if (mode === "move" && item.level === 2 && newStart !== os && spansOffDay(newStart, newEnd, itemBDOpts)) {
-          const _splitWS = deriveWorkedState(item, producedFor(item), liveOpHours(item));
-          // THE split (dragMove.applySplit), the same one the schedule drag and the Split Job
-          // modal use: worked part stays (locked, one person's share), the rest lands at the
-          // drop through the shared plan, checks and backstop, each part logged (#45 #46 #47).
-          const _cal = calOf(orgSettings.workDays, orgSettings.holidays);
-          const _parts = _splitWS.isPartiallyWorked ? workedSplitParts({ node: item, workedHours: _splitWS.workedHpd, cfg: dayWindowCfg, cal: _cal, workStartH }) : null;
-          if (_parts) {
-            if (!can("editJobs")) { showLandingRefusal({ kind: "splitPermission", title: item.title || "" }); return; }
-            const remStartH = item.startHour ?? workStartH;
-            const _plan = planDragMove({ grabbed: { id: item.id, node: item, fromDay: os, fromHour: remStartH, shareH: _parts.remainderShare },
-              drop: { day: newStart, hour: remStartH }, origPerson: null, dropPerson: null, cfg: dayWindowCfg, cal: _cal, workStartH, workEndH });
-            const _refusal = refuseLanding(_plan);
-            if (_refusal) { showLandingRefusal(_refusal); return; }
-            const newOpId = uid();
-            commitLanding((list) => recalcBounds(applySplit(list, { node: item, keep: _parts.keep, go: { ..._plan[0], hpd: _parts.remainderHpd }, newId: newOpId, date: TD, movedBy: movedByName,
-              reasons: { keep: "Split in schedule: the worked part stays", go: `Moved in schedule: split from "${item.title || ""}"` } }), movedByName), [String(item.id), newOpId], item.title);
-            return;
-          }
-        }
-
-        // Gather all operations that would be affected (for overlap/push checks)
-        const getOpsToCheck = () => {
-          const ops = [];
-          if (item.level === 0 || (!item.isSub && (item.subs || []).length > 0)) {
-            // Job-level: all child ops shift by delta
-            (item.subs || []).forEach(s => {
-              (s.subs || []).forEach(op => {
-                if (op.team[0]) ops.push({ personId: op.team[0], start: addD(op.start, actualDelta), end: addD(op.end, actualDelta), opId: op.id, opTitle: op.title, panelTitle: s.title, hpd: op.hpd, teamLength: (op.team || []).length });
-              });
-              if ((s.subs || []).length === 0 && s.team && s.team[0]) ops.push({ personId: s.team[0], start: addD(s.start, actualDelta), end: addD(s.end, actualDelta), opId: s.id, opTitle: s.title, panelTitle: item.title, hpd: s.hpd, teamLength: (s.team || []).length });
-            });
-          } else if (item.level === 1) {
-            // Panel-level: ops within panel shift
-            (item.subs || []).forEach(op => {
-              if (op.team[0]) ops.push({ personId: op.team[0], start: addD(op.start, actualDelta), end: addD(op.end, actualDelta), opId: op.id, opTitle: op.title, panelTitle: item.title, hpd: op.hpd, teamLength: (op.team || []).length });
-            });
-          } else if (item.team && item.team[0]) {
-            // Operation-level
-            ops.push({ personId: item.team[0], start: newStart, end: newEnd, opId: item.id, opTitle: item.title, panelTitle: "", hpd: item.hpd, teamLength: (item.team || []).length });
-          }
-          return ops;
-        };
-
-        // Apply move with log entries — defined outside setTasks so onConfirm can reuse it
-        const applyMoveWithLog = (tl) => {
-          if (item.level === 0 || (!item.isSub && (item.subs || []).length > 0)) {
-            return tl.map(t => {
-              if (t.id !== item.id) return t;
-              const logEntry = { fromStart: t.start, fromEnd: t.end, toStart: newStart, toEnd: newEnd, date: TD, movedBy: movedByName, reason: "Job moved" };
-              const childDelta = actualDelta;
-              return { ...t, start: newStart, end: newEnd, subs: (t.subs || []).map(s => ({
-                ...s, start: addD(s.start, childDelta), end: addD(s.end, childDelta),
-                subs: (s.subs || []).map(op => ({
-                  ...op, start: addD(op.start, childDelta), end: addD(op.end, childDelta),
-                  moveLog: [...(op.moveLog || []), { fromStart: op.start, fromEnd: op.end, toStart: addD(op.start, childDelta), toEnd: addD(op.end, childDelta), date: TD, movedBy: movedByName, reason: "Job moved" }]
-                }))
-              })), moveLog: [...(t.moveLog || []), logEntry] };
-            });
-          } else if (pidArg) {
-            return tl.map(t => {
-              if (pidArg) {
-                const pi2 = (t.subs || []).findIndex(s => s.id === pidArg);
-                if (pi2 >= 0) {
-                  const ns = [...t.subs]; ns[pi2] = { ...ns[pi2], subs: (ns[pi2].subs || []).map(op => {
-                    if (op.id === item.id) {
-                      const logEntry = { fromStart: os, fromEnd: oe, toStart: newStart, toEnd: newEnd, date: TD, movedBy: movedByName, reason: "Manual move" };
-                      return { ...op, start: newStart, end: newEnd, moveLog: [...(op.moveLog || []), logEntry] };
-                    }
-                    return op;
-                  }) };
-                  return { ...t, subs: ns };
-                }
-                if (t.id === pidArg) {
-                  return { ...t, subs: (t.subs || []).map(s => {
-                    if (s.id !== item.id) return s;
-                    const logEntry = { fromStart: os, fromEnd: oe, toStart: newStart, toEnd: newEnd, date: TD, movedBy: movedByName, reason: "Panel moved" };
-                    const opDelta = actualDelta;
-                    return { ...s, start: newStart, end: newEnd, moveLog: [...(s.moveLog || []), logEntry],
-                      subs: (s.subs || []).map(op => ({
-                        ...op, start: addD(op.start, opDelta), end: addD(op.end, opDelta),
-                        moveLog: [...(op.moveLog || []), { fromStart: op.start, fromEnd: op.end, toStart: addD(op.start, opDelta), toEnd: addD(op.end, opDelta), date: TD, movedBy: movedByName, reason: "Panel moved" }]
-                      }))
-                    };
-                  }) };
-                }
-              }
-              return t;
-            });
-          }
-          return tl;
-        };
-
-        // Capture any pending vertical reassign so onConfirm can apply it
-        let pendingReassign = null;
-        if (mode === "move" && item.level === 2) {
-          const dy = Math.round((me.clientY - sy) / rH);
-          if (dy !== 0) {
-            const targetIdx = Math.max(0, Math.min(rows.length - 1, origRow + dy));
-            const targetRow = rows[targetIdx];
-            if (targetRow && targetRow.id !== item.id && targetRow.team && targetRow.team[0]) {
-              const fromPid = (item.team || [])[0]; const toPid = targetRow.team[0];
-              if (fromPid && toPid && fromPid !== toPid) pendingReassign = { id: item.id, fromPid, toPid, pidArg };
-            }
-          }
-        }
-
-        setTasks(prev => {
-          // Revert to original positions
-          const revertItem = (tList, id, origS, origE, pid) => tList.map(t => {
-            if (pid) {
-              const pi2 = (t.subs || []).findIndex(s => s.id === pid);
-              if (pi2 >= 0) { const ns = [...t.subs]; ns[pi2] = { ...ns[pi2], subs: (ns[pi2].subs || []).map(op => op.id === id ? { ...op, start: origS, end: origE } : op) }; return { ...t, subs: ns }; }
-              if (t.id === pid) {
-                // Reverting a panel: also revert child ops by reversing the delta
-                return { ...t, subs: (t.subs || []).map(s => {
-                  if (s.id !== id) return s;
-                  const sd = diffD(s.start, origS);
-                  return { ...s, start: origS, end: origE, subs: (s.subs || []).map(op => ({ ...op, start: addD(op.start, sd), end: addD(op.end, sd) })) };
-                }) };
-              }
-              return t;
-            }
-            if (t.id !== id) return t;
-            const updated = { ...t, start: origS, end: origE };
-            if ((t.subs || []).length > 0) {
-              const sd = diffD(t.start, origS); const ed = diffD(t.end, origE);
-              if (sd === ed && sd !== 0) {
-                updated.subs = (t.subs || []).map(s => ({ ...s, start: addD(s.start, sd), end: addD(s.end, sd), subs: (s.subs || []).map(op => ({ ...op, start: addD(op.start, sd), end: addD(op.end, sd) })) }));
-              }
-            }
-            return updated;
-          });
-          const reverted = revertItem(prev, item.id, os, oe, pidArg);
-
-          // Check locked ops
-          const opsMoving = getOpsToCheck();
-          let lockedFound = [];
-          reverted.forEach(j => (j.subs || []).forEach(pnl => (pnl.subs || []).forEach(op => {
-            if (isOpLocked(op) && opsMoving.some(m => m.opId === op.id)) lockedFound.push({ opTitle: op.title, panelTitle: pnl.title });
-          })));
-          if (lockedFound.length > 0) { setTimeout(() => showLockedError(lockedFound), 0); return reverted; }
-
-          // Jobs can never be dragged into the past — day-granularity check (Gantt has no
-          // hour component), same rule as the live ghost highlight above.
-          if (newStart < TD) { setTimeout(() => setConfirmMove({ ackOnly: true, confirmLabel: "OK", title: "Can't schedule in the past", message: "This move would place part of the job before today. Jobs can't be scheduled in the past.", onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) }), 0); return reverted; }
-
-          // Check PTO conflicts for moving ops
-          let ptoConflict = false;
-          for (const mOp of opsMoving) {
-            const person = people.find(x => x.id === mOp.personId);
-            if (person) for (const to of (person.timeOff || [])) {
-              if (to.start <= mOp.end && to.end >= mOp.start) {
-                ptoConflict = true;
-                setTimeout(() => showOverlapIfAny([{ person: person.name, isPto: true, panelTitle: to.reason || to.type || "PTO", start: to.start, end: to.end }]), 0);
-                break;
-              }
-            }
-            if (ptoConflict) break;
-          }
-          if (ptoConflict) return reverted;
-
-          // Check for scheduling conflicts — hard block if any person is double-booked
-          const conflictChecks = opsMoving.map(o => ({
-            personId: o.personId, start: o.start, end: o.end,
-            excludeOpId: o.opId, opTitle: o.opTitle || item.title, panelTitle: o.panelTitle || "",
-            hpd: o.hpd, teamLength: o.teamLength || 1
-          }));
-          const schedConflicts = checkOverlapsPure(reverted, conflictChecks);
-          if (schedConflicts.length > 0) {
-            setTimeout(() => showOverlapIfAny(schedConflicts), 0);
-            return reverted;
-          }
-
-          // No conflicts — show confirmation before committing
-          setTimeout(() => setConfirmMove({
-            title: "Confirm Move",
-            message: `Move "${item.title}" from ${fm(os)} → ${fm(oe)} to ${fm(newStart)} → ${fm(newEnd)}?`,
-            onCancel: () => setConfirmMove(null),
-            onConfirm: () => {
-              setConfirmMove(null);
-              // For job-level drags (level 0), applyMoveWithLog already sets all bounds
-              // correctly (job.start = newStart, all children shifted). Calling recalcBounds
-              // would override job.start with min(op.start) which can be further than the
-              // ghost position if the job's start was before its earliest operation.
-              setTasks(curr => item.level === 0 ? applyMoveWithLog(curr) : recalcBounds(applyMoveWithLog(curr), movedByName));
-              if (pendingReassign) reassignTask(pendingReassign.id, pendingReassign.fromPid, pendingReassign.toPid, pendingReassign.pidArg);
-            }
-          }), 0);
-          return reverted;
-        });
-      };
-      document.addEventListener("mousemove", onM);
-      document.addEventListener("mouseup", onU);
-    };
-    // Day-view bar drag — move, left-resize (start), right-resize (end/hpd)
-    const handleDayBarDrag = (e, item, mode = "move") => {
-      e.preventDefault(); e.stopPropagation();
-      if (!can("moveJobs")) return denied(PERM_VERB.moveJobs);
-      const DHS = 5, DHE = 21, DNH = 16;
-      const origHour = item.startHour ?? 8;
-      const origHpd = item.hpd || 0;
-      const origEnd = origHour + origHpd;
-      const sx = e.clientX;
-      let moved = false;
-      const pid = item.isSub ? item.pid : null;
-      const onM = me => {
-        const dx = me.clientX - sx;
-        if (Math.abs(dx) > 8) moved = true;
-        if (!moved) return; // don't update task until we're truly dragging
-        const deltaH = (dx / avail) * DNH;
-        if (mode === "move") {
-          const snapped = Math.round((origHour + deltaH) * 4) / 4;
-          const clamped = Math.max(DHS, Math.min(DHE - Math.max(origHpd, 0.25), snapped));
-          setDayDragInfo({ itemId: item.id, mode });
-          updTask(item.id, { startHour: clamped }, pid);
-        } else if (mode === "left") {
-          const newStart = Math.round((origHour + deltaH) * 4) / 4;
-          const clamped = Math.max(DHS, Math.min(origEnd - 0.25, newStart));
-          setDayDragInfo({ itemId: item.id, mode });
-          updTask(item.id, { startHour: clamped, hpd: Math.round(productiveClockHours(clamped, origEnd, dayWindowCfg) * Math.max(1, (item.team || []).length) * 100) / 100 }, pid);
-        } else { // right
-          const newEnd = Math.round((origEnd + deltaH) * 4) / 4;
-          const clamped = Math.max(origHour + 0.25, Math.min(DHE, newEnd));
-          setDayDragInfo({ itemId: item.id, mode });
-          updTask(item.id, { hpd: Math.round(productiveClockHours(origHour, clamped, dayWindowCfg) * Math.max(1, (item.team || []).length) * 100) / 100 }, pid);
-        }
-      };
-      const onU = () => {
-        document.removeEventListener("mousemove", onM);
-        document.removeEventListener("mouseup", onU);
-        setDayDragInfo(null);
-        if (!moved && mode === "move") openDetail(item);
-      };
-      document.addEventListener("mousemove", onM);
-      document.addEventListener("mouseup", onU);
-    };
-    const tW = lW + days.length * cW, tH = hH + rows.length * rH;
-    return <div>
-      <div style={{ display: "flex", marginBottom: isMobile ? 10 : 20, alignItems: "center", position: "relative", minHeight: 44 }}>
-        {/* Left: Today + Day/Week/Month + navigation */}
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <Btn variant="primary" size="sm" style={{ boxShadow: `0 0 0 1px ${T.accent}55, 0 2px 10px ${T.accent}55` }} onClick={() => {
-            const span = diffD(gStart, gEnd); const half = Math.floor(span / 2); setGStart(addD(TD, -half)); setGEnd(addD(TD, span - half));
-          }}>Today</Btn>
-          <SlidingPill
-            size="sm"
-            options={["day","week","month"].map(m=>({value:m,label:m.charAt(0).toUpperCase()+m.slice(1)}))}
-            value={gMode}
-            onChange={m => {
-              setGMode(m);
-              if (m==="day") { setGStart(TD); setGEnd(TD); }
-              else if (m==="week") { const d=new Date(TD+"T12:00:00"); const dow=d.getDay(); const mon=addD(TD,-(dow===0?6:dow-1)); setGStart(mon); setGEnd(addD(mon,6)); }
-              else { const d=new Date(TD+"T12:00:00"); const first=new Date(d.getFullYear(),d.getMonth(),1); const last=new Date(d.getFullYear(),d.getMonth()+1,0); setGStart(toDS(first)); setGEnd(toDS(last)); }
-            }}
-          />
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-            <Btn variant="secondary" size="sm" onClick={() => {
-              if (gMode === "month") { const d = new Date(gStart + "T12:00:00"); d.setMonth(d.getMonth() - 1); const first = new Date(d.getFullYear(), d.getMonth(), 1); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0); setGStart(toDS(first)); setGEnd(toDS(last)); }
-              else if (gMode === "day") { setGStart(addD(gStart, -1)); setGEnd(addD(gEnd, -1)); }
-              else if (gMode === "week") { setGStart(addD(gStart, -7)); setGEnd(addD(gEnd, -7)); }
-            }}>◀</Btn>
-            <span style={{ fontSize: 13, fontWeight: 700, color: T.text, minWidth: 150, textAlign: "center" }}>{(() => {
-              const s = new Date(gStart + "T12:00:00");
-              if (gMode === "month") return s.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-              if (gMode === "day") return s.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
-              if (gMode === "week") { const e = new Date(gEnd + "T12:00:00"); return `${s.toLocaleDateString("en-US", { month: "short", day: "numeric" })} – ${e.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`; }
-              return s.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-            })()}</span>
-            <Btn variant="secondary" size="sm" onClick={() => {
-              if (gMode === "month") { const d = new Date(gStart + "T12:00:00"); d.setMonth(d.getMonth() + 1); const first = new Date(d.getFullYear(), d.getMonth(), 1); const last = new Date(d.getFullYear(), d.getMonth() + 1, 0); setGStart(toDS(first)); setGEnd(toDS(last)); }
-              else if (gMode === "day") { setGStart(addD(gStart, 1)); setGEnd(addD(gEnd, 1)); }
-              else if (gMode === "week") { setGStart(addD(gStart, 7)); setGEnd(addD(gEnd, 7)); }
-            }}>▶</Btn>
-          </div>
-          <div ref={filterRef} style={{ position: "relative" }} onClick={e => e.stopPropagation()}>
-            <Tip label="Filters">
-            <button onClick={() => setFilterOpen(p => !p)} style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "7px 9px", borderRadius: T.radiusPill, border: `1px solid ${activeFilterCount > 0 ? T.accent + "88" : T.border}`, background: activeFilterCount > 0 ? T.accent + "15" : T.surface, color: activeFilterCount > 0 ? T.accent : T.textSec, cursor: "pointer", transition: "all 0.15s", position: "relative" }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
-              {activeFilterCount > 0 && <span style={{ position: "absolute", top: -5, right: -5, background: brandGrad(T.accent), color: T.accentText, borderRadius: 12, minWidth: 16, height: 16, fontSize: 9, fontWeight: 700, lineHeight: "16px", textAlign: "center", padding: "0 4px" }}>{activeFilterCount}</span>}
-            </button>
-            </Tip>
-            <FadeOnClose open={filterOpen}><div className="anim-ctx tq-filter-panel" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 999, width: 290, background: T.card, border: `1px solid ${T.borderLight}`, borderRadius: T.radiusLg, overflow: "hidden", padding: "16px 20px 16px", boxShadow: "0 16px 48px rgba(0,0,0,0.55)", fontFamily: T.font, maxHeight: "80vh", overflowY: "auto" }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 6 }}>Status</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
-                {["All", ...STATUSES].map(s => { const active = s === "All" ? fStat.length === 0 : fStat.includes(s); return <button key={s} onClick={() => s === "All" ? setFStat([]) : setFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "4px 9px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.hoverStrong : T.surface, color: active ? T.accent : T.text, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{s}</button>; })}
-              </div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 6 }}>Time Period</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
-                {['current', 'future', 'finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "4px 9px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.hoverStrong : T.surface, color: active ? T.accent : T.text, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{tp.charAt(0).toUpperCase() + tp.slice(1)}</button>; })}
-              </div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 6 }}>Client</div>
-              <div style={{ marginBottom: 14 }}><SearchSelect multi compact portal values={fClient} onChangeMulti={setFClient} options={clients.map(c => ({ value: c.id, label: c.name, color: elColor(c.color) }))} placeholder="Search clients…" emptyLabel="All Clients" noneLabel="All Clients" /></div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 6 }}>People {fPers.length > 0 && <span style={{ color: T.accent }}>({fPers.length})</span>}</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
-                {people.map(p => { const active = fPers.includes(String(p.id)); return <button key={p.id} onClick={() => setFPers(prev => prev.includes(String(p.id)) ? prev.filter(x => x !== String(p.id)) : [...prev, String(p.id)])} style={{ display: "flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? (T.accent + "28") : T.surface, color: active ? T.accent : T.textSec, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}><div style={{ width: 7, height: 7, borderRadius: "50%", background: T.textDim, flexShrink: 0 }} />{p.name.split(" ")[0]}</button>; })}
-                {fPers.length > 0 && <button onClick={() => setFPers([])} style={{ padding: "4px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.textDim, fontSize: 10, cursor: "pointer", fontFamily: T.font }}>✕ Clear</button>}
-              </div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 6 }}>Task #</div>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14 }}>
-                <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 10px", borderRadius: T.radiusPill, border: `1.5px solid ${fJobNum ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 13, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
-                {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 26, height: 26, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1 }}>×</button>}
-              </div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 6 }}>Role / Area</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 14 }}>
-                {["All", ...uniqueRoles].map(r => { const active = r === "All" ? fRole.length === 0 : fRole.includes(r); return <button key={r} onClick={() => r === "All" ? setFRole([]) : setFRole(prev => prev.includes(r) ? prev.filter(x => x !== r) : [...prev, r])} style={{ padding: "4px 9px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? brandGrad(T.accent) : "transparent", color: active ? T.accentText : T.text, fontSize: 11, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font, transition: "all 0.12s" }}>{r}</button>; })}
-              </div>
-              {renderCustomColFilters()}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-                <span style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>Overloaded Only</span>
-                <button className="tq-noanim" onClick={() => setFOverloaded(p => !p)} style={{ width: 36, height: 20, borderRadius: T.radiusPill, background: fOverloaded ? T.accent : T.border, border: "none", cursor: "pointer", position: "relative", transition: "all 0.2s", flexShrink: 0 }}>
-                  <div style={{ position: "absolute", top: 2, left: fOverloaded ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
-                </button>
-              </div>
-              <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-                <button onClick={() => { const all = {}; filtered.forEach(t => { if ((t.subs || []).length > 0) { all[t.id] = true; (t.subs || []).forEach(s => { if ((s.subs || []).length > 0) all[s.id] = true; }); } }); setExp(all); }} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Expand All</button>
-                <button onClick={() => setExp({})} style={{ flex: 1, padding: "6px 0", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: "transparent", color: T.text, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Collapse All</button>
-              </div>
-              {activeFilterCount > 0 && <button onClick={() => { setFRole([]); setFHpd("All"); setFClient([]); setFPers([]); setGrouping([]); setFJobNum(""); setFStat([]); setFOverloaded(false); setFTimePeriod(['current', 'future', 'finished']); setFCustom({}); }} style={{ width: "100%", padding: "8px 0", borderRadius: T.radiusPill, border: `1px solid ${T.danger}33`, background: T.danger + "10", color: T.danger, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Clear all filters</button>}
-            </div></FadeOnClose>
-          </div>
-        </div>
-        {/* Right side: Clipboard + Zoom + FAST TRAQS + New Task button */}
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: PAGE_ACTION_GAP }}>
-          <Tip label="Zoom"><input type="range" min="0.5" max="4" step="0.1" value={gZoom} onChange={e => setGZoom(Number(e.target.value))} style={{ width: 80, accentColor: T.accent }} /></Tip>
-          {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
-            <span style={{ lineHeight: 0, display: "flex" }}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/></svg></span>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{clipboard.item.title}</span>
-            <Tip label="Clear clipboard"><button onClick={() => setClipboard(null)} style={{ background: "none", border: "none", color: T.accent, cursor: "pointer", fontSize: 14, padding: "0 0 0 2px", lineHeight: 1, flexShrink: 0 }}><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 L6 18"/><path d="M6 6 L18 18"/></svg></button></Tip>
-          </div>}
-          {can("editJobs") && (
-            // Slide-out wrapper — keeps "+ New Job" mounted while jobSelectMode is true so
-            // there's no instant remount-then-collapse race with the "All" slider that caused
-            // the toolbar to briefly wrap onto a second row when pressing Done.
-            <div style={{ display: "flex", alignItems: "center", overflow: jobSelRevealed ? "visible" : "hidden", maxWidth: jobSelectMode ? 0 : 140, opacity: jobSelectMode ? 0 : 1, transform: jobSelectMode ? "translateX(8px)" : "translateX(0)", transition: "max-width 0.26s cubic-bezier(0.22,1,0.36,1), opacity 0.26s cubic-bezier(0.22,1,0.36,1), transform 0.26s cubic-bezier(0.22,1,0.36,1), margin-left 0.26s cubic-bezier(0.22,1,0.36,1)", pointerEvents: jobSelectMode ? "none" : "auto", marginLeft: jobSelectMode ? -6 : 0 }}>
-              <Btn size="sm" onClick={() => openNew()}>+ New Job</Btn>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {tasks.length === 0
-        ? <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "100px 24px", textAlign: "center", gap: 14 }}>
-            <div style={{ marginBottom: 4, opacity: 0.45 }}><svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2"/><line x1="12" y1="11" x2="16" y2="11"/><line x1="12" y1="16" x2="16" y2="16"/><polyline points="8 11 9 12 11 10"/><polyline points="8 16 9 17 11 15"/></svg></div>
-            <h2 style={{ margin: 0, fontSize: 34, fontWeight: 800, color: T.text, letterSpacing: "-0.045em" }}>No tasks yet</h2>
-            <p style={{ margin: "4px auto 0", fontSize: 16, color: T.textSec, maxWidth: 420, lineHeight: 1.75 }}>
-              Create your first job, or import an existing schedule instantly with <strong style={{ color: T.accent }}>FAST TRAQS</strong>
-            </p>
-          </div>
-        : gMode === "day" ? (() => {
-        const HS = 5, HE = 21, NH = HE - HS; // 5am – 9pm, 16 hours
-        const hours = Array.from({length: NH}, (_, i) => HS + i);
-        const effHW = avail / NH; // stretch evenly across available width
-        const fmH = h => h === 0 ? "12am" : h < 12 ? `${h}am` : h === 12 ? "12pm" : `${h - 12}pm`;
-        const nowH = shopHour();
-        const isToday = gStart === TD;
-        return (
-          <div ref={ganttContainerRef} style={{width:"100%"}}>
-            <div ref={ganttRef} style={{overflow:"hidden", border:`1px solid ${T.border}`, borderRadius:T.radius, background:T.surface}}>
-              <div style={{display:"flex", flexDirection:"column", width:"100%"}}>
-                {/* Hour header */}
-                <div style={{display:"flex", borderBottom:`2px solid ${T.border}`, height:48}}>
-                  <div style={{minWidth:lW,maxWidth:lW,display:"flex",alignItems:"center",padding:"0 16px",fontSize:12,color:T.textSec,fontWeight:600,borderRight:`1px solid ${T.border}`,letterSpacing:"0.04em",textTransform:"uppercase"}}>Task</div>
-                  <div style={{flex:1,display:"flex"}}>
-                    {hours.map(h => { const isCurH = isToday && Math.floor(nowH) === h; return <div key={h} style={{flex:1,height:"100%",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontSize:11,color:isCurH?T.accent:h<7||h>=18?T.textDim+"66":T.textDim,fontWeight:isCurH?700:400,borderRight:`1px solid ${T.bg}`,fontFamily:T.mono,background:h<7||h>=18?T.bg+"66":"transparent",gap:2}}><span style={{fontSize:11,fontWeight:isCurH?800:500}}>{fmH(h)}</span>{isCurH&&<div style={{width:4,height:4,borderRadius:2,background:T.accent}}/>}</div>; })}
-                  </div>
-                </div>
-                {rows.length === 0 && <div style={{padding:"40px 0",textAlign:"center",color:T.textDim,fontSize:14}}>No tasks scheduled for this day</div>}
-                {rows.map(r => {
-                  const onDay = r.start <= gStart && r.end >= gStart;
-                  const hpd = r.hpd || 0;
-                  const rawBarS = r.startHour ?? workStartH;
-                  const _rw = walkProductiveHours(rawBarS, personShareHours(hpd, (r.team || []).length, productiveHoursPerDay), dayWindowCfg);
-                  const rawBarE = Math.min(_rw.days > 1 ? workEndH : _rw.endHour, HE);
-                  const visBarS = Math.max(rawBarS, HS), visBarE = Math.min(rawBarE, HE);
-                  const barVisible = onDay && visBarE > visBarS;
-                  const indent = r.level || 0;
-                  return (
-                    <div key={r.id} style={{display:"flex",height:rH,borderBottom:`1px solid ${T.bg}55`}}>
-                      <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:8,padding:"0 16px",paddingLeft:16+indent*16,borderRight:`1px solid ${T.border}`,position:"sticky",left:0,background:T.surface,zIndex:10,cursor:"pointer"}} onClick={()=>(r.subs||[]).length>0?setExp(p=>({...p,[r.id]:!p[r.id]})):openDetail(r)}>
-                        <span style={{fontSize:indent===2?12:14,color:indent>0?T.textSec:T.text,fontWeight:indent>0?400:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{indent===2?"↳ ":""}{r.title}</span>
-                        {(r.subs||[]).length>0 && <span style={{fontSize:10,color:T.textDim}}>({r.subs.length})</span>}
-                        <HealthIcon t={r} size={13}/>
-                      </div>
-                      <div style={{flex:1,position:"relative",display:"flex"}}>
-                        {hours.map(h => <div key={h} style={{flex:1,height:"100%",background:h<7||h>=18?T.bg+"55":"transparent",borderRight:`1px solid ${T.bg}22`,position:"relative"}}>
-                          <div style={{position:"absolute",top:0,bottom:0,left:"50%",width:1,background:T.bg+"44",pointerEvents:"none"}}/>
-                        </div>)}
-                        {barVisible && <div
-                          onMouseDown={e=>{ if(e.button===0) handleDayBarDrag(e,r,"move"); }}
-                          onContextMenu={e=>handleCtx(e,r)}
-                          style={{position:"absolute",top:5,left:`${(visBarS-HS)/NH*100}%`,width:`calc(${(visBarE-visBarS)/NH*100}% - 4px)`,height:rH-10,borderRadius:T.radiusXs,background:r.isSub?r.color+"aa":r.color,border:r.isSub?`1px solid ${r.color}`:"none",cursor:dayDragInfo?.itemId===r.id?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 18px",overflow:"hidden",boxShadow:dayDragInfo?.itemId===r.id?`0 4px 16px ${r.color}66`:`0 2px 8px ${r.color}33`,opacity:dayDragInfo&&dayDragInfo.itemId!==r.id?0.7:1,transition:"box-shadow 0.1s,opacity 0.1s"}}
-                          onMouseEnter={e=>{ if(!dayDragInfo) e.currentTarget.style.filter="brightness(1.1)"; }} onMouseLeave={e=>e.currentTarget.style.filter="none"}>
-                          <div onMouseDown={e=>{e.stopPropagation();handleDayBarDrag(e,r,"left");}} style={{position:"absolute",left:0,top:0,bottom:0,width:14,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
-                            <div style={{width:3,height:14,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
-                          </div>
-                          <span style={{fontSize:11,color:"#fff",fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,textAlign:"center"}}>{hpd>0?`${hpd}h · `:""}{r.title}</span>
-                          <div onMouseDown={e=>{e.stopPropagation();handleDayBarDrag(e,r,"right");}} style={{position:"absolute",right:0,top:0,bottom:0,width:14,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
-                            <div style={{width:3,height:14,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
-                          </div>
-                        </div>}
-                        {isToday && nowH>=HS && nowH<=HE && <div style={{position:"absolute",top:0,bottom:0,left:`${(nowH-HS)/NH*100}%`,width:2,background:T.accent+"bb",zIndex:12,pointerEvents:"none"}}/>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        );
-      })() : <div ref={ganttContainerRef} style={{ width: "100%" }}>
-      <div ref={ganttRef} onMouseDown={handleGanttPan} onWheel={handleGanttWheel} style={{ overflowX: isMobile ? "auto" : "hidden", border: `1px solid ${T.border}`, borderRadius: T.radius, background: T.surface, position: "relative", cursor: "grab" }}>
-        <div style={{ display: "flex", width: tW, flexDirection: "column", position: "relative" }}>
-          <div style={{ borderBottom: `2px solid ${T.border}` }}>
-            {/* Group header row (months or weeks) */}
-            <div style={{ display: "flex" }}>
-              <div style={{ minWidth: lW, maxWidth: lW, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface, zIndex: 15 }} />
-              {groups.map(g => <div key={g.key} style={{ minWidth: g.span * cW, maxWidth: g.span * cW, height: hH / 2, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: T.text, letterSpacing: "-0.045em", borderRight: `1px solid ${T.border}`, background: T.bg + "44" }}>{g.label}</div>)}
-            </div>
-            {/* Day number row */}
-            <div style={{ display: "flex" }}>
-              <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", padding: "0 20px", display: "flex", alignItems: "center", fontSize: 13, color: T.textSec, fontWeight: 600, height: hH / 2, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface, zIndex: 15, letterSpacing: "-0.045em", textTransform: "uppercase" }}>Task</div>
-              {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !isWorkDay(day); const isT = day === TD; const dayLetter = ["S","M","T","W","T","F","S"][dt.getDay()]; return <div key={day} style={{ minWidth: cW, maxWidth: cW, height: hH / 2, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontSize: gMode === "month" ? 12 : 13, fontFamily: T.mono, color: isT ? T.accent : wk ? T.textSec : T.text, fontWeight: isT ? 700 : wk ? 400 : 500, background: wk ? T.bg + "aa" : "transparent", borderRight: `1px solid ${T.bg}`, gap: 0 }}><span style={{ fontSize: 10, textTransform: "uppercase", lineHeight: 1 }}>{dayLetter}</span><span style={{ lineHeight: 1 }}>{dt.getDate()}</span></div>; })}
-            </div>
-          </div>
-          {rows.map((r) => { const indent = r.level || 0; return <div key={r.id} style={{ display: "flex", height: rH, borderBottom: `1px solid ${T.bg}55` }}>
-            <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 8, padding: "0 16px", paddingLeft: 16 + indent * 16, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: T.surface, zIndex: 10, cursor: "pointer" }} onClick={() => (r.subs || []).length > 0 ? setExp(p => ({ ...p, [r.id]: !p[r.id] })) : openDetail(r)}>
-              {r.level === 0 && jobSelectMode && <div onClick={e => { e.stopPropagation(); setSelJobs(prev => { const n = new Set(prev); n.has(r.id) ? n.delete(r.id) : n.add(r.id); return n; }); }} style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${selJobs.has(r.id) ? T.accent : T.border}`, background: selJobs.has(r.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer", transition: "all 0.15s" }}>{selJobs.has(r.id) && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
-              <span style={{ fontSize: indent === 2 ? 12 : 14, color: indent > 0 ? T.textSec : T.text, fontWeight: indent > 0 ? 400 : 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{indent === 2 ? "↳ " : ""}{r.title}</span>
-              {taskOwner(r) && <span style={{ fontSize: 11, color: r.color, fontWeight: 500, flexShrink: 0, opacity: 0.8 }}>{taskOwner(r)}</span>}
-              {(r.subs || []).length > 0 && <span style={{ fontSize: 10, color: T.textDim }}>({r.subs.length})</span>}
-              <HealthIcon t={r} size={13} />
-            </div>
-            <div style={{ flex: 1, position: "relative", display: "flex" }} onContextMenu={e => {
-              e.preventDefault();
-              setCtxMenu(null);
-              if (!clipboard) return;
-              const rect = e.currentTarget.getBoundingClientRect();
-              const dayIdx = Math.max(0, Math.min(Math.floor((e.clientX - rect.left) / cW), days.length - 1));
-              const startDate = days[dayIdx];
-              const dur = Math.max(diffD(clipboard.item.start, clipboard.item.end), 0);
-              setPasteConfirm({ x: e.clientX, y: e.clientY, startDate, endDate: addD(startDate, dur) });
-            }}>
-              {days.map(day => { const dt = new Date(day + "T12:00:00"); const wk = !isWorkDay(day); const isMonStart = dt.getDate() === 1; return <div key={day} style={{ minWidth: cW, maxWidth: cW, height: "100%", background: day === TD ? T.accent + "0a" : wk ? T.bg + "aa" : "transparent", borderRight: isMonStart ? `2px solid ${T.border}` : `1px solid ${T.bg}33` }} />; })}
-              {/* Drag ghost overlay — snapped destination with overlap coloring */}
-              {ganttDragInfo?.itemId === r.id && (() => {
-                const { snapStart, snapEnd, hasOverlap, beforeNow } = ganttDragInfo;
-                if (snapStart > gEnd || snapEnd < gStart) return null;
-                const gs = snapStart < gStart ? gStart : snapStart;
-                const ge = snapEnd   > gEnd   ? gEnd   : snapEnd;
-                const gx = dToX(gs), gw = Math.max(dToX(ge) + cW - gx, cW);
-                const gc = (hasOverlap || beforeNow) ? "#ef4444" : T.accent;
-                return <div style={{ position: "absolute", top: 3, left: gx - 2, width: gw + 4, height: rH - 6, borderRadius: T.radiusXs + 2, border: `2px solid ${gc}`, background: gc + "18", boxShadow: `0 0 24px ${gc}77, 0 0 8px ${gc}55, 0 0 48px ${gc}33`, pointerEvents: "none", zIndex: 3, animation: "ghost-fade-in 0.22s cubic-bezier(0.34,1.56,0.64,1)" }} />;
-              })()}
-              {r.start <= gEnd && r.end >= gStart && (() => {
-                const segs = weekdaySegments(r.start, r.end, gStart, gEnd, orgSettings.workDays);
-                if (segs.length === 0) return null;
-                const pct = r.status === "Finished" ? 100 : r.status === "In Progress" ? 50 : r.status === "Pending" ? 15 : r.status === "On Hold" ? 25 : 0;
-                const hasSubs = (r.subs || []).length > 0;
-                const isExp = hasSubs && exp[r.id];
-                const isDragging = ganttDragInfo?.itemId === r.id;
-                const barColor = r.color || T.accent;
-                const barBg = r.level === 1 ? barColor + "cc" : barColor;
-                const barTextColor = accentText(barColor);
-                const ws = deriveWorkedState(r, producedFor(r), liveOpHours(r));
-                const _totalCalDays = segs.reduce((s, sg) => s + diffD(sg.start, sg.end) + 1, 0);
-                let _workedRemainingDays = ws.workedFraction * _totalCalDays;
-                return segs.map((seg, si) => {
-                  const x = dToX(seg.start), xE = dToX(seg.end) + cW - 6, w = Math.max(xE - x, cW - 6);
-                  const isFirst = si === 0, isLast = si === segs.length - 1;
-                  const label = r.level === 0 ? (r.jobNumber || r.title) : r.level === 2 ? (r.panelTitle ? `${r.panelTitle}  ·  ${r.title}` : r.title) : r.title;
-                  const _segCalDays = diffD(seg.start, seg.end) + 1;
-                  const _segWorkedDays = Math.max(0, Math.min(_workedRemainingDays, _segCalDays));
-                  _workedRemainingDays = Math.max(0, _workedRemainingDays - _segWorkedDays);
-                  const _workedPctOfSeg = _segCalDays > 0 ? (_segWorkedDays / _segCalDays) * 100 : 0;
-                  return <div key={si} className={isFirst ? "anim-gantt-bar" : undefined} style={{ position: "absolute", top: 6, left: x, width: w, height: rH - 12, borderRadius: T.radiusXs, background: barBg, border: `1.5px solid ${barColor}`, borderRight: !isLast ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`, borderLeft: !isFirst ? `2px dashed ${barColor}bb` : `1.5px solid ${barColor}`, cursor: can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", overflow: "hidden", zIndex: r.level === 2 ? 5 : 4, boxShadow: isExp ? `0 2px 8px ${barColor}44` : "none", opacity: isDragging ? 0 : 1, transition: isDragging ? "none" : "opacity 0.15s" }}
-                    onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; handleDrag(e, r, "move"); } }} onContextMenu={e => handleCtx(e, r)}>
-                    {isFirst && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: `${pct}%`, background: "rgba(255,255,255,0.15)", borderRadius: T.radiusXs - 1 }} />}
-                    {isFirst && can("moveJobs") && ws.workedHpd === 0 && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                    {isLast && can("moveJobs") && !ws.isFullyWorked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 10, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleDrag(e, r, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 16, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                    <span style={{ fontSize: r.level === 2 ? 11 : 12, color: barTextColor, fontWeight: 600, padding: "0 12px", position: "relative", zIndex: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 5, flex: 1 }}>{isFirst && hasSubs && <span style={{ fontSize: 9, opacity: 0.7, flexShrink: 0 }}>{isExp ? "▼" : "▶"}</span>}{(isFirst || w > 80) ? label : ""}</span>
-                  </div>;
-                });
-              })()}
-            </div>
-          </div>; })}
-          {/* SVG arrows */}
-          <svg style={{ position: "absolute", top: 0, left: lW, width: tW - lW, height: tH, pointerEvents: "none", zIndex: 3 }}>
-            <defs><marker id="ah" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto" fill="#f59e0b"><polygon points="0 0, 8 3, 0 6" /></marker></defs>
-            {arrows.map(a => { const cp = Math.max(20, Math.min(Math.abs(a.tx - a.fx) * 0.4, 80)); const path = `M ${a.fx} ${a.fy} C ${a.fx + cp} ${a.fy}, ${a.tx - cp} ${a.ty}, ${a.tx} ${a.ty}`; return <g key={a.fid + "-" + a.tid}><path d={path} fill="none" stroke="#f59e0b22" strokeWidth="6" /><path d={path} fill="none" stroke="#f59e0baa" strokeWidth="2" markerEnd="url(#ah)" /><circle cx={a.fx} cy={a.fy} r="3.5" fill="#f59e0b" opacity="0.7" /></g>; })}
-          </svg>
-          {TD >= gStart && TD <= gEnd && <div style={{ position: "absolute", top: 0, bottom: 0, left: lW + dToX(TD) + cW / 2, width: 2, background: T.accent + "bb", zIndex: 12, pointerEvents: "none" }} />}
-        </div>
-      </div>
-      </div>}
-      {gMode !== "day" && (() => {
-        const scrStart = (() => { const d = new Date(TD+"T12:00:00"); d.setMonth(d.getMonth()-6); return toDS(new Date(d.getFullYear(),d.getMonth(),1)); })();
-        const scrEnd   = (() => { const d = new Date(TD+"T12:00:00"); d.setMonth(d.getMonth()+12); return toDS(new Date(d.getFullYear(),d.getMonth()+1,0)); })();
-        const scrDays  = diffD(scrStart, scrEnd) + 1;
-        const thumbL   = Math.max(0, Math.min(98, (diffD(scrStart, gStart) / scrDays) * 100));
-        const thumbW   = Math.max(2, Math.min(100 - thumbL, ((diffD(gStart, gEnd) + 1) / scrDays) * 100));
-        const months   = [];
-        let md = new Date(scrStart+"T12:00:00");
-        while (toDS(md) <= scrEnd) {
-          months.push({ pct: (diffD(scrStart, toDS(new Date(md.getFullYear(),md.getMonth(),1))) / scrDays)*100, label: md.toLocaleDateString("en-US",{month:"short"}), isJan: md.getMonth()===0, year: md.getFullYear() });
-          md.setMonth(md.getMonth()+1);
-        }
-        const handleThumbDrag = e => {
-          e.stopPropagation();
-          const trackEl = e.currentTarget.parentElement;
-          const trackRect = trackEl.getBoundingClientRect();
-          const startX = e.clientX, startGS = gStart, startGE = gEnd;
-          const span = diffD(gStart, gEnd);
-          const pxPerDay = trackRect.width / scrDays;
-          const sty = document.createElement("style"); sty.textContent="*{cursor:grabbing!important;user-select:none!important}"; document.head.appendChild(sty);
-          const onM = me => { const delta=Math.round((me.clientX-startX)/pxPerDay); let ns=addD(startGS,delta),ne=addD(startGE,delta); if(ns<scrStart){ns=scrStart;ne=addD(scrStart,span);}if(ne>scrEnd){ne=scrEnd;ns=addD(scrEnd,-span);}setGStart(ns);setGEnd(ne); };
-          const onU = () => { document.head.removeChild(sty); document.removeEventListener("mousemove",onM); document.removeEventListener("mouseup",onU); };
-          document.addEventListener("mousemove",onM); document.addEventListener("mouseup",onU);
-        };
-        const handleTrackClick = e => {
-          if (e.target !== e.currentTarget) return;
-          const rect = e.currentTarget.getBoundingClientRect();
-          const pct = (e.clientX - rect.left) / rect.width;
-          const target = addD(scrStart, Math.round(pct * scrDays));
-          const span = diffD(gStart, gEnd), half = Math.floor(span/2);
-          let ns=addD(target,-half), ne=addD(target,span-half);
-          if(ns<scrStart){ns=scrStart;ne=addD(scrStart,span);}if(ne>scrEnd){ne=scrEnd;ns=addD(scrEnd,-span);}
-          setGStart(ns); setGEnd(ne);
-        };
-        return (
-          <div style={{ marginTop: 6, userSelect: "none" }}>
-            <div style={{ position: "relative", height: 30, cursor: "pointer" }} onClick={handleTrackClick}>
-              {months.map((m,i) => <div key={i} style={{ position:"absolute", bottom:0, left:`${m.pct}%`, transform:"translateX(-50%)", fontSize:9, color:T.textDim, fontWeight:m.isJan?700:400, lineHeight:1, whiteSpace:"nowrap", pointerEvents:"none", textAlign:"center" }}>{m.label}{m.isJan && <span style={{display:"block",fontSize:8,opacity:0.6}}>{m.year}</span>}</div>)}
-              <div style={{ position:"absolute", left:0, right:0, top:"40%", height:6, transform:"translateY(-50%)", background:T.bg, borderRadius:3, border:`1px solid ${T.border}` }} />
-              <div style={{ position:"absolute", top:"40%", left:`${thumbL}%`, width:`${thumbW}%`, height:10, transform:"translateY(-50%)", background:T.accent+"88", borderRadius:4, border:`1.5px solid ${T.accent}`, cursor:"grab", minWidth:8 }}
-                onMouseDown={handleThumbDrag} onClick={e=>e.stopPropagation()}
-                onMouseEnter={e=>e.currentTarget.style.background=T.accent+"cc"} onMouseLeave={e=>e.currentTarget.style.background=T.accent+"88"} />
-            </div>
-          </div>
-        );
-      })()}
-    </div>;
-  };
 
   // ═══════════════════ SPLIT GANTT ═══════════════════
   const renderSplitGantt = (jobs) => {
@@ -14709,7 +13731,6 @@ ${jobsCtx || "No jobs found."}`;
         return listContent;
       })()}
       {/* ── Gantt View ── */}
-      {taskSubView === "gantt" && renderGantt()}
       </div>
     </div>;
   };
@@ -16425,7 +15446,6 @@ ${jobsCtx || "No jobs found."}`;
     const totalH = rowList.reduce((s, r) => {
       if (r.type === "group") return s + grpH;
       if (r.type === "person") return s + (r.hidden ? 0 : rH);
-      if (r.type === "subtask") return s + subH;
       return s + rH;
     }, 0) + 56;
     // Team day-view bar drag and resize (root cause 7, chunk B).
@@ -17029,63 +16049,6 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ flex: 1 }} />
               </div>;
             }
-            if (row.type === "subtask") {
-              // Subtask row
-              const sub = row.sub;
-              const parentBar = row.parentBar;
-              const nDays = days.length;
-              const sx = (diffD(tStart, sub.start < tStart ? tStart : sub.start) / nDays * 100) + "%";
-              const sw = (Math.max(diffD(sub.start < tStart ? tStart : sub.start, sub.end > tEnd ? tEnd : sub.end) + 1, 1) / nDays * 100) + "%";
-              // An expanded sub-row paints a flat fill, not regions, so it has ONE ground --
-              // but the same two moves apply: the colour goes through elColor (so it is legible
-              // and follows the job-bar mode, which this renderer was skipping), and Finished
-              // fades the FILL rather than the element that carries the label.
-              const _subFill = sub.status === "Finished" ? doneBarFill(T, barFillColor(sub.color), _schedSurf) : barFillColor(sub.color);
-              const _subDotFill = _subFill;
-              const _subInk = barInk([_subFill]);
-              return <div key={`sub-${row.person.id}-${sub.id}`} style={{ display: "flex", height: subH, borderBottom: gridOn ? `1px solid ${schedLine}` : "none", background: schedSubBg }}>
-                <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 6, padding: "0 16px 0 56px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: schedSubBg, zIndex: 10 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: 8, background: _subDotFill, flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub.title}</span>
-                </div>
-                <div style={{ flex: 1, position: "relative", display: "flex" }}>
-                  {days.map(day => { const wk = !isWorkDay(day); return <div key={day} style={{ flex: 1, height: "100%", background: wk ? schedDisabled : "transparent", borderRight: gridOn ? `1px solid ${schedLine}` : "none" }} />; })}
-                  {sub.start <= tEnd && sub.end >= tStart && (() => {
-                    const subSegs = weekdaySegments(sub.start, sub.end, tStart, tEnd, orgSettings.workDays);
-                    return subSegs.map((seg, si) => {
-                      const segSx = (diffD(tStart, seg.start) / nDays * 100) + "%";
-                      const segSw = ((diffD(seg.start, seg.end) + 1) / nDays * 100) + "%";
-                      const isFirst = si === 0, isLast = si === subSegs.length - 1;
-                      return <div key={si}
-                        onContextMenu={e => handleCtx(e, { ...sub, isSub: true, pid: row.parentTaskId }, "team")}
-                        onMouseDown={e => {
-                          if (e.button !== 0) return;
-                          e.preventDefault();
-                          const startX = e.clientX; const os = sub.start, oe = sub.end; let moved = false, lastDx = 0;
-                          const onM = me => { const dx = Math.round((me.clientX - startX) / cW); if (dx !== 0) moved = true; if (dx !== lastDx) { lastDx = dx; updTask(sub.id, { start: addD(os, dx), end: addD(oe, dx) }, row.parentTaskId); } };
-                          const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
-                          document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
-                        }}
-                        style={{ position: "absolute", top: 3, left: `calc(${segSx} + 2px)`, width: `calc(${segSw} - 4px)`, height: subH - 6, borderRadius: 8, background: _subFill, border: `1px solid ${_subFill}`, borderRight: !isLast ? `2px dashed ${_subFill}bb` : `1px solid ${_subFill}`, borderLeft: !isFirst ? `2px dashed ${_subFill}bb` : `1px solid ${_subFill}`, cursor: "grab", display: "flex", alignItems: "center", padding: "0 8px", overflow: "hidden", zIndex: sub.id === scheduleHighlightId ? 10 : 4, animation: isFirst && sub.id === scheduleHighlightId ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": _subFill + "99" }}>
-                        {isFirst && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 6, cursor: "ew-resize", zIndex: 5 }} onMouseDown={e => {
-                          e.stopPropagation(); e.preventDefault(); const startX = e.clientX; const os = sub.start; let lastDx = 0;
-                          const onM = me => { const dx = Math.round((me.clientX - startX) / cW); if (dx === lastDx) return; lastDx = dx; const ns = addD(os, dx); if (ns <= sub.end) updTask(sub.id, { start: ns }, row.parentTaskId); };
-                          const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
-                          document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
-                        }} />}
-                        {isLast && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 6, cursor: "ew-resize", zIndex: 5 }} onMouseDown={e => {
-                          e.stopPropagation(); e.preventDefault(); const startX = e.clientX; const oe = sub.end; let lastDx = 0;
-                          const onM = me => { const dx = Math.round((me.clientX - startX) / cW); if (dx === lastDx) return; lastDx = dx; const ne = addD(oe, dx); if (ne >= sub.start) updTask(sub.id, { end: ne }, row.parentTaskId); };
-                          const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
-                          document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
-                        }} />}
-                        {isFirst && <span style={{ fontSize: 10, color: _subInk, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3 }}>{sub.title}</span>}
-                      </div>;
-                    });
-                  })()}
-                </div>
-              </div>;
-            }
             // Person row
             const p = row.person;
             const bars = (row.bars || []).filter((b, i, arr) => arr.findIndex(x => x.id === b.id) === i);
@@ -17290,8 +16253,10 @@ ${jobsCtx || "No jobs found."}`;
                   something the card itself can carry. Inert while either select
                   mode is on, since a click means "select" there. */}
               <div 
-                style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: teamSelectMode && selPeople.has(p.id) ? T.accent + "15" : isDrop ? T.accent + "0c" : selectedSchedulePerson === p.id ? T.accent + "18" : T.surface, zIndex: 10, transition: "background 0.15s" }}>
-                <div className="sched-person-glow" aria-hidden="true" style={{ position: "absolute", inset: 0, background: canEditPerson ? hexA(T.accent, 0.13) : "transparent", pointerEvents: "none", zIndex: 0 }} />
+                onClick={canEditPerson ? (e) => { e.stopPropagation(); setPersonModal({ ...p }); } : undefined}
+                title={canEditPerson ? "Edit this person" : undefined}
+                role={canEditPerson ? "button" : undefined}
+                style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", cursor: canEditPerson ? "pointer" : undefined, borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: teamSelectMode && selPeople.has(p.id) ? T.accent + "15" : isDrop ? T.accent + "0c" : selectedSchedulePerson === p.id ? T.accent + "18" : T.surface, zIndex: 10, transition: "background 0.15s" }}>
                 <div data-row-pids={bars.filter(_b => _b.type !== "pto" && _b.task?.pid != null).map(_b => String(_b.task.pid)).join(" ")} style={{ position: "relative", zIndex: 1, display: "flex", alignItems: "center", gap: 8, padding: "0 10px 0 8px", height: "100%", transition: "opacity 0.2s" }}>
                 {/* Drag handle */}
                 <Tip label="Drag to reorder"><div onMouseDown={e => startRowDrag(e, p.id)} onClick={e => e.stopPropagation()} style={{ cursor: "grab", color: T.textDim, fontSize: 14, padding: "4px 2px", flexShrink: 0, lineHeight: 1, userSelect: "none", opacity: 0.5 }}>⠿</div></Tip>
@@ -17694,7 +16659,6 @@ ${jobsCtx || "No jobs found."}`;
                     </div>;
                   }
                   const isPto = bar.type === "pto";
-                  const isExp = false;
                   // §3c. An op cannot be rescheduled out from under the person working it: their
                   // clock is running against a block that would move, and the split rules only make
                   // sense once nobody is on it.
@@ -18311,8 +17275,6 @@ ${jobsCtx || "No jobs found."}`;
                   const _dragBlocked = !isPto && (_isOverrunning || bar.crossRow);
                   // Worked-overlay budget: percent-of-timeline width covered by the striped portion.
                   // Distributes across multi-segment bars in lockstep with the bar's own width budget.
-                  const _workedCellsTotal = ws ? ws.workedFraction * _wBudget : 0;
-                  let _workedRemainingBudget = _workedCellsTotal;
                   const bc = bar.color;
                   const isHighlighted = !isPto && scheduleHighlightId != null && (bar.task?.id === scheduleHighlightId || bar.task?.pid === scheduleHighlightId || bar.task?.grandPid === scheduleHighlightId);
                   const isDraggingThis = teamDragInfo?.barId === bar.id;
@@ -18601,7 +17563,7 @@ ${jobsCtx || "No jobs found."}`;
                     data-worked-pct={_barWorkedPct} data-divider-pct={_headCursorPct} data-op-divider-pct={_barCursorPct} data-raw-worked-pct={_barRawWorkedPct} data-worked-spans={JSON.stringify(_barSpans)} data-seg-worked-spans={JSON.stringify(_headSpans)} data-seg-divider-pct={_headCursorPct} data-bar-dim={isPto ? undefined : "1"} data-pid={bar.task?.pid ?? undefined} data-unclosed={_barUnclosed ? "1" : undefined} data-worked-h={_barWorkedH} data-committed-h={_barCommittedH} data-live-h={_barLiveH} data-state={_barState}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: _bLaneTop, left: x, width: `calc(${w} - ${bar.endsNow ? 0 : 1}px)`, minWidth: _wFirst > 0 ? 2 : 0, height: _bLaneHeight, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: activeBarFill(T, bc, _fillSpans, _fillCursorPct, _barState, _renderPx, _schedSurf), border: isBarSelected ? `2px solid ${_edgeInk}` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid ${_edgeInk}` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${_fadedBc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : `0 12px 0 ${12 + _labelInset}px`, overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px ${hexA(_edgeInk, 0.2)}` : isExp ? `0 2px 8px ${_fadedBc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": _fadedBc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
+                    style={{ position: "absolute", top: _bLaneTop, left: x, width: `calc(${w} - ${bar.endsNow ? 0 : 1}px)`, minWidth: _wFirst > 0 ? 2 : 0, height: _bLaneHeight, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: activeBarFill(T, bc, _fillSpans, _fillCursorPct, _barState, _renderPx, _schedSurf), border: isBarSelected ? `2px solid ${_edgeInk}` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid ${_edgeInk}` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${_fadedBc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : `0 12px 0 ${12 + _labelInset}px`, overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px ${hexA(_edgeInk, 0.2)}` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": _fadedBc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
                     onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; if (!barSelectMode) hoverDim(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; hoverDim(null); }}>
                     {!_isNarrowBar && can("moveJobs") && !barLocked && !_dragBlocked && !(ws && ws.workedHpd > 0) && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: _leftMarkInk, opacity: 0, transition: "opacity 0.15s" }} /></div>}
                     {!_isNarrowBar && barSegs.length === 1 && _endsInView && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: _rightMarkInk, opacity: 0, transition: "opacity 0.15s" }} /></div>}
@@ -23524,74 +22486,6 @@ ${jobsCtx || "No jobs found."}`;
       })}
     </div>;
 
-    const renderMobileTeam = () => <div style={{ padding: "8px 12px 88px", overflow: "auto", flex: 1 }}>
-      {can("manageTeam") && <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
-        <button onClick={() => setPersonModal({ id: null, name: "", department: "", email: "", cap: 8, teamNumber: null, isEngineer: false, userRole: "user" })} style={{ background: brandGrad(T.accent), border: "none", color: T.accentText, borderRadius: T.radiusPill, padding: "6px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>+ Add Person</button>
-      </div>}
-      {people.map(p => {
-        const isExp = mobileExp["p_" + p.id];
-        const pActiveTasks = allItems.filter(t => (t.team || []).includes(p.id) && t.status !== "Finished");
-        const currentTasks = pActiveTasks.filter(t => TD >= t.start && TD <= t.end);
-        const upcoming = pActiveTasks.filter(t => t.start > TD).slice(0, 5);
-        const bookedH = bookedHrs(p.id, TD);
-        const pctLoad = Math.min(bookedH / capacityOf(p, productiveHoursPerDay) * 100, 100);
-        return <div key={p.id} style={{ marginBottom: 6 }}>
-          <div onClick={() => setMobileExp(prev => ({ ...prev, ["p_" + p.id]: !prev["p_" + p.id] }))} style={{ display: "flex", gap: 12, padding: "12px 14px", background: T.card, borderRadius: isExp ? `${T.radiusSm}px ${T.radiusSm}px 0 0` : T.radiusSm, border: `1px solid ${T.border}`, borderBottom: isExp ? "none" : undefined, cursor: "pointer", alignItems: "center" }}>
-            <PersonAvatar person={p} size={38} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: T.text }}>{p.name}</div>
-              <div style={{ fontSize: 12, color: T.textDim, marginTop: 1 }}>{p.department}{p.cap ? ` · ${p.cap}h/day` : ""}</div>
-              <div style={{ marginTop: 5, background: T.bg, borderRadius: 8, height: 4, overflow: "hidden", width: "65%" }}>
-                <div style={{ height: "100%", borderRadius: 8, background: bookedH > p.cap ? T.danger : pctLoad > 70 ? "#f59e0b" : T.accent, width: pctLoad + "%", transition: "width 0.3s" }} />
-              </div>
-            </div>
-            <div style={{ textAlign: "right", flexShrink: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: currentTasks.length > 0 ? T.accent : T.textDim, fontFamily: T.mono }}>{currentTasks.length}</div>
-              <div style={{ fontSize: 10, color: T.textDim }}>today</div>
-            </div>
-            <span style={{ fontSize: 12, color: T.textDim, marginLeft: 4 }}>{isExp ? "▲" : "▼"}</span>
-            {teamSelectMode && <div onClick={e => { e.stopPropagation(); setSelPeople(prev => { const n = new Set(prev); n.has(p.id) ? n.delete(p.id) : n.add(p.id); return n; }); }} style={{ width: 22, height: 22, borderRadius: "50%", border: `2px solid ${selPeople.has(p.id) ? T.accent : T.border}`, background: selPeople.has(p.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer", transition: "all 0.15s" }}>{selPeople.has(p.id) && <svg width="11" height="11" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
-          </div>
-          {isExp && <div style={{ background: T.bg + "88", border: `1px solid ${T.border}`, borderTop: "none", borderRadius: `0 0 ${T.radiusSm}px ${T.radiusSm}px`, padding: "12px 14px" }}>
-            <div style={{ display: "flex", gap: 20, marginBottom: 12 }}>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 18, fontWeight: 700, color: T.text, fontFamily: T.mono }}>{currentTasks.length}</div>
-                <div style={{ fontSize: 10, color: T.textDim }}>current</div>
-              </div>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 18, fontWeight: 700, color: T.text, fontFamily: T.mono }}>{upcoming.length}</div>
-                <div style={{ fontSize: 10, color: T.textDim }}>upcoming</div>
-              </div>
-              <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 18, fontWeight: 700, color: bookedH > p.cap ? T.danger : T.text, fontFamily: T.mono }}>{bookedH.toFixed(1)}h</div>
-                <div style={{ fontSize: 10, color: T.textDim }}>booked today</div>
-              </div>
-            </div>
-            {currentTasks.length > 0 && <>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.accent, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Working On</div>
-              {currentTasks.map(t => <div key={t.id} onClick={() => openDetail(t)} style={{ padding: "7px 10px", marginBottom: 4, background: T.card, borderRadius: 12, cursor: "pointer", fontSize: 13, color: T.text, display: "flex", alignItems: "center", gap: 8, border: `1px solid ${T.border}` }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = T.card}>
-                <div style={{ width: 6, height: 6, borderRadius: 8, background: T.textDim, flexShrink: 0 }} />
-                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
-                <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(t.end)}</span>
-              </div>)}
-            </>}
-            {upcoming.length > 0 && <>
-              <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginTop: 8, marginBottom: 5 }}>Up Next</div>
-              {upcoming.map(t => <div key={t.id} onClick={() => openDetail(t)} style={{ padding: "7px 10px", marginBottom: 4, background: T.card, borderRadius: 12, cursor: "pointer", fontSize: 13, color: T.text, display: "flex", alignItems: "center", gap: 8, border: `1px solid ${T.border}`, opacity: 0.72 }} onTouchStart={e => e.currentTarget.style.background = T.hover} onTouchEnd={e => e.currentTarget.style.background = T.card}>
-                <div style={{ width: 6, height: 6, borderRadius: 8, background: T.textDim, flexShrink: 0 }} />
-                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.title}</span>
-                <span style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono }}>{fm(t.start)}</span>
-              </div>)}
-            </>}
-            {currentTasks.length === 0 && upcoming.length === 0 && <div style={{ fontSize: 13, color: T.textDim, textAlign: "center", padding: "8px 0" }}>No active assignments</div>}
-            {can("manageTeam") && <div style={{ marginTop: 10 }}>
-              <button onClick={() => setPersonModal({ ...p })} style={{ background: T.accent + "15", border: `1px solid ${T.accent}33`, borderRadius: T.radiusPill, padding: "6px 14px", fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer", fontFamily: T.font }}>Edit Person</button>
-            </div>}
-          </div>}
-        </div>;
-      })}
-    </div>;
-
     const renderMobileAnalytics = () => {
       const bySt = ["Not Started", "Pending", "In Progress", "On Hold", "Finished"].map(s => ({ n: s, c: allItems.filter(x => x.status === s).length }));
       const totalTasks = tasks.length;
@@ -23733,7 +22627,6 @@ ${jobsCtx || "No jobs found."}`;
         {mobileView === "timestamp" && renderTimeStamp()}
         {mobileView === "clients" && renderMobileClients()}
         {mobileView === "analytics" && renderMobileAnalytics()}
-        {mobileView === "schedule" && renderMobileTeam()}
         {mobileView === "messages" && renderMessages()}
       </AnimatedView>
       {/* Mobile Settings Overlay */}
@@ -25740,12 +24633,6 @@ ${jobsCtx || "No jobs found."}`;
           if (to.start <= opEnd && to.end >= opStart) return true;
         }
         return false;
-      };
-      const optimizeJobOps = () => {
-        const result = computeJobOptimize({ ...ed, id: ed.id });
-        if (!result) return;
-        const { newSubs, jStart, jEnd } = result;
-        setEd(p => ({ ...p, start: jStart, end: jEnd, subs: newSubs }));
       };
 
       // Check if all deps of an op/sub are finished; returns array of unfinished dep IDs
@@ -33182,6 +32069,18 @@ ${jobsCtx || "No jobs found."}`;
       <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><circle cx="12" cy="15" r="2"/></svg>} label="Take me to schedule" sub="Jump to this job on the schedule" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } setCtxMenu(null); if (job) goToScheduleJob(job.id); }} animIdx={ci()} />
       {/* Add/Edit Dependencies — ops with sibling ops */}
       {isOp && can("editJobs") && (() => { let panel = null, parentJobId = null; for (const job of tasks) { for (const pnl of (job.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { panel = pnl; parentJobId = job.id; break; } } if (panel) break; } return panel && (panel.subs||[]).length >= 2 ? <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>} label="Add/Edit Dependencies" sub="Manage dependency links between sub-ops" onClick={() => { setCtxMenu(null); setDepsModal({ item: it, panelSubs: panel.subs||[], panelId: panel.id, jobId: parentJobId, panelTitle: panel.title, depsMode: panel.depsMode||"unlocked" }); }} animIdx={ci()} /> : null; })()}
+      {/* Reschedule just this operation (#135). Separate from the job-level Reschedule
+          below, which reopens the whole multi-step wizard. Gated on moveJobs, because
+          that is what it does -- it moves one op's dates and nothing else. */}
+      {isOp && can("moveJobs") && (() => {
+        let panel = null;
+        for (const job of tasks) { for (const pnl of (job.subs || [])) { if ((pnl.subs || []).find(o => sameId(o.id, it.id))) { panel = pnl; break; } } if (panel) break; }
+        if (!panel) return null;
+        return <CtxMenuItem animIdx={0}
+          icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>}
+          label="Reschedule operation…" sub="Type new dates for this one op"
+          onClick={() => { setCtxMenu(null); setRescheduleModal({ op: it, panelId: panel.id, newStart: it.start, newEnd: it.end }); }} />;
+      })()}
       {/* Reschedule */}
       {/* Reschedule (Business) / Edit (Basic) — Basic has no multi-step wizard to
           reopen, so this becomes the one edit surface: same job-resolution logic,
@@ -33937,22 +32836,6 @@ ${jobsCtx || "No jobs found."}`;
       const hasAutoSlot = !!(autoStart && autoEnd);
       const isSameAsAuto = newStart === autoStart && newEnd === autoEnd;
       const teamPeople = (op.team || []).map(id => people.find(x => x.id === id)).filter(Boolean);
-      // Find parent job so we can run the full-job optimizer from here
-      let parentJob = null;
-      for (const job of tasks) {
-        for (const panel of (job.subs || [])) {
-          if ((panel.subs || []).some(o => o.id === op.id)) { parentJob = job; break; }
-        }
-        if (parentJob) break;
-      }
-      const runOptimizeFromReschedule = () => {
-        if (!parentJob) return;
-        const result = computeJobOptimize(parentJob);
-        if (!result) return;
-        const { newSubs, jStart, jEnd } = result;
-        setTasks(prev => recalcBounds(prev.map(j => j.id === parentJob.id ? { ...j, start: jStart, end: jEnd, subs: newSubs } : j), loggedInUser?.name || "Optimizer"));
-        setRescheduleModal(null);
-      };
       return <div className="anim-modal-overlay" onClick={() => setRescheduleModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
         <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 28, maxWidth: 500, width: "100%", border: `1px solid ${T.borderLight}`, boxShadow: "0 24px 60px rgba(0,0,0,0.5)" }}>
           <h3 style={{ margin: "0 0 4px", color: T.text, fontSize: 18, fontWeight: 700 }}>Edit Schedule</h3>
@@ -33988,12 +32871,6 @@ ${jobsCtx || "No jobs found."}`;
           </div>
 
           {/* Optimize full job button */}
-          {parentJob && <button onClick={runOptimizeFromReschedule} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, width: "100%", padding: "10px 16px", borderRadius: T.radiusPill, border: `1.5px solid ${T.accent}55`, background: T.accent + "0d", color: T.accent, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: T.font, marginBottom: 16, transition: "all 0.15s" }}
-            onMouseEnter={e => { e.currentTarget.style.background = T.hoverStrong; e.currentTarget.style.borderColor = T.accent; }}
-            onMouseLeave={e => { e.currentTarget.style.background = T.hover; e.currentTarget.style.borderColor = T.accent + "55"; }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-            Optimize Entire Job Schedule
-          </button>}
 
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
             <Btn variant="secondary" onClick={() => setRescheduleModal(null)}>Cancel</Btn>

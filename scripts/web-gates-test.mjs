@@ -50,7 +50,9 @@ const check = (label, text, { has = [], not = [] }) => {
 };
 
 console.log("\n1. Task writes — guards inside the function that writes");
-check("Gantt Day-view drag/resize needs moveJobs", body("const handleDayBarDrag = (e, item"), { has: ['if (!can("moveJobs")) return'] });
+// The Gantt's own day-bar drag gate retired with renderGantt (root cause 9, #132). The DAY
+// VIEW's drag is a different handler, handleTeamDayBarDrag, gated separately — see
+// "Day-view drag toasts when refused" below, which still runs.
 check("Drop in Schedule needs moveJobs and reassign", body("const placeTaskAt = (personId, dayStr)"), { has: ['"moveJobs"', '"reassign"', 'can('] });
 check("Pending tray drop needs editJobs, moveJobs and reassign", body("const handlePendingItemDrop = (itemId"), { has: ['"editJobs"', '"moveJobs"', '"reassign"', 'can('] });
 check("Reassigning (any bar drag onto another row) needs reassign", body("const reassignTask = (taskId"), { has: ['if (!can("reassign")) return'] });
@@ -100,7 +102,7 @@ check("Decline (Hours → Admin) toasts when refused", body("const rejectFinish 
 check("Jobs List inline cell edit toasts when refused", body("const commitCellEdit = (id, key, val, pid)"), { has: ["if (!can(need)) return denied(PERM_VERB[need]);"] });
 check("Drop in Schedule toasts when refused", body("const placeTaskAt = (personId, dayStr)"), { has: ["return denied(PERM_VERB[", 'const lacking = ["moveJobs", "reassign"].find(k => !can(k));'] });
 check("Pending-tray drop toasts when refused", body("const handlePendingItemDrop = (itemId"), { has: ["return denied(PERM_VERB[", 'const lacking = ["editJobs", "moveJobs", "reassign"].find(k => !can(k));'] });
-check("Day-view drag toasts when refused", body("const handleDayBarDrag = (e, item"), { has: ['if (!can("moveJobs")) return denied(PERM_VERB.moveJobs);'] });
+// (the Gantt day-bar refusal toast retired with renderGantt — root cause 9, #132.)
 check("Reassign toasts when refused", body("const reassignTask = (taskId"), { has: ['if (!can("reassign")) return denied(PERM_VERB.reassign);'] });
 check("Engineering sign-off / revert toast when refused", body("const signOffEngineering = (jobId") + body("const revertEngineering = (jobId"), { has: ['if (!canEngineer) return denied("sign off engineering steps");'] });
 check("Chat Approve toasts when refused", body("const adminApproveJobFinish = async (jobId"), { has: ['denied("approve completions")'] });
