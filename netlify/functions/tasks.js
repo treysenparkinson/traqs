@@ -1,6 +1,7 @@
 import { requireOrgMember } from "./_utils/auth.js";
 import { can, requirePerm, canApprove, canEngineer } from "./_utils/can.js";
 import { classifyTaskChanges } from "./_utils/task-perms.js";
+import { recordRuleEvents, diffFields } from "./_utils/rule-log.js";
 import { classifyTaskActions } from "../../src/taskActions.js";
 import { readJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
@@ -139,7 +140,22 @@ export async function handler(event) {
             const was = storedById.get(String(job.id));
             if (!was || (job.lastModifiedAt ?? null) === (was.lastModifiedAt ?? null)) continue;
             if (changedIds([job], [was]).length === 0) continue;   // stale stamp, same content
-            attempt.conflicts.push({ id: String(job.id), incomingStamp: job.lastModifiedAt ?? null, storedStamp: was.lastModifiedAt ?? null });
+            // WHICH fields differ, not just that the job does. Diffed against the RAW
+            // incoming job rather than the normalised one, so a loggedHours clobber still
+            // shows up here — keepServerOwned has already quietly repaired it above, and a
+            // record that hid the repair would hide the very thing #323 was about.
+            const fields = diffFields(job, was);
+            attempt.conflicts.push({
+              id: String(job.id),
+              incomingStamp: job.lastModifiedAt ?? null,
+              storedStamp: was.lastModifiedAt ?? null,
+              // Negative means the client's copy is OLDER than what is stored, which is the
+              // true stale-copy signature; a positive gap is a client that read, edited and
+              // saved while someone else wrote in between.
+              staleByMs: (Date.parse(job.lastModifiedAt ?? "") || 0) - (Date.parse(was.lastModifiedAt ?? "") || 0),
+              fieldCount: fields.length,
+              fields: fields.slice(0, 40),
+            });
           }
           if (conflictMode === "enforce" && attempt.conflicts.length) {
             const stale = new Set(attempt.conflicts.map(c => c.id));
@@ -213,7 +229,18 @@ export async function handler(event) {
       // Logged once, for the pass that decided the outcome (never per retry).
       const who = { personId: member.personId != null ? String(member.personId) : null, isAdmin: !!member.isAdmin };
       if (conflictMode !== "off") {
-        for (const c of attempt.conflicts) logRule("task-conflict", { mode: conflictMode, jobId: c.id, incomingStamp: c.incomingStamp, storedStamp: c.storedStamp, ...who });
+        for (const c of attempt.conflicts) logRule("task-conflict", { mode: conflictMode, jobId: c.id, incomingStamp: c.incomingStamp, storedStamp: c.storedStamp, fieldCount: c.fieldCount, ...who });
+        // ...and durably, because the console.warn above goes somewhere nothing can read it
+        // back (#327). This is what decides whether TASK_CONFLICT_MODE can be turned to
+        // enforce: the field list says whether a refusal would have landed on a clobber or
+        // on somebody legitimately moving a bar. Awaited so the record cannot be lost to the
+        // function being frozen after the response, but it can never fail the write.
+        await recordRuleEvents(orgCode, attempt.conflicts.map(c => ({
+          tag: "task-conflict", mode: conflictMode, jobId: c.id,
+          incomingStamp: c.incomingStamp, storedStamp: c.storedStamp, staleByMs: c.staleByMs,
+          fieldCount: c.fieldCount, fields: c.fields,
+          refused: conflictMode === "enforce",
+        })), who);
       }
       // Not a mode, so this is never a "would have refused" line — it is a record of a
       // clobber that WAS prevented, and the volume is the measure of how often the race
