@@ -107,9 +107,18 @@ const settings = {
 // membership by EMAIL against people.json and config.adminEmail(s), not by an Auth0 org
 // binding — so no Auth0 organization has to be created for this to be usable.
 const ADMIN_EMAIL = val("--admin", "treysen@matrixpci.com");
+// The Auth0 connection the login screen offers. Without it the sign-in falls back to the
+// default (Google) and the account that administers this org cannot reach it — org.js GET
+// passes `connection` straight through to the welcome screen. Matched to Matrix so the same
+// account signs into both. Carried here as well as on the live object so a re-seed does not
+// silently drop it and send the login back to Google.
+const CONNECTION = val("--connection", "matrixpci");
 const config = {
   name: "TRAQS Basic (test)",
   adminEmail: ADMIN_EMAIL,
+  connection: CONNECTION,
+  // No domain restriction. Matrix has one (matrixpci.com); this org deliberately does not,
+  // because a domain allowlist is a Business control and this org exists to be Basic.
   domain: null,
   createdAt: new Date().toISOString(),
   note: "Seeded by scripts/seed-basic-org.mjs to look at Basic-tier lane behaviour (#119-#123). Not a customer org.",
