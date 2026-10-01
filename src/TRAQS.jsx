@@ -17,6 +17,7 @@ import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, 
 import * as realtime from "./realtime/ably.js";
 import { BASIC_FEATURES, BUSINESS_FEATURES, TIER_LABEL, upgradeMailto } from "./tiers.js";
 import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState } from "./finishRequests.js";
+import { basicLanes, laneKey } from "./basicLanes.js";
 import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, opDaySegments, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
 import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, sessionWorkedHours, splitWorkedOp, rowPushHours, dayShiftToClear, slackDaysByPerson, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
 // The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
@@ -9845,7 +9846,35 @@ Extraction rules:
   // create path uses (walkProductiveHours is productiveHoursBetween's inverse),
   // rather than a naive endHour-startHour which would drift from what hpd
   // actually encodes whenever lunch/breaks fall inside the window.
+  // Can this job be expressed by the simple editor at all?
+  //
+  // #159. The simple edit was built for the job the simple CREATE makes: one flat sub, which
+  // is the schedulable leaf. Its save writes `subs.map((s, i) => i === 0 ? {...} : s)` — so on
+  // a job with more than one sub it rewrote subs[0] and left the rest, forcing that one sub to
+  // a single day and a single startHour, and writing the team it had gathered from EVERY sub
+  // and op onto subs[0] alone. The others kept their own teams, so people ended up assigned
+  // twice, and the dialog gave no hint any of it had happened.
+  //
+  // Refused rather than warned: a warning still destroys the job for anyone who clicks
+  // through, and editing every sub would invent a behaviour nobody asked for.
+  const simpleEditable = (job) => {
+    const subs = job?.subs || [];
+    if (subs.length !== 1) return { ok: false, count: subs.length, kind: "panels" };
+    if ((subs[0].subs || []).length > 0) return { ok: false, count: (subs[0].subs || []).length, kind: "operations" };
+    return { ok: true };
+  };
+  const refuseSimpleEdit = (job, why) => setConfirmMove({
+    ackOnly: true, confirmLabel: "OK",
+    title: "Use the full editor",
+    message: why.count === 0
+      ? `“${job.title || "This job"}” has no schedulable work on it yet, so there is nothing for the simple editor to change.`
+      : `“${job.title || "This job"}” has ${why.count} ${why.kind === "panels" ? (why.count === 1 ? "panel" : "panels") : (why.count === 1 ? "operation" : "operations")}. The simple editor can only describe a job with a single piece of work — saving here would collapse the rest onto one day and one team. Open the full editor to change it.`,
+    onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null),
+  });
+
   const openSimpleEditForJob = (job) => {
+    const why = simpleEditable(job);
+    if (!why.ok) { refuseSimpleEdit(job, why); return; }
     const sub = (job?.subs || [])[0];
     if (!sub) return;
     const teamIds = new Set();
@@ -9988,6 +10017,18 @@ Extraction rules:
   // directly, so Basic gets the Edit modal pre-filled and Business is unchanged.
   const openJobDetailOrEdit = (t) => {
     if (billingTier !== "business") {
+      // #160. This opened the EDIT modal on any bar click, for any user, with no permission
+      // check — the one edit entry point in the app that had none; the context-menu Edit at
+      // :31674 has always been wrapped in can("editJobs"). The save was still refused by
+      // /tasks (title needs editJobs, the dates need moveJobs, the team needs reassign, and
+      // the legacy classifier decides even in log mode) and the client rolls back on a 4xx,
+      // so nothing was ever written — but a worker could open the dialog, make an edit, watch
+      // it appear and then watch it vanish behind an error banner.
+      //
+      // Nothing happens for a viewer instead of opening a read-only Job Details: Basic
+      // deliberately has no details page (see the note above), and inventing one here to fill
+      // the gap would be a bigger change than the bug.
+      if (!can("editJobs")) return;
       const job = jobForBarTask(t);
       if (job) openSimpleEditForJob(job);
       return;
@@ -15741,7 +15782,16 @@ ${jobsCtx || "No jobs found."}`;
             // membership and ordering cannot drift from the bars actually drawn.
             const allBars = getPersonBars(p.id, pushWinS, pushWinE);
             const singleDayStacking = {}; // { [date]: { [barId]: packedStartHour } }
-            if (tMode === "month" || tMode === "week") {
+            // #122. Packing was not tier-gated, so a Basic row got BOTH: the stacking moved a
+            // bar's start hour to sit after the one before it, and then the lanes split the
+            // row vertically for an overlap the packing had just removed. Two different
+            // answers to the same question, applied one after the other — bars shifted off
+            // their own stored hour AND squeezed into half-height for no visible reason.
+            //
+            // Packing is a Business behaviour: it is the schedule deciding where work goes.
+            // Basic shows a bar at the hour it was given and splits the row when two of them
+            // genuinely collide, which is the whole of the tier difference.
+            if (billingTier === "business" && (tMode === "month" || tMode === "week")) {
               const _dayBars = allBars.filter(b => { const _tsz = Math.max(1, (b.task?.team || []).length); const _phd = (b.task?.hpd || 0) > 0 ? b.task.hpd / _tsz : productiveHoursPerDay; return b.type === "task" && b.task?.start && b.task?.end && b.task.start === b.task.end && _phd > 0 && _phd <= productiveHoursPerDay; });
               _dayBars.sort((a, b) => ((a.task?.startHour ?? workStartH) - (b.task?.startHour ?? workStartH)) || String(a.id).localeCompare(String(b.id)));
               const _cursor = {};
@@ -15760,42 +15810,6 @@ ${jobsCtx || "No jobs found."}`;
                 _cursor[d] = Math.max(_cursor[d], _w.days > 1 ? workEndH : _w.endHour);
               });
             }
-            // ── Basic-only: overlap lanes ───────────────────────────────────────
-            // Basic allows two assignments to share a time range on one person's row
-            // (no packing, see the barPositions comment in the day view for the same
-            // rule) — but painting both bars at full row height in the same place
-            // hides one behind the other, reading as though only one exists. Split
-            // the row's vertical space between whatever overlaps, per calendar day.
-            // Independent of the complex push/cursor-anchor maths below (Business
-            // only, and Basic bars never touch it): computed straight from each
-            // bar's own stored start/hpd, which is exactly where a Basic bar paints
-            // since nothing pushes or re-anchors it.
-            const basicOverlapLanes = billingTier === "business" ? null : (() => {
-              const dayBars = allBars.filter(b => b.type === "task" && b.task?.start && b.task?.startHour != null && (b.task?.hpd || 0) > 0);
-              const byDay = {};
-              dayBars.forEach(b => { (byDay[b.task.start] ||= []).push(b); });
-              const m = new Map();
-              Object.values(byDay).forEach(dayList => {
-                const withRange = dayList.map(b => {
-                  const w = walkProductiveHours(b.task.startHour, personShareHours(b.task.hpd, (b.task.team || []).length, productiveHoursPerDay), dayWindowCfg);
-                  return { b, s: b.task.startHour, e: w.days > 1 ? workEndH : w.endHour };
-                });
-                const sorted = [...withRange].sort((a, b2) => a.s - b2.s || a.e - b2.e);
-                const laneEnds = [];
-                const withLane = sorted.map(item => {
-                  let lane = laneEnds.findIndex(end => end <= item.s);
-                  if (lane === -1) { lane = laneEnds.length; laneEnds.push(item.e); }
-                  else laneEnds[lane] = item.e;
-                  return { ...item, lane };
-                });
-                withLane.forEach(item => {
-                  let lanesTotal = 1;
-                  withLane.forEach(other => { if (other !== item && other.s < item.e && other.e > item.s) lanesTotal = Math.max(lanesTotal, other.lane + 1, item.lane + 1); });
-                  m.set(item.b.task.id, { lane: item.lane, lanesTotal });
-                });
-              });
-              return m;
-            })();
             // ── Overrun push-forward ────────────────────────────────────────────
             // An op past its estimate keeps growing (see _barHpd in the bar render),
             // so the work AFTER it on this person's row has to move out of the way or
@@ -15816,6 +15830,41 @@ ${jobsCtx || "No jobs found."}`;
             // push and the growth it is meant to match could disagree — and it halves
             // the work on the heaviest view.
             const overrunPushH = {}, rowBarWS = {}, cursorAnchored = {};
+            // Worked state per bar, on EVERY tier. It used to be computed inside the
+            // Business-only block below, which was fine while it only fed the push — but the
+            // Basic lanes need it too, to measure a bar at the length it is actually painted
+            // (#121/#123). Computed once and shared with the bar render rather than
+            // recomputed there: two calls read Date.now() at different instants, so the
+            // length the lane measured and the length drawn could disagree, which IS an
+            // overlap.
+            for (const b of ordered) rowBarWS[b.id] = deriveWorkedState(b.task, producedFor(b.task), liveOpHours(b.task));
+            // ── Basic-only: overlap lanes (#119-#123) ───────────────────────────
+            // Basic allows two assignments to share a time range on one person's row — there
+            // is no packing and no push, by design — but painting both at full row height in
+            // the same place hides one behind the other, reading as though only one exists.
+            //
+            // The comment that stood here said the lanes were "computed straight from each
+            // bar's own stored start/hpd, which is exactly where a Basic bar paints since
+            // nothing pushes or re-anchors it". Nothing pushes it, and the conclusion still
+            // did not follow: growth is not a push. barLengthHours (see _barHpd below, which
+            // is NOT tier-gated) adds max(0, worked - est)/teamSize, so an overrunning Basic
+            // bar is drawn longer than its estimate while the lanes measured the estimate —
+            // and two bars that only collide once one has grown were handed the same lane and
+            // painted on top of each other. That was #121 and #123, one defect seen twice.
+            //
+            // Now in src/basicLanes.js, which also fixes the bars the old block never saw at
+            // all: one with no stored startHour, one with no estimate (#120), and every day
+            // after the first, so a tail, its ghost and its dot lane with the rest (#119).
+            // Lifted out because an IIFE inside the render could not be called by a test, and
+            // five defects in one small block is what that costs.
+            const basicOverlapLanes = billingTier === "business" ? null : basicLanes(
+              allBars.map(b => ({
+                id: b.id, type: b.type, task: b.task,
+                worked: b.crossRow ? 0 : (rowBarWS[b.id]?.workedHoursShown || 0),
+                isFullyWorked: !!rowBarWS[b.id]?.isFullyWorked,
+              })),
+              { dayWindowCfg, workStartH, workEndH, productiveHoursPerDay,
+                nextDay: (ds) => addD(ds, 1) });
             // Basic: visual only. The whole cursor-push/overrun-cascade computation below
             // is what slides an unstarted bar forward to "now" and cascades the row behind
             // it — exactly the "pushed, pulled, switched" behavior Basic must not have.
@@ -15858,7 +15907,6 @@ ${jobsCtx || "No jobs found."}`;
               // a push of zero; a genuine collision still cascades, because each op's end is
               // computed after its own push is applied.
               const _rowBDOpts = { workDays: orgSettings.workDays, holidays: orgSettings.holidays };
-              for (const b of ordered) rowBarWS[b.id] = deriveWorkedState(b.task, producedFor(b.task), liveOpHours(b.task));
               // Placement moved into rowPushHours: pure, and therefore testable — the
               // pan-stability case in scripts/row-push-test.mjs is why it was moved out at all,
               // since the bug this arithmetic is prone to is becoming a function of the viewport.
@@ -17193,12 +17241,21 @@ ${jobsCtx || "No jobs found."}`;
                   const _fadedBc = _barState === "done" ? mixHex(bc, _schedSurf, 0.3) : bc;
                   // Basic only (basicOverlapLanes is null on Business): a bar sharing its
                   // time range with another on this row gets a fraction of the row's
-                  // height instead of painting full-height on top of it. See
-                  // basicOverlapLanes above.
-                  const _bLane = basicOverlapLanes?.get(bar.task?.id);
-                  const _bLaneH = _bLane && _bLane.lanesTotal > 1 ? (rH - 8) / _bLane.lanesTotal : rH - 8;
-                  const _bLaneTop = _bLane && _bLane.lanesTotal > 1 ? 4 + _bLane.lane * _bLaneH : 4;
-                  const _bLaneHeight = _bLane && _bLane.lanesTotal > 1 ? _bLaneH - 2 : _bLaneH;
+                  // height instead of painting full-height on top of it.
+                  //
+                  // #119. This was ONE lookup by op id, applied to the head. A multi-day bar
+                  // overlaps different things on different days, so its tail, its ghost and
+                  // its dot kept full height and painted straight over whatever shared their
+                  // day. Lanes are keyed by (op, day) now and read per segment — _laneGeom is
+                  // the same arithmetic the head uses, so a tail cannot drift from it.
+                  const _laneGeom = (segDay) => {
+                    const l = segDay == null ? null : basicOverlapLanes?.get(laneKey(bar.task?.id, segDay));
+                    const h = l && l.lanesTotal > 1 ? (rH - 8) / l.lanesTotal : rH - 8;
+                    return { top: l && l.lanesTotal > 1 ? 4 + l.lane * h : 4, height: l && l.lanesTotal > 1 ? h - 2 : h };
+                  };
+                  const _headLane = _laneGeom(firstBarSeg?.start ?? bar.task?.start);
+                  const _bLaneTop = _headLane.top;
+                  const _bLaneHeight = _headLane.height;
                   // MARKS AND LABEL BELONG TO ONE SEGMENT (#99, #100). They were split: the head carried
                   // the select check, the dep glyph, the lock and the badge while the TITLE was free to move
                   // to whichever segment was widest. So a bar whose widest piece was a continuation said
@@ -17289,6 +17346,8 @@ ${jobsCtx || "No jobs found."}`;
                   </span>,
                   ...barSegs.slice(1).map((seg, si) => {
                     const tailX = (diffD(tStart, seg.start) / nDays * 100) + "%";
+                    // This segment's own lane on its own day (#119).
+                    const _tailLane = _laneGeom(seg.start);
                     // Only the segment that actually holds the bar's end gets the
                     // end-hour partial width; a tail clipped by the window edge is
                     // mid-bar, so it fills its columns from the remaining budget.
@@ -17331,7 +17390,7 @@ ${jobsCtx || "No jobs found."}`;
                     return <div key={bar.id + "_t" + si + "_" + seg.start} data-bar-dim={isPto2 ? undefined : "1"} data-pid={bar.task?.pid ?? undefined}
                       onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto2) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                       onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
-                      style={{ position: "absolute", top: 4, left: tailX, width: tailW, minWidth: isPto2 ? 0 : 2, height: rH - 8, boxSizing: "border-box", borderRadius: isPto2 ? T.radiusXs : Math.min(T.radiusXs, _tailPx / 2), background: activeBarFill(T, bc2, _segSpans, _segCursorPct, isPto2 ? "pto" : _barState, _tailPx, _schedSurf), border: isBarSelected ? `2px solid ${_edgeInk}` : isPto2 ? `1.5px solid ${bc2}` : _tailPx < 8 ? "none" : `${_tailPx < 16 ? 1 : 2}px dashed ${(_barState === "done" ? mixHex(bc2, _schedSurf, 0.3) : bc2)}cc`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : _dragBlocked ? "not-allowed" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", display: "flex", alignItems: "center", opacity: barOpacity, transition: "opacity 0.2s" }}
+                      style={{ position: "absolute", top: _tailLane.top, left: tailX, width: tailW, minWidth: isPto2 ? 0 : 2, height: _tailLane.height, boxSizing: "border-box", borderRadius: isPto2 ? T.radiusXs : Math.min(T.radiusXs, _tailPx / 2), background: activeBarFill(T, bc2, _segSpans, _segCursorPct, isPto2 ? "pto" : _barState, _tailPx, _schedSurf), border: isBarSelected ? `2px solid ${_edgeInk}` : isPto2 ? `1.5px solid ${bc2}` : _tailPx < 8 ? "none" : `${_tailPx < 16 ? 1 : 2}px dashed ${(_barState === "done" ? mixHex(bc2, _schedSurf, 0.3) : bc2)}cc`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : _dragBlocked ? "not-allowed" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", display: "flex", alignItems: "center", opacity: barOpacity, transition: "opacity 0.2s" }}
                       onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; if (!barSelectMode) hoverDim(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; hoverDim(null); }}>
                       {/* The tail renders the SAME furniture as the head, with its own inks. Before this a
                           continuation could hold the title while the lock, the dep link and the badge stayed
