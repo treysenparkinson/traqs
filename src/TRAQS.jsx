@@ -18,6 +18,12 @@ import * as realtime from "./realtime/ably.js";
 import { BASIC_FEATURES, BUSINESS_FEATURES, TIER_LABEL, upgradeMailto } from "./tiers.js";
 import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, opDaySegments, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
 import { producedHoursByScope, payProdByDay, totalsForDays, efficiencyPct, liveElapsedHours, workedSpansByOp, mergeSpans, spansToPct, complementSpans, productiveHoursBetween, workedSpansByPersonOp, spansDurationMs, openSessionEnd, splitWorkedOp, rowPushHours, dayShiftToClear, rowSlackHours, barLengthHours, badgeOffsetPx, labelInsetPx, labelSegmentIndex, flushRightWidthPct, rollupLeafHours, shiftRangeForward, hasLiveChildren , barSegmentsPct } from "./statsMath.js";
+// The bar fills and the one rule that decides the colour of text on them. See src/barPaint.js:
+// it lives outside this file so scripts/contrast-test.mjs can measure real ratios against the
+// real palette, which is the only way to test "can this be read".
+import { hexLum, blendHex, mixHex, hexA, wantsLightText, accentText, DONE_MUTE, barPaint,
+         spentBarFill, doneBarFill, activeBarFill,
+         barInk, barGrounds, barTextStyle, legibleBarColor, legibleOn, overHex } from "./barPaint.js";
 import { localDay, resolveTimeZone } from "./localDay.js";
 import { placeContextMenu } from "./menuPlacement.js";
 
@@ -2135,46 +2141,6 @@ button.tq-drop:not(:disabled):not([disabled]):not([aria-disabled="true"]) {
 if (!document.querySelector('style[data-traqs]')) { animStyle.setAttribute("data-traqs", "1"); document.head.appendChild(animStyle); }
 
 // ─── Custom-theme color helpers ──────────────────────────────────────────────
-function hexLum(hex) {
-  const r=parseInt(hex.slice(1,3),16)/255, g=parseInt(hex.slice(3,5),16)/255, b=parseInt(hex.slice(5,7),16)/255;
-  const l=c=>c<=0.04045?c/12.92:Math.pow((c+0.055)/1.055,2.4);
-  return 0.2126*l(r)+0.7152*l(g)+0.0722*l(b);
-}
-function blendHex(hex, f) {
-  const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16);
-  const t=f>0?255:0, a=Math.abs(f), c=v=>Math.min(255,Math.max(0,Math.round(v+(t-v)*a))).toString(16).padStart(2,"0");
-  return `#${c(r)}${c(g)}${c(b)}`;
-}
-// blendHex only moves a colour toward white or black. mixHex blends two actual
-// colours, which is what estimating a composited backdrop needs (a liquid wash is
-// its colour laid over the page colour, not a lightened version of either).
-function mixHex(a, b, t = 0.5) {
-  try {
-    const ch = (h, i) => parseInt(h.slice(1 + i * 2, 3 + i * 2), 16);
-    const c = i => Math.round(ch(a, i) + (ch(b, i) - ch(a, i)) * t).toString(16).padStart(2, "0");
-    return `#${c(0)}${c(1)}${c(2)}`;
-  } catch { return a; }
-}
-// THE rule for "black text or white text on this?". One function, because it was
-// split three ways: surface and system chrome asked hexLum (gamma-corrected sRGB
-// relative luminance) at < 0.5, while the page background asked isLight
-// (0.299/0.587/0.114, no gamma) at > 0.5. Those disagree across a wide mid-tone
-// band, so the SAME colour got white text as a card and black text as a page
-// background — and both thresholds were wrong anyway.
-//
-// 0.1791 is not a taste value, it is where the two options are equally readable.
-// WCAG contrast is (Ll + 0.05) / (Ld + 0.05); setting contrast-against-white equal
-// to contrast-against-black gives (L + 0.05)^2 = 1.05 * 0.05, so L = sqrt(0.0525)
-// - 0.05 = 0.1791. Below it white wins, above it black wins, and it agrees with the
-// measured better-contrast choice on every colour in the app's palettes.
-//
-// The old 0.5 was far too high: everything from L=0.179 to L=0.5 — mid greys, the
-// blue accent, most saturated mid-tones — was called "dark" and handed white text
-// when black was the more readable choice.
-const TEXT_POLARITY_L = 0.1791;
-function wantsLightText(hex) {
-  try { return hexLum(hex) < TEXT_POLARITY_L; } catch { return true; }
-}
 // THE brand gradient — a light→dark ramp of the accent, mirroring the iOS
 // TRAQSTheme.brandGradient (default accent → the #4FACFE→#1E40AF blue colorway).
 // Derived from the accent so it follows any theme; used on primary CTAs.
@@ -2256,10 +2222,6 @@ function LiquidBackground({ color, companion, colors = null, base = null, fixed 
     </div>
   );
 }
-function hexA(hex, a) {
-  try { const r=parseInt(hex.slice(1,3),16), g=parseInt(hex.slice(3,5),16), b=parseInt(hex.slice(5,7),16); return `rgba(${r},${g},${b},${Math.max(0,Math.min(1,a))})`; }
-  catch { return hex; }
-}
 // Position a fixed dropdown relative to its trigger rect `r`. Opens below by
 // default, but flips ABOVE when there isn't room below (so a dropdown near the
 // bottom of the page stays fully on-screen instead of running off it). Returns
@@ -2288,26 +2250,6 @@ function placePopover(r, count, rowH = 35, width = 0) {
   if (width > 0) x = Math.max(pad, Math.min(x, vw - width - pad));
   return { x, y, maxHeight: constrained ? menuH : undefined, up: openUp };
 }
-// isLight() removed. It was the second, contradictory answer to the question
-// wantsLightText() now owns, and leaving it in the file invites the split to come
-// back. Anything asking "is this light or dark?" for TEXT purposes must use
-// wantsLightText so every surface resolves the same way.
-// Text on an accent fill. Every primary button paints brandGrad(accent), which ends
-// ACCENT_FILL_DARKEST darker than the accent itself, so the decision has to be made
-// against that darkest stop and not against the flat colour. Judging the flat colour
-// puts black text on any accent sitting just above the crossover — #3b82f6 at
-// L=0.234 reads "black" flat, but its gradient bottoms out at L=0.137, which is
-// firmly white territory. That is the black-text-on-a-dark-button case.
-//
-// This is what the old hexLum > 0.35 threshold was doing by accident: an accent
-// needs roughly L>0.31 for its darkened end to clear the 0.179 crossover. Same
-// compensation, derived rather than guessed, and it reuses the one crossover so a
-// colour still resolves consistently everywhere.
-const ACCENT_FILL_DARKEST = -0.22; // keep in step with brandGrad's second stop
-function accentText(accent) {
-  try { return wantsLightText(blendHex(accent, ACCENT_FILL_DARKEST)) ? "#ffffff" : "#0f172a"; }
-  catch { return "#ffffff"; }
-}
 
 // --- Live job-clock session: the live bar and the reservoir it drains ---------
 // A job clock tells two halves of one story on the schedule. The live bar FILLS as
@@ -2325,197 +2267,6 @@ function accentText(accent) {
 // through elColor(), so these follow the theme's job-bar mode automatically.
 const LIVE_BADGE_LABEL = { running: "LIVE", held: "HELD", paused: "LUNCH" };
 
-// The "spent" fill, shared by a drained reservoir and a stopped live bar. Replaces a
-// flat-black hatch (rgba(0,0,0,0.28)/0.14) that read as grime on every light ladder
-// rather than as an emptied block. Opaque, so it REPLACES the fill it covers instead
-// of muddying it, and mixed toward the row surface so it lands the same way on all
-// four theme ladders instead of only on the dark ones.
-// How far a spent fill is mixed toward the row surface. Asks the SURFACE being mixed
-// toward, not T.colorScheme: on a custom theme colorScheme tracks the PAGE background
-// (dk = hexLum(bg) < 0.18) while these fills mix toward the surface, and the two can
-// land on opposite sides of the divide -- the theme builder keeps a separate surfDk
-// for exactly this reason. One function so the ratio cannot drift between the fill
-// and the text that has to contrast it.
-// A finished bar is muted toward DONE_MUTE -- the same grey barPaint already uses for Finished
-// work -- rather than washed toward the page surface.
-//
-// The surface mix it replaces sat 72-80% of the way to the background, which left a DONE bar
-// technically present and visually absent. Grey at 0.8 keeps a trace of the bar's own hue so a
-// row of finished ops still reads as distinct jobs, while sitting clearly apart from the row
-// behind it in both light and dark themes.
-//
-// Flat, no pattern: see WORKED_STRIPE above for why the hatch is gone.
-const SPENT_MUTE_RATIO = 0.8;
-function spentBarFill(T, barColor) {
-  return mixHex(barColor, DONE_MUTE, SPENT_MUTE_RATIO);
-}
-
-// The grey both in-progress regions sit on. A step AWAY from the row surface, not a mix
-// toward it: mixing toward the surface is what left a DONE bar "technically present and
-// visually absent", and idle is the region most exposed to that failure because low
-// presence is exactly what it conveys. So it carries two bounds, not one -- far enough
-// from the row to still read as a bar, far enough from DONE to separate from it.
-//
-// Step direction asks the SURFACE, never T.colorScheme, for the reason given above
-// spentBarFill: on a custom theme colorScheme tracks the PAGE while these fills sit on the
-// row, and the two can land on opposite sides of the divide. Same idiom as the theme's own
-// border tokens, blendHex(surf, surfDk ? +x : -x).
-//
-// "Lighter, closer to background" in the palette ruling means PRESENCE, not luminance --
-// read literally it inverts on the two dark ladders, where nearer the row means darker.
-// Stepping away from the surface gives the intended ordering on all four.
-//
-// Measured, in CIE L* across the ten job colours and all four ladders: idle-to-row 13.1
-// at worst (frost), idle-to-DONE 19.8 at worst (custom). Both clear of the ~10 where a
-// boundary stops being comfortable.
-const IDLE_STEP_DK = 0.20, IDLE_STEP_LT = -0.13;
-// Idle keeps a smaller hue trace than DONE's 0.2, so in-progress ops still read as distinct
-// jobs while idle stays the most recessive of the three greys.
-const IDLE_HUE_TRACE = 0.88;
-function idleBarFill(T, barColor) {
-  const surfDk = wantsLightText(T.surface);
-  return mixHex(barColor, blendHex(T.surface, surfDk ? IDLE_STEP_DK : IDLE_STEP_LT), IDLE_HUE_TRACE);
-}
-
-// The worked hatch. 45deg, and that is the point: every other hatch in this file is 135deg
-// -- the off-day row wash, the in-bar PTO fill, the tail's, the purple overlay. The opposite
-// diagonal separates worked from ALL of them rather than only from the PTO fill beside it,
-// and a worked bar next to a PTO bar now visibly cross-hatches instead of merging.
-//
-// Angle rather than period is the knob because period differentiation is weakest exactly
-// where bars are densest: between the texture floor and ~24px only two or three stripes
-// render, and at that density 4/8 against PTO's 6/12 is indistinguishable while a direction
-// flip is instant.
-//
-// The stripe is the bar's own colour STEPPED IN VALUE, not the raw colour. Raw was the
-// obvious reading of "tinted at low alpha" and it fails: idle already carries 12% of the
-// same hue, so a same-hue stripe over it is a hue match with only a small luminance shift,
-// and on the mid-value job colours the hatch all but vanished -- 2.8 L* at its worst. The
-// value step makes the delta independent of hue: 10.5 L* at worst, 16.6 at best, tight
-// across all four ladders, at the lowest alpha that clears 10 everywhere. Tinted, never the
-// flat black that read as grime and got the original WORKED_STRIPE retired.
-const HATCH_BAND = 4, HATCH_PERIOD = 8, HATCH_STEP = 0.40, HATCH_ALPHA = 0.30;
-// Below this the stripes cannot resolve -- two of them at 16px, one at 8 -- so texture stops
-// carrying worked-vs-idle and a value step takes over. Reuses the existing _thinBar
-// threshold rather than inventing one.
-const HATCH_MIN_PX = 16;
-function workedHatchLayer(T, barColor) {
-  const surfDk = wantsLightText(T.surface);
-  const s = hexA(blendHex(barColor, surfDk ? HATCH_STEP : -HATCH_STEP), HATCH_ALPHA);
-  return `repeating-linear-gradient(45deg, ${s}, ${s} ${HATCH_BAND}px, transparent ${HATCH_BAND}px, transparent ${HATCH_PERIOD}px)`;
-}
-// The sub-floor stand-in for the stripes. Stepped harder than the hatch is (11.1 L* at
-// worst): the region is only a few pixels tall there, so it needs more separation than a
-// full-height bar, not less.
-const SUBFLOOR_STEP_DK = 0.22, SUBFLOOR_STEP_LT = -0.15;
-function workedFlatFill(T, barColor) {
-  return blendHex(idleBarFill(T, barColor), wantsLightText(T.surface) ? SUBFLOOR_STEP_DK : SUBFLOOR_STEP_LT);
-}
-
-// The one place a schedule bar's fill is composed. Call sites pass the three-region geometry --
-// `spans`, WHERE the work happened as [startPct, endPct] pairs across this bar, and dividerPct --
-// the CURSOR, a time position, UNCLAMPED so now past the planned end reads past 100 rather than
-// pinning. Never pass an hours RATIO as either: a ratio says how much and these say when, and
-// they diverge on any late start. The visuals lane owns what these become; this lane owns the
-// call sites and the numbers.
-//
-// `state` is the bar's own state, never a texture: "pto" | "done" | "held" | "paused" |
-// "running" | "worked" | "scheduled". Texture is a decision made FROM it -- DONE is never
-// inferred back out of a fill, which is what let a DONE bar and a worked bar read the same
-// once before. "worked" is clocked-out-but-hatched; "scheduled" is genuinely untouched.
-//
-// Composed as layered backgrounds on ONE property rather than as child divs. The four
-// absolutely-positioned WORKED_STRIPE overlays this replaces are what drew stripes through
-// the DONE badge from the bar's left edge at zIndex 2 -- the bug that took three sessions to
-// find. A background layer cannot escape its own box, so that class of defect goes away with
-// the technique instead of being fixed again.
-//
-// Layer order is paint order, first on top:
-//   1  opaque right of the cursor  -> the unworked remainder, hiding everything beneath
-//   2  opaque over the GAPS        -> flat idle grey, wherever no work was clocked
-//   3  the hatch, or its value-step stand-in below the texture floor
-//   4  the idle grey as the base colour
-// Layer 2 is the complement of the spans rather than one boundary, which is what lets idle
-// appear to the LEFT of the hatch (work that started late) and BETWEEN two hatches (work done
-// in two sittings). Both are ordinary and neither is expressible with a single worked front.
-function activeBarFill(T, barColor, spans, dividerPct, state, renderPx) {
-  if (state === "pto") return `repeating-linear-gradient(135deg, rgba(255,255,255,0.22), rgba(255,255,255,0.22) 6px, transparent 6px, transparent 12px), ${barColor}`;
-  if (state === "done") return spentBarFill(T, barColor);
-  // "worked" is the clocked-out case -- nobody on the clock, hatched extent locked, cursor
-  // still advancing and opening idle behind it (§3a, §3d) -- so it renders exactly as the live
-  // states do; what differs is whether the worked front is still moving, and that is the
-  // caller's number, not a texture.
-  //
-  // There is no state guard here any more. "scheduled" used to return a plain colour block,
-  // written when the tail call site was handed the WHOLE bar's percentages while covering a
-  // different span, so regions drawn from them would have put both boundaries in the wrong
-  // place. The tail takes per-segment spans and its own cursor now, so that reason expired --
-  // but the guard stayed, and it was the cause of coloured unworked bars sitting LEFT of the
-  // cursor against §1. It short-circuited before the cursor was ever read, so no amount of
-  // correct geometry could have fixed it from the other side.
-  //
-  // The three cases fall out of logic already below rather than needing branches:
-  //   future untouched  cursor is NEGATIVE, C clamps to 0, the empty-and-C<=0 return fires
-  //                     -> plain colour, which is right: nothing has elapsed yet
-  //   straddling        idle left of the cursor, colour beyond it
-  //   wholly past       C clamps to 100, the colour layer is skipped, complement covers all
-  //                     -> all idle, the true statement about untouched elapsed time
-  // Region-capable is the safer default for any state added later, too: this defect was an
-  // over-exclusion, and a state that genuinely carries no regions has no spans and no cursor
-  // inside it, which the return below already handles.
-
-  // Clamped for PAINT only. dividerPct arrives unclamped so past-100 can carry the overrun
-  // signal, but a gradient stop outside the box renders as a plausible fully-worked bar
-  // rather than as something visibly wrong. The raw value stays on the data attribute, where
-  // the overrun is still readable and still assertable.
-  const C = Math.max(0, Math.min(100, Number.isFinite(dividerPct) ? dividerPct : 0));
-  const worked = (spans || []).filter(s => Array.isArray(s) && s[1] > s[0]);
-  if (worked.length === 0 && C <= 0) return barColor;
-
-  const idle = idleBarFill(T, barColor);
-  // A run of hard stops: one colour from a% to b%, then the next. Two stops per boundary is
-  // what makes the edge a line rather than a fade.
-  const banded = (ranges, colour) =>
-    `linear-gradient(to right, ${ranges.map(([a, b]) => `transparent ${a}%, ${colour} ${a}%, ${colour} ${b}%, transparent ${b}%`).join(", ")})`;
-
-  const layers = [];
-  // 1 — the unworked remainder, opaque, hiding everything beneath it.
-  if (C < 100) layers.push(`linear-gradient(to right, transparent 0%, transparent ${C}%, ${barColor} ${C}%, ${barColor} 100%)`);
-  // 2 — flat idle over every interval that was NOT worked. This is the complement rather than
-  // a single boundary, which is the whole difference between the two readings: work that
-  // started late leaves idle to its LEFT, and a bar worked in two sittings has idle between
-  // them. A lone worked-front cannot express either.
-  const gaps = complementSpans(worked, 0, 100);
-  if (gaps.length) layers.push(banded(gaps, idle));
-  // 3 — the worked record itself. Below the texture floor stripes stop resolving, so the
-  // value step stands in; above it the hatch is drawn full width and layer 2 cuts it back to
-  // the spans, which is cheaper than clipping a repeating gradient per interval.
-  if (worked.length) {
-    if (renderPx < HATCH_MIN_PX) layers.push(banded(worked, workedFlatFill(T, barColor)));
-    else layers.push(workedHatchLayer(T, barColor));
-  }
-  // 4 — idle as the base, so any sliver left by rounding is grey rather than bar colour.
-  layers.push(idle);
-  return layers.join(", ");
-}
-
-// Badge and label colour for a bar carrying regions. They are flexStart, so they sit at the
-// bar's LEFT -- which under the three-region model is grey ground, not the op colour that
-// accentText(bc) contrasts. Kept separate from liveBarTextColor because that helper is also
-// what the DONE badge calls, passing the literal "held" to reach its spent-contrast branch;
-// overloading the same state strings would have handed DONE the wrong ground.
-function barLabelColor(T, barColor) {
-  return accentText(idleBarFill(T, barColor));
-}
-
-
-// Text on a spent fill contrasts the SPENT colour, not the bar's original one -- the two can
-// land on opposite sides of the light/dark crossover. Derived from spentBarFill rather than
-// restated, so the fill and the text sitting on it cannot drift apart.
-function liveBarTextColor(T, barColor, state = "running") {
-  if (state === "running") return accentText(barColor);
-  return accentText(spentBarFill(T, barColor));
-}
 
 // The reservoir's drained portion. It covers the block from its left edge up to the
 // drain front, so only the LEFT corners are rounded -- rounding all four left two
@@ -2705,37 +2456,6 @@ const Btn = ({ children, onClick, variant = "primary", size = "md", disabled = f
   // site relies on that class for the shared hover, and none of them pass one.
   return <button className={`anim-btn${className ? " " + className : ""}`} onClick={onClick} disabled={disabled} style={{ ...base, ...sizes[size], ...vars[variant], opacity: disabled ? 0.45 : 1, ...sx }}>{children}</button>;
 };
-// Completed work stays on the schedule (see showCompleted) but reads as done: the job's
-// OWN colour, muted. Deliberately not replaced with a flat grey — this returned T.textDim,
-// which threw the job colour away entirely and, being a near-white/mid-grey token, painted
-// bars that read as dead slabs rather than as the job you recognise.
-//
-// mixHex toward a neutral keeps the hue identifiable while draining the saturation, and it
-// returns a HEX, which matters: the segment renderer builds `${colour}bb` alpha suffixes,
-// so an rgba() here (hexA) would produce invalid CSS. Falls through unchanged for any
-// non-hex colour rather than feeding it to a hex parser.
-//
-// Module-level because the board paints finished work from two separate sources — the
-// `bars` array the day/month views build, and the raw task tree the expanded subtask
-// segments read — and one rule beats muting each renderer by hand.
-//
-// COLOUR ONLY, deliberately. Nothing here touches hit-testing or pointer-events, so a
-// finished bar still opens details, still right-clicks for Reopen / Set Worked Hours, and
-// still drags. accentText() picks the label colour from this, so text stays readable.
-// Two signals stack for "finished": the colour desaturates, and the bar goes 30%
-// transparent so the grid reads through it. The mute is lighter than it was (0.62 -> 0.34)
-// now that transparency carries part of the job — at 0.62 plus a 30% fade the bars washed
-// out to near-illegible, and the hue is what makes a bar recognisable as its job.
-const DONE_MUTE = "#8c8c94";
-const barPaint = (item, color) =>
-  (item && item.status === "Finished" && typeof color === "string" && color.startsWith("#"))
-    ? mixHex(color, DONE_MUTE, 0.34)
-    : color;
-// Multiplied INTO each renderer's existing opacity rather than assigned over it: those
-// expressions already carry drag ghosting and the hover dim (0.2 for other people's rows),
-// and overwriting them would strand a finished bar at full opacity mid-drag.
-const DONE_FADE = 0.7;
-const barFade = (item) => (item && item.status === "Finished" ? DONE_FADE : 1);
 // Corner radius of the content panel — the curve you see where it meets the
 // sidebar on the left and the brand strip above. LiquidBackground clips to the
 // same value, so they live in one place rather than two literals that drift.
@@ -5932,6 +5652,17 @@ Extraction rules:
   // adaptive = the theme accent for all, custom = a single chosen colour for all.
   const jobBarMode = T.jobBarMode || "system";
   const elColor = c => jobBarMode === "adaptive" ? T.accent : jobBarMode === "custom" ? (T.jobBarColor || T.accent) : c;
+  // A colour about to become a BAR FILL, i.e. a ground that has to carry an 11px label. The
+  // legibility step comes after the job-bar mode has had its say, because a theme accent or a
+  // single chosen colour has to carry a label just as a panel's own colour does. It is a no-op
+  // on any colour that already can (14 of Matrix's 17) and a 0.08 nudge on the ones that cannot:
+  // #e3368d, #c43ce6 and #2d7be7 top out at 4.33-4.40:1 flat, under AA with either polarity, and
+  // no text colour rescues a ground that will not carry text.
+  //
+  // Separate from elColor deliberately. elColor also paints avatars, client chips and status
+  // dots, and one of those uses it as TEXT on a card -- a step sized to make a GROUND legible
+  // is the wrong move there, and possibly the wrong direction.
+  const barFillColor = c => legibleBarColor(elColor(c));
   // Jobs-list status/priority cells have their OWN "List Cells" toggle (cellColorMode),
   // INDEPENDENT of System Elements: system = configured multi-colours, adaptive = shades of
   // the accent by value (kept as shades so each status/priority stays distinguishable).
@@ -13069,7 +12800,13 @@ ${jobsCtx || "No jobs found."}`;
               const isExpanded = splitGanttExpanded.has(r.id);
               const rowH = level === 0 ? 40 : level === 1 ? 34 : 28;
               const barH = level === 0 ? 24 : level === 1 ? 20 : 16;
-              const barColor = level === 1 ? (staColorOf(r.status) || jobColor) : jobColor;
+              // #128. The bar painted barColor+"dd" over a row already tinted barColor+"07", so its
+              // ground was a COMPOSITE no text colour could rescue: white on it measured 1.96-3.24:1
+              // across the themes, and even the right polarity topped out at 3.16 on the dark ones,
+              // because the ground itself moved with the page. Opaque, and stepped if the colour
+              // cannot carry a label, the ground is the colour -- and then the ink follows from it.
+              const barColor = legibleBarColor(level === 1 ? (staColorOf(r.status) || jobColor) : jobColor);
+              const barTextInk = barInk([barColor]);
               const itemTeam = (r.team || []).map(id => people.find(p => p.id === id)).filter(Boolean);
               // Bar position — clamp to visible range
               const hasRange = r.start && r.end;
@@ -13111,14 +12848,14 @@ ${jobsCtx || "No jobs found."}`;
                       <div
                         key={si}
                         onClick={hasSubs ? () => toggleRow(r.id) : undefined}
-                        style={{ position: "absolute", top: (rowH - barH) / 2, left: sL, width: sW, height: barH, background: barColor + "dd", borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", boxSizing: "border-box", cursor: hasSubs ? "pointer" : "default", borderRight: !isLast ? `2px dashed rgba(255,255,255,0.4)` : undefined, borderLeft: !isFirst ? `2px dashed rgba(255,255,255,0.4)` : undefined, zIndex: 3 }}
+                        style={{ position: "absolute", top: (rowH - barH) / 2, left: sL, width: sW, height: barH, background: barColor, borderRadius: 8, overflow: "hidden", display: "flex", alignItems: "center", boxSizing: "border-box", cursor: hasSubs ? "pointer" : "default", borderRight: !isLast ? `2px dashed ${hexA(barTextInk, 0.55)}` : undefined, borderLeft: !isFirst ? `2px dashed ${hexA(barTextInk, 0.55)}` : undefined, zIndex: 3 }}
                       >
                         {isFirst && hasSubs && (
-                          <svg width="9" height="9" viewBox="0 0 10 10" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", color: "rgba(255,255,255,0.85)", flexShrink: 0, marginLeft: 5 }}>
+                          <svg width="9" height="9" viewBox="0 0 10 10" style={{ transform: isExpanded ? "rotate(90deg)" : "none", transition: "transform 0.15s", color: barTextInk, flexShrink: 0, marginLeft: 5 }}>
                             <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
                           </svg>
                         )}
-                        {(isFirst || sW > 80) && <span style={{ fontSize: level === 0 ? 11 : 10, color: "#fff", fontWeight: level === 0 ? 700 : 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingLeft: (isFirst && hasSubs) ? 4 : 7, flex: 1, minWidth: 0 }}>
+                        {(isFirst || sW > 80) && <span style={{ fontSize: level === 0 ? 11 : 10, color: barTextInk, fontWeight: level === 0 ? 700 : 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", paddingLeft: (isFirst && hasSubs) ? 4 : 7, flex: 1, minWidth: 0 }}>
                           {level === 0 ? `${r.jobNumber ? `#${r.jobNumber} ` : ""}${r.title}` : r.title}
                         </span>}
                         {isFirst && itemTeam.length > 0 && (
@@ -13128,7 +12865,7 @@ ${jobsCtx || "No jobs found."}`;
                                 <PersonAvatar person={p} size={level === 0 ? 17 : 14} ring={T.border} />
                               </div>
                             ))}
-                            {itemTeam.length > 3 && <span style={{ fontSize: 8, color: "rgba(255,255,255,0.8)", fontWeight: 700 }}>+{itemTeam.length - 3}</span>}
+                            {itemTeam.length > 3 && <span style={{ fontSize: 8, color: barTextInk, fontWeight: 700 }}>+{itemTeam.length - 3}</span>}
                           </div>
                         )}
                       </div>
@@ -16271,12 +16008,25 @@ ${jobsCtx || "No jobs found."}`;
     const _overdueBy = new Map();
     for (const u of _overdueAll) for (const pid of u.personIds) { if (!_overdueBy.has(pid)) _overdueBy.set(pid, []); _overdueBy.get(pid).push(u); }
     // Always visible on the row — not on hover, not in a menu: someone thinks this work is scheduled.
+    //
+    // THE COUNT, not the word (#311). Measured against the real column: lW is 250 whenever
+    // nobody is clocked onto a job, which leaves 119.5px for the name block, and "N overdue"
+    // at 10px/700 with its padding is 66.6-75.6px of that. It never clipped itself — it
+    // evicted the line it shared, so anyone with overdue work lost their department: at
+    // Matrix, 17 people across 8 departments, "Engineering · 8h" cut to 63% of its width.
+    // The number alone is ~26-30px and rides the NAME line, where the shortest first name
+    // still leaves room; the word is in the title, where the rest of the sentence already was.
+    //
+    // A FILLED pill, not amber text on a 13% amber wash: the old #b45309 measured 2.53:1 on
+    // the dark ladders against that wash. Filled, the ground is the amber itself and the ink
+    // follows the same rule as everything else on this screen.
+    const OVERDUE_AMBER = legibleBarColor("#f59e0b");
     const overdueBadge = (pid) => {
       const n = (_overdueBy.get(String(pid)) || []).length;
       if (!n) return null;
       return <span role="button" title={`${n} unfinished ${n === 1 ? "operation" : "operations"} past their end date — not shown on the schedule. Click to see them.`}
         onClick={e => { e.stopPropagation(); setOverdueTray(String(pid)); }}
-        style={{ display: "inline-block", marginRight: 6, padding: "0 6px", borderRadius: T.radiusPill, background: "#f59e0b22", border: "1px solid #f59e0b88", color: "#b45309", fontWeight: 700, fontSize: 10, lineHeight: "15px", cursor: "pointer", verticalAlign: "middle" }}>{n} overdue</span>;
+        style={{ display: "inline-block", marginLeft: 5, padding: "0 5px", minWidth: 8, textAlign: "center", borderRadius: T.radiusPill, background: OVERDUE_AMBER, color: barInk([OVERDUE_AMBER]), fontWeight: 800, fontSize: 10, lineHeight: "15px", cursor: "pointer", verticalAlign: "middle", flexShrink: 0 }}>{n}</span>;
     };
     // teamWidth measures the OUTER wrapper, but in month mode the grid inside it is
     // stretched to `monthZoom * 100%` and scrolls horizontally. Every consumer of cW
@@ -16388,7 +16138,7 @@ ${jobsCtx || "No jobs found."}`;
               const cl = job.clientId ? clientsById.get(String(job.clientId)) || null : null;
               const tc = panel.color || "#94a3b8";
               const opPersonName = (() => { const pp = personOf((op.team || [])[0]); return pp ? pp.name : null; })();
-              bars.push({ type: "task", id: op.id, start: bStart, end: bEnd, title: `${panel.title} · ${op.title}${opPersonName ? ` · ${opPersonName}` : ""}`, color: barPaint(op, elColor(tc)), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, jobCreatedAt: job.createdAt || null, task: { ...op, start: bStart, end: bEnd, color: barPaint(op, tc), isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
+              bars.push({ type: "task", id: op.id, start: bStart, end: bEnd, title: `${panel.title} · ${op.title}${opPersonName ? ` · ${opPersonName}` : ""}`, color: barPaint(op, barFillColor(tc)), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: op.status, jobCreatedAt: job.createdAt || null, task: { ...op, start: bStart, end: bEnd, color: barPaint(op, tc), isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, poNumber: job.poNumber || null, panelTitle: panel.title, level: 2 }, subs: [], hasSubs: false });
             });
             // Panel-level assignment: ONLY when the panel is itself the lowest level, i.e. it
             // has no ops. The thing a person is assigned is the deepest node; a parent belongs
@@ -16416,7 +16166,7 @@ ${jobsCtx || "No jobs found."}`;
                 const pEnd = panel.end;
                 const cl = job.clientId ? clientsById.get(String(job.clientId)) || null : null;
                 const tc = panel.color || "#94a3b8";
-                bars.push({ type: "task", id: panel.id, start: pStart, end: pEnd, title: `${job.title} · ${panel.title}`, color: barPaint(panel, elColor(tc)), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: panel.status, jobCreatedAt: job.createdAt || null, task: { ...panel, start: pStart, end: pEnd, color: barPaint(panel, tc), isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
+                bars.push({ type: "task", id: panel.id, start: pStart, end: pEnd, title: `${job.title} · ${panel.title}`, color: barPaint(panel, barFillColor(tc)), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: panel.status, jobCreatedAt: job.createdAt || null, task: { ...panel, start: pStart, end: pEnd, color: barPaint(panel, tc), isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
               }
             }
           });
@@ -16436,7 +16186,7 @@ ${jobsCtx || "No jobs found."}`;
             const bEnd = sub.end;
             const cl = job.clientId ? clientsById.get(String(job.clientId)) || null : null;
             const tc = sub.color || "#94a3b8";
-            bars.push({ type: "task", id: sub.id, start: bStart, end: bEnd, title: `${job.title} · ${sub.title}`, color: barPaint(sub, elColor(tc)), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: sub.status, jobCreatedAt: job.createdAt || null, task: { ...sub, start: bStart, end: bEnd, color: barPaint(sub, tc), isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
+            bars.push({ type: "task", id: sub.id, start: bStart, end: bEnd, title: `${job.title} · ${sub.title}`, color: barPaint(sub, barFillColor(tc)), clientName: cl ? cl.name : null, jobNumber: job.jobNumber || null, dueDate: job.dueDate || null, status: sub.status, jobCreatedAt: job.createdAt || null, task: { ...sub, start: bStart, end: bEnd, color: barPaint(sub, tc), isSub: true, pid: job.id, jobTitle: job.title, jobNumber: job.jobNumber || null, level: 1 }, subs: [], hasSubs: false });
           });
         }
       });
@@ -16590,7 +16340,7 @@ ${jobsCtx || "No jobs found."}`;
     // NOT the page background. Disabled days (weekends/holidays) are a darker hue of that
     // surface; group/sub rows + gridlines are subtle surface tints so it reads as one card.
     const _schedSurf = T.surfaceSolid || T.surface;
-    const _schedDk = hexLum(_schedSurf) < 0.5;
+    const _schedDk = wantsLightText(_schedSurf);
     const schedDisabled = blendHex(_schedSurf, _schedDk ? 0.045 : -0.05); // SLIGHTLY off the surface — just enough to read as a non-working day
     const schedSubBg = blendHex(_schedSurf, _schedDk ? 0.03 : -0.028);    // group/sub rows — very gentle separation shade
     // Grid on/off toggle. When on, gridlines are a contrasting shade of the surface — lighter on
@@ -16865,7 +16615,7 @@ ${jobsCtx || "No jobs found."}`;
             if (tMode === "day") { setTStart(TD); setTEnd(TD); }
             else { const span = diffD(tStart, tEnd); const half = Math.floor(span / 2); setTStart(addD(TD, -half)); setTEnd(addD(TD, span - half)); }
           }}>Today</Btn>
-          {_overdueAll.length > 0 && <Btn size="sm" variant="secondary" onClick={() => setOverdueTray("all")} style={{ marginLeft: 6, borderColor: "#f59e0b88", color: "#b45309" }}>Overdue · {_overdueAll.length}</Btn>}
+          {_overdueAll.length > 0 && <Btn size="sm" variant="secondary" onClick={() => setOverdueTray("all")} style={{ marginLeft: 6, borderColor: "#f59e0b88", color: legibleOn("#b45309", T.card) }}>Overdue · {_overdueAll.length}</Btn>}
         </div>}
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: PAGE_ACTION_GAP }}>
           {clipboard && <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.accent}44`, background: T.accent + "12", fontSize: 12, color: T.accent, fontWeight: 600, maxWidth: 200 }}>
@@ -17073,10 +16823,10 @@ ${jobsCtx || "No jobs found."}`;
                     <div style={{minWidth:lW,maxWidth:lW,boxSizing:"border-box",display:"flex",alignItems:"center",gap:8,padding:"0 10px 0 8px",borderRight:`1px solid ${T.border}`,background:T.surface,flexShrink:0}}>
                       <PersonAvatar person={p} size={28} label={p.teamNumber ? String(p.teamNumber).charAt(0).toUpperCase() : null} />
                       <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:13,fontWeight:600,color:T.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name.split(" ")[0]}</div>
+                        <div style={{fontSize:13,fontWeight:600,color:T.text,display:"flex",alignItems:"center",minWidth:0}}><span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",minWidth:0}}>{p.name.split(" ")[0]}</span>{overdueBadge(p.id)}</div>
                         {/* nowrap + ellipsis: without it "Admin · 8h" broke onto a second
                             line inside a fixed-height row and collided with the pill. */}
-                        <div style={{fontSize:11,color:T.textDim,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{overdueBadge(p.id)}{p.department} · {p.cap}h</div>
+                        <div style={{fontSize:11,color:T.textDim,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.department} · {p.cap}h</div>
                       </div>
                       {personClockPill(p, { size: 11 })}
                     </div>
@@ -17096,21 +16846,28 @@ ${jobsCtx || "No jobs found."}`;
                         const _laneH = _lane && _lane.lanesTotal > 1 ? (rH - 8) / _lane.lanesTotal : rH - 8;
                         const _laneTop = _lane && _lane.lanesTotal > 1 ? 4 + _lane.lane * _laneH : 4;
                         const _laneHeight = _lane && _lane.lanesTotal > 1 ? _laneH - 2 : _laneH;
+                        // The day view paints ONE flat fill per bar -- no cursor, no regions -- so every
+                        // mark on it shares a single ground. Finished takes the faded spent fill rather
+                        // than a faded ELEMENT, same as week/month (#95/#96): the title used to contrast
+                        // bar.color while sitting on spent grey, which measured 2.22:1 at its worst
+                        // across the live palette.
+                        const _dayFill = bar.task?.status === "Finished" ? doneBarFill(T, bar.color, _schedSurf) : bar.color;
+                        const _dayInk = barInk([_dayFill]);
                         return <div key={bar.id}
                           onMouseDown={e=>{ if(e.button===0) { isDraggingRef.current = true; handleTeamDayBarDrag(e, bar.task, "move", p.id, rawS, rawE, { isRecord: !!bar.crossRow }); } }}
                           onContextMenu={e=>bar.task&&handleCtx(e,bar.task,"team")}
-                          style={{position:"absolute",top:_laneTop,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:_laneHeight,borderRadius:T.radiusXs,background:bar.task?.status==="Finished"?spentBarFill(T,bar.color):bar.color,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis&&dayDragInfo?.mode==="move"?`0 0 0 2px ${bar.color}88`:`0 2px 8px ${bar.color}33`,opacity:isDraggingThis&&dayDragInfo?.mode==="move"?0.3:dayDragInfo&&!isDraggingThis?0.7:(!hoveredBarPid||bar.task?.pid===hoveredBarPid?1:0.2)*barFade(bar.task),transition:"box-shadow 0.1s,opacity 0.2s"}}
+                          style={{position:"absolute",top:_laneTop,left:`${(visS-HS)/NH*100}%`,width:`calc(${(visE-visS)/NH*100}% - 4px)`,height:_laneHeight,borderRadius:T.radiusXs,background:_dayFill,cursor:isDraggingThis?"grabbing":"grab",display:"flex",alignItems:"center",padding:"0 16px",overflow:"hidden",boxShadow:isDraggingThis&&dayDragInfo?.mode==="move"?`0 0 0 2px ${bar.color}88`:`0 2px 8px ${bar.color}33`,opacity:isDraggingThis&&dayDragInfo?.mode==="move"?0.3:dayDragInfo&&!isDraggingThis?0.7:(!hoveredBarPid||bar.task?.pid===hoveredBarPid?1:0.2),transition:"box-shadow 0.1s,opacity 0.2s"}}
                           onMouseEnter={e=>{ if(!dayDragInfo && !isDraggingRef.current){ e.currentTarget.style.filter="brightness(1.1)"; setHoveredBarPid(bar.task?.pid??null); } }} onMouseLeave={e=>{ e.currentTarget.style.filter="none"; setHoveredBarPid(null); }}>
                           {/* Handles: only where the op starts / ends, never on a record bar or a locked op,
                               and only for someone who may move jobs (#5 #9 #10 #17). */}
                           {can("moveJobs") && isFirstSeg && !bar.crossRow && !bar.task?.locked && <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"left",p.id,rawS,rawE);}} style={{position:"absolute",left:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
-                            <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
+                            <div style={{width:3,height:12,borderRadius:2,background:_dayInk}}/>
                           </div>}
-                          {(() => { const _lb = liveBadgeFor(p.activeJobClock, bar.task); return _lb && <span style={{fontSize:9,fontWeight:800,color:liveBarTextColor(T,bar.color,_lb),letterSpacing:"0.05em",flexShrink:0,marginRight:6,opacity:0.85}}>{LIVE_BADGE_LABEL[_lb]}</span>; })()}
-                          {bar.task?.status==="Finished" && <span style={{fontSize:9,fontWeight:800,color:liveBarTextColor(T,bar.color,"held"),letterSpacing:"0.05em",flexShrink:0,marginRight:6,opacity:0.85}}>DONE</span>}
-                          <span style={{fontSize:10,color:accentText(bar.color),fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,textAlign:"left",position:"relative",zIndex:5}}>{hpd > 0 ? `${hpd}h · ` : ""}{bar.task?.title || bar.title}</span>
+                          {(() => { const _lb = liveBadgeFor(p.activeJobClock, bar.task); return _lb && <span style={{fontSize:9,fontWeight:800,color:_dayInk,letterSpacing:"0.05em",flexShrink:0,marginRight:6,opacity:0.85}}>{LIVE_BADGE_LABEL[_lb]}</span>; })()}
+                          {bar.task?.status==="Finished" && <span style={{fontSize:9,fontWeight:800,color:_dayInk,letterSpacing:"0.05em",flexShrink:0,marginRight:6}}>DONE</span>}
+                          <span style={{fontSize:10,color:_dayInk,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,textAlign:"left",position:"relative",zIndex:5}}>{hpd > 0 ? `${hpd}h · ` : ""}{bar.task?.title || bar.title}</span>
                           {can("moveJobs") && isLastSeg && !bar.crossRow && !bar.task?.locked && <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"right",p.id,rawS,rawE);}} style={{position:"absolute",right:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
-                            <div style={{width:3,height:12,borderRadius:2,background:"rgba(255,255,255,0.6)"}}/>
+                            <div style={{width:3,height:12,borderRadius:2,background:_dayInk}}/>
                           </div>}
                           {personShareHours(hpd, (bar.task?.team || []).length, productiveHoursPerDay) >= productiveHoursPerDay && (() => {
                             const _ph = t => { const [h,m]=(t||"0:0").split(":").map(Number); return h+m/60; };
@@ -17125,7 +16882,7 @@ ${jobsCtx || "No jobs found."}`;
                               const wPct = (mk.dur / totalM) * 100;
                               if (startPct>=100||startPct+wPct<=0) return null;
                               return <div key={mk.key} style={{position:"absolute",left:`${startPct}%`,top:0,bottom:0,width:`${wPct}%`,background:"rgba(0,0,0,0.25)",pointerEvents:"none",zIndex:4,display:"flex",alignItems:"center",justifyContent:"center"}}>
-                                <span style={{fontSize:10,color:"rgba(255,255,255,0.9)",fontWeight:700,lineHeight:1,pointerEvents:"none",userSelect:"none"}}>{mk.label}</span>
+                                <span style={{fontSize:10,color:barInk([overHex("#000000", _dayFill, 0.25)]),fontWeight:700,lineHeight:1,pointerEvents:"none",userSelect:"none"}}>{mk.label}</span>
                               </div>;
                             });
                           })()}
@@ -17240,9 +16997,16 @@ ${jobsCtx || "No jobs found."}`;
               const nDays = days.length;
               const sx = (diffD(tStart, sub.start < tStart ? tStart : sub.start) / nDays * 100) + "%";
               const sw = (Math.max(diffD(sub.start < tStart ? tStart : sub.start, sub.end > tEnd ? tEnd : sub.end) + 1, 1) / nDays * 100) + "%";
+              // An expanded sub-row paints a flat fill, not regions, so it has ONE ground --
+              // but the same two moves apply: the colour goes through elColor (so it is legible
+              // and follows the job-bar mode, which this renderer was skipping), and Finished
+              // fades the FILL rather than the element that carries the label.
+              const _subFill = sub.status === "Finished" ? doneBarFill(T, barFillColor(sub.color), _schedSurf) : barFillColor(sub.color);
+              const _subDotFill = _subFill;
+              const _subInk = barInk([_subFill]);
               return <div key={`sub-${row.person.id}-${sub.id}`} style={{ display: "flex", height: subH, borderBottom: gridOn ? `1px solid ${schedLine}` : "none", background: schedSubBg }}>
                 <div style={{ minWidth: lW, maxWidth: lW, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 6, padding: "0 16px 0 56px", borderRight: `1px solid ${T.border}`, position: "sticky", left: 0, background: schedSubBg, zIndex: 10 }}>
-                  <div style={{ width: 6, height: 6, borderRadius: 8, background: barPaint(sub, sub.color), opacity: barFade(sub), flexShrink: 0 }} />
+                  <div style={{ width: 6, height: 6, borderRadius: 8, background: _subDotFill, flexShrink: 0 }} />
                   <span style={{ fontSize: 12, color: T.textSec, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sub.title}</span>
                 </div>
                 <div style={{ flex: 1, position: "relative", display: "flex" }}>
@@ -17263,7 +17027,7 @@ ${jobsCtx || "No jobs found."}`;
                           const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
                           document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
                         }}
-                        style={{ position: "absolute", top: 3, left: `calc(${segSx} + 2px)`, width: `calc(${segSw} - 4px)`, height: subH - 6, borderRadius: 8, background: barPaint(sub, sub.color), opacity: barFade(sub), border: `1px solid ${barPaint(sub, sub.color)}`, borderRight: !isLast ? `2px dashed ${barPaint(sub, sub.color)}bb` : `1px solid ${barPaint(sub, sub.color)}`, borderLeft: !isFirst ? `2px dashed ${barPaint(sub, sub.color)}bb` : `1px solid ${barPaint(sub, sub.color)}`, cursor: "grab", display: "flex", alignItems: "center", padding: "0 8px", overflow: "hidden", zIndex: sub.id === scheduleHighlightId ? 10 : 4, animation: isFirst && sub.id === scheduleHighlightId ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": barPaint(sub, sub.color) + "99" }}>
+                        style={{ position: "absolute", top: 3, left: `calc(${segSx} + 2px)`, width: `calc(${segSw} - 4px)`, height: subH - 6, borderRadius: 8, background: _subFill, border: `1px solid ${_subFill}`, borderRight: !isLast ? `2px dashed ${_subFill}bb` : `1px solid ${_subFill}`, borderLeft: !isFirst ? `2px dashed ${_subFill}bb` : `1px solid ${_subFill}`, cursor: "grab", display: "flex", alignItems: "center", padding: "0 8px", overflow: "hidden", zIndex: sub.id === scheduleHighlightId ? 10 : 4, animation: isFirst && sub.id === scheduleHighlightId ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": _subFill + "99" }}>
                         {isFirst && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 6, cursor: "ew-resize", zIndex: 5 }} onMouseDown={e => {
                           e.stopPropagation(); e.preventDefault(); const startX = e.clientX; const os = sub.start; let lastDx = 0;
                           const onM = me => { const dx = Math.round((me.clientX - startX) / cW); if (dx === lastDx) return; lastDx = dx; const ns = addD(os, dx); if (ns <= sub.end) updTask(sub.id, { start: ns }, row.parentTaskId); };
@@ -17276,7 +17040,7 @@ ${jobsCtx || "No jobs found."}`;
                           const onU = () => { document.removeEventListener("mousemove", onM); document.removeEventListener("mouseup", onU); };
                           document.addEventListener("mousemove", onM); document.addEventListener("mouseup", onU);
                         }} />}
-                        {isFirst && <span style={{ fontSize: 10, color: "#fff", fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3, opacity: 0.9 }}>{sub.title}</span>}
+                        {isFirst && <span style={{ fontSize: 10, color: _subInk, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 3 }}>{sub.title}</span>}
                       </div>;
                     });
                   })()}
@@ -17494,11 +17258,11 @@ ${jobsCtx || "No jobs found."}`;
                 <Tip label="Drag to reorder"><div onMouseDown={e => startRowDrag(e, p.id)} onClick={e => e.stopPropagation()} style={{ cursor: "grab", color: T.textDim, fontSize: 14, padding: "4px 2px", flexShrink: 0, lineHeight: 1, userSelect: "none", opacity: 0.5 }}>⠿</div></Tip>
                 <PersonAvatar person={p} size={28} label={p.teamNumber ? (isNaN(String(p.teamNumber)) ? String(p.teamNumber).charAt(0).toUpperCase() : String(p.teamNumber)) : null} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div onClick={barSelectMode ? (e => { e.stopPropagation(); setSelectedSchedulePerson(prev => prev === p.id ? null : p.id); }) : undefined} style={{ fontSize: 13, fontWeight: 600, color: barSelectMode ? T.accent : T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: barSelectMode ? "pointer" : "default" }}>{p.name.split(" ")[0]}</div>
-                  <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{overdueBadge(p.id)}{p.department} · {p.cap}h</div>
+                  <div onClick={barSelectMode ? (e => { e.stopPropagation(); setSelectedSchedulePerson(prev => prev === p.id ? null : p.id); }) : undefined} style={{ fontSize: 13, fontWeight: 600, color: barSelectMode ? T.accent : T.text, display: "flex", alignItems: "center", minWidth: 0, cursor: barSelectMode ? "pointer" : "default" }}><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}>{p.name.split(" ")[0]}</span>{overdueBadge(p.id)}</div>
+                  <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.department} · {p.cap}h</div>
                 </div>
                 {personClockPill(p, { size: 11 })}
-                {teamSelectMode && <div className="select-bubble-in" style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${selPeople.has(p.id) ? T.accent : T.border}`, background: selPeople.has(p.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, pointerEvents: "none", transition: "border-color 0.15s, background 0.15s", animationDelay: `${ri * 25}ms` }}>{selPeople.has(p.id) && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
+                {teamSelectMode && <div className="select-bubble-in" style={{ width: 18, height: 18, borderRadius: "50%", border: `2px solid ${selPeople.has(p.id) ? T.accent : T.border}`, background: selPeople.has(p.id) ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, pointerEvents: "none", transition: "border-color 0.15s, background 0.15s", animationDelay: `${ri * 25}ms` }}>{selPeople.has(p.id) && <svg width="10" height="10" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke={barInk([T.accent])} strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}</div>}
                 </div>
               </div>
               <div style={{ flex: 1, position: "relative", display: "flex" }}>
@@ -17876,12 +17640,17 @@ ${jobsCtx || "No jobs found."}`;
                   // Engineering chip — render as compact pill, opens job detail
                   if (bar.type === "eng-chip") {
                     const chipJob = tasks.find(j => j.id === bar.jobId);
+                    // The chip paints its own solid fill, so its ground is unambiguous -- and it was
+                    // still white on it, 2.54:1 on the all-done green. legibleBarColor first because
+                    // the chip is a bar like any other: if the fill cannot carry a label, step it.
+                    const _chipFill = legibleBarColor(bar.allDone ? "#10b981" : "#3b82f6");
+                    const _chipInk = barInk([_chipFill]);
                     return <div key={bar.id}
                       onClick={() => { if (chipJob) openDetail(chipJob); }}
-                      style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: "auto", minWidth: 80, maxWidth: 160, height: rH - 8, borderRadius: 26, background: bar.allDone ? "#10b981" : "#3b82f6", border: `1.5px solid ${bar.allDone ? "#10b98166" : "#3b82f666"}`, cursor: "pointer", display: "flex", alignItems: "center", padding: "0 10px", zIndex: 4, boxShadow: `0 2px 8px ${bar.color}44`, overflow: "hidden" }}
+                      style={{ position: "absolute", top: 4, left: `calc(${x} + 2px)`, width: "auto", minWidth: 80, maxWidth: 160, height: rH - 8, borderRadius: 26, background: _chipFill, border: `1.5px solid ${_chipFill}66`, cursor: "pointer", display: "flex", alignItems: "center", padding: "0 10px", zIndex: 4, boxShadow: `0 2px 8px ${bar.color}44`, overflow: "hidden" }}
                       onMouseEnter={e => { e.currentTarget.style.filter = "brightness(1.15)"; }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; }}>
-                      <span style={{ fontSize: 10, color: "#fff", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{bar.panelTitle}</span>
-                      {!bar.allDone && <span style={{ fontSize: 9, color: "rgba(255,255,255,0.75)", marginLeft: 4, whiteSpace: "nowrap" }}>· {bar.activeStep}</span>}
+                      <span style={{ fontSize: 10, color: _chipInk, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{bar.panelTitle}</span>
+                      {!bar.allDone && <span style={{ fontSize: 9, color: _chipInk, marginLeft: 4, whiteSpace: "nowrap" }}>· {bar.activeStep}</span>}
                       {bar.allDone && <span style={{ fontSize: 10, marginLeft: 4 }}>✓</span>}
                     </div>;
                   }
@@ -18518,9 +18287,17 @@ ${jobsCtx || "No jobs found."}`;
                   // pixel position) and for each multi-drag member at its column-snapped
                   // landing position with hour offset — same "law of moving" as the dragged
                   // bar (business-day stepping, weekend-skipping, 30-min hour snap).
+                  // NO barFade() HERE ANY MORE (#95/#96). A finished bar still goes 30% toward the
+                  // row, but the fade is in the FILL (doneBarFill) rather than on the element,
+                  // because element opacity composites the TEXT with its own ground: both converge
+                  // on the row colour and the ratio between them collapses. Measured, a DONE label
+                  // could not clear 2.93:1 on any theme with any colour while the element was faded
+                  // -- every DONE bar on the schedule was under AA for that reason alone, and no
+                  // colour choice in this pass could have fixed it. Same pixels, text pulled out of
+                  // the composite: 5.0-7.7:1.
                   const barOpacity = _isDragActive
                     ? 0
-                    : (barSelectMode || !hoveredBarPid || isPto || bar.task?.pid === hoveredBarPid ? 1 : 0.2) * barFade(bar.task);
+                    : (barSelectMode || !hoveredBarPid || isPto || bar.task?.pid === hoveredBarPid ? 1 : 0.2);
                   const isBarSelected = barSelectMode && selBars.has(bar.id);
                   const inDepGroup = !isPto && depGroupTaskIds.has(bar.task?.id);
                   const barKey = bar.id + "_0_" + bar.start;
@@ -18682,39 +18459,50 @@ ${jobsCtx || "No jobs found."}`;
                     // loggedHours both outlive the session that produced them.
                     : _barWorkedPct > 0 ? "worked"
                     : "scheduled";
-                  // Grey at the bar's left edge, which is what the title and the icons sit on.
+                  // WHAT IS UNDER THE TEXT, from the same numbers the fill was composed from.
                   //
-                  // This used to require work or a live clock, on the assumption that only a worked
-                  // bar ever has grey at its left. That stopped being true the moment `scheduled`
-                  // became region-capable: an untouched bar the cursor has entered is now grey from
-                  // its start to the cursor, with no work on it at all. Left as it was, the title
-                  // would have gone on contrasting the op colour while sitting on grey — the exact
-                  // defect fixed yesterday, reintroduced by the change that made the bar correct.
+                  // _leftIsGrey is gone. It was a THIRD derivation of the bar's geometry -- it read
+                  // the op-wide cursor (_barCursorPct) while the fill read the head's own
+                  // (_fillCursorPct), so on a bar whose head is not where the op is they disagreed,
+                  // and the title contrasted grey while sitting on colour. Two readings of one
+                  // geometry is the shape of every defect in this pass; there is one now, and it is
+                  // the fill's.
                   //
-                  // So the test is the fill's test: does this bar draw regions, and has the cursor
-                  // entered it.
-                  const _leftIsGrey = !isPto && bar.task?.status !== "Finished" && _barCursorPct > 0
-                    && (isLive || _barWorkedPct > 0 || _barState === "scheduled" || _barState === "worked");
-                  const iconColor = _leftIsGrey ? barLabelColor(T, bc) : accentText(bc);
-                  // The title is flex:1, so once regions are drawn it CROSSES them -- grey at its
-                  // start, op colour past the cursor -- and no single colour is right along its
-                  // whole run. It takes the ground it STARTS on, and a halo in the opposite
-                  // polarity carries the part that crosses over.
+                  // `side` is where the run sits: badges and icons are flush left, the hours label
+                  // is flush right, and the title is flex:1 between them, so it is the only one that
+                  // can cross. barGrounds answers each separately.
+                  const _groundArgs = { state: _barState, spans: _fillSpans, cursorPct: _fillCursorPct, renderPx: _renderPx, rowColor: _schedSurf };
+                  const _leftGrounds = barGrounds(T, bc, { ..._groundArgs, side: "left" });
+                  const _titleGrounds = barGrounds(T, bc, { ..._groundArgs, side: "label" });
+                  const _hoursGrounds = barGrounds(T, bc, { ..._groundArgs, side: "right" });
+                  const iconColor = barInk(_leftGrounds);
+                  // The title crosses, and on the dark ladders the grounds it crosses disagree about
+                  // polarity -- 20 of 33 colour x theme combinations do, and the best a single colour
+                  // manages there is 2.09:1. So the glyph carries both tones: the better polarity as
+                  // its fill, the other as a 1px rim, and one of the two clears 4.5:1 on every ground
+                  // it crosses. Only where it actually crosses: a bar on one ground gets no rim.
                   //
-                  // A halo rather than a scrim: a scrim is a positioned overlay with its own
-                  // extent and z-index, which is the pattern whose wrong extent drew stripes
-                  // through the DONE badge, and putting one back to solve a text problem would
-                  // trade a known-bad mechanism for a cosmetic gain. Constraining the label
-                  // instead would make it reflow as the cursor advances, which is worse than
-                  // imperfect contrast because it moves while you are reading it.
-                  //
-                  // Only where it can actually cross: an untouched bar is one ground and needs
-                  // nothing. _hideBarLabel already hides labels below 44px, so this never has to
-                  // survive the small sizes where a soft halo reads as muddy.
-                  const _titleColor = _leftIsGrey ? barLabelColor(T, bc) : accentText(bc);
-                  const _titleHalo = _leftIsGrey
-                    ? (_titleColor === "#ffffff" ? "0 0 3px rgba(0,0,0,0.60)" : "0 0 3px rgba(255,255,255,0.70)")
-                    : undefined;
+                  // This replaces a 3px blurred halo. A blur averages toward the ground it is meant
+                  // to separate from, so it reads as fog at the 11px label size; the rim is hard and
+                  // drawn outside the letterform, so the glyph keeps its weight. Not
+                  // -webkit-text-stroke, which centres on the glyph edge and would eat ~40% of a
+                  // 1.3px stem at this size.
+                  const _titleStyle = barTextStyle(_titleGrounds);
+                  const _titleColor = _titleStyle.color;
+                  const _titleHalo = _titleStyle.textShadow;
+                  // The marks that are not text -- grips, the lock ring, the select ring and its
+                  // check -- take the same decision at the 3:1 non-text threshold. They were white,
+                  // every one of them, which measured 1.32-2.05:1 over a bar colour on EVERY theme,
+                  // not just the light ones the defect list named. A border straddles the bar's edge,
+                  // so the row surface is one of its grounds too.
+                  const _leftMarkInk = barInk(_leftGrounds);
+                  const _rightMarkInk = barInk(_hoursGrounds);
+                  const _edgeInk = barInk([..._titleGrounds, _schedSurf]);
+                  // The fade came off the element, so everything that used to ride on it has to
+                  // carry its own: the border, the glow and the drop shadow are the bar colour
+                  // 30% toward the row on a finished bar, exactly where opacity 0.7 put them.
+                  // Without this a DONE bar keeps a full-strength outline around a faded fill.
+                  const _fadedBc = _barState === "done" ? mixHex(bc, _schedSurf, 0.3) : bc;
                   // Basic only (basicOverlapLanes is null on Business): a bar sharing its
                   // time range with another on this row gets a fraction of the row's
                   // height instead of painting full-height on top of it. See
@@ -18727,23 +18515,23 @@ ${jobsCtx || "No jobs found."}`;
                     data-worked-pct={_barWorkedPct} data-divider-pct={_headCursorPct} data-op-divider-pct={_barCursorPct} data-raw-worked-pct={_barRawWorkedPct} data-worked-spans={JSON.stringify(_barSpans)} data-seg-worked-spans={JSON.stringify(_headSpans)} data-seg-divider-pct={_headCursorPct} data-unclosed={_barUnclosed ? "1" : undefined} data-worked-h={_barWorkedH} data-committed-h={_barCommittedH} data-live-h={_barLiveH} data-state={_barState}
                     onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                     onContextMenu={e => { if (isPto && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto && bar.task) handleCtx(e, bar.task, "team"); }}
-                    style={{ position: "absolute", top: _bLaneTop, left: x, width: `calc(${w} - ${bar.endsNow ? 0 : 1}px)`, minWidth: _wFirst > 0 ? 2 : 0, height: _bLaneHeight, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: activeBarFill(T, bc, _fillSpans, _fillCursorPct, _barState, _renderPx), border: isBarSelected ? `2px solid #fff` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid rgba(255,255,255,0.7)` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${bc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : `0 12px 0 ${12 + _labelInset}px`, overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px rgba(255,255,255,0.15)` : isExp ? `0 2px 8px ${bc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": bc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
+                    style={{ position: "absolute", top: _bLaneTop, left: x, width: `calc(${w} - ${bar.endsNow ? 0 : 1}px)`, minWidth: _wFirst > 0 ? 2 : 0, height: _bLaneHeight, boxSizing: "border-box", borderRadius: isPto ? T.radiusXs : Math.min(T.radiusXs, _renderPx / 2), background: activeBarFill(T, bc, _fillSpans, _fillCursorPct, _barState, _renderPx, _schedSurf), border: isBarSelected ? `2px solid ${_edgeInk}` : dragOverlap ? `2px solid #ef4444` : barLocked ? `2px solid ${_edgeInk}` : (!isPto && _renderPx < 8) ? "none" : `${_thinBar ? 1 : 1.5}px solid ${_fadedBc}`, cursor: barSelectMode && !isPto ? "pointer" : isPto ? (can("manageTeam") ? "grab" : "default") : (barLocked || _dragBlocked) ? "not-allowed" : can("moveJobs") ? "grab" : "pointer", display: "flex", alignItems: "center", padding: _hideBarLabel ? 0 : `0 12px 0 ${12 + _labelInset}px`, overflow: "hidden", zIndex: isDraggingThis ? 40 : isMultiDragging ? 39 : isHighlighted ? 10 : isPto ? 3 : 4, transform: (dragTx || dragTy) ? `translateX(${dragTx}px) translateY(${dragTy}px)` : undefined, boxShadow: isBarSelected ? `0 0 0 2px ${bc}88, 0 0 14px ${bc}55` : (isDraggingThis || isMultiDragging) ? (dragOverlap ? `0 0 24px #ef444488, 0 4px 16px #ef444444` : `0 0 24px ${bc}88, 0 4px 16px ${bc}44`) : barLocked ? `0 0 8px ${hexA(_edgeInk, 0.2)}` : isExp ? `0 2px 8px ${_fadedBc}44` : "none", animation: droppedBarId === bar.id ? "barDropIn 0.25s ease-out" : isHighlighted ? "scheduleGlow 4s ease-out" : undefined, "--glow-color": _fadedBc + "99", opacity: barOpacity, transition: "opacity 0.15s, box-shadow 0.15s, border-color 0.15s" }}
                     onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
-                    {!_isNarrowBar && can("moveJobs") && !barLocked && !_dragBlocked && !(ws && ws.workedHpd > 0) && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                    {!_isNarrowBar && barSegs.length === 1 && _endsInView && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
-                    {isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><circle cx="6.5" cy="6.5" r="6.5" fill="rgba(255,255,255,0.25)"/><polyline points="3,6.5 5.5,9 10,4" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
-                    {inDepGroup && !isBarSelected && (() => { const _panelId2 = bar.task?.level === 2 ? bar.task.pid : bar.task?.level === 1 ? bar.task.id : null; const _dm = _panelId2 ? tasks.flatMap(j => j.subs||[]).find(p => p.id === _panelId2)?.depsMode : undefined; const _locked = _dm === "locked"; return <Tip label={_locked ? "Locked — moves as a block with its group" : "Linked — moves with its dependency group"}><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.7, lineHeight: 0 }}>{_locked ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>}</span></Tip>; })()}
-                    {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, opacity: 0.9, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
-                    {/* HELD/LUNCH contrast the GREY ground, not the bar colour. A badge only renders when
-                        someone is clocked in, so by the time it exists the bar's left end is hatched
-                        and `accentText(bc)` is contrasting a colour that is no longer under the text.
-                        Deliberately NOT applied to the team-day badge, which looks identical but whose
-                        bar never goes through activeBarFill, nor to the DONE badge, which passes the
-                        literal "held" to reach liveBarTextColor's spent branch and IS on spent grey. */}
-                    {!isPto && !_hideBarLabel && (_barState === "held" || _barState === "paused") && <span style={{ flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", opacity: 0.85, color: barLabelColor(T, bc) }}>{LIVE_BADGE_LABEL[_barState]}</span>}
-                    {!isPto && !_hideBarLabel && bar.task?.status === "Finished" && <span style={{ flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", opacity: 0.85, color: liveBarTextColor(T, bc, "held") }}>DONE</span>}
-                    <span style={{ display: (_hideBarLabel || _labelSeg !== 0) ? "none" : undefined, fontSize: 11, color: _titleColor, textShadow: _titleHalo, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>{isPto ? (<><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={accentText(bc)} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginRight: 5, verticalAlign: "-1.5px" }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>{bar.ptoType}{bar.title && bar.title !== bar.ptoType ? ` · ${bar.title}` : ""}</>) : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
-                    {!isPto && !_hideBarLabel && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: accentText(bc) === "#ffffff" ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.7)', fontFamily: T.mono, position: "relative", zIndex: 5 }} title={Math.round(_barHpd * 10) / 10 + "h left  ·  " + Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10 + "h estimated" + (_barWS && _barWS.workedHoursShown > 0 ? "  ·  " + _barWS.workedHoursShown.toFixed(1) + "h logged" : "")}>{Math.round(_barHpd * 10) / 10}h</span>}
+                    {!_isNarrowBar && can("moveJobs") && !barLocked && !_dragBlocked && !(ws && ws.workedHpd > 0) && <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "left"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: _leftMarkInk, opacity: 0, transition: "opacity 0.15s" }} /></div>}
+                    {!_isNarrowBar && barSegs.length === 1 && _endsInView && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: _handleW, cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: _rightMarkInk, opacity: 0, transition: "opacity 0.15s" }} /></div>}
+                    {isBarSelected && <span style={{ marginRight: 5, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0, opacity: 0.95 }}><svg width="13" height="13" viewBox="0 0 13 13"><polyline points="3,6.5 5.5,9 10,4" stroke={_leftMarkInk} strokeWidth="2.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg></span>}
+                    {inDepGroup && !isBarSelected && (() => { const _panelId2 = bar.task?.level === 2 ? bar.task.pid : bar.task?.level === 1 ? bar.task.id : null; const _dm = _panelId2 ? tasks.flatMap(j => j.subs||[]).find(p => p.id === _panelId2)?.depsMode : undefined; const _locked = _dm === "locked"; return <Tip label={_locked ? "Locked — moves as a block with its group" : "Linked — moves with its dependency group"}><span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0 }}>{_locked ? <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg> : <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>}</span></Tip>; })()}
+                    {barLocked && <span style={{ marginRight: 4, flexShrink: 0, position: "relative", zIndex: 3, lineHeight: 0 }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={iconColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>}
+                    {/* Every badge and icon here is flush left, so they all take _leftMarkInk: the
+                        ground at the bar's left end, which is hatch or idle once the cursor has
+                        entered it and the op colour before that. No per-badge special case is left.
+                        The DONE badge used to reach the spent fill by passing a literal "held" to a
+                        state-keyed helper, which worked only because DONE was the one state whose
+                        ground was known in advance; now every state's ground is. */}
+                    {!isPto && !_hideBarLabel && (_barState === "held" || _barState === "paused") && <span style={{ flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", color: _leftMarkInk }}>{LIVE_BADGE_LABEL[_barState]}</span>}
+                    {!isPto && !_hideBarLabel && bar.task?.status === "Finished" && <span style={{ flexShrink: 0, marginRight: 6, fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", color: _leftMarkInk }}>DONE</span>}
+                    <span style={{ display: (_hideBarLabel || _labelSeg !== 0) ? "none" : undefined, fontSize: 11, color: _titleColor, textShadow: _titleHalo, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>{isPto ? (<><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={_titleColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, marginRight: 5, verticalAlign: "-1.5px" }}><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>{bar.ptoType}{bar.title && bar.title !== bar.ptoType ? ` · ${bar.title}` : ""}</>) : bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}</span>
+                    {!isPto && !_hideBarLabel && bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginLeft: 6, fontSize: 10, fontWeight: 700, color: _rightMarkInk, fontFamily: T.mono, position: "relative", zIndex: 5 }} title={Math.round(_barHpd * 10) / 10 + "h left  ·  " + Math.round((bar.task.hpd / Math.max(1, (bar.task.team || []).length)) * 10) / 10 + "h estimated" + (_barWS && _barWS.workedHoursShown > 0 ? "  ·  " + _barWS.workedHoursShown.toFixed(1) + "h logged" : "")}>{Math.round(_barHpd * 10) / 10}h</span>}
                   </div>,
                   /* "New job" dot — a sibling of the bar (not a child, which the bar's overflow:hidden
                      would clip). Tucked just inside the bar's top-right corner so it stays fully
@@ -18797,18 +18585,24 @@ ${jobsCtx || "No jobs found."}`;
                     // Same axis, against this segment's own left and width.
                     const _tailXNum = (diffD(tStart, seg.start) / nDays) * 100;
                     const _segCursorPct = _tailWNum > 0 ? ((_nowGridPct - _tailXNum) / _tailWNum) * 100 : 0;
+                    // The tail's OWN grounds, for the same reason it has its own spans and cursor:
+                    // a continuation can be wholly past the cursor while the head straddles it, so
+                    // borrowing the head's ink would be the head's answer to a different question.
+                    const _tailGroundArgs = { state: isPto2 ? "pto" : _barState, spans: _segSpans, cursorPct: _segCursorPct, renderPx: _tailPx, rowColor: _schedSurf };
+                    const _tailTitle = barTextStyle(barGrounds(T, bc2, { ..._tailGroundArgs, side: "label" }));
+                    const _tailHoursInk = barInk(barGrounds(T, bc2, { ..._tailGroundArgs, side: "right" }));
                     return <div key={bar.id + "_t" + si + "_" + seg.start}
                       onMouseDown={e => { if (e.button === 0) { e.stopPropagation(); isDraggingRef.current = true; if (barSelectMode && !isPto2) { if (selBars.has(bar.id)) { if (!_dragBlocked) handleTeamDrag(e); } else { setSelBars(prev => { const n = new Set(prev); n.add(bar.id); return n; }); } return; } if (!_dragBlocked) handleTeamDrag(e); } }}
                       onContextMenu={e => { if (isPto2 && can("manageTeam")) { e.preventDefault(); setPtoCtx({ x: e.clientX, y: e.clientY, bar, personId: bar.personId, toIdx: bar.toIdx }); } else if (!isPto2 && bar.task) handleCtx(e, bar.task, "team"); }}
-                      style={{ position: "absolute", top: 4, left: tailX, width: tailW, minWidth: isPto2 ? 0 : 2, height: rH - 8, boxSizing: "border-box", borderRadius: isPto2 ? T.radiusXs : Math.min(T.radiusXs, _tailPx / 2), background: activeBarFill(T, bc2, _segSpans, _segCursorPct, isPto2 ? "pto" : _barState, _tailPx), border: isBarSelected ? `2px solid #fff` : isPto2 ? `1.5px solid ${bc2}` : _tailPx < 8 ? "none" : `${_tailPx < 16 ? 1 : 2}px dashed ${bc2}cc`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : _dragBlocked ? "not-allowed" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", display: "flex", alignItems: "center", opacity: barOpacity, transition: "opacity 0.2s" }}
+                      style={{ position: "absolute", top: 4, left: tailX, width: tailW, minWidth: isPto2 ? 0 : 2, height: rH - 8, boxSizing: "border-box", borderRadius: isPto2 ? T.radiusXs : Math.min(T.radiusXs, _tailPx / 2), background: activeBarFill(T, bc2, _segSpans, _segCursorPct, isPto2 ? "pto" : _barState, _tailPx, _schedSurf), border: isBarSelected ? `2px solid ${_edgeInk}` : isPto2 ? `1.5px solid ${bc2}` : _tailPx < 8 ? "none" : `${_tailPx < 16 ? 1 : 2}px dashed ${(_barState === "done" ? mixHex(bc2, _schedSurf, 0.3) : bc2)}cc`, boxShadow: isBarSelected ? `0 0 0 2px ${bc2}88, 0 0 14px ${bc2}55` : undefined, cursor: barSelectMode && !isPto2 ? "pointer" : _dragBlocked ? "not-allowed" : "grab", zIndex: isPto2 ? 3 : 4, overflow: "hidden", display: "flex", alignItems: "center", opacity: barOpacity, transition: "opacity 0.2s" }}
                       onMouseEnter={e => { if (isDraggingRef.current) return; e.currentTarget.style.filter = "brightness(1.15)"; setHoveredBarPid(bar.task?.pid ?? null); }} onMouseLeave={e => { e.currentTarget.style.filter = "none"; setHoveredBarPid(null); }}>
                       {_labelSeg === si + 1 && _tailPx >= 44 && !isPto2 && <>
-                        <span style={{ fontSize: 11, color: _titleColor, textShadow: _titleHalo, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>
+                        <span style={{ fontSize: 11, color: _tailTitle.color, textShadow: _tailTitle.textShadow, fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", position: "relative", zIndex: 5, flex: 1, paddingLeft: 12, paddingRight: 8 }}>
                           {bar.task?.level === 2 ? `${bar.task.panelTitle ? bar.task.panelTitle + "  ·  " : ""}${bar.task.title}` : (bar.task?.title || bar.title)}
                         </span>
-                        {bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginRight: 12, fontSize: 10, fontWeight: 700, color: accentText(bc2) === "#ffffff" ? "rgba(255,255,255,0.85)" : "rgba(0,0,0,0.7)", fontFamily: T.mono, position: "relative", zIndex: 5 }}>{Math.round(_barHpd * 10) / 10}h</span>}
+                        {bar.task?.hpd > 0 && <span style={{ flexShrink: 0, marginRight: 12, fontSize: 10, fontWeight: 700, color: _tailHoursInk, fontFamily: T.mono, position: "relative", zIndex: 5 }}>{Math.round(_barHpd * 10) / 10}h</span>}
                       </>}
-                      {isLastSeg && _tailPx >= 12 && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: Math.max(3, Math.min(10, _tailPx / 3)), cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: "rgba(255,255,255,0.7)", opacity: 0, transition: "opacity 0.15s", boxShadow: "0 0 4px rgba(0,0,0,0.3)" }} /></div>}
+                      {isLastSeg && _tailPx >= 12 && can("moveJobs") && !barLocked && !_dragBlocked && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: Math.max(3, Math.min(10, _tailPx / 3)), cursor: "ew-resize", zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center" }} onMouseDown={e => { e.stopPropagation(); handleTeamResize(e, "right"); }} onMouseEnter={e => e.currentTarget.querySelector('.grip').style.opacity=1} onMouseLeave={e => e.currentTarget.querySelector('.grip').style.opacity=0}><div className="grip" style={{ width: 3, height: 14, borderRadius: 8, background: _tailHoursInk, opacity: 0, transition: "opacity 0.15s" }} /></div>}
                     </div>;
                   })];
                 })}
@@ -18903,7 +18697,7 @@ ${jobsCtx || "No jobs found."}`;
         const endTimeStr = `${eH12}:${String(eM).padStart(2, "0")} ${eAmpm}`;
         label = `${startLabel}  ·  ${timeStr}  →  ${endLabel}  ·  ${endTimeStr}`;
       }
-      return <div style={{ position: "fixed", left: teamDragInfo.cursorX + 16, top: teamDragInfo.cursorY - 36, background: "rgba(10,10,20,0.92)", color: "#fff", fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 12, pointerEvents: "none", zIndex: 9999, whiteSpace: "nowrap", boxShadow: "0 4px 20px rgba(0,0,0,0.5)", border: `1px solid ${T.accent}66`, backdropFilter: "blur(4px)" }}>{label}</div>;
+      return <div style={{ position: "fixed", left: teamDragInfo.cursorX + 16, top: teamDragInfo.cursorY - 36, background: "rgba(10,10,20,0.92)", color: barInk(["#0a0a14"]), fontSize: 12, fontWeight: 700, padding: "5px 12px", borderRadius: 12, pointerEvents: "none", zIndex: 9999, whiteSpace: "nowrap", boxShadow: "0 4px 20px rgba(0,0,0,0.5)", border: `1px solid ${T.accent}66`, backdropFilter: "blur(4px)" }}>{label}</div>;
     })()}
     </div>;
   };
@@ -28735,7 +28529,7 @@ ${jobsCtx || "No jobs found."}`;
     const pCellShade = (i, n) => blendHex(pT.accent, n <= 1 ? 0 : 0.34 - (i / (n - 1)) * 0.6);
     const pPriColor = i => pCellMode === "adaptive" ? pCellShade(i % 3, 3) : PRI_PAL[i % PRI_PAL.length];
     const pGridOn = pT.scheduleGrid !== false;
-    const pGridLine = blendHex(pT.surfaceSolid || pT.surface, hexLum(pT.surfaceSolid || pT.surface) < 0.5 ? 0.15 : -0.15);
+    const pGridLine = blendHex(pT.surfaceSolid || pT.surface, wantsLightText(pT.surfaceSolid || pT.surface) ? 0.15 : -0.15);
     const pClientColor = i => pCellMode === "adaptive" ? pCellShade(i % 4, 4) : CLIENT_PAL[i % CLIENT_PAL.length];
     const swatch = (key, label, sub) => (
       <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -29971,7 +29765,7 @@ ${jobsCtx || "No jobs found."}`;
       const pPriColor = i => pCellMode === "adaptive" ? pCellShade(i % 3, 3) : PRI_PAL[i % PRI_PAL.length];
       // Schedule grid preview (on/off + contrasting line color).
       const pGridOn = pT.scheduleGrid !== false;
-      const pGridLine = blendHex(pT.surfaceSolid || pT.surface, hexLum(pT.surfaceSolid || pT.surface) < 0.5 ? 0.15 : -0.15);
+      const pGridLine = blendHex(pT.surfaceSolid || pT.surface, wantsLightText(pT.surfaceSolid || pT.surface) ? 0.15 : -0.15);
       const pClientColor = i => pCellMode === "adaptive" ? pCellShade(i % 4, 4) : CLIENT_PAL[i % CLIENT_PAL.length];
       const swatch = (key, label, sub) => (
         <div key={key} style={{ display: "flex", alignItems: "center", gap: 12 }}>
