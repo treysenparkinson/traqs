@@ -811,6 +811,35 @@ Everything else was read at the cited line. Nothing was run against live data.
 
 ---
 
+## LESSONS
+
+1. A test that passes on a path nothing executes is worse than no test. No test is a known
+   gap; a green assertion over dead code is a gap that reports itself as covered, and it is
+   found only by accident. Three of these turned up in a single day:
+
+   - `web-gates-test`'s multi-line patterns could not match a CRLF working copy, so four
+     `not:` clauses could never fire. Four permission gates read green while asserting
+     nothing (#314).
+   - Two assertions read a permission gate inside `reassignTask`, which had no callers. The
+     gate they should have been watching — the week/month drag onto another row, added
+     specifically to close a hole where "the reassign toggle gated nothing" — had no
+     coverage at all until root cause 9 chunk 2.
+   - `resize-test` passed `showLockedError` into a fixture for a parameter `resizeSession`
+     does not read, for a function the app never called.
+
+   The common shape is that all three looked like coverage in the file and in the pass
+   count. What distinguishes a real assertion is that it can be made to FAIL: prove it by
+   mutating the source and watching it go red, the way the reassign gates and the CRLF fix
+   were proven. An assertion that has only ever been green has not been tested either.
+
+2. A by-name search is only as good as its list of names. #137 reported copy/paste as gone
+   because four chosen names had disappeared, while `copyItem` and `doPaste` sat in the file
+   under names nobody had thought to search. A reachability fixpoint does not need the list.
+
+3. A sweep that finds nothing is the moment to check the sweep, not to conclude the code is
+   clean. The first unreachability pass returned zero because a setter's own declaration was
+   being counted as an escaping reference, which silently disqualified every `useState` in
+   the codebase — including the one case already known to be true.
 ## DEFECT LIST
 
 1. The server enforces no schedule rule (overlap, lock, department, business days, past, active clock); `fn/tasks.js` checks permissions only.
@@ -949,7 +978,7 @@ Everything else was read at the cited line. Nothing was run against live data.
 134. `cascadeDeps` has no callers (J:10717). DELETED (root cause 9).
 135. The Reschedule-op modal is never opened (J:34741–34838). WIRED (root cause 9): a "Reschedule operation…" item on the bar context menu, gated on moveJobs, opening the modal with the op and its panel. It is the only way to move a bar that is off-screen. The auto-slot button went with computeJobOptimize (#279); the modal keeps typed dates, the shared checks and the commit.
 136. The Reschedule-op modal commits before confirm, so Cancel wouldn't revert (J:34829). RESOLVED by root cause 7 D, which rewrote the modal to refuse through refuseLanding before committing on Apply — in a modal nothing could open. Root cause 9 gave it the door (#135).
-137. Copy/paste is unreachable (J:11323, 11338, 12944, 17007). RESOLVED: the symbols no longer exist; copy/paste was removed before root cause 9 reached it.
+137. Copy/paste is unreachable (J:11323, 11338, 12944, 17007). PARTLY RESOLVED, and the earlier note on this line was wrong. It read "the symbols no longer exist", which was true only of the names I happened to search for — `copiedTask`, `pasteTask`, `handleCopy`, `handlePaste`. The HANDLERS survived under other names: `copyItem` (13 lines) and `doPaste` (23 lines) are still in the file, orphaned, and were found by the chunk 2 reachability fixpoint rather than by the name search that produced the original claim. A by-name search is only as good as the list of names, which is the argument for the fixpoint. The clipboard STATE is genuinely gone; the two handlers go with the chunk 2 deletions.
 138. `clampUnlocked`'s only call site is unreachable (J:18217). RESOLVED: clampUnlocked no longer exists.
 139. `runOptimize`, `previewPullBack` and `linkingFrom` are dead (J:10345, 10249). DELETED (root cause 9): runOptimize 63 lines, previewPullBack 40, the linkingFrom state and its Escape clear.
 140. `liveBarStyle`, `drainMaskStyle` and `LIVE_BAR_LABEL_MIN_PX` are dead (J:2690–2743). DELETED (root cause 9): 59 lines including the comments.
@@ -1132,3 +1161,4 @@ Everything else was read at the cited line. Nothing was run against live data.
 317. Job status is stored with inconsistent casing: Matrix carries both `Finished` and `finished` on drawn bars, so any === comparison on job status silently splits one status into two. Found while censusing bar states for root cause 8 chunk B (8 distinct job statuses across 195 drawn bars). Not fixed.
 318. Hover sibling-dimming keys on `task.pid`, which is the PARENT id, so it means a different thing at each level: an op bar keys on its panel, a panel bar on its job. Hovering an op therefore highlights its sibling ops but never its own panel, and two ops of the same job in different panels never highlight together. The right key is the JOB id (the thing a person thinks of as "this job") for every level, which for an op is `task.grandPid`, for a panel `task.pid`, and for a general sub `task.pid`. Since root cause 8 chunk B this is one attribute -- `data-pid` on the bar and `data-row-pids` on the row label -- rather than render logic. Not fixed.
 319. The Jobs page has three sub-views and two of them cannot be reached. `taskSubView` is `useState("list")` and the only setter call in the file is `setTaskSubView("list")`, so neither `taskSubView === "cards"` (234 lines) nor `taskSubView === "gantt"` (#132) can ever render. The gantt went in root cause 9; the cards sub-view is held deliberately, pending a look at what it was meant to be — it is a different feature, not a duplicate of something live. Not fixed, not deleted.
+320. Sorting the Jobs list and the gantt by project or by client is unreachable, but the PREFERENCE that selects it is still persisted. `jobSort` (J:5016) and `gSort` (J:5214) are `usePersistedUI` values with no setter call anywhere in the file — the controls that set them are gone, while the two sort arms each reads (J:12022-12023 and J:15289-15290) remain. For a new account the arms can never run; for anyone whose browser still holds `tq_ui_<org>_jobSort` = "project" from an older build they run today, which is why this is not safe to treat as dead code. Both were already orphaned before root cause 9 — each had exactly one occurrence before and after that commit. The fix is to restore the controls, not to cut the arms: deleting would confirm the loss for the people who used it most, and would leave the stored key behind. Found by the chunk 1 unreachability sweep (root cause 9). Not fixed.

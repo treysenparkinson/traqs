@@ -55,7 +55,20 @@ console.log("\n1. Task writes — guards inside the function that writes");
 // "Day-view drag toasts when refused" below, which still runs.
 check("Drop in Schedule needs moveJobs and reassign", body("const placeTaskAt = (personId, dayStr)"), { has: ['"moveJobs"', '"reassign"', 'can('] });
 check("Pending tray drop needs editJobs, moveJobs and reassign", body("const handlePendingItemDrop = (itemId"), { has: ['"editJobs"', '"moveJobs"', '"reassign"', 'can('] });
-check("Reassigning (any bar drag onto another row) needs reassign", body("const reassignTask = (taskId"), { has: ['if (!can("reassign")) return'] });
+// THE TWO GATES THAT ACTUALLY RUN. The check below reads `reassignTask`, which has no
+// callers — so it has been passing while proving nothing about whether reassignment is
+// gated. These two are the paths a person actually takes: dragging a bar onto someone
+// else's row in week/month, and dropping an Overdue-tray item onto another row. Neither
+// was covered. (Three other reassign gates already are: placeTaskAt and
+// handlePendingItemDrop above, and the Project Plan Assign button below.)
+check("Week/month drag onto another row needs reassign",
+  SRC.slice(SRC.indexOf("Split the drag permission at the drop, not at the grab"),
+            SRC.indexOf("Split the drag permission at the drop, not at the grab") + 900),
+  { has: ['if (isReassign && !can("reassign")) {'] });
+check("Overdue-tray drop onto another row needs reassign", body("const handleOverdueDrop = (nodeId"),
+  { has: ['!sameId(fromPid, toPid) && !can("reassign")'] });
+// (the reassignTask gate check is gone with the function: it read a body with no callers,
+//  so it passed while proving nothing. The two checks above cover the paths that run.)
 check("Inline cell edits ask for the key of the field", body("const commitCellEdit = (id, key, val, pid)"), { has: ['if (!can(need)) return', '"moveJobs"', '"reassign"'] });
 check("Edit Job save asks the shared classifier what the edit needs", body("const saveTask = (ed, parentId)"), { has: ["classifyTaskActions("] });
 check("Engineering sign-off needs admin or engineer (as the server)", body("const signOffEngineering = (jobId"), { has: ["if (!canEngineer) return"], not: ["if (!canApprove) return;"] });
@@ -103,7 +116,8 @@ check("Jobs List inline cell edit toasts when refused", body("const commitCellEd
 check("Drop in Schedule toasts when refused", body("const placeTaskAt = (personId, dayStr)"), { has: ["return denied(PERM_VERB[", 'const lacking = ["moveJobs", "reassign"].find(k => !can(k));'] });
 check("Pending-tray drop toasts when refused", body("const handlePendingItemDrop = (itemId"), { has: ["return denied(PERM_VERB[", 'const lacking = ["editJobs", "moveJobs", "reassign"].find(k => !can(k));'] });
 // (the Gantt day-bar refusal toast retired with renderGantt — root cause 9, #132.)
-check("Reassign toasts when refused", body("const reassignTask = (taskId"), { has: ['if (!can("reassign")) return denied(PERM_VERB.reassign);'] });
+// (the reassignTask toast check is gone with the function: it read a body with no callers,
+//  so it passed while proving nothing. The two checks above cover the paths that run.)
 check("Engineering sign-off / revert toast when refused", body("const signOffEngineering = (jobId") + body("const revertEngineering = (jobId"), { has: ['if (!canEngineer) return denied("sign off engineering steps");'] });
 check("Chat Approve toasts when refused", body("const adminApproveJobFinish = async (jobId"), { has: ['denied("approve completions")'] });
 check("Chat Decline toasts when refused", body("const adminDeclineJobFinish = async (jobId"), { has: ['denied("decline completions")'] });

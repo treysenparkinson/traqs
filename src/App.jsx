@@ -151,18 +151,6 @@ const CARD_FOOTER = {
   color: "#64748b",
 };
 
-const INPUT_STYLE = {
-  width: "100%",
-  padding: "12px 14px",
-  background: "#ffffff",
-  border: "1px solid #cbd5e1",
-  borderRadius: 10,
-  color: "#0f172a",
-  fontSize: 14,
-  fontFamily: "inherit",
-  boxSizing: "border-box",
-  outline: "none",
-};
 
 const BTN = {
   width: "100%",
@@ -194,15 +182,6 @@ const LINK_BTN = {
   textDecoration: "underline",
 };
 
-const LABEL = {
-  display: "block",
-  fontSize: 12,
-  fontWeight: 600,
-  color: "#94a3b8",
-  marginBottom: 6,
-  letterSpacing: "0.04em",
-  textTransform: "uppercase",
-};
 
 const ERR_BOX = {
   background: "rgba(239,68,68,0.1)",
@@ -214,21 +193,7 @@ const ERR_BOX = {
   marginBottom: 16,
 };
 
-const SUCCESS_BOX = {
-  background: "rgba(16,185,129,0.1)",
-  border: "1px solid rgba(16,185,129,0.3)",
-  borderRadius: 8,
-  padding: "10px 14px",
-  color: "#6ee7b7",
-  fontSize: 13,
-  marginBottom: 16,
-};
 
-const HINT = {
-  fontSize: 12,
-  color: "#64748b",
-  marginTop: 6,
-};
 
 // ─── Paper styles ─────────────────────────────────────────────────────────────
 // The redesign's card/input/button, shared by every step that has been moved
@@ -1090,42 +1055,6 @@ function CreateOrgStep({ onSuccess, onBack, phase: screenPhase = "in" }) {
 
 
 // ─── Login step ───────────────────────────────────────────────────────────────
-function LoginStep({ orgCode, orgConfig, onSwitch, loginWithRedirect }) {
-  return (
-    <div style={PAGE}>
-      <div style={CARD}>
-        <LogoHeader />
-        <div style={CARD_BODY}>
-          <div style={{ textAlign: "center", marginBottom: 24 }}>
-            <div style={{
-              display: "inline-flex", alignItems: "center", gap: 8,
-              padding: "6px 16px", background: "rgba(65,105,225,0.12)",
-              borderRadius: 20, marginBottom: 10,
-              border: "1px solid rgba(65,105,225,0.22)",
-            }}>
-              <div style={{ width: 8, height: 8, borderRadius: 4, background: "#10b981", boxShadow: "0 0 6px #10b98155" }} />
-              <span style={{ fontSize: 13, fontWeight: 600, color: "#4169e1" }}>{orgConfig.name}</span>
-            </div>
-            <div style={{ fontSize: 13, color: "#64748b" }}>@{orgConfig.domain} accounts only</div>
-            <div style={{ fontSize: 14, color: "#94a3b8", marginTop: 6 }}>Sign in to access your schedule</div>
-          </div>
-          <BtnPrimary
-            type="button"
-            onClick={() => loginWithRedirect(orgConfig.connection
-              ? { authorizationParams: { connection: orgConfig.connection } }
-              : undefined)}
-          >
-            Sign in with Microsoft
-          </BtnPrimary>
-          <div style={{ textAlign: "center", marginTop: 16 }}>
-            <button className="tq-noanim" style={LINK_BTN} onClick={onSwitch}>Switch organization</button>
-          </div>
-        </div>
-        <div style={CARD_FOOTER}>Org code: {orgCode} · Secured by Auth0</div>
-      </div>
-    </div>
-  );
-}
 
 // ─── Domain mismatch error ────────────────────────────────────────────────────
 function DomainError({ userEmail, orgDomain, onLogout }) {

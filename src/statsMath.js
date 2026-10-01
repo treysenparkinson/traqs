@@ -993,7 +993,6 @@ export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
 // Hour precision throughout. Comparing dates alone counts 08:00-12:00 and 13:00-16:00 on one
 // day as a clash, which it is not, and the real data has plenty of both shapes.
 
-const HOUR_MS = 3600000;
 /** Wall-clock hour h of day ds in shop time. The schedule's own hourTs is this function. */
 export function dayHourMs(ds, h, timeZone) {
   return shopMs(ds, h || 0, timeZone);

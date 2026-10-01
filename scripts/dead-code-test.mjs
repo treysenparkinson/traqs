@@ -49,6 +49,22 @@ const GONE = [
   // the gantt's own state, which only it used
   ["#132", "ganttContainerRef"], ["#132", "ganttWidth"], ["#132", "setGanttWidth"],
 ];
+// Chunk 2: the orphans — a fixpoint, so a helper whose only caller was itself an orphan
+// counts too. Asserted per (file, name) and with comments stripped, which the first draft of
+// this check got wrong twice: a bare repo-wide name match flagged INPUT_STYLE and LABEL,
+// which are live in SignupSteps.jsx under the same names, and counted six stale COMMENTS as
+// live references. A name is only meaningful inside the file it was deleted from.
+const stripComments = (t) => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+const ORPHANS = [["src/App.jsx","INPUT_STYLE"],["src/App.jsx","LABEL"],["src/App.jsx","SUCCESS_BOX"],["src/App.jsx","HINT"],["src/App.jsx","LoginStep"],["src/statsMath.js","HOUR_MS"],["src/TRAQS.jsx","countWorkingDays"],["src/TRAQS.jsx","OP_COLORS"],["src/TRAQS.jsx","HEALTH_COLOR"],["src/TRAQS.jsx","ApprovalCommentInput"],["src/TRAQS.jsx","handleLogin"],["src/TRAQS.jsx","filterRef"],["src/TRAQS.jsx","breakH"],["src/TRAQS.jsx","sDiffBD"],["src/TRAQS.jsx","getNextStartSlot"],["src/TRAQS.jsx","getPayPeriodAtOffset"],["src/TRAQS.jsx","_hoursPairForItem"],["src/TRAQS.jsx","startEngColResize"],["src/TRAQS.jsx","workedSpansStored"],["src/TRAQS.jsx","handleToggleGanttSplit"],["src/TRAQS.jsx","taskOwner"],["src/TRAQS.jsx","checkOverlaps"],["src/TRAQS.jsx","showLockedError"],["src/TRAQS.jsx","buildGroupMove"],["src/TRAQS.jsx","findOpAsBarTask"],["src/TRAQS.jsx","toggleLock"],["src/TRAQS.jsx","findNextSlot"],["src/TRAQS.jsx","reassignTask"],["src/TRAQS.jsx","openDeps"],["src/TRAQS.jsx","openAvail"],["src/TRAQS.jsx","ctxDeps"],["src/TRAQS.jsx","ctxBlocks"],["src/TRAQS.jsx","copyItem"],["src/TRAQS.jsx","doPaste"],["src/TRAQS.jsx","participantIds"],["src/TRAQS.jsx","revertChainStep"],["src/TRAQS.jsx","addPanelComment"],["src/TRAQS.jsx","delPanelComment"],["src/TRAQS.jsx","isEngComplete"],["src/TRAQS.jsx","isSignOffComplete"],["src/TRAQS.jsx","handleGanttPan"],["src/TRAQS.jsx","handleGanttWheel"],["src/TRAQS.jsx","_workedPctOfSeg"],["src/TRAQS.jsx","jobTitleById"],["src/TRAQS.jsx","pmColor"],["src/TRAQS.jsx","renderBlankPage"],["src/TRAQS.jsx","dayOfWeek"],["src/TRAQS.jsx","openBreak"],["src/TRAQS.jsx","pTasks"],["src/TRAQS.jsx","isPinned"],["src/TRAQS.jsx","addPanels"],["src/TRAQS.jsx","isPersonBusy"],["src/TRAQS.jsx","checkDeps"],["src/TRAQS.jsx","_clientName"],["src/TRAQS.jsx","secTitle"],["src/TRAQS.jsx","mainSec"],["src/TRAQS.jsx","shopPeople"],["src/TRAQS.jsx","exportRows"],["src/TRAQS.jsx","downloadFile"],["src/TRAQS.jsx","selBlock"],["src/TRAQS.jsx","hasOpts"],["src/TRAQS.jsx","rescheduleJob"],["src/TRAQS.jsx","movePanel"],["src/TRAQS.jsx","moveOp"],["src/TRAQS.jsx","getCurrentPayPeriod"],["src/TRAQS.jsx","ganttRef"],["src/TRAQS.jsx","ganttCWRef"],["src/TRAQS.jsx","ganttWheelAcc"],["src/TRAQS.jsx","rLabel"],["src/TRAQS.jsx","_newComment"]];
+for (const [file, sym] of ORPHANS) {
+  const code = stripComments(readFileSync(new URL(file, ROOT), "utf8"));
+  // A property KEY or a member access is not a reference to the deleted binding. App.jsx
+  // still exports `{ INPUT_STYLE: PAPER_INPUT, LABEL: PAPER_LABEL }` and TRAQS.jsx still
+  // writes `participantIds:` into message objects — all of which outlived the local consts
+  // that happened to share their names. Counting those would block a correct deletion.
+  const n = (code.match(new RegExp(`(^|[^.\\w])${sym}\\b(?!\\s*:)`, "gm")) || []).length;
+  ok(`#rc9c2 ${sym} is gone from ${file}${n ? ` — ${n} reference${n === 1 ? "" : "s"} left` : ""}`, n === 0);
+}
 for (const [id, sym] of GONE) {
   const hits = [];
   for (const f of FILES) {

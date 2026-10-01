@@ -264,7 +264,7 @@ const toOptObjs = names => (names || []).map((o, i) => (o && typeof o === "objec
 // diagonal stripes running through it: the stripes were the bar's own overlay showing past
 // the text. The shrinking left edge now carries that information, so the overlay was saying
 // the same thing twice.
-// True when an op is locked. The MANUAL toggle only (see toggleLock / the padlock
+// True when an op is locked. The MANUAL toggle only (see the padlock
 // in the op modal).
 //
 // This used to also lock any op whose loggedHours had reached its hpd, which made
@@ -630,7 +630,6 @@ const getWorkingDayDuration = (startDate, endDate, workDays) => calOf(workDays).
 const spansOffDay = (startDate, endDate, { workDays, holidays } = {}) => calOf(workDays, holidays).spansOffDay(startDate, endDate);
 // Given a start date and a count of working days, returns the end date after stepping
 // through exactly numDays working days, starting from and including startDate.
-const countWorkingDays = (startDate, numDays, workDays) => calOf(workDays).countForward(startDate, numDays);
 const addBD = (ds, n, opts) => calOf(opts?.workDays, opts?.holidays).add(ds, n);
 const nextBD = (ds, opts) => calOf(opts?.workDays, opts?.holidays).next(ds);
 const diffBD = (a, b, opts) => calOf(opts?.workDays, opts?.holidays).diff(a, b);
@@ -677,8 +676,6 @@ const getHealth = (t, pctDoneOverride = null) => {
   return "ontime";
 };
 const HEALTH_DOT = { ontime: "#10b981", behind: "#f59e0b", critical: "#ef4444", done: "#10b981" };
-const OP_COLORS = { Wire: "#3b82f6", Cut: "#f97316", Layout: "#8b5cf6" };
-const HEALTH_COLOR = { ontime: "#10b981", behind: "#f59e0b", critical: "#ef4444", done: "#10b981" };
 
 // ── Hours-driven progress ramp ───────────────────────────────────────────────
 // Progress is logged ÷ estimated hours and is NOT capped: an op worked past its
@@ -3579,17 +3576,6 @@ function SimpleDrop({ value, options, onChange, placeholder = "Select…", pill 
   </div>;
 }
 // Compact comment input for an approval-queue row. Enter or the arrow button adds the comment.
-function ApprovalCommentInput({ onAdd }) {
-  const [text, setText] = useState("");
-  const submit = () => { const t = text.trim(); if (!t) return; onAdd(t); setText(""); };
-  const has = !!text.trim();
-  return <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-    <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); submit(); } }} placeholder="Add comment…" style={{ flex: 1, minWidth: 0, padding: "5px 9px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.bg})`, color: T.bgText, fontSize: 12, fontFamily: T.font, outline: "none" }} onFocus={e => e.target.style.borderColor = T.accent} onBlur={e => e.target.style.borderColor = T.border} />
-    <button className="tq-noanim" onClick={submit} title="Add comment" style={{ flexShrink: 0, width: 24, height: 24, borderRadius: T.radiusPill, border: "none", background: has ? T.accent : T.border, color: has ? T.accentText : T.textDim, cursor: has ? "pointer" : "default", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
-    </button>
-  </div>;
-}
 // Multi-select grouping picker — Workers / Clients / Columns sections, styled like SearchSelect.
 // `value` is an array of { type, id } tokens; clicking a row toggles it and keeps the popup open.
 function GroupingSelect({ value, onToggle, onClear, workers = [], clientOpts = [], columnOpts = [], compact = false, asIconButton = false, onOpen, btnClass = "", onMyTasks, myTasksOn = false }) {
@@ -4262,7 +4248,6 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
   const [narrowViewport, setNarrowViewport] = useState(window.innerWidth < 1440);
   const [mobileTab, setMobileTab] = useState("mytasks");
   const [loggedInUser, setLoggedInUser] = useState(null);
-  const handleLogin = () => {};
   const handleLogout = () => logout({ logoutParams: { returnTo: window.location.origin } });
   const switchView = (v) => {
     // Jobs/Analytics/Clients are Business-only on Basic. Guarded here too (not
@@ -4649,7 +4634,7 @@ Extraction rules:
         (panel.subs || []).forEach(op => {
           if (op.start && (op.team || []).length > 0 && op.startHour == null) {
             const person = (op.team || [])[0];
-            // Same rollover as getNextStartSlot, but consulting the map as well so
+            // Same rollover the old getNextStartSlot used, but consulting the map as well so
             // ops imported in this batch stack against each other too — they are not
             // in `tasks` yet, so getNextStartHour alone cannot see them. Without the
             // roll, a person whose day is already full seeded the op AT end-of-day.
@@ -5016,7 +5001,6 @@ Extraction rules:
   const [jobSort, setJobSort] = usePersistedUI("jobSort", "date"); // "date" | "project" | "client"
   const [colSort, setColSort] = usePersistedUI("colSort", { id: null, dir: "asc" }); // column header sort
   const [filterOpen, setFilterOpen] = useState(false);
-  const filterRef = useRef(null);
   // Schedule page has its OWN filter state — keeps Schedule filtering independent
   // from the Jobs/Gantt filters so changes here never leak between pages.
   const [scheduleFilterOpen, setScheduleFilterOpen] = useState(false);
@@ -5444,7 +5428,6 @@ Extraction rules:
       } catch { return base; }
     },
   };
-  const breakH = (orgSettings.breaks || []).reduce((sum, b) => sum + (b.durationMinutes || 0), 0) / 60;
   const getNextStartHour = (personId, dateStr, excludeOpId) => {
     let latest = workStartH;
     tasks.forEach(job => {
@@ -5665,7 +5648,6 @@ Extraction rules:
   const schedOpts = { workDays: orgSettings.workDays, holidays: orgSettings.holidays };
   const sAddBD  = (ds, n) => addBD(ds, n, schedOpts);
   const sNextBD = ds      => nextBD(ds, schedOpts);
-  const sDiffBD = (a, b)  => diffBD(a, b, schedOpts);
   // Where a new op should actually land for `personId` when seeded from `dateStr`:
   // the first working day that still has room, and the hour it frees up.
   // getNextStartHour on its own reports where the person's booked work ends and
@@ -5675,16 +5657,6 @@ Extraction rules:
   // hour is never capped in place, since two ops sharing an hour would overlap.
   // A late-but-real hour is left alone — that op just runs into the next working
   // day, which is the intended split.
-  const getNextStartSlot = (personId, dateStr, excludeOpId) => {
-    let day = sNextBD(dateStr); // also rolls a start that itself landed on a non-working day
-    // Bounded so a pathological workDays/holidays set can't spin forever.
-    for (let hop = 0; hop < 260; hop++) {
-      const h = getNextStartHour(personId, day, excludeOpId);
-      if (h < workEndH) return { start: day, startHour: h };
-      day = sNextBD(addD(day, 1));
-    }
-    return { start: day, startHour: workStartH };
-  };
   // Duration of an operation in working days given org's hrs/day
   // Working days one person needs for a unit: their share over the productive day.
   const opDurBD = op => Math.max(1, Math.ceil(personShareHours(op?.hpd, (op?.team || []).length, productiveHoursPerDay) / productiveHoursPerDay));
@@ -5695,53 +5667,10 @@ Extraction rules:
   const _opHrs = (op) => Math.round((op.hpd || 0) * 10) / 10;
   const _panelHrs = (panel) => Math.round((panel.subs || []).reduce((s, op) => s + _opHrs(op), 0) * 10) / 10;
   const _jobHrs = (job) => Math.round((job.subs || []).reduce((s, p) => s + _panelHrs(p), 0) * 10) / 10;
-  // getCurrentPayPeriod(startDate, periodType, today?)
+  // Pay-period maths (the helpers that read it were removed in root cause 9 chunk 2)
   // periodType: "weekly" | "biweekly" | "semi-monthly" | "monthly"
   // startDate: ISO date string of the first pay period anchor
   // Returns { start, end, periodNumber }
-  const getCurrentPayPeriod = (startDate, periodType, today) => {
-    const _today = today || TD;
-    const toDS = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-    const toMs = s => new Date(s + "T00:00:00").getTime();
-    const anchor = startDate || TD;
-
-    if (periodType === "weekly") {
-      const diffDays = Math.floor((toMs(_today) - toMs(anchor)) / 86400000);
-      const offset = ((diffDays % 7) + 7) % 7;
-      const periodsSince = Math.floor(diffDays / 7);
-      const start = new Date(toMs(_today) - offset * 86400000);
-      const end = new Date(start.getTime() + 6 * 86400000);
-      return { start: toDS(start), end: toDS(end), periodNumber: Math.max(1, periodsSince + 1) };
-    }
-
-    if (periodType === "semi-monthly") {
-      const t = new Date(_today + "T00:00:00");
-      const y = t.getFullYear(), m = t.getMonth(), d = t.getDate();
-      let start, end;
-      if (d <= 15) { start = new Date(y, m, 1); end = new Date(y, m, 15); }
-      else { start = new Date(y, m, 16); end = new Date(y, m + 1, 0); }
-      const aD = new Date(anchor + "T00:00:00");
-      const monthsDiff = (y - aD.getFullYear()) * 12 + (m - aD.getMonth());
-      const halfInMonth = d <= 15 ? 0 : 1;
-      const aHalf = aD.getDate() <= 15 ? 0 : 1;
-      return { start: toDS(start), end: toDS(end), periodNumber: Math.max(1, monthsDiff * 2 + halfInMonth - aHalf + 1) };
-    }
-
-    if (periodType === "monthly") {
-      const t = new Date(_today + "T00:00:00");
-      const y = t.getFullYear(), m = t.getMonth();
-      const aD = new Date(anchor + "T00:00:00");
-      return { start: toDS(new Date(y, m, 1)), end: toDS(new Date(y, m + 1, 0)), periodNumber: Math.max(1, (y - aD.getFullYear()) * 12 + (m - aD.getMonth()) + 1) };
-    }
-
-    // Default: biweekly
-    const diffDays = Math.floor((toMs(_today) - toMs(anchor)) / 86400000);
-    const offset = ((diffDays % 14) + 14) % 14;
-    const periodsSince = Math.floor(diffDays / 14);
-    const start = new Date(toMs(_today) - offset * 86400000);
-    const end = new Date(start.getTime() + 13 * 86400000);
-    return { start: toDS(start), end: toDS(end), periodNumber: Math.max(1, periodsSince + 1) };
-  };
   // getPayPeriodFromDates([d1, d2], today) — semi-monthly by explicit day-of-month pair
   // e.g. [5, 20] → periods are 5th–19th and 20th–4th each month
   const getPayPeriodFromDates = (payDates, today) => {
@@ -5773,16 +5702,6 @@ Extraction rules:
     return period;
   };
 
-  const getPayPeriodAtOffset = (startDate, periodType, today, offset) => {
-    const toDS = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-    let period = getCurrentPayPeriod(startDate, periodType, today);
-    for (let i = 0; i < Math.abs(offset); i++) {
-      const ref = offset < 0 ? new Date(period.start + "T00:00:00") : new Date(period.end + "T00:00:00");
-      ref.setDate(ref.getDate() + (offset < 0 ? -1 : 1));
-      period = getCurrentPayPeriod(startDate, periodType, toDS(ref));
-    }
-    return period;
-  };
   // Re-render tick while at least one worker is clocked into a job, so progress bars and the
   // shrinking left edge of the worked op stay live. RENDER ONLY — this tick writes nothing.
   // No-op when nobody is clocked in.
@@ -6022,12 +5941,6 @@ Extraction rules:
   };
   // Worked/estimated pair for an item at whatever level it sits — the hours counterpart of
   // _pctForItem, and the same shape-sniffing rule.
-  const _hoursPairForItem = (t) => {
-    const kids = t.subs || [];
-    if (kids.some(k => (k.subs || []).length)) return _jobHoursPair(t);
-    if (kids.length) return _panelHoursPair(t);
-    return _opHoursPair(t);
-  };
   const _panelPct = (panel) => {
     if (panel.status === "Finished") return 100;
     const { logged, est } = _panelHoursPair(panel);
@@ -6756,17 +6669,6 @@ Extraction rules:
     document.addEventListener("mousemove", onMove);
     document.addEventListener("mouseup", onUp);
   };
-  const startEngColResize = (e, colIdx) => {
-    e.preventDefault(); e.stopPropagation();
-    const startX = e.clientX;
-    const startW = engColWidths[colIdx];
-    const el = e.currentTarget;
-    if (el && el.setPointerCapture) el.setPointerCapture(e.pointerId);
-    const onMove = ev => setEngColWidths(prev => { const n = [...prev]; n[colIdx] = Math.max(40, startW + ev.clientX - startX); return n; });
-    const onUp = () => { document.removeEventListener("pointermove", onMove); document.removeEventListener("pointerup", onUp); };
-    document.addEventListener("pointermove", onMove);
-    document.addEventListener("pointerup", onUp);
-  };
   const [selJobs, setSelJobs] = useState(new Set());
   const [selClients, setSelClients] = useState(new Set());
   const [selPeople, setSelPeople] = useState(new Set());
@@ -6883,7 +6785,6 @@ Extraction rules:
   // productionHours does, so memoising it here would pin the growing edge at whatever the
   // clock read on first render. The live span is added per bar instead, where Date.now() is
   // already being read for the cursor and the two cannot drift apart.
-  const workedSpansStored = useMemo(() => workedSpansByOp(productionHours), [productionHours]);
   // The same sessions grouped by person, for cross-row work. Memoised together with the
   // op-keyed form because the schedule asks for EVERY row on every render: scanning the whole
   // session log per person is fine once and quadratic here.
@@ -8689,7 +8590,6 @@ Extraction rules:
   const [teamDragInfo, setTeamDragInfo] = useState(null);   // { barId, snapStart, snapEnd, targetPersonId, hasOverlap }
   const [droppedBarId, setDroppedBarId] = useState(null);
   const teamDragLiveRef = useRef(null);
-  const ganttRef = useRef(null);
   const isDraggingRef = useRef(false);
   const [appTooltip, setAppTooltip] = useState(null); // { label, x, y }
   const appTooltipTimer = useRef(null);
@@ -8697,13 +8597,11 @@ Extraction rules:
     show: (label, x, y) => { clearTimeout(appTooltipTimer.current); appTooltipTimer.current = setTimeout(() => setAppTooltip({ label, x, y }), 500); },
     hide: () => { clearTimeout(appTooltipTimer.current); setAppTooltip(null); },
   }), []); // eslint-disable-line
-  const ganttCWRef = useRef(8);
   const teamCWRef = useRef(8);
   const splitContainerRef = useRef(null);
   const splitGanttRef = useRef(null);
   const splitGanttPaneRef = useRef(null);
   const [splitGanttPaneWidth, setSplitGanttPaneWidth] = useState(600);
-  const ganttWheelAcc = useRef(0);
   const teamWheelAcc = useRef(0);
 
   useEffect(() => {
@@ -8732,13 +8630,6 @@ Extraction rules:
     document.addEventListener("mouseup", onUp);
   };
 
-  const handleToggleGanttSplit = () => {
-    if (!showGanttSplit && !gStart) {
-      setGStart(addD(TD, -21));
-      setGEnd(addD(TD, 90));
-    }
-    setShowGanttSplit(v => !v);
-  };
 
   useEffect(() => { const h = () => { setCtxMenu(null); setPtoCtx(null); setSettingsOpen(false); setPrefOpen(false); setFilterOpen(false); setScheduleFilterOpen(false); setSoDropPanelId(null); setColorDropId(null); setDeptDropId(null); setDepsDropId(null); setTaskFilterOpen(false); }; window.addEventListener("click", h); return () => window.removeEventListener("click", h); }, []);
   useEffect(() => { if (!soDropPanelId && !deptDropId && !depsDropId && !colorDropId) return; const h = () => { setSoDropPanelId(null); setDeptDropId(null); setDepsDropId(null); setColorDropId(null); }; document.addEventListener("mousedown", h); return () => document.removeEventListener("mousedown", h); }, [!!soDropPanelId, !!deptDropId, !!depsDropId, !!colorDropId]);
@@ -8747,7 +8638,6 @@ Extraction rules:
 
 
   const allItems = useMemo(() => { let r = []; tasks.forEach(t => { const jc = t.color || "#94a3b8"; r.push({ ...t, color: jc, isSub: false, pid: null, level: 0 }); (t.subs || []).forEach(s => { const pc = s.color || jc; r.push({ ...s, color: pc, isSub: true, pid: t.id, level: 1 }); (s.subs || []).forEach(op => { r.push({ ...op, color: op.color || pc, isSub: true, pid: s.id, grandPid: t.id, level: 2 }); }); }); }); return r; }, [tasks]);
-  const taskOwner = useCallback(t => { const pid = (t.team || [])[0]; const p = people.find(x => x.id === pid); return p ? p.name.split(" ")[0] : null; }, [people]);
   // True when `personId` appears on task's job-level team, or on any nested panel.subs[].op.team.
   const personOnTask = useCallback((personId, t) => {
     const idStr = String(personId);
@@ -9135,7 +9025,6 @@ Extraction rules:
     }
     return conflicts;
   };
-  const checkOverlaps = (opsToCheck) => checkOverlapsPure(tasks, opsToCheck);
 
   // Show overlap error if conflicts found, returns true if blocked
   const showOverlapIfAny = useCallback((conflicts) => {
@@ -9150,10 +9039,6 @@ Extraction rules:
   }, []);
 
   // Show locked error
-  const showLockedError = useCallback((lockedOps) => {
-    const details = lockedOps.map(l => `"${l.opTitle} – ${l.panelTitle}" is locked and cannot be pushed`);
-    setOverlapError({ message: "Locked Job Error", details });
-  }, []);
 
   // Show unlocked-dependency overlap error
   const showDepSiblingError = useCallback((sibling) => {
@@ -9200,31 +9085,6 @@ Extraction rules:
 
   // Apply all bars in a group move simultaneously — handles level 1 (panels) and level 2 (ops) in one pass.
   // moves: [{ id, newStart, newEnd, logEntry }]
-  const buildGroupMove = (taskList, moves) => {
-    const moveMap = new Map(moves.map(m => [m.id, m]));
-    return taskList.map(job => {
-      let jobChanged = false;
-      const newSubs = (job.subs || []).map(panel => {
-        let panelChanged = false; let p = panel;
-        if (moveMap.has(panel.id)) {
-          const mv = moveMap.get(panel.id);
-          p = { ...panel, start: mv.newStart, end: mv.newEnd, moveLog: [...(panel.moveLog || []), mv.logEntry] };
-          panelChanged = true;
-        }
-        const newOps = (p.subs || []).map(op => {
-          if (moveMap.has(op.id)) {
-            panelChanged = true;
-            const mv = moveMap.get(op.id);
-            return { ...op, start: mv.newStart, end: mv.newEnd, moveLog: [...(op.moveLog || []), mv.logEntry] };
-          }
-          return op;
-        });
-        if (panelChanged) { jobChanged = true; return { ...p, subs: newOps }; }
-        return panel;
-      });
-      return jobChanged ? { ...job, subs: newSubs } : job;
-    });
-  };
 
   // Returns a Set of task IDs that are in the same dependency chain as taskId,
   // scoped to siblings under the same parent. Returns Set([taskId]) if independent.
@@ -9564,15 +9424,6 @@ Extraction rules:
   // op appearing in the clocked-in person's own bars list (which is gated by team membership —
   // an admin clocked into an op they aren't personally assigned to would otherwise get no click
   // target and the wrong color, since both come from that per-person bars lookup).
-  const findOpAsBarTask = (taskList, opId) => {
-    for (const job of taskList) {
-      for (const panel of (job.subs || [])) {
-        const op = (panel.subs || []).find(o => String(o.id) === String(opId));
-        if (op) return { ...op, color: elColor(panel.color || "#94a3b8"), isSub: true, pid: panel.id, grandPid: job.id, jobTitle: job.title, panelTitle: panel.title, level: 2 };
-      }
-    }
-    return null;
-  };
   // Hour-aware time range for an op, used only by the clock-in cascade below (not admin drag).
   // Same-day ops resolve to their actual startHour/endHour; multi-day ops span full work days —
   // hour precision only applies within a single day, matching the locked decision that
@@ -9689,33 +9540,7 @@ Extraction rules:
 
 
   // Toggle lock on an operation
-  // toggleLock: dead code, no callers. If lock UI is ever rebuilt, restore lockJobs permission check on caller.
-  const toggleLock = (opId, panelId) => {
-    setTasks(prev => prev.map(job => ({ ...job, subs: (job.subs || []).map(panel => {
-      if (panel.id === panelId) return { ...panel, subs: (panel.subs || []).map(op => op.id === opId ? { ...op, locked: !op.locked } : op) };
-      // Also check nested
-      return { ...panel, subs: (panel.subs || []).map(op => op.id === opId ? { ...op, locked: !op.locked } : op) };
-    }) })));
-  };
   // Find next available slot for an op across all team members' schedules
-  const findNextSlot = (op) => {
-    const duration = Math.max(0, diffBD(op.start, op.end));
-    const teamIds = op.team || [];
-    for (let attempt = 0; attempt < 365; attempt++) {
-      const tryStart = addBD(nextBD(TD), attempt);
-      const tryEnd = addBD(tryStart, duration);
-      const isFree = teamIds.every(pid => {
-        const noConflict = tasks.every(job => (job.subs || []).every(panel => (panel.subs || []).every(o =>
-          o.id === op.id || o.status === "Finished" || !(o.team || []).includes(pid) || o.end < tryStart || o.start > tryEnd
-        )));
-        if (!noConflict) return false;
-        const person = people.find(x => x.id === pid);
-        return !person || (person.timeOff || []).every(to => to.end < tryStart || to.start > tryEnd);
-      });
-      if (isFree) return { newStart: tryStart, newEnd: tryEnd };
-    }
-    return null;
-  };
 
   // Full schedule optimizer: packs each person's ops tightly by priority → due date → start
 
@@ -9997,26 +9822,6 @@ Extraction rules:
     setPendingScheduleItems(prev => prev.filter(i => i.id !== itemId));
   };
 
-  const reassignTask = (taskId, fromPersonId, toPersonId, parentId = null) => {
-    if (fromPersonId === toPersonId) return;
-    if (!can("reassign")) return denied(PERM_VERB.reassign);
-    setTasks(p => p.map(t => {
-      if (parentId) {
-        // Check if parentId is a panel inside this job
-        const panelIdx = (t.subs || []).findIndex(s => s.id === parentId);
-        if (panelIdx >= 0) {
-          const newSubs = [...t.subs];
-          newSubs[panelIdx] = { ...newSubs[panelIdx], subs: (newSubs[panelIdx].subs || []).map(op => op.id === taskId ? { ...op, team: (op.team || []).map(x => sameId(x, fromPersonId) ? toPersonId : x) } : op) };
-          return { ...t, subs: newSubs };
-        }
-        // Check if parentId is this job
-        if (t.id === parentId) return { ...t, subs: (t.subs || []).map(s => s.id === taskId ? { ...s, team: (s.team || []).map(x => sameId(x, fromPersonId) ? toPersonId : x) } : s) };
-        return t;
-      }
-      if (t.id === taskId) return { ...t, team: (t.team || []).map(x => sameId(x, fromPersonId) ? toPersonId : x) };
-      return t;
-    }));
-  };
   const delTask = (id, pid = null) => {
     // Can't delete a job/op while someone is actively clocked into that job — they'd be stranded.
     if (blockedByActiveClock(jobIdOfNode(id))) return;
@@ -10420,8 +10225,6 @@ ${jobsCtx || "No jobs found."}`;
       setTimeout(() => askInputRef.current?.focus(), 50);
     }
   };
-  const openDeps = id => setModal({ type: "deps", data: allItems.find(x => x.id === id), parentId: null });
-  const openAvail = () => setModal({ type: "avail", data: null, parentId: null });
   // Pops ONE level rather than clearing the stack, so this doubles as Back. With a
   // single-entry stack (the common case) popping is identical to closing, which is
   // why every existing caller keeps working untouched.
@@ -10534,7 +10337,7 @@ ${jobsCtx || "No jobs found."}`;
   };
   // Sidebar nav, ordered to match the product mockup. Dashboard, Employees and
   // Reports are placeholders for now — they render an empty page (see
-  // renderBlankPage) so the nav can take its final shape before the pages are
+  // a placeholder page) so the nav can take its final shape before the pages are
   // built out. Approval Queue, Admin and Settings live below the divider in the
   // sidebar itself, not here.
   // The Schedule icon is a calendar tile showing today's day-of-month, so it
@@ -10605,8 +10408,6 @@ ${jobsCtx || "No jobs found."}`;
   // otherwise identical to Business — filtered here rather than left out
   // above, so nothing else that maps over `views` needs its own tier check.
   ].filter(v => billingTier === "business" || !["tasks", "analytics", "clients"].includes(v.id));
-  const ctxDeps = ctxMenu ? (ctxMenu.item.deps || []).map(did => allItems.find(x => x.id === did)).filter(Boolean) : [];
-  const ctxBlocks = ctxMenu ? allItems.filter(x => (x.deps || []).includes(ctxMenu.item.id)) : [];
   const handleCtx = (e, item, source = "gantt") => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, item, source }); };
   // Context-menu placement, decided from the menu's MEASURED height rather than
   // a guess: the item list varies with type and permissions, so no constant is
@@ -10657,44 +10458,8 @@ ${jobsCtx || "No jobs found."}`;
   }, [ctxMenu, ctxMenuEl]);
 
   // Copy item from context menu into clipboard
-  const copyItem = (item) => {
-    const level = item.level || 0;
-    let fullItem = item;
-    if (level === 0) {
-      fullItem = tasks.find(j => j.id === item.id) || item;
-    } else if (level === 1) {
-      for (const job of tasks) { const p = (job.subs || []).find(s => s.id === item.id); if (p) { fullItem = p; break; } }
-    } else {
-      for (const job of tasks) { for (const panel of (job.subs || [])) { const op = (panel.subs || []).find(o => o.id === item.id); if (op) { fullItem = op; break; } } }
-    }
-    setClipboard({ level, item: JSON.parse(JSON.stringify(fullItem)) });
-    setCtxMenu(null);
-  };
 
   // Paste clipboard item at a target start date
-  const doPaste = () => {
-    if (!clipboard || !pasteConfirm) return;
-    const { level, item } = clipboard;
-    const shift = diffD(item.start, pasteConfirm.startDate);
-    const freshen = (obj) => ({
-      ...obj, id: uid(),
-      start: addD(obj.start, shift), end: addD(obj.end, shift),
-      subs: (obj.subs || []).map(s => freshen(s)),
-    });
-    let jobToPaste;
-    if (level === 0) {
-      { const { color: _dc, ...jobBase } = freshen(item); jobToPaste = { ...jobBase, title: item.title + " (Copy)" }; }
-    } else if (level === 1) {
-      const panel = freshen(item);
-      jobToPaste = { id: uid(), title: item.title + " (Copy)", start: panel.start, end: panel.end, status: "Not Started", pri: "Medium", team: [], hpd: item.hpd ?? null, notes: "", subs: [panel], deps: [], clientId: null };
-    } else {
-      const op = freshen(item);
-      const panel = { id: uid(), title: "Panel-01", start: op.start, end: op.end, status: "Not Started", pri: "Medium", team: [], hpd: item.hpd ?? null, notes: "", deps: [], engineering: { designed: null, verified: null, sentToPerforex: null }, subs: [op] };
-      jobToPaste = { id: uid(), title: item.title + " (Copy)", start: panel.start, end: panel.end, status: "Not Started", pri: "Medium", team: [], hpd: item.hpd ?? null, notes: "", subs: [panel], deps: [], clientId: null };
-    }
-    setTasks(prev => [...prev, jobToPaste]);
-    setPasteConfirm(null);
-  };
 
   // ─── Chat helpers ─────────────────────────────────────────────────────────
   function getThreadParticipants(scope, jobId, panelId, opId, groupId) {
@@ -10959,7 +10724,6 @@ ${jobsCtx || "No jobs found."}`;
       alert("No admins are available to receive this request. Please contact your administrator directly.");
       return;
     }
-    const participantIds = adminParticipants.map(p => p.id);
 
     // Context label: "Panel Title" or "Panel Title › Sub-op Title"
     const contextLabel = opPanel ? `${opPanel.title} › ${foundItem.title}` : foundItem.title;
@@ -11355,18 +11119,10 @@ ${jobsCtx || "No jobs found."}`;
   const setPanelChain = (jobId, panelId, steps) => setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : withApprLog({ ...p, apprChain: steps }, "steps", `to ${steps.length} step${steps.length === 1 ? "" : "s"}`)) }));
   const removePanelChain = (jobId, panelId) => setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => { if (p.id !== panelId) return p; const { apprChain, ...rest } = p; return withApprLog(rest, "removed", ""); }) }));
   const signChainStep = (jobId, panelId, idx) => { const step = tasks.find(j => j.id === jobId)?.subs?.find(p => p.id === panelId)?.apprChain?.[idx]; const mine = !!(step?.assigneeId && String(step.assigneeId) === String(loggedInUser?.id)); if (!canApprove && !mine) return; setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : withApprLog({ ...p, apprChain: (p.apprChain || []).map((st, i) => i !== idx ? st : { ...st, done: true, by: loggedInUser?.id || null, byName: loggedInUser?.name || "Admin", at: new Date().toISOString() }) }, "signed", step?.label || "")) })); };
-  const revertChainStep = (jobId, panelId, idx) => { if (!canApprove) return; const rLabel = tasks.find(j => sameId(j.id, jobId))?.subs?.find(p => sameId(p.id, panelId))?.apprChain?.[idx]?.label || ""; setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : withApprLog({ ...p, apprChain: (p.apprChain || []).map((st, i) => i !== idx ? st : { ...st, done: false, by: null, byName: "", at: null }) }, "reverted", rLabel)) })); };
   // Open the modal to edit a job panel's approval steps (chain mode). Seeds from an existing
   // chain, or from the row's current steps (engineering/template) preserving done-state.
   const editPanelApproval = (jobId, panelId, headerTitle, seedSteps) => setApprovalModal({ target: { kind: "chain", jobId, panelId }, title: headerTitle || "Approval", steps: (seedSteps || []).map(s => ({ ...s })), clientId: "", templateId: "", dept: "", dueDate: "" });
   // ── Approval comments. Standalone → approval.comments; job rows → panel.apprComments[key]. ──
-  const _newComment = (text) => ({ text: text.trim(), by: loggedInUser?.id || null, byName: loggedInUser?.name || "Admin", at: new Date().toISOString() });
-  const addPanelComment = (jobId, panelId, key, text) => { if (!text.trim()) return; setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : { ...p, apprComments: { ...(p.apprComments || {}), [key]: [...((p.apprComments || {})[key] || []), _newComment(text)] } }) })); };
-  const delPanelComment = (jobId, panelId, key, idx) => setTasks(prev => prev.map(j => j.id !== jobId ? j : { ...j, subs: (j.subs || []).map(p => p.id !== panelId ? p : { ...p, apprComments: { ...(p.apprComments || {}), [key]: ((p.apprComments || {})[key] || []).filter((_, i) => i !== idx) } }) }));
-  const isEngComplete = (panel) => {
-    const e = panel.engineering || {};
-    return !!(e.designed && e.verified && e.sentToPerforex);
-  };
 
   // ── Sign-Off Template functions ──────────────────────────────────────────
   const signOffStep = (jobId, panelId, templateId, stepIdx) => {
@@ -11407,11 +11163,6 @@ ${jobsCtx || "No jobs found."}`;
         ),
       }
     ));
-  };
-  const isSignOffComplete = (panel, templateId, numSteps) => {
-    const so = (panel.signOffs || {})[templateId];
-    if (!so || numSteps === 0) return false;
-    return Array.from({ length: numSteps }, (_, i) => String(i)).every(k => !!so[k]);
   };
 
   async function sendQuickMessage() {
@@ -11706,39 +11457,6 @@ ${jobsCtx || "No jobs found."}`;
   }
 
   // ─── Timeline pan handlers ────────────────────────────────────────────────
-  const handleGanttPan = useCallback((e) => {
-    if (e.button !== 0) return;
-    const panLW = isMobile ? 140 : 280;
-    const rect = ganttRef.current?.getBoundingClientRect();
-    if (rect && e.clientX < rect.left + panLW) return;
-    // Without this the browser starts a text selection on mousedown and the pan
-    // fights it — the drag stalls and only resumes after releasing and grabbing
-    // again. preventDefault stops the selection drag from ever beginning;
-    // user-select:none below covers anything that slips past it mid-drag.
-    e.preventDefault();
-    const startX = e.clientX;
-    let lastShift = 0;
-    const styleEl = document.createElement("style");
-    styleEl.textContent = "* { cursor: grabbing !important; user-select: none !important; }";
-    document.head.appendChild(styleEl);
-    const onUp = () => {
-      styleEl.remove();
-      document.removeEventListener("mousemove", onMove);
-      document.removeEventListener("mouseup", onUp);
-    };
-    const onMove = (me) => {
-      if (me.buttons === 0) { onUp(); return; }
-      const days = Math.round(-(me.clientX - startX) / ganttCWRef.current);
-      if (days !== lastShift) {
-        const delta = days - lastShift;
-        lastShift = days;
-        setGStart(prev => addD(prev, delta));
-        setGEnd(prev => addD(prev, delta));
-      }
-    };
-    document.addEventListener("mousemove", onMove);
-    document.addEventListener("mouseup", onUp);
-  }, [isMobile]);
 
   const handleTeamPan = useCallback((e) => {
     if (e.button !== 0) return;
@@ -11748,7 +11466,7 @@ ${jobsCtx || "No jobs found."}`;
     const panLW = teamLWRef.current || (isMobile ? 120 : 260);
     const rect = teamRef.current?.getBoundingClientRect();
     if (rect && e.clientX < rect.left + panLW) return;
-    // Same as handleGanttPan: kill the native selection drag before it starts.
+    // Kill the native selection drag before it starts.
     e.preventDefault();
     const startX = e.clientX;
     let lastShift = 0;
@@ -11774,17 +11492,6 @@ ${jobsCtx || "No jobs found."}`;
     document.addEventListener("mouseup", onUp);
   }, [isMobile]);
 
-  const handleGanttWheel = useCallback((e) => {
-    if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
-    e.preventDefault();
-    ganttWheelAcc.current += e.deltaX / ganttCWRef.current;
-    const days = Math.trunc(ganttWheelAcc.current);
-    if (days !== 0) {
-      ganttWheelAcc.current -= days;
-      setGStart(prev => addD(prev, days));
-      setGEnd(prev => addD(prev, days));
-    }
-  }, []);
 
   const handleTeamWheel = useCallback((e) => {
     if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
@@ -11902,9 +11609,6 @@ ${jobsCtx || "No jobs found."}`;
               // Bar position — clamp to visible range
               const hasRange = r.start && r.end;
               const inRange = hasRange && r.start <= gEnd && r.end >= gStart;
-              const bL = hasRange ? Math.max(0, dToX(r.start)) : 0;
-              const bR = hasRange ? Math.min(dToX(r.end) + cW, totalWidth) : 0;
-              const bW = Math.max(barH, bR - bL); // min width = bar height so it's always visible
 
               return (
                 <div key={r.id} style={{ display: "flex", height: rowH, borderBottom: `1px solid ${T.border}${level === 0 ? "44" : "22"}`, position: "relative", background: level === 0 && isExpanded ? jobColor + "07" : level === 1 ? jobColor + "04" : level === 2 ? jobColor + "02" : "transparent" }}>
@@ -11934,7 +11638,6 @@ ${jobsCtx || "No jobs found."}`;
                     const _segCalDays = diffD(seg.start, seg.end) + 1;
                     const _segWorkedDays = Math.max(0, Math.min(_workedRemainingDays, _segCalDays));
                     _workedRemainingDays = Math.max(0, _workedRemainingDays - _segWorkedDays);
-                    const _workedPctOfSeg = _segCalDays > 0 ? (_segWorkedDays / _segCalDays) * 100 : 0;
                     return (
                       <div
                         key={si}
@@ -12288,7 +11991,6 @@ ${jobsCtx || "No jobs found."}`;
       if (isNaN(d.getTime())) return "";
       return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
     };
-    const jobTitleById = (id) => tasks.find(t => t.id === id)?.title || "";
 
     // Filter out people who shouldn't appear on the board: deleted/hidden/system users.
     const team = people
@@ -12975,9 +12677,7 @@ ${jobsCtx || "No jobs found."}`;
           document.addEventListener("mousemove", onMove);
           document.addEventListener("mouseup", onUp);
         };
-        const cycleStatus = (job) => { const i = STATUSES.indexOf(job.status || "Not Started"); const next = STATUSES[(i + 1) % STATUSES.length]; if (next === "Finished") { setFinishApproval({ id: job.id, pid: null, title: job.title, jobNumber: job.jobNumber || null }); } else { updTask(job.id, { status: next }); } };
         const cyclePri = (job) => { const opts = PRIORITIES.length ? PRIORITIES : ["Medium"]; const i = opts.indexOf(job.pri || "Medium"); updTask(job.id, { pri: opts[(i + 1) % opts.length] }); };
-        const cycleStatusSub = (item, pid) => { const i = STATUSES.indexOf(item.status || "Not Started"); const next = STATUSES[(i + 1) % STATUSES.length]; if (next === "Finished") { setFinishApproval({ id: item.id, pid: pid || null, title: item.title, jobNumber: null }); } else { updTask(item.id, { status: next }, pid); } };
         const isEdit = (id, col) => gridCell?.id === id && gridCell?.col === col;
         const startEdit = (e, id, col) => { e.stopPropagation(); setGridCell({ id, col }); };
         const commitEdit = (id, col, val, pid) => { commitCellEdit(id, col, val, pid); setGridCell(null); };
@@ -13042,9 +12742,7 @@ ${jobsCtx || "No jobs found."}`;
           const { client, assigneePerson, teamMembers, health, healthColor, dispStatus, staColor, priColor,
                   hrs, pct, pc, indent, isScheduledLater, nameHasSubs, groupExpKey, nameIsExpanded, who }
             = ctx || stdCellCtx(item, level, jobId, alwaysExpand, groupPrefix);
-          const cycleStatus = (job) => { const i = STATUSES.indexOf(job.status || "Not Started"); const next = STATUSES[(i + 1) % STATUSES.length]; if (next === "Finished") { setFinishApproval({ id: job.id, pid: null, title: job.title, jobNumber: job.jobNumber || null }); } else { updTask(job.id, { status: next }); } };
           const cyclePri = (job) => { const opts = PRIORITIES.length ? PRIORITIES : ["Medium"]; const i = opts.indexOf(job.pri || "Medium"); updTask(job.id, { pri: opts[(i + 1) % opts.length] }); };
-          const cycleStatusSub = (item2, pid2) => { const i = STATUSES.indexOf(item2.status || "Not Started"); const next = STATUSES[(i + 1) % STATUSES.length]; if (next === "Finished") { setFinishApproval({ id: item2.id, pid: pid2 || null, title: item2.title, jobNumber: null }); } else { updTask(item2.id, { status: next }, pid2); } };
           const safeDate = ds => { if (!ds) return "—"; const d = new Date(ds + "T12:00:00"); return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("en-US", { month: "short", day: "numeric" }); };
           switch (colId) {
             case "name": return (
@@ -13670,7 +13368,6 @@ ${jobsCtx || "No jobs found."}`;
                 if (!pmJobs.length) return null;
                 const isCollapsed = !!pmSectionsCollapsed[pmId];
                 const pmLabel = pm ? pm.name : "Unassigned";
-                const pmColor = T.textDim;
                 return <div key={pmId} style={{ marginBottom: 20 }}>
                   {/* Section header */}
                   <div onClick={() => setPmSectionsCollapsed(p => ({ ...p, [pmId]: !p[pmId] }))} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 2px 8px", cursor: "pointer", userSelect: "none" }}>
@@ -14222,12 +13919,6 @@ ${jobsCtx || "No jobs found."}`;
   // Placeholder body for nav entries that exist but have no page yet (Dashboard,
   // Employees, Reports). Deliberately bare — it holds the route open so the nav
   // order is settled before any of these get built.
-  const renderBlankPage = (title, blurb) => (
-    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-      <div style={{ fontSize: 13, color: T.textDim }}>{blurb}</div>
-      <div style={{ marginTop: 24, border: `1px dashed ${T.border}`, borderRadius: T.radius, padding: "72px 24px", textAlign: "center", fontSize: 13, color: T.textDim }}>Nothing here yet.</div>
-    </div>
-  );
 
   // ═══════════════════ DASHBOARD ═══════════════════
   // The landing page. Everything here is derived from data already in memory —
@@ -15441,8 +15132,6 @@ ${jobsCtx || "No jobs found."}`;
         });
       });
     });
-    const subH = 34;
-    const tW = lW + days.length * cW;
     const totalH = rowList.reduce((s, r) => {
       if (r.type === "group") return s + grpH;
       if (r.type === "person") return s + (r.hidden ? 0 : rH);
@@ -15766,7 +15455,6 @@ ${jobsCtx || "No jobs found."}`;
                     </div>;
                   }
                   const p = row.person;
-                  const dayOfWeek = new Date(tStart + "T12:00:00").getDay();
                   const todayBars = row.bars.filter(b => {
                     if (b.type === "eng-chip") return false;
                     if (b.start > tStart || b.end < tStart) return false;
@@ -17497,7 +17185,6 @@ ${jobsCtx || "No jobs found."}`;
                   const _leftGrounds = barGrounds(T, bc, { ..._groundArgs, side: "left" });
                   const _titleGrounds = barGrounds(T, bc, { ..._groundArgs, side: "label" });
                   const _hoursGrounds = barGrounds(T, bc, { ..._groundArgs, side: "right" });
-                  const iconColor = barInk(_leftGrounds);
                   // The title crosses, and on the dark ladders the grounds it crosses disagree about
                   // polarity -- 20 of 33 colour x theme combinations do, and the best a single colour
                   // manages there is 2.09:1. So the glyph carries both tones: the better polarity as
@@ -19614,7 +19301,6 @@ ${jobsCtx || "No jobs found."}`;
       setPinInput(""); setPinError(false); setPinState("clockOut_pin");
     };
     const openLunch = () => { setPinInput(""); setPinError(false); setPinState(isOnLunch ? "lunchEnd_pin" : "lunchStart_pin"); };
-    const openBreak = () => { setPinInput(""); setPinError(false); setPinState(isOnBreak ? "breakEnd_pin" : "breakStart_pin"); };
     const closePin = () => { setPinState("closed"); setPinInput(""); setPinError(false); setPinSelectedOps([]); };
 
     const appendPin = digit => {
@@ -22512,7 +22198,6 @@ ${jobsCtx || "No jobs found."}`;
         <div style={{ background: T.card, borderRadius: T.radiusSm, padding: "14px 16px", border: `1px solid ${T.border}` }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 10 }}>Team Workload</div>
           {people.map(p => {
-            const pTasks = allItems.filter(t => (t.team || []).includes(p.id) && TD >= t.start && TD <= t.end);
             // Booked hours today — each op's share for this person, not its whole estimate.
             const hrs = Math.round(bookedHrs(p.id, TD) * 10) / 10;
             const pCap = capacityOf(p, productiveHoursPerDay);
@@ -23053,7 +22738,6 @@ ${jobsCtx || "No jobs found."}`;
             return ap - bp;
           }).map(t => {
             const title = getThreadTitle(t.threadKey, t.scope, t.jobId, t.panelId, t.opId);
-            const isPinned = pinnedThreads.includes(t.threadKey);
             const icon = t.scope === "op"
               ? <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
               : t.scope === "panel"
@@ -23521,7 +23205,6 @@ ${jobsCtx || "No jobs found."}`;
     if (!job) return null;
     // labelless: no Item column; the Split's task list is the label column.
     const labelless = !!opts.labelless;
-    const LBL = labelless ? "0px" : "280px";
     const ROW_H = labelless ? 39 : null;        // null = intrinsic (PLAN_ROW_H)
     const HDR_H = labelless ? 38 : null;
     const win = planWindow(job);
@@ -24577,82 +24260,9 @@ ${jobsCtx || "No jobs found."}`;
       ? backBtn(closeModal, { position: "absolute", top: 16, left: 22, zIndex: 6 })
       : <button onClick={closeModal} style={{ background: "none", border: "none", color: T.text, fontSize: 22, cursor: "pointer", position: "absolute", top: 20, right: 24, padding: 4, lineHeight: 1 }}>✕</button>;
     if (modal.type === "edit") { const [ed, setEd] = [modal.data, d => setModal(p => ({ ...p, data: typeof d === "function" ? d(p.data) : d }))];
-      const addPanels = (count) => {
-        const rawOps = (ed.customOps || []).filter(o => o.title && o.title.trim());
-        if (!rawOps.length) return;
-
-        const panels = [];
-        const pStart = nextBD(ed.start || TD);
-        const pEnd = nextBD(ed.end || addBD(TD, 9));
-        const totalBD = Math.max(diffBD(pStart, pEnd) + 1, rawOps.length);
-        const totalDur = rawOps.reduce((s, o) => s + Math.max(o.durationBD || 1, 1), 0);
-        const scaledDurs = rawOps.map(o => Math.max(Math.round(Math.max(o.durationBD || 1, 1) * totalBD / totalDur), 1));
-        scaledDurs[scaledDurs.length - 1] += totalBD - scaledDurs.reduce((s, d) => s + d, 0);
-
-        for (let i = 0; i < count; i++) {
-          const opSubs = [];
-          let cursor = pStart;
-          rawOps.forEach((op, oi) => {
-            const opStart = cursor;
-            const opEnd = addBD(opStart, scaledDurs[oi] - 1);
-            opSubs.push({ id: null, title: op.title, start: opStart, end: opEnd, status: "Not Started", pri: "High", team: [], hpd: op.hpd ?? null, notes: "", deps: [] });
-            cursor = addBD(opEnd, 1);
-          });
-          const panelEnd = opSubs[opSubs.length - 1].end;
-          panels.push({
-            id: null, title: `${ed.title}-${String(i + 1).padStart(3, "0")}`, start: pStart, end: panelEnd,
-            pri: "High", status: "Not Started", team: [], hpd: ed.hpd, notes: "", deps: [],
-            engineering: { designed: null, verified: null, sentToPerforex: null },
-            subs: opSubs,
-          });
-        }
-        setEd(p => ({ ...p, subs: panels }));
-      };
       // Check if a person has any overlapping operations during a date range
-      const isPersonBusy = (pid, opStart, opEnd, currentPanelIdx, currentOpIdx) => {
-        // Check existing saved tasks (exclude ops from the job being edited)
-        for (const job of tasks) {
-          if (ed.id && job.id === ed.id) continue; // skip the job we're editing
-          for (const panel of (job.subs || [])) {
-            for (const op of (panel.subs || [])) {
-              if ((op.team || []).includes(pid) && op.status !== "Finished" && op.start <= opEnd && op.end >= opStart) return true;
-            }
-          }
-        }
-        // Check other operations within current edit form (unsaved) — only same-person conflicts
-        for (let pi = 0; pi < (ed.subs || []).length; pi++) {
-          for (let oi = 0; oi < ((ed.subs[pi] || {}).subs || []).length; oi++) {
-            if (pi === currentPanelIdx && oi === currentOpIdx) continue;
-            const op = ed.subs[pi].subs[oi];
-            if ((op.team || []).includes(pid) && op.start <= opEnd && op.end >= opStart) return true;
-          }
-        }
-        // Check time off
-        const person = people.find(x => x.id === pid);
-        if (person) for (const to of (person.timeOff || [])) {
-          if (to.start <= opEnd && to.end >= opStart) return true;
-        }
-        return false;
-      };
 
       // Check if all deps of an op/sub are finished; returns array of unfinished dep IDs
-      const checkDeps = (deps) => {
-        const blocked = [];
-        const allItems = [{ subs: ed.subs }, ...tasks];
-        for (const depId of (deps || [])) {
-          let finished = false;
-          outer: for (const job of allItems) {
-            for (const pnl of (job.subs || [])) {
-              if (pnl.id === depId) { finished = pnl.status === "Finished"; break outer; }
-              for (const op of (pnl.subs || [])) {
-                if (op.id === depId) { finished = op.status === "Finished"; break outer; }
-              }
-            }
-          }
-          if (!finished) blocked.push(depId);
-        }
-        return blocked;
-      };
 
       const suggestSchedule = () => {
         setAiLoading(true);
@@ -24695,7 +24305,6 @@ ${jobsCtx || "No jobs found."}`;
           // Treat all assignable units as a flat sequence — no replication across numPanels
           const numPanels = 1;
           const opsPerPanel = rawOps.length;
-          const _clientName = (clients.find(c => sameId(c.id, ed.clientId)) || {}).name || "";
           const allCrew = people.filter(p => (p.userRole === "user" || p.userRole === "admin") && !p.noAutoSchedule);
           const crewForOp = (rawOp) => {
             const reqDept = rawOp.requiredDepartment || "";
@@ -26137,7 +25746,6 @@ ${jobsCtx || "No jobs found."}`;
         <span style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em" }}>{label}</span>
         <span style={{ fontSize: 14, color: T.text, fontWeight: 400 }}>{node}</span>
       </div>;
-      const secTitle = (txt) => <div style={{ fontSize: 12, fontWeight: 800, color: T.text, letterSpacing: "-0.045em", textTransform: "uppercase", marginBottom: 11 }}>{txt}</div>;
       // Collapsible right-sidebar section with the TRAQS expand/collapse animation. Large header,
       // chevron that rotates, body that grid-rows-animates open/closed. `extra` renders inline on
       // the right of the header (e.g. the attachments view toggle).
@@ -26145,26 +25753,6 @@ ${jobsCtx || "No jobs found."}`;
       // below, but sized for the centre column rather than the sidebar: a
       // smaller header, no 34px section gap, and the chevron sits inline with
       // the title so the row reads as one control.
-      const mainSec = (key, title, meta, body) => {
-        const open = !detailSecClosed[key];
-        return <div style={{ marginBottom: 18 }}>
-          <div onClick={() => setDetailSecClosed(pv => ({ ...pv, [key]: !pv[key] }))}
-            style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", userSelect: "none", padding: "2px 0 10px" }}>
-            <svg style={{ color: T.textDim, transition: "transform 0.26s cubic-bezier(0.4,0,0.2,1)", transform: open ? "rotate(0deg)" : "rotate(-90deg)", flexShrink: 0 }}
-              width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6" /></svg>
-            <span style={{ fontSize: 15, fontWeight: 600, color: T.text, letterSpacing: "-0.01em" }}>{title}</span>
-            {meta ? <span style={{ fontSize: 12, color: T.textDim, fontWeight: 500 }}>{meta}</span> : null}
-          </div>
-          <div style={{ display: "grid", gridTemplateRows: open ? "1fr" : "0fr", transition: "grid-template-rows 0.26s cubic-bezier(0.4,0,0.2,1)", pointerEvents: open ? "auto" : "none" }}>
-            {/* Same padding/negative-margin trick as `sec`: overflow clips at the
-                padding box, and the cards in here throw a 22px hover glow that
-                would otherwise be sliced off on every edge. */}
-            <div style={{ overflow: "hidden", minHeight: 0, padding: 26, margin: -26, pointerEvents: "none" }}>
-              <div style={{ opacity: open ? 1 : 0, transition: "opacity 0.18s ease", pointerEvents: "auto" }}>{body}</div>
-            </div>
-          </div>
-        </div>;
-      };
       const sec = (key, title, body, extra, first) => {
         const open = !detailSecClosed[key];
         return <div style={{ paddingTop: first ? 0 : 34 }}>
@@ -26294,7 +25882,7 @@ ${jobsCtx || "No jobs found."}`;
 
           {/* No Panels card here. The v2 design has none -- the three views ARE
               the page, and the Tasks list already names every phase and its
-              range. mainSec/detailSecClosed still drive the right column. */}
+              range. detailSecClosed still drives the right column. */}
         </div>
         {/* ── Right: Information · Notes · Attachments ── */}
         {/* Resize handle — a sibling flex item, so it is full height for free and needs
@@ -26506,7 +26094,6 @@ ${jobsCtx || "No jobs found."}`;
   }
 
   // Filter out admin users from the shop crew display (they don't get assigned tasks)
-  const shopPeople = people.filter(p => p.userRole === "user");
 
   // ═══════════════════════════════════════════════════════════════════════════
   // FULL-PAGE SETTINGS — helpers + renderers
@@ -28101,7 +27688,6 @@ ${jobsCtx || "No jobs found."}`;
             ))}
             {unreadByThread.map((item, i) => {
               const title = getThreadTitle(item.threadKey, item.scope, item.jobId, item.panelId, item.opId);
-              const author = people.find(p => p.id === item.latest.authorId);
               return <div key={item.threadKey} onClick={() => {
                 const gId = item.scope === "group" ? item.threadKey.replace("group:", "") : null;
                 const participants = getThreadParticipants(item.scope, item.jobId, item.panelId, item.opId, gId);
@@ -29149,8 +28735,6 @@ ${jobsCtx || "No jobs found."}`;
         : allJobs;
       const selectedJobs = allJobs.filter(j => exportSelRows.has(j.id));
       const exportData = selectedJobs.length > 0 ? selectedJobs : visibleJobs;
-      const exportRows = exportData.map(job => allCols.map(c => c.col ? String(c.col.fieldKey ? (job[c.col.fieldKey] ?? "") : (job["_cc_" + c.col.id] || "")) : getVal(job, c.id)));
-      const downloadFile = (name, mime, content) => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([content], { type: mime })); a.download = name; a.click(); };
       // CSV/Word — flat tabular dump with one row per op (subtask), inheriting job + panel context. Excludes assigned people.
       const flatRows = (() => {
         const headers = ["Job #", "Job", "Client", "Job Status", "Job Priority", "Job Start", "Job End", "Job Due", "Job Hours", "Job % Done", "Job Notes", "Panel", "Panel Status", "Panel Start", "Panel End", "Panel Hours", "Op", "Op Status", "Op Priority", "Op Start", "Op End", "Op Hours", "Op % Done", "Op Notes"];
@@ -29352,7 +28936,6 @@ ${jobsCtx || "No jobs found."}`;
       const blockFromItem = (item, x, y) => ({ id: uid(), type: item.type, x, y, w: item.w, h: item.h, opts: defaultExportOpts(item.type), ...(item.ref ? { ref: item.ref } : {}), ...(["title", "subtitle", "text"].includes(item.type) ? { text: item.label, fmt: defaultFmt(item.type) } : {}) });
       const commitEdit = (b, val) => { pushExportHistory(); updateExportBlock(pageIdx, b.id, { text: val }); setExportEditing(null); };
       const TXT = ["title", "subtitle", "text"];
-      const selBlock = (page?.blocks || []).find(b => b.id === exportSelId) || null;
       const setOpt = (b, key, val) => { pushExportHistory(); const opts = { ...(b.opts || {}), [key]: val }; updateExportBlock(pageIdx, b.id, { opts }); fitBlockHeight(pageIdx, { ...b, opts }, ctx); };
       // Logos also carry fmt.align (mapped to object-position); only text needs a height refit.
       const setFmt = (b, patch) => { pushExportHistory(); const fmt = { ...(b.fmt || {}), ...patch }; updateExportBlock(pageIdx, b.id, { fmt }); if (TXT.includes(b.type)) fitBlockHeight(pageIdx, { ...b, fmt }, ctx); };
@@ -29500,7 +29083,6 @@ ${jobsCtx || "No jobs found."}`;
                       const open = exportSelId === b.id;
                       const o = b.opts || {};
                       const chk = (label, key) => <label key={key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", fontSize: 12, color: T.textSec, cursor: "pointer" }}><input type="checkbox" checked={o[key] !== false} onChange={e => setOpt(b, key, e.target.checked)} />{label}</label>;
-                      const hasOpts = ["job", "panel", "summary", "datetime"].includes(b.type) || TXT.includes(b.type) || b.type !== "logo";
                       return <div key={b.id} style={{ borderRadius: 12, border: `1px solid ${open ? T.accent + "55" : "transparent"}`, background: open ? T.accent + "10" : "transparent", transition: "background 0.18s, border-color 0.18s", overflow: "hidden" }}>
                         <div onClick={() => setExportSelId(open ? null : b.id)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 8px", cursor: "pointer" }}>
                           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={open ? T.accent : T.textDim} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, transition: "transform 0.18s", transform: open ? "rotate(0deg)" : "rotate(-90deg)" }}><polyline points="6 9 12 15 18 9"/></svg>
@@ -33174,24 +32756,6 @@ ${jobsCtx || "No jobs found."}`;
       // Kept as a name because three call sites below read well with it; the
       // implementation is now the app-wide toast().
       const flashToast = toast;
-      const rescheduleJob = () => {
-        // Mirror the right-click "Reschedule" flow: close this editor and reopen the
-        // multi-step edit modal in reschedule mode (step 2) with current pending state.
-        setModalStep(2);
-        setStepDir(1);
-        setAvailCheckPassed(false);
-        setScheduleConfirmed(false);
-        setPreviewExpanded(false);
-        setPreviewPanelExpanded({});
-        setOverrideOpen({});
-        setOverrideDate({});
-        setOverrideLoading({});
-        setOverrideError({});
-        setAiSuggestion(null);
-        setRescheduleSelection((ej.subs || []).map(p => p.id));
-        setEditJobModal(null);
-        setModal({ type: "edit", data: { ...ej, isReschedule: true, _rescheduleStartDate: TD }, parentId: null });
-      };
       const popBtn = (id) => {
         setEditPopBtn(id);
         setTimeout(() => setEditPopBtn(c => c === id ? null : c), 320);
@@ -33207,11 +32771,6 @@ ${jobsCtx || "No jobs found."}`;
         popBtn("addPanel");
       };
       const removePanel = (idx) => setEj(p => ({ ...p, subs: p.subs.filter((_, i) => i !== idx) }));
-      const movePanel = (idx, dir) => setEj(p => {
-        const subs = [...p.subs]; const ni = idx + dir; if (ni < 0 || ni >= subs.length) return p;
-        [subs[idx], subs[ni]] = [subs[ni], subs[idx]];
-        return { ...p, subs };
-      });
       const updPanel = (idx, patch) => setEj(p => ({ ...p, subs: p.subs.map((pn, i) => i === idx ? { ...pn, ...patch } : pn) }));
       const addOp = (panelIdx) => {
         const newId = uid();
@@ -33228,12 +32787,6 @@ ${jobsCtx || "No jobs found."}`;
         popBtn(`addOp-${panelIdx}`);
       };
       const removeOp = (panelIdx, opIdx) => setEj(p => ({ ...p, subs: p.subs.map((pn, i) => i === panelIdx ? { ...pn, subs: pn.subs.filter((_, j) => j !== opIdx) } : pn) }));
-      const moveOp = (panelIdx, opIdx, dir) => setEj(p => ({ ...p, subs: p.subs.map((pn, i) => {
-        if (i !== panelIdx) return pn;
-        const subs = [...(pn.subs || [])]; const ni = opIdx + dir; if (ni < 0 || ni >= subs.length) return pn;
-        [subs[opIdx], subs[ni]] = [subs[ni], subs[opIdx]];
-        return { ...pn, subs };
-      }) }));
       const updOp = (panelIdx, opIdx, patch) => setEj(p => ({ ...p, subs: p.subs.map((pn, i) => i === panelIdx ? { ...pn, subs: pn.subs.map((op, j) => j === opIdx ? { ...op, ...patch } : op) } : pn) }));
       const loadTemplate = (tpl) => {
         const newIds = [];

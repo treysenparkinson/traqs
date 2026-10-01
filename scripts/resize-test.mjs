@@ -68,7 +68,7 @@ const harness = ({ tMode = "month", node, level = "op", moves, tasks0, extra = {
     _layoutStart: node.start, _barStartH: node.startHour, _segsEnd: node.end, _barEndHour: node.endHour,
     // the pre-change handler's collaborators (each updTask is exactly one setTasks, as in the app)
     updTask: (id, upd) => setTasks(prev => prev.map(j => ({ ...j, subs: (j.subs || []).map(pn => ({ ...pn, subs: (pn.subs || []).map(o => o.id === id ? { ...o, ...upd } : o) })) }))),
-    isOpLocked: (o) => !!o?.locked, showLockedError: () => {}, previewPush: () => ({ pushes: [], blocked: false, lockedOps: [] }),
+    isOpLocked: (o) => !!o?.locked, previewPush: () => ({ pushes: [], blocked: false, lockedOps: [] }),
     applyPushes: (t) => t, setConfirmPush: () => {}, nextBD: (d) => cal.next(d), addD: (d, n) => cal.add(d, 0) && new Date(Date.parse(d + "T12:00:00Z") + n * 864e5).toISOString().slice(0, 10),
     diffBD: (a, b) => cal.diff(a, b), walkProductiveHours: SM.walkProductiveHours,
     ...extra,

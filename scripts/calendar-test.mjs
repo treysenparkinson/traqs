@@ -108,15 +108,18 @@ const SRC = readFileSync(process.env.CAL_SRC || new URL("../src/TRAQS.jsx", impo
       ${calSrc}
       const addBD = ${line("addBD")}; const nextBD = ${line("nextBD")}; const diffBD = ${line("diffBD")};
       const isWorkDay = ${line("isWorkDay")}; const weekdaySegments = ${line("weekdaySegments")};
-      const getWorkingDayDuration = ${line("getWorkingDayDuration")}; const countWorkingDays = ${line("countWorkingDays")};
-      return { setOrgCalendar, addBD, nextBD, diffBD, isWorkDay, weekdaySegments, getWorkingDayDuration, countWorkingDays };`)(R.workCalendar, toDS, addD);
+      const getWorkingDayDuration = ${line("getWorkingDayDuration")};
+      return { setOrgCalendar, addBD, nextBD, diffBD, isWorkDay, weekdaySegments, getWorkingDayDuration };`)(R.workCalendar, toDS, addD);
     mod.setOrgCalendar({ workDays: [1, 2, 3, 4, 5], holidays: [TUE] });
     ok("addBD without options uses the org's holiday (#81)", mod.addBD(MON, 1), WED);
     ok("addBD with only workDays still skips the org's holiday", mod.addBD(MON, 1, { workDays: [1, 2, 3, 4, 5] }), WED);
     ok("isWorkDay(holiday) is false (#78)", mod.isWorkDay(TUE, [1, 2, 3, 4, 5]), false);
     ok("weekdaySegments splits at the holiday (#80)", mod.weekdaySegments(MON, WED, MON, FRI, [1, 2, 3, 4, 5]), [{ start: MON, end: MON }, { start: WED, end: WED }]);
     ok("getWorkingDayDuration(Mon, Wed) = 2", mod.getWorkingDayDuration(MON, WED, [1, 2, 3, 4, 5]), 2);
-    ok("countWorkingDays(Mon, 2) = Wed", mod.countWorkingDays(MON, 2, [1, 2, 3, 4, 5]), WED);
+    // countForward direct, not through a TRAQS wrapper: the wrapper had no callers left and
+    // went with root cause 9 chunk 2, so slicing it out of the file was testing dead code.
+    ok("countForward(Mon, 2) = Tue — the 2nd working day counting inclusively", R.workCalendar({ workDays: [1, 2, 3, 4, 5] }).countForward(MON, 2), TUE);
+    ok("...and it honours the org's holidays", R.workCalendar({ workDays: [1, 2, 3, 4, 5], holidays: [TUE] }).countForward(MON, 2), WED);
     mod.setOrgCalendar({ workDays: [] });
     ok("an empty work week doesn't hang addBD (#82)", mod.addBD(MON, 1), TUE);
   }
