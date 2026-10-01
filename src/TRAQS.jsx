@@ -9666,10 +9666,11 @@ Extraction rules:
         locked: !!op.locked, isLive: isLiveOpId(op.id) });
     })));
     return slackDaysByPerson({ ops, nowMs: Date.now(), today: TD, productiveHoursPerDay,
+      onRoster: (pid) => peopleById.has(pid),
       productiveBetween: (a, b) => productiveHoursBetween(a, b, cfg),
       hourTs: (ds, h) => shopMs(ds, h) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tasks, TD, producedFor, isLiveOpId, productiveHoursPerDay, workStartH, workEndH,
+  }, [tasks, TD, producedFor, isLiveOpId, peopleById, productiveHoursPerDay, workStartH, workEndH,
       orgSettings.breaks, orgSettings.lunch, orgSettings.workDays, orgSettings.holidays]);
   const opHourRange = (op) => {
     const sH = op.startHour ?? workStartH;

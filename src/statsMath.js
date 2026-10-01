@@ -1205,7 +1205,7 @@ export function dayShiftToClear(op, others, { cfg, shiftDays, maxDays = 260 }) {
  * edge. Over-estimating stays safe (a few extra bars the row clips); under-estimating makes
  * work vanish on scroll, which is why the ceil and the sum are both deliberate.
  */
-export function slackDaysByPerson({ ops, nowMs, today, productiveBetween, productiveHoursPerDay, hourTs }) {
+export function slackDaysByPerson({ ops, nowMs, today, productiveBetween, productiveHoursPerDay, hourTs, onRoster }) {
   const byPerson = new Map();
   const out = new Map();
   const perDay = Math.max(0.0001, productiveHoursPerDay || 1);
@@ -1226,6 +1226,13 @@ export function slackDaysByPerson({ ops, nowMs, today, productiveBetween, produc
     if (hrs <= 0) continue;
     for (const pid of (op.team || [])) {
       const k = String(pid);
+      // Only ids that have a row. The schedule draws one row per PERSON, and the caller
+      // reads this map by roster id, so slack accrued against an id nobody carries is
+      // computed and thrown away. On Matrix that is not hypothetical: 9 of the 26 team
+      // ids in tasks.json resolve to nobody, across 207 of 1,148 assigned nodes, and one
+      // of them (`th45typcc`, on a duplicated job #401945 whose ops carry 2,340-9,345h
+      // estimates) was carrying 1,335 days of slack against a row that never renders.
+      if (typeof onRoster === "function" && !onRoster(k)) continue;
       byPerson.set(k, (byPerson.get(k) || 0) + hrs);
     }
   }

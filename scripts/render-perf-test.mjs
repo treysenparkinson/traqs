@@ -245,6 +245,18 @@ ok("...and so is the client on each bar", !/clients\.find\(x => x\.id === job\.c
   const perRender = Number(process.hrtime.bigint() - t0) / 1e6 / 5;
   console.log(`  row-slack pre-pass, ${fixture.length} ops: ${perRender.toFixed(1)}ms per call`);
   ok(`the pre-pass costs under 15ms at production shape (${perRender.toFixed(1)}ms)`, perRender < 15);
+
+  // Slack accrued against an id with no person row is computed and thrown away: the caller
+  // reads this map by roster id. On Matrix 9 of 26 team ids resolve to nobody, across 207 of
+  // 1,148 assigned nodes, and one of them carried 1,335 days against a row that never renders.
+  const onRosterRun = (ops) => slackDaysByPerson({ ops, nowMs, today: TODAY, productiveBetween,
+    productiveHoursPerDay: 7.5, hourTs: (d, h) => Date.parse(`${d}T${String(h).padStart(2, "0")}:00:00Z`),
+    onRoster: (pid) => pid === "p1" });
+  const ghost = onRosterRun([op({ start: day(-200), end: day(2), team: ["nobody"] })]);
+  ok("slack is not accrued against an id with no person row", (ghost.get("nobody") || 0) === 0);
+  ok("...while a real person still gets theirs", (onRosterRun([op({ start: day(-10), end: day(2) })]).get("p1") || 0) >= 5);
+  // No predicate means no filtering, so an existing caller cannot silently lose slack.
+  ok("...and with no onRoster given, nothing is filtered", (run([op({ start: day(-10), end: day(2), team: ["anyone"] })]).get("anyone") || 0) >= 5);
 }
 
 // ── the pre-pass is memoised, and hover does not re-render ───────────────────
