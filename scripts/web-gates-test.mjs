@@ -10,7 +10,24 @@
 // change to a gate belongs in a test that executes it (see save-rollback-test).
 import { readFileSync } from "node:fs";
 // WEB_GATES_SRC points the check at another copy (e.g. the committed file) to show it fails there.
-const SRC = readFileSync(process.env.WEB_GATES_SRC || new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
+//
+// NEWLINES NORMALISED, and it is not cosmetic. git checks this repo out with
+// core.autocrlf=true, so the working copy is CRLF while the index and every literal in
+// this file are LF. Any multi-line pattern below therefore could not match on Windows:
+// three `has:` checks failed for that reason alone and, far worse, four `not:` checks
+// passed VACUOUSLY — a `not:` that can never match reports a gate as correct without
+// looking at it. Four permission gates read green here for a week while checking nothing.
+// The source is left alone; what is compared is normalised.
+const SRC = readFileSync(process.env.WEB_GATES_SRC || new URL("../src/TRAQS.jsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+
+// A canary for the above. If the normalisation is ever removed, every multi-line pattern in
+// this file silently stops matching -- and the `not:` ones stop being able to fail at all,
+// which is the failure mode that hides a missing gate. This one asserts a multi-line pattern
+// that IS in the source, so losing the normalisation fails loudly instead of quietly.
+if (!SRC.includes('const handleTeamResize = (e, side) => {\n')) {
+  console.error("FAIL  multi-line patterns cannot match the source — newline normalisation is broken");
+  process.exit(2);
+}
 
 // The body of the arrow function declared at `anchor` (brace-matched).
 function body(anchor) {
