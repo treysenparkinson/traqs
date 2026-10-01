@@ -2,6 +2,7 @@ import { requireOrgMember } from "./_utils/auth.js";
 import { can, requirePerm, canApprove, canEngineer } from "./_utils/can.js";
 import { classifyTaskChanges } from "./_utils/task-perms.js";
 import { recordRuleEvents, diffFields } from "./_utils/rule-log.js";
+import { pendingFinishOf } from "../../src/finishRequests.js";
 import { classifyTaskActions } from "../../src/taskActions.js";
 import { readJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
@@ -294,6 +295,23 @@ export async function handler(event) {
       const changed = changedIds(reconciled, existing);
       await publishChange(orgCode, "tasks", { ids: changed });
 
+      // ── Session reactions to this write (#189/#190/#192/#193) ──────────────
+      // Two things used to happen in a useEffect in EVERY open browser, reacting to polled
+      // data: freeze a session when a finish request appears on its op, and rebaseline the
+      // drain anchor when somebody moves the op being worked. Both wrote server-owned session
+      // state, so each browser POSTed its own Date.now() for every clocked-in person and the
+      // stored value was whichever clock landed last — while a non-admin's browser 403'd for
+      // everyone but itself, silently, on every tick.
+      //
+      // They belong here, on the write that causes them: it happens once, it has one clock,
+      // and it already knows exactly which ops changed and how. The merges in
+      // updateJobSession are idempotent as well (frozenAtMs write-once, drainCheckpoint
+      // forward-only), so an old client still doing it can no longer do harm.
+      //
+      // Best-effort: the tasks write has already succeeded and a failure here must not turn
+      // a saved schedule into an error.
+      try { await applySessionReactions(orgCode, reconciled, existing); } catch { /* non-fatal */ }
+
       // Phase 5 push. Only when something actually changed — a no-op autosave
       // preserves every stamp, so `changed` is empty and there's nothing to
       // notify or sync. Fires the event-specific VISIBLE pushes (assigned /
@@ -409,6 +427,64 @@ async function notifyTaskChanges({ orgCode, member, next, prev }) {
 
 // Whether `member` may make a write classified as `cls` (from either classifier).
 // Returns { status, message } for a refusal, or null.
+/**
+ * React to a tasks write on behalf of any live job session it affects.
+ *
+ *   FREEZE      an op that has just acquired a pending finish request holds every session
+ *               on it, at this write's instant. Write-once, so the first wins.
+ *   REBASELINE  an op whose moveLog grew by an entry that does NOT belong to the session
+ *               working it was moved by somebody else, and the shrink anchor has to restart
+ *               from where the bar landed — otherwise the already-worked hours reapply to
+ *               the new plannedStart and the bar jumps.
+ *
+ * One people.json write for both, under a conditional update, so this cannot clobber a clock
+ * action landing at the same moment.
+ */
+async function applySessionReactions(orgCode, next, prev) {
+  if (!Array.isArray(next)) return;
+  const index = (arr) => {
+    const m = new Map();
+    for (const j of (arr || [])) for (const p of (j?.subs || [])) for (const o of (p?.subs || [])) if (o?.id != null) m.set(String(o.id), o);
+    return m;
+  };
+  const after = index(next), before = index(prev);
+
+  const freezeOps = new Set();
+  const movedOps = new Map();                // opId -> the sessionId that owns the last entry
+  for (const [id, op] of after) {
+    const was = before.get(id);
+    if (pendingFinishOf(op) && !(was && pendingFinishOf(was))) freezeOps.add(id);
+    const lenNow = (op.moveLog || []).length, lenWas = (was?.moveLog || []).length;
+    if (lenNow > lenWas) movedOps.set(id, (op.moveLog || [])[lenNow - 1]?.sessionId ?? null);
+  }
+  if (!freezeOps.size && !movedOps.size) return;
+
+  const nowMs = Date.now(), nowIso = new Date(nowMs).toISOString();
+  await updateJson(orgKeyFor(orgCode, "people.json"), (stored) => {
+    const arr = [...(stored ?? [])];
+    let touched = false;
+    for (let i = 0; i < arr.length; i++) {
+      const jc = arr[i]?.activeJobClock;
+      if (!jc) continue;
+      let nextJc = jc;
+      if (jc.opId != null && freezeOps.has(String(jc.opId)) && jc.frozenAtMs == null) {
+        nextJc = { ...nextJc, frozenAtMs: nowMs };                       // write-once
+      }
+      if (jc.reservoirOpId != null && jc.sessionId && jc.drainCheckpoint && movedOps.has(String(jc.reservoirOpId))) {
+        // Not our own persistShrink write — that one carries this session's id, and
+        // rebaselining on it would erase the edge it just banked.
+        if (movedOps.get(String(jc.reservoirOpId)) !== jc.sessionId
+          && Date.parse(nowIso) > Date.parse(jc.drainCheckpoint)) {      // forward only
+          const pausedNow = (jc.totalPausedMs || 0) + (jc.pausedAt ? Math.max(0, nowMs - Date.parse(jc.pausedAt)) : 0);
+          nextJc = { ...nextJc, drainCheckpoint: nowIso, pausedMsAtCheckpoint: pausedNow };
+        }
+      }
+      if (nextJc !== jc) { arr[i] = { ...arr[i], activeJobClock: nextJc }; touched = true; }
+    }
+    return touched ? { value: stampArray(arr, stored) } : { abort: null };
+  });
+}
+
 // ── Server-owned counters ───────────────────────────────────────────────────
 // Fields the clock paths own outright. A whole-tree POST carries them because it
 // carries everything, but it is never the authority on them: the only copy that
@@ -504,3 +580,8 @@ function unestimatedNowSevenPointFive(nextTasks, prevTasks) {
   }
   return out;
 }
+
+// people.json lives beside tasks.json under the same org prefix. orgKey() reads the header
+// off an event, which this helper does not have, so the key is built from the code the
+// handler already resolved.
+function orgKeyFor(orgCode, file) { return `orgs/${orgCode}/${file}`; }

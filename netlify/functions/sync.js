@@ -88,9 +88,27 @@ export async function handler(event) {
     const payhoursDelta = asArr(payhours)
       .filter(e => isAdmin || (myId && String(e.personId) === myId))
       .filter(r => full || changedSince(r, sinceMs));
+    // #202. Production rows were confined to your own, exactly like payhours — and that cost
+    // the schedule its accuracy for everyone else. A non-admin's bars fell back to
+    // op.loggedHours for every op somebody else worked, which is the counter #323 showed
+    // drifting. Measured on Matrix: Max received 3 of 258 rows, so 255 ops' worth of other
+    // people's progress was drawn from the counter instead of the sessions behind it.
+    //
+    // Hours recorded AGAINST AN OP are schedule data — the same fact the bar draws and the
+    // percentage reports. What makes payhours PII is the pay-shaped half: who worked which
+    // shift, when they came and went, what it is worth. So the split is by FIELD, not by row:
+    // everyone gets the op, the person, the window and the hours; only your own rows (or an
+    // admin's view) carry the rest.
+    const PROD_PUBLIC = ["id", "personId", "jobId", "panelId", "opId", "clockIn", "clockOut",
+      "hours", "date", "lastModifiedAt", "deletedAt"];
     const productionhoursDelta = asArr(productionhours)
-      .filter(e => isAdmin || (myId && String(e.personId) === myId))
-      .filter(r => full || changedSince(r, sinceMs));
+      .filter(r => full || changedSince(r, sinceMs))
+      .map(e => {
+        if (isAdmin || (myId && String(e.personId) === myId)) return e;
+        const out = {};
+        for (const k of PROD_PUBLIC) if (k in e) out[k] = e[k];
+        return out;
+      });
 
     // Messages: enforce the same per-viewer thread ACL as the messages GET
     // (reusing canViewThread) so a member never receives conversations they

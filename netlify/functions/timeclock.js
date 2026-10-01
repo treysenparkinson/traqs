@@ -25,6 +25,8 @@ const failedAttempts = new Map(); // ip -> { count, firstAttempt }
 // client-supplied and was trivially spoofable (set a new value per request to
 // get a fresh bucket), which defeated the limiter. `x-nf-client-connection-ip`
 // is set by Netlify's edge and cannot be forged by the caller.
+function myIdMatches(row, myId) { return myId != null && String(row?.personId) === String(myId); }
+
 function clientIp(event) {
   const h = event.headers || {};
   return (
@@ -358,22 +360,36 @@ async function notifyAdminsClockIn(orgCode, people, worker, clockInIso) {
   } catch { /* best-effort — never throws */ }
 }
 
-// Apply a single-person mutation to people.json using a FRESH read taken
-// immediately before the write, so this write can't clobber a concurrent change
-// to a DIFFERENT person's record (stale full-array write), and any guard (e.g. a
-// 409 double-clock-in check) is re-evaluated against current data. `mutate(person)`
-// returns the updated person, or throws an Error carrying a `.status` to abort
-// (e.g. a re-checked 409). NOTE: this narrows — but does not fully eliminate —
-// the people.json read-modify-write race (an app-wide limitation shared by
-// clockIn/jobClockIn/etc.); the complete fix is optimistic concurrency (ETag
-// If-Match + retry) at the writeStampedArray layer, tracked as a follow-up.
+// Apply a single-person mutation to people.json under optimistic concurrency.
+//
+// The old note here said this "narrows — but does not fully eliminate — the people.json
+// read-modify-write race ... the complete fix is optimistic concurrency (ETag If-Match +
+// retry) ... tracked as a follow-up." That follow-up is this (#196). It now goes through
+// updateJson, which reads with the ETag and writes only if nothing landed in between,
+// re-running `mutate` against the newer data when it did.
+//
+// `mutate(person)` returns the updated person, or throws an Error carrying a `.status` to
+// abort (a re-checked 409). A throw escapes the retry loop deliberately: a guard that has
+// decided "already clocked in" must not be retried into succeeding.
+//
+// THE GUARD MUST BE INSIDE `mutate`. Checking before calling this and mutating inside leaves
+// exactly the race this closes — the retry would re-run the write without re-running the
+// check. scripts/clock-atomicity-test.mjs asserts that, so it is a test and not a
+// convention.
 async function mutatePersonFresh(peopleKey, personId, mutate) {
-  const people = await readJson(peopleKey) ?? [];
-  const idx = people.findIndex(p => String(p.id) === String(personId));
-  if (idx === -1) { const e = new Error("Person not found"); e.status = 404; throw e; }
-  people[idx] = mutate(people[idx]);
-  await writeStampedArray(peopleKey, people);
-  return { people, person: people[idx] };
+  const out = await updateJson(peopleKey, (stored) => {
+    const arr = [...(stored ?? [])];
+    const idx = arr.findIndex(p => String(p.id) === String(personId));
+    if (idx === -1) { const e = new Error("Person not found"); e.status = 404; throw e; }
+    arr[idx] = mutate(arr[idx]);
+    return { value: stampArray(arr, stored) };
+  });
+  const people = out?.value ?? [];
+  const person = people.find(p => String(p.id) === String(personId)) ?? null;
+  // Same publish writeStampedArray would have done, with the real previous version so only
+  // the ids that actually changed are announced.
+  await publishWrite(peopleKey, people, out?.previous ?? null);
+  return { people, person };
 }
 
 // Lunch AND breaks must stop the job clock. Production time is the 9h window
@@ -574,6 +590,21 @@ export async function handler(event) {
       // Admin: optional personId filter. Non-admin: force-filter to self,
       // regardless of what `personId` they asked for.
       const scopeId = member.isAdmin ? personId : member.personId;
+      const isProd = key === prodKey;
+      // #202. PRODUCTION rows are scoped by FIELD, not by row — the same split /sync makes,
+      // and it has to be made in both places or a client that hydrates here still sees only
+      // its own and falls back to the drifting counter for everyone else. Hours against an op
+      // are schedule data; the pay-shaped half is the PII. PAYHOURS keeps the row-level scope
+      // it has always had: a shift is about a person, not about a job.
+      if (isProd && !member.isAdmin) {
+        const PROD_PUBLIC = ["id", "personId", "jobId", "panelId", "opId", "clockIn", "clockOut", "hours", "date", "lastModifiedAt"];
+        return json(200, entries.map(e => {
+          if (myIdMatches(e, member.personId)) return e;
+          const out = {};
+          for (const k of PROD_PUBLIC) if (k in e) out[k] = e[k];
+          return out;
+        }));
+      }
       const filtered = scopeId ? entries.filter(e => String(e.personId) === String(scopeId)) : entries;
       return json(200, filtered);
     } catch (e) {
@@ -701,7 +732,7 @@ export async function handler(event) {
         try { log = await readJson(payKey) ?? []; } catch { return err(500, "Failed to read timeclock"); }
 
         // Confirmed punches are locked — the admin must re-open the timesheet first.
-        const existing = log.find(e => e.id === entryId);
+        const existing = log.find(e => String(e.id) === String(entryId));
         if (!existing) return err(404, "Entry not found");
         if (existing.confirmed) return err(409, "This entry is in a confirmed timesheet. Re-open the timesheet to edit it.");
 
@@ -711,7 +742,7 @@ export async function handler(event) {
         const editPersonRows = log.filter(r => String(r.personId) === String(existing.personId));
         let found = false;
         log = log.map(e => {
-          if (e.id !== entryId) return e;
+          if (String(e.id) !== String(entryId)) return e;
           found = true;
           const hours = netHoursForPunch(clockIn, clockOut, editPersonRows);
           return { ...e, clockIn, clockOut, hours, date: localDayOf(clockIn) };
@@ -720,7 +751,7 @@ export async function handler(event) {
         if (!found) return err(404, "Entry not found");
         try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
 
-        const updated = log.find(e => e.id === entryId);
+        const updated = log.find(e => String(e.id) === String(entryId));
         return json(200, { ok: true, entry: updated });
       }
 
@@ -850,7 +881,7 @@ export async function handler(event) {
         if (!eventId || !timestamp) return err(400, "Missing eventId or timestamp");
         if (!validTs(timestamp)) return err(400, "Invalid timestamp");
 
-        const row = log.find(e => e.id === eventId && e.eventType && !e.deletedAt);
+        const row = log.find(e => String(e.id) === String(eventId) && e.eventType && !e.deletedAt);
         if (!row) return err(404, "Event not found");
         const oldMs = new Date(row.timestamp).getTime();
         const newMs = new Date(timestamp).getTime();
@@ -863,21 +894,21 @@ export async function handler(event) {
           if (!isLunch(row.eventType)) return err(409, "Breaks on an in-progress shift can be edited after clock-out.");
           if (!(openOld && openNew)) return err(409, "Keep the lunch within the same shift.");
           if (newMs > Date.now() + 60000) return err(400, "Lunch time can't be in the future.");
-          log = log.map(e => (e.id === eventId ? { ...e, timestamp, date: localDayOf(timestamp) } : e));
+          log = log.map(e => (String(e.id) === String(eventId) ? { ...e, timestamp, date: localDayOf(timestamp) } : e));
           try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
           const activeClockIn = await syncOpenShiftLunch(pid);
-          return json(200, { ok: true, event: log.find(e => e.id === eventId), entries: [], activeClockIn });
+          return json(200, { ok: true, event: log.find(e => String(e.id) === String(eventId)), entries: [], activeClockIn });
         }
 
         const oldOwner = ownerPunch(pid, oldMs);
         if (oldOwner?.confirmed) return err(409, "This entry is in a confirmed timesheet. Re-open the timesheet to edit it.");
-        log = log.map(e => (e.id === eventId ? { ...e, timestamp, date: localDayOf(timestamp) } : e));
+        log = log.map(e => (String(e.id) === String(eventId) ? { ...e, timestamp, date: localDayOf(timestamp) } : e));
         const newOwner = ownerPunch(pid, newMs); // resolved against the mutated log
         if (newOwner?.confirmed) return err(409, "That time falls inside a confirmed timesheet. Re-open it first.");
 
         const entries = recomputeOwners([oldOwner?.id, newOwner?.id]);
         try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
-        return json(200, { ok: true, event: log.find(e => e.id === eventId), entries });
+        return json(200, { ok: true, event: log.find(e => String(e.id) === String(eventId)), entries });
       }
 
       // ── Add a lunch/break row that was missed ────────────────────────────
@@ -913,7 +944,7 @@ export async function handler(event) {
       if (action === "adminDeleteEvent") {
         const { eventId } = body;
         if (!eventId) return err(400, "Missing eventId");
-        const row = log.find(e => e.id === eventId && e.eventType && !e.deletedAt);
+        const row = log.find(e => String(e.id) === String(eventId) && e.eventType && !e.deletedAt);
         if (!row) return err(404, "Event not found");
         const tsMs = new Date(row.timestamp).getTime();
         const pid = row.personId;
@@ -921,7 +952,7 @@ export async function handler(event) {
 
         if (onOpenShift(pid, tsMs)) {
           if (!isLunch(row.eventType)) return err(409, "Breaks on an in-progress shift can be edited after clock-out.");
-          log = log.map(e => (e.id === eventId ? { ...e, deletedAt: stamp } : e));
+          log = log.map(e => (String(e.id) === String(eventId) ? { ...e, deletedAt: stamp } : e));
           try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
           const activeClockIn = await syncOpenShiftLunch(pid);
           return json(200, { ok: true, eventId, entries: [], activeClockIn });
@@ -932,7 +963,7 @@ export async function handler(event) {
 
         // Tombstone (keep with deletedAt) so /sync evicts it from every client;
         // the GET already filters tombstones out of the live view.
-        log = log.map(e => (e.id === eventId ? { ...e, deletedAt: stamp } : e));
+        log = log.map(e => (String(e.id) === String(eventId) ? { ...e, deletedAt: stamp } : e));
         const entries = recomputeOwners([owner?.id]);
         try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
         return json(200, { ok: true, eventId, entries });
@@ -950,7 +981,7 @@ export async function handler(event) {
         // `!e.eventType` distinguishes a punch row from a lunch/break row —
         // both live in the same log, and deleting the wrong shape here would
         // silently wipe a punch when the caller meant an event.
-        const entry = log.find(e => e.id === entryId && !e.eventType && !e.deletedAt);
+        const entry = log.find(e => String(e.id) === String(entryId) && !e.eventType && !e.deletedAt);
         if (!entry) return err(404, "Entry not found");
         if (entry.confirmed) return err(409, "This entry is in a confirmed timesheet. Re-open the timesheet to delete it.");
         if (!entry.clockIn || !entry.clockOut) return err(409, "This shift is still open. Clock the person out before deleting it.");
@@ -972,7 +1003,7 @@ export async function handler(event) {
           }).map(e => e.id)
         );
 
-        log = log.map(e => (e.id === entryId || orphanIds.has(e.id)) ? { ...e, deletedAt: stamp } : e);
+        log = log.map(e => (String(e.id) === String(entryId) || orphanIds.has(e.id)) ? { ...e, deletedAt: stamp } : e);
         try { await writeStampedArray(payKey, log); } catch { return err(500, "Failed to save timeclock"); }
         return json(200, { ok: true, entryId, deletedEventIds: [...orphanIds] });
       }
@@ -996,7 +1027,7 @@ export async function handler(event) {
         // click — from a double-tap, or a client whose cache replayed the row
         // after the first one landed — must resolve to the same end state rather
         // than a 404 they can do nothing about.
-        const entry = log.find(e => e.id === entryId && !e.eventType);
+        const entry = log.find(e => String(e.id) === String(entryId) && !e.eventType);
         if (!entry) return err(404, "Entry not found");
         if (entry.confirmed) return err(409, "This entry is in a confirmed timesheet. Re-open the timesheet to edit it.");
 
@@ -1221,7 +1252,7 @@ export async function handler(event) {
       try {
         await updateStampedArray(tasksKey, (stored) => {
         const jciTasks = [...(stored ?? [])];
-        const jciTaskIdx = jciTasks.findIndex(t => t.id === jobId);
+        const jciTaskIdx = jciTasks.findIndex(t => String(t.id) === String(jobId));
         if (jciTaskIdx === -1) return null;
         {
           const jciJob = jciTasks[jciTaskIdx];
@@ -1231,12 +1262,12 @@ export async function handler(event) {
             // The panel holding the op goes In Progress too. The web used to set it
             // itself and POST the tree, which 403'd every worker (no editJobs).
             subs: (jciJob.subs || []).map(panel => {
-              const hasOp = (panel.subs || []).some(op => op.id === opId);
+              const hasOp = (panel.subs || []).some(op => String(op.id) === String(opId));
               return {
                 ...panel,
                 ...(hasOp ? { status: "In Progress" } : {}),
                 subs: (panel.subs || []).map(op => {
-                  if (op.id !== opId) return op;
+                  if (String(op.id) !== String(opId)) return op;
                   return { ...op, status: "In Progress" };
                 }),
               };
@@ -1329,9 +1360,7 @@ export async function handler(event) {
         try {
           const { jobTitle: jcoJobTitle, panelTitle: jcoPanelTitle, opTitle: jcoOpTitle } = jcoPerson.activeJobClock || {};
           const prodSource = body.source === "kiosk" ? "kiosk" : "ios-app";
-          let sessions = await readJson(prodKey) ?? [];
-          if (!Array.isArray(sessions)) sessions = [];
-          sessions.push({
+          const row = {
             id: `js_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
             personId: jcoPId,
             jobId: jcoJobId,
@@ -1345,11 +1374,27 @@ export async function handler(event) {
             hours: jcoHours,
             date: localDayOf(jcoClockIn),
             source: prodSource,
+          };
+          // #196, the third site. This was readJson → push → plain PUT, so a retried
+          // clock-out wrote the row twice: Matrix holds two (person, clockIn, op) triples
+          // that appear twice over, with hours 4.13/4.15 and 0.62/0.62 — the same clock-out
+          // recorded as two sessions, both counted.
+          //
+          // Conditional write, and the DEDUPE is inside it so a retry re-checks. The key is
+          // (personId, clockIn, opId): one session has one clock-in instant, so a row that
+          // matches all three is this same clock-out arriving again, not a second one.
+          //
+          // updateStampedArray stamps, publishes the 'productionhours' channel (+ the legacy
+          // 'timeclock' alias) and fires the silent background-sync push, as before.
+          await updateStampedArray(prodKey, (stored) => {
+            const arr = Array.isArray(stored) ? stored : [];
+            const dup = arr.some(s => s && !s.deletedAt
+              && String(s.personId) === String(row.personId)
+              && String(s.opId ?? "") === String(row.opId ?? "")
+              && s.clockIn === row.clockIn);
+            if (dup) return null;                  // already recorded — write nothing
+            return [...arr, row];
           });
-          // productionhours.json IS a /sync entity now; writeStampedArray stamps
-          // it, publishes the 'productionhours' channel (+ the legacy 'timeclock'
-          // alias), and fires the silent background-sync push.
-          await writeStampedArray(prodKey, sessions);
         } catch { /* non-fatal */ }
       }
 
@@ -1402,14 +1447,14 @@ export async function handler(event) {
               });
             }
             if (jcoHours > 0 && jcoJobId) tasks = tasks.map(job => {
-              if (job.id !== jcoJobId) return job;
+              if (String(job.id) !== String(jcoJobId)) return job;
               const newJobHours = Math.round(((job.loggedHours || 0) + jcoHours) * 100) / 100;
               const newSubs = jcoOpId ? (job.subs || []).map(panel => {
-                if (panel.id !== jcoPanelId) return panel;
+                if (String(panel.id) !== String(jcoPanelId)) return panel;
                 return {
                   ...panel,
                   subs: (panel.subs || []).map(op => {
-                    if (op.id !== jcoOpId) return op;
+                    if (String(op.id) !== String(jcoOpId)) return op;
                     return { ...op, loggedHours: Math.round(((op.loggedHours || 0) + jcoHours) * 100) / 100 };
                   }),
                 };
@@ -1481,16 +1526,41 @@ export async function handler(event) {
               return null;
             }
           }
+          // ── Idempotent merges (#189/#193) ───────────────────────────────────
+          // These two fields used to take whatever arrived, which was fine while one client
+          // wrote them and wrong the moment several did. Every open browser ran the freeze
+          // and rebaseline effects for EVERY clocked-in person, each with its own Date.now(),
+          // so the stored value was whichever browser's clock landed last. The freeze could
+          // also re-fire against itself: its re-entry guard was a local flag that the next
+          // /people poll overwrote whenever the POST was slow or failed — and the failure was
+          // swallowed by .catch(console.warn), so nothing retried or reported.
+          //
+          // The effects have moved server-side, but the merge is made idempotent anyway,
+          // because that is what makes the outcome independent of how many clients race.
+          // Electing one owner would have made correctness depend on whose browser was open.
+          //
+          // frozenAtMs is WRITE-ONCE: a session freezes at one instant, and the first stamp
+          // is the one closest to when the request actually appeared. A later stamp can only
+          // move the freeze forward and credit work done after the hold began.
+          const ujsFrozenNew = person.activeJobClock.frozenAtMs == null;
+          // drainCheckpoint only moves FORWARD. A checkpoint going backwards re-counts work
+          // that was already banked, and the edge measured from it jumps the same distance.
+          const ujsCpAhead = ujsDrainCheckpoint !== undefined
+            && (person.activeJobClock.drainCheckpoint == null
+              || Date.parse(ujsDrainCheckpoint) > Date.parse(person.activeJobClock.drainCheckpoint));
           people[idx] = {
             ...person,
             activeJobClock: {
               ...person.activeJobClock,
-              ...(ujsDrainCheckpoint !== undefined ? { drainCheckpoint: ujsDrainCheckpoint } : {}),
-              ...(ujsFrozenAtMs !== undefined ? { frozenAtMs: ujsFrozenAtMs } : {}),
+              ...(ujsCpAhead ? { drainCheckpoint: ujsDrainCheckpoint } : {}),
+              ...(ujsFrozenAtMs !== undefined && ujsFrozenNew ? { frozenAtMs: ujsFrozenAtMs } : {}),
               // Cumulative paused total as of drainCheckpoint. Moves with the checkpoint
               // and only with it, so the client can tell how much of totalPausedMs
               // already fell before the current drain window opened.
-              ...(ujsPausedMsAtCp !== undefined ? { pausedMsAtCheckpoint: ujsPausedMsAtCp } : {}),
+              // ...and only when the checkpoint itself moved. The two are one value in two
+              // fields; letting the baseline advance while the checkpoint it is a baseline
+              // FOR stayed put would subtract pauses from a window they fell outside.
+              ...(ujsPausedMsAtCp !== undefined && ujsCpAhead ? { pausedMsAtCheckpoint: ujsPausedMsAtCp } : {}),
               // Q7b. The instant a session stopped accruing because the working day closed rather
               // than because anyone stopped it -- the admin resolve queue reads this to find the
               // punches nobody closed. Distinct from frozenAtMs, which is a HELD session somebody
@@ -1952,9 +2022,14 @@ export async function handler(event) {
           failedAttempts.delete(pcIp);
         }
         const clockIn = new Date().toISOString();
-        // Re-read + single-person merge right before the write so this can't
-        // clobber a concurrent change to another person, and re-check the 409
-        // guard against current data.
+        // Single-person merge under a conditional write: the 409 guard is re-evaluated on
+        // every retry, so two clock-ins racing cannot both win.
+        //
+        // This comment used to say the re-read meant the write "can't clobber a concurrent
+        // change to another person". That was false while mutatePersonFresh ended in a plain
+        // PUT — it narrowed the window and never closed it — and it was the kind of false
+        // that gets believed, because it reads like the question was already settled. It is
+        // true now only because mutatePersonFresh goes through updateJson (#196).
         let committed;
         try {
           committed = await mutatePersonFresh(peopleKey, pcPId, (fresh) => {
@@ -2133,15 +2208,30 @@ export async function handler(event) {
       if (String(person.payType || "hourly") === "salary") {
         return err(403, "Salaried employees don't clock in");
       }
-      if (person.activeClockIn) {
-        return err(409, `Already clocked in via ${person.activeClockIn.source || "kiosk"}. Clock out first.`);
-      }
       const { jobRefs = [] } = body;
       const clockIn = new Date().toISOString();
       const source = body.source === "ios-app" ? "ios-app" : "kiosk";
-      people[personIdx] = { ...person, activeClockIn: { clockIn, jobRefs, source } };
-      try { await writeStampedArray(peopleKey, people); } catch { return err(500, "Failed to save clock-in"); }
-      await notifyAdminsClockIn(orgCode, people, people[personIdx], clockIn).catch(() => {});
+      // #196. This read `person` from the array fetched before the PIN check, tested
+      // activeClockIn against it, and then wrote the WHOLE array back with a plain PUT — so
+      // two taps that both read "not clocked in" both wrote, and the second also clobbered
+      // any change made to another person in between. Matrix has six (person, clockIn) pairs
+      // in payhours that appear more than once, including three rows sharing a clock-in
+      // instant to the millisecond with two of them written 2.1 seconds apart.
+      //
+      // The guard moves INSIDE the conditional write, which is the whole point: a retry
+      // re-runs it against the newer data. Checking out here and mutating in there would
+      // leave the race exactly as it was.
+      let ciCommitted;
+      try {
+        ciCommitted = await mutatePersonFresh(peopleKey, personId, (fresh) => {
+          if (fresh.activeClockIn) {
+            const e = new Error(`Already clocked in via ${fresh.activeClockIn.source || "kiosk"}. Clock out first.`);
+            e.status = 409; throw e;
+          }
+          return { ...fresh, activeClockIn: { clockIn, jobRefs, events: [], source } };
+        });
+      } catch (e) { return err(e.status || 500, e.status ? e.message : "Failed to save clock-in"); }
+      await notifyAdminsClockIn(orgCode, ciCommitted.people, ciCommitted.person, clockIn).catch(() => {});
       return json(200, { ok: true, clockIn });
     }
 
@@ -2332,6 +2422,34 @@ export async function handler(event) {
       // The roster name, resolved before the write so the entry carries it (#180). The body's
       // personName is ignored entirely — it was the spoofable half.
       byName = nameOf(byId) || "Field";
+
+      // ── Freeze the session, here, where the request is raised (#189/#192/#193) ──
+      // This used to be a useEffect in every open browser, reacting to the flag appearing in
+      // polled data: each one computed its own Date.now() and POSTed updateJobSession for
+      // EVERY clocked-in person, so the stored frozenAtMs was whichever browser's clock
+      // landed last, and a worker's browser 403'd for everyone but themselves (#190).
+      //
+      // It belongs here. This handler is already writing the op that triggers the freeze, it
+      // runs once however many clients are watching, and it has one clock. Anyone still
+      // sending frozenAtMs through updateJobSession is harmless now that the field is
+      // write-once.
+      //
+      // Only the people actually working THIS op, and only those not already frozen.
+      const frFreezeAt = Date.parse(at);
+      try {
+        await updateStampedArray(peopleKey, (stored) => {
+          const arr = [...(stored ?? [])];
+          let touched = false;
+          for (let i = 0; i < arr.length; i++) {
+            const jc = arr[i]?.activeJobClock;
+            if (!jc || String(jc.opId ?? "") !== String(opId)) continue;
+            if (jc.frozenAtMs != null) continue;                 // write-once
+            arr[i] = { ...arr[i], activeJobClock: { ...jc, frozenAtMs: frFreezeAt } };
+            touched = true;
+          }
+          return touched ? arr : null;
+        });
+      } catch { /* non-fatal: the request itself is already recorded */ }
 
       try { await updateStampedArray(tasksKey, frMutate); }
       catch (e) { return err(e.statusCode === 503 ? 503 : 500, e.statusCode === 503 ? e.message : "Failed to save tasks"); }

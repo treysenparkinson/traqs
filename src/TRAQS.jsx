@@ -5684,45 +5684,18 @@ Extraction rules:
     const iv = setInterval(() => setScheduleTick(t => (t + 1) | 0), 5000);
     return () => clearInterval(iv);
   }, []);
-  // Phase 4: freeze the live bar the moment a finish request appears on the session's op.
-  // There is no web-side "submit" action to hook (the request is set by the iOS app or a
-  // Netlify function, never from code in this file) — reacting to the flag itself is the only
-  // available hook, and it's equivalent in practice since approve/reject also only happen here,
-  // so this effect necessarily observes the flag before a human could act on it.
-  useEffect(() => {
-    const active = people.filter(p => p.activeJobClock?.clockIn && !p.activeJobClock.frozenAtMs);
-    if (active.length === 0) return;
-    const toFreeze = active.filter(p => pendingFinishOf(findOp(tasks, p.activeJobClock.opId)));
-    if (toFreeze.length === 0) return;
-    const nowMs = Date.now();
-    setTasks(prevTasks => {
-      let updated = prevTasks;
-      toFreeze.forEach(p => {
-        const jc = p.activeJobClock;
-        // No cascade and no persist: frozenAtMs pins the rendered edge (shrunkStartH reads it),
-        // and the pendingSession stamp below carries everything approve/deny needs.
-        updated = updated.map(job => ({ ...job, subs: (job.subs || []).map(panel => ({ ...panel, subs: (panel.subs || []).map(op => {
-          if (String(op.id) !== String(jc.opId)) return op;
-          return { ...op, pendingSession: { sessionId: jc.sessionId, clockIn: jc.clockIn, frozenAtMs: nowMs, reservoirOpId: jc.reservoirOpId, sessionSnapshot: jc.sessionSnapshot || [] } };
-        }) })) }));
-      });
-      // Local render only. updateJobSession below stamps the same pendingSession on
-      // the server; POSTing it through /tasks 403'd every worker (no editJobs).
-      // Marked as a server write so the autosave effect does not POST it anyway.
-      pollAppliedRef.current.tasks = updated;
-      return updated;
-    });
-    // updateJobSession is the authorized path for frozenAtMs — savePeople can't touch it
-    // (activeJobClock is server-owned and pinned on every generic /people POST) — and,
-    // given frozenAtMs, it also stamps op.pendingSession.
-    toFreeze.forEach(p => {
-      updateJobSessionAction({ personId: p.id, sessionId: p.activeJobClock.sessionId, frozenAtMs: nowMs }, getToken, orgCode).catch(console.warn);
-    });
-    setPeople(pp => {
-      const next = pp.map(p => toFreeze.includes(p) ? { ...p, activeJobClock: { ...p.activeJobClock, frozenAtMs: nowMs } } : p);
-      return next;
-    });
-  }, [tasks, people]);
+  // The freeze effect that used to live here is gone (#189/#190/#192/#193).
+  //
+  // It reacted to pendingFinish appearing in polled data and POSTed updateJobSession to stamp
+  // frozenAtMs — from EVERY open browser, for EVERY clocked-in person, each with its own
+  // Date.now(). The stored value was whichever browser clock landed last; a non-admin browser
+  // got a 403 for everyone but itself on every tick and swallowed it; and the re-entry guard
+  // was a local flag that the next /people poll overwrote whenever the POST was slow, so one
+  // session could be stamped twice with different instants.
+  //
+  // The freeze now happens on the write that causes it: in the finishRequest handler, and in
+  // /tasks via applySessionReactions for a request raised from the web. frozenAtMs is
+  // write-once in updateJobSession, so an older client still trying cannot move it.
   // Hours somebody is putting into an op RIGHT NOW, not yet in any counter or
   // session row — both are only written at clock-out, so without this every
   // progress visual sits frozen for the whole shift.
@@ -9322,8 +9295,6 @@ Extraction rules:
     if (!session) return base;
 
     const apprMs = Date.now();
-    const apprDS = shopDay(apprMs);
-    const apprH = shopHour(apprMs);
     const lastLog = (op.moveLog || [])[(op.moveLog || []).length - 1];
     const sessionOwnsPosition = !!lastLog && lastLog.sessionId === session.sessionId;
     const snap = sessionOwnsPosition ? (session.sessionSnapshot || []).find(s => sameId(s.opId, op.id)) : null;
@@ -9335,9 +9306,21 @@ Extraction rules:
       : snapSpan ?? ((op.hpd || 0) > 0 ? personShareHours(op.hpd, _team, productiveHoursPerDay) : ((op.endHour ?? workEndH) - (op.startHour ?? workStartH)));
     const dur = Math.max(SHRINK_MIN_REMAINDER_H, Number(plannedDur) || 0);
 
-    const walk = walkProductiveHoursBack(apprH, dur, dayWindowCfg);
+    // #204. The DONE bar was walked back from the APPROVAL instant, so it recorded when
+    // somebody pressed the button rather than when the work happened: approve on Friday
+    // something finished on Monday and the historical record lands on Friday. The session
+    // already knows when the work stopped — frozenAtMs is stamped the moment the finish
+    // request freezes it, and `actualEnd` below has been writing it down all along without
+    // anything using it to place the bar.
+    //
+    // So the walk is anchored to the end of the WORK, falling back to the approval instant
+    // when there is no frozen session to anchor to. The length rule is untouched: the bar is
+    // still one person's share of the estimate, walked back through the day windows.
+    const endMs = Number.isFinite(session.frozenAtMs) ? session.frozenAtMs : apprMs;
+    const endDS = shopDay(endMs), endH = shopHour(endMs);
+    const walk = walkProductiveHoursBack(endH, dur, dayWindowCfg);
     const bdOpts = { workDays: orgSettings.workDays, holidays: orgSettings.holidays };
-    const startDS = walk.days > 1 ? addBD(apprDS, -(walk.days - 1), bdOpts) : apprDS;
+    const startDS = walk.days > 1 ? addBD(endDS, -(walk.days - 1), bdOpts) : endDS;
     const startH = walk.startHour;
     if (walk.clamped) console.warn("finishedOpFields: planned duration exceeds available history; DONE bar clamped at the earliest reachable position", { opId: op.id, duration: dur });
 
@@ -9345,15 +9328,15 @@ Extraction rules:
       ...base,
       actualStart: session.clockIn,
       actualEnd: session.frozenAtMs ? new Date(session.frozenAtMs).toISOString() : undefined,
-      start: startDS, end: apprDS,
-      startHour: startH, endHour: apprH,
+      start: startDS, end: endDS,
+      startHour: startH, endHour: endH,
       // hpd is not written: finishing an op keeps its estimate. It used to take `dur` — a
       // clock span when the snapshot had one — and overwrote the estimate with it.
       ...(snap ? { plannedStart: snap.start, plannedEnd: snap.end, plannedStartHour: snap.startHour ?? null, plannedEndHour: snap.endHour ?? null } : {}),
       moveLog: [...(op.moveLog || []), {
-        fromStart: op.start, fromEnd: op.end, toStart: startDS, toEnd: apprDS,
+        fromStart: op.start, fromEnd: op.end, toStart: startDS, toEnd: endDS,
         fromStartHour: op.startHour ?? null, toStartHour: startH,
-        fromEndHour: op.endHour ?? null, toEndHour: apprH,
+        fromEndHour: op.endHour ?? null, toEndHour: endH,
         fromHpd: op.hpd ?? null, toHpd: dur,
         date: TD, movedBy: movedByName,
         reason: "Finished. Placed at approval time as a historical record",
@@ -9362,45 +9345,17 @@ Extraction rules:
     };
   };
 
-  // Rebaseline the shrink anchor when someone MOVES the op being worked.
+  // The drain-rebaseline effect that used to live here is gone (#189/#190).
   //
-  // The left edge is plannedStart + worked-since-drainCheckpoint, so a drag that rewrites
-  // plannedStart makes the already-worked hours reapply to the new anchor and the bar JUMPS:
-  // two hours in, dragged to start at 12:00, the edge recomputes to 14:00 the moment work
-  // resumes. Advancing drainCheckpoint to the drag instant (and pausedMsAtCheckpoint with it,
-  // since the two always move together) restarts the measurement from where the bar landed.
+  // Same shape as the freeze: it watched every person's moveLog for an entry that was not
+  // their own session's, then POSTed a new drainCheckpoint — from every open browser, each
+  // with its own instant, and 403ing for anyone but the signed-in user. The per-browser ref
+  // that kept it to "once per move" was per browser, so N browsers meant N rebaselines.
   //
-  // Detected from the moveLog rather than from inside the drag handlers. Every path -- team
-  // grid, gantt, resize, reassign, and any added later -- appends an entry that is not ours,
-  // so one check here covers them all and cannot be forgotten at a new call site. The ref
-  // keeps it to once per move: without it a moveLog whose last entry belongs to some earlier
-  // session would rebaseline on every single render.
-  const _shrinkLogLenRef = useRef({});
-  useEffect(() => {
-    const seen = _shrinkLogLenRef.current;
-    people.forEach(p => {
-      const jc = p.activeJobClock;
-      if (!jc?.clockIn || !jc.sessionId || !jc.reservoirOpId || !jc.drainCheckpoint) return;
-      const op = findOp(tasks, jc.reservoirOpId);
-      if (!op || op.status === "Finished") return;
-      const len = (op.moveLog || []).length;
-      const prev = seen[jc.sessionId];
-      seen[jc.sessionId] = len;
-      if (prev === undefined || len <= prev) return;   // first sighting, or nothing appended
-      const last = (op.moveLog || [])[len - 1];
-      if (!last || last.sessionId === jc.sessionId) return;   // our own persistShrink write
-      const nowIso = new Date().toISOString();
-      const nowMs = Date.now();
-      // live-hours-exempt: computes the pause total to STORE as the next
-      // pausedMsAtCheckpoint baseline, not elapsed working time. It adds the open
-      // pause rather than subtracting it — the opposite sign to liveElapsedHours.
-      const pausedNow = (jc.totalPausedMs || 0) + (jc.pausedAt ? Math.max(0, nowMs - new Date(jc.pausedAt).getTime()) : 0);
-      updateJobSessionAction({ personId: p.id, sessionId: jc.sessionId, drainCheckpoint: nowIso, pausedMsAtCheckpoint: pausedNow }, getToken, orgCode).catch(console.warn);
-      setPeople(pp => pp.map(x => sameId(x.id, p.id) && x.activeJobClock?.sessionId === jc.sessionId
-        ? { ...x, activeJobClock: { ...x.activeJobClock, drainCheckpoint: nowIso, pausedMsAtCheckpoint: pausedNow } }
-        : x));
-    });
-  }, [tasks, people]);
+  // It now runs in /tasks (applySessionReactions), on the write that appends the moveLog
+  // entry it was watching for. drainCheckpoint is forward-only in updateJobSession, and
+  // pausedMsAtCheckpoint moves only when the checkpoint does, so a late or duplicated write
+  // cannot drag the anchor backwards and re-count work that was already banked.
   // Same shape as bar.task in getPersonBars — used so the live bar (Phase 2/3) can open/
   // right-click exactly like a real scheduled bar for the same op, WITHOUT depending on that
   // op appearing in the clocked-in person's own bars list (which is gated by team membership —
