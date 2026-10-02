@@ -8036,6 +8036,44 @@ Extraction rules:
         await rollbackToServerRef.current();
         return;
       }
+      // #337. ADOPT THE STAMPS THE SAVE JUST RETURNED.
+      //
+      // Until this existed the three response bodies were read for `conflicts`
+      // and otherwise dropped, so the client kept POSTing the `lastModifiedAt`
+      // it had loaded with. The server advances each record's stamp on write,
+      // so from the first save onward the client's copy is behind the stored
+      // one — and /tasks' conflict check correctly reported every subsequent
+      // save as stale AGAINST THE SAVE BEFORE IT. The rule-event log caught it:
+      // five sequential drags, five task-conflict records, one identical
+      // incomingStamp. In `enforce` four of those five would have been refused.
+      //
+      // ONLY the stamp is merged. The content stays whatever is in state now,
+      // which may already include edits the user made while the save was in
+      // flight; overwriting those with what we sent is the adjacent bug, not
+      // the fix.
+      const adoptStamps = (stamps, current, setter, key) => {
+        if (!stamps || typeof stamps !== "object" || !Array.isArray(current)) return;
+        if (Object.keys(stamps).length === 0) return;
+        let changed = false;
+        const next = current.map((r) => {
+          if (!r || r.id == null) return r;
+          const s = stamps[String(r.id)];
+          if (!s || s === r.lastModifiedAt) return r;
+          changed = true;
+          return { ...r, lastModifiedAt: s };
+        });
+        if (!changed) return;
+        // Registered as a server-installed array, exactly as the poll does at
+        // :7836 and :8072, so the autosave effect does not read a stamp refresh
+        // as a user edit and schedule another save — which would loop forever,
+        // one save per stamp refresh.
+        pollAppliedRef.current[key] = next;
+        setter(next);
+      };
+      adoptStamps(results[0].value?.stamps, latestTasksRef.current, setTasks, "tasks");
+      adoptStamps(results[1].value?.stamps, latestPeopleRef.current, setPeople, "people");
+      adoptStamps(results[2]?.value?.stamps, dataRef.current.clients, setClients, "clients");
+
       protectedJobIds.current.clear();
       setSaveError(null);
       setTimeout(() => setSaveStatus("saved"), 600);

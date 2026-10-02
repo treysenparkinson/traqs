@@ -227,11 +227,18 @@ export async function handler(event) {
         ];
       }
       const reconciled = reconcileDeletions(safeMerged, existing, tombstoneWithoutPin);
-      await writeJson(s3Key, stampArray(reconciled, existing));
+      const stamped = stampArray(reconciled, existing);
+      await writeJson(s3Key, stamped);
       await publishChange(member.orgCode, "people", { ids: changedIds(reconciled, existing) });
       // Phase 5: silent background-sync push to org members (best-effort).
       await sendSilentPush(member.orgCode, { entity: "people" });
-      return json(200, { ok: true });
+      // #337, same shape as /tasks. There is no conflict check on people today,
+      // so a stale stamp here costs nothing yet — which is exactly why it would
+      // be missed when one is added. Returned for symmetry, and so the client
+      // has one rule ("adopt the stamps the save returns") rather than three.
+      const stamps = {};
+      for (const p of stamped) if (p && p.id != null && p.lastModifiedAt) stamps[String(p.id)] = p.lastModifiedAt;
+      return json(200, { ok: true, stamps });
     } catch (e) {
       console.error("people POST error:", e);
       return err(500, "Failed to save people");

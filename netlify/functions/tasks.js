@@ -224,7 +224,14 @@ export async function handler(event) {
         // Turn client-side deletions (ids in `existing` but absent from the
         // incoming array) into tombstones so delta-sync can propagate them.
         const reconciled = reconcileDeletions(incoming, existing);
-        return { value: stampArray(reconciled, existing), reconciled, existing };
+        // The stamped array is kept on `attempt` so the RESPONSE can carry the
+        // new `lastModifiedAt` per job. Without that the client has no way to
+        // learn its own write's stamp until the next 30s poll, so every save it
+        // makes in between carries the stamp it loaded with — and the conflict
+        // check sees each write as stale against the write before it. See #337.
+        const stamped = stampArray(reconciled, existing);
+        attempt.stamped = stamped;
+        return { value: stamped, reconciled, existing };
       });
 
       // Logged once, for the pass that decided the outcome (never per retry).
@@ -329,10 +336,24 @@ export async function handler(event) {
           console.error("tasks push notify failed (save still succeeded):", e);
         }
       }
+      // #337. The response carries the stamp the server just wrote for every
+      // job, keyed by id. The client adopts them, so its NEXT save compares
+      // against what is actually stored instead of against the stamp it loaded
+      // with. Before this the body was `{ ok: true }` and doSave dropped it
+      // entirely, which is why five sequential drags produced five
+      // task-conflict records whose incomingStamp never moved.
+      //
+      // Only the stamp is returned, not the jobs: the client already holds the
+      // content it just sent, and echoing the tree back would make every save
+      // pay for a second copy of it.
+      const stamps = {};
+      for (const j of (attempt.stamped || [])) {
+        if (j && j.id != null && j.lastModifiedAt) stamps[String(j.id)] = j.lastModifiedAt;
+      }
       // `conflicts` only in enforce: a client that sees it rolls those jobs back.
       return json(200, conflictMode === "enforce"
-        ? { ok: true, conflicts: attempt.conflicts.map(c => c.id) }
-        : { ok: true });
+        ? { ok: true, stamps, conflicts: attempt.conflicts.map(c => c.id) }
+        : { ok: true, stamps });
     } catch (e) {
       if (e?.statusCode === 503) return err(503, e.message);
       console.error("tasks POST error:", e);

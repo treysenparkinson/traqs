@@ -87,11 +87,18 @@ export async function handler(event) {
         }
         return json(200, { ok: true });
       }
-      await writeJson(s3Key, stampArray(reconciled, existing));
+      const stamped = stampArray(reconciled, existing);
+      await writeJson(s3Key, stamped);
       await publishChange(orgCodeFromHeader(event), "clients", { ids: changedIds(reconciled, existing) });
       // Phase 5: silent background-sync push to org members (best-effort).
       await sendSilentPush(orgCodeFromHeader(event), { entity: "clients" });
-      return json(200, { ok: true });
+      // #337, same shape as /tasks and /people. Returned for symmetry so the
+      // client has one rule rather than three. Note the early `{ ok: true }`
+      // above is the NO-OP path — nothing was written, so there is no new stamp
+      // to report and the client keeps what it has.
+      const stamps = {};
+      for (const c of stamped) if (c && c.id != null && c.lastModifiedAt) stamps[String(c.id)] = c.lastModifiedAt;
+      return json(200, { ok: true, stamps });
     } catch (e) {
       console.error("clients POST error:", e);
       return err(500, "Failed to save clients");
