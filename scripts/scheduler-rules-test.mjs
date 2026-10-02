@@ -69,26 +69,48 @@ console.log("\n2. ...and the client no longer infers one from the title");
   ok("the department-name set it matched against is gone", J.includes("deptNamesLower"), false);
 }
 
-console.log("\n3. Manual assignment is respected by BOTH schedulers");
+console.log("\n3. All four schedulers go through the one engine");
 {
-  // The reschedule path already honoured an existing team. The gap was that the
-  // auto-schedule path did not — the same write that placed the work reassigned
-  // it. One predicate, both paths.
-  ok("the reschedule path no longer gates on isReschedule",
-    /const eligible = \(op\.team\|\|\[\]\)\.length>0/.test(J), true);
-  ok("...and no isReschedule condition survives on it",
-    /const eligible = ed\.isReschedule/.test(J), false);
-  ok("the auto-schedule path checks an existing team first",
-    /const already = \(rawOp\.team \|\| \[\]\)\.length > 0/.test(J), true);
-  ok("...and returns it before any department filtering",
-    J.indexOf("if (already.length > 0) return already;") < J.indexOf("const reqDepts = unitDepartments(rawOp"), true);
-  // onTeam, not .includes: ids are mixed string/number across web and iOS, so
-  // `.includes(pp.id)` silently matches nothing and the op falls through to the
-  // department pool — indistinguishable from the scheduler ignoring the
-  // assignment, which is the bug being fixed.
-  ok("both use onTeam, not a raw .includes", /\(op\.team\|\|\[\]\)\.includes\(pp\.id\)/.test(J), false);
-  ok("...reschedule path", /onTeam\(op\.team, pp\.id\)/.test(J), true);
-  ok("...auto-schedule path", /onTeam\(rawOp\.team, p\.id\)/.test(J), true);
+  // RE-POINTED 2026-10-02 (step 2). These used to pin the INLINE candidate
+  // selection in each scheduler — an existing team checked before departments,
+  // onTeam rather than a raw .includes. That logic has not gone away; it has
+  // moved into src/placement.js, where placement-test asserts the BEHAVIOUR.
+  // What is left to assert here is the thing this step is actually for: that
+  // every scheduler asks the engine instead of answering for itself.
+  //
+  // There were FOUR implementations and they disagreed — _autoAssign ignored
+  // departments entirely, and the "respect an existing assignment" rule had to
+  // be written twice in one sitting. That is what this count prevents.
+  const calls = (J.match(/candidatesFor\(/g) || []).length;
+  ok("all four call sites use the engine", calls, 4);
+  ok("the engine is imported, not reimplemented", /from "\.\/placement\.js"/.test(J), true);
+
+  // No scheduler keeps a private candidate filter. These are the exact shapes
+  // that were there, and any of them coming back means the engine has been
+  // forked again.
+  ok("no inline department filter survives",
+    /allCrew\.filter\(pp? => personDeptMatch\(/.test(J), false);
+  ok("no inline team filter survives",
+    /allCrew\.filter\(pp? => onTeam\(/.test(J), false);
+  // THE FALLBACK. This is the department funnel's actual mechanism and it was
+  // in two of the four. It must not come back anywhere.
+  //
+  // Matched as a RETURN STATEMENT, not as free text. Both comments explaining
+  // the removal quote the expression verbatim, so a bare search finds the
+  // explanation of the deletion and reports the deletion as incomplete. Fourth
+  // time this exact trap has bitten in this campaign — see LESSONS #8.
+  ok("no all-crew fallback survives",
+    /return\s+m(atched)?\.length > 0 \? m(atched)? : allCrew/.test(J), false);
+
+  // _autoAssign gained a rule rather than changing shape: it picked purely by
+  // load and ignored departments. Measured before landing — nothing changes at
+  // Matrix today, because the FAST TRAQS extraction has no department field and
+  // preview ops carry none, so candidatesFor returns the whole roster exactly as
+  // the hand-rolled loop did. The change is latent and correct.
+  ok("the import's auto-assign asks the engine too",
+    /pickCandidate\(candidatesFor\(op, roster/.test(J), true);
+  ok("...and no longer scans the roster by hand",
+    /for \(const pp of roster\) \{\s*\n\s*const l = load\(/.test(J), false);
 }
 
 console.log("\n4. op.locked is retired — the only lock is an active clock");

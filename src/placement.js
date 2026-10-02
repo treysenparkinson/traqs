@@ -152,6 +152,32 @@ export function pickCandidate(candidates, { objective = "even", loadOf = () => 0
 }
 
 /**
+ * The same choice as `pickCandidate`, applied to a whole list.
+ *
+ * Call sites that walk candidates trying successive start dates need them in
+ * order rather than one at a time, and they must order by the SAME rule or the
+ * objective means two things. `earliestFor` is optional: without it, "soonest"
+ * has nothing to sort by and falls back to load, which is the honest answer
+ * rather than a silent reordering.
+ */
+export function orderByObjective(candidates, { objective = "even", loadOf = () => 0, earliestFor = null } = {}) {
+  return [...(candidates || [])].filter(Boolean).sort((a, b) => {
+    const la = Number(loadOf(a.id)) || 0, lb = Number(loadOf(b.id)) || 0;
+    if (objective === "soonest" && typeof earliestFor === "function") {
+      const wa = earliestFor(a), wb = earliestFor(b);
+      if (wa !== wb) {
+        if (wa == null) return 1;
+        if (wb == null) return -1;
+        const w = String(wa).localeCompare(String(wb));
+        if (w !== 0) return w;
+      }
+    }
+    if (la !== lb) return la - lb;
+    return String(a.name || "").localeCompare(String(b.name || ""));
+  });
+}
+
+/**
  * What a run reports per op. An op that cannot be staffed or cannot be placed is
  * LEFT WHERE IT IS and flagged — never placed anyway at the earliest date.
  *

@@ -2,6 +2,12 @@
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { personDeptMatch, unitDepartment, unitDepartments, personDepartments, normalizeDepartments, withDepartmentDualWrite, workCalendar } from "./scheduleRules.js";
+import { candidatesFor, pickCandidate, orderByObjective } from "./placement.js";
+// The objective is a RULED product choice (even load by default, "Finish
+// soonest" the alternative) and becomes a control in the re-plan preview when
+// that UI lands. Until then it is this constant rather than a piece of state
+// nothing sets — an unset switch is the never-executes shape all over again.
+const SCHEDULE_OBJECTIVE = "even";
 import { DEFAULT_ORG_SETTINGS, withOrgDefaults } from "./orgDefaults.js";
 import { setShopZone, shopDay, shopHour, shopMs } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
@@ -9071,13 +9077,14 @@ Extraction rules:
 
   // Returns "primary" | "secondary" | false — secondary means the person can cover
   // the job as a backup (their secondaryDepartment matches) but should sort below primary.
-  // Which department a unit belongs to, resolved once for the whole app.
+  // Which departments a unit may be done by, resolved once for the whole app.
   //
-  // Two sources, and in production it is almost always the second:
-  // requiredDepartment is set on 1 of 84 panels and 3 of 280 ops, while the real
-  // convention is that an OP IS its department -- ops are titled Wire / Cut /
-  // Layout, which are entries in orgSettings.roles. Field first (an explicit
-  // answer beats an inferred one), then the title, then inherit from the parent.
+  // THIS NOTE USED TO DESCRIBE THE TITLE HEURISTIC, which is gone (ruling 1),
+  // and its figures were stale besides: it said "1 of 84 panels and 3 of 280
+  // ops", and by 2026-10-02 the real count was 141 ops and 3 panels. The
+  // convention it described — an op IS its department, because ops are titled
+  // Wire / Cut / Layout — is exactly what made absence look like a constraint.
+  // A department is read from the field or not at all.
   //
   // This exists because the same question was being asked in four places with
   // three different answers. The three schedulers each open with
@@ -24692,25 +24699,13 @@ ${jobsCtx || "No jobs found."}`;
           const numPanels = 1;
           const opsPerPanel = rawOps.length;
           const allCrew = people.filter(p => (p.userRole === "user" || p.userRole === "admin") && !p.noAutoSchedule);
-          const crewForOp = (rawOp) => {
-            // Manual assignment wins, on this path too. Ruled 2026-10-02: the
-            // scheduler respects people already put on an op rather than
-            // reassigning them. onTeam because ids are mixed string/number —
-            // see the matching note on the reschedule path's `eligible`.
-            const already = (rawOp.team || []).length > 0
-              ? allCrew.filter(p => onTeam(rawOp.team, p.id)) : [];
-            if (already.length > 0) return already;
-            const reqDepts = unitDepartments(rawOp, null, null);
-            if (reqDepts.length === 0) return allCrew;    // [] means anyone
-            // No primary/secondary ordering any more: departments are a SET on both
-            // sides and a set has no preference order. The ranking that stood here
-            // was unexercised — zero of Matrix's 18 people held a secondary.
-            const matched = allCrew.filter(p => personDeptMatch(p, reqDepts));
-            // Fallback: if nobody in the org matches the required department (primary or backup),
-            // fall back to ALL crew so the scheduler can still place the work somewhere instead
-            // of bailing with "no windows".
-            return matched.length > 0 ? matched : allCrew;
-          };
+          // RETIRED onto the engine (1 of 4). This was the job wizard's own copy
+          // of "who may take this op" — manual assignment, then departments, then
+          // a fallback to all crew. The fallback is deliberately NOT carried over:
+          // `matched.length > 0 ? matched : allCrew` is the department funnel's
+          // actual mechanism, and an op nobody can staff is now reported rather
+          // than handed to whoever is least busy.
+          const crewForOp = (rawOp) => candidatesFor(rawOp, allCrew);
           const crew = allCrew;
           // Business days to complete ONE panel sequentially (e.g. Cut 1d + Wire 5d + Layout 2d = 8d)
           const batchBD = rawOps.reduce((s, o) => s + o.durationBD, 0) || 1;
@@ -24857,12 +24852,13 @@ ${jobsCtx || "No jobs found."}`;
               const d0 = Math.max(1, Math.ceil(totalHours / productiveHoursPerDay));
               return { team: [], start: s0, end: sAddBD(s0, Math.max(0, d0 - 1)), unassigned: true };
             }
-            const eligible = allCrew.filter(pp => personDeptMatch(pp, reqDepts)).sort((a, b) => {
-              // No primary/secondary tier: a set has no preference order, and the
-              // tier that stood here was unexercised (0 of 18 people held a
-              // secondary). Load, then name for stability.
-              const diff = jobCountLocal(a.id) - jobCountLocal(b.id); if (diff !== 0) return diff; return a.name.localeCompare(b.name);
-            });
+            // RETIRED onto the engine (2 of 4). The filter is candidatesFor; the
+            // ordering was "fewest jobs, then name", which is even load expressed
+            // locally, so it is now the engine's objective. Ordered rather than
+            // picked one at a time because the loop below walks the list trying
+            // successive start dates.
+            const eligible = orderByObjective(candidatesFor(op, allCrew),
+              { objective: SCHEDULE_OBJECTIVE, loadOf: (id) => jobCountLocal(id) });
             if (eligible.length === 0) return { team: [], start: minStart || newStartDate, end: minStart || newStartDate };
             const singleDur = Math.max(1, Math.ceil(totalHours / productiveHoursPerDay));
             if (scheduleTeamMode === "one") {
@@ -25559,11 +25555,6 @@ ${jobsCtx || "No jobs found."}`;
                         // Filter by dept first; if dept is set but no crew matches (e.g. an
                         // inferred dept that nobody has yet), fall back to all crew so the
                         // op still gets scheduled instead of going unassigned.
-                        const deptCrew = reqDepts.length === 0 ? allCrew : (() => {
-                          // Flat set, no preference order — see crewForOp above.
-                          const m = allCrew.filter(pp => personDeptMatch(pp, reqDepts));
-                          return m.length > 0 ? m : allCrew;
-                        })();
                         // ── MANUAL ASSIGNMENT IS A STATE THE SCHEDULER RESPECTS ──
                         //
                         // RULED 2026-10-02. Auto-schedule, then put specific people
@@ -25581,9 +25572,15 @@ ${jobsCtx || "No jobs found."}`;
                         // raw id silently matches nothing and the op falls through
                         // to the department pool — which looks exactly like the
                         // scheduler ignoring the assignment, the bug being fixed.
-                        const eligible = (op.team||[]).length>0
-                          ? allCrew.filter(pp => onTeam(op.team, pp.id))
-                          : deptCrew.slice().sort((a,b) => { const diff=jobCount(a.id)-jobCount(b.id); if(diff!==0) return diff; return a.name.localeCompare(b.name); });
+                        // RETIRED onto the engine (3 of 4). candidatesFor already
+                        // puts an existing team ahead of the department, so the
+                        // two-branch form that stood here collapses to one call —
+                        // and the `m.length > 0 ? m : allCrew` fallback that sat
+                        // beside it goes with it. An op whose stated department has
+                        // nobody is reported now, not handed to the least busy
+                        // person in the shop.
+                        const eligible = orderByObjective(candidatesFor(op, allCrew),
+                          { objective: SCHEDULE_OBJECTIVE, loadOf: (id) => jobCount(id) });
                         if(eligible.length===0) { const fallback=minStart||slot.start; return {team:[],start:fallback,end:fallback}; }
                         const singleDur=Math.max(1,Math.ceil(totalHours/productiveHoursPerDay));
                         if(scheduleTeamMode==="one") {
@@ -31473,17 +31470,34 @@ ${jobsCtx || "No jobs found."}`;
             }
             return h;
           };
+          // RETIRED onto the engine (4 of 4), and this is the one that gains a
+          // rule rather than merely changing shape: it IGNORED DEPARTMENTS
+          // ENTIRELY and picked purely by load.
+          //
+          // Measured before landing: nothing changes at Matrix today. The FAST
+          // TRAQS extraction schema has no department field at all, and these are
+          // PREVIEW-shape ops (title / hours / assigneeName) that carry no
+          // requiredDepartment at any level — so candidatesFor sees [] and
+          // returns the whole roster, exactly as the hand-rolled loop did. The
+          // change is LATENT: the day an import does carry a department, it will
+          // be honoured instead of ignored, which is the reason to do this.
+          //
+          // The load rule is preserved rather than replaced. Infinity meant "off
+          // for the window" and is now expressed as "no possible start", which is
+          // what pickCandidate already refuses to pick.
           const picks = [];
           _unplaceable.forEach(({ job, panel, op }) => {
             const start = op.start || panel.start || job.start;
             const end = op.end || panel.end || job.end;
             if (!start || !end) return;
-            let best = null, bestLoad = Infinity;
-            for (const pp of roster) {
-              const l = load(pp.id, start, end);
-              if (l < bestLoad) { bestLoad = l; best = pp; }
-            }
-            if (!best || bestLoad === Infinity) return;
+            const best = pickCandidate(candidatesFor(op, roster, { panel, job }), {
+              objective: SCHEDULE_OBJECTIVE,
+              loadOf: (pid) => load(pid, start, end),
+              // A finite load means the person is free across the window; the
+              // engine only needs to know THAT they can start, not when.
+              earliestFor: (pp) => (Number.isFinite(load(pp.id, start, end)) ? start : null),
+            });
+            if (!best) return;
             extra.set(String(best.id), (extra.get(String(best.id)) || 0) + (Number(op.hpd) || 0));
             picks.push({ jobId: job._id, panelId: panel._id, opId: op._id, name: best.name });
           });
