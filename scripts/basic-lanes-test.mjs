@@ -190,11 +190,15 @@ console.log("\n7. The render actually uses it");
   // (!can("editJobs")) return;` appears six times in this file, so a bare search for it
   // passed even with the one that matters deleted — the mutation harness caught that, which
   // is the whole reason it exists.
+  // #160 is gone with the tier ruling rather than fixed again. It was the Basic-only edit
+  // modal opening on any bar click with no permission check; Basic now opens Job Details like
+  // every other tier, so there is no editor on a plain click to gate. The assertion that
+  // replaces it is the property that actually has to hold: a bar click is a READ.
   {
-    const fn = SRC.slice(SRC.indexOf("const openJobDetailOrEdit = (t) => {"),
-      SRC.indexOf("const AI_TOOLS"));
-    ok("the Basic bar click checks editJobs", /if \(!can\("editJobs"\)\) return;/.test(fn), true);
-    ok("...before it opens the editor", fn.indexOf('if (!can("editJobs")) return;') < fn.indexOf("openSimpleEditForJob"), true);
+    const fn = SRC.slice(SRC.indexOf("const openJobDetailOrEdit ="), SRC.indexOf("const AI_TOOLS"));
+    ok("a bar click opens Job Details on every tier", /openJobDetail\(t\)/.test(fn), true);
+    ok("...and opens no editor, so there is nothing to gate", !/openSimpleEditForJob|setModal\(/.test(fn), true);
+    ok("...with no tier branch left in it", !/billingTier/.test(fn), true);
   }
   // #159 — the simple editor refuses a job it cannot describe rather than collapsing it.
   ok("the simple editor refuses a job it cannot describe", has(/const why = simpleEditable\(job\);/) && has(/refuseSimpleEdit\(job, why\)/), true);
