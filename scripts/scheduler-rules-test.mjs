@@ -31,12 +31,20 @@ console.log("\n1. Department absence means OPEN TO ANYONE");
 {
   const anyone = { id: 1, name: "A", department: "Accounts" };
   // The server rule has always been right about this.
-  ok("no department required — anyone matches", personDeptMatch(anyone, ""), "primary");
-  ok("...including null and undefined", [personDeptMatch(anyone, null), personDeptMatch(anyone, undefined)], ["primary", "primary"]);
+  // Boolean since departments became a flat SET on both sides (2026-10-02) —
+  // the "primary"/"secondary" return was a preference order nobody used.
+  ok("no department required — anyone matches", personDeptMatch(anyone, ""), true);
+  ok("...including null, undefined and an empty set",
+    [personDeptMatch(anyone, null), personDeptMatch(anyone, undefined), personDeptMatch(anyone, [])], [true, true, true]);
   // ...and an op WITH one stated is still constrained. Ruling 1 has two halves
   // and this is the half that must NOT be relaxed.
   ok("a stated department still excludes someone who lacks it", personDeptMatch(anyone, "Wire"), false);
-  ok("...and admits a secondary holder", personDeptMatch({ ...anyone, secondaryDepartment: "Wire" }, "Wire"), "secondary");
+  ok("...and admits someone holding it, with no tier distinction",
+    personDeptMatch({ ...anyone, secondaryDepartment: "Wire" }, "Wire"), true);
+  ok("...reading the new person-side set as well as the old pair",
+    personDeptMatch({ id: 2, departments: ["Cut", "Wire"] }, ["Wire"]), true);
+  ok("...and matching on ANY overlap, which is what makes \"either\" expressible",
+    personDeptMatch({ id: 3, departments: ["Cut"] }, ["Wire", "Cut"]), true);
   // unitDepartment: own, then panel, then job, and "" when nothing states one.
   ok("unitDepartment reads own, then panel, then job",
     [unitDepartment({ requiredDepartment: "A" }, { requiredDepartment: "B" }, { requiredDepartment: "C" }),
@@ -51,8 +59,10 @@ console.log("\n1. Department absence means OPEN TO ANYONE");
 
 console.log("\n2. ...and the client no longer infers one from the title");
 {
-  const fn = J.slice(J.indexOf("const deptOfUnit ="), J.indexOf("const deptOfUnit =") + 220);
-  ok("deptOfUnit is unitDepartment and nothing else", /unitDepartment\(n, panel, job\) \|\| "";/.test(fn), true);
+  // deptsOfUnit is the real resolver now and returns a SET; deptOfUnit survives
+  // only for places that print one name, never for deciding eligibility.
+  const fn = J.slice(J.indexOf("const deptsOfUnit ="), J.indexOf("const deptsOfUnit =") + 320);
+  ok("deptsOfUnit delegates to the shared rule", /unitDepartments\(n, panel, job\)/.test(fn), true);
   ok("...with no title term", /title/.test(fn), false);
   // The set the heuristic matched against is gone too, or it would be an unused
   // memo waiting to be re-wired.
@@ -71,7 +81,7 @@ console.log("\n3. Manual assignment is respected by BOTH schedulers");
   ok("the auto-schedule path checks an existing team first",
     /const already = \(rawOp\.team \|\| \[\]\)\.length > 0/.test(J), true);
   ok("...and returns it before any department filtering",
-    J.indexOf("if (already.length > 0) return already;") < J.indexOf("const reqDept = rawOp.requiredDepartment"), true);
+    J.indexOf("if (already.length > 0) return already;") < J.indexOf("const reqDepts = unitDepartments(rawOp"), true);
   // onTeam, not .includes: ids are mixed string/number across web and iOS, so
   // `.includes(pp.id)` silently matches nothing and the op falls through to the
   // department pool — indistinguishable from the scheduler ignoring the

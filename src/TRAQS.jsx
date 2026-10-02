@@ -1,7 +1,7 @@
 ﻿import { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef, cloneElement, Fragment, createContext, useContext } from "react";
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { personDeptMatch, unitDepartment, workCalendar } from "./scheduleRules.js";
+import { personDeptMatch, unitDepartment, unitDepartments, personDepartments, normalizeDepartments, withDepartmentDualWrite, workCalendar } from "./scheduleRules.js";
 import { DEFAULT_ORG_SETTINGS, withOrgDefaults } from "./orgDefaults.js";
 import { setShopZone, shopDay, shopHour, shopMs } from "./shopTime.js";
 import { classifyTaskActions } from "./taskActions.js";
@@ -7099,18 +7099,23 @@ Extraction rules:
         }
       }
       if (!jobColor) jobColor = _colorForId(job.id);
-      return {
+      // Departments are kept in both shapes at every level — the array is the
+      // truth, the string is what older readers (iOS) still decode. Done here
+      // because every tree the app holds passes through normalizeTasks, so there
+      // is one place to get it right instead of one per write site.
+      const _dw = (n) => withDepartmentDualWrite(n, orgSettings.roles || null);
+      return _dw({
         ...job,
         color: jobColor,
-        subs: (job.subs || []).map(panel => ({
+        subs: (job.subs || []).map(panel => _dw({
           ...panel,
           color: panel.color || jobColor,
           subs: (panel.subs || []).map(op => {
             const norm = normalizeOp(op);
-            return { ...norm, color: norm.color || panel.color || jobColor };
+            return _dw({ ...norm, color: norm.color || panel.color || jobColor });
           }),
         })),
-      };
+      });
     });
   };
 
@@ -9109,7 +9114,12 @@ Extraction rules:
   // server's rule and have no title heuristic, and `personDeptMatch` returns
   // "primary" when no department is required. The server was already correct.
   // The CLIENT was stricter — it invented a requirement the server never had.
-  const deptOfUnit = (n, panel, job) => unitDepartment(n, panel, job) || "";
+  // A SET now (ruled 2026-10-02). [] means anyone — see the note on
+  // unitDepartments in src/scheduleRules.js, which is the server's rule too.
+  const deptsOfUnit = (n, panel, job) => unitDepartments(n, panel, job);
+  // Kept for the places that still want one name to PRINT. Never for deciding
+  // eligibility — that is personDeptMatch's job and it takes the whole set.
+  const deptOfUnit = (n, panel, job) => deptsOfUnit(n, panel, job)[0] || "";
 
   // Unique roles and hpd values for filter panel
   const uniqueRoles = useMemo(() => [...new Set(people.map(p => p.department).filter(Boolean))].sort(), [people]);
@@ -24690,11 +24700,12 @@ ${jobsCtx || "No jobs found."}`;
             const already = (rawOp.team || []).length > 0
               ? allCrew.filter(p => onTeam(rawOp.team, p.id)) : [];
             if (already.length > 0) return already;
-            const reqDept = rawOp.requiredDepartment || "";
-            if (!reqDept) return allCrew;
-            // Primary-dept matches first, then secondary-dept (backup) matches.
-            const matched = allCrew.filter(p => personDeptMatch(p, reqDept))
-              .sort((a, b) => (personDeptMatch(a, reqDept) === "primary" ? 0 : 1) - (personDeptMatch(b, reqDept) === "primary" ? 0 : 1));
+            const reqDepts = unitDepartments(rawOp, null, null);
+            if (reqDepts.length === 0) return allCrew;    // [] means anyone
+            // No primary/secondary ordering any more: departments are a SET on both
+            // sides and a set has no preference order. The ranking that stood here
+            // was unexercised — zero of Matrix's 18 people held a secondary.
+            const matched = allCrew.filter(p => personDeptMatch(p, reqDepts));
             // Fallback: if nobody in the org matches the required department (primary or backup),
             // fall back to ALL crew so the scheduler can still place the work somewhere instead
             // of bailing with "no windows".
@@ -24833,19 +24844,23 @@ ${jobsCtx || "No jobs found."}`;
           }, 0);
           const pickTeamLocal = (op, minStart = null) => {
             const totalHours = (typeof op === "object" && op?.hpd) ? op.hpd : productiveHoursPerDay;
-            const reqDept = typeof op === "object" ? deptOfUnit(op, null, null) : "";
+            const reqDepts = typeof op === "object" ? deptsOfUnit(op, null, null) : [];
             // Same rule as pickTeam above: no department means stay unassigned.
-            if (!reqDept) {
+            //
+            // NOTE the deliberate asymmetry with crewForOp, which reads [] as
+            // "anyone". Here [] means "nobody has said who does this", and the
+            // answer is to leave it unassigned rather than hand it to whoever is
+            // least busy. Both are correct for what they do: one is choosing
+            // among candidates, the other is deciding whether to choose at all.
+            if (reqDepts.length === 0) {
               const s0 = minStart || newStartDate;
               const d0 = Math.max(1, Math.ceil(totalHours / productiveHoursPerDay));
               return { team: [], start: s0, end: sAddBD(s0, Math.max(0, d0 - 1)), unassigned: true };
             }
-            const eligible = allCrew.filter(pp => personDeptMatch(pp, reqDept)).sort((a, b) => {
-              // Primary-dept candidates always come before secondary (backup) candidates,
-              // regardless of job count — primary is preferred when available.
-              const ap = personDeptMatch(a, reqDept) === "primary" ? 0 : 1;
-              const bp = personDeptMatch(b, reqDept) === "primary" ? 0 : 1;
-              if (ap !== bp) return ap - bp;
+            const eligible = allCrew.filter(pp => personDeptMatch(pp, reqDepts)).sort((a, b) => {
+              // No primary/secondary tier: a set has no preference order, and the
+              // tier that stood here was unexercised (0 of 18 people held a
+              // secondary). Load, then name for stability.
               const diff = jobCountLocal(a.id) - jobCountLocal(b.id); if (diff !== 0) return diff; return a.name.localeCompare(b.name);
             });
             if (eligible.length === 0) return { team: [], start: minStart || newStartDate, end: minStart || newStartDate };
@@ -25529,14 +25544,14 @@ ${jobsCtx || "No jobs found."}`;
                       },0);
                       const pickTeam=(op,minStart=null) => {
                         const totalHours=(typeof op==="object" && op?.hpd)?op.hpd:productiveHoursPerDay;
-                        const reqDept=typeof op==="object"?deptOfUnit(op,null,null):"";
+                        const reqDepts=typeof op==="object"?deptsOfUnit(op,null,null):[];
                         // No department on this unit -> deliberately unassigned. Dates are
                         // still computed so it lands on the Jobs list and the Project Plan
                         // board as a real dated task; having nobody on it is exactly what
                         // keeps it off the Schedule, whose rows are people. Previously this
                         // fell through to allCrew and the load-balancer handed it to whoever
                         // had the fewest jobs.
-                        if(!reqDept){
+                        if(reqDepts.length===0){
                           const s0=minStart||slot.start;
                           const d0=Math.max(1,Math.ceil(totalHours/productiveHoursPerDay));
                           return {team:[],start:s0,end:sAddBD(s0,Math.max(0,d0-1)),unassigned:true};
@@ -25544,10 +25559,9 @@ ${jobsCtx || "No jobs found."}`;
                         // Filter by dept first; if dept is set but no crew matches (e.g. an
                         // inferred dept that nobody has yet), fall back to all crew so the
                         // op still gets scheduled instead of going unassigned.
-                        const deptCrew = !reqDept ? allCrew : (() => {
-                          // Primary-dept matches first, then secondary-dept (backup) matches.
-                          const m = allCrew.filter(pp => personDeptMatch(pp, reqDept))
-                            .sort((a, b) => (personDeptMatch(a, reqDept) === "primary" ? 0 : 1) - (personDeptMatch(b, reqDept) === "primary" ? 0 : 1));
+                        const deptCrew = reqDepts.length === 0 ? allCrew : (() => {
+                          // Flat set, no preference order — see crewForOp above.
+                          const m = allCrew.filter(pp => personDeptMatch(pp, reqDepts));
                           return m.length > 0 ? m : allCrew;
                         })();
                         // ── MANUAL ASSIGNMENT IS A STATE THE SCHEDULER RESPECTS ──
@@ -32216,22 +32230,22 @@ ${jobsCtx || "No jobs found."}`;
           <div style={{ fontSize: 10, color: T.textDim, marginBottom: 6, fontWeight: 600 }}>ASSIGN</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
             {(() => {
-              const _qaReqDept = quickAddSub.type === "op"
-                ? (() => { for (const job of tasks) { const p = (job.subs||[]).find(s => s.id === quickAddSub.parentId); if (p) return p.requiredDepartment || ""; } return ""; })()
-                : "";
+              const _qaReqDepts = quickAddSub.type === "op"
+                ? (() => { for (const job of tasks) { const p = (job.subs||[]).find(s => s.id === quickAddSub.parentId); if (p) return unitDepartments(p, null, null); } return []; })()
+                : [];
               const list = people
-                .filter(p => (p.userRole === "user" || p.userRole === "admin") && personDeptMatch(p, _qaReqDept))
-                .sort((a, b) => (personDeptMatch(a, _qaReqDept) === "primary" ? 0 : 1) - (personDeptMatch(b, _qaReqDept) === "primary" ? 0 : 1));
+                .filter(p => (p.userRole === "user" || p.userRole === "admin") && personDeptMatch(p, _qaReqDepts))
+                // No primary/secondary tier to sort by — departments are a flat
+                // set on both sides now. Name order, so the list is stable.
+                .sort((a, b) => String(a.name || "").localeCompare(String(b.name || "")));
               return list.map(p => {
                 const sel = (quickAddSub.team || []).includes(p.id);
-                const isBackup = personDeptMatch(p, _qaReqDept) === "secondary";
                 return <button key={p.id} onClick={() => setQuickAddSub(prev => ({
                   ...prev,
                   team: sel ? (prev.team || []).filter(id => id !== p.id) : [...(prev.team || []), p.id]
                 }))} style={{ padding: "4px 10px", borderRadius: T.radiusPill, border: `2px solid ${sel ? T.accent : T.border}`, background: sel ? T.accent + "18" : "transparent", display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: sel ? T.accent : T.textSec, fontWeight: sel ? 700 : 400, cursor: "pointer", transition: "all 0.15s", fontFamily: T.font, whiteSpace: "nowrap" }}>
                   <PersonAvatar person={p} size={16} />
                   {p.name}
-                  {isBackup && <span style={{ fontSize: 8, fontWeight: 700, color: "#f59e0b", background: "#f59e0b22", border: "1px solid #f59e0b66", borderRadius: 8, padding: "0 4px", letterSpacing: "-0.045em", marginLeft: 2 }}>BACKUP</span>}
                 </button>;
               });
             })()}

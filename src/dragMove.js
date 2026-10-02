@@ -10,7 +10,7 @@
 
 import { walkProductiveHours, personShareHours, productiveHoursBetween, splitWorkedOp } from "./statsMath.js";
 import { overlapsWith, occupyingUnits } from "./overlapRules.js";
-import { unitDepartment, personDeptMatch } from "./scheduleRules.js";
+import { unitDepartments, personDeptMatch } from "./scheduleRules.js";
 import { shopMs } from "./shopTime.js";
 
 const sid = (x) => String(x);
@@ -104,13 +104,16 @@ export function refuseDragMove(movers, ctx) {
   // has someone out of department can still move along its own row.
   for (const m of movers) {
     if (!m.reassigned) continue;
-    const dept = requiredDepartmentOf(ctx.tasks, m.id);
-    if (!dept) continue;
+    const depts = requiredDepartmentsOf(ctx.tasks, m.id);
+    if (depts.length === 0) continue;          // [] means anyone
     for (const pid of m.to.team) {
       if ((m.from.team || []).some(x => same(x, pid))) continue;
       const person = (ctx.people || []).find(p => same(p.id, pid));
-      if (person && !personDeptMatch(person, dept)) {
-        return { kind: "department", id: m.id, title: title(m), personId: pid, personName: person.name || "", department: dept };
+      if (person && !personDeptMatch(person, depts)) {
+        // `department` stays a STRING on the refusal payload: it is what the
+        // message prints, and "Wire or Cut" reads correctly in the sentence the
+        // caller builds. The decision above used the whole set.
+        return { kind: "department", id: m.id, title: title(m), personId: pid, personName: person.name || "", department: depts.join(" or ") };
       }
     }
   }
@@ -145,16 +148,19 @@ export function refuseDragMove(movers, ctx) {
   return null;
 }
 
-/** The department a unit requires, read from the tree: its own, else its panel's, else its job's. */
-export function requiredDepartmentOf(tasks, id) {
+/**
+ * The departments a unit may be done by, read from the tree: its own, else its
+ * panel's, else its job's. A SET now (ruled 2026-10-02); [] means anyone.
+ */
+export function requiredDepartmentsOf(tasks, id) {
   for (const job of tasks || []) {
-    if (same(job.id, id)) return unitDepartment(job, null, null);
+    if (same(job.id, id)) return unitDepartments(job, null, null);
     for (const panel of job.subs || []) {
-      if (same(panel.id, id)) return unitDepartment(panel, null, job);
-      for (const op of panel.subs || []) if (same(op.id, id)) return unitDepartment(op, panel, job);
+      if (same(panel.id, id)) return unitDepartments(panel, null, job);
+      for (const op of panel.subs || []) if (same(op.id, id)) return unitDepartments(op, panel, job);
     }
   }
-  return "";
+  return [];
 }
 
 /**

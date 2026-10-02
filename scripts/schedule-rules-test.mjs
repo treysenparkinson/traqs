@@ -73,9 +73,23 @@ ok("Friday is a working day", rules.isWorkingDay("2026-10-02", { workDays: [1, 2
 ok("Saturday is not", rules.isWorkingDay("2026-10-03", { workDays: [1, 2, 3, 4, 5] }), false);
 ok("a holiday is not", rules.isWorkingDay("2026-10-06", { workDays: [1, 2, 3, 4, 5], holidays: ["2026-10-06"] }), false);
 ok("default work days are Mon–Fri", [rules.isWorkingDay("2026-10-05"), rules.isWorkingDay("2026-10-04")], [true, false]);
-ok("primary department matches", rules.personDeptMatch(people[1], "Wiring"), "primary");
-ok("secondary department matches", rules.personDeptMatch(people[2], "Wiring"), "secondary");
-ok("other department does not", rules.personDeptMatch(people[3], "Wiring"), false);
+// RE-POINTED 2026-10-02: departments are a flat SET on both sides and
+// personDeptMatch returns a BOOLEAN. The old "primary"/"secondary" return was a
+// preference order for ranking a backup below a specialist, and it was
+// unexercised — zero of Matrix's 18 people held a secondary department.
+ok("a held department matches", rules.personDeptMatch(people[1], ["Wiring"]), true);
+ok("...so does one held as the old secondary, with no tier between them",
+  rules.personDeptMatch(people[2], ["Wiring"]), true);
+ok("a department nobody holds does not", rules.personDeptMatch(people[3], ["Wiring"]), false);
+// The set semantics: ANY overlap is a match, and [] means anyone.
+ok("any one of several required departments is enough",
+  rules.personDeptMatch(people[3], ["Wiring", people[3].department]), true);
+ok("an empty required set matches everyone", rules.personDeptMatch(people[3], []), true);
+ok("...and so does a missing one", rules.personDeptMatch(people[3], undefined), true);
+// A single string still works, so stored rows written before the change read
+// correctly without a migration.
+ok("a legacy single-string requirement still matches",
+  rules.personDeptMatch(people[1], "Wiring"), true);
 { const t = tree(); const [j] = t, [p, p2] = j.subs;
   ok("department inherits op → panel → job", rules.unitDepartment(p.subs[0], p, j), "Wiring");
   ok("no department anywhere up the tree", rules.unitDepartment(p2.subs[0], p2, j), "");

@@ -106,25 +106,144 @@ export function workCalendar({ workDays, holidays } = {}) {
   return { isWorkDay, add, next, diff, diffSigned: (a, b) => (a <= b ? diff(a, b) : -diff(b, a)), span, countForward, segments, spansOffDay };
 }
 
-/** "primary" / "secondary" when the person holds the department, false otherwise. */
-export function personDeptMatch(p, reqDept) {
-  if (!reqDept) return "primary";
-  if ((p?.department || "") === reqDept) return "primary";
-  if ((p?.secondaryDepartment || "") === reqDept) return "secondary";
-  return false;
+// ── DEPARTMENTS ARE SETS, ON BOTH SIDES ────────────────────────────────────
+//
+// Ruled 2026-10-02. An op names a FLAT SET of departments — "either, pick
+// whoever is free" — and a person holds a flat set too. One concept, not two.
+//
+// This replaces two shapes at once:
+//
+//   OP SIDE   `requiredDepartment: string` could say one department or none,
+//             so "Wire or Cut can do this" had to be written as "nothing",
+//             which is also how you write "anyone". Two facts, one encoding —
+//             and the title heuristic existed to paper over exactly that gap.
+//
+//   PERSON    `department` + `secondaryDepartment` was a two-slot PREFERENCE
+//             ORDER, and personDeptMatch returned "primary"/"secondary" so
+//             callers could rank a backup below a specialist. Measured before
+//             removing it: ZERO of Matrix's 18 people held a secondary, so the
+//             ordering was unexercised machinery. It is gone, with the six
+//             comparators that read it.
+//
+// EMPTY IS CANONICAL AND MEANS ANYONE. "No departments" and "every department"
+// are the same statement, so one of them has to be the stored form or they
+// diverge: `normalizeDepartments` collapses a full set to []. Pick the empty
+// one, because it stays correct when a new department is added to the org —
+// a stored "all five" would silently stop meaning "anyone" on the day a sixth
+// appears.
+
+/** Coerce any of the stored shapes to a clean array of department names. */
+function deptList(v) {
+  if (Array.isArray(v)) return v.map(d => String(d || "").trim()).filter(Boolean);
+  const one = String(v || "").trim();
+  return one ? [one] : [];
 }
 
 /**
- * The department a unit requires: its own requiredDepartment, else its panel's,
- * else its job's. An empty string counts as unset, as in the web's deptOfUnit.
- * The web additionally treats an op titled like a department as requiring it;
- * that heuristic stays client-side, so the server is never stricter than the web.
+ * The stored form. Trims, de-duplicates, drops blanks, and collapses a set that
+ * covers every known department to [] — the canonical "anyone".
+ *
+ * `allKnown` is the org's department list. Without it the collapse is skipped
+ * rather than guessed, so a caller that cannot see org settings still gets a
+ * clean array instead of a wrong one.
  */
+export function normalizeDepartments(value, allKnown = null) {
+  const seen = new Set();
+  const out = [];
+  for (const d of deptList(value)) {
+    const k = d.toLowerCase();
+    if (seen.has(k)) continue;
+    seen.add(k); out.push(d);
+  }
+  if (Array.isArray(allKnown) && allKnown.length > 0) {
+    const known = new Set(allKnown.map(d => String(d || "").trim().toLowerCase()).filter(Boolean));
+    if (known.size > 0 && out.length >= known.size && [...known].every(k => seen.has(k))) return [];
+  }
+  return out;
+}
+
+/** The departments a person holds. Reads the set, falling back to the old pair. */
+export function personDepartments(p) {
+  if (!p) return [];
+  if (Array.isArray(p.departments)) return deptList(p.departments);
+  return deptList([p.department, p.secondaryDepartment].filter(Boolean));
+}
+
+/**
+ * The departments a unit may be done by: its own, else its panel's, else its
+ * job's. [] means anyone — see the note above.
+ *
+ * Precedence is unchanged from the single-value version: the NEAREST level that
+ * states anything wins outright. A panel saying "Wire or Cut" is not unioned
+ * with a job saying "Layout"; the panel is simply more specific.
+ */
+export function unitDepartments(node, panel, job) {
+  for (const n of [node, panel, job]) {
+    if (!n) continue;
+    const own = Array.isArray(n.requiredDepartments) ? deptList(n.requiredDepartments) : deptList(n.requiredDepartment);
+    if (own.length) return own;
+  }
+  return [];
+}
+
+/**
+ * Whether this person may take work requiring `reqDepts`.
+ *
+ * Boolean now, not "primary"/"secondary". A set has no preference order, and
+ * the order that existed was never exercised.
+ */
+export function personDeptMatch(p, reqDepts) {
+  const req = deptList(reqDepts);
+  if (req.length === 0) return true;                 // anyone
+  const mine = new Set(personDepartments(p).map(d => d.toLowerCase()));
+  return req.some(d => mine.has(d.toLowerCase()));
+}
+
+/**
+ * Back-compat for the older single-value readers, including the native clients.
+ * `unitDepartment` keeps returning ONE department — the first — so a reader that
+ * has not learned about sets narrows rather than breaks.
+ *
+ * The write side mirrors this: `requiredDepartment` is kept populated with the
+ * first element beside `requiredDepartments`, so iOS's
+ * `extras.text("requiredDepartment")` keeps decoding. Dropping the string
+ * outright would make iOS see no department at all, which WIDENS rather than
+ * breaks and is the safe direction — but it would have web and iOS scheduling
+ * to different rules with nothing failing, which is worse than either.
+ */
+/**
+ * Keep both shapes on a node that carries departments.
+ *
+ * `requiredDepartments` is the truth; `requiredDepartment` is kept populated
+ * with the FIRST element so older readers narrow instead of breaking. That
+ * matters off the web: iOS reads `extras.text("requiredDepartment")` at job,
+ * panel and op level, and an array decodes there as nil — which would make iOS
+ * treat every op as having no department. That WIDENS rather than breaks, and
+ * widening is the safe direction under "absence means anyone" — but it would
+ * leave web and iOS scheduling to different rules with nothing failing, which
+ * is worse than either outcome on its own.
+ *
+ * Returns the node unchanged when it states no departments, so this can be run
+ * over a whole tree without rewriting nodes that have nothing to say.
+ */
+export function withDepartmentDualWrite(node, allKnown = null) {
+  if (!node || typeof node !== "object") return node;
+  const has = Array.isArray(node.requiredDepartments) || node.requiredDepartment != null;
+  if (!has) return node;
+  const set = normalizeDepartments(
+    Array.isArray(node.requiredDepartments) ? node.requiredDepartments : node.requiredDepartment,
+    allKnown,
+  );
+  const first = set[0] || "";
+  if (Array.isArray(node.requiredDepartments)
+    && node.requiredDepartments.length === set.length
+    && node.requiredDepartments.every((d, k) => d === set[k])
+    && (node.requiredDepartment || "") === first) return node;
+  return { ...node, requiredDepartments: set, requiredDepartment: first };
+}
+
 export function unitDepartment(node, panel, job) {
-  return (node && node.requiredDepartment)
-    || (panel && panel.requiredDepartment)
-    || (job && job.requiredDepartment)
-    || "";
+  return unitDepartments(node, panel, job)[0] || "";
 }
 
 const eq = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
@@ -223,13 +342,17 @@ export function scheduleRuleViolations(nextTasks, prevTasks, ctx = {}) {
     const isNew = !before || !before.live;
     const n = after.node;
 
-    // department
-    const dept = unitDepartment(n, after.panel, after.job);
-    if (dept && Array.isArray(n.team) && n.team.length) {
-      const prevDept = before ? unitDepartment(before.node, before.panel, before.job) : null;
-      if (isNew || teamChanged(before.node, n) || prevDept !== dept) {
-        const outside = n.team.filter(pid => { const p = byId.get(String(pid)); return p && !personDeptMatch(p, dept); });
-        if (outside.length) add("department", id, after, `assigned outside ${dept}: ${outside.join(", ")}`);
+    // department — a SET now. [] means anyone, so there is nothing to check.
+    const depts = unitDepartments(n, after.panel, after.job);
+    if (depts.length && Array.isArray(n.team) && n.team.length) {
+      const prevDepts = before ? unitDepartments(before.node, before.panel, before.job) : null;
+      // Compared as a joined key rather than by identity: the set is rebuilt on
+      // every read, so `prev !== next` would fire on every write and re-check a
+      // team nobody touched.
+      const key = (a) => (a === null ? null : a.map(d => d.toLowerCase()).sort().join("\u0000"));
+      if (isNew || teamChanged(before.node, n) || key(prevDepts) !== key(depts)) {
+        const outside = n.team.filter(pid => { const p = byId.get(String(pid)); return p && !personDeptMatch(p, depts); });
+        if (outside.length) add("department", id, after, `assigned outside ${depts.join(" or ")}: ${outside.join(", ")}`);
       }
     }
 
