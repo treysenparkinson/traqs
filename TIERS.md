@@ -73,13 +73,25 @@ timelines · Clients · approval templates · job analytics (efficiency & utiliz
   **both** pages; the Employees page has its job-fed panels omitted and its schedule panels
   re-sourced from the roster (design §11.3).
 
-**Unresolved and flagged, not decided:** this definition says Basic has **no departments**, while
-the design (§12.3 D) treats the Departments settings section as "Basic-safe as it stands".
-Departments are listed under Business, following this definition, but the two disagree.
+### Both flagged conflicts ruled 2026-10-02
 
-Also flagged: this definition says a shift carries a **crew**; the design's decision 7 is
-**person-owned templates only**, with copy-from-another-person as the affordance that covers a
-crew. No row either way until it is ruled.
+**Departments — this definition holds. Basic has none.** The design's "Basic-safe as it stands"
+(§12.3 D) says the settings section **would not break**, not that it **belongs**, and those are
+different claims. A small crew does not need org structure. Departments stay under Business.
+
+**Crew — the design is right; the earlier ruling is overturned.** Decision 7 stands:
+**person-owned templates only**, with copy-from-another-person (§6.1) as the affordance that
+covers a crew. A crew is four people carrying the same pattern, not one shift with four names.
+
+**Both of the overturned rulings came from the same error**, which is worth naming because it has
+a shape: *a shift was being thought of as a **row** rather than a **rule**.* Reasoning about the
+roster as a list of concrete shifts makes multi-person shifts and bolt-on recurrence both look
+natural, and makes person-owned weekly templates look like a limitation. It is the other way
+round — once the primitive is a weekly pattern, a crew is four people on the same pattern and
+recurrence is not a feature to add but the thing itself.
+
+That error also produced the `shifts.json` and separate-schedule-view proposals in
+`BASIC_TIER.md`. Four decisions, one root cause.
 
 ### Basic is not a subset
 

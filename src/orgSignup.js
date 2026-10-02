@@ -174,6 +174,14 @@ export function buildOrgPayload(form) {
     companySize: form.companySize || "",
     country: clean(form.country),
     currency: form.currency || "USD",
+    // TIER WAS COLLECTED AND THEN THROWN AWAY. The wizard has a whole tier step
+    // (STEPS id "tier") and validates the answer, and the payload dropped it —
+    // so the choice never reached the server and billing.js's
+    // absent-means-basic default decided instead. Harmless while Business is
+    // refused client-side, and exactly the silent default that step 0 exists to
+    // remove: /org now requires an explicit tier and writes billing.json from
+    // it, so the answer has to actually be sent.
+    tier: form.tier || "basic",
     settings: {
       timeZone: clean(form.timeZone),
       payPeriodType: form.payPeriodType,

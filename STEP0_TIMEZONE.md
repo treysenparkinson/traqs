@@ -1,7 +1,14 @@
 # Step 0: `settings.timeZone` becomes required
 
-**Scope document, 2026-10-02. Nothing built.** Requested before any roster work begins, because
-the rostering design calls generation without it wrong by hours rather than minutes.
+> **BUILT 2026-10-02.** Scoped at 2–3 days, accepted, implemented in the same session. What
+> shipped is below under **What was built**; the scoping that follows it is kept as the record of
+> why. `scripts/step0-timezone-test.mjs` guards it — 21 assertions, 5 mutation-proved.
+>
+> **This is the only thing built. The roster is not started, by instruction** — the scope is
+> settled and written before anyone writes a resolver.
+
+**Scope document, 2026-10-02.** Requested before any roster work begins, because the rostering
+design calls generation without it wrong by hours rather than minutes.
 
 This is the rostering design's step 0 (§4.1). It **ships alone and is valuable alone** — every
 existing day-bucketing path gets more correct — and nothing in the roster can be trusted before
@@ -113,19 +120,57 @@ settings UI, drop the fallback" — two of those three are already done.
 
 ---
 
+## What was built
+
+**`netlify/functions/org.js` — both fields required at creation.**
+`settings.timeZone` must be present and must be a zone the **ICU database** knows — validated by
+constructing an `Intl.DateTimeFormat` against it, not by shape, because a shape check accepts
+`"Mountain"` and fails at the first generation. `tier` must be present and one of
+`basic` | `business`. Both return 400. `settings.json` is now written unconditionally (the old
+write was conditional on the object being non-empty, which it no longer can be), and
+**`billing.json` is written explicitly from the requested tier** rather than left to be inferred.
+
+**`src/orgSignup.js` — the wizard now sends the tier it collects.** It did not. There is a whole
+tier step (`STEPS` id `"tier"`) with its own validation, and `buildOrgPayload` dropped the answer,
+so the choice never reached the server and `billing.js`'s absent-means-basic default decided
+instead. Harmless while Business is refused client-side — and exactly the silent default this
+pass exists to remove.
+
+**`netlify/functions/timeclock.js` — the fallback is visible, not removed.**
+`TZ_FALLBACK_MODE` defaults to `log`. Absent and invalid zones log under **different reasons**
+(`[tz-fallback] missing` / `[tz-fallback] invalid`), because they are different failures: one is
+an org nobody configured, the other is a value something wrote that `org.js` now refuses. In log
+mode the row is still returned — a clock write that 500s because an org never set a zone is worse
+than a day-edge error. `TZ_FALLBACK_MODE=enforce` makes them throw.
+
+**One assertion was deliberately reversed**, in `scripts/signup-test.mjs`. It asserted the payload
+carries *no* tier, with sound reasoning: the tier lives in `billing.json` where absence means
+Basic, so sending it would be a second home for one fact, and the only value that could reach the
+POST was the one the server would assume anyway. Both halves were true; the conclusion expires the
+moment Business becomes selectable. The old comment is preserved in place with why it no longer
+holds.
+
+### Not adopted, deliberately
+
+The design (§7.1) has an **absent `tier` mean `business`**, to grandfather orgs created before the
+field existed. **That is wrong for this codebase.** `billing.js` documents the opposite — *"An org
+with no billing.json is Basic. Absence means never provisioned, which is exactly Basic"* — and
+**six of the seven live orgs have no `billing.json`**. Adopting the design's default would hand
+all six Business. Absence keeps meaning Basic for existing records; the new check only makes the
+choice explicit for new ones.
+
 ## Open questions
 
 1. **Delete the two stub orgs or backfill them?** `MATRIX` and `MTX2025TRAQS` have no name, no
    data and no timeclock rows. Deleting is cleaner than carrying them through every future
-   migration.
-2. **Does `tier` get the same treatment in the same pass?** The design says a missing `tier` at
-   creation "should be a hard 400 rather than a default, since a defaulted tier is how Business
-   gets given away silently" (§7.1) — the identical argument, in the identical function, about
-   the identical kind of field. Doing both at once is one change to `org.js`'s validation block
-   instead of two.
-3. **How long does the fallback run in log mode** before it throws? There is no traffic signal
-   here yet; a week of real use is the obvious answer but it depends on when the roster work
-   starts.
+   migration. **Not actioned** — deleting org prefixes is destructive and wants an explicit say-so.
+2. ~~**Does `tier` get the same treatment in the same pass?**~~ **Ruled yes, 2026-10-02.** Identical
+   argument, identical function, identical kind of field — one change to `org.js`'s validation
+   block. Built.
+3. **How long does the fallback run in log mode** before it throws? No traffic signal yet. A week
+   of real use is the obvious answer, but it depends on when the roster work starts — and the only
+   orgs that can still hit it are the two empty stubs, so the log may simply stay silent, which is
+   itself the result.
 
 ---
 

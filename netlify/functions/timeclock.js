@@ -64,16 +64,50 @@ function hoursElapsed(isoStart, isoEnd) {
 // Falls back to the UTC slice when the org has no timeZone configured, so orgs
 // that have not set one keep exactly their current behaviour rather than
 // silently shifting to a timezone nobody chose.
+//
+// ── STEP 0, LOG MODE ───────────────────────────────────────────────────────
+//
+// `settings.timeZone` is now REQUIRED at org creation (org.js), so from here on
+// no new org can reach these fallbacks. Existing orgs still can, and this
+// function is on the hot path of ~18 clock actions, so the fallback is NOT
+// removed yet — it is made VISIBLE first.
+//
+// Same rollout every other enforcement in this codebase has had: log, read the
+// log against real traffic, then enforce. Turning a silent wrong answer into a
+// throw is a behaviour change on 66 timeZone read sites across 13 files, and
+// doing it blind is how a clock endpoint starts 500ing for a shop at 6am.
+//
+// TO ENFORCE LATER: set TZ_FALLBACK_MODE=enforce once the log is quiet. The
+// fallbacks then throw instead of guessing, and the guess is what the roster
+// resolver cannot tolerate — bucketing survives a wrong zone with a day-edge
+// error, generation turns 07:00 into midnight local at UTC-7.
+const TZ_FALLBACK_MODE = process.env.TZ_FALLBACK_MODE || "log";
+
+function tzFallback(reason, timeZone) {
+  if (TZ_FALLBACK_MODE === "off") return;
+  // One line per occurrence, greppable in function logs by the tag. Deliberately
+  // not rate-limited: if this is noisy enough to matter, that IS the finding.
+  console.warn(`[tz-fallback] ${reason}`, JSON.stringify({ timeZone: timeZone ?? null }));
+  if (TZ_FALLBACK_MODE === "enforce") {
+    throw new Error(`Org timezone ${reason}; refusing to guess UTC (TZ_FALLBACK_MODE=enforce)`);
+  }
+}
+
 function orgLocalDay(iso, timeZone) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return String(iso || "").slice(0, 10);
-  if (!timeZone) return d.toISOString().slice(0, 10);
+  if (!timeZone) { tzFallback("missing", timeZone); return d.toISOString().slice(0, 10); }
   try {
     // en-CA formats as YYYY-MM-DD, matching the keys used everywhere else.
     return new Intl.DateTimeFormat("en-CA", {
       timeZone, year: "numeric", month: "2-digit", day: "2-digit",
     }).format(d);
   } catch {
+    // A bad IANA name is a DIFFERENT failure from an absent one — it means
+    // something wrote a zone the ICU database does not know, which org.js now
+    // refuses at creation. Logged under its own reason so the two are
+    // distinguishable in the log.
+    tzFallback("invalid", timeZone);
     return d.toISOString().slice(0, 10);   // bad IANA name — don't lose the row
   }
 }

@@ -71,6 +71,7 @@ export async function handler(event) {
     const {
       name, domain, adminEmail,
       adminName, adminEmails, industry, companySize, country, currency,
+      tier,
       settings: reqSettings,
     } = body ?? {};
     // DOMAIN IS OPTIONAL. An email-domain allowlist is a Business-tier control,
@@ -83,6 +84,49 @@ export async function handler(event) {
     if (String(name).length > 80) return err(400, "Organization name too long (max 80 chars)");
     if (domain != null && String(domain).length > 80) return err(400, "Domain too long (max 80 chars)");
     if (String(adminEmail).length > 200 || !adminEmail.includes("@")) return err(400, "Invalid adminEmail");
+
+    // ── STEP 0: timeZone and tier are REQUIRED at creation ──────────────────
+    //
+    // Both were previously written only "if supplied", which is the same bug
+    // twice: a field that silently defaults is a field nobody notices is wrong.
+    //
+    // TIMEZONE. The server's fallback is the UTC slice (timeclock.js
+    // `orgLocalDay`). That is survivable for BUCKETING — filing an instant that
+    // already exists under a day, where a wrong zone mis-files by a day at the
+    // edges — and not survivable for GENERATION, which runs the other way: a
+    // 07:00 roster pattern generated for a zoneless org becomes 07:00 UTC,
+    // which is midnight local at UTC-7. A seven-hour error that would push
+    // missed-shift alerts in the middle of the night. The same bug class
+    // already bit this codebase in the other direction; see localDay.js's
+    // header, where an 18:23-21:53 shift was filed on the following day.
+    //
+    // Validated against the ICU database rather than by shape, or "Mountain"
+    // is accepted here and fails at the first generation.
+    const tz = reqSettings?.timeZone == null ? "" : String(reqSettings.timeZone).trim();
+    if (!tz) return err(400, "Missing required field: settings.timeZone");
+    try {
+      // Throws RangeError on an unknown zone. Intl.supportedValuesOf is not on
+      // every Node 18 ICU build, so this is the portable check.
+      new Intl.DateTimeFormat("en-US", { timeZone: tz }).format(new Date());
+    } catch {
+      return err(400, `Unknown time zone: ${tz.slice(0, 64)}`);
+    }
+
+    // TIER. A defaulted tier is how Business gets given away silently, so the
+    // choice is explicit at creation or the request is refused.
+    //
+    // DELIBERATELY NOT ADOPTED: the rostering design (§7.1) has an ABSENT tier
+    // mean "business", to grandfather orgs created before the field existed.
+    // That is wrong for this codebase as it stands — billing.js reads
+    // `orgs/{code}/billing.json` and documents the opposite ("An org with no
+    // billing.json is Basic. Absence means never provisioned, which is exactly
+    // Basic"), and six of the seven live orgs have no billing.json. Flipping
+    // the default would hand all six Business. Absence keeps meaning Basic for
+    // EXISTING records; this check only makes the choice explicit for NEW ones.
+    const TIERS = ["basic", "business"];
+    const wantTier = tier == null ? "" : String(tier).trim().toLowerCase();
+    if (!wantTier) return err(400, "Missing required field: tier");
+    if (!TIERS.includes(wantTier)) return err(400, `Invalid tier: must be one of ${TIERS.join(", ")}`);
 
     // Generate, checking for collision. The random half is 31^8 wide per prefix,
     // so a clash is remote — but "remote" is not "impossible", and silently
@@ -159,11 +203,20 @@ export async function handler(event) {
     // app defaults for itself — writing a full settings object here would freeze
     // today's defaults into every org created from now on, and they would stop
     // tracking the app's.
-    const seedSettings = {};
-    if (s.timeZone) seedSettings.timeZone = String(s.timeZone).slice(0, 64);
+    // timeZone is REQUIRED and validated above, so settings.json is now always
+    // written and `seedSettings` is never empty.
+    const seedSettings = { timeZone: tz.slice(0, 64) };
     if (s.payPeriodType) seedSettings.payPeriodType = s.payPeriodType;
     if (s.payPeriodStart) seedSettings.payPeriodStart = s.payPeriodStart;
-    if (Object.keys(seedSettings).length) seedSettings.lastModifiedAt = nowIso();
+    seedSettings.lastModifiedAt = nowIso();
+
+    // Tier is written EXPLICITLY at creation rather than left to billing.js's
+    // absent-means-basic default, so a new org's tier is a recorded decision
+    // and not an inference. Same shape billing.js reads and writes.
+    const seedBilling = {
+      tier: wantTier, requestedTier: null, requestedAt: null, requestedBy: null,
+      lastModifiedAt: nowIso(),
+    };
 
     try {
       await Promise.all([
@@ -176,8 +229,8 @@ export async function handler(event) {
         // the names the app already reads — putting them on config.json would
         // create a second copy nothing looks at, and the app would keep its
         // defaults while the confirmation screen showed the admin their choice.
-        ...(Object.keys(seedSettings).length
-          ? [writeJson(`orgs/${code}/settings.json`, seedSettings)] : []),
+        writeJson(`orgs/${code}/settings.json`, seedSettings),
+        writeJson(`orgs/${code}/billing.json`, seedBilling),
         // The code side of the Auth0 index, written now so the mapping exists
         // from the moment the org does. auth0OrgId is null until an Auth0
         // Organization is bound to it: creating one needs the Management API,

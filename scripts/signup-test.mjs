@@ -95,10 +95,27 @@ eq("business is refused while it is still being built",
 eq("so is anything else", Object.keys(validateStep("tier", { ...filled(), tier: "" })), ["tier"]);
 eq("and confirm re-runs it, so it cannot be skipped past",
   Object.keys(validateStep("confirm", { ...filled(), tier: "business" })), ["tier"]);
-// The org's tier lives in billing.json, where absence means Basic. Sending it
-// here would be a second place for the same fact to live — and the only value
-// that can reach this point is the one the server would have assumed.
-eq("the payload carries no tier", "tier" in buildOrgPayload(filled()), false);
+// CHANGED 2026-10-02 (step 0). This used to assert the opposite, and the old
+// reasoning is kept because it was good:
+//
+//   "The org's tier lives in billing.json, where absence means Basic. Sending
+//    it here would be a second place for the same fact to live — and the only
+//    value that can reach this point is the one the server would have assumed."
+//
+// Both halves were true and the conclusion no longer holds. It is not a second
+// home for the fact: the payload carries the CHOICE, billing.json stays the
+// only STORE, and /org now writes that store from the choice. And "the only
+// value that can reach this point is the one the server would have assumed" is
+// exactly the property that expires the moment Business becomes selectable —
+// at which point the wizard would collect a tier, drop it, and the server would
+// assume Basic. A defaulted tier is how Business gets given away silently, so
+// /org now requires it explicitly and refuses a request without one.
+eq("the payload carries the tier the wizard collected",
+  buildOrgPayload(filled()).tier, "basic");
+eq("...and carries it explicitly rather than relying on the server's default",
+  Object.hasOwn(buildOrgPayload(filled()), "tier"), true);
+eq("...passing through whatever was chosen, not a hard-coded basic",
+  buildOrgPayload({ ...filled(), tier: "business" }).tier, "business");
 
 // ── payroll ──────────────────────────────────────────────────────────────
 const pErr = (over) => validateStep("payroll", { ...filled(), ...over });

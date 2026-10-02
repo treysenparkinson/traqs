@@ -81,15 +81,23 @@ eq("...and says where, so 'for pay only' cannot be read as desk-only",
   BASIC_FEATURES.some((f) => /mobile clock/i.test(f) && /phone/i.test(f)), true);
 eq("the phone clock is NOT sold as a Business upgrade",
   BUSINESS_FEATURES.some((f) => /mobile clock|phone/i.test(f)), false);
-// CREW: no assertion, because the two sources disagree and it is not settled.
-// Ruled 2026-10-02 (first pass): "a morning crew is one shift with four names,
-// not four shifts." The rostering design's decision 7 is PERSON-OWNED TEMPLATES
-// ONLY (role-owned deferred), so under it a crew is four people carrying the
-// same pattern — and §6.1 offers copy-from-another-person as precisely the
-// affordance that "makes person-owned templates tolerable". The design
-// anticipated the need and answered it with copying rather than with
-// multi-person shifts. Flagged in BASIC_RECONCILIATION.md; no row either way
-// until it is ruled, because asserting one would freeze an open question.
+// CREW — SETTLED 2026-10-02 in favour of the design. Decision 7 stands:
+// PERSON-OWNED TEMPLATES ONLY (role-owned deferred). A crew is four people
+// carrying the same pattern, not one shift with four names, and §6.1's
+// copy-from-another-person is the affordance that covers it — the design
+// anticipated the need and answered it with copying.
+//
+// The earlier ruling ("a shift carries a crew") was made while a shift was
+// still being thought of as a ROW rather than a RULE. That is the same error
+// that produced the recurring-is-post-launch ruling, and both were corrected by
+// the design. Worth naming because the error has a shape: reasoning about the
+// roster as a list of concrete shifts makes multi-person shifts and bolt-on
+// recurrence both look natural, and makes person-owned weekly templates look
+// like a limitation. They are the opposite way round.
+//
+// No row in the table either way — a crew is an authoring affordance, not a
+// sold feature — so there is nothing to assert here beyond the per-person
+// framing already asserted above.
 // Basic keeps Time Stamp — it is the pay clock, which is half of what Basic is.
 eq("time stamps are Basic",
   BASIC_FEATURES.some((f) => /time stamps/i.test(f)), true);
