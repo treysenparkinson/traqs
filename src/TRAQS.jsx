@@ -15,7 +15,7 @@ import { HexColorPicker } from "react-colorful";
 import { syncBus } from "./db/index.js";
 import { configureSync, deltaSync, readSlice, hasCachedData, mergeFullMessages, mergeFullSlice, evictRows } from "./db/sync.js";
 import * as realtime from "./realtime/ably.js";
-import { BASIC_FEATURES, BUSINESS_FEATURES, TIER_LABEL, upgradeMailto } from "./tiers.js";
+import { BASIC_FEATURES, BUSINESS_FEATURES, BASIC_ONLY, businessColumn, TIER_LABEL, upgradeMailto } from "./tiers.js";
 import { openRequest, resolveRequest, pendingFinishOf, pendingEntryOf, normalizeFinishState } from "./finishRequests.js";
 import { basicLanes, laneKey } from "./basicLanes.js";
 import { CLOCK_EPS, buildDayWindows, walkProductiveHours, walkProductiveHoursBack, opDaySegments, personShareHours, capacityOf, suspectHpdOps, productiveClockHours } from "./statsMath.js";
@@ -4203,11 +4203,7 @@ export default function App({ auth0User, getToken, logout, orgCode, orgConfig })
     // just in the nav arrays that normally trigger this) so a stray caller —
     // e.g. the client quick-search result click below — can't reach a page
     // Basic has no way to navigate back out of.
-    // Basic reaches every page. The tier line is AUTOMATIC SCHEDULING, not access to the
-    // product: a one-shop panel builder is exactly who Basic is sold to, and "Scheduling &
-    // job management" cannot mean a schedule with the Jobs page hidden. Analytics was the
-    // clearest case — src/tiers.js argues in writing that gating it "would be taking
-    // something away, not adding something", and this line did it anyway.
+    if (billingTier !== "business" && ["tasks", "analytics", "clients"].includes(v)) return;
     setView(v);
     setJobSelectMode(false);    setSelJobs(new Set());
     setClientSelectMode(false); setSelClients(new Set());
@@ -9854,10 +9850,13 @@ Extraction rules:
   const delClient = id => { toast("Client deleted"); setClients(p => p.filter(c => c.id !== id)); setTasks(p => p.map(t => t.clientId === id ? { ...t, clientId: null } : t)); };
   const goStep = (next) => { setStepDir(next > modalStep ? 1 : -1); setModalStep(next); };
   const openNew = (pid = null) => {
-    // Basic gets the real job wizard, panels and ops included (#4). It used to open a flat
-    // one-step form instead — "job management" that could not express a job. The simple
-    // modal is kept for the Basic CREATE shortcut only where it is explicitly chosen; it is
-    // no longer what a tier gets instead of the product.
+    // Basic skips the multi-step wizard entirely — a flat, one-step form
+    // (title, who's on it, day, start/end time), no auto-scheduling, no
+    // panels/ops. See renderSimpleJobModal / handleCreateSimpleJob.
+    if (billingTier !== "business") {
+      setModal({ type: "simpleEdit", data: { title: "", team: [], date: TD, startHour: workStartH, endHour: Math.min(workEndH, workStartH + 8) }, parentId: pid });
+      return;
+    }
     setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 0, notes: "", subs: [], deps: [], clientId: null, customOps: [], color: randomJobColor() }, parentId: pid });
   };
   // Basic tier: resolve a bar's underlying task (which may be the job itself or
@@ -10048,21 +10047,31 @@ Extraction rules:
   // Kept as a name for call sites that specifically mean "open the owning job";
   // openDetail resolves the same way now, so they are equivalent.
   const openJobDetail = openDetail;
-  // Job Details opens on every tier (#4). This used to divert Basic to a flat edit modal,
-  // on the reasoning that a one-sub job had nothing to show — true of the job Basic was
-  // allowed to build, and circular: the page was empty because the structure was withheld.
-  // With panels and ops available to Basic there is a real job to show.
-  //
-  // Kept as its own name rather than collapsed into openJobDetail, because the #160 gate
-  // below still has to run: a bar click must not open an editor for someone who cannot edit.
-  // A bar click opens Job Details, on every tier.
-  //
-  // This used to divert Basic to an edit modal, and #160 was that modal opening for anyone at
-  // all — the one edit entry point in the app with no permission check. The diversion is gone
-  // with the tier ruling (#4), which takes #160 with it: Job Details is a READ surface, so
-  // there is no longer an editor to gate on a plain click. The gate that mattered stays where
-  // it always was, on the context menu's Edit item.
-  const openJobDetailOrEdit = (t) => openJobDetail(t);
+  // Basic has no Job Details page ("its just showing visually what it is" — a
+  // flat name/team/day/time job has nothing left to show there that isn't
+  // already on the bar or in the Edit modal). Every call site that opens Job
+  // Details on a plain bar click goes through this instead of openJobDetail
+  // directly, so Basic gets the Edit modal pre-filled and Business is unchanged.
+  const openJobDetailOrEdit = (t) => {
+    if (billingTier !== "business") {
+      // #160. This opened the EDIT modal on any bar click, for any user, with no permission
+      // check — the one edit entry point in the app that had none; the context-menu Edit at
+      // :31674 has always been wrapped in can("editJobs"). The save was still refused by
+      // /tasks (title needs editJobs, the dates need moveJobs, the team needs reassign, and
+      // the legacy classifier decides even in log mode) and the client rolls back on a 4xx,
+      // so nothing was ever written — but a worker could open the dialog, make an edit, watch
+      // it appear and then watch it vanish behind an error banner.
+      //
+      // Nothing happens for a viewer instead of opening a read-only Job Details: Basic
+      // deliberately has no details page (see the note above), and inventing one here to fill
+      // the gap would be a bigger change than the bug.
+      if (!can("editJobs")) return;
+      const job = jobForBarTask(t);
+      if (job) openSimpleEditForJob(job);
+      return;
+    }
+    openJobDetail(t);
+  };
 
   const AI_TOOLS = [
     { name: "update_job", description: "Update any field of an existing job: status, priority, dates, job number, notes, due date", input_schema: { type: "object", properties: { job_id: { type: "string", description: "The job_id from context" }, status: { type: "string", enum: STATUSES }, priority: { type: "string", enum: PRIORITIES }, start: { type: "string", description: "YYYY-MM-DD" }, end: { type: "string", description: "YYYY-MM-DD" }, due_date: { type: "string", description: "YYYY-MM-DD, or empty string to clear" }, job_number: { type: "string" }, notes: { type: "string" } }, required: ["job_id"] } },
@@ -10432,7 +10441,7 @@ ${jobsCtx || "No jobs found."}`;
   // Jobs, Analytics and Clients are Business-only. Basic keeps the array
   // otherwise identical to Business — filtered here rather than left out
   // above, so nothing else that maps over `views` needs its own tier check.
-  ];
+  ].filter(v => billingTier === "business" || !["tasks", "analytics", "clients"].includes(v.id));
   const handleCtx = (e, item, source = "gantt") => { e.preventDefault(); e.stopPropagation(); setCtxMenu({ x: e.clientX, y: e.clientY, item, source }); };
   // Context-menu placement, decided from the menu's MEASURED height rather than
   // a guess: the item list varies with type and permissions, so no constant is
@@ -21120,11 +21129,7 @@ ${jobsCtx || "No jobs found."}`;
             )}
 
             {/* Job Clock — STATE 1 / 2 / 3 — Business only, Basic has no job clock */}
-            {/* #332. Basic is SOLD "Mobile clock in/out" and this card was hidden from it,
-                while jobClockIn/jobClockOut/updateJobSession/releaseJobSession carried no tier
-                check at all — paid for, hidden, and reachable through the API the whole time.
-                The table was right and the UI was wrong. */}
-            {isClockedIn && (
+            {isClockedIn && billingTier === "business" && (
               <div className="tq-frost" style={{ background: T.card, borderRadius: T.radius, border: `1px solid ${T.borderLight}`, padding: "18px 16px", marginBottom: 16 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 14 }}>Job Clock</div>
 
@@ -22397,7 +22402,7 @@ ${jobsCtx || "No jobs found."}`;
             const jobResults = allItems.filter(t => t.title.toLowerCase().includes(q) || (t.notes || "").toLowerCase().includes(q));
             // No Clients page to land on for Basic, so no client results either —
             // otherwise a result click would be a dead no-op (switchView guards it).
-            const clientResults = clients.filter(c => c.name.toLowerCase().includes(q) || (c.contact || "").toLowerCase().includes(q));
+            const clientResults = billingTier !== "business" ? [] : clients.filter(c => c.name.toLowerCase().includes(q) || (c.contact || "").toLowerCase().includes(q));
             const personResults = people.filter(p => p.name.toLowerCase().includes(q));
             const hasResults = jobResults.length > 0 || clientResults.length > 0 || personResults.length > 0;
             return <div style={{ position: "absolute", top: "100%", left: 0, right: 0, marginTop: 4, zIndex: 9999, background: T.glass, border: `1px solid ${T.glassBorder}`, borderRadius: T.radiusSm, boxShadow: "0 8px 32px rgba(0,0,0,0.3)", maxHeight: 300, overflow: "auto" }}>
@@ -22428,7 +22433,7 @@ ${jobsCtx || "No jobs found."}`;
           { id: "messages",  icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>, label: "Chat", badge: unreadMessages.length },
           { id: "more",      icon: <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="5" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.5" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.5" fill="currentColor" stroke="none"/></svg>, label: "More" },
         // Jobs is Business-only on Basic, same rule as the desktop `views` array.
-        ]}
+        ].filter(t => billingTier === "business" || t.id !== "tasks")}
         activeId={moreOpen ? "more" : mobileView}
         onChange={id => { if (id === "more") { setMoreOpen(m => !m); } else { setMoreOpen(false); setView(id === "home" ? "schedule" : id); } }}
       />
@@ -22441,7 +22446,7 @@ ${jobsCtx || "No jobs found."}`;
               { id: "clients", label: "Clients", icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="7" width="20" height="15" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="17"/><line x1="9" y1="14.5" x2="15" y2="14.5"/></svg> },
               { id: "analytics", label: "Analytics", icon: <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg> },
             // Both Business-only on Basic, same rule as the desktop `views` array.
-            ].map(item => (
+            ].filter(item => billingTier === "business" || !["clients", "analytics"].includes(item.id)).map(item => (
               <button key={item.id} onClick={() => { setMoreOpen(false); setView(item.id); }} style={{ width: "100%", display: "flex", alignItems: "center", gap: 16, padding: "14px 24px", background: "none", border: "none", cursor: "pointer", fontFamily: T.font, textAlign: "left" }}>
                 <span style={{ color: T.textDim, lineHeight: 0 }}>{item.icon}</span>
                 <span style={{ fontSize: 16, fontWeight: 600, color: T.text }}>{item.label}</span>
@@ -26254,7 +26259,7 @@ ${jobsCtx || "No jobs found."}`;
   // Approval Queue Templates is Business-only on Basic. renderSettingsBody's
   // "org-approval-templates" case and renderSettingsApprovalTemplates stay —
   // Business still routes there, this only removes the nav entry.
-  ];
+  ].filter(c => billingTier === "business" || c.key !== "org-approval-templates");
   // `group` is the sidebar entry you're under and becomes the page title;
   // `sub` is the specific page within it, shown small underneath. The two
   // top-level sections have no sub — their group IS the page, so nothing is
@@ -27339,7 +27344,7 @@ ${jobsCtx || "No jobs found."}`;
                           value to show, but nothing has been PICKED yet, so the preview
                           doesn't commit to that one hue either. Picking a colour sets
                           dc.liquidColor and collapses this to the normal 2-colour mode. */}
-                      {!dc.liquidColor
+                      {billingTier !== "business" && !dc.liquidColor
                         ? <LiquidBackground colors={BRAND_BARS.map(b => b.c)} />
                         : <LiquidBackground color={lc} companion={comp} />}
                     </div>
@@ -27481,7 +27486,7 @@ ${jobsCtx || "No jobs found."}`;
                   </div>
                 </div>
                 <div style={{ flex: 1, minHeight: 0, minWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: "hidden", position: "relative", background: pT.bg }}>
-                  {isCustom && (dc.bgMode || "color") === "liquid" && (!dc.liquidColor
+                  {isCustom && (dc.bgMode || "color") === "liquid" && (billingTier !== "business" && !dc.liquidColor
                     ? <LiquidBackground colors={BRAND_BARS.map(b => b.c)} />
                     : <LiquidBackground color={dc.liquidColor || dc.accent} companion={companionHue(dc.liquidColor || dc.accent || "#4169e1")} />)}
                   {pAdaptive && <>
@@ -28107,15 +28112,23 @@ ${jobsCtx || "No jobs found."}`;
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
               <div style={{ flex: "1 1 220px", border: `1px solid ${T.border}`, borderRadius: T.radiusLg, padding: "14px 16px" }}>
                 <div style={{ fontSize: 13.5, fontWeight: 700, color: T.text }}>Basic</div>
-                <div style={{ fontSize: 11, color: T.textDim, marginBottom: 8 }}>For small teams</div>
+                {/* Says what Basic IS, which is the whole point of the rewritten table:
+                    "For small teams" describes the customer, not the product, and left a
+                    reader to infer the tier line from the checkmarks. */}
+                <div style={{ fontSize: 11, color: T.textDim, marginBottom: 8 }}>Shift scheduling and a pay clock</div>
                 {BASIC_FEATURES.map((f) => row(f, true))}
                 {BUSINESS_FEATURES.map((f) => row(f, false))}
               </div>
               <div style={{ flex: "1 1 220px", border: `1.5px solid ${T.accent}`, borderRadius: T.radiusLg, padding: "14px 16px", boxShadow: `0 0 20px ${T.accent}22` }}>
                 <div style={{ fontSize: 13.5, fontWeight: 700, color: T.text }}>Business</div>
-                <div style={{ fontSize: 11, color: T.textDim, marginBottom: 8 }}>Everything in Basic, plus</div>
-                {BASIC_FEATURES.map((f) => row(f, true))}
-                {BUSINESS_FEATURES.map((f) => row(f, true))}
+                {/* NOT "Everything in Basic, plus" — that is false. Basic is not a subset:
+                    it has an Employees page Business does not, because the two tiers put
+                    different pages in the same nav slot (Employees / Analytics). So the
+                    Business column is businessColumn(), which subtracts BASIC_ONLY, and
+                    those rows are then shown as absent rather than silently dropped. */}
+                <div style={{ fontSize: 11, color: T.textDim, marginBottom: 8 }}>The schedule, plus the job layer</div>
+                {businessColumn().map((f) => row(f, true))}
+                {BASIC_ONLY.map((f) => row(f, false))}
               </div>
             </div>
             {/* No purchase flow. Business is provisioned manually, so this opens
@@ -28184,7 +28197,7 @@ ${jobsCtx || "No jobs found."}`;
       {/* base fills the layer with the page colour so the blurred blobs composite
           over something OPAQUE. Without it, blur() samples the transparent pixels
           at the panel's rounded clip edge and darkens the corners. */}
-      {T.bgMode === "liquid" && (!T.liquidColor
+      {T.bgMode === "liquid" && (billingTier !== "business" && !T.liquidColor
         ? <LiquidBackground colors={BRAND_BARS.map(b => b.c)} base={T.bg} radius={isMobile ? 0 : SHELL_RADIUS} />
         : <LiquidBackground color={T.liquidColor} companion={T.liquidCompanion} base={T.bg} radius={isMobile ? 0 : SHELL_RADIUS} />)}
       {/* Sharp background-image layer for views that DON'T provide their own pinned background.
@@ -28702,7 +28715,7 @@ ${jobsCtx || "No jobs found."}`;
                       SHELL_RADIUS: the mock is about a fifth of the real panel's size, so the
                       panel's corner copied literally would read as a blob at this scale. */}
                   <div style={{ flex: 1, minHeight: 0, minWidth: 0, borderTopLeftRadius: 22, borderTopRightRadius: 22, overflow: "hidden", position: "relative", background: pT.bg }}>
-                  {isCustom && (dc.bgMode || "color") === "liquid" && (!dc.liquidColor
+                  {isCustom && (dc.bgMode || "color") === "liquid" && (billingTier !== "business" && !dc.liquidColor
                     ? <LiquidBackground colors={BRAND_BARS.map(b => b.c)} />
                     : <LiquidBackground color={dc.liquidColor || dc.accent} companion={companionHue(dc.liquidColor || dc.accent || "#4169e1")} />)}
                     {pAdaptive && <>
@@ -31819,9 +31832,7 @@ ${jobsCtx || "No jobs found."}`;
           reopen, so this becomes the one edit surface: same job-resolution logic,
           opens the simple modal pre-filled for a full edit (name/team/day/time)
           instead. Folds in what the separate pencil "Edit" button did on Basic. */}
-      {/* #4. Basic used to get a reduced "Edit" here instead of Reschedule, because it
-          had no panels to reschedule. It has them now. */}
-      {can("editJobs") && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01"/></svg>} label="Reschedule" sub="Reopen job to pick a new start date" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } if (!job) return; setModalStep(2); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setRescheduleSelection((job.subs || []).map(p => p.id)); setModal({ type: "edit", data: { ...job, isReschedule: true, _rescheduleStartDate: TD }, parentId: null }); setCtxMenu(null); }} animIdx={ci()} />}
+      {can("editJobs") && (billingTier === "business" ? <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01"/></svg>} label="Reschedule" sub="Reopen job to pick a new start date" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } if (!job) return; setModalStep(2); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setRescheduleSelection((job.subs || []).map(p => p.id)); setModal({ type: "edit", data: { ...job, isReschedule: true, _rescheduleStartDate: TD }, parentId: null }); setCtxMenu(null); }} animIdx={ci()} /> : <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>} label="Edit" sub="Change name, team, day or time" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } if (!job) return; openSimpleEditForJob(job); setCtxMenu(null); }} animIdx={ci()} />)}
       {/* Split Job */}
       {can("editJobs") && isOp && (it.hpd || 0) > 1 && it.status !== "Finished" && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>} label="Split Job" sub="Divide this op into two at a set hour" onClick={() => { let panel = null, parentJob = null, freshOp = null; for (const j of tasks) { for (const pnl of (j.subs||[])) { const found = (pnl.subs||[]).find(o => o.id === it.id); if (found) { panel = pnl; parentJob = j; freshOp = found; break; } } if (panel) break; } if (!panel || !parentJob || !freshOp) return; setSplitHour(Math.round((freshOp.hpd || productiveHoursPerDay) / 2)); setSplitModal({ op: freshOp, panel, parentJob }); setCtxMenu(null); }} animIdx={ci()} />}
       {can("editJobs") && isOp && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 13.5"/></svg>} label="Set Worked Hours" sub="Manually mark hours done (greys out that portion)" onClick={() => { let panel = null, parentJob = null, freshOp = null; for (const j of tasks) { for (const pnl of (j.subs||[])) { const found = (pnl.subs||[]).find(o => o.id === it.id); if (found) { panel = pnl; parentJob = j; freshOp = found; break; } } if (panel) break; } if (!panel || !parentJob || !freshOp) return; setWorkedHoursInput(Math.round((Math.max(freshOp.loggedHours || 0, producedFor(freshOp)) + liveOpHours(freshOp)) * 100) / 100); setWorkedHoursWho(String((freshOp.team || [])[0] ?? "")); setWorkedHoursDate(TD); setWorkedHoursModal({ op: freshOp, panel, parentJob }); setCtxMenu(null); }} animIdx={ci()} />}
