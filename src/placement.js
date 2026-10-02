@@ -252,6 +252,23 @@ export function previewOutcomes(ops, crew, { avail, people = [], windowOf, objec
   // even-load plan can still produce something worth overriding by hand, and
   // manual assignment is respected now — so the number has to be visible for
   // that override to be an informed one rather than a hunch.
+  return summarize(rows, crew);
+}
+
+/**
+ * Rows -> the reported shape. ONE function, so a preview and a real run cannot
+ * describe the same plan differently: the panel that renders one renders the
+ * other. Load is derived from the placed rows rather than passed in, which is
+ * what makes "a blocked op carries no hours" true by construction instead of by
+ * remembering not to add them.
+ */
+function summarize(rows, crew) {
+  const load = new Map();
+  for (const r of rows) {
+    if (r.outcome !== OUTCOME.placed || !r.person) continue;
+    const k = sid(r.person.id);
+    load.set(k, (load.get(k) || 0) + (Number(r.op?.hpd) || 0));
+  }
   const byPerson = [...load.entries()]
     .map(([id, hours]) => ({ id, hours, name: (crew || []).find(p => sid(p.id) === id)?.name || id }))
     .sort((a, b) => b.hours - a.hours || String(a.name).localeCompare(String(b.name)));
@@ -262,6 +279,26 @@ export function previewOutcomes(ops, crew, { avail, people = [], windowOf, objec
     placed: rows.filter(r => r.outcome === OUTCOME.placed).length,
     blocked: rows.filter(r => r.outcome !== OUTCOME.placed),
   };
+}
+
+/**
+ * Fold a REAL run's per-op results into the same shape previewOutcomes returns.
+ *
+ * #344. The run used to abort: one collision and it returned the original job,
+ * so a 30-op job gave you nothing because one op clashed. Aborting is not the
+ * conservative choice it looks like — it discards the 29 placements that were
+ * fine in order to avoid the 1 that was not.
+ *
+ * Nothing here decides anything. The run has already decided, op by op; this
+ * only states what happened in the shape the panel already knows how to read.
+ */
+export function foldRunOutcomes(results, { crew = [] } = {}) {
+  const rows = (results || []).map(r => {
+    const row = { op: r.op, outcome: r.outcome || OUTCOME.placed, person: r.person || null };
+    if (r.candidates != null) row.candidates = r.candidates;
+    return row;
+  });
+  return summarize(rows, crew);
 }
 
 /** Whether an op may be re-planned at all. The only real lock is an active clock. */

@@ -11,13 +11,14 @@
 
 import { readFileSync } from "node:fs";
 import { previewOutcomes, OUTCOME, isReplannable } from "../src/placement.js";
+import { codeOf } from "./_code-view.mjs";
 
 const J = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
-// J with line-comments stripped. An assertion about CODE must not be
-// satisfiable — or violable — by a COMMENT: the comment explaining a fix
-// routinely names the very pattern the fix removed. Four false results in this
-// campaign came from scanning prose as though it were code.
-const CODE = J.split(/\r?\n/).filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
+// Shared with every other suite (_code-view.mjs). The local copy that stood
+// here missed JSX comments — {/* … */} — which is exactly the form a deleted
+// block leaves behind, so #344's removal of the abort banner read as still
+// present. Two copies of a scanner drift, and a drifted scanner keeps passing.
+const CODE = codeOf(J);
 let pass = 0, fail = 0;
 const ok = (label, got, want = true) => {
   if (JSON.stringify(got) === JSON.stringify(want)) { pass++; console.log(`  PASS  ${label}`); return true; }
@@ -152,10 +153,17 @@ console.log("\n7. A partial aiSuggestion must not crash the modal");
   // Fixed at BOTH ends and both are asserted: a shape that cannot be rendered
   // should never be produced, AND the renderer should survive one anyway. One
   // guard alone leaves the next partial shape to find the same cliff.
-  ok("the overlap-error setter seeds slots",
-    /\{ slots: \[\], \.\.\.\(prev\|\|\{\}\), overlapError/.test(J), true);
-  ok("...so no bare spread of an empty object survives",
-    /\.\.\.\(prev\|\|\{\}\),overlapError/.test(J), false);
+  //
+  // THE SETTER ITSELF IS GONE, removed with the abort it served (#344). So the
+  // assertion moved from that one call to the PROPERTY it was protecting:
+  // whatever updates aiSuggestion from its previous value must seed slots. That
+  // is the durable half — #343 was never really about overlapError, it was
+  // about spreading a null prev into an object whose readers assume a field.
+  ok("no aiSuggestion updater spreads a null prev without seeding slots",
+    /setAiSuggestion\(prev\s*=>\s*\(\{(?!\s*slots)/.test(CODE), false);
+  // ...and the abort's setter is gone rather than merely guarded.
+  ok("...and the overlapError setter no longer exists at all",
+    /overlapError:\s*overlapErrors/.test(CODE), false);
   ok("every slots read in the renderer goes through a default",
     (J.match(/\(aiSuggestion\.slots\|\|\[\]\)/g) || []).length, 2);
   ok("...and no unguarded read remains",

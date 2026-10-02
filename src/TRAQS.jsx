@@ -2,7 +2,7 @@
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { personDeptMatch, unitDepartment, unitDepartments, personDepartments, normalizeDepartments, withDepartmentDualWrite, workCalendar } from "./scheduleRules.js";
-import { candidatesFor, pickCandidate, orderByObjective, previewOutcomes, isReplannable, OUTCOME } from "./placement.js";
+import { candidatesFor, pickCandidate, orderByObjective, previewOutcomes, foldRunOutcomes, isReplannable, OUTCOME } from "./placement.js";
 // The objective is a RULED product choice (even load by default, "Finish
 // soonest" the alternative) and becomes a control in the re-plan preview when
 // that UI lands. Until then it is this constant rather than a piece of state
@@ -8779,6 +8779,10 @@ Extraction rules:
   const [aiLoading, setAiLoading] = useState(false);
   const [availCheckPassed, setAvailCheckPassed] = useState(false);
   const [scheduleConfirmed, setScheduleConfirmed] = useState(false);
+  // #344. What the last run actually did, per op, in the preview's shape. The
+  // run used to report a single string ("Assignment aborted…") and discard
+  // every placement; now it places what it can and this says what it could not.
+  const [runReport, setRunReport] = useState(null);
   // OP ids, not panel ids (ruled 2026-10-02). Reschedule means RE-PLANNING A
   // SELECTION, and "selection is how he separates ops that should be treated
   // differently" — panel granularity cannot express "re-plan the Wire op but
@@ -8824,6 +8828,54 @@ Extraction rules:
   // Deliberately NOT memoised on the whole task tree: it is computed only while
   // the reschedule modal is open with a selection, which is a handful of ops and
   // a few dozen people.
+  // ── ONE PANEL FOR BOTH (#344) ─────────────────────────────────────────────
+  // The re-plan PREVIEW (what would happen) and the wizard's RESULT (what did)
+  // render through this. They take the identical shape from placement.js, so a
+  // second copy would only be a way for the two to start telling different
+  // stories about the same plan — and the wizard's story used to be a single
+  // string that said nothing except that everything had been thrown away.
+  const OutcomePanel = ({ heading, rows, byPerson, placed, blocked, note }) => {
+    // One line per reason, because the infeasible kinds are different problems
+    // with different answers: no-candidates is fixed by widening the department
+    // or hiring, no-window by moving the date. Collapsing them into "couldn't
+    // schedule" would send people to the wrong fix.
+    const reasonText = (o) => o === OUTCOME.clocked ? "somebody is clocked into it"
+      : o === OUTCOME.noCandidates ? "nobody can do it — no one holds its department"
+      : "nobody is free — the people exist, the time does not";
+    const maxH = byPerson.length ? byPerson[0].hours : 0;
+    return <div style={{ marginBottom:16, padding:"12px 16px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:T.radiusSm }}>
+      <div style={{ fontSize:11, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:10 }}>
+        {heading} — {placed} of {rows.length} operation{rows.length===1?"":"s"} {note==="done" ? "scheduled" : "can be placed"}
+      </div>
+      {blocked.length > 0 && <div style={{ marginBottom: byPerson.length ? 12 : 0 }}>
+        {blocked.map((r,i) => (
+          <div key={`${r.op?.id ?? i}`} style={{ display:"flex", gap:8, alignItems:"baseline", fontSize:12, color:T.text, padding:"3px 0" }}>
+            <span style={{ color:T.danger, flexShrink:0 }}>●</span>
+            <strong style={{ flexShrink:0 }}>{r.op?.title || "Untitled"}</strong>
+            <span style={{ color:T.textDim }}>{reasonText(r.outcome)}</span>
+          </div>
+        ))}
+        <div style={{ fontSize:10.5, color:T.textDim, marginTop:6, lineHeight:1.45 }}>
+          These stay exactly where they are. Nothing is moved to a date it does not fit.
+        </div>
+      </div>}
+      {byPerson.length > 0 && <div>
+        <div style={{ fontSize:10.5, fontWeight:700, color:T.textDim, marginBottom:6 }}>HOURS PER PERSON</div>
+        {byPerson.map(p => (
+          <div key={p.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"2px 0" }}>
+            <span style={{ fontSize:12, color:T.text, minWidth:110, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.name}</span>
+            <div style={{ flex:1, height:6, background:T.border, borderRadius:3, overflow:"hidden" }}>
+              <div style={{ width: `${maxH > 0 ? (p.hours / maxH) * 100 : 0}%`, height:"100%", background:T.accent, borderRadius:3 }} />
+            </div>
+            <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, minWidth:38, textAlign:"right" }}>{Math.round(p.hours*10)/10}h</span>
+          </div>
+        ))}
+        <div style={{ fontSize:10.5, color:T.textDim, marginTop:6, lineHeight:1.45 }}>
+          Spread evenly. Put someone specific on an operation and the scheduler will keep them there.
+        </div>
+      </div>}
+    </div>;
+  };
   const computeReplanPreflight = (ed) => {
     if (!ed?.isReschedule || rescheduleSelection.length === 0) return null;
     const sel = new Set(rescheduleSelection.map(String));
@@ -10274,7 +10326,7 @@ Extraction rules:
       setModal({ type: "simpleEdit", data: { title: "", team: [], date: TD, startHour: workStartH, endHour: Math.min(workEndH, workStartH + 8) }, parentId: pid });
       return;
     }
-    setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 0, notes: "", subs: [], deps: [], clientId: null, customOps: [], color: randomJobColor() }, parentId: pid });
+    setModalStep(1); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setRunReport(null); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setModal({ type: "edit", data: { id: null, title: "", jobNumber: "", poNumber: "", projectManagerId: null, start: TD, end: addD(TD, 3), dueDate: "", pri: "Medium", status: "Not Started", team: [], hpd: 0, notes: "", subs: [], deps: [], clientId: null, customOps: [], color: randomJobColor() }, parentId: pid });
   };
   // Basic tier: resolve a bar's underlying task (which may be the job itself or
   // one of its subs/ops) back up to its top-level job — a general/flat Basic
@@ -25523,54 +25575,19 @@ ${jobsCtx || "No jobs found."}`;
                 <label style={{ display:"block", fontSize:11, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:6 }}>New Start Date</label>
                 <TraqsDatePicker compact value={ed._rescheduleStartDate||TD} onChange={v => setEd(p => ({...p,_rescheduleStartDate:v}))} />
               </div>
-              <button disabled={aiLoading} onClick={() => { setAiSuggestion(null); suggestSchedule(); }} style={{ padding:"9px 22px", borderRadius:T.radiusSm, border:"none", background:T.accent, color:T.accentText, fontSize:13, fontWeight:700, cursor:aiLoading?"not-allowed":"pointer", fontFamily:T.font, flexShrink:0, opacity:aiLoading?0.5:1, whiteSpace:"nowrap" }}>{aiLoading?"Checking…":"Reassign"}</button>
+              <button disabled={aiLoading} onClick={() => { setAiSuggestion(null); setRunReport(null); suggestSchedule(); }} style={{ padding:"9px 22px", borderRadius:T.radiusSm, border:"none", background:T.accent, color:T.accentText, fontSize:13, fontWeight:700, cursor:aiLoading?"not-allowed":"pointer", fontFamily:T.font, flexShrink:0, opacity:aiLoading?0.5:1, whiteSpace:"nowrap" }}>{aiLoading?"Checking…":"Reassign"}</button>
             </div>}
             {ed.isReschedule && !scheduleConfirmed && (() => {
               const pf = computeReplanPreflight(ed);
               if (!pf) return null;
-              const { rows, byPerson, placed, blocked } = pf;
-              // One line per reason, because the two infeasible kinds are
-              // different problems with different answers: no-candidates is fixed
-              // by widening the department or hiring, no-window by moving the
-              // date. Collapsing them into "couldn't schedule" would send people
-              // to the wrong fix.
-              const reasonText = (o) => o === OUTCOME.clocked ? "somebody is clocked into it"
-                : o === OUTCOME.noCandidates ? "nobody can do it — no one holds its department"
-                : "nobody is free — the people exist, the time does not";
-              const maxH = byPerson.length ? byPerson[0].hours : 0;
-              return <div style={{ marginBottom:16, padding:"12px 16px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:T.radiusSm }}>
-                <div style={{ fontSize:11, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:10 }}>
-                  Re-plan preview — {placed} of {rows.length} operation{rows.length===1?"":"s"} can be placed
-                </div>
-                {blocked.length > 0 && <div style={{ marginBottom: byPerson.length ? 12 : 0 }}>
-                  {blocked.map(r => (
-                    <div key={r.op.id} style={{ display:"flex", gap:8, alignItems:"baseline", fontSize:12, color:T.text, padding:"3px 0" }}>
-                      <span style={{ color:T.danger, flexShrink:0 }}>●</span>
-                      <strong style={{ flexShrink:0 }}>{r.op.title || "Untitled"}</strong>
-                      <span style={{ color:T.textDim }}>{reasonText(r.outcome)}</span>
-                    </div>
-                  ))}
-                  <div style={{ fontSize:10.5, color:T.textDim, marginTop:6, lineHeight:1.45 }}>
-                    These stay exactly where they are. Nothing is moved to a date it does not fit.
-                  </div>
-                </div>}
-                {byPerson.length > 0 && <div>
-                  <div style={{ fontSize:10.5, fontWeight:700, color:T.textDim, marginBottom:6 }}>HOURS PER PERSON</div>
-                  {byPerson.map(p => (
-                    <div key={p.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"2px 0" }}>
-                      <span style={{ fontSize:12, color:T.text, minWidth:110, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.name}</span>
-                      <div style={{ flex:1, height:6, background:T.border, borderRadius:3, overflow:"hidden" }}>
-                        <div style={{ width: `${maxH > 0 ? (p.hours / maxH) * 100 : 0}%`, height:"100%", background:T.accent, borderRadius:3 }} />
-                      </div>
-                      <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, minWidth:38, textAlign:"right" }}>{Math.round(p.hours*10)/10}h</span>
-                    </div>
-                  ))}
-                  <div style={{ fontSize:10.5, color:T.textDim, marginTop:6, lineHeight:1.45 }}>
-                    Spread evenly. Put someone specific on an operation and the scheduler will keep them there.
-                  </div>
-                </div>}
-              </div>;
+              return <OutcomePanel heading="Re-plan preview" {...pf} />;
             })()}
+            {/* #344. What the run DID, same panel, same shape. This is what replaced
+                "Assignment aborted. Conflict detected: …" — one string that told you
+                nothing had been scheduled and nothing about why. */}
+            {runReport && runReport.rows.length > 0 && (
+              <OutcomePanel heading={runReport.blocked.length > 0 ? "Scheduled, with exceptions" : "Scheduled"} {...runReport} note="done" />
+            )}
             {aiLoading && <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 0", gap:16 }}>
               <div style={{ width:36, height:36, border:`3px solid ${T.border}`, borderTopColor:T.accent, borderRadius:18, animation:"spin 0.8s linear infinite" }} />
               <div style={{ fontSize:14, color:T.textSec }}>Checking availability…</div>
@@ -25709,9 +25726,10 @@ ${jobsCtx || "No jobs found."}`;
               {aiSuggestion.noSubtasks && <div style={{ padding:14, background:T.danger+"10", border:`1px solid ${T.danger}33`, borderRadius:T.radiusSm, color:T.danger, fontSize:13, fontWeight:500 }}>
                 No subtasks found. Add sub-operations to your panels before scheduling.
               </div>}
-              {aiSuggestion.overlapError && <div style={{ padding:14, background:T.danger+"10", border:`1px solid ${T.danger}33`, borderRadius:T.radiusSm, color:T.danger, fontSize:13, fontWeight:500, marginBottom:10 }}>
-                Assignment aborted. Conflict detected: {aiSuggestion.overlapError}
-              </div>}
+              {/* The "Assignment aborted. Conflict detected: …" banner stood here (#344).
+                  It is gone with the abort itself: the run no longer stops on a conflict,
+                  so there is no whole-run failure left to announce. What it could not
+                  place is named op by op in the panel above. */}
               {aiSuggestion.blockedSubtasks?.length>0 && (
                 <div style={{ padding:"10px 14px", background:"#f59e0b12", border:"1px solid #f59e0b33", borderRadius:T.radiusSm, marginBottom:10, fontSize:12, color:"#f59e0b" }}>
                   {aiSuggestion.blockedSubtasks.map(b => (
@@ -25852,7 +25870,15 @@ ${jobsCtx || "No jobs found."}`;
                         // person in the shop.
                         const eligible = orderByObjective(candidatesFor(op, allCrew),
                           { objective: SCHEDULE_OBJECTIVE, loadOf: (id) => jobCount(id) });
-                        if(eligible.length===0) { const fallback=minStart||slot.start; return {team:[],start:fallback,end:fallback}; }
+                        // NOBODY HOLDS THE DEPARTMENT. Dated so the op still lands on the
+                        // Jobs list and the Project Plan as real work, but with no team and
+                        // a reason attached — the same treatment deliberate-unassigned gets
+                        // above. Reported in step 3; never silently dropped.
+                        if(eligible.length===0) {
+                          const fallback=minStart||slot.start;
+                          const d1=Math.max(1,Math.ceil(totalHours/productiveHoursPerDay));
+                          return {team:[],start:fallback,end:sAddBD(fallback,Math.max(0,d1-1)),outcome:OUTCOME.noCandidates};
+                        }
                         const singleDur=Math.max(1,Math.ceil(totalHours/productiveHoursPerDay));
                         if(scheduleTeamMode==="one") {
                           let tryStart=eligible.reduce((earliest,m) => { const c=personCursors[m.id]||slot.start; return c<earliest?c:earliest; },personCursors[eligible[0].id]||slot.start);
@@ -25862,8 +25888,14 @@ ${jobsCtx || "No jobs found."}`;
                             for(const candidate of eligible) { if(isAvail(candidate.id,tryStart,tryEnd)) return {team:[candidate],start:tryStart,end:tryEnd}; }
                             tryStart=sAddBD(tryStart,1);
                           }
+                          // NO WINDOW IN 300 BUSINESS DAYS. This used to return
+                          // `eligible.slice(0,1)` at the fallback date WITHOUT asking
+                          // isAvail — a deliberate double-book. The post-hoc check then
+                          // caught that self-inflicted clash and aborted the entire run,
+                          // which is how one op cost a thirty-op job everything (#344).
+                          // Refusing honestly is the only answer that is not a lie.
                           const fallback=minStart||slot.start;
-                          return {team:eligible.slice(0,1),start:fallback,end:sAddBD(fallback,Math.max(0,singleDur-1))};
+                          return {team:[],start:fallback,end:sAddBD(fallback,Math.max(0,singleDur-1)),outcome:OUTCOME.noWindow,candidates:eligible.length};
                         }
                         const teamSize=eligible.length;
                         const durBD=Math.max(1,Math.ceil(totalHours/(teamSize*productiveHoursPerDay)));
@@ -25883,9 +25915,16 @@ ${jobsCtx || "No jobs found."}`;
                           const freeSubset=eligible.filter(m => isAvail(m.id,tryS,tryE));
                           if(freeSubset.length>0) { const sz=freeSubset.length; const finalDur=Math.max(1,Math.ceil(totalHours/(sz*productiveHoursPerDay))); return {team:freeSubset,start:tryS,end:sAddBD(tryS,Math.max(0,finalDur-1))}; }
                         }
-                        return {team:eligible.slice(0,1),start:fallbackStart,end:sAddBD(fallbackStart,Math.max(0,singleDur-1))};
+                        // Same refusal for the team path: no subset of the crew was free on
+                        // any day in the horizon, so there is no honest placement to make.
+                        return {team:[],start:fallbackStart,end:sAddBD(fallbackStart,Math.max(0,singleDur-1)),outcome:OUTCOME.noWindow,candidates:eligible.length};
                       };
                       let latestEnd=slot.start;
+                      // #344. Per-op results, reported in step 3 in the same shape the
+                      // re-plan preview uses. The run NEVER stops: an op it cannot place
+                      // is named with its reason and left alone, and every op it can place
+                      // still lands.
+                      const runOutcomes=[];
                       const resultSubs=expandedOps.map(op => ({
                         ...op,
                         placedSubs:(op.subs||[]).map(sub => ({...sub,_placed:false,start:null,end:null,team:sub.team||[]})),
@@ -25919,8 +25958,14 @@ ${jobsCtx || "No jobs found."}`;
                           // which meant slot.start, another route to day one.
                           const unassigned = !deptOfUnit(op, null, null);
                           const floor = unassigned ? laterOf(slot.start, flowEnd && sAddBD(flowEnd, 1)) : slot.start;
-                          const {team:panelTeam,start:ps,end:pe}=pickTeam(op,floor);
-                          resultSubs[pi]={...op,_panelScheduled:true,_panelStart:ps,_panelEnd:pe,_panelTeam:panelTeam.map(m => m.id)};
+                          const {team:panelTeam,start:ps,end:pe,outcome:pOut,candidates:pCand}=pickTeam(op,floor);
+                          // A panel with no ops of its own IS the unit of work, so it is
+                          // reported like one — placed or blocked. Reporting only the
+                          // blocked ones would make "4 of 7 scheduled" count a different
+                          // set of things depending on how the job happens to be shaped.
+                          if(pOut) runOutcomes.push({id:op.id,op,outcome:pOut,person:null,candidates:pCand});
+                          else if(panelTeam.length>0) runOutcomes.push({id:op.id,op,outcome:OUTCOME.placed,person:panelTeam[0]});
+                          resultSubs[pi]={...op,_panelScheduled:true,_panelStart:ps,_panelEnd:pe,_panelTeam:panelTeam.map(m => m.id),_outcome:pOut||null};
                           panelTeam.forEach(m => { inSession.push({pid:m.id,start:ps,end:pe,hpd:(op.hpd||productiveHoursPerDay)/Math.max(1,panelTeam.length)}); _applyAvail.book(m.id,ps,pe); personCursors[m.id]=sAddBD(pe,1); });
                           if(pe>latestEnd) latestEnd=pe;
                           flowEnd = laterOf(flowEnd, pe);
@@ -25933,8 +25978,14 @@ ${jobsCtx || "No jobs found."}`;
                           // identically on both sides of the call.
                           const unassigned = !deptOfUnit(sub, pnl, null);
                           const floor = unassigned ? laterOf(opCursor, flowEnd && sAddBD(flowEnd, 1)) : opCursor;
-                          const {team:subTeam,start:ss,end:se}=pickTeam(sub,floor);
-                          resultSubs[pi].placedSubs[oi]={...sub,_placed:true,start:ss,end:se,team:subTeam.length>0?subTeam.map(m => m.id):(sub.team||[])};
+                          const {team:subTeam,start:ss,end:se,outcome:sOut,candidates:sCand}=pickTeam(sub,floor);
+                          if(sOut) runOutcomes.push({id:sub.id,op:sub,outcome:sOut,person:null,candidates:sCand});
+                          else if(subTeam.length>0) runOutcomes.push({id:sub.id,op:sub,outcome:OUTCOME.placed,person:subTeam[0]});
+                          // A REFUSED op does not keep its old team. The previous
+                          // `: (sub.team||[])` fallback handed the existing team brand new
+                          // dates precisely when the search had failed to find any — the
+                          // "moved to a date it does not fit" the preview promises against.
+                          resultSubs[pi].placedSubs[oi]={...sub,_placed:!sOut,_outcome:sOut||null,start:ss,end:se,team:sOut?[]:(subTeam.length>0?subTeam.map(m => m.id):(sub.team||[]))};
                           subTeam.forEach(m => { inSession.push({pid:m.id,start:ss,end:se,hpd:(sub.hpd||productiveHoursPerDay)/Math.max(1,subTeam.length)}); _applyAvail.book(m.id,ss,se); personCursors[m.id]=sAddBD(se,1); });
                           if(se>latestEnd) latestEnd=se;
                           opCursor = sAddBD(se, 1);
@@ -25951,77 +26002,95 @@ ${jobsCtx || "No jobs found."}`;
                         const opEnd=placed[placed.length-1]?.end||slot.start;
                         return {...op,start:opStart,end:opEnd,team:placed[0]?.team||[],subs:placed.map(({_placed,...rest}) => rest)};
                       });
-                      const overlapErrors=[];
-                      for(const pnl of newSubs) {
-                        for(const sub of (pnl.subs||[])) {
-                          if(!sub.start||!sub.end||!(sub.team?.length)) continue;
-                          for(const pid of sub.team) {
-                            for(const job of tasks) {
-                              if(p.id && job.id===p.id) continue;
-                              for(const ePnl of (job.subs||[])) {
-                                if((ePnl.team||[]).includes(pid) && ePnl.status!=="Finished" && ePnl.start && ePnl.end && ePnl.start<=sub.end && ePnl.end>=sub.start && !(ePnl.subs||[]).length)
-                                  overlapErrors.push(`${(people.find(x => x.id===pid)||{}).name||pid}: "${sub.title}" overlaps "${job.title}"`);
-                                for(const eOp of (ePnl.subs||[])) {
-                                  if(!(eOp.team||[]).includes(pid)||eOp.status==="Finished") continue;
-                                  if(eOp.start && eOp.end && eOp.start<=sub.end && eOp.end>=sub.start)
-                                    overlapErrors.push(`${(people.find(x => x.id===pid)||{}).name||pid}: "${sub.title}" overlaps "${eOp.title}" in "${job.title}"`);
-                                }
-                              }
-                            }
-                          }
+                      // ── THE BACKSTOP, AND IT NO LONGER ABORTS (#344) ──────────────────
+                      //
+                      // What stood here was a SIXTH implementation of "is this person double
+                      // booked": four nested loops comparing raw date intervals. No hours, no
+                      // work days, no time off, no capacity. The oracle that made the
+                      // placement has all four, so the two disagreed in both directions —
+                      // and on the first disagreement the run did `return p`, throwing away
+                      // every placement it had just made.
+                      //
+                      // Two separate faults, both fixed:
+                      //   FALSE POSITIVES. Date-only comparison calls two ops on the same day
+                      //   at different hours a clash. The oracle correctly does not. A legal
+                      //   plan was being refused outright.
+                      //   REAL CLASHES OF ITS OWN MAKING. pickTeam used to force a placement
+                      //   onto eligible[0] when it ran out of window, without asking isAvail.
+                      //   This check then caught that self-inflicted double-book and aborted.
+                      //   That fallback is gone; it reports no-window instead.
+                      //
+                      // A fresh verifier, not _applyAvail — that one already has this run's
+                      // own bookings in it and would report our own work as the conflict. We
+                      // re-book as we verify, so sequential placements still see each other.
+                      const _verify=schedulerAvailability(tasks, overlapCtx,
+                        rescheduleSelection.length > 0 && ed.isReschedule
+                          ? { excludeOpIds: rescheduleSelection, people }
+                          : { excludeJobId: ed.id, people });
+                      const _refuse=(node,label) => {
+                        const team=(node.team||[]);
+                        if(!node.start||!node.end||team.length===0) return false;
+                        const clash=team.some(pid => !_verify.free(pid,node.start,node.end,node.startHour??null));
+                        if(clash){
+                          // Per op, never the run. The op keeps nobody rather than keeping a
+                          // date it does not fit, and it is named in step 3.
+                          runOutcomes.push({id:node.id,op:{...node,title:node.title||label},outcome:OUTCOME.noWindow,person:null,candidates:team.length});
+                          return true;
                         }
-                      }
-                      for(const pnl of newSubs) {
-                        if((pnl.subs||[]).length===0 && pnl.start && pnl.end && (pnl.team||[]).length) {
-                          for(const pid of pnl.team) {
-                            for(const job of tasks) {
-                              if(p.id && job.id===p.id) continue;
-                              for(const ePnl of (job.subs||[])) {
-                                if((ePnl.team||[]).includes(pid) && ePnl.status!=="Finished" && ePnl.start && ePnl.end && ePnl.start<=pnl.end && ePnl.end>=pnl.start && !(ePnl.subs||[]).length)
-                                  overlapErrors.push(`${(people.find(x => x.id===pid)||{}).name||pid}: "${pnl.title}" overlaps "${job.title}"`);
-                                for(const eOp of (ePnl.subs||[])) {
-                                  if(!(eOp.team||[]).includes(pid)||eOp.status==="Finished") continue;
-                                  if(eOp.start && eOp.end && eOp.start<=pnl.end && eOp.end>=pnl.start)
-                                    overlapErrors.push(`${(people.find(x => x.id===pid)||{}).name||pid}: "${pnl.title}" overlaps "${eOp.title}" in "${job.title}"`);
-                                }
-                              }
-                            }
-                          }
-                        }
-                      }
-                      if(overlapErrors.length>0) {
-                        // `{slots: []}`, not `{}`. When the scheduler has never run,
-                        // prev is NULL — a plain edit-and-save — and spreading {} here
-                        // produced an aiSuggestion with NO slots, which the panel below
-                        // reads as `aiSuggestion.slots.length` and crashes the whole
-                        // modal with "Cannot read properties of undefined". Reachable
-                        // since the 3-step wizard landed; the renderer is guarded too,
-                        // because a partial shape should never be able to take the
-                        // modal down.
-                        setTimeout(() => setAiSuggestion(prev => ({ slots: [], ...(prev||{}), overlapError: overlapErrors.join(" | ") })),0);
-                        return p;
+                        team.forEach(pid => _verify.book(pid,node.start,node.end,node.startHour??null));
+                        return false;
+                      };
+                      for(const pnl of newSubs){
+                        const ops=(pnl.subs||[]);
+                        if(ops.length===0){ if(_refuse(pnl,pnl.title)){ pnl.team=[]; pnl._outcome=OUTCOME.noWindow; } continue; }
+                        for(const sub of ops){ if(_refuse(sub,sub.title)){ sub.team=[]; sub._outcome=OUTCOME.noWindow; } }
                       }
                       // Merge per op by id. The old test was `selection.length <
                       // panels.length` — panel counts against a panel-id list — which
                       // cannot answer the question once the selection is ops. An op
                       // that was not re-planned keeps exactly what it had.
                       const _replanned = new Set(rescheduleSelection.map(String));
+                      // #344. An op the run could not place keeps its ORIGINAL record.
+                      // This is the same promise the preview already makes on screen —
+                      // "these stay exactly where they are" — and without it a refused op
+                      // is written back with fresh dates and nobody on it, which is a
+                      // worse outcome than the abort it replaced.
+                      const _blockedIds = new Set(runOutcomes.filter(o => o.outcome && o.outcome !== OUTCOME.placed).map(o => String(o.id)));
+                      // _outcome and _placed are run-local bookkeeping. They must not
+                      // reach S3: a scratch field that gets persisted is indistinguishable
+                      // from real data the next time something reads it.
+                      const _strip = (n) => { const { _outcome:_o, _placed:_pl, ...rest } = n; return rest; };
                       if (p.isReschedule && _replanned.size > 0) {
                         const scheduledMap=new Map(newSubs.map(s => [s.id, s]));
                         updated.subs=(p.subs||[]).map(orig => {
                           const fresh = scheduledMap.get(orig.id);
                           if (!fresh) return orig;
-                          return { ...fresh, subs: (fresh.subs||[]).map(op => {
-                            if (_replanned.has(String(op.id))) return op;
+                          // A refused panel (one with no ops of its own) stays untouched.
+                          if ((fresh.subs||[]).length===0 && _blockedIds.has(String(fresh.id))) return orig;
+                          return { ..._strip(fresh), subs: (fresh.subs||[]).map(op => {
                             const was = (orig.subs||[]).find(o => String(o.id) === String(op.id));
-                            return was || op;
+                            if (!_replanned.has(String(op.id))) return was || _strip(op);
+                            if (_blockedIds.has(String(op.id)) && was) return was;
+                            return _strip(op);
                           }) };
                         });
                       } else {
-                        updated.subs=newSubs;
+                        updated.subs=newSubs.map(pn => ({ ..._strip(pn), subs: (pn.subs||[]).map(_strip) }));
                       }
-                      const allOpStarts=newSubs.flatMap(op=>op.subs&&op.subs.length>0?op.subs.map(s=>s.start).filter(Boolean):[op.start].filter(Boolean));
+                      // The report, in the preview's shape. setTimeout because this runs
+                      // inside a state updater and must not set state during render.
+                      const _report = foldRunOutcomes(runOutcomes, { crew: allCrew });
+                      setTimeout(() => setRunReport(_report), 0);
+                      // Bounds come from what was COMMITTED (updated.subs), not from the
+                      // run's working copy. Those differ now: a blocked op keeps its
+                      // original record, so reading newSubs would stretch the job to a
+                      // date the run proposed and then withdrew.
+                      const allOpStarts=(updated.subs||[]).flatMap(op=>op.subs&&op.subs.length>0?op.subs.map(s=>s.start).filter(Boolean):[op.start].filter(Boolean));
+                      const allOpEnds=(updated.subs||[]).flatMap(op=>op.subs&&op.subs.length>0?op.subs.map(s=>s.end).filter(Boolean):[op.end].filter(Boolean));
                       const earliestStart=allOpStarts.length>0?allOpStarts.reduce((a,b)=>a<b?a:b):slot.start;
+                      // Same reason as the start: latestEnd is the RUN's furthest reach,
+                      // including ops that were refused and never committed.
+                      latestEnd=allOpEnds.length>0?allOpEnds.reduce((a,b)=>a>b?a:b):latestEnd;
                       updated.start=earliestStart;
                       updated.end=latestEnd;
                       updated.scheduledLater=false;
@@ -26076,7 +26145,7 @@ ${jobsCtx || "No jobs found."}`;
           </>}
           {modalStep === 3 && <>
             <div style={{ display:"flex", gap:12, alignItems:"center" }}>
-              <Btn variant="ghost" onClick={() => { goStep(2); setScheduleConfirmed(false); setAvailCheckPassed(false); }}>← Back</Btn>
+              <Btn variant="ghost" onClick={() => { goStep(2); setScheduleConfirmed(false); setRunReport(null); setAvailCheckPassed(false); }}>← Back</Btn>
               {can("editJobs") && ed.id && <Btn variant="danger" onClick={() => setConfirmDelete({title:ed.title,id:ed.id,pid:modal.parentId,extra:closeModal})}>Delete</Btn>}
             </div>
             {(() => {
@@ -28872,7 +28941,7 @@ ${jobsCtx || "No jobs found."}`;
                     <div key={job.id}
                       onClick={() => {
                         setBcModalState("closing");
-                        setModalStep(2); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false);
+                        setModalStep(2); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setRunReport(null);
                         setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({});
                         setAiSuggestion(null);
                         setModal({ type: "edit", data: { ...job }, parentId: null });
@@ -32401,7 +32470,7 @@ ${jobsCtx || "No jobs found."}`;
           reopen, so this becomes the one edit surface: same job-resolution logic,
           opens the simple modal pre-filled for a full edit (name/team/day/time)
           instead. Folds in what the separate pencil "Edit" button did on Basic. */}
-      {can("editJobs") && (billingTier === "business" ? <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01"/></svg>} label="Reschedule" sub="Reopen job to pick a new start date" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } if (!job) return; setModalStep(2); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setRescheduleSelection((job.subs || []).map(p => p.id)); setModal({ type: "edit", data: { ...job, isReschedule: true, _rescheduleStartDate: TD }, parentId: null }); setCtxMenu(null); }} animIdx={ci()} /> : <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>} label="Edit" sub="Change name, team, day or time" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } if (!job) return; openSimpleEditForJob(job); setCtxMenu(null); }} animIdx={ci()} />)}
+      {can("editJobs") && (billingTier === "business" ? <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01"/></svg>} label="Reschedule" sub="Reopen job to pick a new start date" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } if (!job) return; setModalStep(2); setStepDir(1); setAvailCheckPassed(false); setScheduleConfirmed(false); setRunReport(null); setPreviewExpanded(false); setPreviewPanelExpanded({}); setOverrideOpen({}); setOverrideDate({}); setOverrideLoading({}); setOverrideError({}); setAiSuggestion(null); setRescheduleSelection((job.subs || []).map(p => p.id)); setModal({ type: "edit", data: { ...job, isReschedule: true, _rescheduleStartDate: TD }, parentId: null }); setCtxMenu(null); }} animIdx={ci()} /> : <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>} label="Edit" sub="Change name, team, day or time" onClick={() => { let job = null; if (isJob) { job = tasks.find(j => j.id === it.id); } else if (isPanel) { job = tasks.find(j => j.id === it.pid) || tasks.find(j => (j.subs||[]).find(p => p.id === it.id)); } else if (isOp) { for (const j of tasks) { for (const pnl of (j.subs||[])) { if ((pnl.subs||[]).find(o => o.id === it.id)) { job = j; break; } } if (job) break; } } if (!job) return; openSimpleEditForJob(job); setCtxMenu(null); }} animIdx={ci()} />)}
       {/* Split Job */}
       {can("editJobs") && isOp && (it.hpd || 0) > 1 && it.status !== "Finished" && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></svg>} label="Split Job" sub="Divide this op into two at a set hour" onClick={() => { let panel = null, parentJob = null, freshOp = null; for (const j of tasks) { for (const pnl of (j.subs||[])) { const found = (pnl.subs||[]).find(o => o.id === it.id); if (found) { panel = pnl; parentJob = j; freshOp = found; break; } } if (panel) break; } if (!panel || !parentJob || !freshOp) return; setSplitHour(Math.round((freshOp.hpd || productiveHoursPerDay) / 2)); setSplitModal({ op: freshOp, panel, parentJob }); setCtxMenu(null); }} animIdx={ci()} />}
       {can("editJobs") && isOp && <CtxMenuItem icon={<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 13.5"/></svg>} label="Set Worked Hours" sub="Manually mark hours done (greys out that portion)" onClick={() => { let panel = null, parentJob = null, freshOp = null; for (const j of tasks) { for (const pnl of (j.subs||[])) { const found = (pnl.subs||[]).find(o => o.id === it.id); if (found) { panel = pnl; parentJob = j; freshOp = found; break; } } if (panel) break; } if (!panel || !parentJob || !freshOp) return; setWorkedHoursInput(Math.round((Math.max(freshOp.loggedHours || 0, producedFor(freshOp)) + liveOpHours(freshOp)) * 100) / 100); setWorkedHoursWho(String((freshOp.team || [])[0] ?? "")); setWorkedHoursDate(TD); setWorkedHoursModal({ op: freshOp, panel, parentJob }); setCtxMenu(null); }} animIdx={ci()} />}

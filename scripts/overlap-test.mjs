@@ -215,12 +215,27 @@ const run = (name, anchor) => { const src = slice(anchor); if (!src) { ok(`${nam
   ok("week/month drop re-checks the result", (SRC.match(/const _refusal = _refuse\(_plan\);/g) || []).length === 2 && SRC.includes("enforceNoOverlap(_build(tasks)"), true);
   // Root cause 7 B: the day view goes through the same refuseDragMove as week/month.
   ok("day-view drag checks overlap", SRC.includes("const refusal = _refuse(plan);") && SRC.includes("refuseDragMove(plan, { ..._refuseCtx"), true);
-  // FOUR now: the three scheduler free-checks plus the re-plan preflight, which
-  // asks the SAME oracle rather than modelling availability itself. A preview
-  // that answered "is this person free" its own way would be a fifth scheduler
-  // wearing a different name, which is the thing the consolidation removed.
-  ok("the auto-schedulers' free checks use the shared rule (all three, plus the preflight)",
-    (SRC.match(/schedulerAvailability\(tasks, overlapCtx/g) || []).length, 4);
+  // FIVE now: the three scheduler free-checks, the re-plan preflight, and the
+  // run's own commit backstop (#344). Each asks the SAME oracle rather than
+  // modelling availability itself — a preview, or a verifier, that answered "is
+  // this person free" its own way is just another scheduler wearing a different
+  // name, which is the thing the consolidation removed.
+  //
+  // The backstop is the sharpest case for this rule. What it replaced was a
+  // hand-rolled date-interval scan that disagreed with the oracle in BOTH
+  // directions: it called same-day-different-hours work a clash, and it could
+  // not see hours, work days or time off at all. On a disagreement the run
+  // aborted and discarded every placement it had made.
+  //
+  // The count is the weak half of this assertion; the reason is the strong
+  // half. A SIXTH caller is fine if it asks this oracle, and the failure to
+  // care about is a caller that does not appear here at all because it rolled
+  // its own again.
+  ok("every free-check goes through the shared oracle (three schedulers, the preflight, the backstop)",
+    (SRC.match(/schedulerAvailability\(tasks, overlapCtx/g) || []).length, 5);
+  // And the scan it replaced must not come back.
+  ok("…and no hand-rolled date-interval scan stands beside it",
+    /\.start\s*<=\s*\w+\.end\s*&&\s*\w+\.end\s*>=\s*\w+\.start[\s\S]{0,120}?overlapErrors/.test(SRC), false);
   ok("…and no longer compare whole days themselves", /const isPersonFree(Local|Global)?\s*=\s*\(pid,\s*(checkStart|s)\b[^\n]*\n\s*const pp\s*=/.test(SRC), false);
   ok("the save seeds start hours from the shared rule, siblings included", SRC.includes("nextFreeStart(") && SRC.includes("_seeded.push("), true);
 }
