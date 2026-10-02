@@ -159,6 +159,43 @@ console.log("\n4. The render uses all of it");
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+console.log("\n5. #310 — the day view accepts an Overdue-tray drop");
+{
+  const SRC = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8").replace(/\r\n/g, "\n");
+  const CODE = SRC.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
+  const has = (re) => re.test(CODE);
+  // The tray has always published the type; the day view was the only grid that never read
+  // it, so re-planning worked everywhere except the view that can say WHEN during the day.
+  ok("the tray publishes the overdue drag type", has(/setData\("application\/x-traqs-overdue"/), true);
+  ok("two grids accept it now, not one", (CODE.match(/getData\("application\/x-traqs-overdue"\)/g) || []).length, 2);
+  ok("the day view hour cell is a drop target", has(/handleOverdueDrop\(_odId, _odFrom, p\.id, tStart, h \+ _half\)/), true);
+  // Scoped to the day-view cell. The week/month cell has an onDragOver testing the same
+  // type, so a file-wide search passed with the day view's guard replaced by `if (true)`.
+  {
+    const cellStart = CODE.indexOf("handleOverdueDrop(_odId, _odFrom, p.id, tStart, h + _half)");
+    const cell = cellStart < 0 ? "" : CODE.slice(Math.max(0, cellStart - 1400), cellStart);
+    ok("...and highlights only for an overdue drag",
+      /onDragOver=\{e => \{ if \(e\.dataTransfer\.types\.includes\("application\/x-traqs-overdue"\)\)/.test(cell), true);
+  }
+  // The hour IS the day view. A drop that ignored it would just be week/month with extra steps.
+  ok("handleOverdueDrop takes an hour", has(/const handleOverdueDrop = \(nodeId, fromPid, toPid, day, atHour = null\)/), true);
+  // The exact expression, not a window around it. A loose `atHour != null ... Math.min(` span
+  // still matched after the clamp was deleted, because the week/month branch two lines below
+  // clamps the same way and fell inside the window — the third time in this campaign a source
+  // assertion has matched a different site than the one it was written for.
+  ok("...clamped into the working day rather than trusted",
+    has(/\?\s*Math\.min\(workEndH - 0\.5, Math\.max\(workStartH, Math\.round\(atHour \* 2\) \/ 2\)\)/), true);
+  ok("...while week and month still derive their own, unchanged",
+    has(/day === shopDay\(\) \? Math\.min\(workEndH - 0\.5/), true);
+  // Reused, not reimplemented — the drop goes through the same guards as every other landing.
+  const fn = CODE.slice(CODE.indexOf("const handleOverdueDrop ="), CODE.indexOf("const commitLanding ="));
+  ok("the drop checks moveJobs", /can\("moveJobs"\)/.test(fn), true);
+  ok("...and reassign when the person changes", /can\("reassign"\)/.test(fn), true);
+  ok("...and refuses a bad landing", /refuseLanding\(plan\)/.test(fn), true);
+  ok("...and commits behind the no-overlap backstop", /commitLanding\(/.test(fn), true);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (pass + fail === 0) { console.error("no assertions ran"); process.exit(2); }
 process.exit(fail === 0 ? 0 : 1);

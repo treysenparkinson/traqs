@@ -9095,7 +9095,7 @@ Extraction rules:
     onConfirm: () => setConfirmMove(null), onCancel: () => setConfirmMove(null) });
   // An Overdue-tray item dropped on a day: through the normal landing and checks (#87). It
   // lands at the start of the working day, or at the next half hour when dropped on today.
-  const handleOverdueDrop = (nodeId, fromPid, toPid, day) => {
+  const handleOverdueDrop = (nodeId, fromPid, toPid, day, atHour = null) => {
     if (!can("moveJobs")) return denied(PERM_VERB.moveJobs);
     if (fromPid != null && !sameId(fromPid, toPid) && !can("reassign")) return denied(PERM_VERB.reassign);
     const item = overdueUnits(tasks, { today: TD, isLive: n => isLiveOpId(n.id), workedOf: n => producedFor(n) }).find(u => sameId(u.node.id, nodeId));
@@ -9104,7 +9104,13 @@ Extraction rules:
     const size = Math.max(1, (node.team || []).length);
     // The length the bar will draw at: the remaining hours when some were worked, else the estimate.
     const shareH = item.workedH > 0 ? Math.max(0.25, item.remainingH / size) : personShareHours(node.hpd, size, productiveHoursPerDay);
-    const hour = day === shopDay() ? Math.min(workEndH - 0.5, Math.max(workStartH, Math.ceil(shopHour() * 2) / 2)) : workStartH;
+    // #310. Week and month drop onto a DAY, so the hour is derived: now (rounded up to the
+    // half hour) for today, the start of the day otherwise. The day view drops onto an HOUR —
+    // that is the axis it draws — so it passes one, and it is clamped into the working day
+    // rather than trusted, because the drop can land on a dead column or past the end.
+    const hour = atHour != null
+      ? Math.min(workEndH - 0.5, Math.max(workStartH, Math.round(atHour * 2) / 2))
+      : day === shopDay() ? Math.min(workEndH - 0.5, Math.max(workStartH, Math.ceil(shopHour() * 2) / 2)) : workStartH;
     const plan = planDragMove({ grabbed: { id: node.id, node, fromDay: node.start, fromHour: node.startHour ?? workStartH, shareH },
       drop: { day, hour }, origPerson: fromPid, dropPerson: toPid, cfg: dayWindowCfg, cal: calOf(orgSettings.workDays, orgSettings.holidays), workStartH, workEndH });
     const refusal = refuseLanding(plan);
@@ -15637,7 +15643,30 @@ ${jobsCtx || "No jobs found."}`;
                       {personClockPill(p, { size: 11 })}
                     </div>
                     <div style={{flex:1,position:"relative",display:"flex"}}>
-                      {hours.map(h => <div key={h} style={{flex:1,height:"100%",background:pOff?offColor+"12":deadHours.has(h)?T.bg+"55":isToday&&Math.floor(nowH)===h?T.accent+"0a":"transparent",borderRight:`1px solid ${T.bg}22`,position:"relative"}}>
+                      {/* #310. The day view had no drop target at all, so re-planning an
+                          overdue item only worked in week and month — the one view that can
+                          say WHEN during the day was the one that could not accept the drop.
+                          Each hour cell is a target, and the half the cursor lands in picks
+                          the half hour, so a drop reads as the place it was aimed at.
+                          handleOverdueDrop does the rest: it already checks moveJobs and
+                          reassign, plans through planDragMove, refuses through refuseLanding
+                          and commits behind the no-overlap backstop. */}
+                      {hours.map(h => <div key={h}
+                        onDragOver={e => { if (e.dataTransfer.types.includes("application/x-traqs-overdue")) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; e.currentTarget.style.boxShadow = `inset 0 0 0 2px ${T.accent}`; } }}
+                        onDragLeave={e => { e.currentTarget.style.boxShadow = "none"; }}
+                        onDrop={e => {
+                          e.currentTarget.style.boxShadow = "none";
+                          const _od = e.dataTransfer.getData("application/x-traqs-overdue");
+                          if (!_od) return;
+                          e.preventDefault();
+                          const [_odId, _odFrom] = JSON.parse(_od);
+                          // Which half of the column the cursor is in, so a drop at the right
+                          // of the 10:00 cell means 10:30 rather than silently snapping back.
+                          const _r = e.currentTarget.getBoundingClientRect();
+                          const _half = _r.width > 0 && (e.clientX - _r.left) / _r.width >= 0.5 ? 0.5 : 0;
+                          handleOverdueDrop(_odId, _odFrom, p.id, tStart, h + _half);
+                        }}
+                        style={{flex:1,height:"100%",background:pOff?offColor+"12":deadHours.has(h)?T.bg+"55":isToday&&Math.floor(nowH)===h?T.accent+"0a":"transparent",borderRight:`1px solid ${T.bg}22`,position:"relative"}}>
                         {pOff && <div style={{position:"absolute",inset:0,background:`repeating-linear-gradient(135deg,${offColor}12,${offColor}12 4px,transparent 4px,transparent 8px)`,pointerEvents:"none"}}/>}
                         <div style={{position:"absolute",top:0,bottom:0,left:"50%",width:1,background:T.bg+"55",pointerEvents:"none"}}/>
                       </div>)}

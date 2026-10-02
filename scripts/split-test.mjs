@@ -119,7 +119,7 @@ console.log("6. #88 — the row sort is a total order (sliced and run)");
 console.log("7. the Overdue drop lands through the normal landing and checks (sliced and run)");
 try {
   const braceSlice = (sig) => { const a = WEB.indexOf(sig); if (a < 0) throw new Error("not found: " + sig); let i = WEB.indexOf("{", WEB.indexOf("=>", a)), d = 0; for (; i < WEB.length; i++) { if (WEB[i] === "{") d++; else if (WEB[i] === "}" && --d === 0) break; } return WEB.slice(WEB.indexOf("=>", a) - 40 > a ? a : a, i + 1); };
-  const run = ({ day, people = [{ id: "wes", name: "Wes", timeOff: [] }, { id: "sam", name: "Sam", timeOff: [] }], to = "wes" }) => {
+  const run = ({ day, people = [{ id: "wes", name: "Wes", timeOff: [] }, { id: "sam", name: "Sam", timeOff: [] }], to = "wes", atHour = null }) => {
     const hidden = { id: "h1", title: "Hidden op", start: "2026-09-10", end: "2026-09-11", startHour: 8, hpd: 8, team: ["wes"], status: "Not Started" };
     let state = tree(hidden), writes = 0, saves = 0, refused = null;
     const scope = {
@@ -134,10 +134,10 @@ try {
       setTasks: (f) => { const n = f(state); if (n !== state) writes++; state = n; }, setTimeout: (f) => f(), doSaveRef: { current: () => { saves++; } },
     };
     const proxy = new Proxy(scope, { has: () => true, get: (t, k) => (k === Symbol.unscopables ? undefined : (k in t ? t[k] : globalThis[k])) });
-    const body = ["const refuseLanding = (plan) =>", "const showLandingRefusal = (r, title = \"Can't move here\") =>", "const commitLanding = (build, ids, title) =>", "const handleOverdueDrop = (nodeId, fromPid, toPid, day) =>"]
+    const body = ["const refuseLanding = (plan) =>", "const showLandingRefusal = (r, title = \"Can't move here\") =>", "const commitLanding = (build, ids, title) =>", "const handleOverdueDrop = (nodeId, fromPid, toPid, day, atHour = null) =>"]
       .map(sig => { const a = WEB.indexOf(sig); if (a < 0) throw new Error("not found: " + sig); const arrow = WEB.indexOf("=>", a) + 2; let j = arrow; while (WEB[j] === " ") j++; if (WEB[j] === "{") { let d = 0; for (; j < WEB.length; j++) { if (WEB[j] === "{") d++; else if (WEB[j] === "}" && --d === 0) break; } return WEB.slice(a, j + 1) + ";"; } let p = 0; for (; j < WEB.length; j++) { if (WEB[j] === "(") p++; else if (WEB[j] === ")") { if (--p < 0) break; } else if (WEB[j] === ";" && p === 0) break; } return WEB.slice(a, j + 1) + (WEB[j] === ";" ? "" : ";"); }).join("\n");
     const h = new Function("scope", `with (scope) { ${body} return handleOverdueDrop; }`)(proxy);
-    h("h1", "wes", to, day);
+    h("h1", "wes", to, day, atHour);
     return { state, writes, saves, refused, op: state[0].subs[0].subs[0] };
   };
   const ok = run({ day: "2026-10-06" });
@@ -149,6 +149,18 @@ try {
   check("onto today: lands at the next half hour, not refused as the past", () => eq([today.writes, today.op.startHour], [1, 10]));
   const re = run({ day: "2026-10-06", to: "sam" });
   check("onto another person's row: reassigned", () => eq(re.op.team, ["sam"]));
+  // #310. The day view drops onto an HOUR, which is the axis it draws, so handleOverdueDrop
+  // takes one. Week and month pass nothing and keep deriving their own — the two cases above
+  // cover that — and the hour is clamped rather than trusted, because a drop can land on a
+  // dead column or past the end of the day.
+  const atH = run({ day: "2026-10-06", atHour: 13.5 });
+  check("with an hour: lands at that hour, not the start of the day", () => eq(atH.op.startHour, 13.5));
+  const rounded = run({ day: "2026-10-06", atHour: 13.4 });
+  check("…snapped to the half hour", () => eq(rounded.op.startHour, 13.5));
+  const late = run({ day: "2026-10-06", atHour: 23 });
+  check("…past the end of the day, clamped inside it", () => eq(late.op.startHour <= 16.5, true));
+  const early = run({ day: "2026-10-06", atHour: 2 });
+  check("…before the start of the day, clamped inside it", () => eq(early.op.startHour >= 8, true));
 } catch (e) { check("the Overdue drop exists and runs", () => { throw e; }); }
 
 console.log(`\n${pass} passed, ${fail} failed`);
