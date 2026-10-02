@@ -301,6 +301,49 @@ export function foldRunOutcomes(results, { crew = [] } = {}) {
   return summarize(rows, crew);
 }
 
+/**
+ * How much WORK each person is already carrying, in hours — the measure the
+ * even-load objective balances on.
+ *
+ * #345. This replaced two identical copies of a `jobCount` that counted
+ * unfinished panel and op ROWS. On TORUS that called a 370h / 179h split even,
+ * because the two people held a similar NUMBER of bars. Balancing the count of
+ * things is not balancing the work, and `previewOutcomes` had been summing
+ * op.hpd all along — so the preview Treysen reads before committing and the run
+ * that committed already disagreed about what "even" meant.
+ *
+ * Takes units from occupyingUnits() rather than walking the task tree again.
+ * That is deliberate: the two counters this replaces each re-implemented the
+ * traversal, and each re-implemented it incompletely — no deletedAt check, no
+ * date filter, so an undated or long-past unfinished bar made somebody look
+ * permanently busy and quietly steered work away from them for good.
+ *
+ * Ids are compared through sid(), not `.includes()`. 12 of 1197 live Matrix
+ * memberships are number-typed against string person ids, and `.includes` misses
+ * every one of them SILENTLY — the person just looks lighter than they are, so
+ * the balancer hands them more.
+ *
+ * Returns a loadOf(id) function, the shape pickCandidate and orderByObjective
+ * already take.
+ */
+export function hoursLoadOf(units, { excludeJobId = null } = {}) {
+  const drop = excludeJobId != null ? sid(excludeJobId) : null;
+  const load = new Map();
+  for (const u of units || []) {
+    const node = u?.unit || u;
+    if (!node) continue;
+    if (drop != null && sid(u?.job?.id) === drop) continue;
+    const team = (node.team || []).map(sid).filter(Boolean);
+    if (!team.length) continue;
+    // One op's hours are shared by the people on it: a 2-person 8h op is 4h
+    // each, not 8h each. Counting it twice would make teamed work look twice
+    // as expensive as it is and push the balancer away from teams entirely.
+    const share = (Number(node.hpd) || 0) / team.length;
+    for (const pid of team) load.set(pid, (load.get(pid) || 0) + share);
+  }
+  return (id) => load.get(sid(id)) || 0;
+}
+
 /** Whether an op may be re-planned at all. The only real lock is an active clock. */
 export function isReplannable(op, people) {
   const id = sid(op?.id);

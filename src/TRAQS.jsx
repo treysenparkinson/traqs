@@ -2,7 +2,7 @@
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { personDeptMatch, unitDepartment, unitDepartments, personDepartments, normalizeDepartments, withDepartmentDualWrite, workCalendar } from "./scheduleRules.js";
-import { candidatesFor, pickCandidate, orderByObjective, previewOutcomes, foldRunOutcomes, isReplannable, OUTCOME } from "./placement.js";
+import { candidatesFor, pickCandidate, orderByObjective, previewOutcomes, foldRunOutcomes, hoursLoadOf, isReplannable, OUTCOME } from "./placement.js";
 // The objective is a RULED product choice (even load by default, "Finish
 // soonest" the alternative) and becomes a control in the re-plan preview when
 // that UI lands. Until then it is this constant rather than a piece of state
@@ -24928,7 +24928,7 @@ ${jobsCtx || "No jobs found."}`;
           // Fast TRAQS imports leave requiredDepartment empty even though op
           // titles ("Wire", "Cut", "Layout", "Labels") match department names
           // exactly. Without inference the scheduler ignores departments
-          // entirely on a first reschedule and assigns by jobCount only.
+          // entirely on a first reschedule and assigns by hours-carried only.
           const _inferDept = (op, panel) => deptOfUnit(op, panel, null);
           const rawOps = (ed.subs || []).flatMap(panel => {
             if ((panel.subs || []).length > 0) {
@@ -25076,14 +25076,10 @@ ${jobsCtx || "No jobs found."}`;
           const isAvailLocal = (pid, s, eDate) => _localAvail.free(pid, s, eDate);
           const personCursors = {};
           allCrew.forEach(pp => { personCursors[pp.id] = newStartDate; });
-          const jobCountLocal = (pid) => tasks.reduce((n, job) => {
-            if (ed.id && job.id === ed.id) return n;
-            for (const pnl of (job.subs || [])) {
-              if ((pnl.team || []).includes(pid) && pnl.status !== "Finished") n++;
-              for (const op of (pnl.subs || [])) { if ((op.team || []).includes(pid) && op.status !== "Finished") n++; }
-            }
-            return n;
-          }, 0);
+          // Same fix as the wizard's copy (#345): hours, through the shared
+          // traversal. Two identical counters is how they drifted apart in the
+          // first place.
+          const loadHoursLocal = hoursLoadOf(occupyingUnits(tasks, overlapCtx), { excludeJobId: ed.id });
           const pickTeamLocal = (op, minStart = null) => {
             const totalHours = (typeof op === "object" && op?.hpd) ? op.hpd : productiveHoursPerDay;
             const reqDepts = typeof op === "object" ? deptsOfUnit(op, null, null) : [];
@@ -25105,7 +25101,7 @@ ${jobsCtx || "No jobs found."}`;
             // picked one at a time because the loop below walks the list trying
             // successive start dates.
             const eligible = orderByObjective(candidatesFor(op, allCrew),
-              { objective: SCHEDULE_OBJECTIVE, loadOf: (id) => jobCountLocal(id) });
+              { objective: SCHEDULE_OBJECTIVE, loadOf: (id) => loadHoursLocal(id) });
             if (eligible.length === 0) return { team: [], start: minStart || newStartDate, end: minStart || newStartDate };
             const singleDur = Math.max(1, Math.ceil(totalHours / productiveHoursPerDay));
             if (scheduleTeamMode === "one") {
@@ -25774,7 +25770,7 @@ ${jobsCtx || "No jobs found."}`;
                       // Fast TRAQS imports leave requiredDepartment empty even though op
                       // titles ("Wire", "Cut", "Layout", "Labels") match department names
                       // exactly; without this, the first reschedule routes ops to whoever
-                      // has the lowest jobCount regardless of department.
+                      // carries the fewest hours regardless of department.
                       const _inferDept2 = (op, panel) => deptOfUnit(op, panel, null);
                       const panelsForScheduling = p.isReschedule
                         // PER OP now. A selected op has its team cleared, which is
@@ -25819,14 +25815,13 @@ ${jobsCtx || "No jobs found."}`;
                       allCrew.forEach(pp => { personCursors[pp.id]=slot.start; });
                       const inSession=[];
                       const isAvail=(pid,s,eDate) => _applyAvail.free(pid,s,eDate);
-                      const jobCount=(pid) => tasks.reduce((n,job) => {
-                        if(ed.id && job.id===ed.id) return n;
-                        for(const pnl of (job.subs||[])) {
-                          if((pnl.team||[]).includes(pid) && pnl.status!=="Finished") n++;
-                          for(const op of (pnl.subs||[])) { if((op.team||[]).includes(pid) && op.status!=="Finished") n++; }
-                        }
-                        return n;
-                      },0);
+                      // LOAD IS HOURS, NOT BARS (#345). What stood here counted
+                      // unfinished panel and op ROWS, which called TORUS's 370h/179h
+                      // split even because both people held a similar NUMBER of bars.
+                      // It also used .includes(pid), missing number-typed ids, and had
+                      // no deletedAt or date filter — so an undated or long-past
+                      // unfinished bar made someone look busy forever.
+                      const loadHours=hoursLoadOf(occupyingUnits(tasks, overlapCtx), { excludeJobId: ed.id });
                       const pickTeam=(op,minStart=null) => {
                         const totalHours=(typeof op==="object" && op?.hpd)?op.hpd:productiveHoursPerDay;
                         const reqDepts=typeof op==="object"?deptsOfUnit(op,null,null):[];
@@ -25869,7 +25864,7 @@ ${jobsCtx || "No jobs found."}`;
                         // nobody is reported now, not handed to the least busy
                         // person in the shop.
                         const eligible = orderByObjective(candidatesFor(op, allCrew),
-                          { objective: SCHEDULE_OBJECTIVE, loadOf: (id) => jobCount(id) });
+                          { objective: SCHEDULE_OBJECTIVE, loadOf: (id) => loadHours(id) });
                         // NOBODY HOLDS THE DEPARTMENT. Dated so the op still lands on the
                         // Jobs list and the Project Plan as real work, but with no team and
                         // a reason attached — the same treatment deliberate-unassigned gets
