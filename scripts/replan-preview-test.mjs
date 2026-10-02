@@ -13,6 +13,11 @@ import { readFileSync } from "node:fs";
 import { previewOutcomes, OUTCOME, isReplannable } from "../src/placement.js";
 
 const J = readFileSync(new URL("../src/TRAQS.jsx", import.meta.url), "utf8");
+// J with line-comments stripped. An assertion about CODE must not be
+// satisfiable — or violable — by a COMMENT: the comment explaining a fix
+// routinely names the very pattern the fix removed. Four false results in this
+// campaign came from scanning prose as though it were code.
+const CODE = J.split(/\r?\n/).filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
 let pass = 0, fail = 0;
 const ok = (label, got, want = true) => {
   if (JSON.stringify(got) === JSON.stringify(want)) { pass++; console.log(`  PASS  ${label}`); return true; }
@@ -135,7 +140,33 @@ console.log("\n6. The preview asks the engine, it does not model the run");
   ok("...and read in the panel", /r\.outcome/.test(J), true);
 }
 
-console.log("\n7. RED PROOF");
+console.log("\n7. A partial aiSuggestion must not crash the modal");
+{
+  // Pre-existing since the 3-step wizard (9e86f12), surfaced while testing the
+  // re-plan. The overlap-error path does
+  // setAiSuggestion(prev => ({ ...(prev||{}), overlapError })), and prev is NULL
+  // on a plain edit-and-save — the scheduler never ran. That produced an object
+  // with no `slots`, which the panel read as `aiSuggestion.slots.length` and
+  // took the whole modal down with it.
+  //
+  // Fixed at BOTH ends and both are asserted: a shape that cannot be rendered
+  // should never be produced, AND the renderer should survive one anyway. One
+  // guard alone leaves the next partial shape to find the same cliff.
+  ok("the overlap-error setter seeds slots",
+    /\{ slots: \[\], \.\.\.\(prev\|\|\{\}\), overlapError/.test(J), true);
+  ok("...so no bare spread of an empty object survives",
+    /\.\.\.\(prev\|\|\{\}\),overlapError/.test(J), false);
+  ok("every slots read in the renderer goes through a default",
+    (J.match(/\(aiSuggestion\.slots\|\|\[\]\)/g) || []).length, 2);
+  ok("...and no unguarded read remains",
+    /aiSuggestion\.slots\./.test(CODE), false);
+  // ...and the guard above is real: CODE must still contain the reads at all,
+  // or a rename would make the assertion pass by deleting its subject.
+  ok("...with the reads themselves still present",
+    (CODE.match(/aiSuggestion\.slots/g) || []).length, 2);
+}
+
+console.log("\n8. RED PROOF");
 {
   const checks = [
     // Placing an infeasible op anyway is the silent fallback wearing a better
@@ -150,6 +181,26 @@ console.log("\n7. RED PROOF");
     // A blocked op must not consume capacity.
     ["a blocked op contributes no hours",
       run([op("welding", { requiredDepartments: ["Welding"], hpd: 99 })]).byPerson.length, 0],
+    // THE CRASH ITSELF, reproduced rather than described. The grep assertions
+    // in 7 prove the fix is present in the source; this proves the shape they
+    // guard against is genuinely fatal, so the guard is not decoration.
+    ["the old shape really does throw, it is not a theoretical worry",
+      (() => { const bad = { ...(null || {}), overlapError: "busy" };
+        try { return bad.slots.length === 0 ? "no throw" : "no throw"; }
+        catch (e) { return e instanceof TypeError; } })(), true],
+    ["...and the seeded shape does not",
+      (() => { const good = { slots: [], ...(null || {}), overlapError: "busy" };
+        return good.slots.length; })(), 0],
+    ["...nor does the renderer default, even on the unseeded shape",
+      (() => { const bad = { overlapError: "busy" };
+        return (bad.slots || []).length; })(), 0],
+    // The seed must not CLOBBER real slots — the spread order is the whole
+    // point. `{slots: [], ...prev}` keeps prev's slots; the reverse would
+    // silently empty a scheduled suggestion, turning a crash into lost work,
+    // which is worse.
+    ["a real suggestion keeps its slots through the seed",
+      (() => { const prev = { slots: [{ day: "2026-10-05" }] };
+        return ({ slots: [], ...(prev || {}), overlapError: "busy" }).slots.length; })(), 1],
   ];
   let red = 0;
   for (const [label, got, want] of checks) {

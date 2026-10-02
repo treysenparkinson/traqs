@@ -25722,10 +25722,10 @@ ${jobsCtx || "No jobs found."}`;
               {aiSuggestion.noSlots && <div style={{ padding:16, background:T.danger+"10", border:`1px solid ${T.danger}33`, borderRadius:T.radiusSm, color:T.danger, fontSize:13, fontWeight:500 }}>
                 No one is available within the next 200 business days. Consider adding more team members or reducing the panel count.
               </div>}
-              {!aiSuggestion.noSlots && aiSuggestion.slots.length===0 && <div style={{ padding:16, background:T.danger+"10", border:`1px solid ${T.danger}33`, borderRadius:T.radiusSm, color:T.danger, fontSize:13, fontWeight:500 }}>
+              {!aiSuggestion.noSlots && (aiSuggestion.slots||[]).length===0 && !aiSuggestion.overlapError && <div style={{ padding:16, background:T.danger+"10", border:`1px solid ${T.danger}33`, borderRadius:T.radiusSm, color:T.danger, fontSize:13, fontWeight:500 }}>
                 No available windows found. Consider adjusting panel count or adding team members.
               </div>}
-              {aiSuggestion.slots.map((slot,si) => <div key={si} style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, padding:14, marginBottom:8, transition:"all 0.15s" }}
+              {(aiSuggestion.slots||[]).map((slot,si) => <div key={si} style={{ background:T.surface, border:`1px solid ${T.border}`, borderRadius:T.radiusSm, padding:14, marginBottom:8, transition:"all 0.15s" }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor=T.accent; e.currentTarget.style.background=T.accent+"08"; }}
                 onMouseLeave={e => { e.currentTarget.style.borderColor=T.border; e.currentTarget.style.background=T.surface; }}>
                 <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
@@ -25990,7 +25990,15 @@ ${jobsCtx || "No jobs found."}`;
                         }
                       }
                       if(overlapErrors.length>0) {
-                        setTimeout(() => setAiSuggestion(prev => ({...(prev||{}),overlapError:overlapErrors.join(" | ")})),0);
+                        // `{slots: []}`, not `{}`. When the scheduler has never run,
+                        // prev is NULL — a plain edit-and-save — and spreading {} here
+                        // produced an aiSuggestion with NO slots, which the panel below
+                        // reads as `aiSuggestion.slots.length` and crashes the whole
+                        // modal with "Cannot read properties of undefined". Reachable
+                        // since the 3-step wizard landed; the renderer is guarded too,
+                        // because a partial shape should never be able to take the
+                        // modal down.
+                        setTimeout(() => setAiSuggestion(prev => ({ slots: [], ...(prev||{}), overlapError: overlapErrors.join(" | ") })),0);
                         return p;
                       }
                       // Merge per op by id. The old test was `selection.length <
