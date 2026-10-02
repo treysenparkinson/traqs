@@ -384,7 +384,7 @@ async function notifyTaskChanges({ orgCode, member, next, prev }) {
   // so admins are excluded from status pushes below even if they're on the team.
   const adminIds = new Set(people.filter((p) => p && p.userRole === "admin").map((p) => String(p.id)));
 
-  const { teamAdded, teamRemoved, finishResolved, statusChanges } = diffTaskEvents(next, prev);
+  const { teamAdded, teamRemoved, finishResolved, statusChanges, dayMoves } = diffTaskEvents(next, prev);
   const serverTime = new Date().toISOString();
   const notified = new Set(); // person ids that already got a VISIBLE push
 
@@ -436,6 +436,26 @@ async function notifyTaskChanges({ orgCode, member, next, prev }) {
       heading: "Status update",
       content: `${s.unitTitle} is now ${s.newStatus}`,
       data: { type: "status", ...(s.jobNumber ? { jobNumber: s.jobNumber } : {}) }, label: "status",
+    });
+    recips.forEach((id) => notified.add(String(id)));
+  }
+
+  // #222. A move that crossed a DAY, to the people on that unit. Within-day
+  // nudges are excluded in diffTaskEvents, deliberately — see the note there.
+  //
+  // Placed AFTER the loops above so the `notified` set already holds anyone who
+  // got a more specific push this write: someone newly assigned to a job is
+  // told they were assigned, not that it moved, and someone whose unit just
+  // went Finished gets the status push instead. A move is the LEAST specific
+  // thing that can happen to a unit, so it yields to everything else rather
+  // than stacking a second notification on the same person for one write.
+  for (const m of dayMoves) {
+    const recips = m.teamIds.filter((id) => id && id !== writerId && !notified.has(String(id)));
+    if (recips.length === 0) continue;
+    await sendVisiblePush(orgCode, people, recips, {
+      heading: "Schedule change",
+      content: `${m.unitTitle} moved from ${m.fromStart} to ${m.toStart}`,
+      data: { type: "moved", ...(m.jobNumber ? { jobNumber: m.jobNumber } : {}) }, label: "moved",
     });
     recips.forEach((id) => notified.add(String(id)));
   }

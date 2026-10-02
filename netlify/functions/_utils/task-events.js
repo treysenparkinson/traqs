@@ -75,6 +75,7 @@ export function diffTaskEvents(nextTasks, prevTasks) {
   const teamRemoved = new Map();
   const finishResolved = [];
   const statusChanges = [];
+  const dayMoves = [];      // #222 — moves that cross a day, see below
 
   const addJob = (map, personId, ctx) => {
     const key = String(personId);
@@ -127,7 +128,37 @@ export function diffTaskEvents(nextTasks, prevTasks) {
         excludeIds: finishAuthors,
       });
     }
+
+    // ── #222. A move that CROSSES A DAY, and only that ────────────────────
+    //
+    // Ruled 2026-10-02: a worker whose job shifted from Tuesday to Thursday
+    // needs to know; one nudged by an hour within the same day does not, and
+    // notifying on every drag would train people to ignore the notifications.
+    //
+    // So the trigger is the `start` DATE and nothing else. Deliberately NOT:
+    //   - `startHour`/`endHour`, which is the within-day nudge this excludes;
+    //   - `end` alone, which is a duration change — the day the person is
+    //     expected to turn up has not moved;
+    //   - a brand-new unit, which is an assignment and already notified above.
+    //
+    // Both sides are compared as stored, `YYYY-MM-DD` strings, so this is a
+    // string comparison and not a timezone question. That matters: a Date
+    // round-trip here would reintroduce the UTC-day bug localDay.js documents.
+    if (prev && !prev.deleted) {
+      const from = cur.unit.start == null ? null : String(cur.unit.start);
+      const was = prev.unit.start == null ? null : String(prev.unit.start);
+      if (was && from && was !== from) {
+        dayMoves.push({
+          unitId: id,
+          unitTitle: cur.title,
+          fromStart: was,
+          toStart: from,
+          jobNumber: cur.jobNumber,
+          teamIds: curTeam,
+        });
+      }
+    }
   }
 
-  return { teamAdded, teamRemoved, finishResolved, statusChanges };
+  return { teamAdded, teamRemoved, finishResolved, statusChanges, dayMoves };
 }

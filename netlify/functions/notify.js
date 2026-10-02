@@ -1,3 +1,24 @@
+// ── THIS FILE IS THE JOB-NOTIFICATION BOUNDARY. DO NOT ADD A BASIC EVENT. ──
+//
+// Every type here is a JOB event — new_job, assigned, step, ready,
+// finish_request, completion_resolved — and that is not an accident, it is a
+// tier seam. Basic has no job layer, so "Basic is everything except notify.js"
+// is enforceable at the FUNCTION boundary: one deployment unit, no per-call
+// filtering, no decomposition. (origin/docs/rostering-design §12.2.)
+//
+// Adding a Basic-reachable notification here — a PTO decision, a clock reminder,
+// a shift change — destroys that, and it destroys it silently: nothing fails,
+// the push works, and the seam is simply gone. The Basic channels live in three
+// OTHER functions on purpose: messages.js, timeoff.js, and forgot-clockout.js
+// via sendVisiblePush. Put a Basic notification in one of those.
+//
+// SPECIFICALLY, AND THIS ONE IS COMING: #222 added a day-crossing MOVE
+// notification. A JOB moving is a job event, so its detection lives beside the
+// other job diffs in _utils/task-events.js and is correctly Business-only. When
+// the roster lands, a SHIFT moving is the same idea for a Basic org — and it
+// must NOT be added here or next to the job version. Same words, opposite side
+// of the seam. Do not let the job case set the precedent for the shift case.
+
 import { requireOrgMember } from "./_utils/auth.js";
 import { readJson } from "./_utils/s3.js";
 import { preflight, json, err } from "./_utils/cors.js";
