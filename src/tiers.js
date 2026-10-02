@@ -68,48 +68,82 @@
 // product can SET it — it is configured by hand today. That is exactly what a
 // non-self-serve tier is for, so it belongs there rather than in Basic.
 //
-// GRANULAR ADMIN PERMISSIONS ARE DELIBERATELY NOT LISTED, and that is an open
-// gap rather than a decision (#333). They used to sit under Business, and
-// `_utils/can.js` has always enforced them for every org with no tier check —
-// so the claim was false the whole time it was printed. It stays off the table
-// until it is either gated or deliberately given to everyone.
+// GRANULAR ADMIN PERMISSIONS — #333, CLOSED 2026-10-02 against the rostering
+// design's decision 16, which answered it in a way neither option on the table
+// had considered. The question had been framed as "gate adminPerms on tier (a
+// takeaway from every existing Basic org) or give them away deliberately".
+// The answer is neither: ALL NINE KEYS STAY ENFORCED FOR EVERY ORG, and Basic
+// is SHOWN only the four that mean anything in a product with no jobs —
+// manageTeam, orgSettings, approveTimeOff (and undoHistory, which decision 18
+// then removes, leaving three). The five job/client toggles (editJobs,
+// moveJobs, reassign, manageClients, approveCompletions) are omitted from the
+// settings page, not disabled and not revoked. Nothing is taken from anyone,
+// and the table never claimed them, so there is no row here either way.
 
-// RULED 2026-10-02. "Mobile clock in/out" is named rather than left to
-// inference: a shift worker clocks in from their phone on site, not at a desk,
-// and web-only shift scheduling is not a product. The device claim is pinned by
-// tiers-test, because the previous table went silent on exactly this kind of
-// load-bearing point and a reader filled it in wrong.
+// ── RULED 2026-10-02 (second pass), from the rostering design ──────────────
 //
-// A shift carries a CREW, not one person — a morning crew is one shift with
-// four names, not four shifts.
+// `origin/docs/rostering-design` (2026-09-21/22, 23 locked decisions) is the
+// default throughout. It is the more considered source and it was written
+// first; the 2026-10-02 definition that produced the previous version of this
+// table was written without knowledge of it. See BASIC_RECONCILIATION.md.
+//
+// Three rows changed as a direct result:
+//
+//   ANALYTICS IS BASIC, cut to three elements (decision 14). Not adapted —
+//   CUT. `efficiencyPct({prod, working})` (statsMath.js:220) divides
+//   production hours by working hours, and `prod` comes from productionHours,
+//   so with no jobs it renders 0%: a FALSE statement rather than a missing
+//   one. The card and the Employees Performance panel are absent in Basic
+//   rather than zeroed, and statsMath.js stays a Business-only module.
+//
+//   THERE IS NO EMPLOYEES/ANALYTICS SLOT SWAP. The previous table invented
+//   one. Basic has BOTH pages; the Employees page simply has its job-fed
+//   panels omitted and its schedule panels re-sourced from the roster.
+//
+//   THE ROSTER IS RECURRING BY DEFAULT (decisions 1–7). A weekly template per
+//   person is the primitive and one-offs are dated exceptions — not a flat
+//   list of shift rows with a pattern bolted on later.
+//
+// CONFLICT NOT RESOLVED HERE, flagged rather than decided: the 2026-10-02
+// definition says Basic has NO DEPARTMENTS and no row grouping, while the
+// rostering design (§12.3 D) treats the Departments settings section as
+// "Basic-safe as it stands". Departments are listed under Business below,
+// following the explicit definition, but the two sources disagree and this
+// row should be confirmed.
 export const BASIC_FEATURES = [
-  "Shift scheduling — shift bars on person rows",
-  "Shifts: start and end time, notes and location",
-  "New shift: day, all-day or set times, and the crew on it",
+  "Shift roster — recurring weekly patterns per person",
+  "Day and week roster views",
+  "Shift calendar — month grid, org-wide or per person",
   "Time clock & time stamps, for pay only",
   "Mobile clock in/out — from the phone, on site",
+  "Time off — PTO and UTO, request through approval",
+  "Analytics — hours logged, pay hours, export hours",
+  "Employees — one person's full picture",
   "Pay-period hours export from pay punches",
-  "Employees — name and phone for quick contact",
-  "Dashboard, messages and admin",
+  "Dashboard, messages and admin board",
 ];
 
-// What Basic has that BUSINESS DOES NOT. Business puts Analytics in this nav
-// slot instead, so this is not a feature Business "also gets" — it is the one
-// place the tiers diverge rather than nest, and the upgrade comparison has to
-// subtract it from the Business column rather than inheriting the whole list.
+// What Basic has that BUSINESS DOES NOT.
+//
+// It is the SHIFT CALENDAR, not the Employees page — the previous version of
+// this file had the wrong row. Per decision 20 the calendar is Basic-only and
+// occupies the toggle slot Business gives to the month timeline, so the two
+// tiers swap that slot rather than nesting. The design calls this out itself
+// (§10.9): upgrading no longer only reveals things, it also TAKES ONE AWAY,
+// and the upgrade button's copy has to say so.
 export const BASIC_ONLY = [
-  "Employees — name and phone for quick contact",
+  "Shift calendar — month grid, org-wide or per person",
 ];
 
 // Business is everything in Basic EXCEPT BASIC_ONLY, plus all of this.
-// The job layer is the line. Everything above "Departments" is part of it.
 export const BUSINESS_FEATURES = [
   "Jobs, panels & operations",
   "PO and job numbers",
   "Job clock — time logged against work",
-  "Analytics — in the Employees slot",
+  "Gantt timelines — month view in place of the shift calendar",
   "Clients",
   "Approval templates",
+  "Job analytics — efficiency & utilization",
   "Departments & row grouping",
   "Automatic scheduling — overlap clearing, reflow, dependency cascade, conflict blocking",
   "Microsoft / SSO sign-in",

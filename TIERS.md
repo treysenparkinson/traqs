@@ -53,16 +53,56 @@ matters most in this repository.
 
 ### Business — all of that plus the job layer
 
-Jobs, panels and operations · PO and job numbers · job clock · time logged against work ·
-Analytics in the Employees slot · Clients · approval templates · departments · automatic
-scheduling · SSO · email-domain allowlist · priority support.
+Jobs, panels and operations · PO and job numbers · job clock · time logged against work · Gantt
+timelines · Clients · approval templates · job analytics (efficiency & utilization) · departments
+· automatic scheduling · SSO · email-domain allowlist · priority support.
+
+### Amended 2026-10-02 — the rostering design governs
+
+`origin/docs/rostering-design` (2026-09-21/22, 23 locked decisions) is the default throughout; see
+`BASIC_RECONCILIATION.md`. Three amendments to the definition above:
+
+- **The roster is RECURRING BY DEFAULT.** A weekly template per person is the primitive and
+  one-offs are dated exceptions — `roster.json`, `kind: "template" | "exception"`, shifts
+  generated and never persisted. "New shift modal" above describes the overturned model.
+- **Analytics is BASIC**, cut to **Hours Logged, Pay Hours, Export Hours** (decision 14). Cut, not
+  adapted: `efficiencyPct({prod, working})` (`statsMath.js:220`) divides by `productionHours`, so
+  with no jobs it renders **0% — a false statement rather than a missing one**. `statsMath.js`
+  stays Business-only.
+- **There is no Employees/Analytics slot swap.** That was invented by the earlier table. Basic has
+  **both** pages; the Employees page has its job-fed panels omitted and its schedule panels
+  re-sourced from the roster (design §11.3).
+
+**Unresolved and flagged, not decided:** this definition says Basic has **no departments**, while
+the design (§12.3 D) treats the Departments settings section as "Basic-safe as it stands".
+Departments are listed under Business, following this definition, but the two disagree.
+
+Also flagged: this definition says a shift carries a **crew**; the design's decision 7 is
+**person-owned templates only**, with copy-from-another-person as the affordance that covers a
+crew. No row either way until it is ruled.
 
 ### Basic is not a subset
 
-Business puts **Analytics** in the slot Basic uses for **Employees**, so Business genuinely lacks
-a page Basic has. Any comparison rendered as `[...BASIC, ...BUSINESS]` prints a false claim.
-`tiers.js` exports `BASIC_ONLY` and `businessColumn()` for exactly this, the upgrade modal uses
-them, and the suite asserts a naive concatenation would be caught.
+**The shift calendar** — a month grid of shifts, org-wide or filtered to one person — is
+**Basic-only** (decision 20). It occupies the toggle slot Business gives to the month timeline, so
+the tiers **swap** that slot rather than nesting. Any comparison rendered as
+`[...BASIC, ...BUSINESS]` prints a false claim. `tiers.js` exports `BASIC_ONLY` and
+`businessColumn()` for exactly this, the upgrade modal uses them, and the suite asserts a naive
+concatenation would be caught.
+
+The design names the consequence itself (§10.9): **upgrading no longer only reveals things, it
+also takes one away.** The upgrade button's copy has to say so.
+
+### Notifications are the cleanest tier seam in the product
+
+All six push types in `notify.js` — `new_job`, `assigned`, `step`, `ready`, `finish_request`,
+`completion_resolved` — are **job events**. Basic's three channels each live in a *different*
+function: `messages.js:329`, `timeoff.js:44`, and `forgot-clockout.js` via `sendVisiblePush`. So
+Basic is **"everything except `notify.js`"**, enforceable at the function boundary with no
+per-call filtering and no decomposition.
+
+**Standing instruction: do not add a PTO or clock notification to `notify.js` for convenience**,
+or the seam is lost.
 
 ---
 
@@ -145,17 +185,30 @@ per `org.js:264`. Enforcing a tier against live customer data is a product call.
 
 ---
 
-## #333 — granular permissions
+## #333 — granular permissions — CLOSED 2026-10-02
 
 **The one row that was never a misreading.** Listed under Business; `_utils/can.js` enforces
 `adminPerms` for every org with no tier check. Everywhere else the table *under-described* what
-the code did; here the table **sold what the code gives away**. The only row that costs money
-rather than goodwill.
+the code did; here the table **sold what the code gives away**.
 
-Removed from the table rather than left standing as a false claim, with the suite asserting it is
-claimed by *neither* tier. That is a holding position, not a resolution. It needs a ruling
-between gating `adminPerms` (new orgs only, never a takeaway) and putting it in Basic
-deliberately.
+**Closed against the rostering design's decision 16, which answers it in a third way neither
+option on the table had considered.** The question had been framed as a choice between gating
+`adminPerms` on tier — a takeaway from every existing Basic org — and giving them away
+deliberately. Both were bad. The answer:
+
+> **All nine keys stay enforced for every org. Basic is SHOWN only the four that mean anything in
+> a product with no jobs** — `manageTeam`, `orgSettings`, `approveTimeOff`, and `undoHistory`,
+> which decision 18 then removes as well, leaving three. The five job/client toggles (`editJobs`,
+> `moveJobs`, `reassign`, `manageClients`, `approveCompletions`) are **omitted from the settings
+> page, not disabled and not revoked.**
+
+**Nothing is taken from anyone**, because the five hidden toggles govern features Basic does not
+have. The enforcement in `can.js` is untouched, so no server behaviour changes and no org loses a
+capability it was using. And the table never claimed granular permissions, so no row is needed
+either way — `tiers-test` keeps asserting the claim appears under neither tier.
+
+This is what a settled question looks like versus a held one: the holding position was "off the
+table until someone rules"; the ruling removes the dilemma rather than picking a side of it.
 
 ---
 

@@ -43,16 +43,33 @@ const all = [...BASIC_FEATURES, ...BUSINESS_FEATURES].join(" | ").toLowerCase();
 
 // ── 1. the table ─────────────────────────────────────────────────────────
 // Basic is shift scheduling and a pay clock. That is the whole product.
-eq("Basic is shift scheduling and a pay clock", BASIC_FEATURES, [
-  "Shift scheduling — shift bars on person rows",
-  "Shifts: start and end time, notes and location",
-  "New shift: day, all-day or set times, and the crew on it",
+eq("Basic is the roster and a pay clock", BASIC_FEATURES, [
+  "Shift roster — recurring weekly patterns per person",
+  "Day and week roster views",
+  "Shift calendar — month grid, org-wide or per person",
   "Time clock & time stamps, for pay only",
   "Mobile clock in/out — from the phone, on site",
+  "Time off — PTO and UTO, request through approval",
+  "Analytics — hours logged, pay hours, export hours",
+  "Employees — one person's full picture",
   "Pay-period hours export from pay punches",
-  "Employees — name and phone for quick contact",
-  "Dashboard, messages and admin",
+  "Dashboard, messages and admin board",
 ]);
+// RULED 2026-10-02 (second pass), from the rostering design. The roster is
+// RECURRING BY DEFAULT: a weekly template per person is the primitive and
+// one-offs are dated exceptions. A flat list of shift rows with a pattern added
+// later is the model that was overturned.
+eq("the roster is recurring by default, not a list of rows",
+  BASIC_FEATURES.some((f) => /recurring weekly patterns/i.test(f)), true);
+// Analytics is BASIC, cut to three elements (decision 14) — not adapted. There
+// is no Employees/Analytics slot swap; Basic has both pages.
+eq("analytics is Basic", BASIC_FEATURES.some((f) => /^analytics/i.test(f)), true);
+eq("...and names the three elements it is cut to",
+  BASIC_FEATURES.some((f) => /hours logged/i.test(f) && /pay hours/i.test(f) && /export hours/i.test(f)), true);
+eq("...with no efficiency or utilization claim in Basic — efficiencyPct renders 0% with no jobs",
+  /efficien|utilizat|production hours/i.test(basicText), false);
+eq("Basic keeps the Employees page too — there is no slot swap",
+  BASIC_FEATURES.some((f) => /^employees/i.test(f)), true);
 // RULED 2026-10-02, and pinned because the table's SILENCE on this is what the
 // last round nearly repeated. Basic includes a phone clock: a shift worker
 // clocks in on site, not at a desk. Three Time Clock Settings sections already
@@ -64,10 +81,15 @@ eq("...and says where, so 'for pay only' cannot be read as desk-only",
   BASIC_FEATURES.some((f) => /mobile clock/i.test(f) && /phone/i.test(f)), true);
 eq("the phone clock is NOT sold as a Business upgrade",
   BUSINESS_FEATURES.some((f) => /mobile clock|phone/i.test(f)), false);
-// A shift carries a crew. Ruled 2026-10-02: a morning crew is one shift with
-// four names, not four shifts.
-eq("a shift carries a crew, not one person",
-  BASIC_FEATURES.some((f) => /crew/i.test(f)), true);
+// CREW: no assertion, because the two sources disagree and it is not settled.
+// Ruled 2026-10-02 (first pass): "a morning crew is one shift with four names,
+// not four shifts." The rostering design's decision 7 is PERSON-OWNED TEMPLATES
+// ONLY (role-owned deferred), so under it a crew is four people carrying the
+// same pattern — and §6.1 offers copy-from-another-person as precisely the
+// affordance that "makes person-owned templates tolerable". The design
+// anticipated the need and answered it with copying rather than with
+// multi-person shifts. Flagged in BASIC_RECONCILIATION.md; no row either way
+// until it is ruled, because asserting one would freeze an open question.
 // Basic keeps Time Stamp — it is the pay clock, which is half of what Basic is.
 eq("time stamps are Basic",
   BASIC_FEATURES.some((f) => /time stamps/i.test(f)), true);
@@ -76,9 +98,10 @@ eq("Business adds the job layer", BUSINESS_FEATURES, [
   "Jobs, panels & operations",
   "PO and job numbers",
   "Job clock — time logged against work",
-  "Analytics — in the Employees slot",
+  "Gantt timelines — month view in place of the shift calendar",
   "Clients",
   "Approval templates",
+  "Job analytics — efficiency & utilization",
   "Departments & row grouping",
   "Automatic scheduling — overlap clearing, reflow, dependency cascade, conflict blocking",
   "Microsoft / SSO sign-in",
@@ -112,8 +135,8 @@ for (const [concept, re] of [
 }
 // ...and says positively what it DOES draw, so the rows above cannot all be
 // satisfied by an empty list.
-eq("Basic's schedule row says shifts, on person rows",
-  BASIC_FEATURES.some((f) => /shift/i.test(f) && /person rows/i.test(f)), true);
+eq("Basic's schedule row is the roster, per person",
+  BASIC_FEATURES.some((f) => /shift roster/i.test(f) && /per person/i.test(f)), true);
 eq("Basic's clock row says it is for pay only",
   BASIC_FEATURES.some((f) => /time clock/i.test(f) && /pay only/i.test(f)), true);
 eq("Basic's export row says it comes from pay punches",
@@ -129,8 +152,13 @@ eq("...and the job clock, as time logged against work",
 // genuinely lacks a page Basic has. Any comparison that renders the Business
 // column as [...BASIC, ...BUSINESS] prints a false claim.
 eq("there is at least one Basic-only row", BASIC_ONLY.length > 0, true);
-eq("...and it is the Employees page",
-  BASIC_ONLY.every((f) => /employees/i.test(f)), true);
+// It is the SHIFT CALENDAR, not the Employees page — the earlier table had the
+// wrong row. Decision 20: the calendar is Basic-only and takes the toggle slot
+// Business gives to the month timeline, so the tiers swap rather than nest.
+eq("...and it is the shift calendar",
+  BASIC_ONLY.every((f) => /shift calendar/i.test(f)), true);
+eq("...which Business replaces with the month timeline, so the swap is visible in its row",
+  BUSINESS_FEATURES.some((f) => /in place of the shift calendar/i.test(f)), true);
 eq("every Basic-only row is really a Basic row",
   BASIC_ONLY.filter((f) => !BASIC_FEATURES.includes(f)), []);
 eq("the Business column SUBTRACTS it rather than inheriting the whole list",
@@ -139,9 +167,11 @@ eq("...while still carrying the rest of Basic",
   BASIC_FEATURES.filter((f) => !BASIC_ONLY.includes(f)).every((f) => businessColumn().includes(f)), true);
 eq("...and all of Business",
   BUSINESS_FEATURES.every((f) => businessColumn().includes(f)), true);
-// The slot collision is the reason, so it is stated in both rows.
-eq("Business's Analytics row names the slot it takes",
-  BUSINESS_FEATURES.some((f) => /analytics/i.test(f) && /employees slot/i.test(f)), true);
+// There is NO Employees/Analytics slot swap — the earlier table invented one.
+// Basic has both pages; the Employees page has its job-fed panels omitted and
+// its schedule panels re-sourced from the roster (design §11.3).
+eq("Business does not claim the Employees page as its own",
+  BUSINESS_FEATURES.some((f) => /employees slot/i.test(f)), false);
 
 // ── what must never appear ───────────────────────────────────────────────
 eq("no advanced/premium analytics split: there is one analytics page",
@@ -172,7 +202,12 @@ const GATES = [
   ["Jobs, panels & operations", J, `!["tasks", "analytics", "clients"].includes(v.id)`, 1],
   ["Jobs, panels & operations", J, `t.id !== "tasks"`, 1],
   ["Jobs, panels & operations", J, `startHour: workStartH, endHour: Math.min(workEndH, workStartH + 8)`, 1],
-  ["Analytics — in the Employees slot", J, `!["clients", "analytics"].includes(item.id)`, 1],
+  // This gate hides Clients AND Analytics from Basic. Analytics is now a BASIC
+  // row (decision 14), so the gate is wrong for half of what it does — but it
+  // is correct by accident until the page is decomposed, because the page as it
+  // stands is job-fed and its efficiency card would render 0%. Labelled under
+  // Clients, with the analytics half tracked in NOT_ENFORCED below.
+  ["Clients", J, `!["clients", "analytics"].includes(item.id)`, 1],
   ["Clients", J, `billingTier !== "business" ? [] : clients.filter`, 1],
   ["Approval templates", J, `c.key !== "org-approval-templates"`, 1],
   ["Job clock — time logged against work", J, `isClockedIn && billingTier === "business"`, 1],
@@ -198,9 +233,13 @@ const NOT_ENFORCED = [
   // jobClockIn/jobClockOut/updateJobSession/releaseJobSession carry NO tier
   // check. The card is hidden in the UI and the endpoints are wide open.
   "Job clock — time logged against work",
-  // `employees` is not in the Business-only view filter, so Business has BOTH
-  // the Employees page and Analytics — the slot swap is not implemented.
-  "Analytics — in the Employees slot",
+  // Business-only today via the same view filter as Clients, and job-fed
+  // throughout. Basic's three-element version does not exist yet.
+  "Job analytics — efficiency & utilization",
+  // renderGantt/renderSplitGantt are reached from the Schedule page, which
+  // Basic has. No separate gate; they disappear only once renderTeam carries
+  // shift bars and the toggle is built per tier (design §12.3 A, §12.4).
+  "Gantt timelines — month view in place of the shift calendar",
   // No tier gate anywhere on departments or row grouping.
   "Departments & row grouping",
   // Client-side convenience: no payload identifies a reflowed arrangement, so

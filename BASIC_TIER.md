@@ -1,5 +1,40 @@
 # Building Basic: what it actually requires
 
+> ## ⚠ ITS DATA-MODEL DECISIONS ARE SUPERSEDED — ruled 2026-10-02
+>
+> **`origin/docs/rostering-design` (2026-09-21/22, 23 locked decisions) is the default
+> throughout.** This file was written without knowledge of it. See `BASIC_RECONCILIATION.md`.
+>
+> **Superseded here — do not build from these sections:**
+>
+> | This file says | Ruled instead |
+> |---|---|
+> | `shifts.json`, concrete dated rows | **`roster.json`**, `kind: "template" \| "exception"`; shifts are generated, never persisted |
+> | Recurring is post-launch | **Recurring is the primitive.** A weekly template per person; one-offs are dated exceptions |
+> | A separate Basic schedule view | **A third bar type in `renderTeam`'s existing pipeline** — see below |
+> | Analytics is Business; Employees takes its slot | **Analytics is Basic**, cut to Hours Logged / Pay Hours / Export Hours. No slot swap; Basic has both pages |
+> | `BASIC_ONLY` is the Employees page | **The shift calendar**, which is Basic-only (decision 20) |
+> | #333 open | **Closed** against decision 16 |
+> | ~5–9 weeks | **11–19 weeks** |
+>
+> **Still good, and the reason this file is kept rather than deleted:** the measured current
+> state, the sizing *frame*, the Capacitor finding and Path A, the launch gates (A1–A4 and the
+> #125 enforcement gate), and the no-migration window.
+>
+> ### Why the separate-view ruling was overturned
+>
+> It was made without knowing that **`renderTeam` (`:14744`) already renders people × days** —
+> grid at `:15708`, PTO as a hatched overlay, non-workdays shaded from `orgSettings.workDays`,
+> today accented — and that its `bars` array is already assembled from a `pto` push plus three
+> `task` pushes. The roster is a **third bar type** in that same pipeline: `type:"shift"`
+> alongside `pto` and `task`. No extraction, no parallel component.
+>
+> The by-construction argument for a separate view ("no hatching, no overdue tray, no cursor" is
+> true because the Basic view never calls them) was real but does not outweigh maintaining two
+> renderers of the same grid. It also turns out the tier boundary is already expressible in the
+> existing pipeline: Basic contributes `pto` + `shift`, Business adds `task` (design §7.5), which
+> gets the same guarantee from one line of composition rather than a second component.
+
 **Scope document, written 2026-10-02. Nothing here is built, and nothing here should be built
 until the size is accepted.**
 
