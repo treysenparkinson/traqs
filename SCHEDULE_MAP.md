@@ -898,6 +898,38 @@ Everything else was read at the cited line. Nothing was run against live data.
    the build when a suite in `scripts/` is unreferenced, and when the chain stops starting
    with lint. Run the project's command, not one that resembles it.
 
+6. ABSENCE IS A CLAIM ABOUT THE WHOLE REPOSITORY, SO IT NEEDS REPOSITORY-WIDE EVIDENCE.
+   Presence needs one hit; absence needs the search space exhausted. Treating them as the
+   same kind of claim produced four retractions in two days, all with the same shape — search
+   the first place the thing should be, fail to find it, report absence as a finding:
+
+   - "`ai-schedule` has no source in this repository" (#336). It is
+     `netlify/edge-functions/ai-schedule.ts`, tracked and on master. I searched
+     `netlify/functions/` and stopped. Worse: `docs/.../2026-09-22-feature-inventory.md:42`
+     already documented it as an Edge Function, in this repo.
+   - "Neither native client has any concept of billing tier", with an iOS inventory of 70
+     files / 32,190 lines. Measured in a checkout sitting on `fix/code-audit-2026-09-10`,
+     never checked. Master is 130 files / 45,721 lines and iOS has 13 tier gate sites.
+   - "`JobsScheduler.swift` and `JobShifts.swift` do not exist" (#239, #242). Both on
+     master, with test files beside them. Same wrong branch.
+   - BASIC_TIER.md written as greenfield scoping, while a 1,235-line rostering design with 23
+     locked decisions sat on `origin/docs/rostering-design`. I searched `src/` and
+     `netlify/`, never `docs/`, never another branch.
+
+   THE CHECK — before writing "X does not exist", run all four. Any one would have caught
+   every failure above:
+
+   1. `git ls-files | grep -i <name>` and `git log --all --oneline -- '*<name>*'` — by the
+      thing's NAME, across all branches, not by the directory it should live in.
+   2. `git rev-parse --abbrev-ref HEAD` in any checkout before measuring it. A worktree and
+      its parent are never on the same branch, and this repo has several of each.
+   3. `grep -ril <name> .` from the repo root, not from the subdirectory I expect.
+   4. `git branch -a` and look in `docs/` before writing any design or scoping document.
+      Prior art on an unmerged branch is invisible to every other check.
+
+   If only one directory has been looked at, the honest sentence is "it is not in
+   `netlify/functions/`" — true, useful, and it would have produced none of the four.
+
 ## DEFECT LIST
 
 1. The server enforces no schedule rule (overlap, lock, department, business days, past, active clock); `fn/tasks.js` checks permissions only.
