@@ -161,10 +161,19 @@ deliberately.
 
 ## Still open
 
-**#336.** `callAI` POSTs to `/.netlify/functions/ai-schedule`, which has no source in this
-repository — 25 handlers in `netlify/functions/` and that is not one of them. The live endpoint
-answers 401 rather than 404, so it exists and is authenticated but ships from somewhere this
-checkout cannot see. Nobody can review it, nobody can fix it, and it writes schedule data.
+**#336 — RESOLVED 2026-10-02, and the original entry was wrong.** `callAI` POSTs to
+`/.netlify/functions/ai-schedule`, which **is** in this repository: `netlify/edge-functions/
+ai-schedule.ts`, 219 lines, tracked and on master. The entry claimed it had no source on the
+strength of searching `netlify/functions/` alone — edge functions live elsewhere and deploy by a
+different mechanism, which is also why the live endpoint answered 401 rather than 404. It was
+moved there deliberately (`18fc18f`, "migrate ai-schedule to Netlify Edge Function for reliable
+streaming"). It is reviewable and it authenticates properly: `jwtVerify` against the Auth0 JWKS,
+401 for a missing, malformed or unverifiable bearer token.
+
+**One real finding survives, and it belongs to #125:** the function contains **zero** references
+to tier or billing. AI scheduling is the one piece of automatic scheduling that IS a server
+endpoint, and therefore the one place a tier gate could genuinely be enforced. This document
+previously said that could not be determined from here. It can, and the answer is **no gate**.
 
 **#335 is moot.** It logged the Basic simple-edit path as orphaned by `6257ee3`. With that commit
 reverted the path is live and is Basic's only edit surface. The #159 and #160 fixes made on it are

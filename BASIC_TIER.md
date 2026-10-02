@@ -31,6 +31,50 @@ weeks and is not recommended. See the native section.
 
 ---
 
+## PRIOR ART — this document was written without it, and they conflict
+
+`origin/docs/rostering-design` carries **`docs/superpowers/specs/2026-09-21-rostering-design.md`,
+1,235 lines**, plus a 420-line feature inventory. It is dated 2026-09-21/22, covers much of the
+same ground, and contains **locked decisions** — numbered 1–23 — that this document contradicts.
+I did not find it before writing, and it should be reconciled before any of this is built.
+
+Where it AGREES (independently, which is worth something):
+
+- **Overnight shifts belong to their start date** (§4.2) — the same ruling, with a precedent this
+  document missed: `timeclock.js:518` already stamps `date: localDayOf(clockIn)`.
+- **Tier gating is removal, not disablement** (decision 10) — the nine gates.
+- **Time Clock splits at the job clock** (decision 15); **Approval Templates are Business**
+  (16); **the Admin board loses the job bucket in Basic** (17).
+- **Rostering is Basic; Business adds jobs/Gantt on top** (decision 8).
+
+Where it CONFLICTS, and each needs your ruling:
+
+| This document | The rostering design |
+|---|---|
+| `shifts.json`, concrete dated rows | **`roster.json`**, `kind: "template" \| "exception"` — **rule-based**, shifts generated and never persisted (§3.2, §5) |
+| Recurring is **not v1**, post-launch | **Recurring IS the model.** A weekly template is the primitive; one-offs are exceptions |
+| Analytics is **Business**; Basic has Employees in that slot | **Basic Analytics = Hours Logged + Pay Hours + Export Hours** (decision 14) |
+| Not considered | **Basic gains a month shift calendar** in Business's month-timeline slot (decision 20) |
+| Not considered | **Tier chosen at signup** (decision 9); `PERM_KEYS` trimmed to four in Basic (16) |
+| Not considered | **DST handling** (§4.3) — clamp forward in spring, take the first in fall, compute hours in elapsed UTC. Bites overnight shifts only |
+| Not considered | **Notifications are the clean seam**: every `notify.js` type is a job event, so Basic is "everything except `notify.js`", enforceable at the function boundary |
+
+**The storage conflict is the one that matters most**, because it is the root decision and the two
+answers are genuinely different products: a rule-based roster ("what is this person's normal
+week?") versus a calendar of concrete shifts. The rostering design argues the rule-based model
+from a real constraint — `people.json` is read by `requireOrgMember` on *every* authenticated
+request, so versioned templates could not live there — and it is the more considered of the two.
+
+**`PERM_KEYS` trimmed to four (decision 16) is also a prior ruling on #333**, which this campaign
+has been treating as unresolved.
+
+**Recommendation: read that spec before building, and treat its locked decisions as the default**
+unless you overturn them deliberately. This document's value is the sizing, the measured
+current-state and the native picture; its data-model decisions are the newer and less examined of
+the two.
+
+---
+
 ## Decisions taken
 
 ### Shifts live in their own file
@@ -160,85 +204,97 @@ not a broken product. Item 9 is different in kind, which is why it is a gate.
 
 ---
 
-## The native picture
+## The native picture — RETRACTED AND RE-MEASURED
 
-**Determined from source, which is readable from this machine.** The iOS app is at
-`traqs/TRAQS Scheduling/`, the Android app at `traqs/traqs-android/`. No native file was edited
-and nothing was built.
+**The first version of this section was measured against the wrong branch and almost all of its
+numbers were wrong.** Recorded rather than quietly fixed, because the cause matters: the `traqs`
+checkout is on `fix/code-audit-2026-09-10`, not `master`. I inventoried it without checking, and
+reported the result as the state of the product.
 
-### What the native apps are
+| Claim made | Actually, on master |
+|---|---|
+| 70 Swift files, 32,190 lines | **130 Swift files, 45,721 lines** |
+| **"Neither client has any concept of billing tier"** | **iOS is tier-aware** — `billingTier` appears 9 times across `APIService`, `AppState`, `OrgSignup`, `ThreadRoster`, `EmployeesView`, `GanttView`, `HomeView`, `MainTabView`, `MessagesView`, `JobDetailPopup`, `OrgSignupView`, `Icons` |
+| `JobsScheduler.swift`/`JobShifts.swift` "do not exist" | **Both exist on master**, with test files beside them |
+| "a Basic-shaped native client has to be built" | **iOS already has one, partly** |
 
-| | iOS | Android |
+`e8bd343 feat(ios): Basic tier jobs are shifts, not tracked work` is **on master**. It added
+`JobShifts.swift` (+ tests) and touched `SimpleJob`, `AddJobSheet`, `HomeView`,
+`JobDetailPopup` and `TasksView` — 540 insertions. iOS also carries `EmployeesView.swift` and
+`OrgSignup.swift`, matching two things this document and the rostering design each proposed as
+unbuilt (an Employees page; tier selection at signup).
+
+**What this does NOT change:** Path A is still the recommendation, and the ~5–9 week figure is
+unaffected, because Path A does not depend on the native apps at all. What changes is the
+*fallback*: Path B and Path C were costed against an app with no tier concept, and that premise
+was false. If Path A fails on device, the native fallback is **cheaper than stated** — iOS has
+tier plumbing and a shift projection already.
+
+**Everything native in this document now needs re-reading on master before it is relied on**, and
+nothing native should be sized off this file until that is done on the Mac.
+
+### The vocabulary problem is now THREE-way, not two
+
+Settling it was already the right call; the real picture makes it more urgent.
+
+| Term in use | Where | What it means |
 |---|---|---|
-| Stack | SwiftUI | Compose |
-| Files / lines | 70 Swift, **32,190** | 44 Kotlin, **15,381** |
-| Tier awareness | **none** | **none** |
+| `JobShifts.Shift` | iOS `Services/JobShifts.swift` | a shift **derived from a job** — "Basic doesn't clock time against jobs; a job there is a shift" |
+| "pay shift" | iOS `Models/Models.swift:501` | an **open clock session** |
+| shift | web UI, this document, your definition | the **stored thing an admin creates** |
+| roster template / exception | `docs/.../2026-09-21-rostering-design.md` | a **weekly rule**, from which shifts are generated |
 
-**Neither client has any concept of billing tier** — zero matches for `billingTier`, `isBasic` or
-a tier field in either codebase. Both are unconditionally **Business** clients. This is the
-single most important native fact: there is nothing to switch, only something to build.
+Four meanings, three codebases. **Settled vocabulary, to be used everywhere from now on:**
 
-Job-layer coupling, measured:
+| Concept | Schema | UI (customer-facing) | Native |
+|---|---|---|---|
+| The stored weekly rule | `roster.json`, `kind: "template"` | "Normal week" | `RosterTemplate` |
+| A dated override | `roster.json`, `kind: "exception"` | "Exception" | `RosterException` |
+| A generated occurrence | **not persisted** | **"Shift"** | `RosterShift` |
+| A clock session | `payhours.json` row | "Time stamp" | `PayPunch` |
 
-- **Wholly job-layer iOS files: ~7,780 lines (24%)** — `TasksView` 2204, `GanttView` 1303,
-  `AvailabilityCheckView` 864, `JobDetailView` 637, `JobDetailPopup` 509, `PanelPhotoSheet` 453,
-  `ClientsView` 365, `JobsQuery` 360, `AnalyticsView` 343, `ApprovalQueueView` 315,
-  `JobsHubView` 308.
-- **Job-layer references inside SHARED iOS files: ~955 sites** — `AppState.swift` alone has 481
-  in 3,341 lines, `MoreView` 166, `Models` 143, `APIService` 38, `AdminView` 34, `TeamView` 27,
-  `TimeClockView` 25, `MainTabView` 24, `HomeView` 17.
-- **Android, same shape at half the size: ~456 sites** in the five main files.
+Rules that follow:
 
-Also found: **`"shift" already means something else in iOS.** `Models.swift:501` — *"where this
-open pay shift was started"* — a shift is a time-clock session. The Basic shift object would
-collide with it by name throughout.
+1. **"Shift" is the customer-facing word and is not negotiable** — it is what you said and what
+   the product says ("shift scheduling", "New shift").
+2. **Bare `shift` as an identifier in code is banned.** It is ambiguous in all three codebases
+   today. Always `RosterShift` or `PayPunch`.
+3. **Rename iOS's "pay shift" to `PayPunch` BEFORE any roster code is written.** The web already
+   half-uses this vocabulary — `payhours.json`, and the table's "Pay-period hours export from pay
+   punches". Doing it first is a small rename; doing it after is a rename across two codebases
+   with live roster code on top, which is exactly the trap you called out.
+4. **`JobShifts.Shift` is a job projection, not a roster shift.** Rename to
+   `JobShifts.DerivedShift` or retire it with the job layer — do not let it become the Basic
+   shift type by proximity.
 
-### Three paths
+### Path A — chosen. Its open items are LAUNCH GATES, not reasons to reconsider
 
-**Path A — Capacitor-wrap the Basic web view. RECOMMENDED. 5–10 days.**
-Capacitor 7 is already configured here: `appId com.matrixsystems.traqs`, `webDir: "dist"`,
-`@capacitor/ios` and `@capacitor/android` 7.x, with `cap:ios` and `cap:android` scripts. The web
-app already has `isMobile`, a mobile tab bar and a More sheet. Once the Basic web view exists it
-is already most of a phone app, and clocking in on site is a simple surface. The native apps stay
-the Business clients, untouched.
+> **GATE A1 — app identity.** One `appId` (`com.matrixsystems.traqs`). Either a second store
+> listing, or one shell that routes by tier at launch. Precedent exists: the Mac app's
+> `WebViewHost.swift` already hosts a web view in a native shell.
+>
+> **GATE A2 — store review** for a new or changed listing.
+>
+> **GATE A3 — push, background and kiosk** behaviours differ between a Capacitor wrap and the
+> native clients. Note `forgot-clockout` pushes and OneSignal are live today.
+>
+> **GATE A4 — the upgrade path.** What happens when a Basic org upgrades to Business: which app
+> its people then install, and whether anything migrates on the device.
 
-**Path B — tier-gate the existing native apps. NOT recommended. 6–10 weeks.**
-~1,400 job-layer reference sites across two languages, in apps with no tier concept to build on,
-plus a shift model and shift screen in each. This is the shell-versus-substance problem twice
-over, and every future Business change would risk Basic. **This is the path that makes Basic a
-quarter.**
+**Path B stays rejected** — tier-gating the existing native apps was already the wrong shape, and
+that judgement does not depend on the retracted numbers: it is two languages, forever, with every
+future Business change risking Basic.
 
-**Path C — a new small Basic native client per platform. 3–5 weeks each.**
-A shift worker needs: my shifts, clock in/out, messages, team contact — six to eight screens, not
-70 files. Cheaper than B and better than B, but it is two more codebases to keep forever, for a
-tier whose whole point is being simple.
+### Still needs the Mac
 
-### What Path A still has to resolve
-
-- **App identity.** One `appId`. If the native Business app ships under
-  `com.matrixsystems.traqs`, a Capacitor Basic app needs a second listing, or one shell routes by
-  tier at launch. **Precedent exists in this codebase**: the Mac app has `WebViewHost.swift`, a
-  native shell hosting a web view, so a native shell that loads the Basic web view on a Basic org
-  is not novel here.
-- **Store review** for a new or changed listing.
-- **Push, background and kiosk behaviours**, which differ between a Capacitor wrap and the native
-  clients.
-- **Upgrade path.** A Basic→Business org changes which app its people install, unless the
-  routing-shell option is taken.
-
-### What has to wait for the Mac
-
-Everything above is static reading. These need the Mac:
-
-1. **Whether either app builds today**, and against which Xcode / Gradle toolchain.
-2. **Whether the Capacitor iOS target still builds and runs** — it is configured in `package.json`
-   but there is no evidence here of when it was last exercised.
-3. **How the Capacitor wrap actually feels** for clock-in on a real device — the one thing that
-   decides whether Path A is acceptable, and it cannot be judged from source.
-4. **App Store state** — what is listed, under which ID, and whether a second listing is viable.
-5. **Two files cited by defects #239 and #242 do not exist in the tree**: `JobsScheduler.swift`
-   and `JobShifts.swift`. Either renamed or the entries are stale. Same class of problem as #336,
-   and it means those two entries cannot be trusted until checked.
+1. Whether either app builds today, and against which toolchain.
+2. **Whether the Capacitor iOS target still builds and runs** — configured, but nothing shows when
+   it was last exercised.
+3. **How the wrap feels for clock-in on a real device.** The one thing that decides Path A and
+   cannot be judged from source.
+4. App Store state — what is listed, under which ID.
+5. **How much of Basic iOS already works**, given `e8bd343`. This is now a real question rather
+   than an assumption, and it could reduce Path A's scope further.
 
 ---
 
