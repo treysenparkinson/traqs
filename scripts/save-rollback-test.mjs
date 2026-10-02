@@ -100,6 +100,12 @@ function client({ saveTasks, onRollbackFetch, canManageClients = true, saveClien
     cacheFullSlices: () => {},
     // The wrapped setters (J:5432/5445) write latest*Ref synchronously.
     setTasks: (u) => { st.tasks = typeof u === "function" ? u(st.tasks) : u; deps.latestTasksRef.current = st.tasks; },
+    // #218. The rollback installs the SERVER's copy, so it goes through the
+    // uncapturing setter — undoing a rollback would hand the user back the
+    // change the server just refused. Modelled identically here because this
+    // harness compiles the REAL rollbackToServer body: leave it out and the
+    // function silently does nothing, which is how it was found.
+    setTasksFromServer: (u) => { st.tasks = typeof u === "function" ? u(st.tasks) : u; deps.latestTasksRef.current = st.tasks; },
     setPeople: (u) => { st.people = typeof u === "function" ? u(st.people) : u; deps.latestPeopleRef.current = st.people; },
     setClients: (u) => { st.clients = typeof u === "function" ? u(st.clients) : u; },
   };

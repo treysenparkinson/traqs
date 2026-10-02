@@ -4869,16 +4869,41 @@ Extraction rules:
   const undoStack = useRef([]);
   const teamLWRef = useRef(0);   // the schedule grid's label-column width (handleTeamPan)
   const redoStack = useRef([]);
-  const skipHistory = useRef(false);
+  // (skipHistory removed — see setTasksFromServer. It was never assigned true.)
   const setTasks = useCallback((updater) => {
     _setTasks(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
-      if (!skipHistory.current && next !== prev) {
+      if (next !== prev) {
         undoStack.current.push(JSON.parse(JSON.stringify(prev)));
         if (undoStack.current.length > 50) undoStack.current.shift(); // cap at 50
         redoStack.current = []; // clear redo on new action
       }
-      skipHistory.current = false;
+      latestTasksRef.current = next;
+      return next;
+    });
+  }, []);
+  // Install tasks that came FROM THE SERVER: the 30s poll, the Ably/IndexedDB
+  // rehydrate, a rollback after a refused save, and stamp adoption after a
+  // successful one. None of those is a user action, so none belongs in the undo
+  // stack — #218 is Ctrl+Z reverting another person's write or a server-written
+  // field, and it happened because every one of those paths went through the
+  // wrapped setter above.
+  //
+  // THIS IS NOT A skipHistory FLAG, and the flag it replaces is worth recording.
+  // `skipHistory` was declared, read in the condition above, and reset to false
+  // after it — and assigned `true` exactly ZERO times in this file. The
+  // suppression it existed to provide has never run, for the entire life of the
+  // undo feature.
+  //
+  // Reviving it would have rebuilt the precise pattern this file already
+  // post-mortems for `pollUpdateRef` a few lines down: one boolean, several
+  // setters called back-to-back, React batching them into a single commit, and
+  // whichever setter ran last deciding the flag's value for all of them. That
+  // bug cost 4,000+ byte-identical writes in six days. A separate setter cannot
+  // be got wrong by ordering, which is why this is a function and not a flag.
+  const setTasksFromServer = useCallback((updater) => {
+    _setTasks(prev => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
       latestTasksRef.current = next;
       return next;
     });
@@ -4913,14 +4938,37 @@ Extraction rules:
   }, [_mayUndo]);
   // Ctrl+Z / Ctrl+Shift+Z keyboard shortcuts
   useEffect(() => {
+    // #220 was three defects in one line each, and the export designer's
+    // handler (:6537) already had all three right — this one never got the
+    // same treatment:
+    //
+    //   1. `e.preventDefault()` ran BEFORE the permission check. `undo()`
+    //      early-returns on !can("undoHistory"), so a user without the right
+    //      lost the browser's native text undo and got nothing in exchange.
+    //   2. No target check, so Ctrl+Z inside any input or textarea was dead
+    //      for EVERY user, rights or not.
+    //   3. `e.key === "z" && e.shiftKey` is unreachable. With Shift held,
+    //      KeyboardEvent.key is "Z", so Ctrl+Shift+Z has never once fired
+    //      redo — only Ctrl+Y ever worked.
+    //
+    // One shape fixes all three: decide whether this handler OWNS the event
+    // before consuming it, and compare the key case-insensitively.
     const handler = e => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
-      if ((e.ctrlKey || e.metaKey) && e.key === "z" && e.shiftKey) { e.preventDefault(); redo(); }
-      if ((e.ctrlKey || e.metaKey) && e.key === "y") { e.preventDefault(); redo(); }
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const k = (e.key || "").toLowerCase();
+      if (k !== "z" && k !== "y") return;
+      const tag = (e.target?.tagName || "").toLowerCase();
+      // Let text fields keep native undo.
+      if (tag === "input" || tag === "textarea" || e.target?.isContentEditable) return;
+      // No undo right means this handler does not own the shortcut at all, so
+      // the browser keeps it rather than losing it to a no-op.
+      if (!_mayUndo) return;
+      e.preventDefault();
+      if (k === "y" || e.shiftKey) redo(); else undo();
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [undo, redo]);
+  }, [undo, redo, _mayUndo]);
 
   // ─── Job templates (localStorage-backed) ────────────────────────────────
   const [templates, setTemplates] = useState(() => {
@@ -7822,7 +7870,11 @@ Extraction rules:
         // requiredDepartment, a colorless job) the guard silently stops firing
         // and the poll replaces the whole tree on every cycle, overwriting any
         // local edit that has not been saved yet. Normalize once, then compare.
-        setTasks(prev => {
+        // The 30s poll installs the SERVER's copy. It only reaches past the
+        // equality guard below when the server genuinely has something this
+        // client does not — another person's write, or a server-written field —
+        // which is exactly the state #218 let Ctrl+Z revert.
+        setTasksFromServer(prev => {
           const norm = normalizeTasks(newTasks);
           if (JSON.stringify(prev) === JSON.stringify(norm)) return prev;
           const _findId = (id, list) => list.some(t => t.id === id || (t.subs || []).some(s => s.id === id || (s.subs || []).some(o => o.id === id)));
@@ -8116,7 +8168,7 @@ Extraction rules:
       pollAppliedRef.current.tasks = normTasks;
       pollAppliedRef.current.people = normPeople;
       pollAppliedRef.current.clients = srvClients;
-      setTasks(() => normTasks);
+      setTasksFromServer(() => normTasks);   // server copy, not a user action (#218)
       setPeople(() => normPeople);
       setClients(() => srvClients);
       // A job created locally and refused is gone from the server's copy; its
@@ -8245,7 +8297,8 @@ Extraction rules:
         if (entity === "tasks") {
           const fresh = normalizeTasks((await readSlice("tasks")) || []);
           if (busy()) return;
-          setTasks(prev => {
+          // Ably/IndexedDB rehydrate — server data, same as the poll (#218).
+          setTasksFromServer(prev => {
             const merged = mergeInOrder(prev, fresh);
             if (JSON.stringify(prev) === JSON.stringify(merged)) return prev;
             const findId = (id, list) => list.some(t => t.id === id || (t.subs || []).some(s => s.id === id || (s.subs || []).some(o => o.id === id)));
