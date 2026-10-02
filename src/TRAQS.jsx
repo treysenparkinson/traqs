@@ -4825,6 +4825,14 @@ Extraction rules:
   // red banner so failures aren't lost in the console. Cleared on a successful save.
   const [saveError, setSaveError] = useState(null); // { endpoint, status, message, at }
   const lastSaveTime = useRef(Date.now());
+  // #227 (1). Content key of each slice as it was last SUCCESSFULLY saved, with
+  // `lastModifiedAt` excluded. doSave compares against this and skips a slice
+  // that has not changed — half of Matrix's writes changed nothing at all.
+  // Starts null so the first save of a session always goes, and is reset to null
+  // on a rollback so the next save always goes too: every uncertainty here
+  // resolves towards SAVING, because a needless POST costs bandwidth and a
+  // skipped one costs the user's edit.
+  const lastSavedRef = useRef({ tasks: null, people: null, clients: null });
   const saveTimerRef = useRef(null);
   const dataRef = useRef({ tasks: null, people: null, clients: null });
   const latestTasksRef = useRef(tasks);
@@ -4866,6 +4874,40 @@ Extraction rules:
   useEffect(() => { latestPeopleRef.current = people; }, [people]);
 
   // Global undo/redo history
+  // ── #338. An undo frame records CONTENT, not sync bookkeeping ────────────
+  //
+  // A frame used to be a straight deep copy, `lastModifiedAt` included, so
+  // restoring it put back the stamps each job had when the frame was pushed.
+  // Since #337 the client adopts the server's stamp after every save, which
+  // makes every stamp in every frame older than what is stored — so each undo
+  // POSTed a tree of stale stamps and tripped `tasks.js`'s per-job conflict
+  // check. In log mode that is noise; with TASK_CONFLICT_MODE=enforce it means
+  // EVERY UNDO IS REFUSED and silently rolled back, for a user who did nothing
+  // wrong. That was the second precondition on #185.
+  //
+  // #218 is what makes stripping safe: now that server writes no longer enter
+  // the stack, every frame is a USER ACTION, so a frame has no reason to carry
+  // sync state. The stamp belongs to the record as it exists NOW, not as it
+  // existed when the user last touched it, so it is re-attached from live state
+  // on the way back in.
+  //
+  // Top-level only, deliberately: the conflict check reads `job.lastModifiedAt`
+  // (tasks.js) and `stampArray` stamps array-root records, so nested stamps on
+  // panels and ops are vestigial and not what any rule consults.
+  const snapshotForHistory = (arr) =>
+    JSON.parse(JSON.stringify(Array.isArray(arr) ? arr : []))
+      .map(({ lastModifiedAt, ...job }) => job);
+  const restoreWithLiveStamps = (snapshot, live) => {
+    const now = new Map((Array.isArray(live) ? live : [])
+      .filter(j => j && j.id != null).map(j => [String(j.id), j.lastModifiedAt]));
+    return (Array.isArray(snapshot) ? snapshot : []).map(j => {
+      const stamp = j && j.id != null ? now.get(String(j.id)) : undefined;
+      // A job that no longer exists has no live stamp. It goes back without one
+      // and the server stamps it on write, which is the same path a newly
+      // created job takes — a resurrection IS a create.
+      return stamp ? { ...j, lastModifiedAt: stamp } : j;
+    });
+  };
   const undoStack = useRef([]);
   const teamLWRef = useRef(0);   // the schedule grid's label-column width (handleTeamPan)
   const redoStack = useRef([]);
@@ -4874,7 +4916,7 @@ Extraction rules:
     _setTasks(prev => {
       const next = typeof updater === "function" ? updater(prev) : updater;
       if (next !== prev) {
-        undoStack.current.push(JSON.parse(JSON.stringify(prev)));
+        undoStack.current.push(snapshotForHistory(prev));     // #338: content, no stamps
         if (undoStack.current.length > 50) undoStack.current.shift(); // cap at 50
         redoStack.current = []; // clear redo on new action
       }
@@ -4925,15 +4967,15 @@ Extraction rules:
   const undo = useCallback(() => {
     if (!_mayUndo || undoStack.current.length === 0) return;
     _setTasks(prev => {
-      redoStack.current.push(JSON.parse(JSON.stringify(prev)));
-      return undoStack.current.pop();
+      redoStack.current.push(snapshotForHistory(prev));       // #338
+      return restoreWithLiveStamps(undoStack.current.pop(), prev);
     });
   }, [_mayUndo]);
   const redo = useCallback(() => {
     if (!_mayUndo || redoStack.current.length === 0) return;
     _setTasks(prev => {
-      undoStack.current.push(JSON.parse(JSON.stringify(prev)));
-      return redoStack.current.pop();
+      undoStack.current.push(snapshotForHistory(prev));       // #338
+      return restoreWithLiveStamps(redoStack.current.pop(), prev);
     });
   }, [_mayUndo]);
   // Ctrl+Z / Ctrl+Shift+Z keyboard shortcuts
@@ -8039,14 +8081,58 @@ Extraction rules:
       const _fingerprint = dedupedTasks.slice(0, 3).map(t => `${t.id}/${t.title}/${t.start}->${t.end}`).join(" | ");
       const _moveLogCount = dedupedTasks.reduce((sum, j) =>
         sum + (j.subs || []).reduce((s, p) => s + (p.subs || []).filter(o => (o.moveLog || []).length > 0).length, 0), 0);
-      console.log(`[doSave] POST ${dedupedTasks.length} tasks, ${_moveLogCount} ops w/ moveLog. Sample: ${_fingerprint}`);
+      // ── #227 (1). DO NOT POST A SLICE THAT HAS NOT CHANGED ────────────────
+      //
+      // Measured over the 40 most recent writes to Matrix: 112 jobs sent every
+      // time, 0.97 changed on average, and NINETEEN OF FORTY CHANGED NOTHING AT
+      // ALL — 508 KB uploaded, an S3 version stored, a publishChange, a silent
+      // push and a notify scan, to change nothing.
+      //
+      // The cause is upstream: the autosave effect fires on OBJECT IDENTITY
+      // (`tasks !== seen.tasks`), so any code that rebuilds the array without
+      // changing its content schedules a save. Rather than hunt every rebuild,
+      // refuse at the only place that matters.
+      //
+      // `lastModifiedAt` IS EXCLUDED from the comparison, and that is the whole
+      // trick. The server's `stampArray` omits it for exactly the same reason —
+      // it is the stamp, not content — and since #337 the client adopts the
+      // server's stamps after every save, so a content-identical tree differs
+      // from the one we sent by its stamps alone. Compare with them in and the
+      // optimization never fires.
+      //
+      // THE FAILURE DIRECTION IS DELIBERATE. If this comparison is ever wrong it
+      // must be wrong towards SAVING: a false "changed" costs one needless POST,
+      // a false "unchanged" loses the user's edit silently. Hence a plain
+      // stringify with a replacer rather than a key-sorted canonical form —
+      // reordered keys read as changed, which is the harmless direction.
+      const contentKey = (v) => JSON.stringify(v, (k, val) => (k === "lastModifiedAt" ? undefined : val));
+      const nextKeys = {
+        tasks: contentKey(dedupedTasks),
+        people: contentKey(people),
+        clients: canManageClientsRef.current ? contentKey(clients) : null,
+      };
+      const sent = lastSavedRef.current;
+      const changedSlice = {
+        tasks: nextKeys.tasks !== sent.tasks,
+        people: nextKeys.people !== sent.people,
+        clients: nextKeys.clients !== sent.clients,
+      };
+      if (!changedSlice.tasks && !changedSlice.people && !changedSlice.clients) {
+        console.log("[doSave] nothing changed since the last successful save — no POST");
+        setSaveError(null);
+        setSaveStatus("saved");
+        return;
+      }
+      console.log(`[doSave] POST ${dedupedTasks.length} tasks, ${_moveLogCount} ops w/ moveLog. Sample: ${_fingerprint}`
+        + ` | slices: ${Object.entries(changedSlice).filter(([, v]) => v).map(([k]) => k).join(", ") || "none"}`);
       const results = await Promise.allSettled([
-        saveTasks(dedupedTasks, getTokenRef.current, orgCodeRef.current),
-        savePeople(people, getTokenRef.current, orgCodeRef.current),
+        changedSlice.tasks ? saveTasks(dedupedTasks, getTokenRef.current, orgCodeRef.current) : Promise.resolve(null),
+        changedSlice.people ? savePeople(people, getTokenRef.current, orgCodeRef.current) : Promise.resolve(null),
         // POST /clients needs manageClients even when nothing changed, and this ran on
         // every autosave — so every save by a worker or restricted admin failed here.
         // Nobody without manageClients can edit clients, so there is nothing to send.
-        canManageClientsRef.current ? saveClients(clients, getTokenRef.current, orgCodeRef.current) : Promise.resolve(null),
+        canManageClientsRef.current && changedSlice.clients
+          ? saveClients(clients, getTokenRef.current, orgCodeRef.current) : Promise.resolve(null),
       ]);
       const failures = results
         .map((r, i) => r.status === "rejected" ? { endpoint: ["saveTasks","savePeople","saveClients"][i], error: r.reason } : null)
@@ -8132,6 +8218,13 @@ Extraction rules:
       adoptStamps(results[1].value?.stamps, latestPeopleRef.current, setPeople, "people");
       adoptStamps(results[2]?.value?.stamps, dataRef.current.clients, setClients, "clients");
 
+      // #227 (1). Record what was just accepted, so the next save can tell
+      // whether anything actually changed. Only the slices that were POSTed are
+      // updated: one left out of this round is still whatever it was.
+      if (changedSlice.tasks) lastSavedRef.current.tasks = nextKeys.tasks;
+      if (changedSlice.people) lastSavedRef.current.people = nextKeys.people;
+      if (changedSlice.clients) lastSavedRef.current.clients = nextKeys.clients;
+
       protectedJobIds.current.clear();
       setSaveError(null);
       setTimeout(() => setSaveStatus("saved"), 600);
@@ -8169,6 +8262,12 @@ Extraction rules:
       pollAppliedRef.current.people = normPeople;
       pollAppliedRef.current.clients = srvClients;
       setTasksFromServer(() => normTasks);   // server copy, not a user action (#218)
+      // #227 (1). A rollback replaces local state wholesale, so whatever was
+      // last successfully saved is no longer a useful baseline. Cleared rather
+      // than recomputed: the next save then always POSTs, which is the safe
+      // direction — a needless POST after a rejected save is cheap, a skipped
+      // one would strand the user on data the server refused.
+      lastSavedRef.current = { tasks: null, people: null, clients: null };
       setPeople(() => normPeople);
       setClients(() => srvClients);
       // A job created locally and refused is gone from the server's copy; its

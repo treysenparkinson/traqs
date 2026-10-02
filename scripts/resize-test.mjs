@@ -47,7 +47,13 @@ const harness = ({ tMode = "month", node, level = "op", moves, tasks0, extra = {
   const undoStack = { current: [] }, redoStack = { current: [] }, skipHistory = { current: false }, latestTasksRef = { current: null };
   let writes = 0, writesBeforeRelease = 0, saves = 0, previews = 0, refusedShown = 0, released = false;
   const _setTasks = (fn) => { const next = fn(state); if (next !== state) writes++; if (!released) writesBeforeRelease = writes; state = next; };
-  const setTasks = new Function("_setTasks", "undoStack", "redoStack", "skipHistory", "latestTasksRef", `return ${wrapperSrc};`)(_setTasks, undoStack, redoStack, skipHistory, latestTasksRef);
+  // #338. The wrapper now pushes a STRIPPED snapshot — content without
+  // lastModifiedAt — so an undo cannot replay stale stamps into a save. Supplied
+  // here because this harness compiles the real wrapper; without it the wrapper
+  // throws ReferenceError on the first state change.
+  const snapshotForHistory = (arr) =>
+    JSON.parse(JSON.stringify(Array.isArray(arr) ? arr : [])).map(({ lastModifiedAt, ...job }) => job);
+  const setTasks = new Function("_setTasks", "undoStack", "redoStack", "skipHistory", "latestTasksRef", "snapshotForHistory", `return ${wrapperSrc};`)(_setTasks,undoStack, redoStack, skipHistory, latestTasksRef, snapshotForHistory);
   const listeners = {};
   const days = ["2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08", "2026-10-09"];
   const scope = {

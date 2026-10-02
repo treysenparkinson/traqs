@@ -100,6 +100,13 @@ function client({ saveTasks, onRollbackFetch, canManageClients = true, saveClien
     cacheFullSlices: () => {},
     // The wrapped setters (J:5432/5445) write latest*Ref synchronously.
     setTasks: (u) => { st.tasks = typeof u === "function" ? u(st.tasks) : u; deps.latestTasksRef.current = st.tasks; },
+    // #227 (1). doSave skips a slice whose content key matches the last
+    // successful save. Starts empty, which is why every assertion in this file
+    // still POSTs: the first save of a session always goes. Modelled because
+    // this harness compiles the REAL doSave body — leave it out and doSave
+    // throws on `lastSavedRef.current`, the catch reports endpoint "unknown",
+    // and twenty-one assertions fail at once. Which is how it was found.
+    lastSavedRef: { current: { tasks: null, people: null, clients: null } },
     // #218. The rollback installs the SERVER's copy, so it goes through the
     // uncapturing setter — undoing a rollback would hand the user back the
     // change the server just refused. Modelled identically here because this
