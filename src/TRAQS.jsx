@@ -5359,6 +5359,32 @@ Extraction rules:
   // hours painted across the full 9h width.
   const dayWindowCfg = buildDayWindows(workStartH, workEndH, orgSettings.breaks, orgSettings.lunch);
   const productiveHoursPerDay = Math.max(1, totalWorkH - dayWindowCfg.deadH);
+  // ── The day view's hour grid, from the org calendar (#7) ────────────────────
+  //
+  // It was hard-coded THREE times — `HS = 5, HE = 21` in the render, the same pair again in
+  // the shading test as `h < 7 || h >= 18`, and a third copy as `DHS = 5, DHE = 21, DNH = 16`
+  // inside the drag handler, which is what converted a cursor position into an hour. Root
+  // cause 6 built workCalendar and every other view moved onto it; the day view did not. The
+  // packing two lines below the grid already reads workStart/workEnd out of orgSettings, so
+  // the org hours were in scope and simply unused by the thing drawing the columns.
+  //
+  // On Matrix that grid drew 05:00–21:00 against an 08:00–17:00 day: 7 of 16 columns — 44% —
+  // were hours nobody works, and the 07:00–18:00 shading lit two more at the edges.
+  //
+  // The grid is now the working day, and the SHADING is the dead windows inside it — lunch
+  // and the two breaks — which is the thing on a day grid that genuinely is not worked.
+  // Whole hours, because columns are whole hours: a 08:30 start still shows an 08:00 column,
+  // and a dead window is marked on any column it touches.
+  const dayGrid = useMemo(() => {
+    const HS = Math.max(0, Math.floor(workStartH));
+    const HE = Math.min(24, Math.max(HS + 1, Math.ceil(workEndH)));
+    const hours = Array.from({ length: HE - HS }, (_, i) => HS + i);
+    const dead = new Set();
+    for (const w of (dayWindowCfg.deadWindows || [])) {
+      for (let h = Math.floor(w.start); h < Math.ceil(w.start + w.dur); h++) if (h >= HS && h < HE) dead.add(h);
+    }
+    return { HS, HE, NH: HE - HS, hours, dead };
+  }, [workStartH, workEndH, dayWindowCfg]);
   // The one overlap rule's context (src/overlapRules.js), rebuilt every render so "today" is
   // today. The server runs the same rule on stored estimates; only the web can see worked
   // hours, so only here does an overworked op's overrun count as occupied — the time it has
@@ -9155,8 +9181,13 @@ Extraction rules:
   // person's row already say work is happening, and a third "LIVE" mark on the same row was
   // exactly the duplication this model set out to remove. HELD and LUNCH stay because neither
   // is visible from the geometry -- a frozen edge and a slowly-moving one look identical.
+  // #15. This keyed on `reservoirOpId` — the op the session is DRAINING, which is not
+  // necessarily the op being worked — while the week/month bar and the row push both key on
+  // `opId`, the op actually clocked into (J:15953, J:17095). Two fields, two answers, so a
+  // HELD or PAUSED badge appeared in one view and not the other for the same session. opId is
+  // the right one: the badge is about the clock, and the clock is on opId.
   const liveBadgeFor = (jc, op) => {
-    if (!jc || !op || !sameId(jc.reservoirOpId, op.id) || op.status === "Finished") return null;
+    if (!jc || !op || !sameId(jc.opId, op.id) || op.status === "Finished") return null;
     return jc.frozenAtMs ? "held" : jc.pausedAt ? "paused" : null;
   };
   // The left edge of the op being worked, interpolated at render time.
@@ -15172,7 +15203,11 @@ ${jobsCtx || "No jobs found."}`;
       e.preventDefault(); e.stopPropagation();
       // Permission at the grab, as week/month: without moveJobs a click still opens the job.
       if (!can("moveJobs")) { isDraggingRef.current = false; if (mode === "move") openJobDetailOrEdit(barTask); else denied(PERM_VERB.moveJobs); return; }
-      const DHS = 5, DHE = 21, DNH = 16;
+      // #7. These were a third hard-coded copy of the grid — and the one that converted a
+      // cursor position into an hour, so a drag computed its hour against a 16-column
+      // 05:00–21:00 day while the columns on screen were something else entirely. Same grid
+      // as the render now, by construction rather than by two numbers agreeing.
+      const { HS: DHS, HE: DHE, NH: DNH } = dayGrid;
       const day = tStart;
       const _dayIsWork = (d) => isWorkDay(d, orgSettings.workDays) && !(orgSettings.holidays || []).includes(d);
       const _teamSize = Math.max(1, (barTask.team || []).length);
@@ -15443,8 +15478,8 @@ ${jobsCtx || "No jobs found."}`;
       </div>}
       {/* Hourly day view */}
       {people.length > 0 && tMode === "day" && (() => {
-        const HS = 5, HE = 21, NH = HE - HS; // 5am – 9pm, 16 hours
-        const hours = Array.from({length: NH}, (_, i) => HS + i);
+        // #7. Was `HS = 5, HE = 21` — 05:00–21:00 regardless of the org. See dayGrid.
+        const { HS, HE, NH, hours, dead: deadHours } = dayGrid;
         const fmH = h => h === 0 ? "12am" : h < 12 ? `${h}am` : h === 12 ? "12pm" : `${h - 12}pm`;
         const nowH = shopHour();
         const isToday = tStart === TD;
@@ -15456,7 +15491,7 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{display:"flex", borderBottom:`2px solid ${T.border}`, height:48}}>
                   <div style={{minWidth:lW,maxWidth:lW,borderRight:`1px solid ${T.border}`,background:T.surface,height:48,display:"flex",alignItems:"center",padding:"0 16px",fontSize:12,color:T.textSec,fontWeight:600,letterSpacing:"0.04em",textTransform:"uppercase",flexShrink:0}}>Person</div>
                   <div style={{flex:1,display:"flex"}}>
-                    {hours.map(h => { const isCurH = isToday && Math.floor(nowH) === h; return <div key={h} style={{flex:1,height:48,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontSize:11,color:isCurH?T.accent:h<7||h>=18?T.textDim+"66":T.textDim,fontWeight:isCurH?700:400,borderRight:`1px solid ${T.bg}`,fontFamily:T.mono,background:h<7||h>=18?T.bg+"66":"transparent",gap:2}}><span style={{fontSize:11,fontWeight:isCurH?800:500}}>{fmH(h)}</span>{isCurH&&<div style={{width:4,height:4,borderRadius:2,background:T.accent}}/>}</div>; })}
+                    {hours.map(h => { const isCurH = isToday && Math.floor(nowH) === h; const isDead = deadHours.has(h); return <div key={h} title={isDead ? "Lunch or break" : undefined} style={{flex:1,height:48,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",fontSize:11,color:isCurH?T.accent:isDead?T.textDim+"66":T.textDim,fontWeight:isCurH?700:400,borderRight:`1px solid ${T.bg}`,fontFamily:T.mono,background:isDead?T.bg+"66":"transparent",gap:2}}><span style={{fontSize:11,fontWeight:isCurH?800:500}}>{fmH(h)}</span>{isCurH&&<div style={{width:4,height:4,borderRadius:2,background:T.accent}}/>}</div>; })}
                   </div>
                 </div>
                 {/* Rows */}
@@ -15470,7 +15505,7 @@ ${jobsCtx || "No jobs found."}`;
                         {groupClockPill(row.members, { size: 12 })}
                       </div>
                       <div style={{flex:1,display:"flex"}}>
-                        {hours.map(h => <div key={h} style={{flex:1,height:"100%",background:h<7||h>=18?T.bg+"cc":T.bg+"44",borderRight:`1px solid ${T.bg}33`}}/>)}
+                        {hours.map(h => <div key={h} style={{flex:1,height:"100%",background:deadHours.has(h)?T.bg+"cc":T.bg+"44",borderRight:`1px solid ${T.bg}33`}}/>)}
                       </div>
                     </div>;
                   }
@@ -15532,6 +15567,10 @@ ${jobsCtx || "No jobs found."}`;
                       // which is the only way two bars on one row can never overlap.
                       rawS = Math.max(hasManual ? bar.task.startHour : cumH, cumH);
                       const w = walkProductiveHours(rawS, _share, dayWindowCfg);
+                      // #11 closed into #7: the clamp was against the hard-coded HE=21, which on
+                      // any real org was 4+ hours past the end of the day and so never bound. HE is
+                      // the org work end now, so a bar whose walk spills past the day stops at the
+                      // edge of the grid instead of being drawn into hours the grid no longer has.
                       rawE = Math.min(w.days > 1 ? weH : w.endHour, HE);
                     } else {
                       // Basic: the schedule is visual only. A card paints exactly where its
@@ -15598,11 +15637,16 @@ ${jobsCtx || "No jobs found."}`;
                       {personClockPill(p, { size: 11 })}
                     </div>
                     <div style={{flex:1,position:"relative",display:"flex"}}>
-                      {hours.map(h => <div key={h} style={{flex:1,height:"100%",background:pOff?offColor+"12":h<7||h>=18?T.bg+"55":isToday&&Math.floor(nowH)===h?T.accent+"0a":"transparent",borderRight:`1px solid ${T.bg}22`,position:"relative"}}>
+                      {hours.map(h => <div key={h} style={{flex:1,height:"100%",background:pOff?offColor+"12":deadHours.has(h)?T.bg+"55":isToday&&Math.floor(nowH)===h?T.accent+"0a":"transparent",borderRight:`1px solid ${T.bg}22`,position:"relative"}}>
                         {pOff && <div style={{position:"absolute",inset:0,background:`repeating-linear-gradient(135deg,${offColor}12,${offColor}12 4px,transparent 4px,transparent 8px)`,pointerEvents:"none"}}/>}
                         <div style={{position:"absolute",top:0,bottom:0,left:"50%",width:1,background:T.bg+"55",pointerEvents:"none"}}/>
                       </div>)}
-                      {!pOff && barPositions.map(({bar, rawS, rawE, hpd, isFirstSeg, isLastSeg}) => {
+                      {/* #14. This was `!pOff && ...`, so a PTO day rendered NO bars at all —
+                          the day view told someone they had no work on a day they did. Week and
+                          month have always drawn work over the PTO tint by z-order, and that is
+                          the better answer: an overlap is readable, an empty row is a lie. The
+                          two views disagreeing about what a PTO day means was the defect. */}
+                      {barPositions.map(({bar, rawS, rawE, hpd, isFirstSeg, isLastSeg}) => {
                         const visS = Math.max(rawS, HS), visE = Math.min(rawE, HE);
                         if (visE <= visS) return null;
                         const isDraggingThis = dayDragInfo?.itemId === bar.task?.id;
@@ -15638,14 +15682,28 @@ ${jobsCtx || "No jobs found."}`;
                           </div>}
                           {personShareHours(hpd, (bar.task?.team || []).length, productiveHoursPerDay) >= productiveHoursPerDay && (() => {
                             const _ph = t => { const [h,m]=(t||"0:0").split(":").map(Number); return h+m/60; };
-                            const wsH = _ph(orgSettings.workStart||"07:00");
-                            const totalM = (rawE - wsH) * 60;
+                            // #13. These percentages position an element INSIDE the bar, so
+                            // they have to be measured from the bar's own left edge. They were
+                            // measured from the org work start, so every overlay was shifted
+                            // left by (rawS - wsH) — on a bar starting at 10:00 in an 08:00
+                            // day, the lunch marker painted two hours early, and the further
+                            // into the day a bar began the further out it drifted.
+                            const totalM = (rawE - rawS) * 60;
                             if (totalM <= 0) return null;
-                            const lnch = orgSettings.lunch || { time: "12:00", durationMinutes: 30 };
-                            return [...(orgSettings.breaks||[]).map((b,i)=>({time:b.time,dur:b.durationMinutes||15,label:"B",key:"b"+i})),{time:lnch.time,dur:lnch.durationMinutes||30,label:"L",key:"l"}].map(mk=>{
+                            // #12. Was a local { time: "12:00", durationMinutes: 30 } literal.
+                            // The entry called this a 30-vs-60 disagreement with
+                            // buildDayWindows; it is not — buildDayWindows falls back to the
+                            // same DEFAULT_ORG_SETTINGS.lunch, which is also 30. The real
+                            // defect is the hard-coded copy: two defaults that agree today and
+                            // drift the moment one is edited.
+                            const lnch = orgSettings.lunch || DEFAULT_ORG_SETTINGS.lunch;
+                            const _breakDur = DEFAULT_ORG_SETTINGS.breaks?.[0]?.durationMinutes ?? 15;
+                            return [...(orgSettings.breaks||[]).map((b,i)=>({time:b.time,dur:b.durationMinutes||_breakDur,label:"B",key:"b"+i})),{time:lnch.time,dur:lnch.durationMinutes||DEFAULT_ORG_SETTINGS.lunch.durationMinutes,label:"L",key:"l"}].map(mk=>{
                               const mkH = _ph(mk.time);
-                              if (mkH >= rawE) return null;
-                              const startPct = ((mkH - wsH) * 60 / totalM) * 100;
+                              // Outside the bar at either end, not just past its end: a break
+                              // before the bar starts belongs to nobody on this bar.
+                              if (mkH >= rawE || mkH + mk.dur / 60 <= rawS) return null;
+                              const startPct = ((mkH - rawS) * 60 / totalM) * 100;
                               const wPct = (mk.dur / totalM) * 100;
                               if (startPct>=100||startPct+wPct<=0) return null;
                               return <div key={mk.key} style={{position:"absolute",left:`${startPct}%`,top:0,bottom:0,width:`${wPct}%`,background:"rgba(0,0,0,0.25)",pointerEvents:"none",zIndex:4,display:"flex",alignItems:"center",justifyContent:"center"}}>
