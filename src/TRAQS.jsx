@@ -8070,7 +8070,13 @@ Extraction rules:
         pollAppliedRef.current[key] = next;
         setter(next);
       };
-      adoptStamps(results[0].value?.stamps, latestTasksRef.current, setTasks, "tasks");
+      // `_setTasks`, NOT the wrapped `setTasks`: the wrapper pushes an undo frame
+      // on every call, so adopting stamps was adding one undo step per save —
+      // identical content, different stamps. It ate the 50-slot stack and made
+      // undo-after-save a silent stamp revert. The wrapper's other job is
+      // mirroring into latestTasksRef, which is done here instead. (#218/#337)
+      adoptStamps(results[0].value?.stamps, latestTasksRef.current,
+        (next) => { latestTasksRef.current = next; _setTasks(next); }, "tasks");
       adoptStamps(results[1].value?.stamps, latestPeopleRef.current, setPeople, "people");
       adoptStamps(results[2]?.value?.stamps, dataRef.current.clients, setClients, "clients");
 
