@@ -192,6 +192,78 @@ export const OUTCOME = {
   clocked: "clocked",              // someone is clocked into it — the one real lock
 };
 
+/**
+ * A pre-flight for a re-plan: what would happen to each selected op, and who
+ * would carry what.
+ *
+ * BUILT FROM THE SAME PRIMITIVES THE RUN USES — candidatesFor, the availability
+ * oracle, pickCandidate — rather than simulating a second scheduler. A preview
+ * that models the run separately is a fifth implementation wearing a different
+ * name, and it drifts: this whole consolidation exists because four of those
+ * disagreed.
+ *
+ * Every op comes back with an outcome. NOTHING IS SILENTLY PLACED and nothing is
+ * silently dropped: an op that cannot be staffed is named with the reason, which
+ * is the rule that the all-crew fallback used to break.
+ *
+ * @param ops      the selected ops, in any order (they are ordered here)
+ * @param crew     the assignable roster
+ * @param avail    { free(pid, start, end, startH), book(pid, start, end, startH) }
+ * @param people   for the active-clock check
+ * @param windowOf (op) -> { start, end, startH } — where the caller wants it
+ */
+export function previewOutcomes(ops, crew, { avail, people = [], windowOf, objective = "even", ctxOf = () => ({}) } = {}) {
+  const rows = [];
+  const load = new Map();                       // personId -> hours this plan
+  const loadOf = (id) => load.get(sid(id)) || 0;
+
+  for (const op of orderOps(ops || [], crew, ctxOf)) {
+    const lock = isReplannable(op, people);
+    if (!lock.ok) { rows.push({ op, outcome: lock.reason, person: null }); continue; }
+
+    const cands = candidatesFor(op, crew, ctxOf(op));
+    if (cands.length === 0) {
+      // NOBODY CAN DO IT — a stated department with no holder on the roster.
+      // Distinct from no-window below, and they want different answers: this one
+      // is fixed by widening the department or hiring, not by waiting.
+      rows.push({ op, outcome: OUTCOME.noCandidates, person: null });
+      continue;
+    }
+
+    const w = windowOf ? windowOf(op) : null;
+    const earliestFor = (p) => {
+      if (!w || !avail) return w ? w.start : null;
+      return avail.free(p.id, w.start, w.end, w.startH ?? null) ? w.start : null;
+    };
+    const pick = pickCandidate(cands, { objective, loadOf, earliestFor });
+    if (!pick) {
+      // NOBODY IS FREE — the people exist, the time does not. Fixed by moving
+      // the window, not by changing who may do it.
+      rows.push({ op, outcome: OUTCOME.noWindow, person: null, candidates: cands.length });
+      continue;
+    }
+
+    if (avail && w) avail.book(pick.id, w.start, w.end, w.startH ?? null);
+    load.set(sid(pick.id), loadOf(pick.id) + (Number(op.hpd) || 0));
+    rows.push({ op, outcome: OUTCOME.placed, person: pick, window: w });
+  }
+
+  // Per-person load, reported even though the objective IS even load. An
+  // even-load plan can still produce something worth overriding by hand, and
+  // manual assignment is respected now — so the number has to be visible for
+  // that override to be an informed one rather than a hunch.
+  const byPerson = [...load.entries()]
+    .map(([id, hours]) => ({ id, hours, name: (crew || []).find(p => sid(p.id) === id)?.name || id }))
+    .sort((a, b) => b.hours - a.hours || String(a.name).localeCompare(String(b.name)));
+
+  return {
+    rows,
+    byPerson,
+    placed: rows.filter(r => r.outcome === OUTCOME.placed).length,
+    blocked: rows.filter(r => r.outcome !== OUTCOME.placed),
+  };
+}
+
 /** Whether an op may be re-planned at all. The only real lock is an active clock. */
 export function isReplannable(op, people) {
   const id = sid(op?.id);

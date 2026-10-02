@@ -99,7 +99,9 @@ console.log("\n4. Selection is OP ids, with tri-state panels");
   ok("the comment says op ids", /OP ids selected to be re-planned/.test(J), true);
   ok("there is a panel tri-state", /const panelSelState = \(panel\)/.test(J), true);
   ok("...wired to the checkbox's indeterminate", /el\.indeterminate = panelSelState\(panel\) === "some"/.test(J), true);
-  ok("there is a per-op checkbox", /onChange=\{\(\) => toggleOpSel\(sub\.id\)\}/.test(J), true);
+  // Now guarded: a clocked op cannot be ticked at all (see section 6), so the
+  // handler is conditional rather than bare.
+  ok("there is a per-op checkbox", /if \(!blocked\) toggleOpSel\(sub\.id\);/.test(J), true);
   ok("the panel box no longer stores panel ids",
     /rescheduleSelection\.includes\(panel\.id\)/.test(J), false);
 

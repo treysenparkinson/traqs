@@ -2,7 +2,7 @@
 import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { personDeptMatch, unitDepartment, unitDepartments, personDepartments, normalizeDepartments, withDepartmentDualWrite, workCalendar } from "./scheduleRules.js";
-import { candidatesFor, pickCandidate, orderByObjective } from "./placement.js";
+import { candidatesFor, pickCandidate, orderByObjective, previewOutcomes, isReplannable, OUTCOME } from "./placement.js";
 // The objective is a RULED product choice (even load by default, "Finish
 // soonest" the alternative) and becomes a control in the re-plan preview when
 // that UI lands. Until then it is this constant rather than a piece of state
@@ -8790,13 +8790,13 @@ Extraction rules:
   const [rescheduleSelection, setRescheduleSelection] = useState([]); // OP ids selected to be re-planned
   const opIdsOf = (panel) => (panel?.subs || []).filter(o => o && !o.deletedAt).map(o => o.id);
   const panelSelState = (panel) => {
-    const ids = opIdsOf(panel);
+    const ids = selectableOpIdsOf(panel);
     if (ids.length === 0) return "none";
     const on = ids.filter(id => rescheduleSelection.includes(id)).length;
     return on === 0 ? "none" : on === ids.length ? "all" : "some";
   };
   const togglePanelSel = (panel) => {
-    const ids = opIdsOf(panel);
+    const ids = selectableOpIdsOf(panel);
     setRescheduleSelection(prev => {
       // "some" selects the rest rather than clearing — a half-filled box reads
       // as "not finished", and finishing it is the likelier intent.
@@ -8806,6 +8806,54 @@ Extraction rules:
   };
   const toggleOpSel = (opId) => setRescheduleSelection(prev =>
     prev.includes(opId) ? prev.filter(id => id !== opId) : [...prev, opId]);
+  // THE ONE REAL LOCK, refused where the user can see it. Checked at SELECTION
+  // rather than at plan time: someone who ticks a box and is told at the end
+  // that it did nothing has been wasted; someone who cannot tick it knows why
+  // before they commit to anything.
+  const opReplanBlock = (op) => {
+    const r = isReplannable(op, people);
+    if (r.ok) return null;
+    const who = people.find(p => p?.activeJobClock?.clockIn && String(p.activeJobClock.opId) === String(op.id));
+    return who ? `${who.name} is clocked into this operation` : "Somebody is clocked into this operation";
+  };
+  // The re-plan pre-flight. Built from previewOutcomes, which is built from the
+  // same candidatesFor / availability oracle / pickCandidate the run uses — a
+  // preview that models the run separately is a fifth scheduler wearing a
+  // different name, and it drifts.
+  //
+  // Deliberately NOT memoised on the whole task tree: it is computed only while
+  // the reschedule modal is open with a selection, which is a handful of ops and
+  // a few dozen people.
+  const computeReplanPreflight = (ed) => {
+    if (!ed?.isReschedule || rescheduleSelection.length === 0) return null;
+    const sel = new Set(rescheduleSelection.map(String));
+    const ops = [];
+    for (const panel of (ed.subs || [])) {
+      for (const op of (panel.subs || [])) if (sel.has(String(op.id))) ops.push({ op, panel });
+    }
+    if (ops.length === 0) return null;
+    const crew = people.filter(p => (p.userRole === "user" || p.userRole === "admin") && !p.noAutoSchedule && !p.deletedAt);
+    const avail = schedulerAvailability(tasks, overlapCtx, { excludeOpIds: rescheduleSelection, people });
+    const base = ed._rescheduleStartDate || TD;
+    return previewOutcomes(ops.map(x => x.op), crew, {
+      avail, people,
+      ctxOf: (o) => ({ panel: ops.find(x => x.op === o)?.panel || null, job: ed }),
+      // The window the caller WANTS: from the chosen start date, for the op's own
+      // duration. The pre-flight answers "could this land there", which is the
+      // question an infeasible report has to be able to answer per op.
+      windowOf: (o) => {
+        const days = Math.max(1, Math.ceil((Number(o.hpd) || 0) / Math.max(1, productiveHoursPerDay)));
+        return { start: base, end: sAddBD(base, days - 1), startH: null };
+      },
+      objective: SCHEDULE_OBJECTIVE,
+    });
+  };
+
+  // A panel's toggle must not drag a clocked op in by the back door.
+  const selectableOpIdsOf = (panel) => opIdsOf(panel).filter(id => {
+    const op = (panel?.subs || []).find(o => String(o.id) === String(id));
+    return !op || !opReplanBlock(op);
+  });
   const [previewExpanded, setPreviewExpanded] = useState(false);
   const [previewPanelExpanded, setPreviewPanelExpanded] = useState({});
   const [overrideOpen, setOverrideOpen] = useState({});     // panelId → bool
@@ -25293,7 +25341,14 @@ ${jobsCtx || "No jobs found."}`;
                     const updateSub = (patch) => { const subs=[...(panel.subs||[])]; subs[si]={...subs[si],...patch}; updatePanel({subs}); };
                     return <div key={sub.id} draggable onDragStart={e => { e.dataTransfer.effectAllowed="move"; e.dataTransfer.setData("text/plain",String(si)); }} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); const fromIdx=Number(e.dataTransfer.getData("text/plain")); if(fromIdx===si) return; const newSubs=[...(panel.subs||[])]; const [moved]=newSubs.splice(fromIdx,1); newSubs.splice(si,0,moved); updatePanel({subs:newSubs}); }} style={{ marginBottom:6, animation:"fadeIn 0.18s ease-out backwards" }}>
                       <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:4, paddingLeft:16 }}>
-                        {ed.isReschedule && <input type="checkbox" checked={rescheduleSelection.includes(sub.id)} onChange={() => toggleOpSel(sub.id)} title="Re-plan this operation" style={{ width:15, height:15, cursor:"pointer", accentColor:T.accent, flexShrink:0 }} />}
+                        {ed.isReschedule && (() => {
+                          const blocked = opReplanBlock(sub);
+                          return <input type="checkbox" disabled={!!blocked}
+                            checked={!blocked && rescheduleSelection.includes(sub.id)}
+                            onChange={() => { if (!blocked) toggleOpSel(sub.id); }}
+                            title={blocked || "Re-plan this operation"}
+                            style={{ width:15, height:15, cursor: blocked ? "not-allowed" : "pointer", accentColor:T.accent, flexShrink:0, opacity: blocked ? 0.4 : 1 }} />;
+                        })()}
                         <Tip label="Drag to reorder"><div style={{ cursor:"grab", color:T.textDim, fontSize:13, userSelect:"none", flexShrink:0, paddingRight:4 }}>⠿</div></Tip>
                         <div style={{ width:2, height:20, background:T.border, borderRadius:2, flexShrink:0 }} />
                         <input value={sub.title} onChange={e => updateSub({title:e.target.value})} placeholder="Sub-operation name" style={{ flex:1, padding:"7px 10px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:13, fontFamily:T.font, boxSizing:"border-box" }} />
@@ -25470,6 +25525,52 @@ ${jobsCtx || "No jobs found."}`;
               </div>
               <button disabled={aiLoading} onClick={() => { setAiSuggestion(null); suggestSchedule(); }} style={{ padding:"9px 22px", borderRadius:T.radiusSm, border:"none", background:T.accent, color:T.accentText, fontSize:13, fontWeight:700, cursor:aiLoading?"not-allowed":"pointer", fontFamily:T.font, flexShrink:0, opacity:aiLoading?0.5:1, whiteSpace:"nowrap" }}>{aiLoading?"Checking…":"Reassign"}</button>
             </div>}
+            {ed.isReschedule && !scheduleConfirmed && (() => {
+              const pf = computeReplanPreflight(ed);
+              if (!pf) return null;
+              const { rows, byPerson, placed, blocked } = pf;
+              // One line per reason, because the two infeasible kinds are
+              // different problems with different answers: no-candidates is fixed
+              // by widening the department or hiring, no-window by moving the
+              // date. Collapsing them into "couldn't schedule" would send people
+              // to the wrong fix.
+              const reasonText = (o) => o === OUTCOME.clocked ? "somebody is clocked into it"
+                : o === OUTCOME.noCandidates ? "nobody can do it — no one holds its department"
+                : "nobody is free — the people exist, the time does not";
+              const maxH = byPerson.length ? byPerson[0].hours : 0;
+              return <div style={{ marginBottom:16, padding:"12px 16px", background:T.surface, border:`1px solid ${T.border}`, borderRadius:T.radiusSm }}>
+                <div style={{ fontSize:11, fontWeight:700, color:T.textDim, textTransform:"uppercase", letterSpacing:"0.06em", marginBottom:10 }}>
+                  Re-plan preview — {placed} of {rows.length} operation{rows.length===1?"":"s"} can be placed
+                </div>
+                {blocked.length > 0 && <div style={{ marginBottom: byPerson.length ? 12 : 0 }}>
+                  {blocked.map(r => (
+                    <div key={r.op.id} style={{ display:"flex", gap:8, alignItems:"baseline", fontSize:12, color:T.text, padding:"3px 0" }}>
+                      <span style={{ color:T.danger, flexShrink:0 }}>●</span>
+                      <strong style={{ flexShrink:0 }}>{r.op.title || "Untitled"}</strong>
+                      <span style={{ color:T.textDim }}>{reasonText(r.outcome)}</span>
+                    </div>
+                  ))}
+                  <div style={{ fontSize:10.5, color:T.textDim, marginTop:6, lineHeight:1.45 }}>
+                    These stay exactly where they are. Nothing is moved to a date it does not fit.
+                  </div>
+                </div>}
+                {byPerson.length > 0 && <div>
+                  <div style={{ fontSize:10.5, fontWeight:700, color:T.textDim, marginBottom:6 }}>HOURS PER PERSON</div>
+                  {byPerson.map(p => (
+                    <div key={p.id} style={{ display:"flex", alignItems:"center", gap:8, padding:"2px 0" }}>
+                      <span style={{ fontSize:12, color:T.text, minWidth:110, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{p.name}</span>
+                      <div style={{ flex:1, height:6, background:T.border, borderRadius:3, overflow:"hidden" }}>
+                        <div style={{ width: `${maxH > 0 ? (p.hours / maxH) * 100 : 0}%`, height:"100%", background:T.accent, borderRadius:3 }} />
+                      </div>
+                      <span style={{ fontSize:11, color:T.textDim, fontFamily:T.mono, minWidth:38, textAlign:"right" }}>{Math.round(p.hours*10)/10}h</span>
+                    </div>
+                  ))}
+                  <div style={{ fontSize:10.5, color:T.textDim, marginTop:6, lineHeight:1.45 }}>
+                    Spread evenly. Put someone specific on an operation and the scheduler will keep them there.
+                  </div>
+                </div>}
+              </div>;
+            })()}
             {aiLoading && <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 0", gap:16 }}>
               <div style={{ width:36, height:36, border:`3px solid ${T.border}`, borderTopColor:T.accent, borderRadius:18, animation:"spin 0.8s linear infinite" }} />
               <div style={{ fontSize:14, color:T.textSec }}>Checking availability…</div>

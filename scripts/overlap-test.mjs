@@ -215,7 +215,12 @@ const run = (name, anchor) => { const src = slice(anchor); if (!src) { ok(`${nam
   ok("week/month drop re-checks the result", (SRC.match(/const _refusal = _refuse\(_plan\);/g) || []).length === 2 && SRC.includes("enforceNoOverlap(_build(tasks)"), true);
   // Root cause 7 B: the day view goes through the same refuseDragMove as week/month.
   ok("day-view drag checks overlap", SRC.includes("const refusal = _refuse(plan);") && SRC.includes("refuseDragMove(plan, { ..._refuseCtx"), true);
-  ok("the auto-schedulers' free checks use the shared rule (all three)", (SRC.match(/schedulerAvailability\(tasks, overlapCtx/g) || []).length, 3);
+  // FOUR now: the three scheduler free-checks plus the re-plan preflight, which
+  // asks the SAME oracle rather than modelling availability itself. A preview
+  // that answered "is this person free" its own way would be a fifth scheduler
+  // wearing a different name, which is the thing the consolidation removed.
+  ok("the auto-schedulers' free checks use the shared rule (all three, plus the preflight)",
+    (SRC.match(/schedulerAvailability\(tasks, overlapCtx/g) || []).length, 4);
   ok("…and no longer compare whole days themselves", /const isPersonFree(Local|Global)?\s*=\s*\(pid,\s*(checkStart|s)\b[^\n]*\n\s*const pp\s*=/.test(SRC), false);
   ok("the save seeds start hours from the shared rule, siblings included", SRC.includes("nextFreeStart(") && SRC.includes("_seeded.push("), true);
 }
