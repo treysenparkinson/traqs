@@ -3439,6 +3439,58 @@ function CustomDrop({ value, onChange, options, placeholder = "Select…", compa
     </div></FadeOnClose>
   </div>;
 }
+// Multi-select sibling of CustomDrop, for departments.
+//
+// Departments became a flat SET (ruled 2026-10-02): an op that Wire OR Cut can
+// do is a true statement about the work, and a single-value dropdown could only
+// say one or neither — so "either" had to be written as "nothing", which is also
+// how you write "anyone".
+//
+// Three differences from CustomDrop, each deliberate:
+//   - checkboxes, not radio dots, because the choice is a set;
+//   - it STAYS OPEN on a toggle. Closing after each pick is what makes a
+//     multi-select feel broken — you have to reopen it to make your second
+//     choice, and most people conclude it is still single-select;
+//   - the empty state reads "Anyone", not "none". Empty IS the canonical way to
+//     say anyone, and labelling it "none" would describe the same data as a
+//     restriction.
+function MultiDrop({ values, onToggle, options, emptyLabel = "Anyone", compact = false }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const hm = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const hk = e => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", hm);
+    document.addEventListener("keydown", hk);
+    return () => { document.removeEventListener("mousedown", hm); document.removeEventListener("keydown", hk); };
+  }, [open]);
+  const sel = Array.isArray(values) ? values.filter(Boolean) : [];
+  // "Wire or Cut" — the same word the rule uses, so the control reads as the
+  // sentence it produces rather than as a list of tags.
+  const label = sel.length === 0 ? emptyLabel : sel.join(" or ");
+  return <div ref={ref} style={{ position: "relative" }}>
+    <div className="tq-drop" onClick={() => setOpen(o => !o)} title={label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: compact ? "4px 8px" : "10px 12px", borderRadius: T.radiusSm, border: `1px solid ${T.border}`, background: T.surface, cursor: "pointer", gap: 6 }}>
+      <span style={{ fontSize: compact ? 12 : 14, fontWeight: compact ? 600 : 400, color: sel.length ? T.text : T.textDim, fontFamily: T.font, flex: 1, lineHeight: compact ? 1.2 : 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+      <svg width={compact ? 10 : 12} height={compact ? 10 : 12} viewBox="0 0 24 24" fill="none" stroke={T.textDim} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="6 9 12 15 18 9" /></svg>
+    </div>
+    <FadeOnClose open={open}><div className="anim-drop" style={{ position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 300, background: T.card, border: `1px solid ${T.border}`, borderRadius: T.radiusSm, boxShadow: "0 8px 24px rgba(0,0,0,0.18)", overflow: "hidden", maxHeight: 240, overflowY: "auto" }}>
+      {options.length === 0 && <div style={{ padding: "8px 14px", fontSize: 12, color: T.textDim }}>No departments yet</div>}
+      {options.map((r, ri) => {
+        const isOn = sel.some(d => String(d).toLowerCase() === String(r).toLowerCase());
+        return <div key={r} onClick={() => onToggle(r)}
+          style={{ transition: "background-color 0.15s ease", display: "flex", alignItems: "center", gap: 10, padding: "9px 14px", cursor: "pointer", animation: `tqDropIn 0.18s ease both ${ri * 0.02}s`, background: isOn ? T.accent + "10" : "transparent" }}
+          onMouseEnter={e => e.currentTarget.style.background = T.hover}
+          onMouseLeave={e => e.currentTarget.style.background = isOn ? T.accent + "10" : "transparent"}>
+          <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${isOn ? T.accent : T.border}`, background: isOn ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
+            {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+          </div>
+          <span style={{ fontSize: 13, fontWeight: isOn ? 600 : 400, color: isOn ? T.accent : T.text, fontFamily: T.font }}>{r}</span>
+        </div>;
+      })}
+    </div></FadeOnClose>
+  </div>;
+}
 // TRAQS-styled, id-based assignee picker for approval steps ("Anyone" + every person). Module-level
 // so it keeps its open state across the approval modal's re-renders, with the standard dropdown animation.
 function AssigneeDrop({ value, onChange, people }) {
@@ -5033,6 +5085,20 @@ Extraction rules:
   const deleteTemplate = (tid) => { persistTemplates(templates.filter(t => t.id !== tid)); };
 
   const [fStat, setFStat] = usePersistedUI("fStat", []);      // multi-select statuses; empty = All
+  // "Department equals title" — the review tool for the stamped departments.
+  //
+  // The title heuristic did not only READ: it WROTE the inferred department into
+  // the saved tree. Of 141 ops at Matrix with a department set on the op itself,
+  // 87 (62%) have title === department and are indistinguishable from a stamp;
+  // 54 differ and can only have been deliberate. Under "a stated department is
+  // binding", those 87 stay narrowly staffed by a constraint nobody may have
+  // chosen.
+  //
+  // NOT auto-cleared — that is irreversible guessing at intent, and some of the
+  // 87 are certainly deliberate. This filter makes them reviewable instead, and
+  // multi-select is what makes the review useful: the answer is usually to widen
+  // "Wire" to "Wire or Cut", not to clear it to nothing.
+  const [fDeptEqTitle, setFDeptEqTitle] = usePersistedUI("fDeptEqTitle", false);
   const [fPers, setFPers] = usePersistedUI("fPers", []);      // multi-select person IDs (strings); empty = All
   // Jobs List-view grouping. Array of tokens { type: 'person'|'client'|'column', id }.
   // When non-empty, the jobs list renders one section per token (a column token
@@ -8713,7 +8779,33 @@ Extraction rules:
   const [aiLoading, setAiLoading] = useState(false);
   const [availCheckPassed, setAvailCheckPassed] = useState(false);
   const [scheduleConfirmed, setScheduleConfirmed] = useState(false);
-  const [rescheduleSelection, setRescheduleSelection] = useState([]); // panel IDs selected to be rescheduled
+  // OP ids, not panel ids (ruled 2026-10-02). Reschedule means RE-PLANNING A
+  // SELECTION, and "selection is how he separates ops that should be treated
+  // differently" — panel granularity cannot express "re-plan the Wire op but
+  // leave the Cut op where it is".
+  //
+  // The panel checkbox survives as a convenience that expands to its ops, and
+  // renders TRI-STATE when only some are selected. Without that a 30-op job is
+  // thirty clicks, which is the problem being solved.
+  const [rescheduleSelection, setRescheduleSelection] = useState([]); // OP ids selected to be re-planned
+  const opIdsOf = (panel) => (panel?.subs || []).filter(o => o && !o.deletedAt).map(o => o.id);
+  const panelSelState = (panel) => {
+    const ids = opIdsOf(panel);
+    if (ids.length === 0) return "none";
+    const on = ids.filter(id => rescheduleSelection.includes(id)).length;
+    return on === 0 ? "none" : on === ids.length ? "all" : "some";
+  };
+  const togglePanelSel = (panel) => {
+    const ids = opIdsOf(panel);
+    setRescheduleSelection(prev => {
+      // "some" selects the rest rather than clearing — a half-filled box reads
+      // as "not finished", and finishing it is the likelier intent.
+      const all = ids.length > 0 && ids.every(id => prev.includes(id));
+      return all ? prev.filter(id => !ids.includes(id)) : [...new Set([...prev, ...ids])];
+    });
+  };
+  const toggleOpSel = (opId) => setRescheduleSelection(prev =>
+    prev.includes(opId) ? prev.filter(id => id !== opId) : [...prev, opId]);
   const [previewExpanded, setPreviewExpanded] = useState(false);
   const [previewPanelExpanded, setPreviewPanelExpanded] = useState({});
   const [overrideOpen, setOverrideOpen] = useState({});     // panelId → bool
@@ -8888,6 +8980,23 @@ Extraction rules:
       const roleSet = new Set(fRole.map(r => r.toLowerCase()));
       const hasRole = (t.subs || []).some(panel => (panel.subs || []).some(op => { const person = people.find(x => (op.team || []).includes(x.id)); return person && roleSet.has(person.department?.toLowerCase()); }));
       if (!hasRole) return false;
+    }
+    if (fDeptEqTitle) {
+      // An op whose OWN department (not an inherited one) matches its own title.
+      // Inherited departments are excluded deliberately: a panel saying "Wire"
+      // over an op titled "Wire" is one deliberate statement, not a stamp.
+      const stamped = (t.subs || []).some(panel => (panel.subs || []).some(op => {
+        const own = unitDepartments({ requiredDepartments: op.requiredDepartments, requiredDepartment: op.requiredDepartment }, null, null);
+        // EXACTLY ONE department, equal to the title. That is the stamp's
+        // signature — the heuristic could only ever write a single name, and it
+        // could only write the title. An op widened to "Wire or Cut" has been
+        // looked at by a person, so it drops off the list; otherwise the review
+        // never ends and the ops still needing attention stay buried in it.
+        if (own.length !== 1) return false;
+        const title = String(op.title || "").trim().toLowerCase();
+        return title.length > 0 && String(own[0]).trim().toLowerCase() === title;
+      }));
+      if (!stamped) return false;
     }
     if (fHpd !== "All") {
       const hpdVal = +fHpd;
@@ -9121,6 +9230,22 @@ Extraction rules:
   // server's rule and have no title heuristic, and `personDeptMatch` returns
   // "primary" when no department is required. The server was already correct.
   // The CLIENT was stricter — it invented a requirement the server never had.
+  // Toggle one department on a node, returning the patch to apply. ONE
+  // definition for all three pickers — the previous arrangement had the same
+  // "set the department" expression written three times, and departments were
+  // exactly the field where that produced four disagreeing readers.
+  //
+  // Returns BOTH shapes. requiredDepartment trails the array with its first
+  // element because iOS reads the string; see withDepartmentDualWrite.
+  const toggleDept = (node, role) => {
+    const cur = unitDepartments(node, null, null);
+    const next = cur.some(d => d.toLowerCase() === role.toLowerCase())
+      ? cur.filter(d => d.toLowerCase() !== role.toLowerCase())
+      : [...cur, role];
+    const set = normalizeDepartments(next, orgSettings.roles || null);
+    return { requiredDepartments: set, requiredDepartment: set[0] || "" };
+  };
+
   // A SET now (ruled 2026-10-02). [] means anyone — see the note on
   // unitDepartments in src/scheduleRules.js, which is the server's rule too.
   const deptsOfUnit = (n, panel, job) => unitDepartments(n, panel, job);
@@ -9135,7 +9260,7 @@ Extraction rules:
     const fv = fCustom["_cc_" + c.id];
     return n + (((Array.isArray(fv) && fv.length > 0) || (typeof fv === "string" && fv.trim())) ? 1 : 0);
   }, 0);
-  const activeFilterCount = fRole.length + (fHpd !== "All" ? 1 : 0) + fPers.length + (fJobNum ? 1 : 0) + fStat.length + fClient.length + (fOverloaded ? 1 : 0) + (fTimePeriod.length < 3 ? 1 : 0) + customFilterCount;
+  const activeFilterCount = (fDeptEqTitle ? 1 : 0) + fRole.length + (fHpd !== "All" ? 1 : 0) + fPers.length + (fJobNum ? 1 : 0) + fStat.length + fClient.length + (fOverloaded ? 1 : 0) + (fTimePeriod.length < 3 ? 1 : 0) + customFilterCount;
   // Filter-panel section for user-created custom columns — auto-appears for each column added via the "+" picker.
   // Select columns render as multi-select chips; text/number/date columns render as a contains-input.
   const renderCustomColFilters = () => {
@@ -12616,6 +12741,17 @@ ${jobsCtx || "No jobs found."}`;
                 <div style={{ animation: `toolDrop 0.14s 0ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Filter Status</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{["All","Not Started","In Progress","Finished","On Hold"].map(s => { const active = s === "All" ? fStat.length === 0 : fStat.includes(s); return <button key={s} onClick={() => s === "All" ? setFStat([]) : setFStat(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s])} style={{ padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : T.surface, color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{s}</button>; })}</div></div>
                 <div style={{ animation: `toolDrop 0.14s 38ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Time Period</div><div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>{['current','future','finished'].map(tp => { const active = fTimePeriod.includes(tp); return <button key={tp} onClick={() => setFTimePeriod(prev => prev.includes(tp) ? prev.filter(x => x !== tp) : [...prev, tp])} style={{ padding: "3px 8px", borderRadius: T.radiusPill, border: `1.5px solid ${active ? T.accent : T.border}`, background: active ? T.accent+"22" : T.surface, color: active ? T.accent : T.text, fontSize: 10, fontWeight: active ? 700 : 400, cursor: "pointer", fontFamily: T.font }}>{tp.charAt(0).toUpperCase()+tp.slice(1)}</button>; })}</div></div>
                 <div style={{ animation: `toolDrop 0.14s 152ms both ease-out` }}><div style={{ fontSize: 10, fontWeight: 700, color: T.textDim, textTransform: "uppercase", letterSpacing: "-0.045em", marginBottom: 5 }}>Job #</div><div style={{ display: "flex", alignItems: "center", gap: 6 }}><input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />{fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}</div></div>
+                <div style={{ marginBottom: 14 }}>
+                  <div onClick={() => setFDeptEqTitle(v => !v)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "6px 0" }}>
+                    <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${fDeptEqTitle ? T.accent : T.border}`, background: fDeptEqTitle ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
+                      {fDeptEqTitle && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: fDeptEqTitle ? 600 : 400, color: fDeptEqTitle ? T.accent : T.text }}>Department matches the op title</span>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: T.textDim, paddingLeft: 24, lineHeight: 1.45 }}>
+                    Likely set by the old title rule rather than chosen. Usually the fix is to widen it, not clear it.
+                  </div>
+                </div>
                 {renderCustomColFilters()}
                 {activeFilterCount > 0 && <button onClick={() => { setFStat([]); setFClient([]); setFPers([]); setGrouping([]); setFJobNum(""); setFRole([]); setFHpd("All"); setFOverloaded(false); setFCustom({}); }} style={{ padding: "6px 12px", borderRadius: T.radiusPill, background: T.danger+"10", border: `1px solid ${T.danger}33`, fontSize: 11, color: T.danger, fontWeight: 600, cursor: "pointer", fontFamily: T.font, animation: `toolDrop 0.14s 190ms both ease-out` }}>Clear all filters</button>}
               </div></FadeOnClose>
@@ -12728,6 +12864,17 @@ ${jobsCtx || "No jobs found."}`;
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <input type="text" placeholder="e.g. 1042" value={fJobNum} onChange={e => setFJobNum(e.target.value)} onClick={e => e.stopPropagation()} style={{ flex: 1, padding: "6px 8px", borderRadius: T.radiusPill, border: `1px solid ${fJobNum ? T.accent : T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontFamily: T.mono, outline: "none", boxSizing: "border-box" }} />
                     {fJobNum && <button onClick={() => setFJobNum("")} style={{ width: 24, height: 24, borderRadius: T.radiusPill, border: "none", background: "transparent", color: T.textDim, fontSize: 15, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: T.font, lineHeight: 1, flexShrink: 0 }}>×</button>}
+                  </div>
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <div onClick={() => setFDeptEqTitle(v => !v)} style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", padding: "6px 0" }}>
+                    <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${fDeptEqTitle ? T.accent : T.border}`, background: fDeptEqTitle ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "all 0.12s" }}>
+                      {fDeptEqTitle && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+                    </div>
+                    <span style={{ fontSize: 12, fontWeight: fDeptEqTitle ? 600 : 400, color: fDeptEqTitle ? T.accent : T.text }}>Department matches the op title</span>
+                  </div>
+                  <div style={{ fontSize: 10.5, color: T.textDim, paddingLeft: 24, lineHeight: 1.45 }}>
+                    Likely set by the old title rule rather than chosen. Usually the fix is to widen it, not clear it.
                   </div>
                 </div>
                 {renderCustomColFilters()}
@@ -25062,13 +25209,15 @@ ${jobsCtx || "No jobs found."}`;
                 const updatePanel = (patch) => { const subs=[...(ed.subs||[])]; subs[pi]={...subs[pi],...patch}; setEd(p => ({ ...p, subs })); };
                 const hasSubs = (panel.subs||[]).length>0;
                 const panelHpdSum = hasSubs ? Math.round((panel.subs||[]).reduce((s,x) => s+(x.hpd||0),0)*10)/10 : null;
-                const isPanelSelected = !ed.isReschedule || rescheduleSelection.includes(panel.id);
+                // A panel counts as selected when ANY of its ops is — the selection
+                // is ops now, and the panel is only the box around them.
+                const isPanelSelected = !ed.isReschedule || panelSelState(panel) !== "none";
                 // radiusLg, not radiusSm — the card wraps pill controls, and a 16px corner
                 // around 9999px pills reads as a box drawn around round things.
                 return <div key={panel.id} style={{ background:T.bg, borderRadius:T.radiusLg, border:`1px solid ${T.border}`, padding:16, animation:"fadeIn 0.25s ease-out backwards", opacity:isPanelSelected?1:0.4, transition:"opacity 0.15s" }}>
                   {/* Panel header row */}
                   <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:8 }}>
-                    {ed.isReschedule && <input type="checkbox" checked={rescheduleSelection.includes(panel.id)} onChange={() => setRescheduleSelection(prev => prev.includes(panel.id) ? prev.filter(id => id !== panel.id) : [...prev, panel.id])} style={{ width:16, height:16, cursor:"pointer", accentColor:T.accent, flexShrink:0 }} />}
+                    {ed.isReschedule && <input type="checkbox" checked={panelSelState(panel) === "all"} ref={el => { if (el) el.indeterminate = panelSelState(panel) === "some"; }} onChange={() => togglePanelSel(panel)} title={panelSelState(panel) === "some" ? "Some operations selected — click to select all" : "Select every operation in this panel"} style={{ width:16, height:16, cursor:"pointer", accentColor:T.accent, flexShrink:0 }} />}
                     <div style={{ display:"flex", alignItems:"center", gap:3, flexShrink:0 }}>
                       <Tip label="Quantity: creates this many copies when saved"><input type="number" min="1" max="999" value={panel.qty||1} onChange={e => updatePanel({qty:Math.max(1,parseInt(e.target.value)||1)})} style={{ width:54, padding:"7px 6px", borderRadius: T.radiusPill, border:`1px solid ${(panel.qty||1)>1?T.accent:T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:(panel.qty||1)>1?T.accent:T.text, fontSize:13, fontFamily:T.font, textAlign:"center", fontWeight:(panel.qty||1)>1?700:400 }} /></Tip>
                       <span style={{ fontSize:11, color:T.textDim }}>qty</span>
@@ -25111,9 +25260,9 @@ ${jobsCtx || "No jobs found."}`;
                         <FadeOnClose open={deptDropId===panel.id}>{deptDropId===panel.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
                           {orgSettings.roles.length===0 && !deptAddMode && <div style={{ padding:"8px 14px", fontSize:12, color:T.textDim }}>No departments yet</div>}
                           {orgSettings.roles.map((r,ri) => {
-                            const isOn=panel.requiredDepartment===r;
+                            const isOn=unitDepartments(panel,null,null).some(d=>d.toLowerCase()===r.toLowerCase());
                             const fk=`panel-${panel.id}-${r}`;
-                            return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { updatePanel({requiredDepartment:isOn?"":r}); setDeptDropId(null); setDropFlashKey(null); },150); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":`toolDrop 0.14s ${ri*38}ms both ease-out` }}
+                            return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { updatePanel(toggleDept(panel,r)); setDropFlashKey(null); },150); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":`toolDrop 0.14s ${ri*38}ms both ease-out` }}
                               onMouseEnter={e => { if(!dropFlashKey) e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e => { if(!dropFlashKey) e.currentTarget.style.background="transparent"; }}>
                               <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${isOn?T.accent:T.border}`, background:isOn?T.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
                                 {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
@@ -25124,8 +25273,8 @@ ${jobsCtx || "No jobs found."}`;
                           <div style={{ borderTop:`1px solid ${T.border}`, marginTop:4, paddingTop:4 }}>
                             {deptAddMode
                               ? <div style={{ display:"flex", gap:4, padding:"4px 8px 6px" }}>
-                                  <input value={deptAddInput} onChange={e=>setDeptAddInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updatePanel({requiredDepartment:v}); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); } if(e.key==="Escape"){ setDeptAddMode(false); setDeptAddInput(""); }}} placeholder="Department name…" style={{ flex:1, padding:"5px 8px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:12, fontFamily:T.font, outline:"none", minWidth:0 }} autoFocus />
-                                  <button onClick={()=>{ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updatePanel({requiredDepartment:v}); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); }} style={{ padding:"5px 10px", borderRadius:T.radiusPill, border:"none", background:T.accent, color:T.accentText, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Add</button>
+                                  <input value={deptAddInput} onChange={e=>setDeptAddInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updatePanel(toggleDept(panel,v)); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); } if(e.key==="Escape"){ setDeptAddMode(false); setDeptAddInput(""); }}} placeholder="Department name…" style={{ flex:1, padding:"5px 8px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:12, fontFamily:T.font, outline:"none", minWidth:0 }} autoFocus />
+                                  <button onClick={()=>{ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updatePanel(toggleDept(panel,v)); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); }} style={{ padding:"5px 10px", borderRadius:T.radiusPill, border:"none", background:T.accent, color:T.accentText, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Add</button>
                                 </div>
                               : <div onClick={()=>setDeptAddMode(true)} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 14px", cursor:"pointer", fontSize:12, color:T.accent, fontWeight:600, transition:"background 0.12s" }}
                                   onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
@@ -25144,6 +25293,7 @@ ${jobsCtx || "No jobs found."}`;
                     const updateSub = (patch) => { const subs=[...(panel.subs||[])]; subs[si]={...subs[si],...patch}; updatePanel({subs}); };
                     return <div key={sub.id} draggable onDragStart={e => { e.dataTransfer.effectAllowed="move"; e.dataTransfer.setData("text/plain",String(si)); }} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); const fromIdx=Number(e.dataTransfer.getData("text/plain")); if(fromIdx===si) return; const newSubs=[...(panel.subs||[])]; const [moved]=newSubs.splice(fromIdx,1); newSubs.splice(si,0,moved); updatePanel({subs:newSubs}); }} style={{ marginBottom:6, animation:"fadeIn 0.18s ease-out backwards" }}>
                       <div style={{ display:"flex", gap:8, alignItems:"center", marginBottom:4, paddingLeft:16 }}>
+                        {ed.isReschedule && <input type="checkbox" checked={rescheduleSelection.includes(sub.id)} onChange={() => toggleOpSel(sub.id)} title="Re-plan this operation" style={{ width:15, height:15, cursor:"pointer", accentColor:T.accent, flexShrink:0 }} />}
                         <Tip label="Drag to reorder"><div style={{ cursor:"grab", color:T.textDim, fontSize:13, userSelect:"none", flexShrink:0, paddingRight:4 }}>⠿</div></Tip>
                         <div style={{ width:2, height:20, background:T.border, borderRadius:2, flexShrink:0 }} />
                         <input value={sub.title} onChange={e => updateSub({title:e.target.value})} placeholder="Sub-operation name" style={{ flex:1, padding:"7px 10px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:13, fontFamily:T.font, boxSizing:"border-box" }} />
@@ -25162,9 +25312,9 @@ ${jobsCtx || "No jobs found."}`;
                             <FadeOnClose open={deptDropId===sub.id}>{deptDropId===sub.id && <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()} className="anim-drop" style={{ position:"absolute", top:"calc(100% + 4px)", right:0, zIndex:200, background:T.card, border:`1px solid ${T.border}`, borderRadius: T.radiusLg, overflow: "hidden", boxShadow:"0 8px 24px rgba(0,0,0,0.18)", minWidth:180, padding:"8px 0", animation:"menuIn 0.15s ease-out" }}>
                               {orgSettings.roles.length===0 && !deptAddMode && <div style={{ padding:"8px 14px", fontSize:12, color:T.textDim }}>No departments yet</div>}
                               {orgSettings.roles.map((r,ri) => {
-                                const isOn=sub.requiredDepartment===r;
+                                const isOn=unitDepartments(sub,null,null).some(d=>d.toLowerCase()===r.toLowerCase());
                                 const fk=`sub-${sub.id}-${r}`;
-                                return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { setAvailCheckPassed(false); updateSub({requiredDepartment:isOn?"":r}); setDeptDropId(null); setDropFlashKey(null); },150); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":`toolDrop 0.14s ${ri*38}ms both ease-out` }}
+                                return <div key={r} onClick={() => { setDropFlashKey(fk); setTimeout(() => { setAvailCheckPassed(false); updateSub(toggleDept(sub,r)); setDropFlashKey(null); },150); }} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 14px", cursor:"pointer", borderRadius:6, animation:dropFlashKey===fk?"optFlash 0.15s ease-out forwards":`toolDrop 0.14s ${ri*38}ms both ease-out` }}
                                   onMouseEnter={e => { if(!dropFlashKey) e.currentTarget.style.background=T.accent+"12"; }} onMouseLeave={e => { if(!dropFlashKey) e.currentTarget.style.background="transparent"; }}>
                                   <div style={{ width:16, height:16, borderRadius:4, border:`2px solid ${isOn?T.accent:T.border}`, background:isOn?T.accent:"transparent", display:"flex", alignItems:"center", justifyContent:"center", flexShrink:0, transition:"all 0.12s" }}>
                                     {isOn && <svg width="8" height="8" viewBox="0 0 10 10"><polyline points="1.5,5.5 4,8 8.5,2" stroke="#fff" strokeWidth="2" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
@@ -25175,8 +25325,8 @@ ${jobsCtx || "No jobs found."}`;
                               <div style={{ borderTop:`1px solid ${T.border}`, marginTop:4, paddingTop:4 }}>
                                 {deptAddMode
                                   ? <div style={{ display:"flex", gap:4, padding:"4px 8px 6px" }}>
-                                      <input value={deptAddInput} onChange={e=>setDeptAddInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updateSub({requiredDepartment:v}); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); } if(e.key==="Escape"){ setDeptAddMode(false); setDeptAddInput(""); }}} placeholder="Department name…" style={{ flex:1, padding:"5px 8px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:12, fontFamily:T.font, outline:"none", minWidth:0 }} autoFocus />
-                                      <button onClick={()=>{ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updateSub({requiredDepartment:v}); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); }} style={{ padding:"5px 10px", borderRadius:T.radiusPill, border:"none", background:T.accent, color:T.accentText, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Add</button>
+                                      <input value={deptAddInput} onChange={e=>setDeptAddInput(e.target.value)} onKeyDown={e=>{ if(e.key==="Enter"){ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updateSub(toggleDept(sub,v)); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); } if(e.key==="Escape"){ setDeptAddMode(false); setDeptAddInput(""); }}} placeholder="Department name…" style={{ flex:1, padding:"5px 8px", borderRadius: T.radiusPill, border:`1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color:T.text, fontSize:12, fontFamily:T.font, outline:"none", minWidth:0 }} autoFocus />
+                                      <button onClick={()=>{ const v=deptAddInput.trim(); if(v&&!orgSettings.roles.includes(v)){ setOrgSettings(s=>({...s,roles:[...s.roles,v]})); updateSub(toggleDept(sub,v)); } setDeptDropId(null); setDeptAddInput(""); setDeptAddMode(false); }} style={{ padding:"5px 10px", borderRadius:T.radiusPill, border:"none", background:T.accent, color:T.accentText, fontSize:11, fontWeight:700, cursor:"pointer", fontFamily:T.font, flexShrink:0 }}>Add</button>
                                     </div>
                                   : <div onClick={()=>setDeptAddMode(true)} style={{ display:"flex", alignItems:"center", gap:8, padding:"7px 14px", cursor:"pointer", fontSize:12, color:T.accent, fontWeight:600, transition:"background 0.12s" }}
                                       onMouseEnter={e=>e.currentTarget.style.background=T.accent+"12"} onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
@@ -25491,7 +25641,15 @@ ${jobsCtx || "No jobs found."}`;
                       const updated={...p};
                       const allCrew=people.filter(pp => (pp.userRole==="user" || pp.userRole==="admin") && !pp.noAutoSchedule);
                       // The shared overlap rule, counting this run's own placements (booked below).
-                      const _applyAvail=schedulerAvailability(tasks, overlapCtx, { excludeJobId: ed.id, people });
+                      // Re-planning a SELECTION: only the selected ops come out of
+                      // the obstacle set. The job's own unselected ops stay put and
+                      // keep blocking, which is what "unselected ops are immovable"
+                      // means in the one place it has to be true. A whole-job
+                      // reschedule (nothing selected) still drops the whole job.
+                      const _applyAvail=schedulerAvailability(tasks, overlapCtx,
+                        rescheduleSelection.length > 0 && ed.isReschedule
+                          ? { excludeOpIds: rescheduleSelection, people }
+                          : { excludeJobId: ed.id, people });
                       // Department inference: explicit op field → parent panel's field
                       // → case-insensitive match on op title against orgSettings.roles.
                       // Fast TRAQS imports leave requiredDepartment empty even though op
@@ -25500,9 +25658,21 @@ ${jobsCtx || "No jobs found."}`;
                       // has the lowest jobCount regardless of department.
                       const _inferDept2 = (op, panel) => deptOfUnit(op, panel, null);
                       const panelsForScheduling = p.isReschedule
-                        ? (p.subs||[]).map(panel => !rescheduleSelection.includes(panel.id) ? panel : { ...panel, team: [], subs: (panel.subs||[]).map(sub => ({ ...sub, team: [] })) })
+                        // PER OP now. A selected op has its team cleared, which is
+                        // what makes a re-plan re-decide WHO — and after the
+                        // manual-assignment rule an UNSELECTED op keeps its people,
+                        // because the scheduler respects them. So selecting an op
+                        // means "re-plan this, including who does it", and the panel
+                        // around it is untouched unless its own ops are selected.
+                        ? (p.subs||[]).map(panel => {
+                            const sel = (panel.subs||[]).filter(o => rescheduleSelection.includes(o.id));
+                            if (sel.length === 0) return panel;
+                            return { ...panel, team: [], subs: (panel.subs||[]).map(sub =>
+                              rescheduleSelection.includes(sub.id) ? { ...sub, team: [] } : sub) };
+                          })
                         : (p.subs||[]);
-                      const expandedOps=panelsForScheduling.filter(op => !p.isReschedule || rescheduleSelection.includes(op.id)).flatMap(op => {
+                      const expandedOps=panelsForScheduling.filter(panel => !p.isReschedule
+                        || (panel.subs||[]).some(o => rescheduleSelection.includes(o.id))).flatMap(op => {
                         const qty=Math.max(1,parseInt(op.qty)||1);
                         const baseTitle=op.title.replace(/-\d+$/,"").trimEnd();
                         return Array.from({length:qty},(_,i) => {
@@ -25722,10 +25892,22 @@ ${jobsCtx || "No jobs found."}`;
                         setTimeout(() => setAiSuggestion(prev => ({...(prev||{}),overlapError:overlapErrors.join(" | ")})),0);
                         return p;
                       }
-                      if (p.isReschedule && rescheduleSelection.length < (p.subs||[]).length) {
-                        // Merge: scheduled panels get new dates; unselected panels keep original dates
+                      // Merge per op by id. The old test was `selection.length <
+                      // panels.length` — panel counts against a panel-id list — which
+                      // cannot answer the question once the selection is ops. An op
+                      // that was not re-planned keeps exactly what it had.
+                      const _replanned = new Set(rescheduleSelection.map(String));
+                      if (p.isReschedule && _replanned.size > 0) {
                         const scheduledMap=new Map(newSubs.map(s => [s.id, s]));
-                        updated.subs=(p.subs||[]).map(orig => scheduledMap.get(orig.id) || orig);
+                        updated.subs=(p.subs||[]).map(orig => {
+                          const fresh = scheduledMap.get(orig.id);
+                          if (!fresh) return orig;
+                          return { ...fresh, subs: (fresh.subs||[]).map(op => {
+                            if (_replanned.has(String(op.id))) return op;
+                            const was = (orig.subs||[]).find(o => String(o.id) === String(op.id));
+                            return was || op;
+                          }) };
+                        });
                       } else {
                         updated.subs=newSubs;
                       }
@@ -33379,7 +33561,7 @@ ${jobsCtx || "No jobs found."}`;
                             </div>
                             <input value={op.title} onChange={e => updOp(pi, oi, { title: e.target.value })} placeholder="Op name" style={{ flex: 1, padding: "4px 8px", borderRadius: T.radiusPill, border: `1px solid ${T.border}`, background: `var(--tq-field-bg, ${T.surface})`, color: T.text, fontSize: 12, fontWeight: 600, fontFamily: T.font, outline: "none", boxSizing: "border-box" }} />
                             <div style={{ minWidth: 140, flexShrink: 0 }}>
-                              <CustomDrop value={op.requiredDepartment || ""} onChange={v => updOp(pi, oi, { requiredDepartment: v })} options={orgSettings.roles || []} placeholder="— Dept —" compact />
+                              <MultiDrop values={unitDepartments(op, null, null)} onToggle={r => updOp(pi, oi, toggleDept(op, r))} options={orgSettings.roles || []} compact />
                             </div>
                             {/* Assignees. There was no way to put a person on an op from anywhere in
                                 the app except the auto-scheduler and dragging a bar on the Schedule --

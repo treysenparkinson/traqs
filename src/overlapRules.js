@@ -300,11 +300,24 @@ export function nextFreeStart(candidate, fromDay, units, ctx, { maxDays = 260 } 
  * A free/book checker for one auto-scheduling run. The schedulers place whole working
  * days, so a check reserves every productive hour from `startH` (or the start of the
  * day) through `end`. `book` records a placement so the run's next check sees it —
- * the missing piece that let one run double-book a person. `excludeJobId` leaves out
- * the stored copy of the job being scheduled; its new placements come in via `book`.
+ * the missing piece that let one run double-book a person.
+ *
+ * `excludeOpIds` leaves out the stored copy of the units being placed, so their
+ * own current positions do not block them; the new placements come back in via
+ * `book`. IT IS PER UNIT, NOT PER JOB, and that is what makes re-planning a
+ * SELECTION safe: dropping the whole job would un-obstacle the job's own
+ * UNSELECTED ops, and those must stay exactly where they are. Ops on other jobs
+ * and other people's rows were always obstacles and still are.
+ *
+ * `excludeJobId` is still accepted and means "every unit under this job", which
+ * is what a whole-job reschedule wants and what every caller did before
+ * selections existed.
  */
-export function schedulerAvailability(tasks, ctx, { excludeJobId = null, people = [] } = {}) {
-  const base = occupyingUnits((tasks || []).filter(j => !(excludeJobId != null && j && String(j.id) === String(excludeJobId))), ctx);
+export function schedulerAvailability(tasks, ctx, { excludeJobId = null, excludeOpIds = null, people = [] } = {}) {
+  const dropJob = excludeJobId != null ? String(excludeJobId) : null;
+  const dropOps = excludeOpIds ? new Set([...excludeOpIds].map(String)) : null;
+  const kept = (tasks || []).filter(j => !(dropJob != null && j && String(j.id) === dropJob));
+  const base = occupyingUnits(kept, ctx).filter(u => !(dropOps && dropOps.has(String(u.unit?.id))));
   const session = [];
   const byId = new Map((people || []).map(p => [String(p.id), p]));
   const { workStartH, workEndH } = ctx.cfg;
