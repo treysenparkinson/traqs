@@ -74,11 +74,20 @@
 // so the claim was false the whole time it was printed. It stays off the table
 // until it is either gated or deliberately given to everyone.
 
+// RULED 2026-10-02. "Mobile clock in/out" is named rather than left to
+// inference: a shift worker clocks in from their phone on site, not at a desk,
+// and web-only shift scheduling is not a product. The device claim is pinned by
+// tiers-test, because the previous table went silent on exactly this kind of
+// load-bearing point and a reader filled it in wrong.
+//
+// A shift carries a CREW, not one person — a morning crew is one shift with
+// four names, not four shifts.
 export const BASIC_FEATURES = [
   "Shift scheduling — shift bars on person rows",
   "Shifts: start and end time, notes and location",
-  "New shift: day, all-day or set times, who's on it",
-  "Time clock, for pay only",
+  "New shift: day, all-day or set times, and the crew on it",
+  "Time clock & time stamps, for pay only",
+  "Mobile clock in/out — from the phone, on site",
   "Pay-period hours export from pay punches",
   "Employees — name and phone for quick contact",
   "Dashboard, messages and admin",

@@ -46,12 +46,31 @@ const all = [...BASIC_FEATURES, ...BUSINESS_FEATURES].join(" | ").toLowerCase();
 eq("Basic is shift scheduling and a pay clock", BASIC_FEATURES, [
   "Shift scheduling — shift bars on person rows",
   "Shifts: start and end time, notes and location",
-  "New shift: day, all-day or set times, who's on it",
-  "Time clock, for pay only",
+  "New shift: day, all-day or set times, and the crew on it",
+  "Time clock & time stamps, for pay only",
+  "Mobile clock in/out — from the phone, on site",
   "Pay-period hours export from pay punches",
   "Employees — name and phone for quick contact",
   "Dashboard, messages and admin",
 ]);
+// RULED 2026-10-02, and pinned because the table's SILENCE on this is what the
+// last round nearly repeated. Basic includes a phone clock: a shift worker
+// clocks in on site, not at a desk. Three Time Clock Settings sections already
+// say "Mobile Clock-In" (TRAQS.jsx:19245, :20957, :27096) with no tier check,
+// so the product had already made this promise before the table did.
+eq("Basic names the device: mobile clock in/out is Basic",
+  BASIC_FEATURES.some((f) => /mobile clock in\/out/i.test(f)), true);
+eq("...and says where, so 'for pay only' cannot be read as desk-only",
+  BASIC_FEATURES.some((f) => /mobile clock/i.test(f) && /phone/i.test(f)), true);
+eq("the phone clock is NOT sold as a Business upgrade",
+  BUSINESS_FEATURES.some((f) => /mobile clock|phone/i.test(f)), false);
+// A shift carries a crew. Ruled 2026-10-02: a morning crew is one shift with
+// four names, not four shifts.
+eq("a shift carries a crew, not one person",
+  BASIC_FEATURES.some((f) => /crew/i.test(f)), true);
+// Basic keeps Time Stamp — it is the pay clock, which is half of what Basic is.
+eq("time stamps are Basic",
+  BASIC_FEATURES.some((f) => /time stamps/i.test(f)), true);
 // Business is that plus the job layer.
 eq("Business adds the job layer", BUSINESS_FEATURES, [
   "Jobs, panels & operations",
