@@ -12,6 +12,34 @@ The ruling it serves:
 
 ---
 
+## Ruled 2026-10-02
+
+| # | Question | Ruling |
+|---|---|---|
+| 1 | Objective | **Even load**, with "Finish soonest" as a visible alternative. Overrides the recommendation below. |
+| 2 | Does a re-plan re-decide people? | **Yes**, said in the UI. Date-only is a second checkbox. |
+| 3 | Consolidate or build a fifth? | **Consolidate.** 13–21 days accepted. |
+| 4 | Infeasible op | **Leave it and flag, per op.** Never place it anyway. |
+| 5 | NEW — multi-department ops | Scoped in §6 below. Not built. |
+
+**On the objective, the reasoning and the trade are both recorded, because the trade is real and
+was measured before the choice was made.** The ruling is even load: *an evenly loaded shop
+completes more jobs overall, even if any single job finishes later.* What that costs, stated
+plainly so it is not discovered later: **equalising means giving Thursday work to someone when
+somebody else could have done it Tuesday.** A single job will finish later than it needs to, and
+on a Gantt that looks like slack. The compensation is invisible on that same Gantt — it is the
+next job starting sooner because nobody is saturated.
+
+Not hard-coded. Even load is the DEFAULT and "Finish soonest" is offered beside it, because the
+objective is a judgement about the shop rather than a property of the schedule.
+
+**On infeasibility:** never place it anyway at the earliest date. That is the silent fallback
+wearing a better face, and the silent fallback is exactly what produced the department funnel —
+`matched.length > 0 ? matched : allCrew` looked like a kindness and quietly scheduled 71 ops
+onto one person.
+
+---
+
 ## 5. Same engine, and that is the headline
 
 **It is the same problem, and it should be one implementation.** "Place a set of ops against
@@ -66,7 +94,7 @@ it is a second checkbox, not a default.
 
 ---
 
-## 2. The objective — this one is yours to pick
+## 2. The objective — RULED: even load. The analysis is kept below
 
 Trey's words were *"dividing the work out making it the most efficient and quickest way to
 complete the whole job."* That sentence contains two objectives and they conflict.
@@ -77,8 +105,16 @@ complete the whole job."* That sentence contains two objectives and they conflic
 | **Evenest load** | per-person hours as equal as possible across the selection | Finishes **later**, often materially. Equalising means giving work to someone who is free on Thursday when someone else could have done it Tuesday. |
 | **Fewest handoffs** | as few distinct people per panel as possible | Finishes later again, and is the most sensitive to one person's absence. Its benefit is real but invisible on a Gantt: less coordination, less context lost between Cut and Wire. |
 
-**Recommendation: makespan primary, fewest handoffs as the tie-break, even load reported but not
-optimised.**
+**This section's recommendation was makespan primary, and it was overruled.** It is kept
+unedited, because the reason for the ruling only makes sense beside the case against it — and
+because the trade it describes is what the build has to live with either way.
+
+**RULED: even load, as the default, with "Finish soonest" offered beside it.** The argument that
+carried it is one this analysis did not have: an evenly loaded SHOP completes more jobs overall,
+even when any single job finishes later. That is a claim about the business, not about the
+schedule, and it is not visible in anything measured here.
+
+The original recommendation follows.
 
 The reasoning. "Quickest way to complete the whole job" is makespan, stated explicitly — it is the
 thing a customer sees. "Dividing the work out" is the *means* by which that happens, not a second
@@ -94,8 +130,12 @@ now that the scheduler respects it (#340). That is better than encoding fairness
 because fairness over one job is the wrong unit anyway; fairness over a week is what actually
 matters and the scheduler cannot see it.
 
-**If you disagree, the knob is a single weight** and it should be exposed as a choice in the
-preview ("Finish soonest" / "Spread evenly") rather than hard-coded. Say which is the default.
+**The knob is a single weight** and it is exposed as a choice in the preview rather than
+hard-coded — "Spread evenly" (default) / "Finish soonest". That part of the recommendation stood.
+
+One thing the ruling does NOT change: even load still has to be **shown** per person in the
+preview, because an even-load objective can still produce a result an admin wants to override by
+hand, and manual assignment is now respected (#340).
 
 ---
 
@@ -187,13 +227,93 @@ used in anger.
 three competing ones; skipping it makes a fifth. Given that the #340 fix already had to be written
 twice, a fifth implementation will need the sixth fix written five times.
 
+## 6. Multi-department ops — scoped, not built
+
+**The ruling:** an op should name a FLAT SET of departments, not one. "Either, pick whoever's
+free." Not a preference order.
+
+This is the real fix for what the title heuristic was faking. An op that Wire *or* Cut could do is
+a true statement about the work, and today you can say one or neither — so the only way to express
+"either" was to say nothing, which is also how you say "anyone". Two different facts, one
+encoding.
+
+### What the live data says
+
+| | |
+|---|---|
+| Ops with `requiredDepartment` set on the op itself | **141** |
+| …where **title === department** (indistinguishable from a heuristic stamp) | **87 (62%)** |
+| …where the title differs, so it can only have been set deliberately | **54** |
+| Panels with one set | 3 |
+| Jobs with one set | 0 |
+| **People holding a SECONDARY department** | **0 of 18** |
+
+Two findings matter more than the rest.
+
+**The heuristic did not only read — it WROTE.** `:24672` and `:25508` persisted the inferred
+department into the saved tree, so 87 of the 141 stated departments may never have been chosen by
+anybody. Under ruling 1 a stated department is binding, which means those 87 ops stay funnelled
+by a constraint that may be an artefact. **They should not be auto-cleared** — clearing is
+irreversible guessing at intent, and some of the 87 are certainly deliberate (an admin setting
+Wire on an op titled Wire is redundant, not wrong). **Recommended: no migration. Surface them
+instead** — a filter for "ops whose department equals their title", which multi-department makes
+actionable: widen to "Wire or Cut" rather than clear to nothing.
+
+**Nobody holds a secondary department.** `personDeptMatch`'s entire `"secondary"` branch, and
+the six sort comparators that rank primary above secondary, are unexercised at Matrix. That is
+worth knowing before adding a second multi-valued concept beside an unused one: the person side
+already has a two-slot preference order nobody uses, and the op side is being asked for a flat
+set. Do not let them become three concepts.
+
+The widening is real where it is needed: Wire has 5 holders, Cut 1, Layout 1. An op that could
+say "Wire or Cut" goes from 1 candidate to 6.
+
+### What changes
+
+| Surface | Change |
+|---|---|
+| Schema | `requiredDepartment: string` → `requiredDepartments: string[]`. Read as `requiredDepartments ?? [requiredDepartment].filter(Boolean)` so old rows work untouched. |
+| `unitDepartment` (scheduleRules) | returns an array; same own → panel → job precedence. Shared with the server. |
+| `personDeptMatch(p, reqDept)` | takes a set. "primary" if the person's primary is in it, "secondary" if their secondary is, false otherwise. **Return contract unchanged**, so the six primary/secondary sort comparators keep working untouched. |
+| Call sites | ~12 in `TRAQS.jsx`, plus `dragMove.requiredDepartmentOf` and the server's department rule (`scheduleRules.js:231`). |
+| UI | the single-select `CustomDrop` (`:33354`) and the two role-pick lists (`:25105`, `:25156`) become multi-select chips. **This is the bulk of the work.** |
+| FAST TRAQS import | writes the field at `:24672`/`:25508`; now writes a set (usually empty, since the heuristic is gone). |
+
+### The native constraint, which decides the write format
+
+`JobsScheduler.swift` reads `extras.text("requiredDepartment")` at job, panel and op level. An
+array written to that key decodes as nil, so **iOS would silently treat every op as having no
+department** — which widens rather than breaks, and is the safe direction under ruling 1, but it
+means web and iOS would be scheduling to different rules without anything failing.
+
+**So dual-write: keep `requiredDepartment` populated with the first element** alongside the new
+array. Costs almost nothing, keeps iOS correct-ish until it is updated on the Mac, and makes the
+rollout reversible. iOS also still carries its OWN copy of the title heuristic
+(`JobsScheduler.swift:90`), so that parity gap exists already and is now wider — logged, not
+touched, no native work done.
+
+### Where it lands: INSIDE the consolidation, as its first step
+
+Your reasoning decides it and it is right — it is the field the engine reads, so doing it after
+means touching the engine twice. But "before" is worse than "after":
+
+- **Before**: change four implementations now, then collapse them. Four times the work, thrown away.
+- **After**: write one engine against a single-value field, then change it. Twice.
+- **First step of the consolidation**: define the shape, write the one engine against it, retire
+  the four onto it. **Once.**
+
+### Size
+
+**4–6 days**, inside the 13–21 for the consolidation rather than on top of it — the call-site
+changes are largely the same edits the consolidation is already making, so the marginal cost is
+the schema, the matcher and the UI. The multi-select UI is roughly half of it.
+
 ## Open questions
 
-1. **The objective** (§2) — makespan, even load, or a user-visible choice, and which default.
-2. **Does a re-plan keep people or re-decide them?** §1 proposes re-decide, with keeping as a
-   second checkbox. It is the one behaviour a user could reasonably expect either way.
-3. **Consolidate the four schedulers, or build the fifth?** The honest recommendation is
-   consolidate, and the honest caveat is that it roughly doubles the estimate.
-4. **What should an infeasible op do** — leave it where it is and flag it, or place it at the
-   earliest possible date and flag that? The current code silently falls back, which is the one
-   option that should not survive.
+1. **Those 87 ops.** No migration is recommended; confirm, or say to clear them.
+2. **The person side.** `secondaryDepartment` exists, is unused by all 18 people, and is a
+   two-slot preference order rather than a set. Leave it, or make it a set too so there is one
+   concept instead of two? Leaving it is cheaper and nothing currently depends on it.
+3. **Does an empty set still mean "anyone"?** It must, to stay consistent with ruling 1 — but it
+   should be stated, because "no departments listed" and "all departments listed" would otherwise
+   be two ways to write the same thing.
