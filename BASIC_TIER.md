@@ -1,5 +1,33 @@
 # Building Basic: what it actually requires
 
+> # A shift is a RULE, not a row.
+>
+> **Read this before anything else in this file, and before writing any roster code.**
+>
+> A shift is not a stored object with a date on it. It is an **occurrence generated from a
+> person's weekly pattern** — `roster.json` holds `kind: "template"` and `kind: "exception"`,
+> and shifts are resolved for the window you are looking at and **never persisted**.
+>
+> Getting this backwards produced **four wrong decisions**, and they are worth listing because
+> they all look reasonable from the wrong premise:
+>
+> | Wrong decision | What it looks like from "a shift is a row" |
+> |---|---|
+> | `shifts.json`, concrete dated rows | obviously simpler than templates + a resolver |
+> | Recurring is a post-launch feature | a convenience to add once the basics work |
+> | A shift carries a crew — four names on one shift | the natural way to put four people on a morning shift |
+> | A separate Basic schedule view | the only way to keep job-time rendering out |
+>
+> From "a shift is a rule" each inverts. Recurrence is not a feature to add — **it is the thing
+> itself**, and a one-off is the special case (an exception on a day with no pattern entry). A
+> crew is **four people carrying the same pattern**, with copy-from-another-person as the
+> affordance. And the roster is a **third bar type** in `renderTeam`'s existing pipeline
+> (`pto` + `shift`, with Business adding `task`), not a parallel component.
+>
+> Two of those four were the product owner's rulings and two were mine; all four were corrected
+> by `origin/docs/rostering-design`, which had the premise right from the start. One sentence
+> would have prevented every one of them.
+
 > ## ⚠ ITS DATA-MODEL DECISIONS ARE SUPERSEDED — ruled 2026-10-02
 >
 > **`origin/docs/rostering-design` (2026-09-21/22, 23 locked decisions) is the default

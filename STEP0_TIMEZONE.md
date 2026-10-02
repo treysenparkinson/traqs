@@ -161,16 +161,35 @@ choice explicit for new ones.
 
 ## Open questions
 
-1. **Delete the two stub orgs or backfill them?** `MATRIX` and `MTX2025TRAQS` have no name, no
-   data and no timeclock rows. Deleting is cleaner than carrying them through every future
-   migration. **Not actioned** — deleting org prefixes is destructive and wants an explicit say-so.
+1. ~~**Delete the two stub orgs or backfill them?**~~ **DELETED 2026-10-02.** Each held exactly one
+   object — `settings.json`, 419B and 504B, last written April 2026 — and **no `config.json`**,
+   which is what `org.js` resolves an org code against. They were never reachable orgs: they are
+   orphaned settings files that a prefix listing makes look like orgs. Both carried `weekends:
+   false`, a field the current schema replaced with `workDays`, so they predate the present model.
+   No people, tasks, timeclock or index entries. Bucket versioning is on, so both are delete
+   markers and remain recoverable.
 2. ~~**Does `tier` get the same treatment in the same pass?**~~ **Ruled yes, 2026-10-02.** Identical
    argument, identical function, identical kind of field — one change to `org.js`'s validation
    block. Built.
-3. **How long does the fallback run in log mode** before it throws? No traffic signal yet. A week
-   of real use is the obvious answer, but it depends on when the roster work starts — and the only
-   orgs that can still hit it are the two empty stubs, so the log may simply stay silent, which is
-   itself the result.
+3. **How long does the fallback run in log mode** before it throws?
+
+   **A SILENT LOG HERE IS A RESULT, NOT AN ABSENCE OF ONE.** Read this before concluding that
+   waiting taught nothing.
+
+   With the two stubs deleted, **all five remaining orgs have `settings.timeZone` set**, and
+   `org.js` now refuses to create one without it. So there is no longer any org that *can* reach
+   the fallback. An empty `[tz-fallback]` log is therefore the **positive confirmation** that the
+   population is clean and `TZ_FALLBACK_MODE=enforce` is safe to flip — not a signal that nothing
+   was learned and not a reason to keep waiting indefinitely.
+
+   What would make the log non-empty is exactly what it is there to catch: a path that creates or
+   mutates an org's settings **without** going through `org.js`'s validation — a script, a manual
+   S3 write, a restored backup, or a future endpoint. Those are the cases worth one real week of
+   traffic before flipping.
+
+   Concretely: a week of normal use, grep the function logs for `[tz-fallback]`, and flip to
+   `enforce` on a clean result. If it fires, the line names the org's zone value and whether the
+   reason was `missing` or `invalid`, which is enough to find the writer.
 
 ---
 
