@@ -9403,13 +9403,36 @@ Extraction rules:
   const finishedOpFields = (op, movedByName) => {
     // #188: this read PAYROLL entries — `timeclock` rows whose jobRefs mention the op — and
     // summed their `hours`, which is the whole SHIFT, counted once per job the worker picked
-    // at clock-in. So `actualHours` was stamped with pay time while `actualHoursFor`, the
-    // function that READS it everywhere, returns production time. Two definitions under one
-    // name, and the stored one was the wrong one: an op worked for 2h inside an 8h shift was
-    // recorded as having taken 8.
+    // at clock-in. So `actualHours` was stamped with pay time while `actualHoursFor` returns
+    // production time. Two definitions under one name, and the stored one was the wrong one:
+    // an op worked for 2h inside an 8h shift was recorded as having taken 8.
     //
-    // The entry filed this as "computed and never read". It is read, at :12995 and :23864 —
-    // just never against the same definition it was written with.
+    // ── CORRECTION 2026-10-02 (#228) ──────────────────────────────────────
+    //
+    // This comment used to call `actualHoursFor` "the function that READS it
+    // everywhere", and to claim the field "is read, at :12995 and :23864".
+    // BOTH OF THOSE ARE WRONG, and they made the #228 entry wrong once already.
+    //
+    // `actualHoursFor` is a ROLLUP. It calls `rollupLeafHours(node, leaf => …)`,
+    // which recurses to the leaves and evaluates
+    // `deriveWorkedState(leaf, producedFor(leaf), liveOpHours(leaf))`. It never
+    // touches `node.actualHours`. The two line references are calls to that
+    // FUNCTION, not reads of the FIELD — which is the whole trap: grepping a
+    // field name returns the things named after it.
+    //
+    // Searched for the ACCESS rather than the name — dot-access, destructure,
+    // and key form — the field resolves to exactly two occurrences in web,
+    // functions and iOS combined: the write just below, and a destructure in
+    // `dragMove.js:301` that DISCARDS it.
+    //
+    // (Deliberately phrased without brace or bracket characters: this function
+    // body is extracted by brace counting in scripts/task-actions-test.mjs, and
+    // an unbalanced one in a COMMENT breaks the scanner. Found by doing it.)
+    //
+    // So `actualHours`, `actualStart`, `actualEnd` and the four `planned*`
+    // fields are written and never read. They are DELIBERATELY KEPT — they are
+    // the skeleton of a planned-vs-actual report, which is wanted. Do not sweep
+    // them as dead code; see #228.
     const logged = actualHoursFor(op);
     const session = op.pendingSession;
     // actualHours only when there is something to record. The chat approve also resolves
