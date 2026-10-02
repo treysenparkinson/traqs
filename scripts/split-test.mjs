@@ -54,7 +54,11 @@ try {
   const next = fn("applySplit")(tree(op), { node: op, keep: parts.keep, go: { ...go, hpd: parts.remainderHpd }, newId: "o1b", date: "2026-09-30", movedBy: "T", reasons: { keep: "K", go: "G" } });
   const [kept, gone] = next[0].subs[0].subs;
   check("two ops: the original id stays with the worked part", () => eq([kept?.id, gone?.id], ["o1", "o1b"]));
-  check("the part that stays: worked hours, locked, history kept + a new entry", () => eq([kept.hpd, kept.locked, kept.moveLog.map(l => l.reason)], [8, true, ["Manual resize", "K"]]));
+  // `locked` is no longer stamped on the kept half -- op.locked is retired (ruling 3).
+  // Asserted as absent rather than dropped from the tuple, so the split cannot quietly
+  // start writing it again; the hpd is what identifies the kept half, and it is the
+  // worked time by construction.
+  check("the part that stays: worked hours, NO lock flag, history kept + a new entry", () => eq([kept.hpd, kept.locked, kept.moveLog.map(l => l.reason)], [8, undefined, ["Manual resize", "K"]]));
   check("the part that goes: remainder hours at the landing, splitFrom, its own entry", () => eq([gone.hpd, gone.start, gone.startHour, gone.splitFrom, gone.moveLog?.map(l => l.reason)], [8, "2026-10-08", 8, "o1", ["G"]]));
   check("…and no history it didn't earn (logged hours, actuals, pending finish)", () => eq([gone.loggedHours, "actualHours" in gone, "pendingFinish" in gone, gone.status], [0, false, false, "Not Started"]));
   check("…its walked end: 4 h each from Thu 08:00 → Thu 12:00", () => eq([gone.end, gone.endHour], ["2026-10-08", 12]));

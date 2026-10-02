@@ -300,8 +300,8 @@ export function applySplit(tasks, { node, keep, go, newId, date, movedBy, reason
     const orig = panel.subs[idx];
     const { actualHours: _a, pendingFinish: _p, pendingSession: _s, finishRequest: _f, ...base } = orig;
     const kept = { ...orig, hpd: keep.hpd, start: keep.start, end: keep.end, startHour: keep.startHour, endHour: keep.endHour,
-      ...(keep.locked ? { locked: true } : {}), moveLog: [...(orig.moveLog || []), keepLog] };
-    const gone = { ...base, id: newId, splitFrom: orig.id, hpd: go.hpd, loggedHours: 0, locked: false, deps: [],
+      moveLog: [...(orig.moveLog || []), keepLog] };
+    const gone = { ...base, id: newId, splitFrom: orig.id, hpd: go.hpd, loggedHours: 0, deps: [],
       ...(go.title ? { title: go.title } : {}),
       status: go.status || (orig.status === "Finished" ? "Not Started" : (orig.status === "In Progress" ? "Not Started" : orig.status || "Not Started")),
       start: go.to.start, end: go.to.end, startHour: go.to.startHour, endHour: go.to.endHour, team: go.to.team,
@@ -324,7 +324,7 @@ export function workedSplitParts({ node, workedHours, cfg, cal, workStartH }) {
   const sh = node.startHour ?? workStartH;
   const k = landUnit({ day: node.start, hour: sh, shareH: parts.perPersonKeepH, cfg, cal });
   return {
-    keep: { hpd: parts.keep.hpd, start: node.start, startHour: sh, end: k.end, endHour: k.endHour, locked: true },
+    keep: { hpd: parts.keep.hpd, start: node.start, startHour: sh, end: k.end, endHour: k.endHour },   // no locked: ruling 3
     remainderHpd: parts.remainder.hpd, remainderShare: parts.perPersonRemainderH,
   };
 }

@@ -226,9 +226,20 @@ ok("...and so is the client on each bar", !/clients\.find\(x => x\.id === job\.c
   const liveHistory = run([op({ start: day(-300), end: day(-200), isLive: true })]);
   ok("...unless somebody is clocked into it, as getPersonBars allows", (liveHistory.get("p1") || 0) > 0);
 
-  // worked and locked work is not pushed, so it has no cursor slack
+  // worked work is not pushed, so it has no cursor slack
   ok("a worked op contributes no cursor slack", (run([op({ start: day(-10), end: day(2), workedHoursShown: 4 })]).get("p1") || 0) === 0);
-  ok("a locked op contributes no cursor slack", (run([op({ start: day(-10), end: day(2), locked: true })]).get("p1") || 0) === 0);
+  // CHANGED 2026-10-02 with the retirement of op.locked (ruling 3: the only real
+  // lock is an active clock; a clocked-out op moves freely, including one already
+  // worked on). This asserted that `locked: true` alone zeroed the cursor push.
+  // It no longer does, and nothing sets the flag — the only four writes were in
+  // the split path and are gone.
+  //
+  // Asserted in the NEW direction rather than deleted, so the retirement is
+  // pinned: an op carrying a stray `locked` from older stored data must behave
+  // like any other unworked op, or the flag is still load-bearing through the
+  // back door.
+  ok("a stray `locked` on stored data no longer pins anything",
+    (run([op({ start: day(-10), end: day(2), locked: true })]).get("p1") || 0) > 0);
 
   // ── the budget, at production shape ───────────────────────────────────────
   // 805 ops, 70% of them history, planned starts spread the way Matrix's are.

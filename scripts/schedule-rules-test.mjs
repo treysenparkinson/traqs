@@ -8,8 +8,9 @@
 //
 // Rules (only what a write CHANGES is checked, so data already breaking a rule
 // never blocks an unrelated save):
-//   lock        — a locked op's dates, hours or team don't change, and it isn't
-//                 removed, unless the same write unlocks it. Everyone.
+//   (lock)      — REMOVED 2026-10-02. op.locked is retired: the only real lock
+//                 is an active clock, which is the next rule. Section 3 below
+//                 now pins the REMOVAL rather than testing the rule.
 //   activeClock — no schedule, team or removal change to an op someone is
 //                 clocked into, nor removal of its panel or job. Everyone.
 //   department  — every team member of a unit with a requiredDepartment
@@ -87,23 +88,35 @@ ok("an op already on a weekend, untouched, while another field changes",
 ok("an out-of-department member already on the team, untouched",
    check((n, p) => { node(p, "OP").team = [7, 9]; node(n, "OP").team = [7, 9]; node(n, "OP").title = "x"; }), []);
 
-console.log("\n3. lock");
-ok("moving a locked op", check(n => { node(n, "LOCKED").start = "2026-10-07"; }), ["lock:LOCKED"]);
-ok("changing its hours", check(n => { node(n, "LOCKED").startHour = 9; }), ["lock:LOCKED"]);
-ok("changing its team", check(n => { node(n, "LOCKED").team = [7, 8]; }), ["lock:LOCKED"]);
-ok("removing it", check(n => { node(n, "PANEL").subs = node(n, "PANEL").subs.filter(o => o.id !== "LOCKED"); }), ["lock:LOCKED"]);
-ok("tombstoning it", check(n => { node(n, "LOCKED").deletedAt = "2026-10-01T15:00:00Z"; }), ["lock:LOCKED"]);
+console.log("\n3. lock — REMOVED, and the removal is what is asserted");
+// RULED 2026-10-02: the only real lock is an active clock. A clocked-out op
+// moves freely, including one already worked on.
+//
+// op.locked never meant what its name promised. Its four writes were ALL in the
+// split path, marking the already-worked remnant of a split; there was no UI to
+// set it and none to clear it (#49 found the missing unlock — there was no lock
+// either). So this rule refused writes against a flag no user could create or
+// remove, on precisely the ops the ruling says should move freely.
+//
+// These assert the rule is GONE rather than being deleted, so a stray `locked`
+// on older stored data cannot quietly start refusing writes again. activeClock
+// below is the rule that still carries the protection.
+ok("moving an op carrying a stray locked flag is allowed", check(n => { node(n, "LOCKED").start = "2026-10-07"; }), []);
+ok("...so is changing its hours", check(n => { node(n, "LOCKED").startHour = 9; }), []);
+ok("...and its team", check(n => { node(n, "LOCKED").team = [7, 8]; }), []);
+ok("...and removing it", check(n => { node(n, "PANEL").subs = node(n, "PANEL").subs.filter(o => o.id !== "LOCKED"); }), []);
+ok("...and tombstoning it", check(n => { node(n, "LOCKED").deletedAt = "2026-10-01T15:00:00Z"; }), []);
 ok("renaming it is fine", check(n => { node(n, "LOCKED").title = "Renamed"; }), []);
 ok("unlocking and moving in one write is fine", check(n => { const o = node(n, "LOCKED"); o.locked = false; o.start = "2026-10-07"; }), []);
-ok("admins are not exempt", check(n => { node(n, "LOCKED").start = "2026-10-07"; }, { isAdmin: true }), ["lock:LOCKED"]);
+ok("...for admins too, since there is no rule left to be exempt from", check(n => { node(n, "LOCKED").start = "2026-10-07"; }, { isAdmin: true }), []);
 
 console.log("\n4. activeClock");
 const clocked = people.map(p => p.id === 7 ? { ...p, activeJobClock: { clockIn: "2026-10-01T14:00:00Z", jobId: "JOB", panelId: "PANEL", opId: "OP" } } : p);
 const onClock = (mut, over = {}) => check(mut, { people: clocked, ...over });
 ok("moving the op someone is clocked into", onClock(n => { node(n, "OP").end = "2026-10-05"; }), ["activeClock:OP"]);
 ok("changing its team", onClock(n => { node(n, "OP").team = [7, 8]; }), ["activeClock:OP"]);
-ok("removing its panel (reported on the clocked op; the locked op goes too)", onClock(n => { n[0].subs = n[0].subs.filter(p => p.id !== "PANEL"); }), ["activeClock:OP", "lock:LOCKED"]);
-ok("deleting its job", onClock(n => { n[0].deletedAt = "2026-10-01T15:00:00Z"; }), ["activeClock:OP", "lock:LOCKED"]);
+ok("removing its panel (reported on the clocked op)", onClock(n => { n[0].subs = n[0].subs.filter(p => p.id !== "PANEL"); }), ["activeClock:OP"]);
+ok("deleting its job — only activeClock now, the lock rule is gone", onClock(n => { n[0].deletedAt = "2026-10-01T15:00:00Z"; }), ["activeClock:OP"]);
 ok("another op in the same panel is fine", onClock(n => { node(n, "FREE").end = "2026-10-12"; }), []);
 ok("renaming the clocked op is fine", onClock(n => { node(n, "OP").title = "Renamed"; }), []);
 ok("admins are not exempt", onClock(n => { node(n, "OP").end = "2026-10-05"; }, { isAdmin: true }), ["activeClock:OP"]);
@@ -152,15 +165,19 @@ const seed = (mode, auth) => {
 const ADMIN = { personId: "1", isAdmin: true, adminPerms: null, email: "a@x" };
 const post = (t) => tasksFn({ httpMethod: "POST", headers: {}, queryStringParameters: {}, body: JSON.stringify(t) });
 const stored = () => globalThis.__S3[K.tasks];
-const lockedMove = () => { const t = tree(); node(t, "LOCKED").start = "2026-10-07"; return t; };
+// Was a LOCK violation; the lock rule is retired (ruling 3). department is the
+// replacement because it is the only other rule admins are not exempt from,
+// which is what these mode blocks depend on — person 9 does not hold the op's
+// department. See section 5.
+const deptViolation = () => { const t = tree(); node(t, "OP").team = [7, 9]; return t; };
 
 seed("enforce", ADMIN);
 {
-  const res = await post(lockedMove());
+  const res = await post(deptViolation());
   ok("enforce: a violating write is refused with 422", res.statusCode, 422);
-  ok("enforce: the body names each violation", (res.body?.violations || []).map(v => `${v.rule}:${v.id}`), ["lock:LOCKED"]);
-  ok("enforce: nothing was written", node(stored(), "LOCKED").start, "2026-10-05");
-  ok("enforce: the refusal is logged", logs.filter(l => l.tag === "schedule-rule").map(l => [l.mode, l.rule, l.id]), [["enforce", "lock", "LOCKED"]]);
+  ok("enforce: the body names each violation", (res.body?.violations || []).map(v => `${v.rule}:${v.id}`), ["department:OP"]);
+  ok("enforce: nothing was written", node(stored(), "OP").team, [7]);
+  ok("enforce: the refusal is logged", logs.filter(l => l.tag === "schedule-rule").map(l => [l.mode, l.rule, l.id]), [["enforce", "department", "OP"]]);
 }
 seed("enforce", ADMIN);
 {
@@ -170,13 +187,13 @@ seed("enforce", ADMIN);
 }
 seed(undefined, ADMIN);
 {
-  const res = await post(lockedMove());
-  ok("log (default): the write is accepted", [res.statusCode, node(stored(), "LOCKED").start], [200, "2026-10-07"]);
-  ok("log: the would-be refusal is logged", logs.filter(l => l.tag === "schedule-rule").map(l => [l.mode, l.rule, l.id, l.personId]), [["log", "lock", "LOCKED", "1"]]);
+  const res = await post(deptViolation());
+  ok("log (default): the write is accepted", [res.statusCode, node(stored(), "OP").team], [200, [7, 9]]);
+  ok("log: the would-be refusal is logged", logs.filter(l => l.tag === "schedule-rule").map(l => [l.mode, l.rule, l.id, l.personId]), [["log", "department", "OP", "1"]]);
 }
 seed("off", ADMIN);
 {
-  const res = await post(lockedMove());
+  const res = await post(deptViolation());
   ok("off: accepted, nothing logged", [res.statusCode, logs.filter(l => l.tag === "schedule-rule").length], [200, 0]);
 }
 seed("enforce", ADMIN);

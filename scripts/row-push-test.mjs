@@ -48,8 +48,14 @@ eq("a finished op does not slide",
   asObj(rowPushHours({ ops: [op("a", "2026-09-14", { isFullyWorked: true })], nowDay: "2026-09-16", nowHour: 8, cfg: CFG })), {});
 
 // ── locks ────────────────────────────────────────────────────────────────
-eq("a LOCKED op does not move, however far past it the cursor is",
-  asObj(rowPushHours({ ops: [op("a", "2026-09-14", { locked: true })], nowDay: "2026-09-18", nowHour: 8, cfg: CFG })), {});
+// RE-POINTED 2026-10-02. op.locked is retired (ruling 3: the only real lock is
+// an active clock; a clocked-out op moves freely, including one already worked
+// on). Nothing writes the flag any more — its only four writes were in the split
+// path. These assert the flag is INERT rather than being deleted, so a stray
+// `locked` on older stored data cannot quietly become load-bearing again. The
+// worked-op assertion directly above each one is the guard that still matters.
+eq("a stray `locked` no longer pins an op — it moves like any other",
+  asObj(rowPushHours({ ops: [op("a", "2026-09-14", { locked: true })], nowDay: "2026-09-18", nowHour: 8, cfg: CFG })), { a: 30 });
 eq("a locked op still OCCUPIES its slot, so the op after it is pushed by it",
   asObj(rowPushHours({
     ops: [op("a", "2026-09-14", { locked: true, hpd: 15 }), op("b", "2026-09-15")],
@@ -96,8 +102,8 @@ eq("an op pushed only by a COLLISION is not cursor-anchored",
   })), []);
 eq("a worked op is never cursor-anchored — its position is a record",
   cursorSet(rowPushHours({ ops: [op("a", "2026-09-14", { workedHoursShown: 2 })], nowDay: "2026-09-18", nowHour: 8, cfg: CFG })), []);
-eq("a LOCKED op is not cursor-anchored, however far past it the cursor is",
-  cursorSet(rowPushHours({ ops: [op("a", "2026-09-14", { locked: true })], nowDay: "2026-09-18", nowHour: 8, cfg: CFG })), []);
+eq("...and a stray `locked` does not exempt one from being cursor-anchored",
+  cursorSet(rowPushHours({ ops: [op("a", "2026-09-14", { locked: true })], nowDay: "2026-09-18", nowHour: 8, cfg: CFG })), ["a"]);
 eq("when a collision pushes an op FURTHER than the cursor would, it is not cursor-anchored",
   cursorSet(rowPushHours({
     ops: [op("a", "2026-09-14", { workedHoursShown: 30 }), op("b", "2026-09-15")],
@@ -250,8 +256,8 @@ eq("an UNTOUCHED op past its start contributes its cursor displacement — the c
   rowSlackHours({ ops: [sop({ plannedStartMs: NOW - 2 * DAY })], nowMs: NOW, productiveBetween: pb }), 15);
 eq("a worked op does not slide, so it contributes no cursor displacement",
   rowSlackHours({ ops: [sop({ workedHoursShown: 1, hpd: 7.5, plannedStartMs: NOW - 2 * DAY })], nowMs: NOW, productiveBetween: pb }), 0);
-eq("a locked op does not slide either",
-  rowSlackHours({ ops: [sop({ locked: true, plannedStartMs: NOW - 2 * DAY })], nowMs: NOW, productiveBetween: pb }), 0);
+eq("...while a stray `locked` slides like any unworked op",
+  rowSlackHours({ ops: [sop({ locked: true, plannedStartMs: NOW - 2 * DAY })], nowMs: NOW, productiveBetween: pb }), 15);
 eq("slack covers the SUM, because displacements cascade onto each other",
   rowSlackHours({ ops: [sop({ plannedStartMs: NOW - DAY }), sop({ plannedStartMs: NOW - DAY })], nowMs: NOW, productiveBetween: pb }), 15);
 
@@ -628,15 +634,15 @@ let idleRedOk = true;
 // A lock says do not move this bar, and it is honoured. But the elapsed term then grew the
 // bar forward from its pinned start all the way to the cursor, and every hour of that growth
 // was unworked time drawn behind the line -- the rule broken by length instead of position.
-eq("a locked op behind the cursor is not stretched forward to it",
+eq("a stray `locked` behind the cursor is stretched forward like any other",
   (() => {
     const r = rowPushHours({
       ops: [op("a", "2026-09-16", { startHour: 8, hpd: 0.5, locked: true, ownWorkedHours: 0 })],
       nowDay: "2026-09-16", nowHour: 14, cfg: CFG,
     });
     return Math.round((r.pushes.get("a") || 0) * 100) / 100;
-  })(), 0);
-eq("...and an unlocked one in the same slot slides instead",
+  })(), 5.63);
+eq("...and one with no flag at all behaves identically, which is the point",
   (() => {
     const r = rowPushHours({
       ops: [op("a", "2026-09-16", { startHour: 8, hpd: 0.5, ownWorkedHours: 0 })],

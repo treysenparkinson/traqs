@@ -227,7 +227,18 @@ const { splitWorkedOp } = await import("../src/statsMath.js");
 const sp = (o) => { const r = splitWorkedOp(o); return [r.keep && r.keep.hpd, r.remainder && r.remainder.hpd]; };
 
 eq("half worked splits into two records", sp({ hpd: 8, workedMs: 4 * H }), [4, 4]);
-eq("the kept half is locked", splitWorkedOp({ hpd: 8, workedMs: 4 * H }).keep.locked, true);
+// RE-POINTED 2026-10-02. The split no longer stamps `locked: true` on the kept
+// half — op.locked is retired (ruling 3: the only real lock is an active clock,
+// and a clocked-out op moves freely even if it has been worked on). This was the
+// flag's ORIGIN: the four writes that ever set it were all in the split path.
+//
+// What identifies the kept half is unchanged and better: its whole hpd IS the
+// worked time, which is the condition that creates it. Asserted that way, so the
+// split still has to produce a record of the work rather than merely dropping a
+// field.
+eq("the kept half carries no lock flag", splitWorkedOp({ hpd: 8, workedMs: 4 * H }).keep.locked, undefined);
+eq("...and is identified by its hpd being the worked time instead",
+  splitWorkedOp({ hpd: 8, workedMs: 4 * H }).keep.hpd, 4);
 eq("untouched: nothing to keep, the whole op moves — an ordinary drag, not a split",
   sp({ hpd: 8, workedMs: 0 }), [null, 8]);
 eq("fully worked: nothing left to move, and NO zero-width remainder is minted",

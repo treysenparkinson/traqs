@@ -183,16 +183,24 @@ export function scheduleRuleViolations(nextTasks, prevTasks, ctx = {}) {
   const add = (rule, id, entry, detail) =>
     out.push({ rule, id: String(id), jobId: String((entry?.job ?? entry?.node)?.id ?? id), detail });
 
-  // lock
-  for (const [id, before] of prev) {
-    if (!before.live || before.node.locked !== true) continue;
-    const after = next.get(id);
-    if (!after || !after.live) { add("lock", id, before, "a locked unit was removed"); continue; }
-    if (after.node.locked !== true) continue;   // unlocked in this same write
-    if (scheduleChanged(before.node, after.node) || teamChanged(before.node, after.node)) {
-      add("lock", id, after, "a locked unit's schedule or team changed");
-    }
-  }
+  // ── the `lock` rule is GONE. Ruled 2026-10-02 ────────────────────────────
+  //
+  // THE ONLY REAL LOCK IS AN ACTIVE CLOCK, which is the rule immediately below
+  // and is unchanged. A clocked-out op moves freely, including one that has
+  // already been worked on.
+  //
+  // What `op.locked` actually meant is worth recording, because the name
+  // promised far more than it did: it was set in exactly four places, ALL of
+  // them the split path (statsMath splitByWorked, dragMove's keep half, the
+  // Split Job modal), and it marked the already-worked remnant of a split.
+  // There was never any UI to set it and none to clear it — #49 found the
+  // missing unlock; there was no lock either. So this rule refused writes
+  // against a flag no user could create or remove, on precisely the ops the
+  // ruling says should move freely.
+  //
+  // Nothing replaces it. `activeClock` below reads the PERSON's activeJobClock,
+  // which is the thing that genuinely must not move, and it already covers
+  // schedule changes, team changes and removal.
 
   // activeClock
   const clockedOps = new Set(people

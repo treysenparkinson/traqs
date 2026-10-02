@@ -137,7 +137,14 @@ export function clearOverlaps(tasks, touchedIds, ctx, { maxDays = 260 } = {}) {
     const id = String(raw);
     const units = occupyingUnits(current, ctx);
     const me = units.find(u => String(u.unit.id) === id);
-    if (!me || me.unit.locked === true) continue;
+    // #49/ruling-3: `locked` no longer pins anything. THE ONLY REAL LOCK IS AN
+    // ACTIVE CLOCK, and that is enforced where it can actually be seen — the
+    // client's blockedByActiveClock and the server's `activeClock` rule in
+    // scheduleRules.js, both of which read the PERSON's activeJobClock. This
+    // module only sees stored units, so it could never have checked the real
+    // lock; what it checked was a flag the split set on already-worked work,
+    // which a clocked-out op is explicitly allowed to move past.
+    if (!me) continue;
     let n = 0, probe = me.unit;
     while (n <= maxDays && overlapsWith(probe, units, ctx).length) { n++; probe = shiftUnit(me.unit, n, ctx); }
     if (n > maxDays) { refused.push(id); continue; }
@@ -153,7 +160,12 @@ export function clearOverlaps(tasks, touchedIds, ctx, { maxDays = 260 } = {}) {
  * Where a move pushes the units it lands on. `candidate` is the moved unit at its
  * new position. Each unit it overlaps goes to the first working day where it
  * clears everything already placed; that can land on the next, which cascades.
- * A locked unit in the way blocks the move. Returns { pushes, blocked, lockedOps }.
+ * Returns { pushes, blocked, lockedOps }. `blocked` now means only that the
+ * cascade could not settle inside maxDays; `lockedOps` is always empty and is
+ * kept so callers that destructure it keep working. Nothing reads it.
+ *
+ * It USED to mean "a locked unit is in the way". That check is gone with the
+ * rest of op.locked — see clearOverlaps above.
  */
 export function planPushes(tasks, candidate, ctx, { excludeIds = null, maxDays = 260 } = {}) {
   const exclude = new Set([...(excludeIds || [])].map(String));
@@ -168,7 +180,7 @@ export function planPushes(tasks, candidate, ctx, { excludeIds = null, maxDays =
     const id = String(o.unit.id);
     if (seen.has(id)) continue;
     seen.add(id);
-    if (o.unit.locked === true) return { pushes: [], blocked: true, lockedOps: [{ opTitle: o.unit.title || "", panelTitle: o.panel?.title || "" }] };
+    // No locked check: a clocked-out op is pushed like any other (ruling 3).
     let n = 1, probe = shiftUnit(o.unit, 1, ctx);
     while (n <= maxDays && overlapsWith(probe, placed, ctx).length) { n++; probe = shiftUnit(o.unit, n, ctx); }
     if (n > maxDays) return { pushes: [], blocked: true, lockedOps: [] };

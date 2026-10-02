@@ -275,7 +275,8 @@ const toOptObjs = names => (names || []).map((o, i) => (o && typeof o === "objec
 // op is only done when someone REQUESTS completion (pendingFinish -> finish
 // approval -> status Finished). Running long is not a completion, it is an
 // overrun, and an overrun still has to be movable — usually more so.
-const isOpLocked = (op) => !!op?.locked;
+// isOpLocked removed with the flag (ruling 3). The only lock is an active
+// clock, checked by blockedByActiveClock and the server's activeClock rule.
 // Derives the worked / remaining state of an op for rendering + drag gating.
 //
 // `produced` is the hours recorded against this task in the production session
@@ -346,7 +347,7 @@ const deriveWorkedState = (t, produced = 0, live = 0) => {
     isOverdueHours: hpd > 0 && shown > hpd,
     // ── completion is a decision, not a threshold ──
     isFullyWorked: t?.status === "Finished",
-    displayLocked: !!t?.locked,
+    displayLocked: false,   // op.locked retired (ruling 3)
   };
 };
 // ─── Fast TRAQS (AI import) helpers ────────────────────────────────────────
@@ -2922,12 +2923,16 @@ const reflowPhaseOps = (ops, opts) => {
   // an overlap context (Basic tier) assigned ops are left alone.
   const ctx = opts?.overlap || null;
   const order = [...dated].sort((a, b) => String(a.start).localeCompare(String(b.start)));
-  const placed = order.filter(isOpLocked).map(op => ({ unit: op }));
+  // Nothing is pre-placed any more: op.locked is retired (ruling 3), and it was
+  // the only thing that ever seeded this list. reflow now starts with an empty
+  // obstacle set and places every dated op, which is what "a clocked-out op
+  // moves freely, including one already worked on" means here.
+  const placed = [];
   let placedEnd = null;
   const moves = new Map();
   for (const op of order) {
     let cur = op;
-    if (!isOpLocked(op)) {
+    {
       if (isAssigned(op)) {
         if (ctx) {
           for (let n = 1; n <= 260 && overlapsWith(cur, placed, ctx).length; n++) {
@@ -4527,7 +4532,6 @@ Extraction rules:
             color: jobColor,
             notes: "",
             deps: [],
-            locked: false,
             subs: [],
           };
         });
@@ -8692,7 +8696,7 @@ Extraction rules:
   const [confirmLogout, setConfirmLogout] = useState(false);
   const [rescheduleModal, setRescheduleModal] = useState(null); // { op, panelId, newStart, newEnd }
   const [editNotesModal, setEditNotesModal] = useState(null); // { op, panelId, notes }
-  const [optimizePreview, setOptimizePreview] = useState(null); // { newTasks, changes, groupedByPerson }
+  // optimizePreview state removed with the unreachable optimizer modal (see below).
   const [overlapError, setOverlapError] = useState(null); // { message, details[] }
   const [aiSuggestion, setAiSuggestion] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
@@ -9076,24 +9080,36 @@ Extraction rules:
   // work nobody had put in a department: personDeptMatch(p, "") returns
   // "primary", so with no department EVERYONE matches and the load-balancer
   // just picks the least busy body.
-  const deptNamesLower = useMemo(
-    () => new Set((orgSettings.roles || []).map(r => String(r).trim().toLowerCase())),
-    [orgSettings.roles]
-  );
-  // Precedence is the schedulers' existing order -- own field, then the parent's,
-  // then the title -- NOT title-before-parent. The two copies this replaced
-  // (_inferDept / _inferDept2) both read the parent first, and one panel in
-  // production carries requiredDepartment "Admin"; putting the title ahead of it
-  // would have silently re-departmented that panel's ops and changed who the
-  // scheduler picks for them. The only behaviour change intended here is the
-  // no-department case.
-  // unitDepartment and personDeptMatch are the server's department rule too
-  // (src/scheduleRules.js). The title fallback — an op named like a department
-  // requires it — is web-only, so the server is never stricter than this.
-  const deptOfUnit = (n, panel, job) =>
-    unitDepartment(n, panel, job)
-    || (deptNamesLower.has(String((n && n.title) || "").trim().toLowerCase()) ? String(n.title).trim() : "")
-    || "";
+  // ── #157/#158/#289/#290. DEPARTMENT ABSENCE MEANS OPEN TO ANYONE ─────────
+  //
+  // RULED 2026-10-02. An op with no department stated is anyone's job. An op
+  // WITH a department stated still may not be assigned outside it. Absence is
+  // not a constraint to refuse against — it is the absence of one.
+  //
+  // THE TITLE HEURISTIC IS GONE. It read an op *named* like a department as
+  // *requiring* that department, which manufactured a constraint nobody wrote.
+  // Measured against Matrix's live tasks.json at the time of removal, of 484
+  // live ops:
+  //
+  //     142 (29.3%)  department actually stated on the op, panel or job
+  //     231 (47.7%)  NO department stated — one inferred from the title
+  //     111 (22.9%)  no department at all
+  //
+  // Nearly half the schedule carried an invented requirement, and the effect on
+  // the schedulers was severe because Matrix's departments are named exactly
+  // what its ops are titled — Wire, Cut, Layout. Against 18 live people, an op
+  // titled "Layout" was assignable to ONE of them, "Cut" to one, "Wire" to five.
+  // 71 ops titled "Layout" all funnelled onto a single person. The
+  // fallback-to-all-crew in the schedulers only fires when ZERO people hold the
+  // department, which never happened here, so it never rescued anything.
+  //
+  // AND THE DIRECTION WAS THE OPPOSITE OF WHAT THE ENTRIES ASSUMED. #289 reads
+  // as though the client produced assignments the server would refuse. It did
+  // not: `unitDepartment`/`personDeptMatch` in src/scheduleRules.js are the
+  // server's rule and have no title heuristic, and `personDeptMatch` returns
+  // "primary" when no department is required. The server was already correct.
+  // The CLIENT was stricter — it invented a requirement the server never had.
+  const deptOfUnit = (n, panel, job) => unitDepartment(n, panel, job) || "";
 
   // Unique roles and hpd values for filter panel
   const uniqueRoles = useMemo(() => [...new Set(people.map(p => p.department).filter(Boolean))].sort(), [people]);
@@ -9279,7 +9295,7 @@ Extraction rules:
   // gesture: the Gantt split, the Split Job modal, Reschedule and the Overdue tray. Same rules
   // as every drag — live, locked, record, department, time off, and (Business) past + overlap.
   const refuseLanding = (plan) => refuseDragMove(plan, {
-    isLocked: n => !!n?.locked,
+    isLocked: () => false,   // op.locked retired (ruling 3)
     isLive: n => !!n && blockedByActiveClock(jobIdOfNode(n.id), n.id),
     isOverdue: () => false,
     timeOff: pid => (people.find(x => sameId(x.id, pid))?.timeOff || []),
@@ -9646,7 +9662,7 @@ Extraction rules:
       ops.push({ start: op.start, end: op.end, startHour: op.startHour ?? workStartH, status: op.status,
         hpd: op.hpd || 0, teamSize: Math.max(1, (op.team || []).length), team: op.team || [],
         workedHoursShown: ws.workedHoursShown, isFullyWorked: ws.isFullyWorked,
-        locked: !!op.locked, isLive: isLiveOpId(op.id) });
+        isLive: isLiveOpId(op.id) });
     })));
     return slackDaysByPerson({ ops, nowMs: Date.now(), today: TD, productiveHoursPerDay,
       onRoster: (pid) => peopleById.has(pid),
@@ -9721,12 +9737,7 @@ Extraction rules:
     return recalcBounds(result, movedByName);
   };
 
-  // Swap-first optimizer — shared by edit form + right-click "Edit Schedule" modal
-  // Places each op in the next available gap in this person's schedule, yielding to all
-  // other jobs' ops (letting them go first). Never pushes other jobs.
-  // Returns { newSubs, jStart, jEnd } or null if no assignees.
 
-  // Preview pull-back: when moving backward, pull subsequent same-person ops back to fill gaps
 
   // Recalculate panel bounds from ops, recalc job bounds
   const recalcBounds = (taskList, movedBy) => {
@@ -9752,10 +9763,7 @@ Extraction rules:
   // State for push confirmation modal
 
 
-  // Toggle lock on an operation
-  // Find next available slot for an op across all team members' schedules
 
-  // Full schedule optimizer: packs each person's ops tightly by priority → due date → start
 
   const updPerson = (id, upd) => setPeople(p => p.map(x => x.id === id ? { ...x, ...upd } : x));
 
@@ -15472,7 +15480,7 @@ ${jobsCtx || "No jobs found."}`;
       const _cal = calOf(orgSettings.workDays, orgSettings.holidays);
       const _live = blockedByActiveClock(jobIdOfNode(barTask.id), barTask.id);
       const _refuseCtx = {
-        isLocked: n => !!n?.locked,
+        isLocked: () => false,   // op.locked retired (ruling 3)
         isLive: n => sameId(n?.id, barTask.id) && _live,
         isOverdue: () => false,
         timeOff: pid => (people.find(x => sameId(x.id, pid))?.timeOff || []),
@@ -15919,13 +15927,13 @@ ${jobsCtx || "No jobs found."}`;
                           onMouseEnter={e=>{ if(!dayDragInfo && !isDraggingRef.current){ e.currentTarget.style.filter="brightness(1.1)"; if(!barSelectMode) hoverDim(bar.task?.pid??null); } }} onMouseLeave={e=>{ e.currentTarget.style.filter="none"; hoverDim(null); }}>
                           {/* Handles: only where the op starts / ends, never on a record bar or a locked op,
                               and only for someone who may move jobs (#5 #9 #10 #17). */}
-                          {can("moveJobs") && isFirstSeg && !bar.crossRow && !bar.task?.locked && <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"left",p.id,rawS,rawE);}} style={{position:"absolute",left:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
+                          {can("moveJobs") && isFirstSeg && !bar.crossRow && <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"left",p.id,rawS,rawE);}} style={{position:"absolute",left:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
                             <div style={{width:3,height:12,borderRadius:2,background:_dayInk}}/>
                           </div>}
                           {(() => { const _lb = liveBadgeFor(p.activeJobClock, bar.task); return _lb && <span style={{fontSize:9,fontWeight:800,color:_dayInk,letterSpacing:"0.05em",flexShrink:0,marginRight:6,opacity:0.85}}>{LIVE_BADGE_LABEL[_lb]}</span>; })()}
                           {bar.task?.status==="Finished" && <span style={{fontSize:9,fontWeight:800,color:_dayInk,letterSpacing:"0.05em",flexShrink:0,marginRight:6}}>DONE</span>}
                           <span style={{fontSize:10,color:_dayInk,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1,textAlign:"left",position:"relative",zIndex:5}}>{hpd > 0 ? `${hpd}h · ` : ""}{bar.task?.title || bar.title}</span>
-                          {can("moveJobs") && isLastSeg && !bar.crossRow && !bar.task?.locked && <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"right",p.id,rawS,rawE);}} style={{position:"absolute",right:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
+                          {can("moveJobs") && isLastSeg && !bar.crossRow && <div onMouseDown={e=>{e.stopPropagation();handleTeamDayBarDrag(e,bar.task,"right",p.id,rawS,rawE);}} style={{position:"absolute",right:0,top:0,bottom:0,width:12,cursor:"ew-resize",display:"flex",alignItems:"center",justifyContent:"center",zIndex:5}}>
                             <div style={{width:3,height:12,borderRadius:2,background:_dayInk}}/>
                           </div>}
                           {personShareHours(hpd, (bar.task?.team || []).length, productiveHoursPerDay) >= productiveHoursPerDay && (() => {
@@ -16237,7 +16245,6 @@ ${jobsCtx || "No jobs found."}`;
                   hpd: b.task?.hpd || 0, teamSize: Math.max(1, (b.task.team || []).length),
                   workedHoursShown: rowBarWS[b.id]?.workedHoursShown || 0,
                   isFullyWorked: !!rowBarWS[b.id]?.isFullyWorked,
-                  locked: !!b.task?.locked,
                   // A cross-row bar is a record of work already done, not a block of time
                   // being reserved. The render has always treated it that way; this is the
                   // packing pass being told the same thing.
@@ -16859,7 +16866,7 @@ ${jobsCtx || "No jobs found."}`;
                     const _liveIds = new Set([bar.task, ..._memberInputs.map(m => m.node)].filter(n => blockedByActiveClock(jobIdOfNode(n.id), n.id)).map(n => String(n.id)));
                     const _overdueIds = new Set(_memberInputs.map(m => m.node).filter(n => deriveWorkedState(n, producedFor(n), liveOpHours(n)).isOverdueHours).map(n => String(n.id)));
                     const _refuseCtx = {
-                      isLocked: n => !!n?.locked,
+                      isLocked: () => false,   // op.locked retired (ruling 3)
                       isLive: n => _liveIds.has(String(n?.id)),
                       isOverdue: n => _overdueIds.has(String(n?.id)),
                       timeOff: pid => (people.find(x => sameId(x.id, pid))?.timeOff || []),
@@ -17207,7 +17214,7 @@ ${jobsCtx || "No jobs found."}`;
                     const paintedEnd = { day: _segsEnd, hour: _barEndHour };
                     const movedByName = loggedInUser ? loggedInUser.name : "Admin";
                     const _refuseResize = (plan) => refuseDragMove(plan, {
-                      isLocked: n => !!n?.locked,
+                      isLocked: () => false,   // op.locked retired (ruling 3)
                       isLive: n => blockedByActiveClock(jobIdOfNode(n.id), n.id),
                       isOverdue: () => false,
                       timeOff: pid => (people.find(x => sameId(x.id, pid))?.timeOff || []),
@@ -24676,6 +24683,13 @@ ${jobsCtx || "No jobs found."}`;
           const opsPerPanel = rawOps.length;
           const allCrew = people.filter(p => (p.userRole === "user" || p.userRole === "admin") && !p.noAutoSchedule);
           const crewForOp = (rawOp) => {
+            // Manual assignment wins, on this path too. Ruled 2026-10-02: the
+            // scheduler respects people already put on an op rather than
+            // reassigning them. onTeam because ids are mixed string/number —
+            // see the matching note on the reschedule path's `eligible`.
+            const already = (rawOp.team || []).length > 0
+              ? allCrew.filter(p => onTeam(rawOp.team, p.id)) : [];
+            if (already.length > 0) return already;
             const reqDept = rawOp.requiredDepartment || "";
             if (!reqDept) return allCrew;
             // Primary-dept matches first, then secondary-dept (backup) matches.
@@ -25536,8 +25550,25 @@ ${jobsCtx || "No jobs found."}`;
                             .sort((a, b) => (personDeptMatch(a, reqDept) === "primary" ? 0 : 1) - (personDeptMatch(b, reqDept) === "primary" ? 0 : 1));
                           return m.length > 0 ? m : allCrew;
                         })();
-                        const eligible = ed.isReschedule && (op.team||[]).length>0
-                          ? allCrew.filter(pp => (op.team||[]).includes(pp.id))
+                        // ── MANUAL ASSIGNMENT IS A STATE THE SCHEDULER RESPECTS ──
+                        //
+                        // RULED 2026-10-02. Auto-schedule, then put specific people
+                        // on specific ops, and the scheduler does not undo it. This
+                        // is NOT a lock: the op still moves in time, it just keeps
+                        // the people already on it.
+                        //
+                        // The `ed.isReschedule &&` condition is GONE. Reschedule has
+                        // always honoured an existing team; auto-schedule never did,
+                        // which is the whole gap — the same write that placed the
+                        // work reassigned it. One predicate, both paths.
+                        //
+                        // onTeam, not `.includes(pp.id)`. Person ids are mixed
+                        // string and number across web and iOS, so `.includes` on a
+                        // raw id silently matches nothing and the op falls through
+                        // to the department pool — which looks exactly like the
+                        // scheduler ignoring the assignment, the bug being fixed.
+                        const eligible = (op.team||[]).length>0
+                          ? allCrew.filter(pp => onTeam(op.team, pp.id))
                           : deptCrew.slice().sort((a,b) => { const diff=jobCount(a.id)-jobCount(b.id); if(diff!==0) return diff; return a.name.localeCompare(b.name); });
                         if(eligible.length===0) { const fallback=minStart||slot.start; return {team:[],start:fallback,end:fallback}; }
                         const singleDur=Math.max(1,Math.ceil(totalHours/productiveHoursPerDay));
@@ -30385,7 +30416,7 @@ ${jobsCtx || "No jobs found."}`;
         const _cal = calOf(orgSettings.workDays, orgSettings.holidays);
         const sh = op.startHour ?? workStartH;
         const k = landUnit({ day: op.start, hour: sh, shareH: part1 / size, cfg: dayWindowCfg, cal: _cal });
-        const keep = { hpd: part1, start: op.start, startHour: sh, end: k.end, endHour: k.endHour, locked: false };
+        const keep = { hpd: part1, start: op.start, startHour: sh, end: k.end, endHour: k.endHour };
         const at = k.endHour >= workEndH - 1e-9 ? { day: _cal.add(k.end, 1), hour: workStartH } : { day: k.end, hour: k.endHour };
         const _plan = planDragMove({ grabbed: { id: op.id, node: op, fromDay: at.day, fromHour: at.hour, shareH: part2 / size },
           drop: at, origPerson: null, dropPerson: null, cfg: dayWindowCfg, cal: _cal, workStartH, workEndH });
@@ -32684,93 +32715,14 @@ ${jobsCtx || "No jobs found."}`;
     </div>}</FadeOnClose>
 
     {/* ── Optimize Schedule Preview Modal ─────────────────────────────────── */}
-    <FadeOnClose open={!!optimizePreview} duration={220}>{optimizePreview && (() => {
-      const { newTasks, changes, groupedByPerson } = optimizePreview;
-      const movedEarlier = changes.filter(c => c.calDays < 0).length;
-      const movedLater   = changes.filter(c => c.calDays > 0).length;
-      const maxSaved     = changes.reduce((acc, c) => c.calDays < 0 ? acc + Math.abs(c.calDays) : acc, 0);
-      return <div className="anim-modal-overlay" onClick={() => setOptimizePreview(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", backdropFilter: "blur(6px)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-        <div className="anim-modal-box" onClick={e => e.stopPropagation()} style={{ background: T.card, borderRadius: 20, padding: 0, maxWidth: 620, width: "100%", border: `1px solid ${T.accent}33`, boxShadow: `0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px ${T.accent}22`, overflow: "hidden", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
-          {/* Header */}
-          <div style={{ padding: "24px 28px 20px", borderBottom: `1px solid ${T.border}`, background: `linear-gradient(135deg, ${T.accent}12, transparent)` }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
-              <div style={{ width: 40, height: 40, borderRadius: 16, background: T.accent + "20", border: `1.5px solid ${T.accent}44`, display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, flexShrink: 0 }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-              </div>
-              <div>
-                <h3 style={{ margin: 0, fontSize: 20, fontWeight: 700, color: T.text }}>Schedule Optimizer</h3>
-                <p style={{ margin: 0, fontSize: 13, color: T.textDim, marginTop: 2 }}>TRAQS found {changes.length} improvement{changes.length !== 1 ? "s" : ""} across {groupedByPerson.length} team member{groupedByPerson.length !== 1 ? "s" : ""}</p>
-              </div>
-            </div>
-            {/* Stats row */}
-            <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
-              {movedEarlier > 0 && <div style={{ flex: 1, padding: "8px 12px", borderRadius: 16, background: "#10b98112", border: "1px solid #10b98133" }}>
-                <div style={{ fontSize: 18, fontWeight: 700, color: "#10b981", fontFamily: T.mono }}>{movedEarlier}</div>
-                <div style={{ fontSize: 11, color: "#10b981", fontWeight: 600 }}>Pulled Earlier</div>
-                <div style={{ fontSize: 10, color: T.textDim }}>~{maxSaved} calendar days saved</div>
-              </div>}
-              {movedLater > 0 && <div style={{ flex: 1, padding: "8px 12px", borderRadius: 16, background: "#f59e0b12", border: "1px solid #f59e0b33" }}>
-                <div style={{ fontSize: 18, fontWeight: 700, color: "#f59e0b", fontFamily: T.mono }}>{movedLater}</div>
-                <div style={{ fontSize: 11, color: "#f59e0b", fontWeight: 600 }}>Pushed Later</div>
-                <div style={{ fontSize: 10, color: T.textDim }}>Conflicts resolved</div>
-              </div>}
-              <div style={{ flex: 1, padding: "8px 12px", borderRadius: 16, background: T.accent + "10", border: `1px solid ${T.accent}33` }}>
-                <div style={{ fontSize: 18, fontWeight: 700, color: T.accent, fontFamily: T.mono }}>{groupedByPerson.length}</div>
-                <div style={{ fontSize: 11, color: T.accent, fontWeight: 600 }}>People Affected</div>
-                <div style={{ fontSize: 10, color: T.textDim }}>By priority + due date</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Changes list */}
-          <div style={{ flex: 1, overflowY: "auto", padding: "12px 0" }}>
-            {groupedByPerson.map(({ person, changes: pChanges }) => (
-              <div key={person.id} style={{ marginBottom: 4 }}>
-                {/* Person header */}
-                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 28px 6px", position: "sticky", top: 0, background: T.card, zIndex: 2 }}>
-                  <PersonAvatar person={person} size={24} />
-                  <span style={{ fontSize: 14, fontWeight: 700, color: T.text }}>{person.name}</span>
-                  <span style={{ fontSize: 11, color: T.textDim, marginLeft: 2 }}>{person.department}</span>
-                  <span style={{ marginLeft: "auto", fontSize: 11, fontWeight: 700, color: T.accent, background: T.accent + "15", borderRadius: 12, padding: "2px 8px" }}>{pChanges.length} ops</span>
-                </div>
-                {/* That person's changes */}
-                {pChanges.map((c, i) => {
-                  const earlier = c.calDays < 0;
-                  const arrow = earlier ? "↑" : "↓";
-                  const col = earlier ? "#10b981" : "#f59e0b";
-                  return <div key={c.opId} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "8px 28px", borderBottom: i < pChanges.length - 1 ? `1px solid ${T.border}33` : "none", background: "transparent" }}>
-                    <div style={{ marginTop: 2, fontSize: 13, color: col, fontWeight: 700, width: 16, textAlign: "center", flexShrink: 0 }}>{arrow}</div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: T.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.opTitle}</div>
-                      <div style={{ fontSize: 11, color: T.textDim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.jobTitle}{c.panelTitle && c.panelTitle !== c.opTitle ? ` · ${c.panelTitle}` : ""}</div>
-                    </div>
-                    <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <div style={{ fontSize: 11, color: T.textDim, fontFamily: T.mono, textDecoration: "line-through" }}>{fm(c.oldStart)}–{fm(c.oldEnd)}</div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: col, fontFamily: T.mono }}>{fm(c.newStart)}–{fm(c.newEnd)}</div>
-                    </div>
-                    <div style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: col, background: col + "15", border: `1px solid ${col}33`, borderRadius: 12, padding: "2px 7px", minWidth: 42, textAlign: "center", marginTop: 2 }}>
-                      {earlier ? `${Math.abs(c.calDays)}d ↑` : `+${c.calDays}d`}
-                    </div>
-                  </div>;
-                })}
-              </div>
-            ))}
-          </div>
-
-          {/* Footer */}
-          <div style={{ padding: "16px 28px", borderTop: `1px solid ${T.border}`, display: "flex", gap: 10, background: T.card }}>
-            <Btn variant="secondary" onClick={() => setOptimizePreview(null)} style={{ flex: 1 }}>Cancel</Btn>
-            <Btn onClick={() => {
-              setTasks(newTasks);
-              setOptimizePreview(null);
-              setScheduleHighlightId(null);
-            }} style={{ flex: 2, background: T.accent, border: "none", fontWeight: 700, fontSize: 15 }}>
-              Apply {changes.length} Changes
-            </Btn>
-          </div>
-        </div>
-      </div>;
-    })()}</FadeOnClose>
+    {/* The schedule-optimizer modal was DELETED 2026-10-02. It was unreachable:
+        setOptimizePreview was called three times and every one passed null, so
+        optimizePreview could never be truthy and this block could never render.
+        The optimizer function that would have populated it was gone long before,
+        leaving four orphaned comments behind — "Swap-first optimizer", "Full
+        schedule optimizer", "Find next available slot", "Toggle lock on an
+        operation" — which is also why #49 found toggleLock dead. If a schedule
+        optimizer is wanted again it is a new feature, not a revival. */}
 
     {/* Edit Notes modal */}
     <FadeOnClose open={!!editNotesModal} duration={220}>{editNotesModal && <div className="anim-modal-overlay" onClick={() => setEditNotesModal(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>

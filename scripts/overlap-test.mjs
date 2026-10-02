@@ -69,7 +69,13 @@ console.log("\n2. Clearing overlaps is sequential (#53)");
   ok("and nothing overlaps afterwards", O.occupyingUnits(after, ctx).flatMap(u => O.overlapsWith(u.unit, O.occupyingUnits(after, ctx), ctx)).length, 0);
   ok("each move is reported", moved.map(m => [m.id, m.days]), [["A", 1], ["B", 2]]);
   const locked = job(op("C", { start: MON, end: MON, hpd: 8 }), op("L", { start: MON, end: MON, hpd: 8, locked: true }));
-  ok("a locked unit is never moved", O.clearOverlaps(locked, ["L"], ctx).tasks[0].subs[0].subs[1].start, MON);
+  // RE-POINTED 2026-10-02. op.locked is retired (ruling 3: the only real lock is
+  // an active clock; a clocked-out op moves freely, including one already worked
+  // on). This module only ever sees STORED units, so it could never check the
+  // real lock — the flag it checked was set by the split on already-worked work,
+  // which is exactly what the ruling frees. Asserted in the new direction rather
+  // than deleted, so a stray flag on older data cannot start pinning again.
+  ok("a stray locked flag no longer pins a unit", O.clearOverlaps(locked, ["L"], ctx).tasks[0].subs[0].subs[1].start !== MON, true);
 }
 
 console.log("\n3. Pushes");
@@ -81,7 +87,10 @@ console.log("\n3. Pushes");
   const adj = O.planPushes(tasks, op("X", { start: "2026-10-02", end: "2026-10-02", startHour: 8, hpd: 8 }), ctx);
   ok("a move that touches nothing pushes nothing", adj.pushes.length, 0);
   const lockedT = job(op("Y", { start: MON, end: MON, startHour: 8, hpd: 8, locked: true }));
-  ok("a locked unit in the way blocks the move", O.planPushes(lockedT, moving, ctx).blocked, true);
+  // Was "a locked unit in the way blocks the move". Nothing blocks on the flag
+  // now; `blocked` means only that the cascade could not settle inside maxDays.
+  ok("a stray locked flag in the way no longer blocks the move", O.planPushes(lockedT, moving, ctx).blocked, false);
+  ok("...and the unit is pushed like any other", O.planPushes(lockedT, moving, ctx).pushes.length > 0, true);
 }
 
 console.log("\n4. Capacity is a separate warning (#61)");
@@ -194,7 +203,10 @@ const run = (name, anchor) => { const src = slice(anchor); if (!src) { ok(`${nam
     ok("reflow: two same-day ops that don't touch stay put", r, null);
     const lockedPair = [op("A", { start: MON, end: MON, startHour: 8, hpd: 4 }), op("L", { start: MON, end: MON, startHour: 9, hpd: 4, locked: true })];
     let r2; try { r2 = reflow(lockedPair, { overlap: ctx }); } catch (e) { r2 = e.message; }
-    ok("reflow: never moves a locked op", r2 instanceof Map ? r2.has("L") : r2, false);
+    // reflow seeded its obstacle list from locked ops alone; with the flag gone
+    // it starts empty and places every dated op, which is what "a clocked-out op
+    // moves freely" means on this path.
+    ok("reflow: a stray locked flag does not exempt an op", r2 instanceof Map ? r2.has("L") : r2, true);
   }
   // Root cause 7: the week/month ghost and drop both go through dragMove.refuseDragMove,
   // which asks the shared rule (overlapsWith) for every mover.

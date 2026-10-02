@@ -558,7 +558,11 @@ export function splitWorkedOp({ hpd, workedMs, teamSize = 1 }) {
   // team time is far below anything schedulable and comfortably above rounding.
   const EPS = 1 / 60;
   return {
-    keep: worked > EPS ? { hpd: worked, locked: true } : null,
+    // No `locked: true`. It was the only thing that ever set the flag, and the
+    // flag is retired (ruling 3: the only real lock is an active clock). The
+    // keep half is still identifiable as already-worked without it — its whole
+    // hpd IS the worked time, which is the condition that creates it.
+    keep: worked > EPS ? { hpd: worked } : null,
     remainder: remaining > EPS ? { hpd: remaining } : null,
     perPersonKeepH: worked / size,
     perPersonRemainderH: remaining / size,
@@ -1036,9 +1040,13 @@ export function rowPushHours({ ops, nowDay, nowHour, cfg }) {
       // render places that from the push like any other rather than snapping it to now.
       if (ownWorked <= 0) atCursor.add(String(op.id));
     }
-    // A locked op does not move, whatever is behind it. It still OCCUPIES its slot, so the ops
-    // after it are pushed by it as usual — the lock pins this bar, it does not exempt the row.
-    if (op.locked) { push = 0; atCursor.delete(String(op.id)); }
+    // The `op.locked` zeroing that stood here is gone with the flag (ruling 3).
+    // DELETED RATHER THAN FOLDED INTO `worked > 0`, deliberately: folding would
+    // have pinned EVERY worked op, which is a drawing change well beyond the
+    // ruling. The flag's only population was the keep half of a split, and that
+    // is fully worked by construction — its hpd IS the worked time — so the
+    // `!op.isFullyWorked` term in the idle-push condition above already excludes
+    // it. The line was redundant for the only ops that could reach it.
 
     if (push > 0) out.set(String(op.id), push);
     // What it occupies. See barLengthHours: the packing and the paint must agree about this
@@ -1194,8 +1202,11 @@ export function packActiveRow(ops, { nowDay, cfg, durationMsOf }) {
   if (active.length < 2) return moves;
 
   const durOf = durationMsOf || ((o) => { const i = opInterval(o, cfg); return i ? Math.max(0, i.e - i.s) : 0; });
-  const pinned = active.filter((o) => o.locked || (o.workedHoursShown || 0) > 0);
-  const movable = active.filter((o) => !(o.locked || (o.workedHoursShown || 0) > 0))
+  // Was `o.locked || worked > 0`. The flag is retired (ruling 3) and this is a
+  // pure fold: a split keep carried `locked` AND worked > 0, so the right-hand
+  // term already covered every op the left-hand one did. No behaviour change.
+  const pinned = active.filter((o) => (o.workedHoursShown || 0) > 0);
+  const movable = active.filter((o) => !((o.workedHoursShown || 0) > 0))
     .sort((a, b) => a.start.localeCompare(b.start)
       || ((a.startHour ?? 0) - (b.startHour ?? 0)));
 
@@ -1302,7 +1313,6 @@ export function slackDaysByPerson({ ops, nowMs, today, productiveBetween, produc
       ops: [{
         hpd: op.hpd || 0, teamSize: Math.max(1, op.teamSize || (op.team || []).length || 1),
         workedHoursShown: op.workedHoursShown || 0, isFullyWorked: !!op.isFullyWorked,
-        locked: !!op.locked,
         plannedStartMs: typeof hourTs === "function" ? hourTs(op.start, op.startHour) : op.plannedStartMs,
       }],
     });
@@ -1333,7 +1343,10 @@ export function rowSlackHours({ ops, nowMs, productiveBetween }) {
     total += Math.max(0, worked - (op.hpd || 0)) / size;
     // Cursor: untouched work inside the horizon slides to now, which is usually the bigger of
     // the two and was the one entirely missing.
-    if (worked <= 0 && !op.locked && Number.isFinite(op.plannedStartMs) && Number.isFinite(nowMs)
+    // `!op.locked` dropped with the flag (ruling 3). It was redundant anyway:
+    // `worked <= 0` already excludes every op that could carry it, since the
+    // only thing that set it was a split keep, whose hpd IS its worked time.
+    if (worked <= 0 && Number.isFinite(op.plannedStartMs) && Number.isFinite(nowMs)
         && nowMs > op.plannedStartMs && typeof productiveBetween === "function") {
       total += Math.max(0, productiveBetween(op.plannedStartMs, nowMs));
     }

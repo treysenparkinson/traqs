@@ -100,11 +100,15 @@ eq("a WORKED op pins and the unworked one moves around it, even though it is ear
     op("unworked", "2026-09-21", "2026-09-21", { startHour: 8, endHour: 14 }),
     op("worked", "2026-09-21", "2026-09-21", { startHour: 9, endHour: 15, workedHoursShown: 3 }),
   ])), ["unworked"]);
-eq("a LOCKED op pins the same way",
+// RE-POINTED 2026-10-02. op.locked is retired (ruling 3), so the flag pins
+// nothing and the LATER op moves, exactly as it would with no flag at all. The
+// WORKED assertion directly above is the one that still carries the rule —
+// worked time is what pins a bar, and that is unchanged.
+eq("a stray `locked` pins nothing — the later op moves, flag or no flag",
   movedIds(packed([
     op("unworked", "2026-09-21", "2026-09-21", { startHour: 8, endHour: 14 }),
     op("locked", "2026-09-21", "2026-09-21", { startHour: 9, endHour: 15, locked: true }),
-  ])), ["unworked"]);
+  ])), ["locked"]);
 eq("HISTORY is exempt — it neither moves nor is packed around",
   movedIds(packed([
     op("old", "2026-09-14", "2026-09-16"),
